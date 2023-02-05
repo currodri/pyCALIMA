@@ -1,0 +1,185 @@
+&RUN_PARAMS 
+hydro=.true.
+nrestart=0
+nremap=20
+rt=.true.
+/
+
+&INIT_PARAMS
+nregion=1
+region_type(1)='square'
+x_center=0.5
+y_center=0.5
+z_center=0.5
+length_x=100.0
+length_y=100.0
+length_z=100.0
+exp_region=10.0
+d_region=1.d-1		! H atoms per cm3
+p_region=2.61d-7	! 300 K
+! Initial metallicity
+!var_region(1,1)=0.0012917570    ! Fe
+!var_region(1,2)=0.0057326442    ! O
+!var_region(1,3)=0.00069290468   ! N
+!var_region(1,4)=0.00070797884   ! Mg
+!var_region(1,5)=0.0012564824   ! Ne
+!var_region(1,6)=0.00066494756   ! Si
+!var_region(1,7)=6.4145074d-7      ! Ca
+!var_region(1,8)=0.0023647147   ! C
+!var_region(1,9)=0.00030926749   ! S
+! New abundances (from CLOUDY table)
+var_region(1,1)=0.0017649864    ! Fe
+var_region(1,2)=0.0078397059    ! O
+var_region(1,3)=0.0009468529   ! N
+var_region(1,4)=0.0009673389  ! Mg
+var_region(1,5)=0.0017172925  ! Ne
+var_region(1,6)=0.0009099702   ! Si
+var_region(1,7)=0.0000877708    ! Ca
+var_region(1,8)=0.0032308783   ! C
+var_region(1,9)=0.000423258   ! S
+/
+
+&AMR_PARAMS 
+levelmin=1
+levelmax=1
+ngridtot=500000
+boxlen=15.		!  15 kpc
+/
+
+&OUTPUT_PARAMS
+!noutput=45
+!tout=0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,2,3,4,5,6,7,8,9,10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000,2000,3000,4000,5000,6000,7000,8000,9000
+noutput=77
+tout=0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5,0.55,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000,2000,3000,4000,8000
+/
+
+&HYDRO_PARAMS
+courant_factor=0.08
+!courant_factor=0.002
+slope_type=1
+gamma=1.666667
+/
+
+&PHYSICS_PARAMS
+cooling=.false.
+neq_chem=.true.
+cloudy_metal_cooling=.false.
+cloudy_metal_file="../lib/cloudy_metal_HM12_z.bin"
+os13_metal_cooling=.false.
+os13_cooling_dir="../lib/ion_cooling_tables/"
+fs_cooling_dir="~/ramses/ramses-cgm/data/fine_structure_data/"
+htmc_metal_cooling=.true.
+htmc_cooling_dir="~/ramses/ramses-cgm/data/high_T_ion_cooling_tables/"
+SFdiagnostics=.false.
+SNdiagnostics=.false.
+metal=.true.
+simple_ode=.true.
+oxygen_ions=.true.
+nitrogen_ions=.false.
+carbon_ions=.true.
+magnesium_ions=.true.
+silicon_ions=.true.
+sulfur_ions=.false.
+iron_ions=.true.
+neon_ions=.false.
+units_density=1.66d-24		! gram per proton
+units_time=3.1557d13		! 1 Myr in seconds
+units_length=3.0857d21 		! 1 kpc in cm
+sn2_real_delay=.true.       ! Taysun's SN2 real delay
+mechanical_feedback=.true.
+! Dust parameters
+dust=.true.
+dust_cooling=.true.
+dust_sputtering=.true.
+dust_accretion=.true.
+dust_coagulation=.true.
+dust_shattering=.true.
+H2ondust=.true.
+nhmax_acc=1d8
+dust_SNdest=.true.
+sticking_coef='subgrid'
+coagulation_dispersion='subgrid'
+shattering_dispersion='simulation'
+thermal_sputtering='tsai'
+dust_SNdest_eff=0.1d0
+DTMini=1d-4
+nh_coa=-1.0
+asize=0.005d0,0.1d0,0.005d0,0.1d0
+sgrain=2.2d0,2.2d0,3.3d0,3.3d0
+t_sputter_ref=1d5
+t_growth_ref=3.6945d5
+Sconstant=0.333333333d0  ! sticking coef=1/3
+t_sha_ref=5.68d5
+t_coa_ref=1.14d5
+! PAH parameters
+dust_pahs=.true.
+pah_coagulation=.true.
+pah_accretion=.true.
+pah_sputtering=.true.
+pah_uv_destruction=.true.
+sublimation_model='Murga2019'
+H2onpah=.true.
+/
+
+&REFINE_PARAMS
+err_grad_d=0.2
+/
+
+&RT_PARAMS
+X=7.6d-1
+Y=2.4d-1
+rt_output_coolstats=.true.
+rt_flux_scheme='glf'
+rt_c_fraction=0.01
+rt_otsa=.true.
+rt_is_init_xion=.false.
+rt_err_grad_xHII=0.1
+isHe=.true.
+isH2=.true.
+isH2Katz=.true.
+LWgroup = 4
+include_collisional_ionization=.true.
+include_photoionisation=.true. 
+include_charge_transfer=.false.
+low_t_noneq_cooling=.true.
+metal_cooling_catastrophe_fix=.true.
+metal_cooling_catastrophe_rho=0.005d0
+isCO=.true.
+UV_background_G0=1d0
+/
+
+&RT_GROUPS
+group_csn(1,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_cse(1,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_csn(2,:)= 0.,0.,0.,0.   ! pck 2-> HI, HeI, HeII
+group_cse(2,:)= 0.,0.,0.,0.   ! pck 2-> HI, HeI, HeII
+group_csn(3,:)= 0.,0.,0.,0.   ! pck 3-> HI, HeI, HeII
+group_cse(3,:)= 0.,0.,0.,0.   ! pck 3-> HI, HeI, HeII
+group_csn(4,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_cse(4,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_csn(5,:)= 0.,5.353E-18,0.,0.   ! pck 2-> HI, HeI, HeII
+group_cse(5,:)= 0.,5.344E-18,0.,0.   ! pck 2-> HI, HeI, HeII
+group_csn(6,:)= 6.364E-18,2.567E-18,0.,0.   ! pck 3-> HI, HeI, HeII
+group_cse(6,:)= 6.346E-18,2.437E-18,0.,0.   ! pck 3-> HI, HeI, HeII
+group_csn(7,:)= 1.836E-18,5.813E-19,4.541E-18,0.   ! pck 1-> HI, HeI, HeII
+group_cse(7,:)= 1.628E-18,5.174E-19,4.199E-18,0.   ! pck 1-> HI, HeI, HeII
+group_csn(8,:)= 2.383E-19,7.889E-20,1.197E-18,1.055E-18   ! pck 2-> HI, HeI, HeII
+group_cse(8,:)= 2.253E-19,7.455E-20,1.142E-18,1.001E-18   ! pck 2-> HI, HeI, HeII
+kappaAbs      = 0.0,  1d3,   1d3,   1d3,   1d3,   1d3,    1d3,    1d3     
+kappaSc       = 5.0,    0,     0,     0,     0,     0,      0,      0       
+group_egy     = 0.1,  1.0,  8.60, 12.44, 14.40, 19.90, 35.079, 65.666
+groupL0       = 0.1,  1.0,  5.60, 11.20, 13.60, 15.20, 24.590, 54.420
+groupL1       = 1.0,  5.6, 11.20, 13.60, 15.20, 24.59, 54.420, 0.000
+spec2group    = 4,5,6,7             ! H2, HI, HeI, HeII -> pck  
+/
+
+&BOUNDARY_PARAMS
+nboundary=6
+ibound_min=-1,+1,-1,-1,-1,-1
+ibound_max=-1,+1,+1,+1,+1,+1
+jbound_min= 0, 0,-1,+1,-1,-1
+jbound_max= 0, 0,-1,+1,+1,+1
+kbound_min= 0, 0, 0, 0,-1,+1
+kbound_max= 0, 0, 0, 0,-1,+1
+bound_type= 2, 2, 2, 2, 2, 2	! Reflective+outflow boundaries
+/

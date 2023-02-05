@@ -26,6 +26,26 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# Get rid of plots
+*.png
+*.pdf
+*.eps
+
+# Get rid of fortran stuff
+*.mod
+*.smod
+*.slo
+*.lo
+*.o
+*.obj
+ramses3d
+
+# Get rid of RAMSES output data
+collapse_test/output_00001
+*/*/amr_0*
+*/*/hydro_0*
+*/*/hydro_file_descriptor.txt
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.

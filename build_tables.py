@@ -68,6 +68,8 @@ def get_agbdata():
 
     for i in range(0, len(ELEMENTS)):
         agbdata[ELEMENTS[i]] = np.zeros((nmet,nmassAGB))
+    
+    agbdata['TotalLost'] = np.zeros((nmet,nmassAGB))
 
     for i in range(0, len(Zkarakas)):
         karakas_filename = 'karakas_z%s_simplified.txt'%(str(Zkarakas[i]))
@@ -77,6 +79,8 @@ def get_agbdata():
         for j in range(0, len(ELEMENTS)):
             myield = ka['M(i)lost'][ka['El'] == ELEMENTS[j]]
             agbdata[ELEMENTS[j]][i,:] = myield[0:nmassAGB]
+        tot = ka['M(i)lostall'][ka['El'] == ELEMENTS[0]]
+        agbdata['TotalLost'][i,:] = tot[0:nmassAGB]
 
     return agbdata, Zkarakas,M0
 
@@ -136,6 +140,80 @@ def get_snIIdata():
             snIIdata[ELEMENTS[j]][i,:] = myield[0:nmassSNII]
     
     return snIIdata,ZZAS,M0
+
+def get_Ca_snII():
+    # SNII YIELDS + PRE-SNII WIND YIELDS
+
+    # As for detailed in the Dust in RAMSES paper, we follow the case in which 
+    # stellar yields from Limongi&Chieffi18 are fixed for a particular
+    # ZAS metallicity and ZAS rotational velocity of the star
+
+    # This function extracts the Calcium yields from the raw Limongi&Chieffi18 yields
+
+    from scipy import interpolate
+
+    VZAS = np.array([150,100,50,50,50,50,50]) # in km/s
+    ZZAS = np.array([1e-3,1e-2,1e-1,10**(-0.6),10**(-0.3),1,10**(0.3)]) # in Zsun (Asplund units)
+    isotopes = ["K40", "Ca40", "Ca42", "Ca43", "Ca44", "Ca46", "Ca48"]
+    column_names = ['vel',"Fe/H","Iso","13M","15M","20M","25M","30M","40M","60M","80M","120M"]
+    M0 = np.array([13, 15, 20, 25, 30, 40, 60, 80, 120])
+
+    filepath = os.path.join(yield_dir, "limongichieffi18.txt")
+    lc18 = pd.read_csv(filepath, header=60, delim_whitespace=True, names=column_names)
+
+    nmet = len(ZZAS)
+    nmassSNII = len(M0)
+
+    # Get raw data
+    data = {}
+    vel = np.array([0,150,300])
+    metallicities = np.array([1e-3,1e-2,1e-1,1])
+    for i in range(0, 3):
+        data[str(vel[i])] = np.zeros((len(metallicities),nmassSNII))
+        for j in range(0, len(metallicities)):
+            for k in range(0, nmassSNII):
+                for l in range(0, len(isotopes)):
+                    indexes = ((lc18["Iso"]==isotopes[l]) &
+                                (lc18["vel"]==vel[i])     &
+                                (lc18["Fe/H"]==np.log10(metallicities[j]))
+                    )
+                    v = lc18[str(M0[k]) + "M"][indexes]
+                    if len(v)!=0:
+                        data[str(vel[i])][j,k] = data[str(vel[i])][j,k] + v
+        
+    # Perform interpolation
+    interp_data = np.zeros((nmet,nmassSNII))
+    
+    for i in range(0, nmet):
+        # Get place for metallicity and velocity
+        imet = np.searchsorted(metallicities,ZZAS[i])
+        if imet == 0:
+            imet = (0,1)
+        elif imet == len(metallicities):
+            imet = (len(metallicities)-2,len(metallicities)-1)
+        else:
+            imet = (imet-1,imet)
+
+        ivel = np.searchsorted(vel,VZAS[i])
+        if ivel == 0:
+            ivel = (0,1)
+        elif ivel == len(metallicities):
+            ivel = (len(metallicities)-2,len(metallicities)-1)
+        else:
+            ivel = (ivel-1,ivel)
+
+        for j in range(0, nmassSNII):
+            n = np.array([(vel[ivel[1]], metallicities[imet[0]], data[str(vel[ivel[1]])][imet[0],j]),
+                            (vel[ivel[1]], metallicities[imet[1]], data[str(vel[ivel[1]])][imet[1],j]),
+                            (vel[ivel[0]], metallicities[imet[0]], data[str(vel[ivel[0]])][imet[0],j]),
+                            (vel[ivel[0]], metallicities[imet[1]], data[str(vel[ivel[0]])][imet[1],j])
+            ])
+            #value = bilinear_interpolation(VZAS[i],ZZAS[i],n)
+            f = interpolate.interp2d(n[:,0],n[:,1],n[:,2],kind='linear')
+            value = f(VZAS[i],ZZAS[i])
+            interp_data[i,j] = value
+
+    return interp_data
 
 
 # See equations 22-24 in Dwek (1998)
