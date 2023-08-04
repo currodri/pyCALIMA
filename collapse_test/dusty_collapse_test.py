@@ -14,7 +14,7 @@ from unyt import unyt_array
 from unyt import G,g,cm,s,mh,K,kb,amu,yr
 import matplotlib.pyplot as plt
 
-init_fdust = 1e-9
+init_fdust = 1e-8
 
 # Functions
 
@@ -147,7 +147,7 @@ def read_log(logpath, plot=True):
         ax = axes[2]
         ax.set_ylabel(r'$X_{\rm CO}$', fontsize=16)
         ax.set_xlabel(r'$n_{\rm H}$ [cm$^{-3}$]', fontsize=16)
-        ax.set_ylim([1e-6,1e-1])
+        ax.set_ylim([1e-8,1e-2])
         ax.set_yscale('log')
         ax.set_xscale('log')
         ax.tick_params(labelsize=12)

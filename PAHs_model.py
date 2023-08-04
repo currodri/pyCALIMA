@@ -10,13 +10,7 @@ By: Curro Rodriguez (currodri@gmail.com)
 # Import libraries
 import numpy as np
 import pandas as pd
-
-# Model parameters
-basic_a0 = np.array([5e-4,5e-3,1e-1])
-basic_amin = np.array([1e-4,1e-4,1e-4])
-basic_amax = np.array([2e-3,1,1])
-basic_sigma = np.array([0.4,0.75,0.75])
-basic_s = np.array([2,2.24,2.24])
+from dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
 
 # Galliano data on dust destruction timescales by UV photons
 # See https://irfu.cea.fr/Pisp/frederic.galliano/HDR/hdrch6.html#x7-3070004 (Section 4.2.2.1)
@@ -57,41 +51,6 @@ thermal_spu = {'50':{'electrons': {'a':-2136.83,'b':1632.17,'c':-499.822,'d':76.
 names = ['C32_x','C32_y','C40_x','C40_y','C50_x','C50_y','C80_x',
          'C80_y','C100_x','C100_y','C120_x','C120_y','C150_x','C150_y']
 H2_rate_LePage = pd.read_csv('H2_formation_rate_PAH_LePage2009.csv',header=1,names=names)
-
-
-class LogNormal_Distribution(object):
-
-    def __init__(self,a0,amin,amax,sigma,grain_density):
-        self.a0 = a0
-        self.amin = amin
-        self.amax = amax
-        self.sigma = sigma
-        self.a = np.logspace(np.log10(amin),np.log10(amax),1000)
-        self.grain_density = grain_density
-        self.sintegral = self._init_integral()
-
-    def _init_integral(self):
-        y = (1.0/self.a) * np.exp(-(np.log10(self.a/self.a0))**2/(2*self.sigma**2))
-        return (3/(4*np.pi*self.grain_density))*np.trapz(y,self.a)
-
-    def n_density(self,mass_density,sizes):
-        C = mass_density*self.sintegral
-        dist = (C/sizes**4)*np.exp(-(np.log10(sizes/self.a0))**2/(2*self.sigma**2))
-        dist[sizes<self.amin] = 0.0
-        dist[sizes>self.amax] = 0.0
-        return dist
-    
-    def averaged_over(self,X,sizes):
-        y = (1.0/(sizes**4)) * np.exp(-(np.log10(sizes/self.a0))**2/(2*self.sigma**2))
-        N = np.trapz(y,sizes)
-        
-        x = (X/(sizes**4)) * np.exp(-(np.log10(sizes/self.a0))**2/(2*self.sigma**2))
-        x[sizes<self.amin] = 0.0
-        x[sizes>self.amax] = 0.0
-        
-        avg = (1/N) * np.trapz(x,sizes)
-        
-        return avg
 
 def Nc_from_size(a):
     """This function returns the effective number of Carbon atoms
@@ -304,6 +263,9 @@ def Micellotta_rate(fit,T):
 def polynomial_rate(T,a,b,c,d,e,f):
     y = a + b*T + c*T**2 + d*T**3 + e*T**4 + f*T**5
     return y
+def polynomial_rate_fix(T,a,b):
+    y = a + b*T
+    return y
 def plot_PAH_sputtering():
     from scipy.optimize import curve_fit
     import matplotlib.pyplot as plt
@@ -311,7 +273,7 @@ def plot_PAH_sputtering():
     sns.set(style="white")
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
     
-    T = np.logspace(3,9,1000)
+    T = np.logspace(3,8,1000)
     
     linestyles = ['-','--','-.',':']
     type_collision = ['electrons','H','He','C']
@@ -327,6 +289,9 @@ def plot_PAH_sputtering():
             ax.plot(T,J,linestyle=linestyles[j],color=colours[i],label=label)
             
     PAHs = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    T_fit = np.logspace(4,np.log10(2e7),1000)
+    T_fix = np.logspace(np.log10(2e7),np.log10(1e8),1000)
+    T = np.logspace(3,10,1000)
     for t, t_key in enumerate(type_collision):
         J_avg = np.zeros(len(T))
         for i in range(0, len(T)):
@@ -336,12 +301,28 @@ def plot_PAH_sputtering():
                 Nc = int(n_key)
                 sizes[j] = size_from_Nc(Nc)
                 fits = thermal_spu[n_key][t_key]
-                values[j] = Micellotta_rate(fits,np.log10(T[i]))
+                values[j] = Micellotta_rate(fits,np.log10(T_fit[i]))
             J_avg[i] = PAHs.averaged_over(values,sizes*1e-4)
-        ax.plot(T,J_avg,linestyle=linestyles[t],color='k')
-        popt,pcov = curve_fit(polynomial_rate,np.log10(T),np.log10(J_avg))
+        #ax.plot(T_fit,J_avg,linestyle=linestyles[t],color='k')
+        popt,pcov = curve_fit(polynomial_rate,np.log10(T_fit),np.log10(J_avg),
+                              bounds=([-np.inf,-np.inf,-np.inf,-np.inf,-np.inf,-np.inf],
+                                      [np.inf,np.inf,np.inf,np.inf,np.inf,np.inf]))
+        ax.plot(T[T<2e7],10**polynomial_rate(np.log10(T[T<2e7]),*popt),linestyle=linestyles[t],color='k')
         print(t_key,popt)
-        print('Timescale [in s]: '+str(1/(10**polynomial_rate(np.log10(300),*popt)*0.1)))
+        print('Timescale [in s]: '+str(1/(10**polynomial_rate(np.log10(3e8),*popt)*0.1)))
+        for i in range(0, len(T_fix)):
+            values = np.zeros(len(thermal_spu.keys()))
+            sizes = np.zeros(len(thermal_spu.keys()))
+            for j,n_key in enumerate(thermal_spu.keys()):
+                Nc = int(n_key)
+                sizes[j] = size_from_Nc(Nc)
+                fits = thermal_spu[n_key][t_key]
+                values[j] = Micellotta_rate(fits,np.log10(T_fix[i]))
+            J_avg[i] = PAHs.averaged_over(values,sizes*1e-4)
+        popt,pcov = curve_fit(polynomial_rate_fix,np.log10(T_fix),np.log10(J_avg))
+        print(t_key,popt)
+        print('Timescale [in s]: '+str(1/(10**polynomial_rate_fix(np.log10(3e8),*popt)*0.1)))
+        ax.plot(T[T>2e7],10**polynomial_rate_fix(np.log10(T[T>2e7]),*popt),linestyle=linestyles[t],color='k')
             
             
     ax.set_ylabel(r'Rate constant $J$ [cm$^3$s$^{-1}$]', fontsize=16)
@@ -396,6 +377,7 @@ def plot_H2rate():
         R_avg[i] = PAHs.averaged_over(r,sizes*1e-4)
     popt,pcov = curve_fit(H2_func1,X,R_avg)
     print('Fitting for H2 formation (LePage+2009): ',popt)
+    print(X,10**H2_func1(X,*popt))
     ax.plot(X,10**H2_func1(X,*popt),'k-',label='Average over PAHs distribution')
     
     ax.set_ylabel(r'Rate Coefficient $R_{\rm H_2}$ [cm$^3$/s]', fontsize=16)
