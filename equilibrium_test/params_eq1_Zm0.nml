@@ -1,58 +1,51 @@
-&RUN_PARAMS 
+&RUN_PARAMS
+cosmo=.false.
+pic=.true.
+poisson=.false.
 hydro=.true.
-nrestart=0
-nremap=20
+nrestart=1
+nremap=100000
+nsubcycle=1,1,2,2
+ncontrol=1
 rt=.true.
+verbose=.false.
+cost_weighting=.false.
+nstepmax=1000000
+static=.true.
 /
-
-&INIT_PARAMS
-nregion=1
-region_type(1)='square'
-x_center=0.5
-y_center=0.5
-z_center=0.5
-length_x=100.0
-length_y=100.0
-length_z=100.0
-exp_region=10.0
-d_region=1.d-1		! H atoms per cm3
-p_region=2.61d-7	! 300 K
-! Initial metallicity
-!var_region(1,1)=0.0012917570    ! Fe
-!var_region(1,2)=0.0057326442    ! O
-!var_region(1,3)=0.00069290468   ! N
-!var_region(1,4)=0.00070797884   ! Mg
-!var_region(1,5)=0.0012564824   ! Ne
-!var_region(1,6)=0.00066494756   ! Si
-!var_region(1,7)=6.4145074d-7      ! Ca
-!var_region(1,8)=0.0023647147   ! C
-!var_region(1,9)=0.00030926749   ! S
-! New abundances (from CLOUDY table)
-var_region(1,1)=0.0017649864    ! Fe
-var_region(1,2)=0.0078397059    ! O
-var_region(1,3)=0.0009468529   ! N
-var_region(1,4)=0.0009673389  ! Mg
-var_region(1,5)=0.0017172925  ! Ne
-var_region(1,6)=0.0009099702   ! Si
-var_region(1,7)=0.0000877708    ! Ca
-var_region(1,8)=0.0032308783   ! C
-var_region(1,9)=0.000423258   ! S
-/
-
-&AMR_PARAMS 
-levelmin=1
-levelmax=1
-ngridtot=500000
-boxlen=15.		!  15 kpc
-/
-
 &OUTPUT_PARAMS
-!noutput=45
-!tout=0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,2,3,4,5,6,7,8,9,10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000,2000,3000,4000,5000,6000,7000,8000,9000
-noutput=77
-tout=0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008,0.009,0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5,0.55,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10,20,30,40,50,60,70,80,90,100,200,300,400,500,600,700,800,900,1000,2000,3000,4000,8000
+foutput=100
+!delta_tout=0.067045
+!tend=0.67045
+!delta_tout=0.0670814
+tend=13.4162814
+cpu_time_limit=24.0
 /
-
+&INIT_PARAMS
+filetype='ascii'
+initfile(1)='/data80/currodri/isolated_rtzdust/lib/IC_G8/'
+/
+&AMR_PARAMS
+levelmin=3
+levelmax=3    ! 14=9 pc
+ngridmax=10000 ! 180000 should be very very close to the max available on cosma8 for full node usage
+npartmax=8000000
+boxlen=1d-1
+/
+&POISSON_PARAMS 
+epsilon=1e-4
+cic_levelmax=14
+/
+&BOUNDARY_PARAMS
+nboundary=6
+bound_type= 2, 2,  2,  2,  2,  2
+ibound_min=-1, 1, -1, -1, -1, -1
+ibound_max=-1, 1,  1,  1,  1,  1
+jbound_min= 0, 0, -1,  1, -1, -1
+jbound_max= 0, 0, -1,  1,  1,  1
+kbound_min= 0, 0,  0,  0, -1,  1
+kbound_max= 0, 0,  0,  0, -1,  1
+/
 &HYDRO_PARAMS
 gamma=1.666667 
 courant_factor=0.8
@@ -65,7 +58,6 @@ temperature_save_ivar=2
 cooling_time_ivar=1
 coolheat_save_ivar=3
 /
-
 &PHYSICS_PARAMS
 haardt_madau=.false.
 self_shielding=.true.
@@ -88,13 +80,13 @@ silicon_ions=.true.
 sulfur_ions=.true.
 iron_ions=.true.
 neon_ions=.true.
-z_ave=0.1 ! 1/10 solar
+z_ave=1.d0 ! 1/10 solar
 n_star=10.
 t_star=1.632456
 T2_star=15.
 g_star=1.0
 jeans_ncells=-1
-n_gmc=10.
+n_gmc=10.d20
 !taysun added:
 nsn2mass=20
 fstar_min=-1
@@ -102,7 +94,6 @@ mechanical_feedback=.true.
 mechanical_geen=.true.
 t_sne=50.
 M_SNII=20.
-variable_energy_SN=.false.
 eta_sn=0.2 !Kroupa
 sn2_real_delay=.false.
 star_maker='FK2'
@@ -139,18 +130,18 @@ init_metal_ions_all_ionized=.false.
 SNdiagnostics=.false.
 SFdiagnostics=.false.
 ! Dust parameters
-dust=.false.
+dust=.true.
 dust_log=.false.
 dust_sputtering=.true.
 dust_accretion=.true.
-dust_acc_coulomb=.true.
+dust_acc_coulomb=.false.
 dust_coagulation=.true.
 dust_shattering=.true.
 dust_ratd=.false.
 H2ondust=.true.
 GDinit=-1d0
 fpah_ini=-1d0
-nhmax_acc=1d6,1d6,1d6,1d6
+nhmax_acc=1d4,1d4,1d4,1d4
 dust_SNdest=.true.
 dust_inSN=.true.
 sticking_coef='subgrid'
@@ -171,7 +162,7 @@ t_coa_ref=9.4662786d5
 fixed_rad_ani=1d-1
 fixed_lambda_mean=5d-1
 ! PAH parameters
-dust_pahs=.false.
+dust_pahs=.true.
 dust_small_shattering=.false.
 pah_coagulation=.true.
 pah_accretion=.true.
@@ -189,11 +180,41 @@ pah_nhmax_coa=1d6
 ! Dust optics
 dust_tables_dir="../"
 /
-
 &REFINE_PARAMS
-err_grad_d=0.2
+mass_sph=1d-6  ! 1000 solar masses = 1.666 stellar particle masses.
+m_refine=30*8. ! Use 8 particles for med, 3 for low
+! Allow refinement only on oxygen-enriched gas
+ivar_refine=8
+var_cut_refine=1e-4
+interpol_type=0
+interpol_var=1
+jeans_refine=20*4.0
 /
-
+&MERGER_PARAMS
+rad_profile='exponential'
+z_profile='gaussian'
+gal_center1=0.0,0.0,0.0
+gal_center2=1d5,1d5,1d5 ! Well outside the box
+Mgas_disk1=0.171951
+Mgas_disk2=0d0
+typ_radius1=0.686436
+typ_radius2=0.686436
+cut_radius1=5.01098 
+cut_radius2=5.01098 
+typ_height1=0.0686436
+typ_height2=0.0686436
+cut_height1=0.288303 
+cut_height2=0.288303 
+IG_density_factor=1d0
+Vcirc_dat_file1='/data80/currodri/isolated_rtzdust/lib/IC_G8/Vcirc.dat'
+Vcirc_dat_file2='/data80/currodri/isolated_rtzdust/lib/IC_G8/Vcirc.dat'
+ic_part_file_gal1='ic_part'
+ic_part_file_gal2='ic_part'
+gal_axis1=0,0,1
+gal_axis2=0,0,1
+Vgal1=0.0,0.0,0.0
+Vgal2=0.0,0.0,0.0
+/
 &RT_PARAMS
 X=7.6d-1
 Y=2.4d-1
@@ -215,8 +236,8 @@ rt_flux_scheme='glf'
 isHe=.true.
 isH2=.true.
 isH2Katz=.true.
-H2clumping=1.d0
 isCO=.true.
+H2clumping=1.d0
 LWgroup = 4 
 T_sputter=1.d6
 rt_T_sputter=1.d6
@@ -224,10 +245,10 @@ include_collisional_ionization=.true.
 include_photoionisation=.true.
 include_charge_transfer=.true.
 include_grain_recombination=.true.
-include_cosmic_ray_ionization=.false.
-include_cosmic_ray_heating=.false.
+include_cosmic_ray_ionization=.true.
+include_cosmic_ray_heating=.true.
 include_dust_heat_cool=.true.
-UV_background_G0=0.0070977d0
+UV_background_G0=1.d0 !1.d0 !0.0070977d0
 xi_h_cr=1.d-16
 low_t_noneq_cooling=.true.
 metal_cooling_catastrophe_fix=.false.
@@ -237,7 +258,6 @@ simple_dust_depletion=.false.
 !el_movie_vars= 1, 1, 1, 1, 1, 1, 1, 1
 uvbg_rtz=.false.
 /
-
 &RT_GROUPS
 kappaAbs      = 0.0,  1d3,   1d3,   1d3,   1d3,   1d3,    1d3,    1d3     
 kappaSc       = 5.0,    0,     0,     0,     0,     0,      0,      0       
@@ -245,16 +265,4 @@ group_egy     = 0.1,  1.0,  7.61, 12.27, 14.32, 17.50, 28.985, 65.106
 groupL0       = 0.1,  1.0,  5.60, 11.20, 13.60, 15.20, 24.590, 54.420
 groupL1       = 1.0,  5.6, 11.20, 13.60, 15.20, 24.59, 54.420, 1000.000
 spec2group    = 4,5,6,7             ! H2, HI, HeI, HeII -> pck  
-/
-
-
-&BOUNDARY_PARAMS
-nboundary=6
-ibound_min=-1,+1,-1,-1,-1,-1
-ibound_max=-1,+1,+1,+1,+1,+1
-jbound_min= 0, 0,-1,+1,-1,-1
-jbound_max= 0, 0,-1,+1,+1,+1
-kbound_min= 0, 0, 0, 0,-1,+1
-kbound_max= 0, 0, 0, 0,-1,+1
-bound_type= 2, 2, 2, 2, 2, 2	! Reflective+outflow boundaries
 /

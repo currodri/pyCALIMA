@@ -600,7 +600,7 @@ def t_shattering(Dbig,nH,a,s):
     
     local_mu = 1.4
     
-    t_sha = 56.8 * (0.01/Dbig) * (a/1.e-5) * (s/3.)
+    t_sha = 75.73 * (0.01/Dbig) * (a/1.e-5) * (s/3.)
     if nH < 1:
         t_sha = t_sha * (1./(nH*local_mu))
     elif 1 <= nH <= 1e3:
@@ -609,7 +609,7 @@ def t_shattering(Dbig,nH,a,s):
         t_sha = 1e9
     return t_sha
 
-def t_coagulation(Dsmall,Mach,nH,T,L,a,s):
+def t_coagulation(Dsmall,Mach,nH,T,L,a,s,boost=True):
     
     from scipy.special import erfc
     
@@ -618,25 +618,28 @@ def t_coagulation(Dsmall,Mach,nH,T,L,a,s):
     sigs = np.log(1.+(0.4*Mach)**2.)
     sigs2 = sigs**2.
     smax = np.log(nhmax_coa/nH)
-    boost_coa = 0.5*np.exp(sigs2)*erfc((1.5*sigs2-smax)/(np.sqrt(2.)*sigs))
+    if boost:
+        boost_coa = 0.5*np.exp(sigs2)*erfc((1.5*sigs2-smax)/(np.sqrt(2.)*sigs))
+    else:
+        boost_coa = 1.
     L = L * 3.0857e18 # [cm]
     local_mu = 1.4
     
     if T>1e4 or nH<1e2 or lambda_jeans>4*L:
-        t_coa = 1e6
+        t_coa = 1e5
     else:
-        t_coa = 0.00283988 * (a/5e-7) * (s/3.) * (1e3/(nH*boost_coa)) / Dsmall / local_mu
+        t_coa = 0.00094663 * (a/5e-7) * (s/3.) * (1e3/(nH*boost_coa)) / Dsmall / local_mu
     
     return t_coa
 
-def relative_velocity(model,T,nH,Mach,L,target_a,projectile_a,target_s,projectile_s):
+def relative_velocity(model,T,nH,ne,Mach,L,target_a,projectile_a,target_s,projectile_s):
     
-    local_mu = 1.4
+    local_mu = nH / (nH + ne)
+    local_sigma = nH*2e-15 / (nH + ne)
     gamma_gas =5./3.
-    local_sigma = 2e-15 # [cm2] local collisional cross section (H2 molecule)
-    Lmax = L * 3.0857e18 # [cm] 10 pc
+    Lmax = L * 3.0857e18 # [cm] 1 pc
     
-    if model == 'Ormel&Cuzzi2007':
+    if model == 'Ormel and Cuzzi2007':
         def OC07_function(x):
             f = 3.2 - (1.+x) + 2./(1.+x)*(1./2.6+x**3./(1.6+x))
             return f
@@ -650,29 +653,18 @@ def relative_velocity(model,T,nH,Mach,L,target_a,projectile_a,target_s,projectil
         v_th = np.sqrt(8/np.pi) * cs_gas
         v_turb = Mach * cs_gas
         
-        # Assume that the injection scale is a cell size of 10 pc and the velocity is given by
+        # Assume that the injection scale is a cell size of Lmax pc and the velocity is given by
         # the largest size eddie velocity 
+        mfp = (mh.to('g').d*local_mu)/(rho_gas*local_sigma)
         tau_L = Lmax / v_turb
-        Re = 6.2e7 * np.sqrt((rho_gas/(mh.to('g').d*local_mu)/1e5)) * np.sqrt(T/10.)
+        Re = 3. * v_turb * Lmax / (cs_gas * mfp)
         tau_eta = tau_L / np.sqrt(Re)
         
-        mfp = (mh.to('g').d*local_mu)/(rho_gas*local_sigma)
-        
         # Stopping time computation for target and projectile
-        if target_a < 9./4.*mfp:
-            # Epstein's law
-            ts_target = target_s * target_a / (rho_gas*v_th)
-        else:
-            # Stokes' law
-            ts_target = 4. * target_a**2. / (9. * mfp * v_th *rho_gas)
-            
-        if projectile_a < 9./4.*mfp:
-            # Epstein's law
-            ts_projectile = projectile_s * projectile_a / (rho_gas*v_th)
-        else:
-            # Stokes' law
-            ts_projectile = 4. * projectile_a**2. / (9. * mfp * v_th *rho_gas)
-        
+        # Epstein's law
+        ts_target = target_s * target_a / (rho_gas*v_th)            
+        ts_projectile = projectile_s * projectile_a / (rho_gas*v_th)        
+
         # Compute the Stokes' numbers for both particles
         St_target = ts_target / tau_L
         St_projectile = ts_projectile / tau_L
@@ -688,14 +680,14 @@ def relative_velocity(model,T,nH,Mach,L,target_a,projectile_a,target_s,projectil
             dV_turb = np.sqrt(3./2.) * v_turb * np.sqrt(1./(1.+St_target)+1./(1.+St_projectile))
         v_rel = np.sqrt(dV_thermal**2. + dV_turb**2.)
         
-    elif model == 'Hirashita&Aoyama2019':
+    elif model == 'Hirashita and Aoyama2019':
         v_target = 1.1e5 * (Mach**(3./2.)) * np.sqrt(target_a/1e-5) * ((T/1e4)**(1./4.)) * (nH**(-1./4.)) * np.sqrt(target_s/3.5)
         v_projectile = 1.1e5 * (Mach**(3./2.)) * np.sqrt(projectile_a/1e-5) * ((T/1e4)**(1./4.)) * (nH**(-1./4.)) * np.sqrt(projectile_s/3.5)
         v_rel = 0.5 * (v_target + v_projectile)
     return v_rel
             
 
-def plot_relative_velocity(target_a,projectile_a,target_s,projectile_s,composition,nH,T,nMach=100):
+def plot_relative_velocity(target_a,projectile_a,target_s,projectile_s,composition,nH,ne,T,nMach=100):
     
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -717,18 +709,18 @@ def plot_relative_velocity(target_a,projectile_a,target_s,projectile_s,compositi
     ax.tick_params(which='both',axis="both",direction="in")
     
     # Compute velocities for all models
-    models = ['Hirashita&Aoyama2019','Ormel&Cuzzi2007']
+    models = ['Hirashita and Aoyama2019','Ormel and Cuzzi2007']
     for i in range(0, len(models)):
         v_rel = np.zeros(nMach)
         for j in range(0,nMach):
-            v_rel[j] = relative_velocity(models[i],T,nH,Mach[j],Lmax,target_a,projectile_a,
+            v_rel[j] = relative_velocity(models[i],T,nH,ne,Mach[j],Lmax,target_a,projectile_a,
                                     target_s,projectile_s)
         ax.plot(Mach,v_rel/1e5,label=models[i])
     
 
     ax.legend(loc='best',fontsize=10,frameon=False)
     
-    ax.text(0.7, 0.2, r'$T_{\rm gas}=%.1f$'%T+'\n'+r'$n_{\rm H}=%.3f$'%nH,
+    ax.text(0.7, 0.2, r'$T_{\rm gas}=%.1f$'%T+'\n'+r'$n_{\rm H}=%.3f$'%nH+'\n'+r'$n_{\rm e}=%.3f$'%ne,
                                     verticalalignment='bottom', horizontalalignment='left',
                                     transform=ax.transAxes,fontsize=13)
     
@@ -738,12 +730,18 @@ def plot_relative_velocity(target_a,projectile_a,target_s,projectile_s,compositi
         
     
     
-def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition,nH,T,nprojectile,nMach=100):
+def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition,nH,ne,T,nprojectile,nMach=100):
     # This function plots the shattering fragment distribution for big grains
     # based on the power-law model 
     import matplotlib.pyplot as plt
     import seaborn as sns
     sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+
     from utils import as_si
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,6), dpi=300, facecolor='w', edgecolor='k')
     
@@ -820,7 +818,7 @@ def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition
         
         
         # Average collision velocity as given by the Ormel & Cuzzy (2007) fitting functions
-        v_rel_avg = relative_velocity('Ormel&Cuzzi2007',T,nH,Mach[i],Lmax,target_a,projectile_a,
+        v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,target_a,projectile_a,
                                       target_s,projectile_s)
         v_rel = np.array([max(v_rel_min,v_projectile),v_rel_max,v_rel_avg])
         
@@ -949,8 +947,321 @@ def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition
     fig.savefig('shattering_timescale_%s.png'%(composition),format='png',dpi=300)
     plt.close(fig)
     
+def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+
+    from utils import as_si
+    fig, axes = plt.subplots(2,3, figsize=(13,8),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
+    fig2, axes2 = plt.subplots(2,3, figsize=(13,8),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     
-def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,T,nsmall,nMach=100):
+    # Shattering model quantities (Kobayashi & Tanaka 2010)
+    Q_D = [8.9e9,4.3e10]
+    alpha_f = 3.3
+    
+    phases = {'CNM':{'T':100,'nH':30,'ne':0.03,'L':0.64},
+              'WNM':{'T':6000,'nH':0.3,'ne':0.03,'L':100},
+              'WIM':{'T':8000,'nH':0.1,'ne':0.0991,'L':100}}
+    phase_colors = ['b','orange','r']
+    compositions = ['Carbonaceous','Silicates']
+    collision_model = {'Big-Big':{'target_a':0.1e-4,'projectile_a':0.1e-4},
+                       'Big-Small':{'target_a':0.1e-4,'projectile_a':0.005e-4}}
+    colors = [['steelblue','royalblue','cornflowerblue','lightsteelblue'],
+              ['saddlebrown','chocolate','sandybrown']]
+    
+    # Add GDR text
+    axes2[0,1].text(0.4, 0.8, r'GDR($a_{\rm L}$)'+r'$={0:s}$'.format(as_si(GDR_big,2))+'\n'+
+                                r'GDR($a_{\rm S}$)'+r'$={0:s}$'.format(as_si(GDR_small,2)),
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=axes2[0,1].transAxes,fontsize=14)
+    
+    # Loop over grain compositions
+    for c,comp in enumerate(compositions):
+    
+        if comp == 'Carbonaceous':
+            index = 0
+            target_s = 2.2
+            projectile_s = 2.2
+        elif comp == 'Silicates':
+            index = 1
+            target_s = 3.3
+            projectile_s = 3.3
+        
+        # Loop over collision models
+        for m,model_name in enumerate(collision_model):
+            model = collision_model[model_name]
+            target_a = model['target_a']
+            projectile_a = model['projectile_a']
+        
+            # Grain quantities
+            mass_target = 4./3. * np.pi * target_s * (target_a**3.)
+            mass_projectile = 4./3. * np.pi * projectile_s * (projectile_a**3.)
+            
+            Mach = np.logspace(-1,1,nMach)
+            
+            # Limits of the distributions
+            m_dest_min = 4./3. * np.pi * target_s * ((1e-8)**3.)
+            m_vsmall_min = 4./3. * np.pi * target_s * ((1e-8)**3.)
+            m_vsmall_max = 4./3. * np.pi * target_s * ((1e-7)**3.)
+            m_small_min = 4./3. * np.pi * target_s * ((1e-7)**3.)
+            m_small_max = 4./3. * np.pi * target_s * ((2e-6)**3.)
+            m_big_min = 4./3. * np.pi * target_s * ((2e-6)**3.)
+            m_big_max = 4./3. * np.pi * target_s * ((3e-5)**3.)
+            
+            exponent1 = (4.-alpha_f)/3.
+            
+            # Loop over ISM phases
+            for p,phase_name in enumerate(phases):
+                ax = axes[m,p]
+                ax2 = axes2[m,p]
+                phase = phases[phase_name]
+                nH = phase['nH']
+                T = phase['T']
+                ne = phase['ne']
+                Lmax = phase['L']
+                
+                if model_name == 'Big-Big':
+                    rho_projectile = nH * mh.to('g').d * (1./GDR_big)
+                elif model_name == 'Big-Small':
+                    rho_projectile = nH * mh.to('g').d * (1./GDR_small)
+                
+                M_dest = np.zeros((nMach,3))
+                M_vsmall = np.zeros((nMach,3))
+                M_small = np.zeros((nMach,3))
+                M_big = np.zeros((nMach,3))
+                
+                t_dest = np.zeros((nMach,3))
+                t_vsmall = np.zeros((nMach,3))
+                t_small = np.zeros((nMach,3))
+                t_big = np.zeros((nMach,3))
+                
+                
+                for i in range(0, nMach):
+                    
+                    # Relative velocity between two grains of the same size (Eq. 18 of Hirashita & Aoyama 2019)
+                    v_target = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(target_a/1e-5) * ((T/1e4)**(1./4.)) * (nH**(-1./4.)) * np.sqrt(target_s/3.5)
+                    v_projectile = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(projectile_a/1e-5) * ((T/1e4)**(1./4.)) * (nH**(-1./4.)) * np.sqrt(projectile_s/3.5)
+                    v_rel_min = min(abs(v_target-v_projectile),v_target,v_projectile)
+                    v_rel_max = v_target+v_projectile
+                    
+                    
+                    # Average collision velocity as given by the Ormel & Cuzzy (2007) fitting functions
+                    v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,target_a,projectile_a,
+                                                target_s,projectile_s)
+                    v_rel = np.array([max(v_rel_min,v_projectile),v_rel_max,v_rel_avg])
+                    
+                    # Disrupted mass computation (Eqs. 20-22 of Hirashita & Aoyama 2019)
+                    E_imp = 0.5 * (mass_projectile*mass_target)/(mass_target+mass_projectile) * v_rel**2.
+                    phi = E_imp / (mass_target*Q_D[index])
+                    m_ej = phi / (1.+phi) * mass_target
+                    
+                    # Now compute the maximum and minimum masses of the fragments
+                    m_remnant = mass_target - m_ej
+                    m_max = 0.02*m_ej
+                    m_min = 1e-6*m_max
+                    
+                    # Compute the mass fractions for each size bin
+                    prefactor = m_ej /(m_max**exponent1-m_min**exponent1)
+                    for j in range(0,3):
+                        # 1. Destruction to the gas phase (1e-4 mum)
+                        if m_min[j] >= m_dest_min:
+                            M_dest[i,j] = 0.0
+                            if m_remnant[j] < m_dest_min:
+                                 M_dest[i,j] += m_remnant[j]
+                        else:
+                            M_dest[i,j] = prefactor[j] * (min(m_dest_min,m_max[j])**exponent1-m_min[j]**exponent1)
+                            if m_remnant[j] < m_dest_min:
+                                 M_dest[i,j] += m_remnant[j]
+                        
+                        # 2. Destruction to very small grains
+                    
+                        if m_min[j] >= m_vsmall_max or m_max[j] < m_vsmall_min:
+                            M_vsmall[i,j] =  0.0
+                            if m_vsmall_min <= m_remnant[j] < m_vsmall_max:
+                                M_vsmall[i,j] += m_remnant[j]
+                        else:
+                            M_vsmall[i,j] = prefactor[j] * (min(m_vsmall_max,m_max[j])**exponent1-max(m_vsmall_min,m_min[j])**exponent1)
+                            if m_vsmall_min <= m_remnant[j] < m_vsmall_max:
+                                M_vsmall[i,j] += m_remnant[j]
+                        
+                        # 3. Destruction to small grains
+                        if m_min[j] >= m_small_max or m_max[j] < m_small_min:
+                            M_small[i,j] = 0.
+                            if m_small_min <= m_remnant[j] < m_small_max:
+                                M_small[i,j] += m_remnant[j]
+                        else:
+                            M_small[i,j] = prefactor[j] * (min(m_small_max,m_max[j])**exponent1-max(m_small_min,m_min[j])**exponent1)
+                            if m_small_min <= m_remnant[j] < m_small_max:
+                                M_small[i,j] += m_remnant[j]
+
+                        # 4. Destruction to big grains
+                        if m_min[j] >= m_big_max or m_max[j] < m_big_min:
+                            M_big[i,j] =  0.0
+                            if m_big_min <= m_remnant[j] < m_big_max:
+                                M_big[i,j] += m_remnant[j]
+                        else:
+                            M_big[i,j] = prefactor[j] * (min(m_big_max,m_max[j])**exponent1-max(m_big_min,m_min[j])**exponent1)
+                            if m_big_min <= m_remnant[j] < m_big_max:
+                                M_big[i,j] += m_remnant[j]
+                        
+                    # 5. Put remnant fragment to its correct bin
+                    M_tot = (M_dest[i] + M_vsmall[i] + M_small[i] + M_big[i])
+                    if comp == 'Silicates':
+                        M_dest += M_vsmall
+                    M_dest[i] = M_dest[i]/M_tot
+                    M_vsmall[i] = M_vsmall[i]/M_tot
+                    M_small[i] = M_small[i]/M_tot
+                    M_big[i] = M_big[i]/M_tot
+                                        
+                    alpha = np.pi * (target_a + projectile_a)**2. * v_rel / (mass_target*mass_projectile)
+                    t_dest[i] = 1./(alpha*rho_projectile*mass_target*M_dest[i])/sec2Myr
+                    t_vsmall[i] = 1./(alpha*rho_projectile*mass_target*M_vsmall[i])/sec2Myr
+                    t_small[i] = 1./(alpha*rho_projectile*mass_target*M_small[i])/sec2Myr
+                    t_big[i] = 1./(alpha*rho_projectile*mass_target*M_big[i])/sec2Myr
+                    
+                selected = (M_dest[:,0]>0.) & (M_dest[:,1]>0.)
+                
+                if p == 1 and m == 0 and comp == 'Silicates':
+                    ax.fill_between(Mach,M_dest[:,0],M_dest[:,1],label='Destroyed '+comp,alpha=0.5,where=(selected),color=colors[index][-1])
+                    ax.fill_between(Mach,M_small[:,0],M_small[:,1],label='Small '+comp,alpha=0.5,where=M_small[:,1]>0.,color=colors[index][1])
+                    ax.fill_between(Mach,M_big[:,0],M_big[:,1],label='Large '+comp,alpha=0.5,where=M_big[:,1]>0.,color=colors[index][0])
+                elif p == 2 and m == 0 and comp == 'Carbonaceous':
+                    ax.fill_between(Mach,M_dest[:,0],M_dest[:,1],label='Destroyed '+comp,alpha=0.5,where=(selected),color=colors[index][-1])
+                    ax.fill_between(Mach,M_vsmall[:,0],M_vsmall[:,1],label='PAHs',alpha=0.5,where=M_vsmall[:,1]>0.,color=colors[index][2])
+                    ax.fill_between(Mach,M_small[:,0],M_small[:,1],label='Small '+comp,alpha=0.5,where=M_small[:,1]>0.,color=colors[index][1])
+                    ax.fill_between(Mach,M_big[:,0],M_big[:,1],label='Large '+comp,alpha=0.5,where=M_big[:,1]>0.,color=colors[index][0])
+                else:
+                    ax.fill_between(Mach,M_dest[:,0],M_dest[:,1],alpha=0.5,where=(selected),color=colors[index][-1])
+                    if comp == 'Carbonaceous':
+                        ax.fill_between(Mach,M_vsmall[:,0],M_vsmall[:,1],alpha=0.5,where=M_vsmall[:,1]>0.,color=colors[index][2])
+                    ax.fill_between(Mach,M_small[:,0],M_small[:,1],alpha=0.5,where=M_small[:,1]>0.,color=colors[index][1])
+                    ax.fill_between(Mach,M_big[:,0],M_big[:,1],alpha=0.5,where=M_big[:,1]>0.,color=colors[index][0])
+                ax.plot(Mach,M_dest[:,2],linestyle='-.',color=colors[index][-1])
+                ax.plot(Mach,M_vsmall[:,2],linestyle='-.',color=colors[index][2])
+                ax.plot(Mach,M_small[:,2],linestyle='-.',color=colors[index][1])
+                ax.plot(Mach,M_big[:,2],linestyle='-.',color=colors[index][0])
+                
+                if p == 1 and m == 0 and comp == 'Silicates':
+                    ax2.fill_between(Mach,t_dest[:,0],t_dest[:,1],label='Destroyed '+comp,alpha=0.5,color=colors[index][-1])
+                    selected = ((t_small[:,1]!=np.infty) & (t_small[:,0]!=np.infty))
+                    ax2.fill_between(Mach,t_small[:,0],t_small[:,1],label='Small '+comp,alpha=0.5,color=colors[index][1])
+                    ax2.fill_between(Mach,t_big[:,0],t_big[:,1],label='Large '+comp,alpha=0.5,color=colors[index][0])
+                elif p == 2 and m == 0 and comp == 'Carbonaceous':
+                    ax2.fill_between(Mach,t_dest[:,0],t_dest[:,1],label='Destroyed '+comp,alpha=0.5,where=t_dest[:,1]!=np.infty,color=colors[index][-1])
+                    ax2.fill_between(Mach,t_vsmall[:,0],t_vsmall[:,1],label='PAHs',alpha=0.5,where=t_vsmall[:,1]!=np.infty,color=colors[index][2])
+                    ax2.fill_between(Mach,t_small[:,0],t_small[:,1],label='Small '+comp,alpha=0.5,where=t_small[:,1]!=np.infty,color=colors[index][1])
+                    ax2.fill_between(Mach,t_big[:,0],t_big[:,1],label='Large '+comp,alpha=0.5,where=t_big[:,1]!=np.infty,color=colors[index][0])
+                else:
+                    ax2.fill_between(Mach,t_dest[:,0],t_dest[:,1],alpha=0.5,color=colors[index][-1])
+                    if comp == 'Carbonaceous':
+                        ax2.fill_between(Mach,t_vsmall[:,0],t_vsmall[:,1],alpha=0.5,color=colors[index][2])
+                    ax2.fill_between(Mach,t_small[:,0],t_small[:,1],alpha=0.5,color=colors[index][1])
+                    ax2.fill_between(Mach,t_big[:,0],t_big[:,1],alpha=0.5,color=colors[index][0])
+                ax2.plot(Mach,t_dest[:,2],linestyle='-.',color=colors[index][-1])
+                ax2.plot(Mach,t_vsmall[:,2],linestyle='-.',color=colors[index][2])
+                ax2.plot(Mach,t_small[:,2],linestyle='-.',color=colors[index][1])
+                ax2.plot(Mach,t_big[:,2],linestyle='-.',color=colors[index][0])
+                ax2.hlines(t_shattering(rho_projectile/(nH*mh.to('g').d),nH,target_a,target_s),0.1,10,color=colors[index][1])
+    
+    # Add legend of composition/size type
+    ax = axes[0,1]
+    first_legend = ax.legend(loc='lower right', fontsize=14,frameon=False)
+    ax.add_artist(first_legend)
+    
+    ax = axes2[0,1]
+    first_legend = ax.legend(loc='lower right', fontsize=14,frameon=False)
+    ax.add_artist(first_legend)
+    
+    ax = axes[0,2]
+    first_legend = ax.legend(loc='lower right', fontsize=14,frameon=False)
+    ax.add_artist(first_legend)
+    
+    ax = axes2[0,2]
+    first_legend = ax.legend(loc='lower right', fontsize=14,frameon=False)
+    ax.add_artist(first_legend)
+    
+    # Add legend of velocity model type
+    ax = axes[1,0]
+    dummy_lines = []
+
+    dummy_lines.append(ax.fill_between([],[], color="black",label = 'Hirashita and Aoyama 2019'))
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-.',label = 'Ormel and Cuzzi 2007')[0])
+    second_legend = ax.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=14,ncol=1)         
+    ax.add_artist(second_legend)
+    
+    ax = axes2[1,0]
+    dummy_lines = []
+
+    dummy_lines.append(ax.fill_between([],[], color="black",label = 'Hirashita and Aoyama 2019'))
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-.',label = 'Ormel and Cuzzi 2007')[0])
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-',label = 'Granato et al. 2021')[0])
+    second_legend = ax.legend(handles=dummy_lines, loc='center left', frameon=False, fontsize=14,ncol=1)         
+    ax.add_artist(second_legend)
+    
+    # Setup axes
+    p = 0
+    for i in range(0,2):
+        for j,k in enumerate(phases):
+            ax = axes[i,j]
+            ax.tick_params(labelsize=14)
+            ax.xaxis.set_ticks_position('both')
+            ax.yaxis.set_ticks_position('both')
+            ax.minorticks_on()
+            ax.tick_params(which='both',axis="both",direction="in")
+            ax.set_yscale('log')
+            ax.set_xscale('log')
+            phase = k
+            ax.text(0.08, 0.90, r'\textbf{%s}'%phase,
+                    transform=ax.transAxes, fontsize=20,verticalalignment='top',
+                    color=phase_colors[j], weight='bold')
+            ax.set_ylim([1e-4,1])
+            p += 1
+            if i==1:
+                ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+    
+    p = 0
+    for i in range(0,2):
+        for j,k in enumerate(phases):
+            ax = axes2[i,j]
+            ax.tick_params(labelsize=14)
+            ax.xaxis.set_ticks_position('both')
+            ax.yaxis.set_ticks_position('both')
+            ax.minorticks_on()
+            ax.tick_params(which='both',axis="both",direction="in")
+            ax.set_yscale('log')
+            ax.set_xscale('log')
+            phase = k
+            ax.text(0.02, 0.90, r'\textbf{%s}'%phase,
+                    transform=ax.transAxes, fontsize=20,verticalalignment='top',
+                    color=phase_colors[j], weight='bold')
+            ax.set_ylim([5e-1,1e5])            
+            p += 1
+            if i==1:
+                ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+
+    # Setup y-labels
+    axes[0,0].set_ylabel(r'$\chi_{\rm frag}(a,\mathcal{M};a_{\rm L},a_{\rm L})$', fontsize=20)
+    axes[1,0].set_ylabel(r'$\chi_{\rm frag}(a,\mathcal{M};a_{\rm L},a_{\rm S})$', fontsize=20)
+    
+    axes2[0,0].set_ylabel(r'$t_{\rm sha}(a,\mathcal{M};a_{\rm L},a_{\rm L})$ [Myr]', fontsize=20)
+    axes2[1,0].set_ylabel(r'$t_{\rm sha}(a,\mathcal{M};a_{\rm L},a_{\rm S})$ [Myr]', fontsize=20)
+    
+    fig.subplots_adjust(top=0.98,bottom=0.07,left=0.06,right=0.99,hspace=0,wspace=0)
+    fig.savefig('shattering_efficiency_full.pdf',format='pdf',dpi=300)
+    plt.close(fig)
+    
+    fig2.subplots_adjust(top=0.98,bottom=0.07,left=0.06,right=0.99,hspace=0,wspace=0)
+    fig2.savefig('shattering_timescale_full.pdf',format='pdf',dpi=300)
+    plt.close(fig2)
+    
+    
+def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,ne,T,nsmall,nMach=100):
     # This function plots the shattering fragment distribution for big grains
     # based on the power-law model 
     import matplotlib.pyplot as plt
@@ -1006,7 +1317,7 @@ def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,
         
         
         # Average collision velocity as given by the Ormel & Cuzzy (2007) fitting functions
-        v_rel_avg = relative_velocity('Ormel&Cuzzi2007',T,nH,Mach[i],Lmax,target_a,projectile_a,
+        v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,target_a,projectile_a,
                                       target_s,projectile_s)
         v_rel = np.array([max(v_rel_min,v_projectile),v_rel_max,v_rel_avg])
         
@@ -1015,6 +1326,10 @@ def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,
         alpha = np.pi * (target_a + projectile_a)**2. * v_rel
         for j in range(0,3):
             t = 1./(alpha[j]*nsmall*boost_coa)/sec2Myr
+            # if v_rel[j] <= v_coag:
+            #     t_coag[i,j] = t
+            # else:
+            #     t_coag[i,j] = 1e9
             t_coag[i,j] = (1-sigmoid_function(kernel,v_coag,v_rel[j]))*t + sigmoid_function(kernel,v_coag,v_rel[j]) * t_max
         t_coag[i,-1] = t_coagulation(rho_small/(nH*mh.to('g').d),Mach[i],nH,T,Lmax,projectile_a,projectile_s)
     
@@ -1045,3 +1360,331 @@ def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,
     fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
     fig.savefig('coagulation_timescale_%s.png'%(composition),format='png',dpi=300)
     plt.close(fig)
+    
+def plot_coagulation_full(GDR_small,GDR_big,nMach=100):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+
+    from utils import as_si,sigmoid_function
+    from scipy.special import erfc
+    fig2, axes2 = plt.subplots(2,3, figsize=(13,8),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
+    
+    # Coagulation model quantities (Hirashita & Yan 2009)
+    E = [3.4e10,5.4e11]
+    gamma = [12,25]
+    
+    phases = {'DC1':{'T':10,'nH':1e4,'ne':0.01,'L':1},
+              'MC':{'T':25,'nH':300,'ne':0.03,'L':1},
+              'CNM':{'T':100,'nH':30,'ne':0.0991,'L':0.64}}
+    phase_colors = ['indigo','goldenrod','b']
+    compositions = ['Carbonaceous','Silicates']
+    collision_model = {'Small-Small':{'target_a':0.005e-4,'projectile_a':0.005e-4},
+                       'Big-Small':{'target_a':0.1e-4,'projectile_a':0.005e-4}}
+    colors = [['steelblue','royalblue','cornflowerblue','lightsteelblue'],
+              ['saddlebrown','chocolate','sandybrown']]
+    
+    # Add GDR text
+    axes2[0,1].text(0.4, 0.8,r'GDR($a_{\rm small}$)'+r'$={0:s}$'.format(as_si(GDR_small,2))+'\n'+
+                                r'GDR($a_{\rm large}$)'+r'$={0:s}$'.format(as_si(GDR_big,2)),
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=axes2[0,1].transAxes,fontsize=14)
+    
+    # Loop over grain compositions
+    for c,comp in enumerate(compositions):
+    
+        if comp == 'Carbonaceous':
+            index = 0
+            target_s = 2.2
+            projectile_s = 2.2
+        elif comp == 'Silicates':
+            index = 1
+            target_s = 3.3
+            projectile_s = 3.3
+        
+        # Loop over collision models
+        for m,model_name in enumerate(collision_model):
+            model = collision_model[model_name]
+            target_a = model['target_a']
+            projectile_a = model['projectile_a']
+        
+            # Grain quantities
+            mass_target = 4./3. * np.pi * target_s * (target_a**3.)
+            mass_projectile = 4./3. * np.pi * projectile_s * (projectile_a**3.)
+            R = target_a*projectile_a / (projectile_a + target_a)
+            v_coag = 21.4 * np.sqrt((mass_target**3.+mass_projectile**3.)/(mass_projectile+mass_target)**3.) * \
+            gamma[index]**(5./3.) / (E[index]**(1./3.)*R**(5./6.)*np.sqrt(target_s))
+            
+            Mach = np.logspace(-1,1,nMach)
+            
+            # Loop over ISM phases
+            for p,phase_name in enumerate(phases):
+                ax2 = axes2[m,p]
+                phase = phases[phase_name]
+                nH = phase['nH']
+                T = phase['T']
+                ne = phase['ne']
+                Lmax = phase['L']
+                
+                if model_name == 'Small-Small':
+                    rho_projectile = nH * mh.to('g').d * (1./GDR_small)
+                elif model_name == 'Big-Small':
+                    rho_projectile = nH * mh.to('g').d * (1./GDR_big)
+                    mass_projectile = mass_target
+                t_coag = np.zeros((nMach,4))
+                
+                for i in range(0, nMach):
+                    
+                    # Boosting of density due to subgrid turbulence
+                    lambda_jeans = 3.8409904e7 * np.sqrt(T/(nH*mh.to('g').d))
+                    nhmax_coa = 1e20
+                    sigs = np.log(1.+(0.4*Mach[i])**2.)
+                    sigs2 = sigs**2.
+                    smax = np.log(nhmax_coa/nH)
+                    boost_coa = 0.5*np.exp(sigs2)*erfc((1.5*sigs2-smax)/(np.sqrt(2.)*sigs))
+                    L = Lmax * 3.0857e18 # [cm]
+                    if T>1e4 or nH<1e2 or lambda_jeans>4*L:
+                        boost_coa = 1.
+                        
+                    # Relative velocity between two grains of the same size (Eq. 18 of Hirashita & Aoyama 2019)
+                    v_target = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(target_a/1e-5) * ((T/1e4)**(1./4.)) * ((nH)**(-1./4.)) * np.sqrt(target_s/3.5)
+                    v_projectile = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(projectile_a/1e-5) * ((T/1e4)**(1./4.)) * ((nH)**(-1./4.)) * np.sqrt(projectile_s/3.5)
+                    v_rel_min = min(abs(v_target-v_projectile),v_target,v_projectile)
+                    v_rel_max = v_target+v_projectile
+                    
+                    
+                    # Average collision velocity as given by the Ormel & Cuzzy (2007) fitting functions
+                    v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,target_a,projectile_a,
+                                                target_s,projectile_s)
+                    v_rel = np.array([max(v_rel_min,v_projectile),v_rel_max,v_rel_avg])
+                    # Collision rate parameters
+                    
+                    alpha = np.pi * (target_a + projectile_a)**2. * v_rel
+                    t_min = mass_projectile/(np.pi * (target_a + projectile_a)**2. * v_coag*rho_projectile)/sec2Myr
+                    t_max = 1e6
+                    kernel = t_max/(1e5*t_min)
+                    for j in range(0,3):
+                        t = mass_projectile/(alpha[j]*rho_projectile*boost_coa)/sec2Myr
+                        if v_rel[j] <= v_coag:
+                            t_coag[i,j] = t
+                        else:
+                            t_coag[i,j] = 1e6
+                        # t_coag[i,j] = (1-sigmoid_function(kernel,v_coag,v_rel[j]))*t + sigmoid_function(kernel,v_coag,v_rel[j]) * t_max
+                    t_coag[i,-1] = t_coagulation(1./GDR_small,Mach[i],nH,T,Lmax,projectile_a,projectile_s)
+                
+                if p == 1 and m == 0:
+                    ax2.fill_between(Mach,t_coag[:,0],t_coag[:,1],label=comp,alpha=0.5,color=colors[index][0])
+                else:
+                    ax2.fill_between(Mach,t_coag[:,0],t_coag[:,1],alpha=0.5,color=colors[index][0])
+                ax2.plot(Mach,t_coag[:,2],linestyle='-.',color=colors[index][1])
+                ax2.plot(Mach,t_coag[:,3],linestyle='-',color=colors[index][1])
+    
+    # Add legend of composition/size type    
+    ax = axes2[0,1]
+    first_legend = ax.legend(loc='lower right', fontsize=14,frameon=False)
+    ax.add_artist(first_legend)
+    
+    # Add legend of velocity model type    
+    ax = axes2[1,0]
+    dummy_lines = []
+
+    dummy_lines.append(ax.fill_between([],[], color="black",label = 'Hirashita and Aoyama 2019'))
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-.',label = 'Ormel and Cuzzi 2007')[0])
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-',label = 'Aoyama et al. 2017')[0])
+    second_legend = ax.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=14,ncol=1)         
+    ax.add_artist(second_legend)
+    
+    # Setup axes
+    
+    p = 0
+    for i in range(0,2):
+        for j,k in enumerate(phases):
+            ax = axes2[i,j]
+            ax.tick_params(labelsize=14)
+            ax.xaxis.set_ticks_position('both')
+            ax.yaxis.set_ticks_position('both')
+            ax.minorticks_on()
+            ax.tick_params(which='both',axis="both",direction="in")
+            ax.set_yscale('log')
+            ax.set_xscale('log')
+            phase = k
+            ax.text(0.02, 0.90, r'\textbf{%s}'%phase,
+                    transform=ax.transAxes, fontsize=20,verticalalignment='top',
+                    color=phase_colors[j], weight='bold')
+            #ax.set_ylim([5e-1,1e5])            
+            p += 1
+            if i==1:
+                ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+
+    # Setup y-labels
+    
+    axes2[0,0].set_ylabel(r'$t_{\rm coa}(a,\mathcal{M};a_{\rm small},a_{\rm small})$ [Myr]', fontsize=20)
+    axes2[1,0].set_ylabel(r'$t_{\rm coa}(a,\mathcal{M};a_{\rm big},a_{\rm small})$ [Myr]', fontsize=20)
+
+    fig2.subplots_adjust(top=0.98,bottom=0.07,left=0.06,right=0.99,hspace=0,wspace=0)
+    fig2.savefig('coagulation_timescale_full.pdf',format='pdf',dpi=300)
+    plt.close(fig2)
+    
+def plot_coagulation_single(nH,ne,T,Lmax,phase_name,GDR_small,GDR_big,nMach=100):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+
+    from utils import as_si,sigmoid_function
+    from scipy.special import erfc
+    fig2, axes2 = plt.subplots(2,1, figsize=(5,7),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
+    
+    # Coagulation model quantities (Hirashita & Yan 2009)
+    E = [3.4e10,5.4e11]
+    gamma = [12,25]
+    
+    compositions = ['Carbonaceous','Silicates']
+    collision_model = {'Small-Small':{'target_a':0.005e-4,'projectile_a':0.005e-4},
+                       'Big-Small':{'target_a':0.1e-4,'projectile_a':0.005e-4}}
+    colors = [['steelblue','royalblue','cornflowerblue','lightsteelblue'],
+              ['saddlebrown','chocolate','sandybrown']]
+    
+    # Add GDR text
+    axes2[0].text(0.4, 0.8,r'GDR($a_{\rm S}$)'+r'$={0:s}$'.format(as_si(GDR_small,2))+'\n'+
+                                r'GDR($a_{\rm L}$)'+r'$={0:s}$'.format(as_si(GDR_big,2)),
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=axes2[0].transAxes,fontsize=14)
+    
+    # Loop over grain compositions
+    for c,comp in enumerate(compositions):
+    
+        if comp == 'Carbonaceous':
+            index = 0
+            target_s = 2.2
+            projectile_s = 2.2
+        elif comp == 'Silicates':
+            index = 1
+            target_s = 3.3
+            projectile_s = 3.3
+        
+        # Loop over collision models
+        for m,model_name in enumerate(collision_model):
+            model = collision_model[model_name]
+            target_a = model['target_a']
+            projectile_a = model['projectile_a']
+        
+            # Grain quantities
+            mass_target = 4./3. * np.pi * target_s * (target_a**3.)
+            mass_projectile = 4./3. * np.pi * projectile_s * (projectile_a**3.)
+            R = target_a*projectile_a / (projectile_a + target_a)
+            v_coag = 21.4 * np.sqrt((mass_target**3.+mass_projectile**3.)/(mass_projectile+mass_target)**3.) * \
+            gamma[index]**(5./3.) / (E[index]**(1./3.)*R**(5./6.)*np.sqrt(target_s))
+            
+            Mach = np.logspace(-1,1,nMach)
+            
+            ax2 = axes2[m]
+            
+            if model_name == 'Small-Small':
+                rho_projectile = nH * mh.to('g').d * (1./GDR_small)
+            elif model_name == 'Big-Small':
+                rho_projectile = nH * mh.to('g').d * (1./GDR_big)
+                mass_projectile = mass_target
+            t_coag = np.zeros((nMach,4))
+            
+            t_min = np.log10(mass_projectile/(np.pi * (target_a + projectile_a)**2. * v_coag*rho_projectile)/sec2Myr)
+            t_max = np.log10(1e5)
+            kernel = t_max
+            for i in range(0, nMach):
+                
+                # Boosting of density due to subgrid turbulence
+                lambda_jeans = 3.8409904e7 * np.sqrt(T/(nH*mh.to('g').d))
+                nhmax_coa = 1e20
+                sigs = np.log(1.+(0.4*Mach[i])**2.)
+                sigs2 = sigs**2.
+                smax = np.log(nhmax_coa/nH)
+                boost_coa = 0.5*np.exp(sigs2)*erfc((1.5*sigs2-smax)/(np.sqrt(2.)*sigs))
+                L = Lmax * 3.0857e18 # [cm]
+                if T>1e4 or nH<1e2 or lambda_jeans>4*L:
+                    boost_coa = 1.
+                    
+                # Relative velocity between two grains of the same size (Eq. 18 of Hirashita & Aoyama 2019)
+                v_target = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(target_a/1e-5) * ((T/1e4)**(1./4.)) * ((nH)**(-1./4.)) * np.sqrt(target_s/3.5)
+                v_projectile = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(projectile_a/1e-5) * ((T/1e4)**(1./4.)) * ((nH)**(-1./4.)) * np.sqrt(projectile_s/3.5)
+                v_rel_min = min(abs(v_target-v_projectile),v_target,v_projectile)
+                v_rel_max = v_target+v_projectile
+                
+                
+                # Average collision velocity as given by the Ormel & Cuzzy (2007) fitting functions
+                v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,target_a,projectile_a,
+                                            target_s,projectile_s)
+                v_rel = np.array([max(v_rel_min,v_projectile),v_rel_max,v_rel_avg])
+                # Collision rate parameters
+                
+                alpha = np.pi * (target_a + projectile_a)**2. * v_rel
+                
+                for j in range(0,3):
+                    # t = mass_projectile/(alpha[j]*rho_projectile*boost_coa)/sec2Myr
+                    t = np.log10(mass_projectile/(alpha[j]*rho_projectile*boost_coa)/sec2Myr)
+                    # if v_rel[j] <= v_coag:
+                    #     t_coag[i,j] = t
+                    # else:
+                    #     t_coag[i,j] = 1e6
+                    t_coag[i,j] = (1-sigmoid_function(kernel,v_coag,v_rel[j]))*t + sigmoid_function(kernel,v_coag,v_rel[j]) * t_max
+                    t_coag[i,j] = 10**(t_coag[i,j])
+                t_coag[i,-1] = t_coagulation(1./GDR_small,Mach[i],nH,T,Lmax,projectile_a,projectile_s)
+            
+            if m == 0:
+                ax2.fill_between(Mach,t_coag[:,0],t_coag[:,1],label=comp,alpha=0.5,color=colors[index][0])
+            else:
+                ax2.fill_between(Mach,t_coag[:,0],t_coag[:,1],alpha=0.5,color=colors[index][0])
+            ax2.plot(Mach,t_coag[:,2],linestyle='-.',color=colors[index][1])
+            ax2.plot(Mach,t_coag[:,3],linestyle='-',color=colors[index][1])
+    
+    # Add legend of composition/size type    
+    ax = axes2[0]
+    first_legend = ax.legend(loc='lower left', fontsize=14,frameon=False)
+    ax.add_artist(first_legend)
+    
+    # Add legend of velocity model type    
+    ax = axes2[1]
+    dummy_lines = []
+
+    dummy_lines.append(ax.fill_between([],[], color="black",label = 'Hirashita and Aoyama 2019'))
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-.',label = 'Ormel and Cuzzi 2007')[0])
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-',label = 'Aoyama et al. 2017')[0])
+    second_legend = ax.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=14,ncol=1)         
+    ax.add_artist(second_legend)
+    
+    # Setup axes
+    
+    p = 0
+    for i in range(0,2):
+        ax = axes2[i]
+        ax.tick_params(labelsize=14)
+        ax.xaxis.set_ticks_position('both')
+        ax.yaxis.set_ticks_position('both')
+        ax.minorticks_on()
+        ax.tick_params(which='both',axis="both",direction="in")
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        ax.text(0.02, 0.90, r'\textbf{%s}'%phase_name,
+                transform=ax.transAxes, fontsize=20,verticalalignment='top',
+                color='goldenrod', weight='bold')
+        ax.set_ylim([2e-2,2e5])            
+        p += 1
+        if i==1:
+            ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+
+    # Setup y-labels
+    
+    axes2[0].set_ylabel(r'$t_{\rm coa}(a_{\rm L},\mathcal{M};a_{\rm S},a_{\rm S})$ [Myr]', fontsize=20)
+    axes2[1].set_ylabel(r'$t_{\rm coa}(a_{\rm L},\mathcal{M};a_{\rm L},a_{\rm S})$ [Myr]', fontsize=20)
+
+    fig2.subplots_adjust(top=0.98,bottom=0.07,left=0.16,right=0.99,hspace=0,wspace=0)
+    fig2.savefig('coagulation_timescale_%s.pdf'%phase_name,format='pdf',dpi=300)
+    plt.close(fig2)

@@ -195,6 +195,8 @@ def read_log(logpath, plot=True):
             total_depletion = total_depletion + depletion
             ax.plot(collapse_data[:,1]*0.1, depletion, label=labels[variables[i]])
         ax.plot(collapse_data[:,1]*0.1, total_depletion,'k--',label='Total dust')
+        total_carbon = 0.5*1.096750699913960e-2
+        ax.plot([collapse_data[0,1]*0.1,collapse_data[-1,1]*0.1], [total_carbon,total_carbon],'k-',label='Half Total carbon',alpha=0.6)
         ax.legend(loc='best', fontsize=10,frameon=False)
         fig.subplots_adjust(top=0.99,bottom=0.11,left=0.14,right=0.99,hspace=0)
         fig.savefig('Carbon_depletion_'+str(logpath.split('.log')[0])+'.png', format='png', dpi=300)
