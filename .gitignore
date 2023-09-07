@@ -179,3 +179,11 @@ cython_debug/
 /equilibrium_test/no_dust/*
 *.o*
 run_00001.log
+compilation.txt
+namelist.txt
+info_*.rt
+part_file_descriptor.txt
+info_*.txt
+hydro_file_descriptor.txt
+header_*.txt
+job.sh

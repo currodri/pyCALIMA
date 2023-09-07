@@ -1,23 +1,23 @@
 &RUN_PARAMS
 cosmo=.false.
 pic=.true.
-poisson=.true.
+poisson=.false.
 hydro=.true.
-nrestart=0
+nrestart=1
 nremap=100000
 nsubcycle=1,1,2,2
 ncontrol=1
 rt=.true.
 verbose=.false.
 cost_weighting=.false.
-nstepmax=1
+nstepmax=1000000
 static=.true.
 /
 &OUTPUT_PARAMS
-foutput=100
+foutput=5000
 !delta_tout=0.067045
 !tend=0.67045
-!delta_tout=0.0670814
+!delta_tout=1.1180 !0.670814
 tend=13.4162814
 cpu_time_limit=24.0
 /
@@ -28,7 +28,7 @@ initfile(1)='/data80/currodri/isolated_rtzdust/lib/IC_G8/'
 &AMR_PARAMS
 levelmin=3
 levelmax=3    ! 14=9 pc
-ngridmax=1000 ! 180000 should be very very close to the max available on cosma8 for full node usage
+ngridmax=10000 ! 180000 should be very very close to the max available on cosma8 for full node usage
 npartmax=8000000
 boxlen=1d-1
 /
@@ -48,7 +48,7 @@ kbound_max= 0, 0,  0,  0, -1,  1
 /
 &HYDRO_PARAMS
 gamma=1.666667 
-courant_factor=0.8
+courant_factor=0.0008
 slope_type=1
 pressure_fix=.true.
 beta_fix=0.5
@@ -134,12 +134,12 @@ dust=.true.
 dust_log=.false.
 dust_sputtering=.true.
 dust_accretion=.true.
-dust_acc_coulomb=.false.
+dust_acc_coulomb=.true.
 dust_coagulation=.true.
 dust_shattering=.true.
 dust_ratd=.false.
 H2ondust=.true.
-GDinit=1d5
+GDinit=-1d0
 fpah_ini=-1d0
 nhmax_acc=1d4,1d4,1d4,1d4
 dust_SNdest=.true.
@@ -163,9 +163,10 @@ fixed_rad_ani=1d-1
 fixed_lambda_mean=5d-1
 ! PAH parameters
 dust_pahs=.true.
+dust_small_shattering=.true.
 pah_coagulation=.true.
 pah_accretion=.true.
-pah_acc_coulomb=.false.
+pah_acc_coulomb=.true.
 sticking_coef_pah='subgrid'
 pah_sputtering=.true.
 pah_uv_destruction=.true.
@@ -248,6 +249,7 @@ include_cosmic_ray_ionization=.true.
 include_cosmic_ray_heating=.true.
 include_dust_heat_cool=.true.
 UV_background_G0=1.d0 !1.d0 !0.0070977d0
+xi_h_cr=1.d-16
 low_t_noneq_cooling=.true.
 metal_cooling_catastrophe_fix=.false.
 metal_cooling_catastrophe_rho=0.005d0

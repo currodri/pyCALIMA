@@ -216,7 +216,7 @@ def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius):
         sigma = sfit['c-'] * (1.0 - np.exp(-abs(Z)/sfit['eta-'])) + sfit['d']
     if sigma <0:
         print(grain_type,grain_radius,Z,sigma)
-    x = np.arange(round(norm.ppf(0.01,Z,sigma)), round(norm.ppf(0.99,Z,sigma)))
+    x = np.arange(round(Z - 3.*sigma),round(Z + 3.*sigma)+1)
     if (len(x)==0):
         x = np.array([0])
         dist = np.array([1])
@@ -235,17 +235,19 @@ def cmp_D_WD99(charge_dist,x,Zi,T,a):
     e = 4.8032047e-10 # statC
     kB = 1.380649e-16   # erg/K
     D = 0.0
-
-    for i in range(0, len(charge_dist)):
-        Zg = x[i]
-        if Zg*Zi>0:
-            B = np.exp(-Zg*Zi*e**2/(kB*T*a))
-        elif Zg*Zi<0:
-            B = 1.0 - Zg*Zi*e**2/(kB*T*a)
-        elif Zg==0:
-            B = 1.0 + np.sqrt(np.pi*Zi**2*e**2/(2.0*kB*T*a))
-        D += charge_dist[i] * B
-    
+    if Zi != 0:
+        for i in range(0, len(charge_dist)):
+            Zg = x[i]
+            if Zg*Zi>0:
+                B = np.exp(-Zg*Zi*e**2/(kB*T*a))
+            elif Zg*Zi<0:
+                B = 1.0 - Zg*Zi*e**2/(kB*T*a)
+            elif Zg==0:
+                B = 1.0 + np.sqrt(np.pi*Zi**2*e**2/(2.0*kB*T*a))
+            D += charge_dist[i] * B
+    else:
+        D = 1.0
+    D = min(D,1e-10)
     return D
     
 def plot_coulomb_enhancement(Gtot,Zi):
@@ -342,7 +344,7 @@ def plot_coulomb_enhancement(Gtot,Zi):
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
     ax.plot(xnew,10**f(np.log10(xnew)),color='r',linestyle=':',alpha=0.6)
     
-    init_legend = ax.legend(loc='best',fontsize=10,frameon=False,ncol=2)
+    init_legend = ax.legend(loc='upper right',fontsize=10,frameon=False,ncol=2)
     ax.add_artist(init_legend)
     
     dummy_lines = [ax.plot([],[],color='b',linestyle='-',label='Silicates')[0],
@@ -635,9 +637,9 @@ def t_coagulation(Dsmall,Mach,nH,T,L,a,s,boost=True):
 def relative_velocity(model,T,nH,ne,Mach,L,target_a,projectile_a,target_s,projectile_s):
     
     local_mu = nH / (nH + ne)
-    local_sigma = nH*2e-15 / (nH + ne)
     gamma_gas =5./3.
     Lmax = L * 3.0857e18 # [cm] 1 pc
+    e = 4.8032047e-10 # statC
     
     if model == 'Ormel and Cuzzi2007':
         def OC07_function(x):
@@ -654,10 +656,19 @@ def relative_velocity(model,T,nH,ne,Mach,L,target_a,projectile_a,target_s,projec
         v_turb = Mach * cs_gas
         
         # Assume that the injection scale is a cell size of Lmax pc and the velocity is given by
-        # the largest size eddie velocity 
-        mfp = (mh.to('g').d*local_mu)/(rho_gas*local_sigma)
+        # the largest size eddie velocity
+        
         tau_L = Lmax / v_turb
-        Re = 3. * v_turb * Lmax / (cs_gas * mfp)
+        # Assume the closure equations by Braginskii (1965), based on the Chapman-Enskog scheme
+        # which is based in the assumption that the macroscopic scale of the plasma is large
+        # compared to the mean free path or the gyro-radii of the electrons and the ions. In this
+        # case, the viscosity is dominated by the hydrogen viscosity parallel to the magnetic field
+        # (Braginskii 1965). This is because the ions carry the majority of the momemtum
+        rc = e**2 / (kb.to('cm**2*g/s**2/K').d * T)
+        mfp = 1. / (nH*rc**2.)
+        nu = cs_gas * mfp / 3.
+        Re = v_turb * Lmax / 8.7e15 #nu
+        
         tau_eta = tau_L / np.sqrt(Re)
         
         # Stopping time computation for target and projectile
@@ -1240,7 +1251,7 @@ def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
             ax.text(0.02, 0.90, r'\textbf{%s}'%phase,
                     transform=ax.transAxes, fontsize=20,verticalalignment='top',
                     color=phase_colors[j], weight='bold')
-            ax.set_ylim([5e-1,1e5])            
+            ax.set_ylim([5e-3,1e5])            
             p += 1
             if i==1:
                 ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)

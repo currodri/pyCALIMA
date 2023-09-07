@@ -199,20 +199,21 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
         varnames = ['nH','nH2','nCO','nCI','nCII']
 
     # 1. Get the outputs in the directory
-
+    cwd = os.getcwd()
     os.chdir(f'./{simname}')
     outputs = sorted(list(filter(lambda file: file.startswith('output'), os.listdir())),key=lambda x: int(x.split('_')[-1]))
     output_dir = os.getcwd()
     
     # 2. Load two last outputs
     sims = [yt.load(f'{output_dir}/output_{str(out.split("_")[-1])}',fields=my_fields) for out in outputs[-2:]]
+    sims = [yt.load(f'{output_dir}/output_{str(outputs[0].split("_")[-1])}',fields=my_fields)] + sims
     
     # 3. Get raw data
     density = sims[-1].all_data()[('gas','density')].to('g/cm**3')/mh
     ndensity = len(density)
     nvars = len(varnames)
-    data = np.zeros((nvars,ndensity,2))
-    for t in range(0,2):
+    data = np.zeros((nvars,ndensity,3))
+    for t in range(0,3):
         ds = sims[t]
         for v in range(0, nvars):
             try:
@@ -221,14 +222,75 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
                 raw_ad = ds.all_data()[('ramses',varnames[v])]
             for d in range(0,ndensity):
                 data[v,d,t] = raw_ad[d].to('cm**-3')
-                if t==1:
-                    diff = abs(data[v,d,0] - data[v,d,1]) / data[v,d,1]
+                if t==2:
+                    diff = abs(data[v,d,1] - data[v,d,2]) / data[v,d,2]
                     if diff >= conv_crit:
                         print(f'Variable {varnames[v]} has not converged yet (err={diff},nH={data[0,d,t]})!')
     
     # 4. Sort data
     sort_dens = np.argsort(density)
     data = data[:,sort_dens,:]
+    # 4. Plot data
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
+
+    ax.set_ylabel(r'$\log{n/n_{{\rm H}}}$', fontsize=16)
+    ax.set_xlabel(r'$\log{n_{{\rm H}}/[{\rm cm}^{-3}]}$',fontsize=16)
+    ax.tick_params(labelsize=12)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    #ax.set_xlim([-4,4])
+    ax.set_ylim([-12,-2])
+
+    for v in range(1, nvars):
+        p = ax.plot(np.log10(data[0,:,0]),np.log10(data[v,:,2]/data[0,:,0]),label=varnames[v])
+        ax.plot(np.log10(data[0,:,0]),np.log10(data[v,:,0]/data[0,:,0]),linestyle='--',alpha=0.6,color=p[0].get_color())
+
+    ax.legend(loc='best',fontsize=12,frameon=False,ncol=3)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
+    os.chdir(cwd)
+    fig.savefig(f'final_eq_column_densities_{simname}.png', format='png', dpi=300)
+    
+def plot_n_init_value(my_fields,dust,simname):
+    """This function plots the initial column density
+    equilibrium values for the desired set of variables
+
+    Args:
+        my_fields (list): List of str containing the fields to load
+    """
+    from unyt import mh
+    if dust:
+        varnames = ['nH','nH2','nCO','nCI','nCII',
+                    'nPAH','nCSmall','nCLarge','nSilSmall','nSilLarge']
+    else:
+        varnames = ['nH','nH2','nCO','nCI','nCII']
+
+    # 1. Get the outputs in the directory
+    cwd = os.getcwd()
+    os.chdir(f'./{simname}')
+    outputs = sorted(list(filter(lambda file: file.startswith('output'), os.listdir())),key=lambda x: int(x.split('_')[-1]))
+    output_dir = os.getcwd()
+    
+    # 2. Load two last outputs
+    sim = yt.load(f'{output_dir}/output_{str(outputs[0].split("_")[-1])}',fields=my_fields)
+    
+    # 3. Get raw data
+    density = sim.all_data()[('gas','density')].to('g/cm**3')/mh
+    ndensity = len(density)
+    nvars = len(varnames)
+    data = np.zeros((nvars,ndensity))
+    ds = sim
+    for v in range(0, nvars):
+        try:
+            raw_ad = ds.all_data()[('gas',varnames[v])]
+        except:
+            raw_ad = ds.all_data()[('ramses',varnames[v])]
+        for d in range(0,ndensity):
+            data[v,d] = raw_ad[d].to('cm**-3')    
+    # 4. Sort data
+    sort_dens = np.argsort(density)
+    data = data[:,sort_dens]
     # 4. Plot data
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
 
@@ -243,12 +305,12 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
     ax.set_ylim([-10,5])
 
     for v in range(1, nvars):
-        ax.plot(np.log10(data[0,:,0]),np.log10(data[v,:,1]),label=varnames[v])
+        ax.plot(np.log10(data[0,:]),np.log10(data[v,:]),label=varnames[v])
 
     ax.legend(loc='best',fontsize=12,frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
-    os.chdir('../')
-    fig.savefig(f'final_eq_column_densities_{simname}.png', format='png', dpi=300)
+    os.chdir(cwd)
+    fig.savefig(f'initial_column_densities_{simname}.png', format='png', dpi=300)
 
 def plot_T(my_fields,simname,conv_crit=0.1):
     """This function plots the final temperature equilibrium values
@@ -257,6 +319,77 @@ def plot_T(my_fields,simname,conv_crit=0.1):
         my_fields (list): List of str containing the fields to load
     """
     from unyt import mh
+    nolist = False
+    if not isinstance(simname,list):
+        simname = [simname]
+        nolist = True
+
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
+
+    ax.set_ylabel(r'$\log{T/[{\rm K}]}$', fontsize=16)
+    ax.set_xlabel(r'$\log{n_{{\rm H}}/[{\rm cm}^{-3}]}$',fontsize=16)
+    ax.tick_params(labelsize=12)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_xlim([-4,4])
+
+    for sim in simname:
+        # 1. Get the outputs in the directory
+        cwd = os.getcwd()
+        os.chdir(f'./{sim}')
+        outputs = sorted(list(filter(lambda file: file.startswith('output'), os.listdir())),key=lambda x: int(x.split('_')[-1]))
+        output_dir = os.getcwd()
+        
+        # 2. Load two last outputs
+        sims = [yt.load(f'{output_dir}/output_{str(out.split("_")[-1])}',fields=my_fields) for out in outputs[-2:]]
+        
+        # 3. Get raw data
+        density = sims[-1].all_data()[('gas','nH')].to('cm**-3')
+        ndensity = len(density)
+        data = np.zeros((ndensity,2))
+        for t in range(0,2):
+            ds = sims[t]
+            try:
+                raw_ad = ds.all_data()[('gas','temperature')]
+            except:
+                raw_ad = ds.all_data()[('ramses','temperature')]
+            for d in range(0,ndensity):
+                data[d,t] = raw_ad[d].to('K')
+                if t==1:
+                    diff = abs(data[d,0] - data[d,1]) / data[d,1]
+                    if diff >= conv_crit:
+                        print(f'Temperature has not converged yet (err={diff},nH={data[d,t]})!')
+        
+        # 4. Sort data
+        sort_dens = np.argsort(density)
+        data = data[sort_dens,:]
+        density = density[sort_dens]
+
+        ax.plot(np.log10(density),np.log10(data[:,1]),marker='o',
+                markersize=2,markerfacecolor='None',linestyle='none',label=sim.split('/')[-1])
+        os.chdir(cwd)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
+    ax.legend(loc='best',fontsize=12,frameon=False)
+        
+    if not nolist:
+        print('Making comparison plot in final_temperature_comparison.png')
+        fig.savefig('final_temperature_comparison.png', format='png', dpi=300)
+    else:
+        print(f'final_temperature_{simname[0].split("/")[-1]}.png')
+        fig.savefig(f'final_temperature_{simname[0].split("/")[-1]}.png', format='png', dpi=300)
+
+def plot_lambda_tot_value(my_fields,dust,simname,conv_crit=0.1):
+    """This function plots the final heating and cooling rate
+    contributions by different processes to the global heating and
+    cooling
+
+    Args:
+        my_fields (list): List of str containing the fields to load
+    """
+    from unyt import mh
+    varnames_cooling = ['cooling_rate','heating_rate']
 
     # 1. Get the outputs in the directory
 
@@ -270,28 +403,31 @@ def plot_T(my_fields,simname,conv_crit=0.1):
     # 3. Get raw data
     density = sims[-1].all_data()[('gas','nH')].to('cm**-3')
     ndensity = len(density)
-    data = np.zeros((ndensity,2))
+    nvars = len(varnames_cooling)
+    data_cooling = np.zeros((nvars,ndensity,2))
     for t in range(0,2):
         ds = sims[t]
-        try:
-            raw_ad = ds.all_data()[('gas','temperature')]
-        except:
-            raw_ad = ds.all_data()[('ramses','temperature')]
-        for d in range(0,ndensity):
-            data[d,t] = raw_ad[d].to('K')
-            if t==1:
-                diff = abs(data[d,0] - data[d,1]) / data[d,1]
-                if diff >= conv_crit:
-                    print(f'Temperature has not converged yet (err={diff},nH={data[0,d,t]})!')
+        for v in range(0, nvars):
+            try:
+                raw_ad = ds.all_data()[('gas',varnames_cooling[v])]
+            except:
+                raw_ad = ds.all_data()[('ramses',varnames_cooling[v])]
+            for d in range(0,ndensity):
+                data_cooling[v,d,t] = raw_ad[d]
+                if t==1:
+                    diff = abs(data_cooling[v,d,0] - data_cooling[v,d,1]) / data_cooling[v,d,1]
+                    if diff >= conv_crit:
+                        print(f'Variable {varnames_cooling[v]} has not converged yet (err={diff},nH={density[d]})!')
     
     # 4. Sort data
     sort_dens = np.argsort(density)
-    data = data[sort_dens,:]
+    data_cooling = data_cooling[:,sort_dens,:]
     density = density[sort_dens]
-    # 4. Plot data
-    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
 
-    ax.set_ylabel(r'$\log{T/[{\rm K}]}$', fontsize=16)
+    # 5. Plot data
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,6), dpi=300, facecolor='w', edgecolor='k')
+
+    ax.set_ylabel(r'$\log{n\Lambda_{\rm tot} \quad {\rm or }\quad \Gamma}$ [erg/s]', fontsize=16)
     ax.set_xlabel(r'$\log{n_{{\rm H}}/[{\rm cm}^{-3}]}$',fontsize=16)
     ax.tick_params(labelsize=12)
     ax.xaxis.set_ticks_position('both')
@@ -299,14 +435,22 @@ def plot_T(my_fields,simname,conv_crit=0.1):
     ax.minorticks_on()
     ax.tick_params(which='both',axis="both",direction="in")
     ax.set_xlim([-4,4])
-    #ax.set_ylim([-10,5])
+    # ax.set_ylim([-3,0])
+    
+    nvars = len(varnames_cooling)
+    for v in range(0, nvars):
+        if varnames_cooling[v].split('_')[0] == 'cooling':
+            y = data_cooling[v,:,1]
+        else:
+            y = data_cooling[v,:,1]
+        print(y)
+        ax.plot(np.log10(density),np.log10(y),label=varnames_cooling[v])
 
-    ax.plot(np.log10(density),np.log10(data[:,1]),marker='o',
-            markersize=2,markerfacecolor='None',linestyle='none')
+    ax.legend(loc='best',fontsize=12,frameon=False)
 
-    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95,hspace=0)
     os.chdir('../')
-    fig.savefig(f'final_temperature_{simname}.png', format='png', dpi=300)
+    fig.savefig(f'final_tot_cooling_{simname}.png', format='png', dpi=300)
 
 def plot_lambda_eq_value(my_fields,dust,simname,conv_crit=0.1):
     """This function plots the final heating and cooling rate
@@ -323,7 +467,7 @@ def plot_lambda_eq_value(my_fields,dust,simname,conv_crit=0.1):
     varnames_heating = ['heating_rate','heating_cr','heating_pe','heating_h2','heating_ct']
 
     # 1. Get the outputs in the directory
-
+    cwd = os.getcwd()
     os.chdir(f'./{simname}')
     outputs = sorted(list(filter(lambda file: file.startswith('output'), os.listdir())),key=lambda x: int(x.split('_')[-1]))
     output_dir = os.getcwd()
@@ -405,7 +549,8 @@ def plot_lambda_eq_value(my_fields,dust,simname,conv_crit=0.1):
 
     ax[1].legend(loc='best',fontsize=12,frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95,hspace=0)
-    os.chdir('../')
+    os.chdir(cwd)
+    print(f'final_eq_cooling_{simname}.png')
     fig.savefig(f'final_eq_cooling_{simname}.png', format='png', dpi=300)
             
 if __name__ == '__main__':
@@ -415,22 +560,34 @@ if __name__ == '__main__':
     parser.add_argument('type', type=str, help='Type of plot to do')
     parser.add_argument('--varname', type=str, nargs='+', default='temperature', help='Variable name to plot.')
     parser.add_argument('--dust',action='store_true',help='Use if simulation includes dust.')
-    parser.add_argument('--simname', type=str, default='dust', help='Simulation name.')
+    parser.add_argument('--simname', type=str, default='dust',nargs='+', help='Simulation name.')
     args = parser.parse_args()
     
+    if len(args.simname) == 1:
+        args.simname = args.simname[0]
     if args.dust:
         fields = basic_hydro + metal_massfrac + dust_densities + co_massfrac + metal_ion + ions + noadvect
         setup_yt(True)
     else:
         fields = basic_hydro + metal_massfrac + co_massfrac + metal_ion + ions + ['unknown1','unknown2','unknown3','unknown4','unknown5'] + noadvect
         setup_yt(False)
-    plot_T(fields,args.simname)
+    
     if args.type == 'single':
+        plot_T(fields,args.simname)
         plot_single_var(fields,args.varname[0])
     elif args.type == 'column_density_1':
+        plot_T(fields,args.simname)
         if args.dust:
             plot_n_eq_value(fields,True,args.simname)
         else:
             plot_n_eq_value(fields,False,args.simname)
     elif args.type == 'cooling':
+        plot_T(fields,args.simname)
         plot_lambda_eq_value(fields,args.dust,args.simname)
+    elif args.type == 'tot_cooling':
+        plot_T(fields,args.simname)
+        plot_lambda_tot_value(fields,args.dust,args.simname)
+    elif args.type == 'temperature':
+        plot_T(fields,args.simname)
+    elif args.type == 'initial_density':
+        plot_n_init_value(fields,args.dust,args.simname)
