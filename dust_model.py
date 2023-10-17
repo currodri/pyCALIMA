@@ -214,16 +214,14 @@ def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius):
         sigma = sfit['c+'] * (1.0 - np.exp(-Z/sfit['eta+'])) + sfit['d']
     else:
         sigma = sfit['c-'] * (1.0 - np.exp(-abs(Z)/sfit['eta-'])) + sfit['d']
-    if sigma <0:
-        print(grain_type,grain_radius,Z,sigma)
-    x = np.arange(round(Z - 3.*sigma),round(Z + 3.*sigma)+1)
-    if (len(x)==0):
-        x = np.array([0])
-        dist = np.array([1])
-    else:
-        dist = norm.pdf(x,Z,sigma)
-        dist = dist / np.sum(dist)
-
+        
+    Zmin = round(Z - 3.*sigma)
+    Zmax = round(Z + 3.*sigma)
+    x = np.arange(Zmin,Zmax+1)
+    dist = np.zeros(len(x))
+    for i in range(0,len(x)):
+        dist[i] = (1. / (sigma * np.sqrt(2.*np.pi))) * np.exp(-0.5*((float(x[i]) - Z) / sigma)**2.)
+    dist = dist / np.sum(dist)
     return dist,x
 
 def cmp_D_WD99(charge_dist,x,Zi,T,a):
@@ -244,10 +242,10 @@ def cmp_D_WD99(charge_dist,x,Zi,T,a):
                 B = 1.0 - Zg*Zi*e**2/(kB*T*a)
             elif Zg==0:
                 B = 1.0 + np.sqrt(np.pi*Zi**2*e**2/(2.0*kB*T*a))
-            D += charge_dist[i] * B
+            D = D + charge_dist[i] * B
     else:
         D = 1.0
-    D = min(D,1e-10)
+    D = max(D,1e-10)
     return D
     
 def plot_coulomb_enhancement(Gtot,Zi):
@@ -281,8 +279,9 @@ def plot_coulomb_enhancement(Gtot,Zi):
     # CNM: nH=30 Hcc, T=100K, xe=0.0015
     D_CNM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
-        ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'silicates',IM19_sizes[i])
-        a = float(IM19_sizes[i][:-1])*1e-8
+        #ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'silicates',IM19_sizes[i])
+        ch_dist,x = grain_charge_dist(Gtot,94.9113984403983,0.194638139893389,'silicates',IM19_sizes[i])
+        a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,100,a)
         D_CNM[i] = D
     ax.plot(sizes_incm,D_CNM,color='b',linestyle='-')
@@ -291,8 +290,9 @@ def plot_coulomb_enhancement(Gtot,Zi):
     ax.plot(xnew,10**f(np.log10(xnew)),color='b',linestyle='-',alpha=0.6)
     D_CNM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
-        ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'carbonaceous',IM19_sizes[i])
-        a = float(IM19_sizes[i][:-1])*1e-8
+        # ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'carbonaceous',IM19_sizes[i])
+        ch_dist,x = grain_charge_dist(Gtot,99.7592216672557,0.194638139893389,'carbonaceous',IM19_sizes[i])
+        a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,100,a)
         D_CNM[i] = D
     ax.plot(sizes_incm,D_CNM,color='r',linestyle='-')
@@ -304,7 +304,7 @@ def plot_coulomb_enhancement(Gtot,Zi):
     D_WNM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         ch_dist,x = grain_charge_dist(Gtot,6000,0.4*0.1,'silicates',IM19_sizes[i])
-        a = float(IM19_sizes[i][:-1])*1e-8
+        a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,6000,a)
         D_WNM[i] = D
     ax.plot(sizes_incm,D_WNM,color='b',linestyle='--')
@@ -314,7 +314,7 @@ def plot_coulomb_enhancement(Gtot,Zi):
     D_WNM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         ch_dist,x = grain_charge_dist(Gtot,6000,0.4*0.1,'carbonaceous',IM19_sizes[i])
-        a = float(IM19_sizes[i][:-1])*1e-8
+        a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,6000,a)
         D_WNM[i] = D
     ax.plot(sizes_incm,D_WNM,color='r',linestyle='--')
@@ -326,7 +326,7 @@ def plot_coulomb_enhancement(Gtot,Zi):
     D_WIM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         ch_dist,x = grain_charge_dist(Gtot,8000,0.1*0.99,'silicates',IM19_sizes[i])
-        a = float(IM19_sizes[i][:-1])*1e-8
+        a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,8000,a)
         D_WIM[i] = D
     ax.plot(sizes_incm,D_WIM,color='b',linestyle=':')
@@ -336,7 +336,7 @@ def plot_coulomb_enhancement(Gtot,Zi):
     D_WIM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         ch_dist,x = grain_charge_dist(Gtot,8000,0.1*0.99,'carbonaceous',IM19_sizes[i])
-        a = float(IM19_sizes[i][:-1])*1e-8
+        a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,8000,a)
         D_WIM[i] = D
     ax.plot(sizes_incm,D_WIM,color='r',linestyle=':')

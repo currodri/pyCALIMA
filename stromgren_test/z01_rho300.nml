@@ -1,0 +1,284 @@
+&RUN_PARAMS
+poisson=.false.
+pic=.false.
+hydro=.true.
+nrestart=0
+nremap=50
+rt=.true.
+static=.true.
+verbose=.false.
+ncontrol=1
+nstepmax=601
+/
+
+&INIT_PARAMS
+nregion=1
+region_type(1)='square'
+x_center=0.5
+y_center=0.5
+z_center=0.5
+length_x=100.0
+length_y=100.0
+length_z=100.0
+exp_region=10.0
+d_region=394.7368421052631      ! 300 H atoms per cm3
+p_region=343.3693421052632      ! 100 K
+var_region(1,1)=0.0012917570d-1         ! Fe
+var_region(1,2)=0.0057326442d-1         ! O
+var_region(1,3)=0.00069290468d-1        ! N
+var_region(1,4)=0.00070797884d-1        ! Mg
+var_region(1,5)=0.0012564824d-1         ! Ne
+var_region(1,6)=0.00066494756d-1        ! Si
+var_region(1,7)=6.4145074d-6            ! Ca
+var_region(1,8)=0.0023647147d-1         ! C
+var_region(1,9)=0.00030926749d-1        ! S
+var_region(1,10)=0.0                    ! CO
+var_region(1,62)=1.d0   ! HI
+var_region(1,63)=1d-6   ! HII
+var_region(1,64)=1d-6   ! HeII
+var_region(1,65)=1d-6   ! HeIII
+var_region(1,11)=1.d0   ! OI
+var_region(1,12)=1.d-6  ! OII
+var_region(1,13)=1.d-6  ! OIII
+var_region(1,14)=1.d-6  ! OIV
+var_region(1,15)=1.d-6  ! OV
+var_region(1,16)=1.d-6  ! OVI
+var_region(1,17)=1.d-6  ! OVII
+var_region(1,18)=1.d-6  ! OVIII
+var_region(1,19)=1.d0   ! NI
+var_region(1,20)=1.d-6  ! NII
+var_region(1,21)=1.d-6  ! NIII
+var_region(1,22)=1.d-6  ! NIV
+var_region(1,23)=1.d-6  ! NV
+var_region(1,24)=1.d-6  ! NVI
+var_region(1,25)=1.d-6  ! NVII
+var_region(1,26)=1.d0   ! CI
+var_region(1,27)=1.d-6  ! CII
+var_region(1,28)=1.d-6  ! CIII
+var_region(1,29)=1.d-6  ! CIV
+var_region(1,30)=1.d-6  ! CV
+var_region(1,31)=1.d-6  ! CVI
+var_region(1,32)=1.d0   ! MgI
+var_region(1,33)=1.d-6  ! MgII
+var_region(1,34)=1.d-6  ! MgIII
+var_region(1,35)=1.d-6  ! MgIV
+var_region(1,36)=1.d-6  ! MgV
+var_region(1,37)=1.d-6  ! MgVI
+var_region(1,38)=1.d0   ! SiI
+var_region(1,39)=1.d-6  ! SiII
+var_region(1,40)=1.d-6  ! SiIII
+var_region(1,41)=1.d-6  ! SiIV
+var_region(1,42)=1.d-6  ! SiV
+var_region(1,43)=1.d-6  ! SiVI
+var_region(1,44)=1.d0   ! SI
+var_region(1,45)=1.d-6  ! SII
+var_region(1,46)=1.d-6  ! SIII
+var_region(1,47)=1.d-6  ! SIV
+var_region(1,48)=1.d-6  ! SV
+var_region(1,49)=1.d-6  ! SVI
+var_region(1,50)=1.d0   ! FeI
+var_region(1,51)=1.d-6  ! FeII
+var_region(1,52)=1.d-6  ! FeIII
+var_region(1,53)=1.d-6  ! FeIV
+var_region(1,54)=1.d-6  ! FeV
+var_region(1,55)=1.d-6  ! FeVI
+var_region(1,56)=1.d0   ! NeI
+var_region(1,57)=1.d-6  ! NeII
+var_region(1,58)=1.d-6  ! NeIII
+var_region(1,59)=1.d-6  ! NeIV
+var_region(1,60)=1.d-6  ! NeV
+var_region(1,61)=1.d-6  ! NeVI
+/
+
+&AMR_PARAMS
+levelmin=8
+levelmax=8
+ngridtot=20000000
+boxlen=10.0             !  10 pc
+/
+
+&OUTPUT_PARAMS
+foutput=100
+noutput=15
+tout=0.66230928, 0.99346392, 1.32461856, 1.6557732 , 1.98692784, 2.31808248, 2.64923711, 2.98039175, 3.31154639, 3.64270103, 3.97385567, 4.30501031, 4.63616495, 4.96731959, 5.29847423
+/
+
+&HYDRO_PARAMS
+gamma=1.666667
+courant_factor=0.8
+scheme='muscl'
+slope_type=1
+riemann='hllc'
+pressure_fix=.true.
+beta_fix=0.5
+temperature_save_ivar=2
+cooling_time_ivar=1
+coolheat_save_ivar=3
+nvarnoadvect_og=0
+/
+
+&PHYSICS_PARAMS
+cooling=.true.
+cloudy_metal_cooling=.false.
+os13_metal_cooling=.false.
+htmc_metal_cooling=.true.               ! High temperature metal cooling based off Cloudy + Harley
+htmc_cooling_dir="/home/currodri/ramses/ramses-cgm/data/high_T_ion_cooling_tables/"
+fs_cooling_dir="/home/currodri/ramses/ramses-cgm/data/fine_structure_data/"
+neq_chem=.true.
+SFdiagnostics=.false.
+SNdiagnostics=.false.
+metal=.true.
+oxygen_ions=.true.
+nitrogen_ions=.true.
+carbon_ions=.true.
+magnesium_ions=.true.
+silicon_ions=.true.
+iron_ions=.true.
+sulfur_ions=.true.
+neon_ions=.true.
+oscaar_real_delay=.true.
+oscaar_feedback=.true.
+units_density=1.66d-24          ! gram per proton
+units_time=3.1557d13            ! 1 Myr in seconds
+units_length=3.0857d18          ! 1 kpc in cm
+! Dust parameters
+dust=.true.
+dust_log=.false.
+dust_sputtering=.true.
+dust_accretion=.true.
+dust_acc_coulomb=.false.
+dust_coagulation=.true.
+dust_shattering=.true.
+dust_shattering_small=.true.
+dust_turbulent_model=.true.
+dust_velocity_model='OrmelCuzzi2007'
+poppe_ice_enhancement=.true.
+dust_ratd=.false.
+H2ondust=.true.
+GDinit=-1d0
+fpah_ini=-1d0
+fsmall_ini=0.5d0
+nhmax_acc=1d4,1d4,1d4,1d4
+dust_SNdest=.true.
+dust_inSN=.true.
+sticking_coef='bourlot'
+coagulation_dispersion='subgrid'
+shattering_dispersion='subgrid'
+thermal_sputtering='nozawa2006'
+dust_SNdest_eff=0.15,0.15d0,0.10d0,0.10d0
+Coulomb_enhance=1d0,1d0,1d0,1d0!1.0d0,1.0d-5,10.0d0,1.0d0
+nh_coa=1d1,1d1,1d1,1d1
+nhmax_coa=1d6,1d6,1d6,1d6
+asize=0.005d0,0.1d0,0.005d0,0.1d0
+sgrain=2.2d0,2.2d0,3.3d0,3.3d0
+amin=0.001d0,0.02d0,0.001d0,0.02d0
+amax=0.02d0,0.3d0,0.02d0,0.3d0
+tensile_strength=4d10,4d10,3d11,3d11
+t_sputter_ref=2.5d4!1d5
+t_growth_ref=6.1840464d5 !3.69475795d6!3.69475795d5
+Sconstant=0.333333333d0  ! sticking coef=1/3
+t_sha_ref=7.5730229d5
+t_coa_ref=9.4662786d5
+fixed_rad_ani=1d-1
+fixed_lambda_mean=5d-1
+! PAH parameters
+dust_pahs=.true.
+pah_coagulation=.false.
+pah_accretion=.false.
+pah_acc_coulomb=.false.
+sticking_coef_pah='bourlot'
+pah_sputtering=.false.
+pah_uv_destruction=.false.
+pah_sn_destruction=.true.
+sublimation_model='Murga2019'
+H2onpah=.true.
+pah_minsize=1d-4
+pah_maxsize=1d-3
+pah_Coulomb_enhance=1d0
+pah_nhmax_acc=1d4
+pah_nh_coa=-1
+pah_nhmax_coa=1d6
+! Dust optics
+dust_tables_dir="../"
+/
+
+&RT_PARAMS
+X=7.6d-1
+Y=2.4d-1
+rt_output_coolstats=.true.
+rt_flux_scheme='glf'
+rt_c_fraction=0.001
+rt_otsa=.true.
+rt_is_init_xion=.false.
+rt_err_grad_xHII=0.1
+rt_nsource=8                    !-----------------------------------------
+rt_source_type=8*'point'
+rt_src_x_center=8*5.
+rt_src_y_center=8*5.
+rt_src_z_center=8*5.
+rt_src_length_x=8*1.0
+rt_src_length_y=8*1.0
+rt_src_length_z=8*1.0
+rt_src_group=1,2,3,4,5,6,7,8
+! Parameters for an O4V star
+rt_n_source=7.089d48,1.377d50,1.890d50,5.679d49,2.929d49,7.947d49,1.650d49,2.154d46
+isHe=.true.
+isH2=.true.
+isH2Katz=.true.
+H2clumping=0.d0 !--> essentially turns off H2 formation
+LWgroup=4
+isCO=.true.
+include_collisional_ionization=.true.   ! We like ions
+include_photoionisation=.true.          ! A lot
+include_charge_transfer=.true.          ! PRISM
+include_ct_heat_cool=.true.             ! PRISM Heating and cooling from charge transfer
+include_grain_recombination=.true.      ! PRISM
+include_cosmic_ray_ionization=.false.   ! No c-ray for MEGATRON
+include_cosmic_ray_heating=.false.      ! Same as above
+include_dust_heat_cool=.true.           ! PRISM
+PEH=.true.
+xi_h_cr=0.d0                            ! No c-ray for MEGATRON
+low_t_noneq_cooling=.true.              ! We like fine structure cooling
+simple_dust_depletion=.false.            ! Deplete metals onto dust
+metal_cooling_catastrophe_fix=.false.   ! We leave metal cooling turned on at all times
+metal_cooling_catastrophe_rho=0.005d0   ! Only matters for the above
+rt_Lya_pressure=.false.               ! Don't include that
+dust2metal_RR14=.false.
+use_cloudy_prim_rates=.true.           ! Use Ramses-RT H and He rates rather than Cloudy
+/
+
+&RT_GROUPS
+group_csn(1,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_cse(1,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_csn(2,:)= 0.,0.,0.,0.   ! pck 2-> HI, HeI, HeII
+group_cse(2,:)= 0.,0.,0.,0.   ! pck 2-> HI, HeI, HeII
+group_csn(3,:)= 0.,0.,0.,0.   ! pck 3-> HI, HeI, HeII
+group_cse(3,:)= 0.,0.,0.,0.   ! pck 3-> HI, HeI, HeII
+group_csn(4,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_cse(4,:)= 0.,0.,0.,0.   ! pck 1-> HI, HeI, HeII
+group_csn(5,:)= 0.000E+00,   5.498E-18,   0.000E+00,   0.000E+00   ! pck 2-> HI, HeI, HeII
+group_cse(5,:)= 0.000E+00,   5.483E-18,   0.000E+00,   0.000E+00   ! pck 2-> HI, HeI, HeII
+group_csn(6,:)= 0.000E+00,   2.899E-18,   0.000E+00,   0.000E+00   ! pck 3-> HI, HeI, HeII
+group_cse(6,:)= 0.000E+00,   2.769E-18,   0.000E+00,   0.000E+00
+group_csn(7,:)= 0.000E+00,   8.277E-19,   5.790E-18,   0.000E+00
+group_cse(7,:)= 0.000E+00,   7.885E-19,   5.605E-18,   0.000E+00
+group_csn(8,:)= 0.000E+00,   1.010E-19,   1.459E-18,   1.327E-18
+group_cse(8,:)= 0.000E+00,   9.982E-20,   1.445E-18,   1.312E-18
+kappaAbs      = 0.0,  1d3,   1d3,   1d3,   1d3,   1d3,    1d3,    1d3
+kappaSc       = 5.0,    0,     0,     0,     0,     0,      0,      0
+group_egy     = 0.1,  1.0, 8.245, 12.343, 14.371, 18.710, 29.321, 58.615
+groupL0       = 0.1,  1.0,  5.60, 11.20, 13.60, 15.20, 24.590, 54.420
+groupL1       = 1.0,  5.6, 11.20, 13.60, 15.20, 24.59, 54.420, 500.00
+spec2group    = 4,5,6,7             ! H2, HI, HeI, HeII -> pck
+/
+
+&BOUNDARY_PARAMS
+nboundary=6
+ibound_min=-1,+1,-1,-1,-1,-1
+ibound_max=-1,+1,+1,+1,+1,+1
+jbound_min= 0, 0,-1,+1,-1,-1
+jbound_max= 0, 0,-1,+1,+1,+1
+kbound_min= 0, 0, 0, 0,-1,+1
+kbound_max= 0, 0, 0, 0,-1,+1
+bound_type= 2, 2, 2, 2, 2, 2
+/
