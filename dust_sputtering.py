@@ -439,7 +439,7 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
 
 def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                              ion_atomic_numbers,ion_charges,ion_abundances,
-                             nT=100,nbins_v=100):
+                             nT=100,nbins_v=100,label=''):
     """Plotting routine that allows the comparison of our current
     dust sputtering model with different properties and the original
     Nozawa et al. (2006) results.
@@ -468,6 +468,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     ax.set_ylabel(r'Sputtering rate $(1/n_{\rm H})da/dt$ [cm$^3 \mu$m yr$^{-1}$]', fontsize=14)
     ax.set_xlabel(r'$T$ [K]',fontsize=14)
     ax.set_ylim([1e-9,1e-4])
+    ax.set_xlim([6e3,1e9])
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.tick_params(labelsize=12)
@@ -485,60 +486,131 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     ax.plot(Tgas,Y_Sil,linestyle='--',color='sandybrown',label='Sil: Nozawa et al. (2006)')
     ax.plot(Tgas,Y_C,linestyle='--',color='cornflowerblue',label='C: Nozawa et al. (2006)')
     
-    # 3. Compute the rates for each grain type
-    Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
-                                        ion_atomic_masses,
-                                        ion_atomic_numbers,
-                                        ion_charges,
-                                        ion_abundances,
-                                        nT,nbins_v,
-                                        False,False)
-    ax.plot(Tgas,Y_smallC,linestyle='-',color='steelblue',label='smallC: No size correction')
+    with open(f"thermal_sputtering_polynomial_fits{label}.txt", "w") as file:
+        file.write("Thermal Dust sputtering Fit Results (with size and charge corrections)\n")
+        file.write("======================\n")
+        file.write("Polynomial Coefficients smallC grains:\n")
     
-    Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
-                                        ion_atomic_masses,
-                                        ion_atomic_numbers,
-                                        ion_charges,
-                                        ion_abundances,
-                                        nT,nbins_v,
-                                        True,False)
-    ax.plot(Tgas,Y_smallC,linestyle=(0, (3, 1, 1, 1)),color='steelblue',label='smallC: With size correction')
-    
-    Tgas, Y_largeC = total_erosion_rate(Tmin,Tmax,'largeC',
-                                        ion_atomic_masses,
-                                        ion_atomic_numbers,
-                                        ion_charges,
-                                        ion_abundances,
-                                        nT,nbins_v,
-                                        True,False)
-    ax.plot(Tgas,Y_largeC,linestyle=':',color='cornflowerblue',label='largeC: With size correction')
-    
-    Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
-                                        ion_atomic_masses,
-                                        ion_atomic_numbers,
-                                        ion_charges,
-                                        ion_abundances,
-                                        nT,nbins_v,
-                                        False,False)
-    ax.plot(Tgas,Y_smallSil,linestyle='-',color='saddlebrown',label='smallSil: No size correction')
-    
-    Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
-                                        ion_atomic_masses,
-                                        ion_atomic_numbers,
-                                        ion_charges,
-                                        ion_abundances,
-                                        nT,nbins_v,
-                                        True,False)
-    ax.plot(Tgas,Y_smallSil,linestyle=(0, (3, 1, 1, 1)),color='saddlebrown',label='smallSil: With size correction')
-    
-    Tgas, Y_largeSil = total_erosion_rate(Tmin,Tmax,'largeSil',
-                                        ion_atomic_masses,
-                                        ion_atomic_numbers,
-                                        ion_charges,
-                                        ion_abundances,
-                                        nT,nbins_v,
-                                        True,False)
-    ax.plot(Tgas,Y_largeSil,linestyle=':',color='sandybrown',label='largeSil: With size correction')
+        # 3. Compute the rates for each grain type
+        Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            False,False)
+        ax.plot(Tgas,Y_smallC,linestyle='-',color='steelblue',label='smallC: No size correction')
+        
+        Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+        ax.plot(Tgas,Y_smallC,linestyle=(0, (3, 1, 1, 1)),color='steelblue',label='smallC: With size correction')
+        print(Y_smallC)
+        coefficients = np.polyfit(np.log10(Tgas[Y_smallC>0]), np.log10(Y_smallC[Y_smallC>0]), 5)
+        poly_fit = np.poly1d(coefficients)
+        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        
+        file.write("f(x) = ")
+        for i, coeff in enumerate(coefficients):
+            file.write(f"{coeff:.3e}x^{5-i} ")
+            if i < len(coefficients) - 1:
+                file.write("+ ")
+        file.write("\n")
+        file.write("\n")
+        file.write("Original Data (Tgas, Yield):\n")
+        for i in range(len(Tgas)):
+            file.write(f"{Tgas[i]:.6e}, {Y_smallC[i]:.6e}\n")
+        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients largeC grains:\n")
+        Tgas, Y_largeC = total_erosion_rate(Tmin,Tmax,'largeC',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+        ax.plot(Tgas,Y_largeC,linestyle=':',color='cornflowerblue',label='largeC: With size correction')
+        coefficients = np.polyfit(np.log10(Tgas[Y_largeC>0]),  np.log10(Y_largeC[Y_largeC>0]), 5)
+        poly_fit = np.poly1d(coefficients)
+        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        
+        file.write("f(x) = ")
+        for i, coeff in enumerate(coefficients):
+            file.write(f"{coeff:.6e}x^{5-i} ")
+            if i < len(coefficients) - 1:
+                file.write("+ ")
+        file.write("\n")
+        file.write("\n")
+        file.write("Original Data (Tgas, Yield):\n")
+        for i in range(len(Tgas)):
+            file.write(f"{Tgas[i]:.6e}, {Y_largeC[i]:.6e}\n")
+        
+        Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            False,False)
+        ax.plot(Tgas,Y_smallSil,linestyle='-',color='saddlebrown',label='smallSil: No size correction')
+        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients smallSil grains:\n")
+        Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+        ax.plot(Tgas,Y_smallSil,linestyle=(0, (3, 1, 1, 1)),color='saddlebrown',label='smallSil: With size correction')
+        coefficients = np.polyfit(np.log10(Tgas[Y_smallSil>0]),  np.log10(Y_smallSil[Y_smallSil>0]), 5)
+        poly_fit = np.poly1d(coefficients)
+        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        
+        file.write("f(x) = ")
+        for i, coeff in enumerate(coefficients):
+            file.write(f"{coeff:.6e}x^{5-i} ")
+            if i < len(coefficients) - 1:
+                file.write("+ ")
+        file.write("\n")
+        file.write("\n")
+        file.write("Original Data (Tgas, Yield):\n")
+        for i in range(len(Tgas)):
+            file.write(f"{Tgas[i]:.6e}, {Y_smallSil[i]:.6e}\n")
+        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients largeSil grains:\n")
+        Tgas, Y_largeSil = total_erosion_rate(Tmin,Tmax,'largeSil',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+        ax.plot(Tgas,Y_largeSil,linestyle=':',color='sandybrown',label='largeSil: With size correction')
+        
+        coefficients = np.polyfit(np.log10(Tgas[Y_largeSil>0]),  np.log10(Y_largeSil[Y_largeSil>0]), 5)
+        poly_fit = np.poly1d(coefficients)
+        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        
+        file.write("f(x) = ")
+        for i, coeff in enumerate(coefficients):
+            file.write(f"{coeff:.6e}x^{5-i} ")
+            if i < len(coefficients) - 1:
+                file.write("+ ")
+        file.write("\n")
+        file.write("\n")
+        file.write("Original Data (Tgas, Yield):\n")
+        for i in range(len(Tgas)):
+            file.write(f"{Tgas[i]:.6e}, {Y_largeSil[i]:.6e}\n")
+            
+    print(f"Results written to thermal_sputtering_polynomial_fits{label}.txt")
     
     ax.legend(loc='best', frameon=False, fontsize=10, ncol=2)
     fig.subplots_adjust(top=0.98,bottom=0.1,left=0.15,right=0.99,hspace=0,wspace=0)
