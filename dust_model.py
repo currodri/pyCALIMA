@@ -17,11 +17,11 @@ sec2Myr = 3.1536e13
 
 # Model parameters
 
-basic_a0 = np.array([5e-4,5e-3,1e-1,5e-4,5e-3,1e-1])
-basic_amin = np.array([1e-4,1e-4,1e-4,1e-4,1e-4,1e-4])
-basic_amax = np.array([2e-3,1,1,2e-3,1,1])
-basic_sigma = np.array([0.4,0.75,0.75,0.4,0.75,0.75])
-basic_s = np.array([2,2.2,2.2,3.3,3.3,3.3])
+basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,1e-2,1e-1])
+basic_amin = np.array([1e-4,1e-4,1e-4,4e-4,4e-4,4e-4])
+basic_amax = np.array([3e-3,9e-3,1,1,2e-3,1,1])
+basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.7,0.8])
+basic_s = np.array([2,2,2.2,2.2,3.3,3.3,3.3])
 
 # Tielens et al. (1994) - Thermal sputtering rates for silicate 
 # and carbonaceous grains. See https://ui.adsabs.harvard.edu/abs/1994ApJ...431..321T/abstract
@@ -97,7 +97,7 @@ def plot_dust_sputtering():
     from scipy.optimize import curve_fit
     import matplotlib.pyplot as plt
     import seaborn as sns
-    sns.set(style="white")
+    sns.set_theme(style="white")
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,4), dpi=300, facecolor='w', edgecolor='k')
     
     T = np.logspace(3,10,1000)
@@ -154,7 +154,7 @@ def plot_dust_sputtering():
     fig.savefig('dust_thermal_sputtering.png',format='png',dpi=300)
     plt.close(fig)
 
-def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius):
+def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius,gamma=None):
     from scipy.stats import norm
     # This uses the fitting function from Ibanez-Mejias et al. (2019)
     # (https://ui.adsabs.harvard.edu/abs/2019MNRAS.485.1220I/abstract)
@@ -208,7 +208,10 @@ def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius):
                                         'eta-':4.7029e3}}}
 
     sfit = fit_params[grain_type][grain_radius]
-    charPar = Gtot *np.sqrt(T) / ne
+    if gamma != None:
+        charPar = gamma
+    else:
+        charPar = Gtot *np.sqrt(T) / ne
     Z = sfit['k'] * (1.0 - np.exp(-charPar/sfit['hz'])) * (charPar**sfit['alpha']) + sfit['b']
     if Z>0:
         sigma = sfit['c+'] * (1.0 - np.exp(-Z/sfit['eta+'])) + sfit['d']
@@ -223,6 +226,65 @@ def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius):
         dist[i] = (1. / (sigma * np.sqrt(2.*np.pi))) * np.exp(-0.5*((float(x[i]) - Z) / sigma)**2.)
     dist = dist / np.sum(dist)
     return dist,x
+
+def grain_mean_charge(Gtot,T,ne,grain_type,grain_radius,gamma=None):
+    from scipy.stats import norm
+    # This uses the fitting function from Ibanez-Mejias et al. (2019)
+    # (https://ui.adsabs.harvard.edu/abs/2019MNRAS.485.1220I/abstract)
+    # which are detailed in the Eq. 17-19.
+    
+    # Fitting parameters form their Table 1
+    fit_params = {'silicates':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
+                                        'c+':0.4123,'eta+':0.2513,'d':0.1891,'c-':0.4845,
+                                        'eta-':0.3532},
+                                '5A':{'alpha':0.3141,'k':0.0372,'b':-0.3043,'hz':86,
+                                        'c+':0.2734,'eta+':0.2925,'d':0.3233,'c-':0.3615,
+                                        'eta-':0.6532},
+                                '10A':{'alpha':0.3535,'k':0.0494,'b':-0.4865,'hz':73,
+                                        'c+':0.4353,'eta+':0.7459,'d':0.4451,'c-':0.1053,
+                                        'eta-':0.5803},
+                                '50A':{'alpha':0.5115,'k':0.0717,'b':-0.4106,'hz':107,
+                                        'c+':1.0758,'eta+':1.7832,'d':0.5860,'c-':-1.0379e3,
+                                        'eta-':7.7069e3},
+                                '100A':{'alpha':0.3525,'k':0.6591,'b':-0.1649,'hz':384,
+                                        'c+':1.6245,'eta+':2.8390,'d':0.6346,'c-':-4.2075e2,
+                                        'eta-':1.9840e3},
+                                '500A':{'alpha':0.3643,'k':2.6283,'b':0.5217,'hz':345,
+                                        'c+':4.0732,'eta+':11.0200,'d':0.6797,'c-':-0.2418,
+                                        'eta-':0.5910},
+                                '1000A':{'alpha':0.3927,'k':3.6493,'b':0.8389,'hz':372,
+                                        'c+':5.9813,'eta+':20.6410,'d':0.6961,'c-':-0.1885,
+                                        'eta-':0.4237}},
+
+                'carbonaceous':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
+                                        'c+':0.3103,'eta+':0.2744,'d':0.2551,'c-':0.3766,
+                                        'eta-':0.5241},
+                                '5A':{'alpha':0.4386,'k':0.0195,'b':-0.3084,'hz':95,
+                                        'c+':0.3699,'eta+':0.5654,'d':0.4158,'c-':0.2890,
+                                        'eta-':1.6241},
+                                '10A':{'alpha':0.4994,'k':0.0199,'b':-0.4959,'hz':78,
+                                        'c+':0.6511,'eta+':0.9839,'d':0.5275,'c-':0.0213,
+                                        'eta-':0.0977},
+                                '50A':{'alpha':0.6009,'k':0.0523,'b':-0.4092,'hz':218,
+                                        'c+':1.6536,'eta+':2.6688,'d':0.6671,'c-':-9.5138,
+                                        'eta-':35.3519},
+                                '100A':{'alpha':0.2900,'k':2.2310,'b':-0.2061,'hz':1063,
+                                        'c+':2.5445,'eta+':4.3352,'d':0.7010,'c-':-2.5341e3,
+                                        'eta-':8.1962e3},
+                                '500A':{'alpha':0.3400,'k':5.8944,'b':0.1727,'hz':1034,
+                                        'c+':5.9455,'eta+':18.3186,'d':0.8377,'c-':-2.4189e3,
+                                        'eta-':4.9424e3},
+                                '1000A':{'alpha':0.3500,'k':9.6536,'b':0.4183,'hz':1273,
+                                        'c+':8.7003,'eta+':36.1014,'d':0.9094,'c-':-2.6009e3,
+                                        'eta-':4.7029e3}}}
+
+    sfit = fit_params[grain_type][grain_radius]
+    if gamma != None:
+        charPar = gamma
+    else:
+        charPar = Gtot *np.sqrt(T) / ne
+    Z = sfit['k'] * (1.0 - np.exp(-charPar/sfit['hz'])) * (charPar**sfit['alpha']) + sfit['b']
+    return Z
 
 def cmp_D_WD99(charge_dist,x,Zi,T,a):
     # This is based on Eq. 6-7 in Weingartner & Draine (1999) which allows
@@ -461,142 +523,6 @@ def plot_ratd_timescale(gamma,lmean,Smax,nH,Tgas):
     fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
     fig.savefig('dust_ratd_timescales.png',format='png',dpi=300)
     plt.close(fig)
-    
-    
-# def plot_shattering_frag(asize,grain_s,nsigma=100):
-#     # This function plots the shattering fragment distribution for big grains
-#     # based on the power-law model 
-#     import matplotlib.pyplot as plt
-#     import seaborn as sns
-#     sns.set(style="white")
-#     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,6), dpi=300, facecolor='w', edgecolor='k')
-    
-#     a = np.logspace(-4,1,1000)
-#     n = a**(-3.3)
-    
-#     ax.plot(a,n,'k-')
-    
-#     ax.axvspan(1e-4, 1e-3, alpha=0.5, color='blue')
-#     ax.axvspan(1e-3, 2e-2, alpha=0.5, color='green')
-#     ax.axvspan(2e-2, 0.3, alpha=0.5, color='red')
-    
-#     ax.set_ylabel(r'$n_{\rm frag}(a)$', fontsize=13)
-#     ax.set_xlabel(r'$a$ [$\mu$m]',fontsize=16)
-#     #ax.set_ylim([1e-4,1e2])
-#     ax.set_yscale('log')
-#     ax.set_xscale('log')
-#     ax.tick_params(labelsize=12)
-#     ax.xaxis.set_ticks_position('both')
-#     ax.yaxis.set_ticks_position('both')
-#     ax.minorticks_on()
-#     ax.tick_params(which='both',axis="both",direction="in")
-    
-#     fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
-#     fig.savefig('big_shattering_dist.png',format='png',dpi=300)
-#     plt.close(fig)
-    
-#     # Compute shattering model quantities (Hirashita & Yan 2009)
-#     P1 = [3e11,4e10]       # [dyn/cm**2]
-#     Pv = [5.4e12,5.8e12]   # [dyn/cm**2]
-#     c0 = [5e5,1.8e5]           # [cm/s]
-#     s  = [1.2,1.9]
-#     v_shat = [2.7e5,1.2e5]     # [cm/s]
-#     R = 1.
-
-#     sigma = np.linspace(0.01*1e5,10*1e5,nsigma)
-#     for t in range(0,2):
-#         M_dest = np.zeros(nsigma)
-#         M_PAHs = np.zeros(nsigma)
-#         M_small = np.zeros(nsigma)
-#         M_big = np.zeros(nsigma)
-#         for i in range(0,nsigma):
-#             mach_r = sigma[i] / c0[t] / (1.+R)
-#             phi_1 = P1[t] / (grain_s * c0[t]**2.)
-#             mach_1 = 2. * phi_1 / (1.+np.sqrt(1.+4.*s[t]*phi_1))
-#             sigma_1 = 0.3 * (s[t]+mach_1**-1.-0.11)**0.13 / (s[t]+mach_1**-1.-1.)
-#             sigma_r = 0.3 * (s[t]+mach_r**-1.-0.11)**0.13 / (s[t]+mach_r**-1.-1.)
-#             mach_r = sigma[i] / c0[t]
-#             shocked_ratio = (1.+2*R)/(1.+R)**(9./16.) * sigma_r**(-1./9.)*(mach_r**2./(sigma_1*mach_1**2.))**(8./9.)
-#             v_cat = c0[t]*(1./(1.+2.*R))**(9./16.)*np.sqrt(sigma_1)*sigma_r**(1./16.)*(1.+R)*mach_1
-#             a_fmax = 0.22*asize*(v_cat/sigma[i])
-#             a_fmin = 0.03*a_fmax
-#             m_grain = 4./3.*np.pi*grain_s*(asize*1e-4)**3.
-#             print(a_fmax,a_fmin,asize)
-#             if shocked_ratio > 0.5:
-#                 print('Whole grain is shattered!')
-#                 m_ej = 1.
-#                 m_return = 0.
-#             else:
-#                 print('Only 0.4 of the shocked mass is ejected...')
-#                 m_ej = 0.4 * shocked_ratio
-#                 m_return = 1. - m_ej
-#                 a_return = (3*m_return*m_grain/(4.*np.pi*grain_s))**(1./3.)
-#                 a_return = a_return/1e-4
-                
-#             # Compute mass fractions
-#             if a_fmin >= 1e-4:
-#                 M_dest[i] = 0.
-#             else:
-#                 M_dest[i] = 4./3. * np.pi * ((min(1e-4,a_fmax)**0.7-a_fmin**0.7)/0.7) * basic_s[0+3*t]
-#                 if M_dest[i] < 0.:
-#                     M_dest[i] = 0.
-#             if a_fmin >= 1e-3:
-#                 M_PAHs[i] = 0.
-#             else:
-#                 M_PAHs[i] = 4./3. * np.pi * ((min(1e-3,a_fmax)**0.7-max(1e-4,a_fmin)**0.7)/0.7) * basic_s[0+3*t]
-#                 if M_PAHs[i] <0.:
-#                     M_PAHs[i] = 0.
-#             if a_fmin >= 2e-2:
-#                 M_small[i] = 0.
-#             else:
-#                 M_small[i] = 4./3. * np.pi * ((min(2e-2,a_fmax)**0.7-max(1e-3,a_fmin)**0.7)/0.7) * basic_s[1+3*t]
-#                 if M_small[i] <0.:
-#                     M_small[i] = 0.
-#             if a_fmin >= 0.3:
-#                 M_big[i] = 0.
-#             else:
-#                 M_big[i] = 4./3. * np.pi * ((min(0.3,a_fmax)**0.7-max(2e-2,a_fmin)**0.7)/0.7) * basic_s[2+3*t]
-#                 if M_big[i] < 0.:
-#                     M_big[i] = 0.
-            
-#             M_tot = (M_dest[i] + M_PAHs[i] + M_small[i] + M_big[i])/m_ej
-#             M_dest[i] = M_dest[i]/M_tot
-#             M_PAHs[i] = M_PAHs[i]/M_tot
-#             M_small[i] = M_small[i]/M_tot
-#             M_big[i] = M_big[i]/M_tot
-#             if 1e-3 <= a_return < 2e-2:
-#                 M_small[i] += m_return
-#             elif 2e-2 <= a_return < 0.3:
-#                 M_big[i] += m_return
-
-#             print('==== Shattering destruction fractions for big (%.5f mum) grains ===='%asize)
-#             print(' Fraction to gas:   ',M_dest[i])
-#             print(' Fraction to PAHs:  ',M_PAHs[i])
-#             print(' Fraction to small: ',M_small[i])
-#             print(' Fraction to big:   ',M_big[i])
-#             print(' Total:             ',M_dest[i]+M_PAHs[i]+M_small[i]+M_big[i])
-
-#         fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,6), dpi=300, facecolor='w', edgecolor='k')
-#         ax.set_ylabel(r'$\chi_{\rm frag}(a,\sigma_{\rm gr})$', fontsize=13)
-#         ax.set_xlabel(r'$\sigma$ [km/s]',fontsize=16)
-#         ax.tick_params(labelsize=12)
-#         ax.set_ylim([1e-4,1])
-#         ax.set_yscale('log')
-#         ax.xaxis.set_ticks_position('both')
-#         ax.yaxis.set_ticks_position('both')
-#         ax.minorticks_on()
-#         ax.tick_params(which='both',axis="both",direction="in")
-        
-#         ax.plot(sigma/1e5,M_dest,label='Destroyed')
-#         ax.plot(sigma/1e5,M_PAHs,label='Very small grains')
-#         ax.plot(sigma/1e5,M_small,label='Small grains')
-#         ax.plot(sigma/1e5,M_big,label='Large grains')
-#         ax.legend(loc='best',fontsize=10,frameon=False)
-        
-#         fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
-#         fig.savefig('shattering_efficiency_%s.png'%t,format='png',dpi=300)
-#         plt.close(fig)
-
 
 def t_shattering(Dbig,nH,a,s):
     
@@ -1699,3 +1625,58 @@ def plot_coagulation_single(nH,ne,T,Lmax,phase_name,GDR_small,GDR_big,nMach=100)
     fig2.subplots_adjust(top=0.98,bottom=0.07,left=0.16,right=0.99,hspace=0,wspace=0)
     fig2.savefig('coagulation_timescale_%s.pdf'%phase_name,format='pdf',dpi=300)
     plt.close(fig2)
+    
+def photo_sublimation(Umin,Umax,nU=100):
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    
+    U = np.logspace(np.log10(Umin),np.log10(Umax),nU)
+    
+    # Compute the corresponding dust temperatures based on the
+    # approximations of Draine (2011) (Eqs. 24.19, 24.20)
+    
+    T_sil = [16.4*(basic_a0[5]/0.1)**(-1./15.)*U**(1./6.),
+             16.4*(basic_a0[6]/0.1)**(-1./15.)*U**(1./6.)]
+    
+    T_car = [22.3*(basic_a0[2]/0.1)**(-1./40.)*U**(1./6.),
+             22.3*(basic_a0[3]/0.1)**(-1./40.)*U**(1./6.)]
+        
+    # Now compute the sublimation timescales as obtained from 
+    # Guhathakurta & Draine (1989) and Waxman and Draine (2000)
+    tau_sil = [6.36e3 * (basic_a0[5]/0.1) * np.exp(68100. * (1./T_sil[0] - 1./1800.)),
+               6.36e3 * (basic_a0[6]/0.1) * np.exp(68100. * (1./T_sil[1] - 1./1800.))]
+
+    tau_car = [1.36 * (basic_a0[2]/0.1) * np.exp(81200. * (1./T_car[0] - 1./3000.)),
+               1.36 * (basic_a0[3]/0.1) * np.exp(81200. * (1./T_car[1] - 1./3000.))]
+    print(tau_sil,tau_car)
+    
+    # Build the figure
+    fig, ax = plt.subplots(1,1, figsize=(6,5),dpi=300,facecolor='w',edgecolor='k')
+    
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    
+    # Add resulting data
+    ax.plot(U,tau_sil[0]/sec2Myr,linestyle='-',color='saddlebrown',label='SmallSil')
+    ax.plot(U,tau_sil[1]/sec2Myr,linestyle='--',color='sandybrown',label='LargeSil')
+    ax.plot(U,tau_car[0]/sec2Myr,linestyle='-',color='steelblue',label='SmallC')
+    ax.plot(U,tau_car[1]/sec2Myr,linestyle='--',color='cornflowerblue',label='LargeC')
+    
+    ax.set_ylabel(r'$t_{\rm sub}$ [Myr]', fontsize=20)
+    ax.set_xlabel(r'Draine Field $U$', fontsize=20)
+    ax.legend(loc='best', frameon=False, fontsize=14, ncol=2)
+    fig.subplots_adjust(top=0.98,bottom=0.1,left=0.15,right=0.99,hspace=0,wspace=0)
+    fig.savefig('dust_sublimation.png',format='png',dpi=300)
+    plt.close(fig)

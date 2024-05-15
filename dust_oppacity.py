@@ -120,19 +120,20 @@ def plot_efficiencies(filename,dust_type='grains',
         data,columns,name = pah_efficiencies(filename)
     
     if 'PAH' in name:
-        dist = [LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])]
-        ndist = 1
-        linestyles = ['-']
-        name = ['PAHs']
+        dist = [LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0]),
+                LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])]
+        ndist = 2
+        linestyles = ['-.','-']
+        name = ['smallPAHs','largePAHs']
     elif 'Graphite' in name:
-        dist = [LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1]),
-                LogNormal_Distribution(basic_a0[2],basic_amin[2],basic_amax[2],basic_sigma[2],basic_s[2])]
+        dist = [LogNormal_Distribution(basic_a0[2],basic_amin[2],basic_amax[2],basic_sigma[2],basic_s[2]),
+                LogNormal_Distribution(basic_a0[3],basic_amin[3],basic_amax[3],basic_sigma[3],basic_s[3])]
         ndist = 2
         linestyles = ['-.','-']
         name = ['smallC','largeC']
     elif 'silicate' in name:
-        dist = [LogNormal_Distribution(basic_a0[3],basic_amin[3],basic_amax[3],basic_sigma[3],basic_s[3]),
-                LogNormal_Distribution(basic_a0[4],basic_amin[4],basic_amax[4],basic_sigma[4],basic_s[4])]
+        dist = [LogNormal_Distribution(basic_a0[4],basic_amin[4],basic_amax[4],basic_sigma[4],basic_s[4]),
+                LogNormal_Distribution(basic_a0[5],basic_amin[5],basic_amax[5],basic_sigma[5],basic_s[5])]
         ndist = 2
         linestyles = ['-.','-']
         name = ['smallSil','largeSil']

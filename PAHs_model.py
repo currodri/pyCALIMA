@@ -11,6 +11,10 @@ By: Curro Rodriguez (currodri@gmail.com)
 import numpy as np
 import pandas as pd
 from dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
+from dust_model import relative_velocity,grain_charge_dist,cmp_D_WD99
+from unyt import mh,kb
+
+sec2Myr = 3.1536e13
 
 # Galliano data on dust destruction timescales by UV photons
 # See https://irfu.cea.fr/Pisp/frederic.galliano/HDR/hdrch6.html#x7-3070004 (Section 4.2.2.1)
@@ -72,12 +76,13 @@ def size_from_Nc(Nc):
 
     return 10*((float(Nc)/418))**(1/3)
 
-def plot_distribution(rho_gas,D_PAHs,D_small,D_large):
+def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_small,D_large):
     """Create figure for the plotting of the full dust distribution.
 
     Args:
         rho_gas (float): Gas density in g/cm^3
-        D_PAHs (float): PAHs mass fraction
+        D_smallPAHs (float): Small PAHs mass fraction
+        D_largePAHs (float): Large PAHs mass fraction
         D_small (float): Small carbonaceous fraction
         D_large (float): Large carbonaceous fraction
     """
@@ -87,22 +92,25 @@ def plot_distribution(rho_gas,D_PAHs,D_small,D_large):
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
 
     sizes = np.logspace(np.log10(1e-4),np.log10(1),1000)
-    PAHs = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
-    small = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
-    large = LogNormal_Distribution(basic_a0[2],basic_amin[2],basic_amax[2],basic_sigma[2],basic_s[2])
+    smallPAHs = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    largePAHs = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
+    small = LogNormal_Distribution(basic_a0[2],basic_amin[2],basic_amax[2],basic_sigma[2],basic_s[2])
+    large = LogNormal_Distribution(basic_a0[3],basic_amin[3],basic_amax[3],basic_sigma[3],basic_s[3])
 
-    n_PAHs = PAHs.n_density(rho_gas*D_PAHs,sizes)
+    n_smallPAHs = smallPAHs.n_density(rho_gas*D_smallPAHs,sizes)
+    n_largePAHs = largePAHs.n_density(rho_gas*D_largePAHs,sizes)
     n_small = small.n_density(rho_gas*D_small,sizes)
     n_large = large.n_density(rho_gas*D_large,sizes)
 
-    n_tot = n_PAHs + n_small + n_large
+    n_tot = n_smallPAHs + n_largePAHs + n_small + n_large
 
     n_tot = (sizes**4)*n_tot
 
-    ax.plot(sizes,n_tot,'k-',label='Total')
-    ax.plot(sizes,(sizes**4)*n_PAHs,'--',color='blue',label='PAHs')
+    ax.plot(sizes,(sizes**4)*n_smallPAHs,'--',color='blue',label='Small PAHs')
+    ax.plot(sizes,(sizes**4)*n_largePAHs,'--',color='royalblue',label='Large PAHs')
     ax.plot(sizes,(sizes**4)*n_small,'-.',color='green',label='Small CDust')
     ax.plot(sizes,(sizes**4)*n_large,':',color='red',label='Large CDust')
+    ax.plot(sizes,n_tot,'k-',label='Total')
     ax.set_ylabel(r'$a^4 n(a)$', fontsize=16)
     ax.set_xlabel(r'$a$ [$\mu$m]',fontsize=16)
     ax.set_ylim([1e-30,3e-27])
@@ -366,6 +374,8 @@ def plot_H2rate():
         bounds = ([-np.inf,-np.inf,0,-np.inf],np.inf)
         popt,pcov = curve_fit(H2_func1,x[~np.isnan(x)],np.log10(y[~np.isnan(x)]),bounds=bounds)
         fittings.append(popt)
+        if Nc[i] == 50:
+            popt_main = popt
 
     PAHs = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
     sizes = np.array([size_from_Nc(n) for n in Nc])
@@ -376,9 +386,10 @@ def plot_H2rate():
             r[j] = H2_func1(X[i],*fittings[j])
         R_avg[i] = PAHs.averaged_over(r,sizes*1e-4)
     popt,pcov = curve_fit(H2_func1,X,R_avg)
-    print('Fitting for H2 formation (LePage+2009): ',popt)
-    print(X,10**H2_func1(X,*popt))
+    print('Fitting for H2 formation (LePage+2009): ',popt_main)
     ax.plot(X,10**H2_func1(X,*popt),'k-',label='Average over PAHs distribution')
+    ax.plot(X,10**H2_func1(X,*popt_main)*(50/32),'k-',label='Average over PAHs distribution Nc=32')
+    ax.plot(X,10**H2_func1(X,*popt_main)*(50/150),'k-',label='Average over PAHs distribution Nc=150')
     
     ax.set_ylabel(r'Rate Coefficient $R_{\rm H_2}$ [cm$^3$/s]', fontsize=16)
     ax.set_xlabel(r'$n_t/\chi$ [$n_t$ in cm$^{-3}$ and $\chi$ in Draine units]',fontsize=16)
@@ -396,3 +407,342 @@ def plot_H2rate():
     
     fig.savefig('H2_rate_PAHs.png',format='png',dpi=300)
     plt.close(fig)
+    
+def pah_coalescence(GDR_PAHs,nMach=100):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    from utils import as_si,sigmoid_function
+    from scipy.special import erfc
+    
+    fig2, axes2 = plt.subplots(1,3, figsize=(10,5),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
+    
+    
+    phases = {'DC1':{'T':10,'nH':1e4,'ne':0.01,'L':1,'G0':0.01},
+              'MC':{'T':25,'nH':300,'ne':0.03,'L':1,'G0':0.1},
+              'CNM':{'T':100,'nH':30,'ne':0.0991,'L':0.64,'G0':1.}}
+    
+    phase_colors = ['indigo','goldenrod','b']
+    
+    # Add GDR text
+    axes2[0].text(0.4, 0.8,r'GDR($a_{\rm PAH}$)'+r'$={0:s}$'.format(as_si(GDR_PAHs,2)),
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=axes2[0].transAxes,fontsize=14)
+    
+    
+    mass_pah = (4./3.) * np.pi * (basic_a0[0]*1e-4)**3. * basic_s[0]
+    
+    Mach = np.logspace(-1,1,nMach)
+    e = 4.8032047e-10 # statC
+    kB = 1.380649e-16
+    
+    # Loop over ISM phases
+    for p,phase_name in enumerate(phases):
+        ax2 = axes2[p]
+        phase = phases[phase_name]
+        nH = phase['nH']
+        T = phase['T']
+        ne = phase['ne']
+        Lmax = phase['L']
+        G0 = phase['G0']
+        
+        rho_PAH = nH * mh.to('g').d * (1./GDR_PAHs)
+        n_PAH = rho_PAH / mass_pah
+        
+        t_coal = np.zeros(nMach)
+        
+        for i in range(0, nMach):
+            # Boosting of density due to subgrid turbulence
+            lambda_jeans = 3.8409904e7 * np.sqrt(T/(nH*mh.to('g').d))
+            nhmax_coa = 1e20
+            sigs = np.log(1.+(0.4*Mach[i])**2.)
+            sigs2 = sigs**2.
+            smax = np.log(nhmax_coa/nH)
+            boost_coa = 0.5*np.exp(sigs2)*erfc((1.5*sigs2-smax)/(np.sqrt(2.)*sigs))
+            L = Lmax * 3.0857e18 # [cm]
+            if T>1e4 or nH<1e2 or lambda_jeans>4*L:
+                boost_coa = 1.
+                
+            # Relative velocity given by Brownian motion
+            v_brownian = np.sqrt(16. * kb.to('cm**2*g/s**2/K').d * T / mass_pah)
+        
+            # Compute the PAH charge distribution and Coulomb enhancement
+            f,Z = grain_charge_dist(G0,T,ne*boost_coa,'carbonaceous','5A')
+            D = 0.
+            for j in range(0, len(Z)):
+                Zj = Z[j]
+                B = 0.
+                if Zj != 0:
+                    for k in range(0, len(Z)):
+                        Zk = Z[k]
+                        if Zj*Zk>0:
+                            B += f[k] * np.exp(-Zj*Zk*e**2./(kB*T*(basic_a0[0]*1e-4)))
+                        elif Zj*Zk<0:
+                            B += f[k] * (1.0 - Zj*Zk*e**2./(kB*T*(basic_a0[0]*1e-4)))
+                        else:
+                            B += f[k] * (1.0 + np.sqrt(np.pi*(Zj**2.)*e**2./(2.0*kB*T*(basic_a0[0]*1e-4))))
+                else:
+                    B = 1.0
+                D += f[j] * B
+            D = max(D,1e-10)
+            print(n_PAH,v_brownian/1e5)
+            t_coal[i] = 1. / (4.*np.pi*(basic_a0[0]*1e-4)**2.*n_PAH*v_brownian*D*boost_coa) / sec2Myr
+            
+        ax2.plot(Mach,t_coal,linestyle='-',color=phase_colors[p])
+        
+    for j,k in enumerate(phases):
+        ax = axes2[j]
+        ax.tick_params(labelsize=14)
+        ax.xaxis.set_ticks_position('both')
+        ax.yaxis.set_ticks_position('both')
+        ax.minorticks_on()
+        ax.tick_params(which='both',axis="both",direction="in")
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        phase = k
+        ax.text(0.02, 0.90, r'\textbf{%s}'%phase,
+                transform=ax.transAxes, fontsize=20,verticalalignment='top',
+                color=phase_colors[j], weight='bold')
+        #ax.set_ylim([5e-1,1e5])            
+        ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+    
+    axes2[0].set_ylabel(r'$t_{\rm coa}(a,\mathcal{M};a_{\rm small},a_{\rm small})$ [Myr]', fontsize=20)
+    fig2.subplots_adjust(top=0.98,bottom=0.15,left=0.1,right=0.99,hspace=0,wspace=0)
+    fig2.savefig('PAH_coalescence.pdf',format='pdf',dpi=300)
+    plt.close(fig2)
+    
+def pah_freezing(GDR_PAHs,GDR_small,GDR_large,nMach=100):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    from utils import as_si,sigmoid_function
+    from scipy.special import erfc
+    
+    fig2, axes2 = plt.subplots(1,3, figsize=(10,5),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
+    
+    
+    phases = {'DC1':{'T':10,'nH':1e4,'ne':0.01,'L':1,'G0':0.01},
+              'MC':{'T':25,'nH':300,'ne':0.03,'L':1,'G0':0.1},
+              'CNM':{'T':100,'nH':30,'ne':0.0991,'L':0.64,'G0':1.}}
+    
+    phase_colors = ['indigo','goldenrod','b']
+    
+    # Add GDR text
+    axes2[0].text(0.4, 0.8,r'GDR($a_{\rm PAH}$)'+r'$={0:s}$'.format(as_si(GDR_PAHs,0))+'\n'+
+                            r'GDR($a_{\rm small}$)'+r'$={0:s}$'.format(as_si(GDR_small,0))+'\n'+
+                            r'GDR($a_{\rm large}$)'+r'$={0:s}$'.format(as_si(GDR_small,0)),
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=axes2[0].transAxes,fontsize=14)
+    
+    
+    mass_pah = (4./3.) * np.pi * (basic_a0[0]*1e-4)**3. * basic_s[0]
+    mass_small = (4./3.) * np.pi * (basic_a0[1]*1e-4)**3. * basic_s[1]
+    mass_large = (4./3.) * np.pi * (basic_a0[2]*1e-4)**3. * basic_s[2]
+    
+    Mach = np.logspace(-1,1,nMach)
+    e = 4.8032047e-10 # statC
+    kB = 1.380649e-16
+    eV = 1.602176634e-12 # erg
+    
+    t_max = np.log10(1e5)
+    
+    # Loop over ISM phases
+    for p,phase_name in enumerate(phases):
+        ax2 = axes2[p]
+        phase = phases[phase_name]
+        nH = phase['nH']
+        T = phase['T']
+        ne = phase['ne']
+        Lmax = phase['L']
+        G0 = phase['G0']
+        
+        rho_small = nH * mh.to('g').d * (1./GDR_small)
+        n_small = rho_small / mass_small
+        rho_large = nH * mh.to('g').d * (1./GDR_large)
+        n_large = rho_large / mass_large
+
+        
+        t_coal = np.zeros((nMach,4))
+        
+        for i in range(0, nMach):
+            # Boosting of density due to subgrid turbulence
+            lambda_jeans = 3.8409904e7 * np.sqrt(T/(nH*mh.to('g').d))
+            nhmax_coa = 1e20
+            sigs = np.log(1.+(0.4*Mach[i])**2.)
+            sigs2 = sigs**2.
+            smax = np.log(nhmax_coa/nH)
+            boost_coa = 0.5*np.exp(sigs2)*erfc((1.5*sigs2-smax)/(np.sqrt(2.)*sigs))
+            L = Lmax * 3.0857e18 # [cm]
+            if T>1e4 or nH<1e2 or lambda_jeans>4*L:
+                boost_coa = 1.
+                
+            # Average relative velocity
+            v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,basic_a0[1]*1e-4,basic_a0[0]*1e-4,
+                                                basic_s[1],basic_s[0])
+        
+            # Compute the PAH charge distribution and Coulomb enhancement
+            f_PAH,Z_PAH = grain_charge_dist(G0,T,ne*boost_coa,'carbonaceous','5A')
+            f_small,Z_small = grain_charge_dist(G0,T,ne*boost_coa,'carbonaceous','50A')
+            D = 0.
+            for j in range(0, len(Z_PAH)):
+                Zj = Z_PAH[j]
+                B = 0.
+                if Zj != 0:
+                    for k in range(0, len(Z_small)):
+                        Zk = Z_small[k]
+                        if Zj*Zk>0:
+                            B += f_small[k] * np.exp(-Zj*Zk*e**2./(kB*T*(basic_a0[1]*1e-4)))
+                        elif Zj*Zk<0:
+                            B += f_small[k] * (1.0 - Zj*Zk*e**2./(kB*T*(basic_a0[1]*1e-4)))
+                        else:
+                            B += f_small[k] * (1.0 + np.sqrt(np.pi*(Zj**2.)*e**2./(2.0*kB*T*(basic_a0[1]*1e-4))))
+                else:
+                    B = 1.0
+                D += f_PAH[j] * B
+            D = max(D,1e-10)
+            E_col = 0.5 * (mass_pah*mass_small)/(mass_pah+mass_small)*v_rel_avg**2./eV
+            t = np.log10(1. / (np.pi*((basic_a0[0]+basic_a0[1])*1e-4)**2.*n_small*v_rel_avg*D*boost_coa) / sec2Myr)
+            t_coal[i,0] = (1-sigmoid_function(t_max,1.0,E_col))*t + sigmoid_function(t_max,1.,E_col) * t_max
+            t_coal[i,0] = 10**(t_coal[i,0])
+            t = np.log10(1. / (np.pi*((basic_a0[0]+basic_a0[1])*1e-4)**2.*n_small*v_rel_avg*boost_coa) / sec2Myr)
+            t_coal[i,1] = (1-sigmoid_function(t_max,1.0,E_col))*t + sigmoid_function(t_max,1.,E_col) * t_max
+            t_coal[i,1] = 10**(t_coal[i,1])
+            
+            # Average relative velocity
+            v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,basic_a0[2]*1e-4,basic_a0[0]*1e-4,
+                                                basic_s[2],basic_s[0])
+            f_large,Z_large = grain_charge_dist(G0,T,ne*boost_coa,'carbonaceous','1000A')
+            D = 0.
+            for j in range(0, len(Z_PAH)):
+                Zj = Z_PAH[j]
+                B = 0.
+                if Zj != 0:
+                    for k in range(0, len(Z_large)):
+                        Zk = Z_large[k]
+                        if Zj*Zk>0:
+                            B += f_large[k] * np.exp(-Zj*Zk*e**2./(kB*T*(basic_a0[2]*1e-4)))
+                        elif Zj*Zk<0:
+                            B += f_large[k] * (1.0 - Zj*Zk*e**2./(kB*T*(basic_a0[2]*1e-4)))
+                        else:
+                            B += f_large[k] * (1.0 + np.sqrt(np.pi*(Zj**2.)*e**2./(2.0*kB*T*(basic_a0[2]*1e-4))))
+                else:
+                    B = 1.0
+                D += f_PAH[j] * B
+            D = max(D,1e-10)
+            E_col = 0.5 * (mass_pah*mass_large)/(mass_pah+mass_large)*v_rel_avg**2./eV
+            t = np.log10(1. / (np.pi*((basic_a0[0]+basic_a0[2])*1e-4)**2.*n_large*v_rel_avg*D*boost_coa) / sec2Myr)
+            t_coal[i,2] = (1-sigmoid_function(t_max,1.0,E_col))*t + sigmoid_function(t_max,1.,E_col) * t_max
+            t_coal[i,2] = 10**(t_coal[i,2])
+            t = np.log10(1. / (np.pi*((basic_a0[0]+basic_a0[2])*1e-4)**2.*n_large*v_rel_avg*boost_coa) / sec2Myr)
+            t_coal[i,3] = (1-sigmoid_function(t_max,1.0,E_col))*t + sigmoid_function(t_max,1.,E_col) * t_max
+            t_coal[i,3] = 10**(t_coal[i,3])
+            
+        ax2.plot(Mach,t_coal[:,0],linestyle='-',color=phase_colors[p],label = 'Small+Charge')
+        ax2.plot(Mach,t_coal[:,1],linestyle='--',color=phase_colors[p],label = 'Small')
+        ax2.plot(Mach,t_coal[:,2],linestyle=':',color=phase_colors[p],label = 'Large+Charge')
+        ax2.plot(Mach,t_coal[:,3],linestyle='-.',color=phase_colors[p],label = 'Large')
+        
+    for j,k in enumerate(phases):
+        ax = axes2[j]
+        ax.tick_params(labelsize=14)
+        ax.xaxis.set_ticks_position('both')
+        ax.yaxis.set_ticks_position('both')
+        ax.minorticks_on()
+        ax.tick_params(which='both',axis="both",direction="in")
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        phase = k
+        ax.text(0.02, 0.90, r'\textbf{%s}'%phase,
+                transform=ax.transAxes, fontsize=20,verticalalignment='top',
+                color=phase_colors[j], weight='bold')
+        #ax.set_ylim([5e-1,1e5])            
+        ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+    
+    axes2[1].legend(loc='best',fontsize=10,frameon=False)
+    
+    axes2[0].set_ylabel(r'$t_{\rm free}(a,\mathcal{M};a_{\rm small},a_{\rm small})$ [Myr]', fontsize=20)
+    fig2.subplots_adjust(top=0.98,bottom=0.15,left=0.1,right=0.99,hspace=0,wspace=0)
+    fig2.savefig('PAH_freezing.pdf',format='pdf',dpi=300)
+    plt.close(fig2)
+    
+def Draine_1978_isrf(l):
+    """Wavelength dependent UV intensity as given by the Draine (1978)
+    fitting to observational data.
+
+    Args:
+        l (float): Wavelength in nm.
+
+    Returns:
+        float: Radiation intensity in photons cm^-2 s^-1 nm^-1
+    """    
+    
+    I = 3.2028e13 * l**-3. - 5.1542e15 * l **-4. + 2.0546e17 * l**-5.
+    
+    return I
+
+def Lange_2021_desorption_rate(E):
+    
+    E_A = 2.9 # eV
+    Nc = 54 # 54 Carbons (circumcoronene)
+    kB = 8.617333262e-5 # eV/K
+    k0 = 2.5e17 # s-1
+    
+    Tm1 = 3750. * (E/(3.*Nc-6.))**0.45
+    Tm2 = 11000. * (E/(3*Nc-6.))**0.8
+    Tm = (Tm1**8.+Tm2**8.)**0.125
+    
+    Te = Tm * (1.-0.2*E_A/E)
+    
+    r = k0 * np.exp(-E_A/(kB*Te))
+    
+    return r
+    
+def pah_desorption_rate(filename,nG0=100):
+    
+    eV = 1.602176634e-19 # J
+    h = 6.6261e-34 # J s
+    c = 2.99792458e8 # m/s
+    
+    wav = np.linspace(91.2,200,10)
+    intensity = Draine_1978_isrf(wav)
+    energies = (h * c / (wav*1e-9) ) / eV
+    rates = Lange_2021_desorption_rate(energies)
+    print(rates)
+    integral1 = np.trapz(rates*energies*intensity,wav)
+    integral2 = np.trapz(energies*intensity,wav)
+    int_rate = integral1 / integral2
+
+    print(f'The integrated rate of desorption for the Draine (1978) ISRF is: {int_rate} [s-1]')
+    
+    from dust_oppacity import pah_efficiencies
+    
+    dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    
+    data,columns,name = pah_efficiencies(filename)
+    nwav = len(w)
+    Q_abs_eff = np.zeros(nwav)
+    nrad = len(data.keys())
+    akeys= list(data.keys())
+    for j in range(0, nwav):
+        sizes = np.zeros(nrad)
+        Q_abs = np.zeros(nrad)
+        for k in range(0,nrad):
+            tmpdt = data[akeys[k]]
+            sizes[k] = float(akeys[k])
+            Q_abs[k] = tmpdt[j,columns.index('Q_abs')]
+            w        = tmpdt[:,columns.index('w(micron)')]
+        Q_abs_eff[j] = dist.averaged_over_mass(Q_abs,sizes)
+        
+    wav = w * 1e3 # wavelength [nm]
+    intensity = Draine_1978_isrf(wav)
+    

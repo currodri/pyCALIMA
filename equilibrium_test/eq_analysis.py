@@ -63,7 +63,7 @@ noadvect          = ['cooling_time','temperature','cooling_rate','heating_rate',
                   'cooling_primordial','cooling_fine_structure','cooling_CII',
                   'cooling_OI','cooling_CO','cooling_dust','cooling_dust_rec',
                   'heating_cr','heating_pe','heating_h2','heating_ct','dust_temperature']
-def setup_yt(dust):
+def setup_yt(dust,pahs):
     @yt.derived_field(name='nH', sampling_type="cell", units='cm**-3',force_override=True)
     def _nH(field,data):
         n = data[('ramses','OMassFrac')] + data[('ramses','NMassFrac')] + \
@@ -99,10 +99,11 @@ def setup_yt(dust):
     @yt.derived_field(name='nCII', sampling_type="cell", units='cm**-3',force_override=True)
     def _nCII(field,data):
         return (data[('gas','density')] * data[('ramses','CMassFrac')] * data[('ramses','CII')]) / (mC_NIST_amu*amu_to_g*g)
-    if dust:
+    if pahs:
         @yt.derived_field(name='nPAH', sampling_type="cell", units='cm**-3',force_override=True)
         def _nPAH(field,data):
             return (data[('gas','density')] * data[('ramses','pahs')] ) / (mPAH)
+    if dust:
 
         @yt.derived_field(name='nCSmall', sampling_type="cell", units='cm**-3',force_override=True)
         def _nCSmall(field,data):
@@ -364,7 +365,7 @@ def plot_T(my_fields,dust,simname,conv_crit=0.1):
                     if t==1:
                         diff = abs(data[d,0,0] - data[d,0,1]) / data[d,0,1]
                         if diff >= conv_crit:
-                            print(f'Temperature has not converged yet (err={diff},nH={data[d,0,t]})!')
+                            print(f'Temperature has not converged yet (err={diff},nH={data[d,0,t]}) for {sim}!')
                 try:
                     raw_ad = ds.all_data()[('gas','dust_temperature')]
                 except:
@@ -374,7 +375,7 @@ def plot_T(my_fields,dust,simname,conv_crit=0.1):
                     if t==1:
                         diff = abs(data[d,1,0] - data[d,1,1]) / data[d,1,1]
                         if diff >= conv_crit:
-                            print(f'Dust temperature has not converged yet (err={diff},nH={data[d,1,t]})!')
+                            print(f'Dust temperature has not converged yet (err={diff},nH={data[d,1,t]}) for {sim}!')
             else:
                 try:
                     raw_ad = ds.all_data()[('gas','temperature')]
@@ -385,7 +386,7 @@ def plot_T(my_fields,dust,simname,conv_crit=0.1):
                     if t==1:
                         diff = abs(data[d,0] - data[d,1]) / data[d,1]
                         if diff >= conv_crit:
-                            print(f'Temperature has not converged yet (err={diff},nH={data[d,t]})!')
+                            print(f'Temperature has not converged yet (err={diff},nH={data[d,t]}) for {sim}!')
         
         # 4. Sort data
         sort_dens = np.argsort(density)
@@ -694,17 +695,21 @@ if __name__ == '__main__':
     parser.add_argument('type', type=str, help='Type of plot to do')
     parser.add_argument('--varname', type=str, nargs='+', default='temperature', help='Variable name to plot.')
     parser.add_argument('--dust',action='store_true',help='Use if simulation includes dust.')
+    parser.add_argument('--pahs',action='store_true',help='Use if simulation includes PAHs.')
     parser.add_argument('--simname', type=str, default='dust',nargs='+', help='Simulation name.')
     args = parser.parse_args()
     
     if len(args.simname) == 1:
         args.simname = args.simname[0]
-    if args.dust:
+    if args.dust and args.pahs:
         fields = basic_hydro + metal_massfrac + dust_densities + co_massfrac + metal_ion + ions + noadvect
-        setup_yt(True)
+        setup_yt(True,True)
+    elif args.dust:
+        fields = basic_hydro + metal_massfrac + dust_densities[1:] + co_massfrac + metal_ion + ions + noadvect
+        setup_yt(True,False)
     else:
         fields = basic_hydro + metal_massfrac + co_massfrac + metal_ion + ions + ['unknown1','unknown2','unknown3','unknown4','unknown5'] + noadvect
-        setup_yt(False)
+        setup_yt(False,False)
     
     if args.type == 'single':
         plot_T(fields,args.dust,args.simname)
