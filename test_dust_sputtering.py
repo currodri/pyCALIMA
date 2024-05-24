@@ -9,7 +9,7 @@ if __name__ == '__main__':
     
     Tmin = 1e4
     Tmax = 1e10
-    nT = 100
+    nT = 200
     nbins_v = 300
     fig = compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                              ion_atomic_numbers,ion_charges,

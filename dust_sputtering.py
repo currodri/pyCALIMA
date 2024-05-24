@@ -578,9 +578,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         os.mkdir(table_dir)
     with open(os.path.join(table_dir,f"thermal_sputtering_polynomial_fits{label}.txt"), "w") as file:
         file.write("Thermal Dust sputtering Fit Results (with size and charge corrections)\n")
-        file.write("======================\n")
-        file.write("Polynomial Coefficients smallC grains:\n")
-    
+        
         # 3. Compute the rates for each grain type
         a_dust, Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
                                             ion_atomic_masses,
@@ -603,7 +601,8 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         coefficients = np.polyfit(np.log10(Tgas[Y_smallC>0]), np.log10(Y_smallC[Y_smallC>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
-        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients smallC grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
             file.write(f"{coeff:.8e}x^{6-i} ")
@@ -615,8 +614,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         for i in range(len(Tgas)):
             file.write(f"{Tgas[i]:.6e}, {Y_smallC[i]:.6e}\n")
         
-        file.write("======================\n")
-        file.write("Polynomial Coefficients largeC grains:\n")
+        
         a_dust, Tgas, Y_largeC = total_erosion_rate(Tmin,Tmax,'largeC',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
@@ -628,7 +626,8 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         coefficients = np.polyfit(np.log10(Tgas[Y_largeC>0]),  np.log10(Y_largeC[Y_largeC>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
-        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients largeC grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
             file.write(f"{coeff:.8e}x^{6-i} ")
@@ -649,8 +648,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             False,False)
         ax.plot(Tgas,Y_smallSil,linestyle='-',color='saddlebrown',label='smallSil: No size correction')
         
-        file.write("======================\n")
-        file.write("Polynomial Coefficients smallSil grains:\n")
+        
         a_dust, Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
@@ -662,7 +660,8 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         coefficients = np.polyfit(np.log10(Tgas[Y_smallSil>0]),  np.log10(Y_smallSil[Y_smallSil>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
-        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients smallSil grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
             file.write(f"{coeff:.8e}x^{6-i} ")
@@ -674,8 +673,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         for i in range(len(Tgas)):
             file.write(f"{Tgas[i]:.6e}, {Y_smallSil[i]:.6e}\n")
         
-        file.write("======================\n")
-        file.write("Polynomial Coefficients largeSil grains:\n")
+        
         a_dust, Tgas, Y_largeSil = total_erosion_rate(Tmin,Tmax,'largeSil',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
@@ -688,7 +686,8 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         coefficients = np.polyfit(np.log10(Tgas[Y_largeSil>0]),  np.log10(Y_largeSil[Y_largeSil>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
-        
+        file.write("======================\n")
+        file.write("Polynomial Coefficients largeSil grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
             file.write(f"{coeff:.8e}x^{6-i} ")
