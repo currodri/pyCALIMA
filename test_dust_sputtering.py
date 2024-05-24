@@ -8,7 +8,7 @@ if __name__ == '__main__':
     ion_abundances = np.array([1,8.04e-2,0.8*3.62e-8,0.2*3.62e-8,0.8*1.12e-8,0.2*1.12e-8,0.6*2.70e-7,0.4*2.70e-7])
     
     Tmin = 1e4
-    Tmax = 1e9
+    Tmax = 1e10
     nT = 100
     nbins_v = 300
     fig = compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,

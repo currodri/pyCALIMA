@@ -296,8 +296,8 @@ def average_yields_T(args):
     while Maxwell_Boltzmann_function(v_0,ion_atomic_mass*au2cgs_m,Tgas) < 1e-20:
         v_0 = 2 * v_0
     
-    # 2. We set the maximum velocity to the thermal energy of gas at ~1e9 K
-    v_max = np.sqrt(2. * 1e6 * eV2erg / (ion_atomic_mass*au2cgs_m)) # [cm/s]
+    # 2. We set the maximum velocity to the thermal energy of gas at ~1e11 K
+    v_max = np.sqrt(2. * 1e7 * eV2erg / (ion_atomic_mass*au2cgs_m)) # [cm/s]
     while Maxwell_Boltzmann_function(v_max,ion_atomic_mass*au2cgs_m,Tgas) < 1e-20:
         v_max = v_max/ 2.0
     
@@ -600,13 +600,13 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             True,False)
         ax.plot(Tgas,Y_smallC,linestyle=(0, (3, 1, 1, 1)),color='steelblue',label='smallC: With size correction')
         print(Y_smallC)
-        coefficients = np.polyfit(np.log10(Tgas[Y_smallC>0]), np.log10(Y_smallC[Y_smallC>0]), 5)
+        coefficients = np.polyfit(np.log10(Tgas[Y_smallC>0]), np.log10(Y_smallC[Y_smallC>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
-            file.write(f"{coeff:.6e}x^{5-i} ")
+            file.write(f"{coeff:.8e}x^{6-i} ")
             if i < len(coefficients) - 1:
                 file.write("+ ")
         file.write("\n")
@@ -625,13 +625,13 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             nT,nbins_v,
                                             True,False)
         ax.plot(Tgas,Y_largeC,linestyle=':',color='cornflowerblue',label='largeC: With size correction')
-        coefficients = np.polyfit(np.log10(Tgas[Y_largeC>0]),  np.log10(Y_largeC[Y_largeC>0]), 5)
+        coefficients = np.polyfit(np.log10(Tgas[Y_largeC>0]),  np.log10(Y_largeC[Y_largeC>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
-            file.write(f"{coeff:.6e}x^{5-i} ")
+            file.write(f"{coeff:.8e}x^{6-i} ")
             if i < len(coefficients) - 1:
                 file.write("+ ")
         file.write("\n")
@@ -659,13 +659,13 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             nT,nbins_v,
                                             True,False)
         ax.plot(Tgas,Y_smallSil,linestyle=(0, (3, 1, 1, 1)),color='saddlebrown',label='smallSil: With size correction')
-        coefficients = np.polyfit(np.log10(Tgas[Y_smallSil>0]),  np.log10(Y_smallSil[Y_smallSil>0]), 5)
+        coefficients = np.polyfit(np.log10(Tgas[Y_smallSil>0]),  np.log10(Y_smallSil[Y_smallSil>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
-            file.write(f"{coeff:.6e}x^{5-i} ")
+            file.write(f"{coeff:.8e}x^{6-i} ")
             if i < len(coefficients) - 1:
                 file.write("+ ")
         file.write("\n")
@@ -685,13 +685,13 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             True,False)
         ax.plot(Tgas,Y_largeSil,linestyle=':',color='sandybrown',label='largeSil: With size correction')
         
-        coefficients = np.polyfit(np.log10(Tgas[Y_largeSil>0]),  np.log10(Y_largeSil[Y_largeSil>0]), 5)
+        coefficients = np.polyfit(np.log10(Tgas[Y_largeSil>0]),  np.log10(Y_largeSil[Y_largeSil>0]), 6)
         poly_fit = np.poly1d(coefficients)
         ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
-            file.write(f"{coeff:.6e}x^{5-i} ")
+            file.write(f"{coeff:.8e}x^{6-i} ")
             if i < len(coefficients) - 1:
                 file.write("+ ")
         file.write("\n")

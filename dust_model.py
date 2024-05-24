@@ -17,7 +17,7 @@ sec2Myr = 3.1536e13
 
 # Model parameters
 
-basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,1e-2,1e-1])
+basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,5e-3,1e-1])
 basic_amin = np.array([1e-4,1e-4,1e-4,4e-4,4e-4,4e-4])
 basic_amax = np.array([3e-3,9e-3,1,1,2e-3,1,1])
 basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.7,0.8])
