@@ -10,11 +10,12 @@ By: Curro Rodriguez (currodri@gmail.com)
 
 # Import some libraries
 import os
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set(style="white")
+sns.set_theme(style="white")
 import re
 from dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
 # Functions
@@ -179,7 +180,7 @@ def plot_efficiencies(filename,dust_type='grains',
                 Q_abs_eff = Q_abs_eff[::-1]
                 Q_sca_eff = Q_sca_eff[::-1]
                 Q_rp_eff = Q_rp_eff[::-1]
-                f = open('averaged_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1]), 'w', encoding="utf-8")
+                f = open('averaged_opacities_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1]), 'w', encoding="utf-8")
                 f.write("{:8d}".format(nwav)+'\n')
                 for j in range(0,nwav):
                     f.write("{:14.6e}".format(w[j]/1e-4)+'\n')

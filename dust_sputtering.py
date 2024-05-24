@@ -28,6 +28,7 @@ import time
 
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Constants
 a_0              = 5.291e-9 # [cm] - atomic length unit
@@ -435,7 +436,93 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
     # 4. Obtain the final erosion rate in [microns / yr * cm^3]
     Y_tot = (am_dust * au2cgs_m) / (2. * rho_dust) * Y_tot * (1e4 * sec2yr)
     
-    return Tgas, Y_tot
+    return a_dust, Tgas, Y_tot
+
+def export_rates(Tmin,Tmax,ion_atomic_masses,
+                 ion_atomic_numbers,ion_charges,
+                 ion_abundances,nT=100,nbins_v=100,
+                 label=''):
+    
+    # 1. Crete the directory for the table data
+    table_dir = './thermal_sputtering_data'
+    if not os.path.exists(table_dir):
+        os.mkdir(table_dir)
+    
+    # 2. Compute the rate for small carbonaceous grains
+    a_dust, Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+    smallC_filename = table_dir+'/thermal_sputtering_%.4f_micron_Gra'%(a_dust/1e-4)
+    f = open(smallC_filename, 'w', encoding="utf-8")
+    f.write("{:8d}".format(nT)+'\n')
+    for i in range(0,nT):
+        f.write("{:14.6e}".format(np.log10(Tgas[i]))+'\n')
+    for i in range(0,nT):
+        if Y_smallC[i] == 0.0:
+            Y_smallC[i] = np.min(Y_smallC[Y_smallC>0.0])
+        f.write("{:14.6e}".format(np.log10(Y_smallC[i]))+'\n')
+    f.close()
+    
+    # 3. Compute the rate for large carbonaceous grains
+    a_dust, Tgas, Y_largeC = total_erosion_rate(Tmin,Tmax,'largeC',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+    largeC_filename = table_dir+'/thermal_sputtering_%.4f_micron_Gra'%(a_dust/1e-4)
+    f = open(largeC_filename, 'w', encoding="utf-8")
+    f.write("{:8d}".format(nT)+'\n')
+    for i in range(0,nT):
+        f.write("{:14.6e}".format(np.log10(Tgas[i]))+'\n')
+    for i in range(0,nT):
+        if Y_largeC[i] == 0.0:
+            Y_largeC[i] = np.min(Y_largeC[Y_largeC>0.0])
+        f.write("{:14.6e}".format(np.log10(Y_largeC[i]))+'\n')
+    f.close()
+    
+    # 4. Compute the rate for small silicate grains
+    a_dust, Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+    smallSil_filename = table_dir+'/thermal_sputtering_%.4f_micron_Sil'%(a_dust/1e-4)
+    f = open(smallSil_filename, 'w', encoding="utf-8")
+    f.write("{:8d}".format(nT)+'\n')
+    for i in range(0,nT):
+        f.write("{:14.6e}".format(np.log10(Tgas[i]))+'\n')
+    for i in range(0,nT):
+        if Y_smallSil[i] == 0.0:
+            Y_smallSil[i] = np.min(Y_smallSil[Y_smallSil>0.0])
+        f.write("{:14.6e}".format(np.log10(Y_smallSil[i]))+'\n')
+    f.close()
+    
+    # 5. Compute the rate for large silicate grains
+    a_dust, Tgas, Y_largeSil = total_erosion_rate(Tmin,Tmax,'largeSil',
+                                            ion_atomic_masses,
+                                            ion_atomic_numbers,
+                                            ion_charges,
+                                            ion_abundances,
+                                            nT,nbins_v,
+                                            True,False)
+    largeSil_filename = table_dir+'/thermal_sputtering_%.4f_micron_Sil'%(a_dust/1e-4)
+    f = open(largeSil_filename, 'w', encoding="utf-8")
+    f.write("{:8d}".format(nT)+'\n')
+    for i in range(0,nT):
+        f.write("{:14.6e}".format(np.log10(Tgas[i]))+'\n')
+    for i in range(0,nT):
+        if Y_largeSil[i] == 0.0:
+            Y_largeSil[i] = np.min(Y_largeSil[Y_largeSil>0.0])
+        f.write("{:14.6e}".format(np.log10(Y_largeSil[i]))+'\n')
+    f.close()
 
 def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                              ion_atomic_numbers,ion_charges,ion_abundances,
@@ -486,13 +573,16 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     ax.plot(Tgas,Y_Sil,linestyle='--',color='sandybrown',label='Sil: Nozawa et al. (2006)')
     ax.plot(Tgas,Y_C,linestyle='--',color='cornflowerblue',label='C: Nozawa et al. (2006)')
     
-    with open(f"thermal_sputtering_polynomial_fits{label}.txt", "w") as file:
+    table_dir = './thermal_sputtering_data'
+    if not os.path.exists(table_dir):
+        os.mkdir(table_dir)
+    with open(os.path.join(table_dir,f"thermal_sputtering_polynomial_fits{label}.txt"), "w") as file:
         file.write("Thermal Dust sputtering Fit Results (with size and charge corrections)\n")
         file.write("======================\n")
         file.write("Polynomial Coefficients smallC grains:\n")
     
         # 3. Compute the rates for each grain type
-        Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
+        a_dust, Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
                                             ion_charges,
@@ -501,7 +591,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             False,False)
         ax.plot(Tgas,Y_smallC,linestyle='-',color='steelblue',label='smallC: No size correction')
         
-        Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
+        a_dust, Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
                                             ion_charges,
@@ -516,7 +606,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         
         file.write("f(x) = ")
         for i, coeff in enumerate(coefficients):
-            file.write(f"{coeff:.3e}x^{5-i} ")
+            file.write(f"{coeff:.6e}x^{5-i} ")
             if i < len(coefficients) - 1:
                 file.write("+ ")
         file.write("\n")
@@ -527,7 +617,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         
         file.write("======================\n")
         file.write("Polynomial Coefficients largeC grains:\n")
-        Tgas, Y_largeC = total_erosion_rate(Tmin,Tmax,'largeC',
+        a_dust, Tgas, Y_largeC = total_erosion_rate(Tmin,Tmax,'largeC',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
                                             ion_charges,
@@ -550,7 +640,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         for i in range(len(Tgas)):
             file.write(f"{Tgas[i]:.6e}, {Y_largeC[i]:.6e}\n")
         
-        Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
+        a_dust, Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
                                             ion_charges,
@@ -561,7 +651,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         
         file.write("======================\n")
         file.write("Polynomial Coefficients smallSil grains:\n")
-        Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
+        a_dust, Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
                                             ion_charges,
@@ -586,7 +676,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
         
         file.write("======================\n")
         file.write("Polynomial Coefficients largeSil grains:\n")
-        Tgas, Y_largeSil = total_erosion_rate(Tmin,Tmax,'largeSil',
+        a_dust, Tgas, Y_largeSil = total_erosion_rate(Tmin,Tmax,'largeSil',
                                             ion_atomic_masses,
                                             ion_atomic_numbers,
                                             ion_charges,

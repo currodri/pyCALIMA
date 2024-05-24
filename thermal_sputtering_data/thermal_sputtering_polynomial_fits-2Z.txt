@@ -1,7 +1,7 @@
 Thermal Dust sputtering Fit Results (with size and charge corrections)
 ======================
 Polynomial Coefficients smallC grains:
-f(x) = 5.740e-02x^5 + -1.973e+00x^4 + 2.688e+01x^3 + -1.823e+02x^2 + 6.174e+02x^1 + -8.460e+02x^0 
+f(x) = 5.740101e-02x^5 + -1.972615e+00x^4 + 2.688454e+01x^3 + -1.822772e+02x^2 + 6.174117e+02x^1 + -8.460435e+02x^0 
 
 Original Data (Tgas, Yield):
 1.000000e+04, 0.000000e+00
