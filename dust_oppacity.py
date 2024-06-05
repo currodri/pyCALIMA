@@ -16,6 +16,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_theme(style="white")
+plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": "Computer Modern Roman",
+})
 import re
 from dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
 # Functions
@@ -62,7 +67,7 @@ def dust_efficiencies(filename):
 
     return data,columns,dust_type
 
-def pah_efficiencies(filename):
+def pah_efficiencies(filename,verbose=False):
     """
     This function allows for the construction of a clean and
     nice dataset.
@@ -86,14 +91,14 @@ def pah_efficiencies(filename):
                 nwav = int(info[0])
                 wmin = float(info[1])
                 wmax = float(info[2])
-        print(dust_type,nrad,nwav)
+        if verbose: print(dust_type,nrad,nwav)
         
         while True:
             f.readline() # Blank line
             myarray = np.zeros((nwav,5))
             a = str(f.readline().split(' ')[0])
             if a == '':
-                print('End of file')
+                if verbose: print('End of file')
                 break
             f.readline() # Column names
             
@@ -107,7 +112,7 @@ def pah_efficiencies(filename):
             data[a] = myarray
 
 
-    return data,columns,dust_type
+    return data,columns,dust_type,nwav
 
 def plot_efficiencies(filename,dust_type='grains',
                       do_average=True,
@@ -133,8 +138,8 @@ def plot_efficiencies(filename,dust_type='grains',
         linestyles = ['-.','-']
         name = ['smallC','largeC']
     elif 'silicate' in name:
-        dist = [LogNormal_Distribution(basic_a0[4],basic_amin[4],basic_amax[4],basic_sigma[4],basic_s[4]),
-                LogNormal_Distribution(basic_a0[5],basic_amin[5],basic_amax[5],basic_sigma[5],basic_s[5])]
+        dist = [LogNormal_Distribution(basic_a0[5],basic_amin[5],basic_amax[5],basic_sigma[5],basic_s[5]),
+                LogNormal_Distribution(basic_a0[6],basic_amin[6],basic_amax[6],basic_sigma[6],basic_s[6])]
         ndist = 2
         linestyles = ['-.','-']
         name = ['smallSil','largeSil']
@@ -145,9 +150,19 @@ def plot_efficiencies(filename,dust_type='grains',
         w     = data[a][:,columns.index('w(micron)')]
         Q_rp  = Q_abs + (1-g)*Q_sca
         
-        axes[0].plot(w,Q_abs,alpha=0.3,linewidth=0.5,color='k')
-        axes[1].plot(w,Q_sca,alpha=0.3,linewidth=0.5,color='r')
-        axes[2].plot(w,Q_rp,alpha=0.3,linewidth=0.5,color='b')
+        # if float(a) == 1e-1:
+        #     axes[0].plot(w,Q_abs,alpha=0.3,linewidth=0.5,color='k',linestyle=':')
+        #     axes[1].plot(w,Q_sca,alpha=0.3,linewidth=0.5,color='r',linestyle=':')
+        #     axes[2].plot(w,Q_rp,alpha=0.3,linewidth=0.5,color='b',linestyle=':')
+        # elif float(a) == 5.012E-03:
+        #     axes[0].plot(w,Q_abs,alpha=0.3,linewidth=0.5,color='k',linestyle='--')
+        #     axes[1].plot(w,Q_sca,alpha=0.3,linewidth=0.5,color='r',linestyle='--')
+        #     axes[2].plot(w,Q_rp,alpha=0.3,linewidth=0.5,color='b',linestyle='--')
+        # else:
+        
+        axes[0].plot(w,Q_abs*np.pi*float(a)**2.,alpha=0.3,linewidth=0.5,color='k')
+        axes[1].plot(w,Q_sca*np.pi*float(a)**2.,alpha=0.3,linewidth=0.5,color='r')
+        axes[2].plot(w,Q_rp*np.pi*float(a)**2.,alpha=0.3,linewidth=0.5,color='b')
     if do_average:
         for i in range(0,ndist):
             nwav = len(w)
@@ -169,18 +184,19 @@ def plot_efficiencies(filename,dust_type='grains',
                     g        = tmpdt[j,columns.index('g=<cos>')]
                     w        = tmpdt[:,columns.index('w(micron)')]
                     Q_rp[k]  = Q_abs[k] + (1-g)*Q_sca[k]
-                Q_sca_eff[j] = dist[i].averaged_over_mass(Q_sca,sizes)
-                Q_abs_eff[j] = dist[i].averaged_over_mass(Q_abs,sizes)
-                Q_rp_eff[j]  = dist[i].averaged_over_mass(Q_rp,sizes)
+                Q_sca_eff[j] = dist[i].averaged_over_number(Q_sca*np.pi*sizes**2.,sizes)
+                Q_abs_eff[j] = dist[i].averaged_over_number(Q_abs*np.pi*sizes**2.,sizes)
+                Q_rp_eff[j]  = dist[i].averaged_over_number(Q_rp*np.pi*sizes**2.,sizes)
             axes[0].plot(w,Q_abs_eff,linewidth=2,color='k',linestyle=linestyles[i],label=name[i])
             axes[1].plot(w,Q_sca_eff,linewidth=2,color='r',linestyle=linestyles[i])
             axes[2].plot(w,Q_rp_eff,linewidth=2,color='b',linestyle=linestyles[i])
             if output_average:
                 w = w[::-1]
-                Q_abs_eff = Q_abs_eff[::-1]
-                Q_sca_eff = Q_sca_eff[::-1]
-                Q_rp_eff = Q_rp_eff[::-1]
-                f = open('averaged_opacities_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1]), 'w', encoding="utf-8")
+                # Convert cross section from micron^2 to cm^2
+                Q_abs_eff = Q_abs_eff[::-1] * 1e-8
+                Q_sca_eff = Q_sca_eff[::-1] * 1e-8 
+                Q_rp_eff = Q_rp_eff[::-1] * 1e-8
+                f = open('averaged_cross_section_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1]), 'w', encoding="utf-8")
                 f.write("{:8d}".format(nwav)+'\n')
                 for j in range(0,nwav):
                     f.write("{:14.6e}".format(w[j]/1e-4)+'\n')
@@ -201,13 +217,13 @@ def plot_efficiencies(filename,dust_type='grains',
         ax.tick_params(which='both',axis="both",direction="in")
         ax.set_yscale('log')
         ax.set_xscale('log')
-        ax.set_ylim([1e-6,10])
-    axes[0].set_ylabel(r'$Q_{\rm abs}$', fontsize=16)
-    axes[1].set_ylabel(r'$Q_{\rm sca}$', fontsize=16)
-    axes[2].set_ylabel(r'$Q_{\rm rp}$', fontsize=16)
+        ax.set_ylim([1e-10,1e-3])
+    axes[0].set_ylabel(r'$C_{\rm abs}$', fontsize=16)
+    axes[1].set_ylabel(r'$C_{\rm sca}$', fontsize=16)
+    axes[2].set_ylabel(r'$C_{\rm rp}$', fontsize=16)
     axes[2].set_xlabel(r'$\lambda$ [$\mu$m]', fontsize=16)
     axes[0].legend(loc='best',fontsize=14,frameon=False)
-    fig.subplots_adjust(top=0.99,bottom=0.08,left=0.15,right=0.99,hspace=0,wspace=0)
-    fig.savefig('./efficiencies_%s.png'%filename.split('/')[-1], format='png', dpi=300)
+    fig.subplots_adjust(top=0.99,bottom=0.06,left=0.13,right=0.99,hspace=0,wspace=0)
+    fig.savefig('./cross_section_%s.pdf'%filename.split('/')[-1], format='pdf', dpi=300)
 
         

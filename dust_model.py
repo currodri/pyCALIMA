@@ -17,10 +17,10 @@ sec2Myr = 3.1536e13
 
 # Model parameters
 
-basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,5e-3,1e-1])
-basic_amin = np.array([1e-4,1e-4,1e-4,4e-4,4e-4,4e-4])
-basic_amax = np.array([3e-3,9e-3,1,1,2e-3,1,1])
-basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.7,0.8])
+basic_a0 = np.array([5e-4,1e-3,5e-3,1e-1,5e-4,5e-3,1e-1])
+basic_amin = np.array([1e-4,1e-4,5e-4,5e-3,4e-4,5e-4,5e-3])
+basic_amax = np.array([3e-3,9e-3,0.1,1,2e-3,0.1,1.0])
+basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.75,0.75])
 basic_s = np.array([2,2,2.2,2.2,3.3,3.3,3.3])
 
 # Tielens et al. (1994) - Thermal sputtering rates for silicate 
@@ -35,6 +35,7 @@ thermal_spu_nozawa06 = {'Sil':{'a0':-2.34790500e+02,'a1':1.33208637e+02,'a2':-3.
 class LogNormal_Distribution(object):
 
     def __init__(self,a0,amin,amax,sigma,grain_density):
+        self.Nc = None
         self.a0 = a0
         self.amin = amin
         self.amax = amax
@@ -42,6 +43,7 @@ class LogNormal_Distribution(object):
         self.a = np.logspace(np.log(amin),np.log10(amax),1000)
         self.grain_density = grain_density
         self.sintegral = self._init_integral()
+        self.grain_mass = 4./3. * np.pi * grain_density * a0**3.
 
     def _init_integral(self):
         y = (1.0/self.a) * np.exp(-(np.log(self.a/self.a0))**2/(2*self.sigma**2))
@@ -86,6 +88,14 @@ class LogNormal_Distribution(object):
         
         avg = (1/N) * np.trapz(x,sizes)
         
+        return avg
+    def averaged_over_number(self,X,sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        norm = (1./sizes[mask]**4.) * np.exp(-(np.log10(sizes[mask]/self.a0))**2/(2*self.sigma**2))
+        norm = np.trapz(norm,sizes[mask])
+        y = (X[mask]/sizes[mask]**4.) * np.exp(-(np.log10(sizes[mask]/self.a0))**2/(2*self.sigma**2))
+        y = np.trapz(y,sizes[mask])
+        avg = y / norm     
         return avg
     
 def Tielens_rate(fit,T):
