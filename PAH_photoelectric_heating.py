@@ -204,7 +204,7 @@ def ionisation_yield(Nc,Z,photon_energy,IP):
     
     return Y
 
-def recombination_rate(Nc,Z,T):
+def recombination_rate_Spitzer(Nc,Z,T):
     """Recombination rate following the Spitzer's formalism (Spitzer 2004) modified
     for cations by Verstraete et al. (1990) and extended to Z>0 by Berne et al. (2022)
 
@@ -218,7 +218,22 @@ def recombination_rate(Nc,Z,T):
     """    
     phi = 1.85e5 / T / np.sqrt(Nc)
     k_rec = 1.28e-10 * Nc * np.sqrt(T) * (1. + phi * (1.+Z)) 
-    
+    print(k_rec)
+    return k_rec
+
+def recombination_rate_Tielens21(Nc,T):
+    """Recombination rate following Eq. 8.106 in Tielens (2021), which assumes
+    a correction factor the the planar geometry of the PAH.
+
+    Args:
+        Nc (int): Number of carbon atoms
+        T (np.float): Gas (or electron) temperature in [K]
+
+    Returns:
+        np.float: Recombination rate in [cm^3/s]
+    """    
+    k_rec = 1.3e-6 * np.sqrt(Nc) * np.sqrt(300. / T)
+    print(k_rec)
     return k_rec
 
 def attachment_rate_Carelli13(T):
@@ -360,7 +375,7 @@ def compute_heating_efficiency(args):
     # 3. Convert wavelength [micron] to photon energy [eV]
     E = 1.2398 / wav
     # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
-    I = G0 * Draine_1978_isrf(wav*1e3) * cm**-2/s/nm
+    I = G0 * Draine_1978_isrf(wav*1e3) /1.7 * cm**-2/s/nm
     F = I * E * eV
     f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
     I = f.to('W/m**2/eV').d
@@ -373,9 +388,9 @@ def compute_heating_efficiency(args):
     # print('k_det',k_det)
     
     # 5. e- attachment to a neutral
-    if attach_model == 'Carelli13':
+    if attach_model == 'Berne':
         k_att = attachment_rate_Carelli13(T)
-    elif attach_model == 'Tielens05':
+    elif attach_model == 'Tielens':
         k_att = attachment_rate_Tielens05(Nc)
     # print('k_att',k_att)
     
@@ -388,11 +403,17 @@ def compute_heating_efficiency(args):
     # print('k_pe_0',k_pe_0)
     
     # 7. Recombination rate from Z=1 to Z=0
-    k_rec_1 = recombination_rate(Nc,1,T)
+    if attach_model == 'Berne':
+        k_rec_1 = recombination_rate_Spitzer(Nc,1,T)
+    elif attach_model == 'Tielens':
+        k_rec_1 = recombination_rate_Tielens21(Nc,T)
     # print('k_rec_1',k_rec_1)
     
     # 8. Recombination rate from Z=2 to Z=1
-    k_rec_2 = recombination_rate(Nc,2,T)
+    if attach_model == 'Berne':
+        k_rec_2 = recombination_rate_Spitzer(Nc,2,T)
+    elif attach_model == 'Tielens':
+        k_rec_2 = recombination_rate_Tielens21(Nc,T)
     # print('k_rec_2',k_rec_2)
 
     
@@ -561,7 +582,7 @@ def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_col
     first_legend = ax2.legend(handles=dummy_lines, loc='best', frameon=False, fontsize=14)
     ax2.add_artist(first_legend)
     fig2.subplots_adjust(top=0.98,bottom=0.13,left=0.13,right=0.95)
-    fig2.savefig('pah_charge_distribution_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
+    fig2.savefig(f'pah_charge_distribution_{attach_model}_{dist.Nc}C_{str(int(T))}K.pdf', format='pdf', dpi=300)
 
 def Tielens2001_efficiency(ax):
     n_gamma = 20
@@ -601,7 +622,8 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     
     Wolfire2003_efficiency(T,ax)
     
-    my_efficiency('small','Carelli13',G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=True)
+    my_efficiency('small','Berne',G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=True)
+    my_efficiency('small','Tielens',G0min,G0max,ne_min,ne_max,T,ax,fig)
     
     # my_efficiency('large','Carelli13',G0min,G0max,ne_min,ne_max,T,ax,fig)
             
