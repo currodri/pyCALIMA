@@ -38,7 +38,6 @@ plt.rcParams.update({
 BERNEPATH = '/home/currodri/Codes/photoelectric-heating'
 sys.path.append(BERNEPATH)
 from four_levels_model import HeatingGas
-from radiation_fields import radiation_field
 
 # CONSTANTS
 pahneu_filepath = '/home/currodri/Codes/DustRAMSES/li_draine_2001/PAHneu_30'
@@ -218,7 +217,6 @@ def recombination_rate_Spitzer(Nc,Z,T):
     """    
     phi = 1.85e5 / T / np.sqrt(Nc)
     k_rec = 1.28e-10 * Nc * np.sqrt(T) * (1. + phi * (1.+Z)) 
-    print(k_rec)
     return k_rec
 
 def recombination_rate_Tielens21(Nc,T):
@@ -233,7 +231,6 @@ def recombination_rate_Tielens21(Nc,T):
         np.float: Recombination rate in [cm^3/s]
     """    
     k_rec = 1.3e-6 * np.sqrt(Nc) * np.sqrt(300. / T)
-    print(k_rec)
     return k_rec
 
 def attachment_rate_Carelli13(T):
@@ -251,7 +248,6 @@ def attachment_rate_Carelli13(T):
     a = 2.74e-9 # [cm-3]
     b = 0.11
     c = -1.11
-    
     k_att = a * (T/300.)**b * np.exp(-c/T) # [cm^3/s]
     
     return k_att
@@ -463,7 +459,7 @@ def compute_heating_efficiency(args):
     # 17. Compute the heating efficiency as the ratio of injected to absorbed power
     eff = Pinj / Prad
     
-    return f_anion,f_neutral,f_1,f_2,eff
+    return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff
     
 def multiline(xs, ys, c, ax=None, **kwargs):
     """Plot lines with different colorings
@@ -623,10 +619,11 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     Wolfire2003_efficiency(T,ax)
     
     my_efficiency('small','Berne',G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=True)
-    my_efficiency('small','Tielens',G0min,G0max,ne_min,ne_max,T,ax,fig)
+    # my_efficiency('small','Tielens',G0min,G0max,ne_min,ne_max,T,ax,fig)
     
-    # my_efficiency('large','Carelli13',G0min,G0max,ne_min,ne_max,T,ax,fig)
-            
+    my_efficiency('large','Berne',G0min,G0max,ne_min,ne_max,T,ax,fig)
+    # my_efficiency('large','Tielens',G0min,G0max,ne_min,ne_max,T,ax,fig)
+                
     ax.text(0.65, 0.9, r'$T=$ %i K'%int(T),
                         transform=ax.transAxes, fontsize=16,verticalalignment='top',
                         color='black')
@@ -634,4 +631,259 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
 
     fig.subplots_adjust(top=0.98,bottom=0.13,left=0.13,right=0.95)
     fig.savefig('dust_heating_efficiency_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
+
+def save_results_to_txt(filename, results, x, y, z):
+    with open(filename, 'w', newline='') as txtfile:
+        ni,nj,nk = results.shape
+        txtfile.write(f'{ni} {nj} {nk}\n')
+        for i in range(0,ni):
+            for j in range(0, nj):
+                for k in range(0, nk):
+                    txtfile.write(f'{np.log10(x[i])} {np.log10(y[j])} {np.log10(z[k])} {results[i,j,k]}\n')            
+
+def read_data(filename):
+    # Read the data from the file
+    data = np.loadtxt(filename,skiprows=1)
+    
+    # Separate the data into log10 space components and values
+    log_G0 = data[:, 0]
+    log_ne = data[:, 1]
+    log_T = data[:, 2]
+    values = data[:, 3]
+
+    # Get unique values for log_G0, log_ne, and log_T
+    unique_log_G0 = np.unique(log_G0)
+    unique_log_ne = np.unique(log_ne)
+    unique_log_T = np.unique(log_T)
+
+    # Reshape the values to reconstruct the matrix
+    ni = len(unique_log_G0)
+    nj = len(unique_log_ne)
+    nk = len(unique_log_T)
+    
+    # Ensure the reshaping works properly
+    values_matrix = values.reshape((ni, nj, nk))
+    
+    return unique_log_G0, unique_log_ne, unique_log_T, values_matrix
+
+def interpolate_linear(log_G0, log_ne, log_T, values_matrix, G0, ne, T):
+    log_G0_query = np.log10(G0)
+    log_ne_query = np.log10(ne)
+    log_T_query = np.log10(T)
+
+    # Find indices for the interpolation
+    i = np.searchsorted(log_G0, log_G0_query) - 1
+    j = np.searchsorted(log_ne, log_ne_query) - 1
+    k = np.searchsorted(log_T, log_T_query) - 1
+
+    i = np.clip(i, 0, len(log_G0) - 2)
+    j = np.clip(j, 0, len(log_ne) - 2)
+    k = np.clip(k, 0, len(log_T) - 2)
+
+    # Compute interpolation weights
+    x1, x2 = log_G0[i], log_G0[i + 1]
+    y1, y2 = log_ne[j], log_ne[j + 1]
+    z1, z2 = log_T[k], log_T[k + 1]
+
+    xd = (log_G0_query - x1) / (x2 - x1)
+    yd = (log_ne_query - y1) / (y2 - y1)
+    zd = (log_T_query - z1) / (z2 - z1)
+
+    # Interpolate
+    c00 = values_matrix[i, j, k] * (1 - xd) + values_matrix[i + 1, j, k] * xd
+    c01 = values_matrix[i, j, k + 1] * (1 - xd) + values_matrix[i + 1, j, k + 1] * xd
+    c10 = values_matrix[i, j + 1, k] * (1 - xd) + values_matrix[i + 1, j + 1, k] * xd
+    c11 = values_matrix[i, j + 1, k + 1] * (1 - xd) + values_matrix[i + 1, j + 1, k + 1] * xd
+
+    c0 = c00 * (1 - yd) + c10 * yd
+    c1 = c01 * (1 - yd) + c11 * yd
+
+    interpolated_value = c0 * (1 - zd) + c1 * zd
+
+    return interpolated_value
+
+def export_heating(G0_min,G0_max,T_min,T_max,ne_min,ne_max,n_G0,n_T,n_ne,model='Berne'):
+    
+    # 1. Prepare the parameter space
+    G0_values = np.logspace(np.log10(G0_min),np.log10(G0_max),n_G0)
+    T_values = np.logspace(np.log10(T_min),np.log10(T_max),n_T)
+    ne_values = np.logspace(np.log10(ne_min),np.log10(ne_max),n_ne)
+    
+    # 2. Prepare arguments for parallel computation
+    dist_small = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    dist_small.Nc = 54
+    wav,sigma_abs_anion = absorption_cross_section(dist_small,0)
+    wav,sigma_abs_neu = absorption_cross_section(dist_small,0)
+    wav,sigma_abs_cation = absorption_cross_section(dist_small,1)
+    params_small = [(G0, T, ne, dist_small, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation)
+          for G0 in G0_values for ne in ne_values for T in T_values]
+
+    dist_large = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
+    dist_large.Nc = 400
+    wav,sigma_abs_anion = absorption_cross_section(dist_large,0)
+    wav,sigma_abs_neu = absorption_cross_section(dist_large,0)
+    wav,sigma_abs_cation = absorption_cross_section(dist_large,1)
+    params_large = [(G0, T, ne, dist_large, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation)
+          for G0 in G0_values for ne in ne_values for T in T_values]
+
+
+    # 3. Perform parallel computation
+    results_small = []
+    num_cores = 20
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+            results_small = list(tqdm(executor.map(compute_heating_efficiency, params_small), total=n_G0*n_ne*n_T,
+                                desc=f'    Computing efficiency for small PAHs Nc={dist_small.Nc}', unit=' steps'))
+    
+    results_large = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+            results_large = list(tqdm(executor.map(compute_heating_efficiency, params_large), total=n_G0*n_ne*n_T,
+                                desc=f'    Computing efficiency for large PAHs Nc={dist_large.Nc}', unit=' steps'))
+                    
+            
+    # 4. Initialize matrices to store the results
+    efficiency_matrix_small = np.zeros((n_G0, n_ne, n_T))
+    f_anion_matrix_small = np.zeros((n_G0, n_ne, n_T))
+    f_neutral_matrix_small = np.zeros((n_G0, n_ne, n_T))
+    f_1_matrix_small = np.zeros((n_G0, n_ne, n_T))
+    f_2_matrix_small = np.zeros((n_G0, n_ne, n_T))
+    
+    efficiency_matrix_large = np.zeros((n_G0, n_ne, n_T))
+    f_anion_matrix_large = np.zeros((n_G0, n_ne, n_T))
+    f_neutral_matrix_large = np.zeros((n_G0, n_ne, n_T))
+    f_1_matrix_large = np.zeros((n_G0, n_ne, n_T))
+    f_2_matrix_large = np.zeros((n_G0, n_ne, n_T))
+    
+    # 5. Fill matrices with the computed results
+    for result in results_small:
+        G0, ne, T, f_anion, f_neutral, f_1, f_2, eff = result
+        i = np.argmin(np.abs(G0_values - G0))
+        j = np.argmin(np.abs(ne_values - ne))
+        k = np.argmin(np.abs(T_values - T))
+        efficiency_matrix_small[i, j, k] = eff
+        f_anion_matrix_small[i, j, k] = f_anion
+        f_neutral_matrix_small[i, j, k] = f_neutral
+        f_1_matrix_small[i, j, k] = f_1
+        f_2_matrix_small[i, j, k] = f_2
+    for result in results_large:
+        G0, ne, T, f_anion, f_neutral, f_1, f_2, eff = result
+        i = np.argmin(np.abs(G0_values - G0))
+        j = np.argmin(np.abs(ne_values - ne))
+        k = np.argmin(np.abs(T_values - T))
+        efficiency_matrix_large[i, j, k] = eff
+        f_anion_matrix_large[i, j, k] = f_anion
+        f_neutral_matrix_large[i, j, k] = f_neutral
+        f_1_matrix_large[i, j, k] = f_1
+        f_2_matrix_large[i, j, k] = f_2
+        
+    # 6. Save the results to the data files
+    save_results_to_txt('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), efficiency_matrix_small, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_anion_matrix_small, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_neutral_matrix_small, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_1_matrix_small, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_2_matrix_small, G0_values, ne_values, T_values)
+    
+    save_results_to_txt('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), efficiency_matrix_large, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_anion_matrix_large, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_neutral_matrix_large, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_1_matrix_large, G0_values, ne_values, T_values)
+    save_results_to_txt('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_2_matrix_large, G0_values, ne_values, T_values)
+
+def check_tables(G0_min,G0_max,ne_test,T_test,model):
+    
+    dist_small = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    dist_small.Nc = 54
+
+    dist_large = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
+    dist_large.Nc = 400
+
+    # 7. Test that everything is alright by obtaining a mock curve for a given ne and T
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(6,7), dpi=300, facecolor='w', edgecolor='k')
+
+    axes[0].set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
+    axes[1].set_ylabel(r'Charge fraction', fontsize=16)
+    axes[2].set_ylabel(r'Ionised fraction', fontsize=16)
+    axes[2].set_xlabel(r'$\gamma (G0\sqrt{T}/n_e)$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
+    axes[0].set_yscale('log')
+    axes[0].set_xscale('log')
+    axes[0].tick_params(labelsize=14)
+    axes[0].xaxis.set_ticks_position('both')
+    axes[0].yaxis.set_ticks_position('both')
+    axes[0].minorticks_on()
+    axes[0].tick_params(which='both',axis="both",direction="in")
+    axes[0].set_xlim([10,1e+6])
+    axes[0].set_ylim([3e-4,1])
+    axes[1].set_xscale('log')
+    axes[1].tick_params(labelsize=14)
+    axes[1].xaxis.set_ticks_position('both')
+    axes[1].yaxis.set_ticks_position('both')
+    axes[1].minorticks_on()
+    axes[1].tick_params(which='both',axis="both",direction="in")
+    axes[1].set_xlim([10,1e+6])
+    axes[1].set_ylim([0,1])
+    axes[2].set_xscale('log')
+    axes[2].tick_params(labelsize=14)
+    axes[2].xaxis.set_ticks_position('both')
+    axes[2].yaxis.set_ticks_position('both')
+    axes[2].minorticks_on()
+    axes[2].tick_params(which='both',axis="both",direction="in")
+    axes[2].set_xlim([10,1e+6])
+    axes[2].set_ylim([0,1])
+    G0_test = np.logspace(np.log10(G0_min),np.log10(G0_max),200)
+    interpolated_eff = np.zeros(200)
+    interpolated_f_anion = np.zeros(200)
+    interpolated_f_neutral = np.zeros(200)
+    interpolated_f_cation = np.zeros(200)
+    interpolated_f_dication = np.zeros(200)
+    
+    log_G0, log_ne, log_T, eff_matrix = read_data('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
+    log_G0, log_ne, log_T, f_anion_matrix = read_data('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
+    log_G0, log_ne, log_T, f_neutral_matrix = read_data('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
+    log_G0, log_ne, log_T, f_cation_matrix = read_data('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
+    log_G0, log_ne, log_T, f_dication_matrix = read_data('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
+    
+    for i in range(0, len(G0_test)):
+        interpolated_eff[i] = interpolate_linear(log_G0, log_ne, log_T, eff_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_anion[i] = interpolate_linear(log_G0, log_ne, log_T, f_anion_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_neutral[i] = interpolate_linear(log_G0, log_ne, log_T, f_neutral_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_cation[i] = interpolate_linear(log_G0, log_ne, log_T, f_cation_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_dication[i] = interpolate_linear(log_G0, log_ne, log_T, f_dication_matrix, G0_test[i], ne_test, T_test)
+
+        
+    axes[0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='-',color='k')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_anion, label='$Z=-1$',linestyle='-',color='b')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_neutral, label='$Z=0$',linestyle='-',color='orange')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation, label='$Z=1$',linestyle='-',color='g')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_dication, label='$Z=2$',linestyle='-',color='r')
+    axes[2].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation+interpolated_f_dication,linestyle='-',color='k')
+    
+    log_G0, log_ne, log_T, eff_matrix = read_data('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
+    log_G0, log_ne, log_T, f_anion_matrix = read_data('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
+    log_G0, log_ne, log_T, f_neutral_matrix = read_data('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
+    log_G0, log_ne, log_T, f_cation_matrix = read_data('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
+    log_G0, log_ne, log_T, f_dication_matrix = read_data('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
+    
+    for i in range(0, len(G0_test)):
+        interpolated_eff[i] = interpolate_linear(log_G0, log_ne, log_T, eff_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_anion[i] = interpolate_linear(log_G0, log_ne, log_T, f_anion_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_neutral[i] = interpolate_linear(log_G0, log_ne, log_T, f_neutral_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_cation[i] = interpolate_linear(log_G0, log_ne, log_T, f_cation_matrix, G0_test[i], ne_test, T_test)
+        interpolated_f_dication[i] = interpolate_linear(log_G0, log_ne, log_T, f_dication_matrix, G0_test[i], ne_test, T_test)
+
+        
+    axes[0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='--',color='k')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_anion,linestyle='--',color='b')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_neutral,linestyle='--',color='orange')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation,linestyle='--',color='g')
+    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_dication,linestyle='--',color='r')
+    axes[2].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation+interpolated_f_dication,linestyle='--',color='k')
+
+    
+    axes[0].text(0.65, 0.9, r'$T=$ %.1e K'%float(T_test)+'\n'+\
+                            r'$n_e=$ %.1e ${\rm cm}^{-3}$'%float(ne_test),
+                        transform=axes[0].transAxes, fontsize=16,verticalalignment='top',
+                        color='black')
+    axes[1].legend(loc='lower left',fontsize=14,frameon=False)
+
+    fig.subplots_adjust(top=0.98,bottom=0.1,left=0.13,right=0.95,hspace=0.0)
+    fig.savefig('test_peh_table.png', format='png', dpi=300)
     

@@ -38,9 +38,10 @@ au2cgs_m         = 1.66053906660e-24 # [g] conversion between a.u. mass and cgs 
 sec2yr           = 3.1536e7 # [s] conversion between yr to sec
 kb               = 1.3806488e-16 # [erg/K] - Boltzmann constant
 elem_charge      = 4.8032047e-10 # [statC] - elementary charge
+c                = 2.99792458e10 # [cm/s] - speed of light
 U0               = {'C': 4.0, 'Sil': 5.7} # [eV] - surface binding energy
 Ksput            = {'C': 0.65, 'Sil': 0.1} # [] - free parameter fitting to the observed yields
-size_correction  = { # [] - fitting to the results of Bocchio et al. (2006) for the size correction
+size_correction_fitparams  = { # [] - fitting to the results of Bocchio et al. (2006) for the size correction
                     #       to the sputtering yields for the semi-infinite target approximation
     'C'          : {
         'p1'     : 4.9,
@@ -49,16 +50,38 @@ size_correction  = { # [] - fitting to the results of Bocchio et al. (2006) for 
         'p4'     : 4.7,
         'p5'     : 3.0,
         'p6'     : 1.2,
-        'alpha_P': -4.73
+        'alpha_P': -4.73,
+        'a'      : 4.51,
+        'b'      : 0.92,
+        'c'      : 0.4,
+        'E_exec' : 13.5
     },
-    'Sil'        : {
+    'MgSiO4'        : {
+        'p1'     : 1.5,
+        'p2'     : 1.2,
+        'p3'     : 0.57,
+        'p4'     : 1.1,
+        'p5'     : 0.52,
+        'p6'     : 0.37,
+        'alpha_P': -3.34,
+        'a'      : 1.48,
+        'b'      : 1.31,
+        'c'      : 0.59,
+        'E_exec' : 13.0
+        
+    },
+    'MgSiO3'        : {
         'p1'     : 1.0,
         'p2'     : 0.5,
         'p3'     : 1.0,
         'p4'     : 1.8,
         'p5'     : 2.1,
         'p6'     : 0.76,
-        'alpha_P': -3.34
+        'alpha_P': -3.34,
+        'a'      : 1.6,
+        'b'      : 1.22,
+        'c'      : 0.5,
+        'E_exec' : 13.0
     }
 }
 
@@ -107,10 +130,12 @@ def bocchio_correction(x,fit_params):
     Returns:
         float: correction factor to semi-infinite yield
     """    
-    
-    f1 = fit_params['p1'] * np.exp(-(np.log(x/fit_params['p2']))**2. / (2. * fit_params['p3']**2.))
-    f2 = -fit_params['p4'] * np.exp(-(fit_params['p5']*x - fit_params['p6'])**2.)
-    return 1. + f1 + f2
+    if x >= 1:
+        f1 = fit_params['p1'] * np.exp(-(np.log(x/fit_params['p2']))**2. / (2. * fit_params['p3']**2.))
+        f2 = -fit_params['p4'] * np.exp(-(fit_params['p5']*x - fit_params['p6'])**2.)
+        return 1. + f1 + f2
+    else:
+        return fit_params['a'] * np.exp(-(np.log(x/fit_params['b']))**2. / (2. * fit_params['c']**2.))
 
 def alpha_energy(mu):
     """
@@ -202,10 +227,10 @@ def threshold_energy(surface_energy,dust_atomic_mass,ion_atomic_mass):
         
     return Esp
 
-def sputtering_yield(dust_radius,surface_energy,Kparam,
+def sputtering_yield(dust_radius,surface_energy,Kparam,rho_dust,
                         dust_atomic_mass,ion_atomic_mass,
                         dust_atomic_number,ion_atomic_number,ion_charge,
-                        bocchio_fit_params,alphaP,ion_energy,
+                        bocchio_fit_params,E_exec,ion_energy,
                         do_size_correction=False,
                         dust_charge=0):
     """Sputtering yields for ion collisions of a particular energy and charge.
@@ -232,20 +257,22 @@ def sputtering_yield(dust_radius,surface_energy,Kparam,
     E_sp = threshold_energy(surface_energy,dust_atomic_mass,ion_atomic_mass)
     
     if dust_charge != 0:
-        E_charge = (ion_charge * dust_charge * elem_charge**2. / dust_radius) / eV2erg
-        if (E_charge/ion_energy)>0.99:
-            if ion_energy + E_charge > E_sp:
-                print('Particle moved to high E')
+        E_charge = (ion_charge * dust_charge * elem_charge / dust_radius) / eV2erg
+        # if (E_charge/ion_energy)>0.99:
+        #     if ion_energy + E_charge > E_sp:
+        #         print('Particle moved to high E')
         ion_energy = ion_energy + E_charge
     if ion_energy < E_sp:
         return 0.0
         
     if do_size_correction:
         # 2. Compute the ion penetration depth
-        rp = penetration_depth(ion_charge,alphaP,ion_energy)
-        
+        #rp = penetration_depth(ion_charge,alphaP,ion_energy)
+        rp = compute_penetration_depth(ion_energy,ion_charge,ion_atomic_mass*au2cgs_m,rho_dust,dust_atomic_number,dust_atomic_mass*au2cgs_m,E_exec)
+        rp = rp *1e-7
         # 3. Compute the size-dependent correction
         x = dust_radius / (0.7 * rp)
+        # print(bocchio_correction(x,size_correction_fitparams['MgSiO4']),bocchio_correction(x,size_correction_fitparams['MgSiO3']))
         size_correction = max(0.0, bocchio_correction(x,bocchio_fit_params))
     
     # 4. Compute the alpha factor for enery redistribution
@@ -284,10 +311,10 @@ def average_yields_T(args):
     
     from scipy.integrate import trapezoid
     
-    dust_radius,surface_energy,Kparam,\
+    dust_radius,surface_energy,Kparam,rho_dust,\
         dust_atomic_mass,ion_atomic_mass,\
         dust_atomic_number,ion_atomic_number,\
-        ion_charge,bocchio_fit_params,alphaP,Tgas,\
+        ion_charge,bocchio_fit_params,E_exec,Tgas,\
         nbins_v,do_size_correction,do_dust_charge = args
     
     # 1. Determine the minumum velocity for reaching the threshold energy
@@ -298,9 +325,9 @@ def average_yields_T(args):
     
     # 2. We set the maximum velocity to the thermal energy of gas at ~1e11 K
     v_max = np.sqrt(2. * 1e7 * eV2erg / (ion_atomic_mass*au2cgs_m)) # [cm/s]
-    while Maxwell_Boltzmann_function(v_max,ion_atomic_mass*au2cgs_m,Tgas) < 1e-20:
+    while Maxwell_Boltzmann_function(v_max,ion_atomic_mass*au2cgs_m,Tgas) < 1e-25:
         v_max = v_max/ 2.0
-    
+    # print(0.5 * ion_atomic_mass * au2cgs_m *v_0**2./ eV2erg,0.5 * ion_atomic_mass * au2cgs_m *v_max**2./ eV2erg)
     # 3. Perform loop over velocity range
     v = np.logspace(np.log10(v_0),np.log10(v_max),nbins_v)
     Y_v = np.zeros(nbins_v)
@@ -313,22 +340,24 @@ def average_yields_T(args):
             Zmean = dust_model.grain_mean_charge(1.0,Tgas,0.1,'silicates',str(int(dust_radius*1e7))+'A')
     else:
         Zmean = 0.0
-
+    n_size_corr = 0
     for i in range(0, nbins_v):
         vi = v[i] # [cm/s]
         Ei = 0.5 * ion_atomic_mass * au2cgs_m * vi**2. # [erg]
         Ei = Ei / eV2erg
         mb_factor = Maxwell_Boltzmann_function(vi,ion_atomic_mass*au2cgs_m,Tgas)
-        Y = sputtering_yield(dust_radius,surface_energy,Kparam,
+        Y = sputtering_yield(dust_radius,surface_energy,Kparam,rho_dust,
                                 dust_atomic_mass,ion_atomic_mass,
                                 dust_atomic_number,ion_atomic_number,ion_charge,
-                                bocchio_fit_params,alphaP,Ei,
+                                bocchio_fit_params,E_exec,Ei,
                                 do_size_correction,Zmean)
         Y_v[i] = mb_factor * vi * Y
+        if Y == 0.0:
+            n_size_corr += 1
 
     # 5. Integrate Y_v with the trapezoid method
     Y0 = trapezoid(Y_v,v)
-    
+    # print(Tgas,n_size_corr/nbins_v)
     return Y0
    
    
@@ -363,13 +392,13 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
     
     # 1. Prepare the dust grain properties
     if dust_type == 'smallC':
-        a_dust = dust_model.basic_a0[2]*1e-4 # [microns]
+        a_dust = dust_model.basic_a0[2]*1e-4 # [cm]
         m_dust = 4./3. * np.pi * (a_dust)**2. * dust_model.basic_s[2] # [g]
         rho_dust = dust_model.basic_s[2] # [g/cm^3]
         am_dust = 12.011 # [a.u.]
         an_dust = 6
-        alphaP = size_correction['C']['alpha_P']
-        bocchio_fitparams = size_correction['C']
+        E_exec = size_correction_fitparams['C']['E_exec']
+        bocchio_fitparams = size_correction_fitparams['C']
         Kparam = Ksput['C']
         surface_energy = U0['C']
     elif dust_type == 'largeC':
@@ -378,8 +407,8 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
         rho_dust = dust_model.basic_s[3] # [g/cm^3]
         am_dust = 12.011 # [a.u.]
         an_dust = 6
-        alphaP = size_correction['C']['alpha_P']
-        bocchio_fitparams = size_correction['C']
+        E_exec = size_correction_fitparams['C']['E_exec']
+        bocchio_fitparams = size_correction_fitparams['C']
         Kparam = Ksput['C']
         surface_energy = U0['C']
     elif dust_type == 'smallSil':
@@ -389,8 +418,8 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
         rho_dust = dust_model.basic_s[5] # [g/cm^3]
         am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. # [a.u.]
         an_dust = int((4*8 + 14 + 26 + 12) / 7)
-        alphaP = size_correction['Sil']['alpha_P']
-        bocchio_fitparams = size_correction['Sil']
+        E_exec = size_correction_fitparams['MgSiO4']['E_exec']
+        bocchio_fitparams = size_correction_fitparams['MgSiO4']
         Kparam = Ksput['Sil']
         surface_energy = U0['Sil']
     elif dust_type == 'largeSil':
@@ -400,8 +429,8 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
         rho_dust = dust_model.basic_s[6] # [g/cm^3]
         am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. # [a.u.]
         an_dust = int((4*8 + 14 + 26 + 12) / 7)
-        alphaP = size_correction['Sil']['alpha_P']
-        bocchio_fitparams = size_correction['Sil']
+        E_exec = size_correction_fitparams['MgSiO4']['E_exec']
+        bocchio_fitparams = size_correction_fitparams['MgSiO4']
         Kparam = Ksput['Sil']
         surface_energy = U0['Sil']
     else:
@@ -417,10 +446,10 @@ def total_erosion_rate(Tmin,Tmax,dust_type,
     print(f"    Number of cores available: {num_cores}")
     for i in range(0, len(ion_abundances)):
         # Create argument list for parallel processing
-        args_list = [(a_dust,surface_energy,Kparam,\
+        args_list = [(a_dust,surface_energy,Kparam,rho_dust,\
                         am_dust,ion_atomic_masses[i],\
                         an_dust,ion_atomic_numbers[i],\
-                        ion_charges[i],bocchio_fitparams,alphaP,Ti,\
+                        ion_charges[i],bocchio_fitparams,E_exec,Ti,\
                         nbins_v,do_size_correction,\
                         do_dust_charge) for Ti in Tgas]
         with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
@@ -550,15 +579,21 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     import seaborn as sns
     sns.set_theme(style="white")
     sns.color_palette("Paired")
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
     fig, ax = plt.subplots(1,1, figsize=(7,5),dpi=300,facecolor='w',edgecolor='k',sharey=True)
     
-    ax.set_ylabel(r'Sputtering rate $(1/n_{\rm H})da/dt$ [cm$^3 \mu$m yr$^{-1}$]', fontsize=14)
-    ax.set_xlabel(r'$T$ [K]',fontsize=14)
+    ax.set_ylabel(r'$(1/n_{\rm H})da/dt$ [cm$^3 \mu$m yr$^{-1}$]', fontsize=16)
+    ax.set_xlabel(r'$T$ [K]',fontsize=16)
     ax.set_ylim([1e-9,1e-4])
     ax.set_xlim([6e3,1e9])
     ax.set_yscale('log')
     ax.set_xscale('log')
-    ax.tick_params(labelsize=12)
+    ax.tick_params(labelsize=14)
     ax.xaxis.set_ticks_position('both')
     ax.yaxis.set_ticks_position('both')
     ax.minorticks_on()
@@ -570,8 +605,8 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     Tgas = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
     Y_Sil = dust_model.Tielens_rate(dust_model.thermal_spu_nozawa06['Sil'],np.log10(Tgas))
     Y_C = dust_model.Tielens_rate(dust_model.thermal_spu_nozawa06['Car'],np.log10(Tgas))
-    ax.plot(Tgas,Y_Sil,linestyle='--',color='sandybrown',label='Sil: Nozawa et al. (2006)')
-    ax.plot(Tgas,Y_C,linestyle='--',color='cornflowerblue',label='C: Nozawa et al. (2006)')
+    ax.plot(Tgas,Y_Sil,linestyle='--',color='sandybrown',linewidth=3,label='Sil: Nozawa et al. (2006)')
+    ax.plot(Tgas,Y_C,linestyle='--',color='cornflowerblue',linewidth=3,label='C: Nozawa et al. (2006)')
     
     table_dir = './thermal_sputtering_data'
     if not os.path.exists(table_dir):
@@ -587,7 +622,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             ion_abundances,
                                             nT,nbins_v,
                                             False,False)
-        ax.plot(Tgas,Y_smallC,linestyle='-',color='steelblue',label='smallC: No size correction')
+        ax.plot(Tgas,Y_smallC,linestyle='-',color='steelblue',linewidth=3,label='smallC: No size correction')
         
         a_dust, Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
                                             ion_atomic_masses,
@@ -596,11 +631,11 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             ion_abundances,
                                             nT,nbins_v,
                                             True,False)
-        ax.plot(Tgas,Y_smallC,linestyle=(0, (3, 1, 1, 1)),color='steelblue',label='smallC: With size correction')
-        print(Y_smallC)
+        ax.plot(Tgas,Y_smallC,linestyle=(0, (3, 1, 1, 1)),color='steelblue',linewidth=3,label='smallC: With size correction')
+
         coefficients = np.polyfit(np.log10(Tgas[Y_smallC>0]), np.log10(Y_smallC[Y_smallC>0]), 6)
         poly_fit = np.poly1d(coefficients)
-        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        # ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         file.write("======================\n")
         file.write("Polynomial Coefficients smallC grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
@@ -622,10 +657,11 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             ion_abundances,
                                             nT,nbins_v,
                                             True,False)
-        ax.plot(Tgas,Y_largeC,linestyle=':',color='cornflowerblue',label='largeC: With size correction')
+        ax.plot(Tgas,Y_largeC,linestyle=':',color='cornflowerblue',linewidth=3,label='largeC: With size correction')
+
         coefficients = np.polyfit(np.log10(Tgas[Y_largeC>0]),  np.log10(Y_largeC[Y_largeC>0]), 6)
         poly_fit = np.poly1d(coefficients)
-        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        # ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         file.write("======================\n")
         file.write("Polynomial Coefficients largeC grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
@@ -646,7 +682,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             ion_abundances,
                                             nT,nbins_v,
                                             False,False)
-        ax.plot(Tgas,Y_smallSil,linestyle='-',color='saddlebrown',label='smallSil: No size correction')
+        ax.plot(Tgas,Y_smallSil,linestyle='-',color='saddlebrown',linewidth=3,label='smallSil: No size correction')
         
         
         a_dust, Tgas, Y_smallSil = total_erosion_rate(Tmin,Tmax,'smallSil',
@@ -656,10 +692,10 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             ion_abundances,
                                             nT,nbins_v,
                                             True,False)
-        ax.plot(Tgas,Y_smallSil,linestyle=(0, (3, 1, 1, 1)),color='saddlebrown',label='smallSil: With size correction')
+        ax.plot(Tgas,Y_smallSil,linestyle=(0, (3, 1, 1, 1)),color='saddlebrown',linewidth=3,label='smallSil: With size correction')
         coefficients = np.polyfit(np.log10(Tgas[Y_smallSil>0]),  np.log10(Y_smallSil[Y_smallSil>0]), 6)
         poly_fit = np.poly1d(coefficients)
-        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        # ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         file.write("======================\n")
         file.write("Polynomial Coefficients smallSil grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
@@ -681,11 +717,11 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
                                             ion_abundances,
                                             nT,nbins_v,
                                             True,False)
-        ax.plot(Tgas,Y_largeSil,linestyle=':',color='sandybrown',label='largeSil: With size correction')
+        ax.plot(Tgas,Y_largeSil,linestyle=':',linewidth=3,color='sandybrown',label='largeSil: With size correction')
         
         coefficients = np.polyfit(np.log10(Tgas[Y_largeSil>0]),  np.log10(Y_largeSil[Y_largeSil>0]), 6)
         poly_fit = np.poly1d(coefficients)
-        ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
+        # ax.plot(Tgas,10**poly_fit(np.log10(Tgas)),linestyle=':',color='k',alpha=0.6)
         file.write("======================\n")
         file.write("Polynomial Coefficients largeSil grains (%.4f microns):\n"%(a_dust/1e-4))
         file.write("f(x) = ")
@@ -701,7 +737,138 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
             
     print(f"Results written to thermal_sputtering_polynomial_fits{label}.txt")
     
-    ax.legend(loc='best', frameon=False, fontsize=10, ncol=2)
-    fig.subplots_adjust(top=0.98,bottom=0.1,left=0.15,right=0.99,hspace=0,wspace=0)
+    ax.legend(loc='best', frameon=False, fontsize=12, ncol=2)
+    fig.subplots_adjust(top=0.98,bottom=0.1,left=0.11,right=0.96,hspace=0,wspace=0)
     return fig
+    
+def effective_charge_number(z,v_ion):
+    
+    z_eff = z * (1. - np.exp(-125.*v_ion / c * z**(-2./3.)))
+    
+    return z_eff
+def compute_penetration_depth(E_init,z,m_ion,s_dust,Z_dust,M_dust,E_exc,delta_max=0.01,nmax=1000):
+    """Obtain the penetration depth using the Bethe-Bloch formula. It describes the mean energy loss
+    per distance travelled of a charge particle traversing matter.
+
+    Args:
+        E_init (float): initial energy of the ion [eV]
+        z (float): ion charge
+        m_ion (float): ion atomic mass [g]
+        s_dust (float): dust material density [g/cm^3]
+        Z_dust (float): average dust atomic number
+        M_dust (float): average dust material atomic mass [g]
+        E_exc (float): average excitation energy [eV]
+        delta_max (float, optional): maximum change of the ion energy during the integration. Defaults to 0.01.
+        nmax (int, optional): maximum number of iterations. Defaults to 1000.
+
+    Returns:
+        float: penetration depth [nm]
+    """    
+    
+    CBB = 7.34253e-25 # [J m^4/s^2]
+    me = 0.5109989461e6 # [MeV/c^2]
+    
+    CBB = CBB / 1.602176634e-19 * 1e8 # [eV cm^4 / s^2]
+    
+    v_ion = np.sqrt(2 * E_init *eV2erg / m_ion) # [cm/s]
+    E_now = E_init
+    
+    dr = 1e-7 # [cm]
+    r_pd = 0 # [cm]
+    n = 0
+    
+    I = E_exc * Z_dust
+    mu_dust = Z_dust / M_dust
+    prefactor = CBB * s_dust * mu_dust
+
+    while E_now > 1e-3 * E_init and n < nmax:
+        # 1. Compute the effective charge number
+        z_eff = effective_charge_number(z,v_ion)
+        
+        # 2. Compute the dE/dr
+        beta = v_ion / c
+        dE =  prefactor * z_eff**2. / v_ion**2. * (np.log(2.*me*beta**2./(I*(1-beta**2.))) - beta**2.) # [eV/cm]
+        
+        # 3. Figure out if the step needs to be changed
+        if abs(dE*dr)/E_now >= delta_max:
+            dr = dr / 2.
+        else:
+            r_pd = r_pd + dr
+            # print(r_pd)
+            E_now = E_now + dE * dr
+            v_ion = np.sqrt(2 * E_now *eV2erg / m_ion) # [cm/s]
+            dr = dr * 2.
+        n += 1
+    
+    return r_pd * 1e9 # [nm]
+
+def plot_penetration_depth(E_min,E_max,z_ion,m_ion,nE=100,delta_max=0.01,nmax=1000):
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    sns.color_palette("Paired")
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    
+    # 1. Setup the energy array
+    E = np.logspace(np.log10(E_min),np.log10(E_max),nE)
+    
+    # 2. Set the material properties for the different grains
+    rho_dust_c = dust_model.basic_s[2] # [g/cm^3]
+    am_dust_c = 12.011 * au2cgs_m # [g]
+    an_dust_c = 6
+    E_exec_c = 13.5 # [eV]
+    
+    # Assuming MgFeSiO4 composition (olivine with Iron inclusions as the regular model)
+    rho_dust_sil = dust_model.basic_s[5] # [g/cm^3]
+    am_dust_sil = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m  # [g]
+    an_dust_sil = int((4*8 + 14 + 26 + 12) / 7)
+    E_exec_sil = 13.0 # [eV]
+    
+    # 3. Compute the penetration depth for each energy
+    r_dp_sil = np.zeros((2,nE))
+    r_dp_c = np.zeros((2,nE))
+    for i in range(0, nE):
+        r_dp_sil[0,i] = compute_penetration_depth(E[i],z_ion,m_ion,
+                                             rho_dust_sil,an_dust_sil,
+                                             am_dust_sil,E_exec_sil,
+                                             delta_max=delta_max,nmax=nmax)
+        r_dp_sil[1,i] = 1e7*penetration_depth(z_ion,size_correction_fitparams['MgSiO4']['alpha_P'],E[i])
+        r_dp_c[0,i] = compute_penetration_depth(E[i],z_ion,m_ion,
+                                             rho_dust_c,an_dust_c,
+                                             am_dust_c,E_exec_c,
+                                             delta_max=delta_max,nmax=nmax)
+        r_dp_c[1,i] = 1e7*penetration_depth(z_ion,size_correction_fitparams['C']['alpha_P'],E[i])
+    
+    # 4. Setup figure and plot
+    fig, ax = plt.subplots(1,1, figsize=(5,4),dpi=300,facecolor='w',edgecolor='k',sharey=True)
+    
+    ax.set_ylabel(r'$r_{\rm pd}$ [nm]', fontsize=16)
+    ax.set_xlabel(r'$E_{\rm init}$ [eV]',fontsize=16)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    #ax.set_ylim([1e-5,1e1])
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    
+    ax.plot(E,r_dp_sil[0,:],linestyle='-',color='saddlebrown',label='Silicates')
+    ax.plot(E,r_dp_sil[1,:],linestyle='--',color='saddlebrown')
+    ax.plot(E,r_dp_c[0,:],linestyle='-',color='royalblue',label='Carbonaceous')
+    ax.plot(E,r_dp_c[1,:],linestyle='--',color='royalblue')
+    ax.text(0.6, 0.1, r'$z_{\rm ion}=%i$'%int(z_ion)+'\n'+r'$m_{\rm ion}=%.1f$ [a.u.]'%(float(m_ion)/au2cgs_m),
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=ax.transAxes,fontsize=15)
+
+    ax.legend(loc='best',frameon=False,fontsize=14)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.14,right=0.98,hspace=0,wspace=0)
+    fig.savefig('test_penetration_depth.png',format='png')
+        
     
