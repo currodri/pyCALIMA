@@ -24,12 +24,13 @@ import time
 
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Constants
 k_IR          = 100. # [photons / s] - IR emission rate
 E_0           = 4.6 # [eV] - unimolecular dissociation threshold energy (acetylene loss)
 T_0           = 7.5 # [eV] - threshold energy for C-atom dissociation
-k_0           = 1.4e16 # [1/s] - pre-exponential factor for dissociation rate
+#k_0           = 1.4e16 # [1/s] - pre-exponential factor for dissociation rate
 Delta_epsilon = 0.16 # [eV] - change in internal energy of PAH due to IR photon emission of a typical C-C mode
 thickness     = 4.31e-8 # [cm] - PAH electron cloud thickness
 e_sp_min = 10 # [eV] - minimum electron energy for the stopping power fitting function
@@ -136,7 +137,7 @@ def effective_temperature(Nc,Te,binding_energy):
     """    
     
     Teff = 2000. * (Te/Nc)**0.4 *(1.-0.2*binding_energy/Te)
-    
+    # Teff = 3750. * (Te/Nc)**0.45 * (1.-0.23*binding_energy/Te)
     return Teff
 
 def electronic_electron_collision(R,d,theta,init_energy):
@@ -257,14 +258,18 @@ def dissociation_probability(binding_energy,Nc,T_av):
 
     Returns:
         float: normalised probability for dissociation
-    """    
+    """
+    from unyt import h,K,kb    
     # 1. Compute the maximum number of IR photon emissions
     # as suggested by the results of Micelotta et al. (2010b)
     n_max = float(int(Nc / 5))
     
     # 2. Compute the probability based on the value of T_av
+    DeltaS = 10 # [cal/K/mol]
+    R = 1.98720425864083 # [cal/K/mol]
+    k_0 = kb*T_av*K/h * np.exp(1.+DeltaS/R)
     
-    P = k_0 * np.exp(-binding_energy/(8.617e-5*T_av)) / ((k_IR / (n_max + 1.)) + k_0 * np.exp(-binding_energy/(8.617e-5*T_av)))
+    P = k_0.to('1/s').d * np.exp(-binding_energy/(8.617e-5*T_av)) / ((k_IR / (n_max + 1.)) + k_0.to('1/s').d * np.exp(-binding_energy/(8.617e-5*T_av)))
     
     return P
     
@@ -658,12 +663,17 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
         import seaborn as sns
         sns.set_theme(style="white")
         sns.color_palette("Paired")
+        plt.rcParams.update({
+            "text.usetex": True,
+            "font.family": "serif",
+            "font.serif": "Computer Modern Roman",
+        })
         fig, ax = plt.subplots(1,1, figsize=(6,4),dpi=300,facecolor='w',edgecolor='k',sharey=True)
         
-        ax.plot(T,J_electron,label='Electrons',linestyle='-')
+        ax.plot(T,J_electron,label='Electrons',linestyle='-',linewidth=2.5)
         for i, ptype in enumerate(friction_params.keys()):
-            ax.plot(T,J_electronic[ptype],label=f'{ptype} electronic',linestyle=':')
-            ax.plot(T,J_ion[ptype],label=f'{ptype} nuclear',linestyle='-.')
+            ax.plot(T,J_electronic[ptype],label=f'{ptype} electronic',linestyle=':',linewidth=2.5)
+            ax.plot(T,J_ion[ptype],label=f'{ptype} nuclear',linestyle='-.',linewidth=2.5)
         
         ax.tick_params(labelsize=14)
         ax.xaxis.set_ticks_position('both')
@@ -672,15 +682,15 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
         ax.tick_params(which='both',axis="both",direction="in")
         ax.set_yscale('log')
         ax.set_xscale('log')
-        ax.legend(loc='best',frameon=False,ncol=2)
+        ax.legend(loc='upper left',frameon=False,ncol=2,fontsize=14)
         ax.set_ylabel(r'Rate Constant [cm$^3$/s]',fontsize=16)
         ax.set_xlabel(r'Gas Temperature [K]',fontsize=16)
         ax.set_ylim([1e-20,1e-2])
         
-        ax.text(0.05, 0.1, f'{ptype} --> PAH (Nc={Nc})',
-                                    verticalalignment='bottom', horizontalalignment='left',
-                                    transform=ax.transAxes,fontsize=14)
-        fig.subplots_adjust(top=0.96,bottom=0.15,left=0.16,right=0.99,hspace=0,wspace=0)
+        # ax.text(0.05, 0.1, r'%s $\rightarrow$ PAH ($N_{\rm C}=%i$)'%(ptype,int(Nc)),
+        #                             verticalalignment='bottom', horizontalalignment='left',
+        #                             transform=ax.transAxes,fontsize=14)
+        fig.subplots_adjust(top=0.96,bottom=0.14,left=0.14,right=0.99,hspace=0,wspace=0)
         plot_name =  PAH_dir+f'/PAH_{Nc}_thermal_sputtering_rates.pdf'
         fig.savefig(plot_name, format='pdf', dpi=300)
         print(f'    Plot saved in: {plot_name}')

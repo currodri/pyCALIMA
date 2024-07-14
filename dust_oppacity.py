@@ -191,7 +191,8 @@ def plot_efficiencies(filename,dust_type='grains',
             axes[1].plot(w,Q_sca_eff,linewidth=2,color='r',linestyle=linestyles[i])
             axes[2].plot(w,Q_rp_eff,linewidth=2,color='b',linestyle=linestyles[i])
             if output_average:
-                w = w[::-1]
+                # Convert wavelength from micron to angstrom 
+                w = w[::-1] * 1e4
                 # Convert cross section from micron^2 to cm^2
                 Q_abs_eff = Q_abs_eff[::-1] * 1e-8
                 Q_sca_eff = Q_sca_eff[::-1] * 1e-8 
@@ -199,7 +200,7 @@ def plot_efficiencies(filename,dust_type='grains',
                 f = open('averaged_cross_section_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1]), 'w', encoding="utf-8")
                 f.write("{:8d}".format(nwav)+'\n')
                 for j in range(0,nwav):
-                    f.write("{:14.6e}".format(w[j]/1e-4)+'\n')
+                    f.write("{:14.6e}".format(w[j])+'\n')
                 for j in range(0,nwav):
                     f.write("{:14.6e}".format(Q_abs_eff[j])+'\n')
                 for j in range(0,nwav):
@@ -218,9 +219,9 @@ def plot_efficiencies(filename,dust_type='grains',
         ax.set_yscale('log')
         ax.set_xscale('log')
         ax.set_ylim([1e-10,1e-3])
-    axes[0].set_ylabel(r'$C_{\rm abs}$', fontsize=16)
-    axes[1].set_ylabel(r'$C_{\rm sca}$', fontsize=16)
-    axes[2].set_ylabel(r'$C_{\rm rp}$', fontsize=16)
+    axes[0].set_ylabel(r'$C_{\rm abs}$ [cm$^2$]', fontsize=16)
+    axes[1].set_ylabel(r'$C_{\rm sca}$ [cm$^2$]', fontsize=16)
+    axes[2].set_ylabel(r'$C_{\rm rp}$ [cm$^2$]', fontsize=16)
     axes[2].set_xlabel(r'$\lambda$ [$\mu$m]', fontsize=16)
     axes[0].legend(loc='best',fontsize=14,frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.06,left=0.13,right=0.99,hspace=0,wspace=0)

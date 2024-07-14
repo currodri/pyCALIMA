@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.collections import LineCollection
 import seaborn as sns
-sns.set(style="white")
+sns.set_theme(style="white")
 plt.rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
@@ -38,11 +38,12 @@ mFe_NIST_amu = 55.854        # iron molecular weight [amu]
 mNe_NIST_amu = 20.1797       # neon molecular weight [amu]
 mCa_NIST_amu = 40.078        # calcium molecular weight [amu]
 
-mPAH = 4./3.*np.pi*2*(5e-8)**3. * g
-mCSmall = 4./3.*np.pi*2.2*(5e-7)**3. * g
-mCLarge = 4./3.*np.pi*2.2*(1e-6)**3. * g
+mPAHSmall = 4./3.*np.pi*2*(5e-8)**3. * g
+mPAHLarge = 4./3.*np.pi*2*(1e-7)**3. * g
+mCSmall = 4./3.*np.pi*2.2*(1e-6)**3. * g
+mCLarge = 4./3.*np.pi*2.2*(1e-5)**3. * g
 mSilSmall = 4./3.*np.pi*3.3*(5e-7)**3. * g
-mSilLarge = 4./3.*np.pi*3.3*(1e-6)**3. * g
+mSilLarge = 4./3.*np.pi*3.3*(1e-5)**3. * g
 
 # Define fields for yt
 basic_hydro       = ['Density','x-velocity','y-velocity','z-velocity','radiation_pressure','Pressure']
@@ -58,7 +59,7 @@ metal_ion         = ['OI','OII','OIII','OIV','OV','OVI','OVII','OVIII',
                   'FeI','FeII','FeIII','FeIV','FeV','FeVI','FeVII','FeVIII','FeIX','FeX','FeXI',
                   'NeI','NeII','NeIII','NeIV','NeV','NeVI','NeVII','NeVIII','NeIX','NeX']
 ions              = ['HI','HII','HeII','HeIII']
-dust_densities    = ['pahs','CSmall','CLarge','SilSmall','SilLarge']
+dust_densities    = ['PAHSmall','PAHLarge','CSmall','CLarge','SilSmall','SilLarge']
 noadvect          = ['cooling_time','temperature','cooling_rate','heating_rate',
                   'cooling_primordial','cooling_fine_structure','cooling_CII',
                   'cooling_OI','cooling_CO','cooling_dust','cooling_dust_rec',
@@ -72,7 +73,8 @@ def setup_yt(dust,pahs):
             data[('ramses','FeMassFrac')]+data[('ramses','NeMassFrac')] + \
             data[('ramses','COMassFrac')]
         try:
-            n = n + data[('ramses','pahs')]+ data[('ramses','CSmall')] + \
+            n = n + data[('ramses','PAHSmall')] +data[('ramses','PAHLarge')]+ \
+                data[('ramses','CSmall')] + \
                 data[('ramses','CLarge')]  + data[('ramses','SilSmall')] + \
                 data[('ramses','SilLarge')]
         except:
@@ -100,9 +102,12 @@ def setup_yt(dust,pahs):
     def _nCII(field,data):
         return (data[('gas','density')] * data[('ramses','CMassFrac')] * data[('ramses','CII')]) / (mC_NIST_amu*amu_to_g*g)
     if pahs:
-        @yt.derived_field(name='nPAH', sampling_type="cell", units='cm**-3',force_override=True)
-        def _nPAH(field,data):
-            return (data[('gas','density')] * data[('ramses','pahs')] ) / (mPAH)
+        @yt.derived_field(name='nPAHSmall', sampling_type="cell", units='cm**-3',force_override=True)
+        def _nPAHSmall(field,data):
+            return (data[('gas','density')] * data[('ramses','PAHSmall')] ) / (mPAHSmall)
+        @yt.derived_field(name='nPAHLarge', sampling_type="cell", units='cm**-3',force_override=True)
+        def _nPAHLarge(field,data):
+            return (data[('gas','density')] * data[('ramses','PAHLarge')] ) / (mPAHLarge)
     if dust:
 
         @yt.derived_field(name='nCSmall', sampling_type="cell", units='cm**-3',force_override=True)
@@ -195,7 +200,8 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
     from unyt import mh
     if dust:
         varnames = ['nH','nH2','nCO','nCI','nCII',
-                    'nPAH','nCSmall','nCLarge','nSilSmall','nSilLarge']
+                    'nPAHSmall','nPAHLarge','nCSmall','nCLarge','nSilSmall','nSilLarge']
+        # varnames = ['nH','nSilLarge']
     else:
         varnames = ['nH','nH2','nCO','nCI','nCII']
 
@@ -225,8 +231,8 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
                 data[v,d,t] = raw_ad[d].to('cm**-3')
                 if t==2:
                     diff = abs(data[v,d,1] - data[v,d,2]) / data[v,d,2]
-                    if diff >= conv_crit:
-                        print(f'Variable {varnames[v]} has not converged yet (err={diff},nH={data[0,d,t]})!')
+                    # if diff >= conv_crit:
+                    #     print(f'Variable {varnames[v]} has not converged yet (err={diff},nH={data[0,d,t]})!')
     
     # 4. Sort data
     sort_dens = np.argsort(density)
@@ -242,12 +248,11 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
     ax.minorticks_on()
     ax.tick_params(which='both',axis="both",direction="in")
     #ax.set_xlim([-4,4])
-    ax.set_ylim([-12,-2])
+    ax.set_ylim([-14,-2])
 
     for v in range(1, nvars):
         p = ax.plot(np.log10(data[0,:,0]),np.log10(data[v,:,2]/data[0,:,0]),label=varnames[v])
         ax.plot(np.log10(data[0,:,0]),np.log10(data[v,:,0]/data[0,:,0]),linestyle='--',alpha=0.6,color=p[0].get_color())
-
     ax.legend(loc='best',fontsize=12,frameon=False,ncol=3)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
     os.chdir(cwd)
@@ -263,7 +268,7 @@ def plot_n_init_value(my_fields,dust,simname):
     from unyt import mh
     if dust:
         varnames = ['nH','nH2','nCO','nCI','nCII',
-                    'nPAH','nCSmall','nCLarge','nSilSmall','nSilLarge']
+                    'nPAHSmall','nPAHLarge','nCSmall','nCLarge','nSilSmall','nSilLarge']
     else:
         varnames = ['nH','nH2','nCO','nCI','nCII']
 
@@ -708,7 +713,7 @@ if __name__ == '__main__':
         fields = basic_hydro + metal_massfrac + dust_densities[1:] + co_massfrac + metal_ion + ions + noadvect
         setup_yt(True,False)
     else:
-        fields = basic_hydro + metal_massfrac + co_massfrac + metal_ion + ions + ['unknown1','unknown2','unknown3','unknown4','unknown5'] + noadvect
+        fields = basic_hydro + metal_massfrac + co_massfrac + metal_ion + ions + ['unknown1','unknown2','unknown3','unknown4','unknown5','unknown6'] + noadvect
         setup_yt(False,False)
     
     if args.type == 'single':
