@@ -199,10 +199,16 @@ def screened_Coulomb_function(epsilon):
     Returns:
         float: screened Coulomb factor
     """    
-    s1 = 3.441 * np.sqrt(epsilon) * np.log(epsilon + 2.718)
-    s2 = 1. + 6.35 * np.sqrt(epsilon) + epsilon * (-1.708 + 6.882 * np.sqrt(epsilon))
+    # s1 = 3.441 * np.sqrt(epsilon) * np.log(epsilon + 2.718)
+    # s2 = 1. + 6.35 * np.sqrt(epsilon) + epsilon * (-1.708 + 6.882 * np.sqrt(epsilon))
     
-    return s1 / s2        
+    if epsilon <= 30.:
+        s1 = 0.5 * np.log(1.+1.1383*epsilon)
+        s2 = epsilon + 0.01321*epsilon**0.21226 + 0.19593*np.sqrt(epsilon)
+    
+        return s1 / s2  
+    else:
+        return np.log(epsilon)/(2.*epsilon)      
 
 def threshold_energy(surface_energy,dust_atomic_mass,ion_atomic_mass):
     """
@@ -257,7 +263,7 @@ def sputtering_yield(dust_radius,surface_energy,Kparam,rho_dust,
     E_sp = threshold_energy(surface_energy,dust_atomic_mass,ion_atomic_mass)
     
     if dust_charge != 0:
-        E_charge = (ion_charge * dust_charge * elem_charge / dust_radius) / eV2erg
+        E_charge = (ion_charge * dust_charge * elem_charge**2. / dust_radius) / eV2erg
         # if (E_charge/ion_energy)>0.99:
         #     if ion_energy + E_charge > E_sp:
         #         print('Particle moved to high E')
@@ -267,9 +273,11 @@ def sputtering_yield(dust_radius,surface_energy,Kparam,rho_dust,
         
     if do_size_correction:
         # 2. Compute the ion penetration depth
-        #rp = penetration_depth(ion_charge,alphaP,ion_energy)
-        rp = compute_penetration_depth(ion_energy,ion_charge,ion_atomic_mass*au2cgs_m,rho_dust,dust_atomic_number,dust_atomic_mass*au2cgs_m,E_exec)
-        rp = rp *1e-7
+        rp = penetration_depth(ion_charge,-4.73,ion_energy)
+        # print('basic',rp)
+        rp = compute_penetration_depth(ion_energy*eV2erg,ion_atomic_number*au2cgs_m,rho_dust,ion_atomic_number,dust_atomic_number,
+                                        dust_atomic_mass*au2cgs_m)
+        # print('new',rp)
         # 3. Compute the size-dependent correction
         x = dust_radius / (0.7 * rp)
         # print(bocchio_correction(x,size_correction_fitparams['MgSiO4']),bocchio_correction(x,size_correction_fitparams['MgSiO3']))
@@ -746,7 +754,22 @@ def effective_charge_number(z,v_ion):
     z_eff = z * (1. - np.exp(-125.*v_ion / c * z**(-2./3.)))
     
     return z_eff
-def compute_penetration_depth(E_init,z,m_ion,s_dust,Z_dust,M_dust,E_exc,delta_max=0.01,nmax=1000):
+
+def electronic_stopping_cs(n_dust,ne_val,Zi,Zd,Md,Mi,E):
+    
+    hbar = 6.626176e-27/(2.*np.pi) # [erg s]
+    me = 9.10938e-28 # [g]
+    a_sc = screening_length(Zi,Zd) # [cm]
+    
+    Z = (float(Zi)**(2./3.) + float(Zd)**(2./3.))**(3./2.)
+    E0 = hbar**2. / (2.*me) * (3*np.pi*2.*ne_val*n_dust)**(2./3.)
+    v0 = np.sqrt(2.*E0/me)
+    v = np.sqrt(2. * E / Mi)
+    
+    S = 8. * np.pi * Zi**(1./6.) * Zi * Zd / Z * a_sc * elem_charge**2. * (v/v0)
+    return S
+
+def compute_penetration_depth(E_init,m_ion,s_dust,Zi,Z_dust,M_dust,delta_max=0.01,nmax=1000):
     """Obtain the penetration depth using the Bethe-Bloch formula. It describes the mean energy loss
     per distance travelled of a charge particle traversing matter.
 
@@ -762,45 +785,41 @@ def compute_penetration_depth(E_init,z,m_ion,s_dust,Z_dust,M_dust,E_exc,delta_ma
         nmax (int, optional): maximum number of iterations. Defaults to 1000.
 
     Returns:
-        float: penetration depth [nm]
+        float: penetration depth [cm]
     """    
     
-    CBB = 7.34253e-25 # [J m^4/s^2]
-    me = 0.5109989461e6 # [MeV/c^2]
-    
-    CBB = CBB / 1.602176634e-19 * 1e8 # [eV cm^4 / s^2]
-    
-    v_ion = np.sqrt(2 * E_init *eV2erg / m_ion) # [cm/s]
     E_now = E_init
     
     dr = 1e-7 # [cm]
     r_pd = 0 # [cm]
     n = 0
     
-    I = E_exc * Z_dust
-    mu_dust = Z_dust / M_dust
-    prefactor = CBB * s_dust * mu_dust
+    a_sc = screening_length(Zi,Z_dust)
+    n_dust = s_dust / M_dust * Z_dust
+    if Z_dust == 6:
+        n_eval = 4
+    else:
+        n_eval = (2+8+4+4*6) / 7
 
     while E_now > 1e-3 * E_init and n < nmax:
-        # 1. Compute the effective charge number
-        z_eff = effective_charge_number(z,v_ion)
+        # 1. Compute the reduced nuclear stopping cross-section
+        epsilon = reduced_energy(M_dust,m_ion,a_sc,Zi,Z_dust,E_now)
+        s = screened_Coulomb_function(epsilon)
         
+        Se = electronic_stopping_cs(n_dust,n_eval,Zi,Z_dust,M_dust,m_ion,E_now)
         # 2. Compute the dE/dr
-        beta = v_ion / c
-        dE =  prefactor * z_eff**2. / v_ion**2. * (np.log(2.*me*beta**2./(I*(1-beta**2.))) - beta**2.) # [eV/cm]
-        
+        dE = n_dust * 4. * np.pi * a_sc * Zi * Z_dust * elem_charge**2. * m_ion / (m_ion+M_dust) * s
+                
         # 3. Figure out if the step needs to be changed
         if abs(dE*dr)/E_now >= delta_max:
             dr = dr / 2.
         else:
             r_pd = r_pd + dr
             # print(r_pd)
-            E_now = E_now + dE * dr
-            v_ion = np.sqrt(2 * E_now *eV2erg / m_ion) # [cm/s]
-            dr = dr * 2.
+            E_now = E_now - dE * dr
         n += 1
     
-    return r_pd * 1e9 # [nm]
+    return r_pd # [cm]
 
 def plot_penetration_depth(E_min,E_max,z_ion,m_ion,nE=100,delta_max=0.01,nmax=1000):
     

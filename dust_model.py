@@ -17,7 +17,7 @@ sec2Myr = 3.1536e13
 
 # Model parameters
 
-basic_a0 = np.array([5e-4,1e-3,5e-3,1e-1,5e-4,5e-3,1e-1])
+basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,5e-3,1e-1])
 basic_amin = np.array([1e-4,1e-4,5e-4,5e-3,4e-4,5e-4,5e-3])
 basic_amax = np.array([3e-3,9e-3,0.1,1,2e-3,0.1,1.0])
 basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.75,0.75])
@@ -897,7 +897,7 @@ def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition
 def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
     import matplotlib.pyplot as plt
     import seaborn as sns
-    sns.set(style="white")
+    sns.set_theme(style="white")
     plt.rcParams.update({
         "text.usetex": True,
         "font.family": "serif",
@@ -1060,7 +1060,9 @@ def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
                     # 5. Put remnant fragment to its correct bin
                     M_tot = (M_dest[i] + M_vsmall[i] + M_small[i] + M_big[i])
                     if comp == 'Silicates':
-                        M_dest += M_vsmall
+                        M_dest[i] += M_vsmall[i]
+                        M_vsmall[i] = 0.0
+                        
                     M_dest[i] = M_dest[i]/M_tot
                     M_vsmall[i] = M_vsmall[i]/M_tot
                     M_small[i] = M_small[i]/M_tot
