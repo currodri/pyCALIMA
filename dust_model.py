@@ -17,11 +17,18 @@ sec2Myr = 3.1536e13
 
 # Model parameters
 
-basic_a0 = np.array([5e-4,1e-3,5e-3,1e-1,5e-4,5e-3,1e-1])
-basic_amin = np.array([1e-4,1e-4,5e-4,5e-3,4e-4,5e-4,5e-3])
-basic_amax = np.array([3e-3,9e-3,0.1,1,2e-3,0.1,1.0])
+# basic_a0 = np.array([5e-4,1e-3,5e-3,1e-1,5e-4,5e-3,1e-1])
+# basic_amin = np.array([1e-4,1e-4,5e-4,5e-3,4e-4,5e-4,5e-3])
+# basic_amax = np.array([3e-3,9e-3,0.1,1,2e-3,0.1,1.0])
+# basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.75,0.75])
+# basic_s = np.array([2,2,2.2,2.2,3.3,3.3,3.3])
+
+basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,5e-3,1e-1])
+basic_amin = np.array([3e-4,3e-4,1e-3,5e-3,4e-4,5e-4,5e-3])
+basic_amax = np.array([1e-3,9e-3,0.1,1,2e-3,0.1,1.0])
 basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.75,0.75])
 basic_s = np.array([2,2,2.2,2.2,3.3,3.3,3.3])
+
 
 # Tielens et al. (1994) - Thermal sputtering rates for silicate 
 # and carbonaceous grains. See https://ui.adsabs.harvard.edu/abs/1994ApJ...431..321T/abstract
@@ -324,29 +331,41 @@ def plot_coulomb_enhancement(Gtot,Zi):
     from scipy.interpolate import interp1d
     import matplotlib.pyplot as plt
     import seaborn as sns
-    sns.set(style="white")
-    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,6), dpi=300, facecolor='w', edgecolor='k')
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+            "text.usetex": True,
+            "font.family": "serif",
+            "font.serif": "Computer Modern Roman",
+        })
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,5), dpi=300, facecolor='w', edgecolor='k')
     
     # Coulomb enhancement factor from Weingartner & Draine (1999)
     # This is given for graphitic and silicate grains in 
     # CNM: nH=30 Hcc, T=100K, xe=0.0015
     # WNM: nH=0.4 Hcc, T=6000K, xe=0.1
     # WIM: nH=0.1 Hcc, T=8000K, xe=0.99
+    DCNM_gra = pd.read_csv('weingartner_draine_1999_coulomb_enhancement_CNM_gra.csv',header=1,names=['CNM,gra_x','CNM,gra_y'])
+    DCNM_sil = pd.read_csv('weingartner_draine_1999_coulomb_enhancement_CNM_sil.csv',header=1,names=['CNM,sil_x','CNM,sil_y'])
+    DWNM_gra = pd.read_csv('weingartner_draine_1999_coulomb_enhancement_WNM_gra.csv',header=1,names=['WNM,gra_x','WNM,gra_y'])
+    DWNM_sil = pd.read_csv('weingartner_draine_1999_coulomb_enhancement_WNM_sil.csv',header=1,names=['WNM,sil_x','WNM,sil_y'])
+    DWIM_gra = pd.read_csv('weingartner_draine_1999_coulomb_enhancement_WIM_gra.csv',header=1,names=['WIM,gra_x','WIM,gra_y'])
+    DWIM_sil = pd.read_csv('weingartner_draine_1999_coulomb_enhancement_WIM_sil.csv',header=1,names=['WIM,sil_x','WIM,sil_y'])
+
+    
     names = ['CNM,gra_x','CNM,gra_y','CNM,sil_x','CNM,sil_y','WNM,gra_x','WNM,gra_y',
             'WNM,sil_x','WNM,sil_y','WIM,gra_x','WIM,gra_y','WIM,sil_x','WIM,sil_y']
-    D = pd.read_csv('weingartner_draine_1999_coulomb_enhancement.csv',header=1,names=names)
-    
+    D = [DCNM_gra,DCNM_sil,DWNM_gra,DWNM_sil,DWIM_gra,DWIM_sil]
     linestyles = ['-','--','-.',':',(0, (1, 10)),(0, (3, 5, 1, 5))]
     colours = ['b','r','m','g']
 
     for i in range(0, int(len(names)/2)):
-        x = np.asarray(D[names[i*2]])
-        y = np.asarray(D[names[i*2+1]])
+        x = np.asarray(D[i][names[i*2]])
+        y = np.asarray(D[i][names[i*2+1]])
         label = names[i*2].split('_')[0]
-        ax.plot(x,y,label=label,linestyle=linestyles[i],color='k')
+        ax.plot(x*1e4,y,label=label,linestyle=linestyles[i],color='k')
 
     IM19_sizes = ['3.5A','5A','10A','50A','100A','500A','1000A']
-    sizes_incm = [3.5e-8,5e-8,1e-7,5e-7,1e-6,5e-6,1e-5]
+    sizes_incm = np.array([3.5e-8,5e-8,1e-7,5e-7,1e-6,5e-6,1e-5])
     
     # CNM: nH=30 Hcc, T=100K, xe=0.0015
     D_CNM = np.zeros(len(IM19_sizes))
@@ -356,10 +375,10 @@ def plot_coulomb_enhancement(Gtot,Zi):
         a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,100,a)
         D_CNM[i] = D
-    ax.plot(sizes_incm,D_CNM,color='b',linestyle='-')
+    ax.plot(sizes_incm*1e4,D_CNM,color='sandybrown',linestyle='-')
     f = interp1d(np.log10(sizes_incm),np.log10(D_CNM), fill_value='extrapolate',kind='linear')
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew,10**f(np.log10(xnew)),color='b',linestyle='-',alpha=0.6)
+    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='sandybrown',linestyle='-',alpha=0.6)
     D_CNM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         # ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'carbonaceous',IM19_sizes[i])
@@ -367,10 +386,10 @@ def plot_coulomb_enhancement(Gtot,Zi):
         a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,100,a)
         D_CNM[i] = D
-    ax.plot(sizes_incm,D_CNM,color='r',linestyle='-')
+    ax.plot(sizes_incm*1e4,D_CNM,color='steelblue',linestyle='-')
     f = interp1d(np.log10(sizes_incm),np.log10(D_CNM), fill_value='extrapolate',kind='linear')
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew,10**f(np.log10(xnew)),color='r',linestyle='-',alpha=0.6)
+    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='steelblue',linestyle='-',alpha=0.6)
     
     # WNM: nH=0.4 Hcc, T=6000K, xe=0.1
     D_WNM = np.zeros(len(IM19_sizes))
@@ -379,20 +398,20 @@ def plot_coulomb_enhancement(Gtot,Zi):
         a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,6000,a)
         D_WNM[i] = D
-    ax.plot(sizes_incm,D_WNM,color='b',linestyle='--')
+    ax.plot(sizes_incm*1e4,D_WNM,color='sandybrown',linestyle='--')
     f = interp1d(np.log10(sizes_incm),np.log10(D_WNM), fill_value='extrapolate',kind='linear')
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew,10**f(np.log10(xnew)),color='b',linestyle='--',alpha=0.6)
+    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='sandybrown',linestyle='--',alpha=0.6)
     D_WNM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         ch_dist,x = grain_charge_dist(Gtot,6000,0.4*0.1,'carbonaceous',IM19_sizes[i])
         a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,6000,a)
         D_WNM[i] = D
-    ax.plot(sizes_incm,D_WNM,color='r',linestyle='--')
+    ax.plot(sizes_incm*1e4,D_WNM,color='steelblue',linestyle='--')
     f = interp1d(np.log10(sizes_incm),np.log10(D_WNM), fill_value='extrapolate',kind='linear')
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew,10**f(np.log10(xnew)),color='r',linestyle='--',alpha=0.6)
+    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='steelblue',linestyle='--',alpha=0.6)
     
     # WIM: nH=0.1 Hcc, T=8000K, xe=0.99
     D_WIM = np.zeros(len(IM19_sizes))
@@ -401,48 +420,54 @@ def plot_coulomb_enhancement(Gtot,Zi):
         a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,8000,a)
         D_WIM[i] = D
-    ax.plot(sizes_incm,D_WIM,color='b',linestyle=':')
+    ax.plot(sizes_incm*1e4,D_WIM,color='sandybrown',linestyle=':')
     f = interp1d(np.log10(sizes_incm),np.log10(D_WIM), fill_value='extrapolate',kind='linear')
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew,10**f(np.log10(xnew)),color='b',linestyle=':',alpha=0.6)
+    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='sandybrown',linestyle=':',alpha=0.6)
     D_WIM = np.zeros(len(IM19_sizes))
     for i in range(0,len(IM19_sizes)):
         ch_dist,x = grain_charge_dist(Gtot,8000,0.1*0.99,'carbonaceous',IM19_sizes[i])
         a = sizes_incm[i]
         D = cmp_D_WD99(ch_dist,x,Zi,8000,a)
         D_WIM[i] = D
-    ax.plot(sizes_incm,D_WIM,color='r',linestyle=':')
+    ax.plot(sizes_incm*1e4,D_WIM,color='steelblue',linestyle=':')
     f = interp1d(np.log10(sizes_incm),np.log10(D_WIM), fill_value='extrapolate',kind='linear')
     xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew,10**f(np.log10(xnew)),color='r',linestyle=':',alpha=0.6)
+    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='steelblue',linestyle=':',alpha=0.6)
     
-    init_legend = ax.legend(loc='upper right',fontsize=10,frameon=False,ncol=2)
+    init_legend = ax.legend(loc='upper right',fontsize=14,frameon=False,ncol=2)
     ax.add_artist(init_legend)
     
-    dummy_lines = [ax.plot([],[],color='b',linestyle='-',label='Silicates')[0],
-                   ax.plot([],[],color='r',linestyle='-',label='Carbonaceous')[0]]
-    first_legend = ax.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=10)
+    dummy_lines = [ax.plot([],[],color='sandybrown',linestyle='-',label='Silicates')[0],
+                   ax.plot([],[],color='steelblue',linestyle='-',label='Carbonaceous')[0]]
+    first_legend = ax.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=14)
     ax.add_artist(first_legend)
     dummy_lines = [ax.plot([],[],color='k',linestyle='-',label='CNM')[0],
                    ax.plot([],[],color='k',linestyle='--',label='WNM')[0],
                    ax.plot([],[],color='k',linestyle=':',label='WIM')[0]]
-    second_legends = ax.legend(handles=dummy_lines, loc='lower right', frameon=False, fontsize=10)
+    second_legends = ax.legend(handles=dummy_lines, loc='lower right', frameon=False, fontsize=14)
     ax.add_artist(second_legends)
 
 
-    ax.set_ylabel(r'Coulomb enhancement $D(a)$', fontsize=13)
-    ax.set_xlabel(r'$a$ [cm]',fontsize=16)
+    ax.set_ylabel(r'Coulomb enhancement $F_{\rm C}(a)$', fontsize=16)
+    ax.set_xlabel(r'$a$ [$\mu$m]',fontsize=16)
     ax.set_ylim([1e-3,300])
+    ax.set_xlim([7e-4,0.25])
     ax.set_yscale('log')
     ax.set_xscale('log')
-    ax.tick_params(labelsize=12)
+    ax.tick_params(labelsize=14)
     ax.xaxis.set_ticks_position('both')
     ax.yaxis.set_ticks_position('both')
     ax.minorticks_on()
     ax.tick_params(which='both',axis="both",direction="in")
     
-    fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
-    fig.savefig('dust_coulomb_enhancement.png',format='png',dpi=300)
+    ax.axvline(x=0.1, color='cornflowerblue', linestyle='-',alpha=0.6)
+    ax.axvline(x=0.01, color='steelblue', linestyle='--',alpha=0.6)
+    ax.axvline(x=0.1, color='sandybrown', linestyle='-',alpha=0.6)
+    ax.axvline(x=0.005, color='saddlebrown', linestyle='--',alpha=0.6)
+    
+    fig.subplots_adjust(top=0.99,bottom=0.11,left=0.11,right=0.99)
+    fig.savefig('dust_coulomb_enhancement.pdf',format='pdf',dpi=300)
     plt.close(fig)
 
 
@@ -533,6 +558,233 @@ def plot_ratd_timescale(gamma,lmean,Smax,nH,Tgas):
     fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
     fig.savefig('dust_ratd_timescales.png',format='png',dpi=300)
     plt.close(fig)
+    
+def disruption_frequency(a,Smax,rho_dust):
+    """Compute the critical rotational frequency for 
+    disruption.
+
+    Args:
+        a (float): grain radius in [cm]
+        Smax (float): grain tensile strength [erg/cm^3]
+        rho_dust (float): grain material density [g/cm^3]
+
+    Returns:
+        float: _description_
+    """    
+    return 2. / a * np.sqrt(Smax / rho_dust)
+
+def gas_damping(a,rho_dust,mu,chi):
+    """Compute the gas damping timescale.
+
+    Args:
+        a (float): grain radius in [cm]
+        rho_dust (float): grain material density [g/cm^3]
+        mu (float): local mean molecular weight
+        chi (float): collisional factor [K^0.5/cm^3]
+
+    Returns:
+        float: gas damping timescale in [s]
+    """    
+    
+    I = 8. * np.pi * rho_dust * a ** 5. / 15.
+    
+    vth = np.sqrt(2. * kb.to('cm**2*g/s**2/K').d / (mu*mh.to('g').d))
+    
+    tau = 3. * I / (4. * np.sqrt(np.pi) * chi * mh.to('g').d * mu * vth * a**4)
+    
+    return tau
+
+def IR_damping_factor(G0,chi,a):
+    """Compute the IR damping factor FIR.
+
+    Args:
+        G0 (float): fraction local energy density in terms of the Habing band
+        chi (float): collisional factor [K^0.5/cm^3]
+        a (float): grain radius in [cm]
+
+    Returns:
+        float: IR damping factor
+    """    
+
+    FIR = 0.038 * 1e3 * np.sqrt(10) * (1e-5/a) * (1.17*G0)**(2./3.) / chi
+    
+    return FIR
+
+def RAT_efficiency(a,wav):
+    """Compute the RAT efficiency.
+
+    Args:
+        a (float): grain radius in [cm]
+        wav (float): mean wavelength of ISRF [cm]
+
+    Returns:
+        float: RAT efficiency
+    """    
+    
+    Q_max = 0.4
+    
+    if a <= wav / 2.7:
+        Q = 8. * (wav / a)**(-3)
+    else:
+        Q = Q_max
+    return Q
+
+def RAT_torque(a,wav,gamma,G0):
+    """Compute the RAT torque.
+
+    Args:
+        a (float): grain radius in [cm]
+        wav (float): mean wavelength of ISRF [cm]
+        gamma (float): radiation field anisotropy
+        G0 (float): fraction local energy density in terms of the Habing band
+
+    Returns:
+        float: torque [erg]
+    """    
+    
+    Q = RAT_efficiency(a,wav)
+    u_MMPP83 = 8.64e-13 # [erg/cm^3]
+    
+    torque = np.pi * a**2. * gamma * (1.17 * G0) * u_MMPP83 * (wav / (2.*np.pi)) * Q
+
+    return torque
+
+def RAT_frequency(a,rho_dust,G0,mu,chi,wav,gamma):
+    """Compute the RAT equilibrium rotational frequency
+
+    Args:
+        a (float): grain radius in [cm]
+        rho_dust (float): grain material density [g/cm^3]
+        G0 (float): fraction local energy density in terms of the Habing band
+        mu (float): local mean molecular weight
+        chi (float): collisional factor [K^0.5/cm^3]
+        wav (float): mean wavelength of ISRF [cm]
+        gamma (float): radiation field anisotropy
+
+    Returns:
+        float: RAT frequency [1/s]
+    """    
+    
+    # 1. Compute the FIR
+    FIR = IR_damping_factor(G0,chi,a)
+    
+    # 2. Compute the gas damping timescale
+    tau_gas = gas_damping(a,rho_dust,mu,chi)
+    
+    # 3. Compute the RAT torque
+    torque = RAT_torque(a,wav,gamma,G0)
+    
+    # 4. Finally compute the frequency
+    I = 8. * np.pi * rho_dust * a ** 5. / 15.
+    w_RAT = torque * tau_gas / I
+
+    return w_RAT
+
+def RAT_timescale(a,rho_dust,Smax,G0,wav,gamma):
+    
+    # 1. Compute the disruption frequency
+    w_disr = disruption_frequency(a,Smax,rho_dust)
+    
+    # 2. Compute the moment of inertia
+    I = 8. * np.pi * rho_dust * a ** 5. / 15.
+    
+    # 3. Compute the RAT torque
+    torque = RAT_torque(a,wav,gamma,G0)
+    
+    t = I * w_disr / torque
+
+    return t
+
+def plot_disruption(G0min,G0max,chimin,chimax,wav,gamma,mu):
+    
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+    import seaborn as sns
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    
+    # 1. Setup the range of values for the table
+    G0 = np.logspace(np.log10(G0min),np.log10(G0max),100)
+    chi = np.logspace(np.log10(chimin),np.log10(chimax),100)
+    
+    # 2. Setup the dust properties
+    a_CLarge = 1e-5 # [cm]
+    s_C = 2.2 # [g/cm^3]
+    linestyles = ['solid','dashed','dashdot','dotted']
+    Smax_C = np.array([1e5,1e6,1e7,1e8]) # [erg/cm^3]
+    ratio_CLarge = np.zeros((len(G0),len(chi)))
+    t_CLarge = np.zeros((len(G0),len(chi),len(Smax_C)))
+    wdisr_CLarge = disruption_frequency(a_CLarge,Smax_C,s_C)
+    a_SilLarge = 1e-5 # [cm]
+    s_Sil = 3.3 # [g/cm^3]
+    Smax_Sil = np.array([1e5,1e6,1e7,1e8]) # [erg/cm^3]
+    ratio_SilLarge = np.zeros((len(G0),len(chi)))
+    t_SilLarge = np.zeros((len(G0),len(chi),len(Smax_Sil)))
+    wdisr_SilLarge = disruption_frequency(a_SilLarge,Smax_Sil,s_Sil)
+
+    # 3. Compute the tables
+    for i in range(0, len(G0)):
+        for j in range(0, len(chi)):
+            ratio_CLarge[i,j] = RAT_frequency(a_CLarge,s_C,G0[i],mu,chi[j],wav,gamma)
+            for k in range(0, len(Smax_C)):
+                if ratio_CLarge[i,j] > wdisr_CLarge[k]:
+                    t_CLarge[i,j,k] = RAT_timescale(a_CLarge,s_C,Smax_C[k],G0[i],wav,gamma)
+            ratio_SilLarge[i,j] = RAT_frequency(a_SilLarge,s_Sil,G0[i],mu,chi[j],wav,gamma)
+            for k in range(0, len(Smax_Sil)):
+                if ratio_SilLarge[i,j] > wdisr_SilLarge[k]:
+                    t_SilLarge[i,j,k] = RAT_timescale(a_SilLarge,s_Sil,Smax_Sil[k],G0[i],wav,gamma)
+    
+    
+    # 4. Setup figure
+    fig, axes = plt.subplots(1, 2, figsize=(8,5), dpi=300, facecolor='w', edgecolor='k')
+    axes[0].set_ylabel(r'$G_0$', fontsize=16)
+    axes[0].set_xlabel(r'$n_{\rm H} \sqrt{T}$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
+    axes[1].set_xlabel(r'$n_{\rm H} \sqrt{T}$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
+    
+    axes[0].set_yscale('log')
+    axes[0].set_xscale('log')
+    axes[0].tick_params(labelsize=14)
+    axes[0].xaxis.set_ticks_position('both')
+    axes[0].yaxis.set_ticks_position('both')
+    axes[0].minorticks_on()
+    axes[0].tick_params(which='both',axis="both",direction="out")
+    
+
+    axes[1].set_yscale('log')
+    axes[1].set_xscale('log')
+    axes[1].tick_params(labelsize=14)
+    axes[1].xaxis.set_ticks_position('both')
+    axes[1].yaxis.set_ticks_position('both')
+    axes[1].minorticks_on()
+    axes[1].tick_params(which='both',axis="both",direction="out")
+    axes[1].yaxis.set_label_position("right")
+    axes[1].yaxis.tick_right()
+    
+    
+    for k in range(0, len(Smax_C)):
+        pcm1 = axes[0].contour(chi,G0,np.log10(t_CLarge[:,:,k]/sec2Myr),[-3,-2,-1,0,1],cmap='Spectral',linestyles=linestyles[k])
+        
+        contour = axes[0].contour(chi,G0,np.log10(ratio_CLarge/wdisr_CLarge[k]), levels=[0], colors='k',linestyles=linestyles[k])
+        if k == 0:
+            axes[0].clabel(pcm1, inline=True, fontsize=12)
+            axes[0].clabel(contour, inline=True, fontsize=14, fmt=r'$w_{\rm RAT}\geq w_{\rm disr}$')
+
+    for k in range(0, len(Smax_Sil)):
+        pcm2 = axes[1].contour(chi,G0,np.log10(t_SilLarge[:,:,k]/sec2Myr),[-3,-2,-1,0,1],cmap='Spectral',linestyles=linestyles[k])    
+        contour = axes[1].contour(chi,G0,np.log10(ratio_SilLarge/wdisr_CLarge[k]), levels=[0], colors='k',linestyles=linestyles[k])
+        if k == 0:
+            axes[1].clabel(pcm2, inline=True, fontsize=12)
+            axes[1].clabel(contour, inline=True, fontsize=14, fmt=r'$w_{\rm RAT}\geq w_{\rm disr}$')
+    
+    axes[0].legend(loc='best',fontsize=14,frameon=False)
+    axes[1].legend(loc='best',fontsize=14,frameon=False)
+    fig.subplots_adjust(top=0.97,bottom=0.13,left=0.1,right=0.94,hspace=0,wspace=0)
+    fig.savefig('disruption_size_RATD.png',format='png',dpi=300)
+
 
 def t_shattering(Dbig,nH,a,s):
     
@@ -1690,3 +1942,98 @@ def photo_sublimation(Umin,Umax,nU=100):
     fig.subplots_adjust(top=0.98,bottom=0.1,left=0.15,right=0.99,hspace=0,wspace=0)
     fig.savefig('dust_sublimation.png',format='png',dpi=300)
     plt.close(fig)
+    
+def multiline(xs, ys, c, ax=None, **kwargs):
+    """Plot lines with different colorings
+
+    Parameters
+    ----------
+    xs : iterable container of x coordinates
+    ys : iterable container of y coordinates
+    c : iterable container of numbers mapped to colormap
+    ax (optional): Axes to plot on.
+    kwargs (optional): passed to LineCollection
+
+    Notes:
+        len(xs) == len(ys) == len(c) is the number of line segments
+        len(xs[i]) == len(ys[i]) is the number of points for each line (indexed by i)
+
+    Returns
+    -------
+    lc : LineCollection instance.
+    """
+    from matplotlib.collections import LineCollection
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
+
+    # find axes
+    ax = plt.gca() if ax is None else ax
+
+    # create LineCollection
+    segments = [np.column_stack([x, y]) for x, y in zip(xs, ys)]
+    lc = LineCollection(segments, **kwargs)
+
+    # set coloring of line segments
+    #    Note: I get an error if I pass c as a list here... not sure why.
+    lc.set_array(np.asarray(c))
+
+    # add lines to axes and rescale 
+    #    Note: adding a collection doesn't autoscalee xlim/ylim
+    ax.add_collection(lc)
+    return lc
+    
+def plot_sticking_coefficient(TD,Tmin,Tmax,nT):
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    TD = np.asarray(TD)
+    # 1. Setup the figure
+    fig, ax = plt.subplots(1,1, figsize=(6,5),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$T$ [K]', fontsize=20)
+    ax.set_ylabel(r'$\alpha$', fontsize=20)
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_xscale('log')
+    ax.set_xlim([Tmin,Tmax])
+    
+    T = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    
+    # 2. Plot Le Bourlot et al (2012) curve
+    alpha = 1./(1.+(T/464.)**1.5)
+    ax.plot(T,alpha,linestyle='-',color='k',linewidth=2.5,label=r'Le Bourlot et al. (2012)')
+    
+    # 3. Plot Chaabouni et al. (2012) curve
+    alpha = 0.95 * (1. + 2.22*(T/56.))/(1. + T/56.)**2.22
+    ax.plot(T,alpha,linestyle='-',color='b',linewidth=2.5,label=r'Chaabouni et al. (2012)')
+    
+    # 4. Plot Leitch-Devlin & Williams (1985) curves for different dust temperatures
+    xs = []
+    ys = []
+    for i in range(0, len(TD)):
+        alpha = 1.9e-2 * T * (1.7e-3*TD[i]+0.4) * np.exp(-7e-3*T)
+        xs.append(T)
+        ys.append(alpha)
+    lc = multiline(xs,ys,TD,cmap='Paired',ax=ax,lw=1,linestyle='--',linewidth=2.5)
+    axcb = fig.colorbar(lc, orientation="vertical", pad=0.0)
+    axcb.set_label(r'$T_{\rm d}$ [K]',fontsize=16)
+    
+    ax.plot([],[],color='k',linestyle='--',linewidth=2.5,label=r'Leitch-Devlin \& Williams (1985)')
+
+    ax.hlines(1./3.,Tmin,Tmax,linestyle=':',color='r',linewidth=2.5)
+    
+    ax.legend(loc='upper right', frameon=False, fontsize=14)
+    fig.subplots_adjust(top=0.98,bottom=0.111,left=0.10,right=0.98,hspace=0,wspace=0)
+    fig.savefig('acc_sticking_coefficient.png',format='png',dpi=300)
+    plt.close(fig)
+    
+    
+    

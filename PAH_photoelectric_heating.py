@@ -17,6 +17,7 @@ import numpy as np
 from tqdm import tqdm
 import concurrent.futures
 import matplotlib.pyplot as plt
+import swiftascmaps
 import matplotlib.pylab as pl
 import matplotlib as mpl
 import seaborn as sns
@@ -200,6 +201,8 @@ def ionisation_yield(Nc,Z,photon_energy,IP):
             Y = (beta - 0.3) / 2.1 * (photon_energy - 12.9) + 0.3
         else:
             Y = beta_factor(Nc)
+    elif Z == 2:
+        Y = 0.0
     
     return Y
 
@@ -337,6 +340,10 @@ def power_absorbed(sigma_abs,I,E):
     mask = E<13.6
     P_rad = sigma_abs[mask] * I[mask]
     P_rad = np.trapz(P_rad,E[mask])
+    
+    mask = (E>5.4) & (E<13.6)
+    P_rad_2 = sigma_abs[mask] * I[mask]
+    P_rad_2 = np.trapz(P_rad_2,E[mask])
     
     return P_rad
     
@@ -509,7 +516,7 @@ def Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,ax,fig):
         result = PEH.parameters()
         eff[j] = result[1]
         gamma[j] = result[3]
-    ax.plot(gamma,eff,linestyle='-',color='k')    
+    ax.plot(gamma,eff,linestyle='-',color='k',linewidth=2.5,label='Berne et al. (2022)')    
 def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=False):
     n_ne = 100
     n_G0 = 100
@@ -558,11 +565,11 @@ def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_col
             results = list(tqdm(executor.map(compute_heating_efficiency, args_list), total=n_G0,
                                 desc=f'    Computing efficiency for ne={ne_list[j]} cm^-3', unit=' steps'))
         
-        f_anion,f_neutral,f_1,f_2,epsilon = zip(*results)
-        ax2.plot(gamma,f_anion,color='k')
-        ax2.plot(gamma,f_neutral,color='g')
-        ax2.plot(gamma,f_1,color='b')
-        ax2.plot(gamma,f_2,color='r')
+        bla1,bla2,bla3,f_anion,f_neutral,f_1,f_2,epsilon = zip(*results)
+        ax2.plot(gamma,f_anion,color='k',linestyle=linestyle)
+        ax2.plot(gamma,f_neutral,color='g',linestyle=linestyle)
+        ax2.plot(gamma,f_1,color='b',linestyle=linestyle)
+        ax2.plot(gamma,f_2,color='r',linestyle=linestyle)
 
         xs.append(gamma)
         ys.append(epsilon)
@@ -571,26 +578,94 @@ def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_col
         axcb = fig.colorbar(lc, orientation="vertical", pad=0.0)
         axcb.set_label(r'$n_e$ [cm$^{-3}$]',fontsize=16)
     
-    dummy_lines = [ax2.plot([],[],color='k',linestyle='-',label=r'$Z=-1$')[0],
-                   ax2.plot([],[],color='g',linestyle='-',label=r'$Z=0$')[0],
-                   ax2.plot([],[],color='b',linestyle='-',label=r'$Z=1$')[0],
-                   ax2.plot([],[],color='r',linestyle='-',label=r'$Z=2$')[0]]
+    dummy_lines = [ax2.plot([],[],color='k',linestyle=linestyle,label=r'$Z=-1$')[0],
+                   ax2.plot([],[],color='g',linestyle=linestyle,label=r'$Z=0$')[0],
+                   ax2.plot([],[],color='b',linestyle=linestyle,label=r'$Z=1$')[0],
+                   ax2.plot([],[],color='r',linestyle=linestyle,label=r'$Z=2$')[0]]
     first_legend = ax2.legend(handles=dummy_lines, loc='best', frameon=False, fontsize=14)
     ax2.add_artist(first_legend)
     fig2.subplots_adjust(top=0.98,bottom=0.13,left=0.13,right=0.95)
     fig2.savefig(f'pah_charge_distribution_{attach_model}_{dist.Nc}C_{str(int(T))}K.pdf', format='pdf', dpi=300)
 
+def my_efficiency2(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=100,n_G0=100,do_colorbar=False):
+    G0_list = np.logspace(np.log10(G0min),np.log10(G0max),n_G0)
+    ne_list = np.logspace(np.log10(ne_min),np.log10(ne_max),n_ne)
+    xs = []
+    ys = []
+    if pahtype == 'small':
+        dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+        dist.Nc = 54
+        linestyle = '-'
+    elif pahtype == 'large':
+        dist = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
+        dist.Nc = 400
+        linestyle = '--'
+
+
+    if attach_model == 'Berne':
+        icol = 0
+    elif attach_model == 'Tielens':
+        icol = 1
+    
+    # 2. Compute the distribution-averaged absorption cross sections
+    # NOTE: I am using the same cross section for Z=-1 than for Z=0
+    wav,sigma_abs_anion = absorption_cross_section(dist,0)
+    wav,sigma_abs_neu = absorption_cross_section(dist,0)
+    wav,sigma_abs_cation = absorption_cross_section(dist,1)
+
+    for j in range(0, n_ne):
+        gamma = np.zeros(n_G0)
+        num_cores = 20#min(os.cpu_count(),n_G0)
+        args_list = []
+        for k in range(0,n_G0):
+            args = G0_list[k],T,ne_list[j],dist,attach_model,wav,\
+                    sigma_abs_anion,sigma_abs_neu,sigma_abs_cation
+            args_list.append(args)
+            gamma[k] = G0_list[k] * np.sqrt(T) / ne_list[j]
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+            results = list(tqdm(executor.map(compute_heating_efficiency, args_list), total=n_G0,
+                                desc=f'    Computing efficiency for ne={ne_list[j]} cm^-3', unit=' steps'))
+        
+        bla1,bla2,bla3,f_anion,f_neutral,f_1,f_2,epsilon = zip(*results)
+        factor = (np.log10(ne_list[j])-np.log10(0.9*ne_list.min()))/(np.log10(1.1*ne_list.max())-np.log10(0.9*ne_list.min()))
+        axes[1,icol].plot(gamma,f_anion,color='k',linewidth=2.5*factor,linestyle=linestyle)
+        axes[1,icol].plot(gamma,f_neutral,color='g',linewidth=2.5*factor,linestyle=linestyle)
+        axes[1,icol].plot(gamma,f_1,color='b',linewidth=2.5*factor,linestyle=linestyle)
+        axes[1,icol].plot(gamma,f_2,color='r',linewidth=2.5*factor,linestyle=linestyle)
+
+        xs.append(gamma)
+        ys.append(epsilon)
+    lc = multiline(xs,ys,ne_list,cmap='plasma',ax=axes[0,icol],lw=2.5,linestyle=linestyle)   
+    if do_colorbar:
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        width_ex = str(int(100*2))
+        cbaxes = inset_axes(axes[0,0], width=width_ex+"%", height="5%", loc='upper left',
+                            bbox_to_anchor=(0.0, 0., 1.0, 1.05),
+                            bbox_transform=axes[0,0].transAxes,borderpad=0)
+        cbar = fig.colorbar(lc, cax=cbaxes, orientation='horizontal')
+        cbar.set_label(r'$n_e$ [cm$^{-3}$]',fontsize=20)
+        cbar.ax.tick_params(labelsize=14)
+        cbaxes.xaxis.set_label_position('top')
+        cbaxes.xaxis.set_ticks_position('top')
+    
+        dummy_lines = [axes[1,icol].plot([],[],color='k',linestyle='-',label=r'$Z=-1$',linewidth=2.5)[0],
+                    axes[1,icol].plot([],[],color='g',linestyle='-',label=r'$Z=0$',linewidth=2.5)[0],
+                    axes[1,icol].plot([],[],color='b',linestyle='-',label=r'$Z=1$',linewidth=2.5)[0],
+                    axes[1,icol].plot([],[],color='r',linestyle='-',label=r'$Z=2$',linewidth=2.5)[0]]
+        first_legend = axes[1,icol].legend(handles=dummy_lines, loc='best', frameon=False, fontsize=14)
+        axes[1,icol].add_artist(first_legend)
+
 def Tielens2001_efficiency(ax):
     n_gamma = 20
     gamma = np.logspace(np.log10(1),np.log10(1e+15),n_gamma)
     eff = 0.06 / (1.0 + 7e-5*gamma)
-    ax.plot(gamma,eff,color='k',linestyle=':',label='Tielens 2001')
+    ax.plot(gamma,eff,color='k',linestyle=':',label='Tielens 2001',linewidth=2.5)
     
 def Wolfire2003_efficiency(T,ax):
     n_gamma = 20
     gamma = np.logspace(np.log10(1),np.log10(1e+15),n_gamma)
     eff = 4.9e-2/(1.0+2.411e-3*gamma**0.73) + 3.7e-2*(T/1e4)**0.7/(1.0+1e-4*gamma)
-    ax.plot(gamma,eff,color='k',linestyle='-.',label='Wolfire et al. 2003')
+    ax.plot(gamma,eff,color='k',linestyle='-.',label='Wolfire et al. 2003',linewidth=2.5)
 
 def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     
@@ -631,6 +706,73 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
 
     fig.subplots_adjust(top=0.98,bottom=0.13,left=0.13,right=0.95)
     fig.savefig('dust_heating_efficiency_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
+
+def compare_eff_curves_all(G0min,G0max,T,ne_min,ne_max,n_ne=100,n_G0=100):
+    
+    fig, axes = plt.subplots(2, 2, sharex=True, figsize=(10,8), dpi=300, facecolor='w', edgecolor='k')
+
+    axes[0,0].set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
+    axes[1,0].set_ylabel(r'Population fractions',fontsize=16)
+    axes[1,0].set_xlabel(r'$\gamma (G0\sqrt{T}/n_e)$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
+    axes[1,1].set_xlabel(r'$\gamma (G0\sqrt{T}/n_e)$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
+    axes[0,0].set_yscale('log')
+    axes[0,0].set_xscale('log')
+    axes[0,1].set_yscale('log')
+    axes[0,1].set_xscale('log')
+    axes[0,0].tick_params(labelsize=14)
+    axes[0,0].xaxis.set_ticks_position('both')
+    axes[0,0].yaxis.set_ticks_position('both')
+    axes[0,0].minorticks_on()
+    axes[0,0].tick_params(which='both',axis="both",direction="in")
+    axes[0,1].tick_params(labelsize=14)
+    axes[0,1].xaxis.set_ticks_position('both')
+    axes[0,1].yaxis.set_ticks_position('both')
+    axes[0,1].minorticks_on()
+    axes[0,1].tick_params(which='both',axis="both",direction="in")
+    axes[1,0].tick_params(labelsize=14)
+    axes[1,0].xaxis.set_ticks_position('both')
+    axes[1,0].yaxis.set_ticks_position('both')
+    axes[1,0].minorticks_on()
+    axes[1,0].tick_params(which='both',axis="both",direction="in")
+    axes[1,1].tick_params(labelsize=14)
+    axes[1,1].xaxis.set_ticks_position('both')
+    axes[1,1].yaxis.set_ticks_position('both')
+    axes[1,1].minorticks_on()
+    axes[1,1].tick_params(which='both',axis="both",direction="in")
+    axes[1,1].set_yticklabels([])
+    axes[0,1].set_yticklabels([])
+    axes[0,0].set_xlim([10,1e+6])
+    axes[0,0].set_ylim([1e-4,1])
+    axes[0,1].set_xlim([10,1e+6])
+    axes[0,1].set_ylim([1e-4,1])
+    
+    mydir = os.getcwd()
+    # 1. Add Berne+2022 efficiency results
+    os.chdir(BERNEPATH)
+    Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,axes[0,0],fig)
+    Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,axes[0,1],fig)
+    os.chdir(mydir)
+    
+    Tielens2001_efficiency(axes[0,0])
+    Tielens2001_efficiency(axes[0,1])
+    
+    Wolfire2003_efficiency(T,axes[0,0])
+    Wolfire2003_efficiency(T,axes[0,1])
+    
+    my_efficiency2('small','Berne',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0,do_colorbar=True)
+    my_efficiency2('small','Tielens',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0)
+    
+    my_efficiency2('large','Berne',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0)
+    my_efficiency2('large','Tielens',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0)
+                
+    axes[0,0].text(0.65, 0.9, r'$T=$ %i K'%int(T),
+                        transform=axes[0,0].transAxes, fontsize=16,verticalalignment='top',
+                        color='black')
+    axes[0,0].legend(loc='lower left',fontsize=14,frameon=False)
+
+    fig.subplots_adjust(top=0.9,bottom=0.07,left=0.07,right=0.98,wspace=0,hspace=0)
+    fig.savefig('dust_heating_efficiency_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
+
 
 def save_results_to_txt(filename, results, x, y, z):
     with open(filename, 'w', newline='') as txtfile:
@@ -799,19 +941,19 @@ def check_tables(G0_min,G0_max,ne_test,T_test,model):
     # 7. Test that everything is alright by obtaining a mock curve for a given ne and T
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(6,7), dpi=300, facecolor='w', edgecolor='k')
 
-    axes[0].set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
+    axes[0,0].set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
     axes[1].set_ylabel(r'Charge fraction', fontsize=16)
     axes[2].set_ylabel(r'Ionised fraction', fontsize=16)
     axes[2].set_xlabel(r'$\gamma (G0\sqrt{T}/n_e)$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
-    axes[0].set_yscale('log')
-    axes[0].set_xscale('log')
-    axes[0].tick_params(labelsize=14)
-    axes[0].xaxis.set_ticks_position('both')
-    axes[0].yaxis.set_ticks_position('both')
-    axes[0].minorticks_on()
-    axes[0].tick_params(which='both',axis="both",direction="in")
-    axes[0].set_xlim([10,1e+6])
-    axes[0].set_ylim([3e-4,1])
+    axes[0,0].set_yscale('log')
+    axes[0,0].set_xscale('log')
+    axes[0,0].tick_params(labelsize=14)
+    axes[0,0].xaxis.set_ticks_position('both')
+    axes[0,0].yaxis.set_ticks_position('both')
+    axes[0,0].minorticks_on()
+    axes[0,0].tick_params(which='both',axis="both",direction="in")
+    axes[0,0].set_xlim([10,1e+6])
+    axes[0,0].set_ylim([3e-4,1])
     axes[1].set_xscale('log')
     axes[1].tick_params(labelsize=14)
     axes[1].xaxis.set_ticks_position('both')
@@ -849,7 +991,7 @@ def check_tables(G0_min,G0_max,ne_test,T_test,model):
         interpolated_f_dication[i] = interpolate_linear(log_G0, log_ne, log_T, f_dication_matrix, G0_test[i], ne_test, T_test)
 
         
-    axes[0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='-',color='k')
+    axes[0,0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='-',color='k')
     axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_anion, label='$Z=-1$',linestyle='-',color='b')
     axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_neutral, label='$Z=0$',linestyle='-',color='orange')
     axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation, label='$Z=1$',linestyle='-',color='g')
@@ -870,7 +1012,7 @@ def check_tables(G0_min,G0_max,ne_test,T_test,model):
         interpolated_f_dication[i] = interpolate_linear(log_G0, log_ne, log_T, f_dication_matrix, G0_test[i], ne_test, T_test)
 
         
-    axes[0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='--',color='k')
+    axes[0,0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='--',color='k')
     axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_anion,linestyle='--',color='b')
     axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_neutral,linestyle='--',color='orange')
     axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation,linestyle='--',color='g')
@@ -878,9 +1020,9 @@ def check_tables(G0_min,G0_max,ne_test,T_test,model):
     axes[2].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation+interpolated_f_dication,linestyle='--',color='k')
 
     
-    axes[0].text(0.65, 0.9, r'$T=$ %.1e K'%float(T_test)+'\n'+\
+    axes[0,0].text(0.65, 0.9, r'$T=$ %.1e K'%float(T_test)+'\n'+\
                             r'$n_e=$ %.1e ${\rm cm}^{-3}$'%float(ne_test),
-                        transform=axes[0].transAxes, fontsize=16,verticalalignment='top',
+                        transform=axes[0,0].transAxes, fontsize=16,verticalalignment='top',
                         color='black')
     axes[1].legend(loc='lower left',fontsize=14,frameon=False)
 

@@ -177,6 +177,8 @@ cython_debug/
 /equilibrium_test/dust_*/
 /equilibrium_test/no_dust
 /equilibrium_test/no_dust/*
+/equilibrium_test
+/equilibrium_test/eq_analysis.py
 *.o*
 run_00001.log
 compilation.txt

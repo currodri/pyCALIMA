@@ -76,7 +76,7 @@ def size_from_Nc(Nc):
 
     return 10*((float(Nc)/418))**(1/3)
 
-def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_small,D_large):
+def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallSil,D_largeSil):
     """Create figure for the plotting of the full dust distribution.
 
     Args:
@@ -88,8 +88,13 @@ def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_small,D_large):
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
-    sns.set(style="white")
-    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    fig, axes = plt.subplots(1, 2, sharex=True,sharey=True, figsize=(8,5), dpi=300, facecolor='w', edgecolor='k')
 
     sizes = np.logspace(np.log10(1e-4),np.log10(1),1000)
     smallPAHs = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
@@ -99,36 +104,67 @@ def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_small,D_large):
 
     n_smallPAHs = smallPAHs.n_density(rho_gas*D_smallPAHs,sizes)
     n_largePAHs = largePAHs.n_density(rho_gas*D_largePAHs,sizes)
-    n_small = small.n_density(rho_gas*D_small,sizes)
-    n_large = large.n_density(rho_gas*D_large,sizes)
+    n_small = small.n_density(rho_gas*D_smallC,sizes)
+    n_large = large.n_density(rho_gas*D_largeC,sizes)
 
     n_tot = n_smallPAHs + n_largePAHs + n_small + n_large
 
     n_tot = (sizes**4)*n_tot
 
-    ax.plot(sizes,(sizes**4)*n_smallPAHs,'--',color='blue',label='Small PAHs')
-    ax.plot(sizes,(sizes**4)*n_largePAHs,'--',color='royalblue',label='Large PAHs')
-    ax.plot(sizes,(sizes**4)*n_small,'-.',color='green',label='Small CDust')
-    ax.plot(sizes,(sizes**4)*n_large,':',color='red',label='Large CDust')
-    ax.plot(sizes,n_tot,'k-',label='Total')
-    ax.set_ylabel(r'$a^4 n(a)$', fontsize=16)
-    ax.set_xlabel(r'$a$ [$\mu$m]',fontsize=16)
-    ax.set_ylim([1e-30,3e-27])
-    ax.set_yscale('log')
-    ax.set_xscale('log')
-    ax.tick_params(labelsize=12)
-    ax.xaxis.set_ticks_position('both')
-    ax.yaxis.set_ticks_position('both')
-    ax.minorticks_on()
-    ax.tick_params(which='both',axis="both",direction="in")
-    ax.legend(loc='best',fontsize=14,frameon=False)
+    axes[0].plot(sizes,(sizes**4)*n_smallPAHs,'--',color='blue',label='smallPAHs',linewidth=2.5)
+    axes[0].plot(sizes,(sizes**4)*n_largePAHs,'--',color='royalblue',label='largePAHs',linewidth=2.5)
+    axes[0].plot(sizes,(sizes**4)*n_small,'-.',color='steelblue',label='smallC',linewidth=2.5)
+    axes[0].plot(sizes,(sizes**4)*n_large,':',color='cornflowerblue',label='largeC',linewidth=2.5)
+    axes[0].plot(sizes,n_tot,'k-',label='Total C',linewidth=2.5)
+    axes[0].set_ylabel(r'$a^4 n(a)$', fontsize=16)
+    axes[0].set_xlabel(r'$a$ [$\mu$m]',fontsize=16)
+    axes[1].set_xlabel(r'$a$ [$\mu$m]',fontsize=16)
+    
+    small = LogNormal_Distribution(basic_a0[5],basic_amin[5],basic_amax[5],basic_sigma[5],basic_s[5])
+    large = LogNormal_Distribution(basic_a0[6],basic_amin[6],basic_amax[6],basic_sigma[6],basic_s[6])
 
-    ax.plot(sizes,1e-27*sizes**(.5),':',color='gray')
-    ax.text(0.4, 0.6, r'MRN ($n\propto a^{-3.5}$)',
+    n_small = small.n_density(rho_gas*D_smallSil,sizes)
+    n_large = large.n_density(rho_gas*D_largeSil,sizes)
+
+    n_tot = n_small + n_large
+
+    n_tot = (sizes**4)*n_tot
+
+    axes[1].plot(sizes,(sizes**4)*n_small,'-.',color='saddlebrown',label='smallC',linewidth=2.5)
+    axes[1].plot(sizes,(sizes**4)*n_large,':',color='sandybrown',label='largeC',linewidth=2.5)
+    axes[1].plot(sizes,n_tot,'k--',label='Total Sil',linewidth=2.5)
+    
+    axes[0].set_ylim([4e-30,3e-27])
+    axes[0].set_yscale('log')
+    axes[0].set_xscale('log')
+    axes[0].tick_params(labelsize=14)
+    axes[0].xaxis.set_ticks_position('both')
+    axes[0].yaxis.set_ticks_position('both')
+    axes[0].minorticks_on()
+    axes[0].tick_params(which='both',axis="both",direction="in")
+    axes[0].legend(loc='best',fontsize=14,frameon=False)
+
+    axes[0].plot(sizes,1e-27*sizes**(.5),':',color='gray',linewidth=2)
+    axes[0].text(0.1, 0.25, r'MRN ($n\propto a^{-3.5}$)',
                                     verticalalignment='bottom', horizontalalignment='left',
-                                    transform=ax.transAxes,fontsize=10)
+                                    transform=axes[0].transAxes,fontsize=16,rotation=43)
+    
+    axes[1].set_ylim([4e-30,3e-27])
+    axes[1].set_yscale('log')
+    axes[1].set_xscale('log')
+    axes[1].tick_params(labelsize=14)
+    axes[1].xaxis.set_ticks_position('both')
+    axes[1].yaxis.set_ticks_position('both')
+    axes[1].minorticks_on()
+    axes[1].tick_params(which='both',axis="both",direction="in")
+    axes[1].legend(loc='best',fontsize=14,frameon=False)
 
-    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.15,right=0.99)
+    axes[1].plot(sizes,1e-27*sizes**(.5),':',color='gray',linewidth=2)
+    axes[1].text(0.1, 0.25, r'MRN ($n\propto a^{-3.5}$)',
+                                    verticalalignment='bottom', horizontalalignment='left',
+                                    transform=axes[1].transAxes,fontsize=16,rotation=43)
+
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.1,right=0.99,hspace=0,wspace=0)
 
     return fig
 
@@ -746,3 +782,66 @@ def pah_desorption_rate(filename,nG0=100):
     wav = w * 1e3 # wavelength [nm]
     intensity = Draine_1978_isrf(wav)
     
+def Totton_efficiency(mu):
+    T_values = np.array([500, 750, 1000, 1250, 1500])
+    a_values = np.array([0.5074, 0.6822, 0.8032, 0.8425, 0.8858])
+    b_values = np.array([54.13, 190.0, 441.3, 714.2, 1322])
+    
+    C = 1. + mu / (a_values*mu+b_values) - 1. / a_values
+    
+    return T_values, C
+
+def logistic_curve(x,a,b):
+    
+    return 1./(1.+a*x**b)
+def plot_pah_coalescence(Tmin,Tmax,nT):
+    from scipy.optimize import curve_fit
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    
+    # 1. Setup the figure
+    fig, ax = plt.subplots(1,1, figsize=(6,5),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$T$ [K]', fontsize=20)
+    ax.set_ylabel(r'$k_{\rm coal}/n_{\rm smallPAHs}^2$ [cm$^{3}$ s$^{-1}$]', fontsize=20)
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlim([Tmin,Tmax])
+    
+    T = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    smallPAHs = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    # 2. Neutral PAH coalescence rate by Tielens 2021
+    k = 4e-11 * np.sqrt(T/10.) * np.sqrt(54./50.)
+    ax.plot(T,k,linestyle='--',color='royalblue',linewidth=2.5,label=r'Neutral smallPAHs (Tielens 2021)')
+    
+    # 3. Ionised PAH coalescence rate by Tielens 2021
+    k = 6e-9 * np.sqrt(54./50.) * np.sqrt(12./(12.*54+18.))
+    ax.hlines(k,Tmin,Tmax,linestyles=':',color='cornflowerblue',linewidth=2.5,label=r'Ionised smallPAHs (Tielens 2021)')
+    
+    # 4. Neutral PAH coalescence rate as given by kinetic theory with 
+    # the sticking probability by Totton et al. (2012)
+    reduced_mass = 0.5 * (12.011*54. + 1.00784*18)
+    T_vals,C_vals = Totton_efficiency(reduced_mass)
+    params_C, _ = curve_fit(logistic_curve, np.log10(T_vals), C_vals, maxfev=10000)
+    print('Logistic curve parameters: ',params_C)
+    C = logistic_curve(np.log10(T),*params_C)
+    reduced_mass = reduced_mass * 1.660538921e-24
+    dV_thermal = np.sqrt(8. * kb.to('cm**2*g/s**2/K').d * T / reduced_mass)
+    sigma = np.pi * (2.*smallPAHs.a0*1e-4)**2.
+    k = sigma * dV_thermal * C
+    ax.plot(T,k,linestyle='-',color='steelblue',linewidth=2.5,label=r'Neutral small PAHs (Totton et al. 2012)')
+    
+    ax.legend(loc='best', frameon=False, fontsize=14)
+    fig.subplots_adjust(top=0.98,bottom=0.112,left=0.15,right=0.98,hspace=0,wspace=0)
+    fig.savefig('small_pah_coalescence.pdf',format='pdf',dpi=300)
+    plt.close(fig)
