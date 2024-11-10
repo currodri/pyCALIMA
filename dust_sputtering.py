@@ -806,10 +806,10 @@ def compute_penetration_depth(E_init,m_ion,s_dust,Zi,Z_dust,M_dust,delta_max=0.0
         epsilon = reduced_energy(M_dust,m_ion,a_sc,Zi,Z_dust,E_now)
         s = screened_Coulomb_function(epsilon)
         
-        Se = electronic_stopping_cs(n_dust,n_eval,Zi,Z_dust,M_dust,m_ion,E_now)
         # 2. Compute the dE/dr
-        dE = n_dust * 4. * np.pi * a_sc * Zi * Z_dust * elem_charge**2. * m_ion / (m_ion+M_dust) * s
-                
+        Se = electronic_stopping_cs(n_dust,n_eval,Zi,Z_dust,M_dust,m_ion,E_now)
+        Sn = 4. * np.pi * a_sc * Zi * Z_dust * elem_charge**2. * m_ion / (m_ion+M_dust) * s
+        dE = n_dust * (Sn + Se)   
         # 3. Figure out if the step needs to be changed
         if abs(dE*dr)/E_now >= delta_max:
             dr = dr / 2.

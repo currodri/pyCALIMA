@@ -275,21 +275,26 @@ def HM89_cooling(T,a_min,Td):
     
     return l1*l2
 
-def low_temp_cooling(T,a,Td,M_dust):
+def low_temp_cooling(T,a,Td,M_dust,projectile):
     
     prefactor = np.pi * a**2. * 2. * kb * (T - Td)
-    # 1. Compute collisions with hydrogen
-    alpha_0 = 2. * 1.00784 * M_dust/ (1.00784 + M_dust)**2.
-    alpha = (1.-alpha_0)*np.exp(-np.sqrt(2.*(T+Td)/500.)) + alpha_0
-    mx = 1.00784 * au2cgs_m
-    lh = alpha* np.sqrt(8.*kb*T/(np.pi*mx)) * prefactor
+    if projectile == 'H':
+        # 1. Compute collisions with hydrogen
+        alpha_0 = 2. * 1.00784 * M_dust/ (1.00784 + M_dust)**2.
+        alpha = (1.-alpha_0)*np.exp(-np.sqrt(2.*(T+Td)/500.)) + alpha_0
+        mx = 1.00784 * au2cgs_m
+        l = alpha* np.sqrt(8.*kb*T/(np.pi*mx)) * prefactor
+    elif projectile == 'He':
+        # 2. Compute collisions with helium
+        alpha_0 = 2. * 4.002602 * M_dust/ (4.002602 + M_dust)**2.
+        mx = 4.002602 * au2cgs_m
+        l = alpha_0 * np.sqrt(8.*kb*T/(np.pi*mx)) * prefactor
+    else:
+        alpha_0 = 1.
+        mx = 4.002602 * au2cgs_m
+        l = alpha_0 * np.sqrt(8.*kb*T/(np.pi*mx)) * prefactor
     
-    # 2. Compute collisions with helium
-    alpha_0 = 2. * 4.002602 * M_dust/ (4.002602 + M_dust)**2.
-    mx = 4.002602 * au2cgs_m
-    lhe = alpha_0 * np.sqrt(8.*kb*T/(np.pi*mx)) * prefactor
-    
-    return 0.7 * lh + 0.3 * lhe
+    return l
 
 
 def plot_cooling(Tmin,Tmax,nT=100):
@@ -955,6 +960,84 @@ def compute_efficiency(args):
     
     return h
 
+def compute_energy_deposited_electron(args):
+    
+    fit_params,a_dust,E,delta_max = args
+    
+    # 1. Prepare parameters
+    if a_dust == None:
+        a_dust = 1e10
+        dr = 1e-7
+    else:
+        dr = a_dust / 10.
+    r_pd = 0.
+    n = 0
+    E_now = E
+    
+    # 2. Compute the screening length
+    Earray = [E_now]
+    distance = [0.0]
+    
+    while E_now > 1e-3*E and r_pd < 4./3.*a_dust:
+        # 1. Compute the electron stopping power based on the fitting curve
+        S = stopping_fit(E_now,*fit_params) # [eV/Angstrom]
+        S = S * 1e8 # [ev/cm]
+                
+        # 2. Figure out if the step needs to be changed
+        if abs(S*dr)/E_now >= delta_max:
+            dr = dr / 2.
+        else:
+            E_now = E_now - S * dr
+            Earray.append(E_now)
+            r_pd = r_pd + dr
+            distance.append(r_pd)
+            if r_pd + dr >= 4./3.*a_dust:
+                dr = 4./3.*a_dust - r_pd
+            elif r_pd + dr == 4./3.*a_dust:
+                break
+        n += 1
+    # 3. Compute the deposited energy
+    E_imp = E - E_now
+    Earray = np.array(Earray)
+    distance = np.array(distance)
+    
+    return E_imp,r_pd,Earray,distance
+
+def compute_efficiency_electron(args):
+    
+    T,a_dust,fit_params,nv,delta_max = args
+    
+    me = 9.10938e-28 # [g]
+    
+    # 1. Determine the minimum velocity for convergence
+    v_0 = np.sqrt(2.*kb*T/me) * (1. - (np.sqrt(3./2.) - 1.))
+    while Maxwell_Boltzmann_function(v_0,me,T) > 1e-30:
+        v_0 = v_0 / 2.
+    x_0 = 0.5 * me * v_0**2. / (kb*T)
+    
+    # 2. We set the maximum velocity to the thermal energy of gas at ~1e10 K
+    v_max = np.sqrt(2. * kb * 1e10 / me) # [cm/s]
+    while Maxwell_Boltzmann_function(v_max,me,T) < 1e-30:
+        v_max = v_max/ 2.0
+    
+    x_max = 0.5 * me * v_max**2. / (kb*T)
+    
+    # 3. Perform loop over velocity range
+    x = np.logspace(np.log10(x_0),np.log10(x_max),nv)
+    h = np.zeros(nv)
+    
+    for i in range(0, nv):
+        xi = x[i]
+        Ei = xi * kb*T
+        agg = fit_params,a_dust,Ei/eV2erg,delta_max
+        E_imp,_,_,_ = compute_energy_deposited_electron(agg)
+        h[i] = xi**2. * (E_imp*eV2erg/Ei) * np.exp(-xi)
+    
+    # 4. Integrate with the trapezoid method
+    h = 0.5 * trapezoid(h,x)
+    
+    return h
+
 def Dwek87_eff(a,T):
     Eth = 133. * a * 1e3 * eV2erg
     h = 1. - (1.+Eth/(2.*kb*T))*np.exp(-Eth/(kb*T))
@@ -1136,4 +1219,755 @@ def fit_e_stopping_silicate():
     fig.subplots_adjust(top=0.98,bottom=0.13,left=0.1,right=0.99,hspace=0,wspace=0)
     fig.savefig('fit_stopping_e_silicate.pdf',format='pdf')
     
+def DwekWerner81_cooling(a,T):
+    """Cooling rate per uncharged grain for electron collisions
+    as given in Appendix A of Dwek and Werner (1981).
+
+    Args:
+        a (np.float): grain radius [micron]
+        T (np.float): gas temperature [K]
+
+    Returns:
+        np.float: cooling rate [erg cm^3 / s]
+    """    
     
+    x = 2.71e8 * a**(2./3.) / T
+    xmax = 14000 * a**(2./3.)
+    H = np.zeros(len(T))
+    for i in range(0, len(T)):
+        if x[i] >= xmax:
+            H[i] = 0.0
+        elif x[i] >= 4.5:
+            H[i] = 5.38e-18 * a**2. * T[i]**1.5
+        elif x[i] >= 1.5:
+            H[i] = 3.37e-13 * a**2.41 * T[i]**0.88
+        else:
+            H[i] = 6.48e-6 * a**3.
+        
+    return H
+
+def plot_collisional_cooling(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
+    from unyt import g,cm,eV
+    from scipy.optimize import curve_fit
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    sns.color_palette("Paired")
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    me = 9.10938e-28 # [g]
+    # 1. Setup the figure
+    fig, ax = plt.subplots(1,1, figsize=(7,5),dpi=300,facecolor='w',edgecolor='k',sharey=True)
+    ax.set_xlabel(r'$T$ [K]', fontsize=16)
+    ax.set_ylabel(r'$\tilde{H}(a,T)$ [erg cm$^3$/s]',fontsize=16)
+    ax.tick_params(labelsize=14)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    ax.set_ylim([1e-22,1e-7])
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    
+    Tgas = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    
+    # 2. Plot the fitting function by Dwek and Werner (1981)
+    ax.plot(Tgas,DwekWerner81_cooling(0.005,Tgas),linestyle=':',color='k',label=r'DW81 $a=0.005$ $\mu$m')
+    ax.plot(Tgas,DwekWerner81_cooling(0.01,Tgas),linestyle='--',color='k',label=r'DW81 $a=0.01$ $\mu$m')
+    ax.plot(Tgas,DwekWerner81_cooling(0.1,Tgas),linestyle='-',color='k',label=r'DW81 $a=0.1$ $\mu$m')
+    
+    # 3. Compute the fitting to the electron stopping power
+    # Data from table 1 in Ashley and Anderson (1981)
+    E = np.array([15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 600, 800, 1000, 2000, 4000, 6000, 8000, 10000])
+    S_prime = np.array([2.40, 6.64, 26.2, 55.1, 105, 128, 137, 141, 137, 127, 117, 99.6, 87.5, 78.1, 52.8, 33.5, 25.1, 20.4, 17.4])
+
+    data_carbon = pd.read_csv('Carbon_electron_stopping_power_Joy1995.csv',header=None,names=['E','S'])
+    
+    # Convert S_prime [MeV cm^2 /g] to S in [eV/A]
+    rho_Si02 = 2.65 * g /cm**3
+    S_prime = S_prime * 1e6 * eV *cm**2/g
+    S = S_prime * rho_Si02
+    
+    popt_sil,pcov = curve_fit(stopping_fit,E,S.to('eV/Angstrom').d)
+    print('Silicate: ',popt_sil)
+    
+    popt_car,pcov = curve_fit(stopping_fit,data_carbon['E']*1e3,data_carbon['S'],
+                          p0=[-0.000423375,-3.57429e-11,-3.37861e-7,-3.18688,
+                              -0.587928,-0.000232675,1.53851,1.41476])
+    print('Carbon: ',popt_car)
+    
+    num_cores = 5 #os.cpu_count()
+    print(f"    Number of cores available: {num_cores}")
+    
+    # 4. Electron cooling for carbonaceous material
+    a_dust = dust_model.basic_a0[2]*1e-4
+    args_list = [(Ti,a_dust,popt_car,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for smallC',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_electron
+    ax.plot(Tgas,H_electron,linestyle='-',color='steelblue',label=r'e$^{-}$ (smallC)')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,popt_car,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for largeC',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_electron
+    ax.plot(Tgas,H_electron,linestyle='--',color='cornflowerblue',label=r'e$^{-}$ (largeC)')
+    
+    # 5. Electron cooling for silicate material
+    a_dust = dust_model.basic_a0[5]*1e-4
+    args_list = [(Ti,a_dust,popt_sil,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for smallSil',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_electron
+    ax.plot(Tgas,H_electron,linestyle='-',color='saddlebrown',label=r'e$^{-}$ (smallSil)')
+    
+    a_dust = dust_model.basic_a0[6]*1e-4
+    args_list = [(Ti,a_dust,popt_sil,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for largeSil',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_electron
+    ax.plot(Tgas,H_electron,linestyle='--',color='sandybrown',label=r'e$^{-}$ (largeSil)')
+    
+    # 6. Hydrogen cooling for carbonaceous material
+    s_dust = dust_model.basic_s[2]
+    a_dust = dust_model.basic_a0[2]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle='-.',color='steelblue',label=r'H (smallC)')
+    
+    s_dust = dust_model.basic_s[3]
+    a_dust = dust_model.basic_a0[3]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle='-.',color='cornflowerblue',label=r'H (largeC)')
+    
+    # 7. Hydrogen cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle='-.',color='saddlebrown',label=r'H (smallSil)')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle='-.',color='sandybrown',label=r'H (largeSil)')
+    
+    # 8. Helium cooling for carbonaceous material
+    s_dust = dust_model.basic_s[2]
+    a_dust = dust_model.basic_a0[2]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 4.002602 * au2cgs_m
+    Zi = 2
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=':',color='steelblue',label=r'He (smallC)')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=':',color='cornflowerblue',label=r'He (largeC)')
+    
+    # 9. Helium cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 4.002602 * au2cgs_m
+    Zi = 2
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=':',color='saddlebrown',label=r'He (smallSil)')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=':',color='sandybrown',label=r'He (largeSil)')
+    
+    # 10. Carbon cooling for carbonaceous material
+    s_dust = dust_model.basic_s[2]
+    a_dust = dust_model.basic_a0[2]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 12.011 * au2cgs_m
+    Zi = 6
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=(0, (3, 10, 1, 10)),color='steelblue',label=r'C (smallC)')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=(0, (3, 10, 1, 10)),color='cornflowerblue',label=r'C (largeC)')
+    
+    # 11. Carbon cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 12.011 * au2cgs_m
+    Zi = 6
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=(0, (3, 10, 1, 10)),color='saddlebrown',label=r'C (smallSil)')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle=(0, (3, 10, 1, 10)),color='sandybrown',label=r'C (largeSil)')
+    
+    # 12. Add the HM79 low temperature cooling for carbonaceous grains at Td=2.73K, for a primordial gas
+    supp_factor = 1. - 1./(1.+np.exp(-10.*(np.log10(Tgas)-4.)))
+    ax.plot(Tgas, supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[2]*1e-4,Td,12.011,'H'),linestyle=(0, (3, 1, 1, 1, 1, 1)),color='steelblue',label=r'HM79 ($a=0.01$ $\mu$m)')
+    ax.plot(Tgas, supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[3]*1e-4,Td,12.011,'H'),linestyle=(0, (3, 1, 1, 1, 1, 1)),color='cornflowerblue',label=r'HM79 ($a=0.1$ $\mu$m)')
+
+    # 13. Add the HM79 low temperature cooling for silicate grains at Td=2.73K, for a primordial gas
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7.
+    ax.plot(Tgas, supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'H'),linestyle=(0, (3, 1, 1, 1, 1, 1)),color='saddlebrown',label=r'HM79 ($a=0.01$ $\mu$m)')
+    ax.plot(Tgas, supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[3]*1e-4,Td,am_dust,'H'),linestyle=(0, (3, 1, 1, 1, 1, 1)),color='sandybrown',label=r'HM79 ($a=0.1$ $\mu$m)')
+    
+    
+    ax.legend(loc='best',frameon=False,fontsize=12,ncol=2)
+    fig.subplots_adjust(top=0.99,bottom=0.1,left=0.12,right=0.99,hspace=0,wspace=0)
+    fig.savefig('hightemp_collisional_cooling.pdf',format='pdf')
+    
+def export_collisional_cooling(Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
+    from unyt import g,cm,eV
+    from scipy.optimize import curve_fit
+    
+    # 1. Setup the variables and arrays
+    me = 9.10938e-28 # [g]
+    Tgas = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    
+    # 2. Compute the fitting to the electron stopping power
+    # Data from table 1 in Ashley and Anderson (1981)
+    E = np.array([15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 600, 800, 1000, 2000, 4000, 6000, 8000, 10000])
+    S_prime = np.array([2.40, 6.64, 26.2, 55.1, 105, 128, 137, 141, 137, 127, 117, 99.6, 87.5, 78.1, 52.8, 33.5, 25.1, 20.4, 17.4])
+    
+    data_carbon = pd.read_csv('Carbon_electron_stopping_power_Joy1995.csv',header=None,names=['E','S'])
+    
+    # Convert S_prime [MeV cm^2 /g] to S in [eV/A]
+    rho_Si02 = 2.65 * g /cm**3
+    S_prime = S_prime * 1e6 * eV *cm**2/g
+    S = S_prime * rho_Si02
+    
+    popt_sil,pcov = curve_fit(stopping_fit,E,S.to('eV/Angstrom').d)
+    print('Silicate: ',popt_sil)
+    
+    popt_car,pcov = curve_fit(stopping_fit,data_carbon['E']*1e3,data_carbon['S'],
+                          p0=[-0.000423375,-3.57429e-11,-3.37861e-7,-3.18688,
+                              -0.587928,-0.000232675,1.53851,1.41476])
+    print('Carbon: ',popt_car)
+    
+    num_cores = 10 #os.cpu_count()
+    print(f"    Number of cores available: {num_cores}")
+    
+    # 3. Crete the directory for the table data
+    table_dir = './collisional_cooling_data'
+    if not os.path.exists(table_dir):
+        os.mkdir(table_dir)
+    
+    # 4. Electron cooling for carbonaceous material
+    a_dust = dust_model.basic_a0[2]*1e-4
+    args_list = [(Ti,a_dust,popt_car,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for smallC',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_electron
+    
+    # Write to txt file the results of (Tgas, H_electron) in a format suitable for Fortran90
+    with open(f'{table_dir}/electron_cooling_{dust_model.basic_a0[2]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_electron)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,popt_car,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for largeC',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_electron
+    
+    # Write to txt file the results of (Tgas, H_electron) in a format suitable for Fortran90
+    with open(f'{table_dir}/electron_cooling_{dust_model.basic_a0[3]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_electron)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 5. Electron cooling for silicate material
+    a_dust = dust_model.basic_a0[5]*1e-4
+    args_list = [(Ti,a_dust,popt_sil,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for smallSil',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_electron
+    
+    # Write to txt file the results of (Tgas, H_electron) in a format suitable for Fortran90
+    with open(f'{table_dir}/electron_cooling_{dust_model.basic_a0[5]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_electron)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    a_dust = dust_model.basic_a0[6]*1e-4
+    args_list = [(Ti,a_dust,popt_sil,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for largeSil',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_electron
+    
+    # Write to txt file the results of (Tgas, H_electron) in a format suitable for Fortran90
+    with open(f'{table_dir}/electron_cooling_{dust_model.basic_a0[6]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_electron)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 6. Hydrogen cooling for carbonaceous material
+    s_dust = dust_model.basic_s[2]
+    a_dust = dust_model.basic_a0[2]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates for smallC',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_eff
+    
+    # Write to txt file the results of (Tgas, H_hydrogen) in a format suitable for Fortran90
+    with open(f'{table_dir}/H_cooling_{dust_model.basic_a0[2]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_hydrogen)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    s_dust = dust_model.basic_s[3]
+    a_dust = dust_model.basic_a0[3]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates largeC',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_eff
+    
+    # Write to txt file the results of (Tgas, H_hydrogen) in a format suitable for Fortran90
+    with open(f'{table_dir}/H_cooling_{dust_model.basic_a0[3]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_hydrogen)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 7. Hydrogen cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates for smallSil',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_eff
+    
+    # Write to txt file the results of (Tgas, H_hydrogen) in a format suitable for Fortran90
+    with open(f'{table_dir}/H_cooling_{dust_model.basic_a0[5]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_hydrogen)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates for largeSil',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_eff
+    
+    # Write to txt file the results of (Tgas, H_hydrogen) in a format suitable for Fortran90
+    with open(f'{table_dir}/H_cooling_{dust_model.basic_a0[6]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_hydrogen)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 8. Helium cooling for carbonaceous material
+    s_dust = dust_model.basic_s[2]
+    a_dust = dust_model.basic_a0[2]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 4.002602 * au2cgs_m
+    Zi = 2
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates for smallC',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_helium = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_helium) in a format suitable for Fortran90
+    with open(f'{table_dir}/He_cooling_{dust_model.basic_a0[2]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_helium)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates for largeC',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_helium = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas) * kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_helium) in a format suitable for Fortran90
+    with open(f'{table_dir}/He_cooling_{dust_model.basic_a0[3]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_helium)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 9. Helium cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 4.002602 * au2cgs_m
+    Zi = 2
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates for smallSil',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_helium = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_helium) in a format suitable for Fortran90
+    with open(f'{table_dir}/He_cooling_{dust_model.basic_a0[5]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_helium)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates for largeSil',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_helium = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_helium) in a format suitable for Fortran90
+    with open(f'{table_dir}/He_cooling_{dust_model.basic_a0[6]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_helium)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 10. Carbon cooling for carbonaceous material
+    s_dust = dust_model.basic_s[2]
+    a_dust = dust_model.basic_a0[2]*1e-4
+    am_dust = 12.011 * au2cgs_m
+    an_dust = 6.
+    ne_val = 4
+    Mi = 12.011 * au2cgs_m
+    Zi = 6
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates for smallC',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_carbon = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_carbon) in a format suitable for Fortran90
+    with open(f'{table_dir}/C_cooling_{dust_model.basic_a0[2]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_carbon)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates for largeC',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_carbon = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_carbon) in a format suitable for Fortran90
+    with open(f'{table_dir}/C_cooling_{dust_model.basic_a0[3]:.4f}_micron_Gra', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_carbon)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+    
+    # 11. Carbon cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 12.011 * au2cgs_m
+    Zi = 6
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates for smallSil',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_carbon = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb * h_eff
+
+    # Write to txt file the results of (Tgas, H_carbon) in a format suitable for Fortran90
+    with open(f'{table_dir}/C_cooling_{dust_model.basic_a0[5]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_carbon)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+
+    
+    a_dust = dust_model.basic_a0[3]*1e-4
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Carbon heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_carbon = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb * h_eff
+    
+    # Write to txt file the results of (Tgas, H_carbon) in a format suitable for Fortran90
+    with open(f'{table_dir}/C_cooling_{dust_model.basic_a0[6]:.4f}_micron_Sil', 'w') as f:
+        f.write(f'{nT}\n')
+        for T, H in zip(np.log10(Tgas), np.log10(H_carbon)):
+            f.write(f'{T:14.6e} {H:14.6e}\n')
+
+    print('Done!')
