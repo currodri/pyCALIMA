@@ -45,6 +45,29 @@ mCLarge = 4./3.*np.pi*2.2*(1e-5)**3. * g
 mSilSmall = 4./3.*np.pi*3.3*(5e-7)**3. * g
 mSilLarge = 4./3.*np.pi*3.3*(1e-5)**3. * g
 
+clean_name = {'no_dust':'No Dusty-PRISM',
+                  'acc_chaabouni':r'$\alpha(T)$ by Chaabouni et al. (2012)',
+                  'acc_LDW85':r'$\alpha(T)$ by Leitch-Devlin and D. A. Williams (1985)',
+                  'acc_nhmax1d6':r'Accretion cut-off at $n_{\rm H}=10^6$ cm$^{-3}$',
+                  'acc_cou':r'+ Coulomb enhancement',
+                  'acc_coa':r'+ Coagulation',
+                  'acc_coa_sha':r'+ Shattering',
+                  'acss_cou':r'+ Sputtering + Coulomb',
+                  'acss_turb_HA19': r'$\Delta V$ by Hirashita \& Aoyama (2019)',
+                  'acss_turb_OC07': r'$\Delta V$ by our model',
+                  'acss_turb_poppe': r'Coagulation by Poppe et al (1997)',
+                  'acsst_ratd_lowtens': r'+ RATD',
+                  'acsstr_h2': r'H$_2$ formation on grains',
+                  'acsstrh_col': r'Updated collisional cooling',
+                  'acsstrh_c': r'+ PAH Coalescence',
+                  'acsstrh_c_diss':r'+ PAH photo-dissociation',
+                  'acsstrh_cd_evap':r'+ PAH cluster evaporation',
+                  'acsstrh_cde_free':r'+ PAH freezing',
+                  'acsstrh_cdef_spu':r'+ PAH sputtering',
+                  'acsstrh_cdefs_peh':r'+ PAH PEH',
+                  'pah_h2':r'+ PAH H$_2$ formation',
+                  'pah_peh':r'PAH photoelectric heating'}
+
 # Define fields for yt
 basic_hydro       = ['Density','x-velocity','y-velocity','z-velocity','radiation_pressure','Pressure']
 metal_massfrac    = ['FeMassFrac','OMassFrac','NMassFrac','MgMassFrac','NeMassFrac',
@@ -63,7 +86,8 @@ dust_densities    = ['PAHSmall','PAHLarge','CSmall','CLarge','SilSmall','SilLarg
 noadvect          = ['cooling_time','temperature','cooling_rate','heating_rate',
                   'cooling_primordial','cooling_fine_structure','cooling_CII',
                   'cooling_OI','cooling_CO','cooling_dust','cooling_dust_rec',
-                  'heating_cr','heating_pe','heating_h2','heating_ct','dust_temperature']
+                  'heating_cr','heating_pe','heating_h2','heating_ct','dust_temperature',
+                  'fionPAHSmall','fionPAHLarge']
 def setup_yt(dust,pahs):
     @yt.derived_field(name='nH', sampling_type="cell", units='cm**-3',force_override=True)
     def _nH(field,data):
@@ -125,7 +149,6 @@ def setup_yt(dust,pahs):
         @yt.derived_field(name='nSilLarge', sampling_type="cell", units='cm**-3',force_override=True)
         def _nSilLarge(field,data):
             return (data[('gas','density')] * data[('ramses','SilLarge')] ) / (mSilLarge)
-
 
 def plot_single_var(my_fields,varname='temperature'):
     """This function plots the evolution of a particular variable for the range of
@@ -711,7 +734,7 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
                     'nPAHSmall','nPAHLarge','nCSmall','nCLarge','nSilSmall','nSilLarge']
         # varnames = ['nH','nSilLarge']
     else:
-        varnames = ['nH','nH2','nCO','nCI','nCII']
+        varnames = ['temperature','nH','nH2','nCO']
         
     Gerin15 = np.array([[55.783283190707735, 152.45686750100288],
                         [70.45508197126216, 130.45465399466],
@@ -723,26 +746,6 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
                         [66.94134089630272, 84.79121490024798],
                         [54.79117801380037, 91.31921236022974]
                         ])
-    
-    clean_name = {'acc_chaabouni':r'$\alpha(T)$ by Chaabouni et al. (2012)',
-                  'acc_LDW85':r'$\alpha(T)$ by Leitch-Devlin and D. A. Williams (1985)',
-                  'acc_nhmax1d6':r'Accretion cut-off at $n_{\rm H}=10^6$ cm$^{-3}$',
-                  'acc_cou':r'+ Coulomb enhancement',
-                  'acc_coa':r'+ Coagulation',
-                  'acc_coa_sha':r'+ Shattering',
-                  'acss_cou':r'+ Sputtering + Coulomb',
-                  'acss_turb_HA19': r'$\Delta V$ by Hirashita \& Aoyama (2019)',
-                  'acss_turb_OC07': r'$\Delta V$ by our model',
-                  'acss_turb_poppe': r'Coagulation by Poppe et al (1997)',
-                  'acsst_ratd_lowtens': r'+ RATD',
-                  'acsstr_h2': r'H$_2$ formation on grains',
-                  'acsstrh_col': r'Updated collisional cooling',
-                  'acsstrh_c': r'+ PAH Coalescence',
-                  'acsstrh_c_diss':r'+ PAH photo-dissociation',
-                  'acsstrh_cd_evap':r'+ PAH cluster evaporation',
-                  'acsstrh_cde_free':r'+ PAH freezing',
-                  'pah_h2':r'+ PAH H$_2$ formation',
-                  'pah_peh':r'PAH photoelectric heating'}
         
     # Create a figure
     fig = plt.figure(figsize=(10, 6))
@@ -758,14 +761,14 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
     ax2.set_yscale('log')
     ax2.set_xscale('log')
     ax2.set_xlim([1e-2,1e4])
-    ax2.set_ylim([2e-1,1e10])
+    ax2.set_ylim([2e1,1e12])
     ax2.set_xticklabels([])
     ax3 = fig.add_subplot(gs[1, 1])  # Second row, second column
     ax3.set_yscale('log')
     ax3.set_xscale('log')
     ax3.set_xlim([1e-2,1e4])
     ax3.set_xticklabels([])
-    ax3.set_ylim([4e-2,3e2])
+    ax3.set_ylim([4e-3,3e1])
     ax4 = fig.add_subplot(gs[2, 1])  # Third row, second column
     ax4.set_yscale('log')
     ax4.set_xscale('log')
@@ -859,49 +862,41 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
         output_dir = os.getcwd()
         
         # 2. Load two last outputs
-        sims = [yt.load(f'{output_dir}/output_{str(out.split("_")[-1])}',fields=my_fields) for out in outputs[-2:]]
-        sims = [yt.load(f'{output_dir}/output_{str(outputs[0].split("_")[-1])}',fields=my_fields)] + sims
+        print(f'Loading {sim}...')
+        if 'no_dust' in sim and dust:
+            tmp_varnames = ['temperature','nH','nH2','nCO']
+            tmp_fields = basic_hydro + metal_massfrac + co_massfrac + metal_ion + ions + dust_densities + noadvect
+        else:
+            tmp_varnames = varnames
+            tmp_fields = my_fields
+        sims = [yt.load(f'{output_dir}/output_{str(out.split("_")[-1])}',fields=tmp_fields) for out in outputs[-2:]]
+        sims = [yt.load(f'{output_dir}/output_{str(outputs[0].split("_")[-1])}',fields=tmp_fields)] + sims
         
         # 3. Get raw data
         density = sims[-1].all_data()[('gas','nH')].to('cm**-3')
         ndensity = len(density)
-        nvars = len(varnames)
-        if dust:
-            data = np.zeros((ndensity,nvars,3))
-        else:
-            data = np.zeros((ndensity,3))
+        nvars = len(tmp_varnames)
+        data = np.zeros((ndensity,nvars,3))
         for t in range(0,3):
             ds = sims[t]
-            if dust:
-                for v in range(0, nvars):
-                    try:
-                        raw_ad = ds.all_data()[('gas',varnames[v])]
-                    except:
-                        raw_ad = ds.all_data()[('ramses',varnames[v])]
-                    for d in range(0,ndensity):
-                        if varnames[v] == 'temperature':
-                            data[d,v,t] = raw_ad[d].to('K')
-                            if t==2 and v==0:
-                                diff = abs(data[d,v,1] - data[d,v,2]) / data[d,v,2]
-                                if diff >= conv_crit:
-                                    print(f'Temperature has not converged yet (err={diff},nH={data[d,0,t]})!')
-                        else:
-                            data[d,v,t] = raw_ad[d]
-            else:
+            for v in range(0, nvars):
                 try:
-                    raw_ad = ds.all_data()[('gas','temperature')]
+                    raw_ad = ds.all_data()[('gas',tmp_varnames[v])]
                 except:
-                    raw_ad = ds.all_data()[('ramses','temperature')]
+                    raw_ad = ds.all_data()[('ramses',tmp_varnames[v])]
                 for d in range(0,ndensity):
-                    data[d,t] = raw_ad[d].to('K')
-                    if t==1:
-                        diff = abs(data[d,0] - data[d,1]) / data[d,1]
-                        if diff >= conv_crit:
-                            print(f'Temperature has not converged yet (err={diff},nH={data[d,t]})!')
+                    if tmp_varnames[v] == 'temperature':
+                        data[d,v,t] = raw_ad[d].to('K')
+                        if t==2 and v==0:
+                            diff = abs(data[d,v,1] - data[d,v,2]) / data[d,v,2]
+                            if diff >= conv_crit:
+                                print(f'Temperature has not converged yet (err={diff},nH={data[d,0,t]})!')
+                    else:
+                        data[d,v,t] = raw_ad[d]
         
         # 4. Sort data
         sort_dens = np.argsort(density)
-        if dust:
+        if dust and 'no_dust' not in sim:
             data = data[sort_dens,:,:]
             density = density[sort_dens]
 
@@ -921,7 +916,17 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
             
             ax5.plot(density,data[:,8,2]/data[:,8,0],linestyle='-',linewidth=2,color=colors[s])
             ax5.plot(density,data[:,9,2]/data[:,9,0],linestyle=':',linewidth=2,color=colors[s])
+        
+        elif 'no_dust' in sim:
+            data = data[sort_dens,:,:]
+            density = density[sort_dens]
+            ax1.plot(density,data[:,0,2],linestyle='-',linewidth=3,label=clean_name[sim.split('/')[-1]],color=colors[s])
             
+            axins.plot(density,data[:,0,2], linestyle='-',linewidth=3,color=colors[s])
+            axins2.plot(density,data[:,0,2], linestyle='-',linewidth=3,color=colors[s])
+            
+            ax2.plot(density,data[:,2,2]/data[:,2,0],linestyle='-',linewidth=2,color=colors[s])
+            ax2.plot(density,data[:,3,2]/data[:,3,0],linestyle=':',linewidth=2,color=colors[s])
             
             
         else:
@@ -975,7 +980,7 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
     fig.subplots_adjust(top=0.80,bottom=0.1,left=0.07,right=0.93,hspace=0,wspace=0)
         
     if not nolist:
-        print('Making comparison plot in final_temperature_comparison.png')
+        print('Making comparison plot in equil_comparison_thesis.pdf')
         fig.savefig('./plots/equil_comparison_thesis.pdf', format='pdf', dpi=300)
     else:
         print(f'equil_thesis_{simname[0].split("/")[-1]}.png')
