@@ -15,6 +15,8 @@ from dust_model import relative_velocity,grain_charge_dist,cmp_D_WD99
 from unyt import mh,kb
 
 sec2Myr = 3.1536e13
+mC_amu = 12.0107
+mH_amu = 1.007825
 
 # Galliano data on dust destruction timescales by UV photons
 # See https://irfu.cea.fr/Pisp/frederic.galliano/HDR/hdrch6.html#x7-3070004 (Section 4.2.2.1)
@@ -75,6 +77,26 @@ def size_from_Nc(Nc):
     """
 
     return 10*((float(Nc)/418))**(1/3)
+
+def mass_from_Nc(Nc):
+    """This function returns the mass of a PAH molecule (in grams) from the number of Carbon atoms,
+    assuming full hydrogenation.
+
+    Args:
+        Nc (int): number of Carbon atoms
+
+    Returns:
+        n.float: mass of the PAH molecule in grams
+    """
+    
+    # Calculate the number of hydrogen atoms (assumming ful hydrogenation)
+    num_hydrogen_atoms = 2. * float(Nc) + 2.
+    
+    # Calculate the mass of the PAH molecule
+    mass = mC_amu * float(Nc) + mH_amu * num_hydrogen_atoms
+    mass = mass * 1.66053906660e-24 # Convert to grams
+    
+    return mass
 
 def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallSil,D_largeSil):
     """Create figure for the plotting of the full dust distribution.
@@ -551,6 +573,112 @@ def pah_coalescence(GDR_PAHs,nMach=100):
     fig2.subplots_adjust(top=0.98,bottom=0.15,left=0.1,right=0.99,hspace=0,wspace=0)
     fig2.savefig('PAH_coalescence.pdf',format='pdf',dpi=300)
     plt.close(fig2)
+    
+def compute_coalescence_timescale_Totton12(n_pah,Tk,Nc,a):
+    """This function computes the coalescence timescale for PAHs based on the results of Totton et al. (2012).
+
+    Args:
+        n_pah (float): PAH number density [cm^-3]
+        Tk (float): gas temperature [K]
+        Nc (int): number of carbon atoms in the PAH
+        a (float): PAH radius [cm]
+
+    Returns:
+        float: coalescence timescale [s]
+    """
+    
+    # 1. Compute the reduced mass
+    reduced_mass = 0.5 * mass_from_Nc(Nc)
+    
+    # 2. Compute the relative velocity
+    dV_thermal = np.sqrt(8. * kb.to('cm**2*g/s**2/K').d * Tk / reduced_mass)
+    
+    # 3. Compute the sticking probability based on the fitting to the results of Totton et al. (2012)
+    C_eff = 1. / (1. + 9.92807181e-7 * np.log10(Tk)**1.37933821e1)
+    
+    # 4. Compute the coalescence timescale
+    coll_section = 4. * np.pi * a**2.
+    t_coal = 1. / (coll_section * dV_thermal * C_eff * n_pah)
+    
+    return t_coal
+
+def compute_coalescence_timescale_Tielens21(n_pah,Tk,Nc,ionised=False):
+    """This function computes the coalescence timescale for PAHs based on the results of Tielens et al. (2021).
+
+    Args:
+        n_pah (float): PAH number density [cm^-3]
+        Tk (float): gas temperature [K]
+        Nc (int): number of carbon atoms in the PAH
+        ionised (bool, optional): whether the PAH is ionised. Defaults to False.
+
+    Returns:
+        float: coalescence timescale [s]
+    """
+    
+    if not ionised:
+        # 1. If neutral grains (taken from Tielens 2021)
+        k_coal = 4e-11 * np.sqrt(Tk/10.) * np.sqrt(float(Nc)/50.) # [cm^3/s]
+        t_coal = 1. / (k_coal * n_pah) # [s]
+    else:
+        # 2. If ionised grains (taken from Tielens 2021) we use the Langevin rate
+        reduced_mass = 0.5 * mass_from_Nc(Nc)
+        k_coal = 6e-9 * np.sqrt(float(Nc)/50.) * np.sqrt((12. * mh.to('g').d)/reduced_mass) # [cm^3/s]
+        t_coal = 1. / (k_coal * n_pah) # [s]
+        
+    return t_coal
+
+def plot_coalescence_timescale(rho_pah,Tmin,Tmax,nT=100):
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    
+    # 1. Setup the figure
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(5,4), dpi=300, facecolor='w', edgecolor='k')
+    ax.set_ylabel(r'$t_{\rm coal}$ [Myr]', fontsize=16)
+    ax.set_xlabel(r'$T$ [K]',fontsize=16)
+    ax.tick_params(labelsize=12)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    
+    # 2. Compute the range of temperatures we want
+    T = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    Nc = 54 # circumcoronene
+    a = basic_a0[0]*1e-4
+    
+    # 3. Compute the coalescence timescale for Totton et al. (2012)
+    n_pah = rho_pah / mass_from_Nc(Nc)
+    t_coal_Totton = np.zeros(nT)
+    for i in range(0, nT):
+        t_coal_Totton[i] = compute_coalescence_timescale_Totton12(n_pah,T[i],Nc,a) / sec2Myr
+    ax.plot(T,t_coal_Totton,'-',label='Totton+2012')
+    
+    # 4. Compute the coalescence timescale for Tielens et al. (2021)
+    t_coal_Tielens = np.zeros(nT)
+    for i in range(0, nT):
+        t_coal_Tielens[i] = compute_coalescence_timescale_Tielens21(n_pah,T[i],Nc) / sec2Myr
+    ax.plot(T,t_coal_Tielens,'-',label='Tielens+2021 (Neutral)')
+    
+    # 5. Compute the coalescence timescale for Tielens et al. (2021) for ionised grains
+    t_coal_Tielens_ionised = np.zeros(nT)
+    for i in range(0, nT):
+        t_coal_Tielens_ionised[i] = compute_coalescence_timescale_Tielens21(n_pah,T[i],Nc,ionised=True) / sec2Myr
+    ax.plot(T,t_coal_Tielens_ionised,'-',label='Tielens+2021 (Ionised)')
+    
+    ax.legend(loc='best',fontsize=12,frameon=False)
+    fig.subplots_adjust(top=0.99,bottom=0.12,left=0.13,right=0.99)
+    fig.savefig('PAHSmall_t_coalescence.png',format='png',dpi=300)
+    plt.close(fig)
+    
     
 def pah_freezing(GDR_PAHs,GDR_small,GDR_large,nMach=100):
     import matplotlib.pyplot as plt
