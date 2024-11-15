@@ -188,7 +188,7 @@ def plot_single_var(my_fields,varname='temperature'):
     axcb = fig.colorbar(line_segments)
     axcb.set_label(r'$n_H$ [cm$^{-3}$]',fontsize=16)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
-    fig.savefig('eq_evo_'+str(varname)+'.png', format='png', dpi=300)
+    fig.savefig('./plots/eq_evo_'+str(varname)+'.png', format='png', dpi=300)
 
 def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
     """This function plots the final column density
@@ -256,7 +256,7 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
     ax.legend(loc='best',fontsize=12,frameon=False,ncol=3)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
     os.chdir(cwd)
-    fig.savefig(f'final_eq_column_densities_{simname}.png', format='png', dpi=300)
+    fig.savefig(f'./plots/final_eq_column_densities_{simname}.png', format='png', dpi=300)
     
 def plot_n_init_value(my_fields,dust,simname):
     """This function plots the initial column density
@@ -316,7 +316,7 @@ def plot_n_init_value(my_fields,dust,simname):
     ax.legend(loc='best',fontsize=12,frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95)
     os.chdir(cwd)
-    fig.savefig(f'initial_column_densities_{simname}.png', format='png', dpi=300)
+    fig.savefig(f'./plots/initial_column_densities_{simname}.png', format='png', dpi=300)
 
 def plot_T(my_fields,dust,simname,conv_crit=0.1):
     """This function plots the final temperature equilibrium values
@@ -415,10 +415,10 @@ def plot_T(my_fields,dust,simname,conv_crit=0.1):
         
     if not nolist:
         print('Making comparison plot in final_temperature_comparison.png')
-        fig.savefig('final_temperature_comparison.png', format='png', dpi=300)
+        fig.savefig('./plots/final_temperature_comparison.png', format='png', dpi=300)
     else:
         print(f'final_temperature_{simname[0].split("/")[-1]}.png')
-        fig.savefig(f'final_temperature_{simname[0].split("/")[-1]}.png', format='png', dpi=300)
+        fig.savefig(f'./plots/final_temperature_{simname[0].split("/")[-1]}.png', format='png', dpi=300)
 
 def plot_lambda_tot_value(my_fields,dust,simname,conv_crit=0.1):
     """This function plots the final heating and cooling rate
@@ -490,7 +490,7 @@ def plot_lambda_tot_value(my_fields,dust,simname,conv_crit=0.1):
 
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95,hspace=0)
     os.chdir('../')
-    fig.savefig(f'final_tot_cooling_{simname}.png', format='png', dpi=300)
+    fig.savefig(f'./plots/final_tot_cooling_{simname}.png', format='png', dpi=300)
 
 def plot_lambda_eq_value(my_fields,dust,simname,conv_crit=0.1):
     """This function plots the final heating and cooling rate
@@ -590,8 +590,8 @@ def plot_lambda_eq_value(my_fields,dust,simname,conv_crit=0.1):
     ax[1].legend(loc='best',fontsize=12,frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.95,hspace=0)
     os.chdir(cwd)
-    print(f'final_eq_cooling_{simname}.png')
-    fig.savefig(f'final_eq_cooling_{simname}.png', format='png', dpi=300)
+    print(f'./plots/final_eq_cooling_{simname}.png')
+    fig.savefig(f'./plots/final_eq_cooling_{simname}.png', format='png', dpi=300)
     
 def plot_T_for_proposal(my_fields,dust,simname,conv_crit=0.1):
     """This function plots the final temperature equilibrium values
@@ -688,10 +688,298 @@ def plot_T_for_proposal(my_fields,dust,simname,conv_crit=0.1):
         
     if not nolist:
         print('Making comparison plot in final_temperature_comparison.eps')
-        fig.savefig('final_temperature_comparison.eps', format='eps', dpi=300)
+        fig.savefig('./plots/final_temperature_comparison.eps', format='eps', dpi=300)
     else:
         print(f'final_temperature_{simname[0].split("/")[-1]}.eps')
-        fig.savefig(f'final_temperature_{simname[0].split("/")[-1]}.eps', format='eps', dpi=300)
+        fig.savefig(f'./plots/final_temperature_{simname[0].split("/")[-1]}.eps', format='eps', dpi=300)
+        
+def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
+    """This function plots the final temperature equilibrium values
+
+    Args:
+        my_fields (list): List of str containing the fields to load
+    """
+    import matplotlib.gridspec as gridspec
+    from unyt import mh
+    nolist = False
+    if not isinstance(simname,list):
+        simname = [simname]
+        nolist = True
+        
+    if dust:
+        varnames = ['temperature','nH','nH2','nCO',
+                    'nPAHSmall','nPAHLarge','nCSmall','nCLarge','nSilSmall','nSilLarge']
+        # varnames = ['nH','nSilLarge']
+    else:
+        varnames = ['nH','nH2','nCO','nCI','nCII']
+        
+    Gerin15 = np.array([[55.783283190707735, 152.45686750100288],
+                        [70.45508197126216, 130.45465399466],
+                        [66.96780041562548, 99.84324605738185],
+                        [83.19050251471889, 89.99285939717006],
+                        [36.70519167987747, 104.35977492938696],
+                        [34.32521669231977, 95.45700488715778],
+                        [44.09385859819482, 89.9621503325627],
+                        [66.94134089630272, 84.79121490024798],
+                        [54.79117801380037, 91.31921236022974]
+                        ])
+    
+    clean_name = {'acc_chaabouni':r'$\alpha(T)$ by Chaabouni et al. (2012)',
+                  'acc_LDW85':r'$\alpha(T)$ by Leitch-Devlin and D. A. Williams (1985)',
+                  'acc_nhmax1d6':r'Accretion cut-off at $n_{\rm H}=10^6$ cm$^{-3}$',
+                  'acc_cou':r'+ Coulomb enhancement',
+                  'acc_coa':r'+ Coagulation',
+                  'acc_coa_sha':r'+ Shattering',
+                  'acss_cou':r'+ Sputtering + Coulomb',
+                  'acss_turb_HA19': r'$\Delta V$ by Hirashita \& Aoyama (2019)',
+                  'acss_turb_OC07': r'$\Delta V$ by our model',
+                  'acss_turb_poppe': r'Coagulation by Poppe et al (1997)',
+                  'acsst_ratd_lowtens': r'+ RATD',
+                  'acsstr_h2': r'H$_2$ formation on grains',
+                  'acsstrh_col': r'Updated collisional cooling',
+                  'acsstrh_c': r'+ PAH Coalescence',
+                  'acsstrh_c_diss':r'+ PAH photo-dissociation',
+                  'acsstrh_cd_evap':r'+ PAH cluster evaporation',
+                  'acsstrh_cde_free':r'+ PAH freezing',
+                  'pah_h2':r'+ PAH H$_2$ formation',
+                  'pah_peh':r'PAH photoelectric heating'}
+        
+    # Create a figure
+    fig = plt.figure(figsize=(10, 6))
+
+    # Define a GridSpec with 3 rows and 2 columns
+    gs = gridspec.GridSpec(4, 2, width_ratios=[1, 1], height_ratios=[1, 1, 1, 1])
+
+    # Large subplot on the left (spanning all rows in the first column)
+    ax1 = fig.add_subplot(gs[:, 0])  # Span all rows in the first column
+
+    # Smaller subplots on the right
+    ax2 = fig.add_subplot(gs[0, 1])  # First row, second column
+    ax2.set_yscale('log')
+    ax2.set_xscale('log')
+    ax2.set_xlim([1e-2,1e4])
+    ax2.set_ylim([2e-1,1e10])
+    ax2.set_xticklabels([])
+    ax3 = fig.add_subplot(gs[1, 1])  # Second row, second column
+    ax3.set_yscale('log')
+    ax3.set_xscale('log')
+    ax3.set_xlim([1e-2,1e4])
+    ax3.set_xticklabels([])
+    ax3.set_ylim([4e-2,3e2])
+    ax4 = fig.add_subplot(gs[2, 1])  # Third row, second column
+    ax4.set_yscale('log')
+    ax4.set_xscale('log')
+    ax4.set_xlim([1e-2,1e4])
+    ax4.set_xticklabels([])
+    ax4.set_ylim([1e-1,1e1])
+    ax5 = fig.add_subplot(gs[3, 1])  # Fourth row, second column
+    ax5.set_yscale('log')
+    ax5.set_xscale('log')
+    ax5.set_xlim([1e-2,1e4])
+    ax5.set_ylim([7e-2,3e0])
+    ax5.set_xticks([1e-2,1e0,1e2,1e4],labels=['',r'$10^0$',r'$10^2$',r'$10^4$'])
+    ax5.set_xlabel(r'$n_{{\rm H}} [{\rm cm}^{-3}]$',fontsize=16)
+
+    ax1.set_ylabel(r'$ T [{\rm K}]$', fontsize=16)
+    ax1.set_xlabel(r'$n_{{\rm H}} [{\rm cm}^{-3}]$',fontsize=16)
+    ax1.tick_params(labelsize=16)
+    ax1.xaxis.set_ticks_position('both')
+    ax1.yaxis.set_ticks_position('both')
+    ax1.minorticks_on()
+    ax1.tick_params(which='both',axis="both",direction="in")
+    ax1.set_xlim([1e-2,1e4])
+    ax1.set_ylim([40,1e4])
+    ax1.set_yscale('log')
+    ax1.set_xscale('log')
+    ax1.grid(True, which='both', linestyle='--', linewidth=0.5)
+    
+    ax1.scatter(Gerin15[:,0],Gerin15[:,1],marker='o',s=20,color='r')
+    
+    # axes[1].set_yscale('log')
+    # axes[1].set_xscale('log')
+    # axes[1].set_ylabel(r'$\rho_X/\rho_X^0$', fontsize=16)
+    # axes[1].set_xlabel(r'$n_{{\rm H}} [{\rm cm}^{-3}]$',fontsize=16)
+    # axes[1].tick_params(labelsize=16)
+    # axes[1].xaxis.set_ticks_position('both')
+    # axes[1].yaxis.set_ticks_position('both')
+    # axes[1].minorticks_on()
+    # axes[1].tick_params(which='both',axis="both",direction="in")
+    # axes[1].set_xlim([1e-2,1e4])
+    
+    # Choose a colormap
+    colormap = plt.cm.tab20c  # You can use any colormap available in matplotlib
+
+    # Generate a range of colors from the colormap
+    colors = [colormap(i / len(simname)) for i in range(len(simname))]
+    
+    # inset Axes....
+    x1, x2, y1, y2 = 1.1e2, 2e3, 70, 140  # subregion of the original image
+    axins = ax1.inset_axes(
+        [0.09, 0.05, 0.35, 0.4],
+        xlim=(x1, x2), ylim=(y1, y2))#, xticklabels=[], yticklabels=[])
+    axins.spines['top'].set_linewidth(1)     # Top axis
+    axins.spines['bottom'].set_linewidth(1)  # Bottom axis
+    axins.spines['left'].set_linewidth(1)    # Left axis
+    axins.spines['right'].set_linewidth(1)   # Right axis
+    # axins.set_yscale('log')
+    # axins.set_xscale('log')
+    axins.grid(True, which='both', linestyle='--', linewidth=0.5)
+    axins.tick_params(labelsize=12)
+    axins.xaxis.set_ticks_position('both')
+    axins.yaxis.set_ticks_position('both')
+    axins.minorticks_on()
+    axins.tick_params(which='both',axis="both",direction="in")
+    # axins.set_xticklabels([])
+    # axins.set_yticklabels([])
+
+    # inset Axes....
+    x1, x2, y1, y2 = 1.5e0, 3e1, 120, 500  # subregion of the original image
+    axins2 = ax1.inset_axes(
+        [0.5, 0.5, 0.47, 0.47],
+        xlim=(x1, x2), ylim=(y1, y2))#, xticklabels=[], yticklabels=[])
+    axins2.spines['top'].set_linewidth(1)     # Top axis
+    axins2.spines['bottom'].set_linewidth(1)  # Bottom axis
+    axins2.spines['left'].set_linewidth(1)    # Left axis
+    axins2.spines['right'].set_linewidth(1)   # Right axis
+    # axins.set_yscale('log')
+    # axins.set_xscale('log')
+    axins2.grid(True, which='both', linestyle='--', linewidth=0.5)
+    axins2.tick_params(labelsize=12)
+    axins2.xaxis.set_ticks_position('both')
+    axins2.yaxis.set_ticks_position('both')
+    axins2.minorticks_on()
+    axins2.tick_params(which='both',axis="both",direction="in")
+    axins2.set_yscale('log')
+
+    for s,sim in enumerate(simname):
+        # 1. Get the outputs in the directory
+        cwd = os.getcwd()
+        os.chdir(f'./{sim}')
+        outputs = sorted(list(filter(lambda file: file.startswith('output'), os.listdir())),key=lambda x: int(x.split('_')[-1]))
+        output_dir = os.getcwd()
+        
+        # 2. Load two last outputs
+        sims = [yt.load(f'{output_dir}/output_{str(out.split("_")[-1])}',fields=my_fields) for out in outputs[-2:]]
+        sims = [yt.load(f'{output_dir}/output_{str(outputs[0].split("_")[-1])}',fields=my_fields)] + sims
+        
+        # 3. Get raw data
+        density = sims[-1].all_data()[('gas','nH')].to('cm**-3')
+        ndensity = len(density)
+        nvars = len(varnames)
+        if dust:
+            data = np.zeros((ndensity,nvars,3))
+        else:
+            data = np.zeros((ndensity,3))
+        for t in range(0,3):
+            ds = sims[t]
+            if dust:
+                for v in range(0, nvars):
+                    try:
+                        raw_ad = ds.all_data()[('gas',varnames[v])]
+                    except:
+                        raw_ad = ds.all_data()[('ramses',varnames[v])]
+                    for d in range(0,ndensity):
+                        if varnames[v] == 'temperature':
+                            data[d,v,t] = raw_ad[d].to('K')
+                            if t==2 and v==0:
+                                diff = abs(data[d,v,1] - data[d,v,2]) / data[d,v,2]
+                                if diff >= conv_crit:
+                                    print(f'Temperature has not converged yet (err={diff},nH={data[d,0,t]})!')
+                        else:
+                            data[d,v,t] = raw_ad[d]
+            else:
+                try:
+                    raw_ad = ds.all_data()[('gas','temperature')]
+                except:
+                    raw_ad = ds.all_data()[('ramses','temperature')]
+                for d in range(0,ndensity):
+                    data[d,t] = raw_ad[d].to('K')
+                    if t==1:
+                        diff = abs(data[d,0] - data[d,1]) / data[d,1]
+                        if diff >= conv_crit:
+                            print(f'Temperature has not converged yet (err={diff},nH={data[d,t]})!')
+        
+        # 4. Sort data
+        sort_dens = np.argsort(density)
+        if dust:
+            data = data[sort_dens,:,:]
+            density = density[sort_dens]
+
+            ax1.plot(density,data[:,0,2],linestyle='-',linewidth=3,label=clean_name[sim.split('/')[-1]],color=colors[s])
+            
+            axins.plot(density,data[:,0,2], linestyle='-',linewidth=3,color=colors[s])
+            axins2.plot(density,data[:,0,2], linestyle='-',linewidth=3,color=colors[s])
+
+            ax2.plot(density,data[:,2,2]/data[:,2,0],linestyle='-',linewidth=2,color=colors[s])
+            ax2.plot(density,data[:,3,2]/data[:,3,0],linestyle=':',linewidth=2,color=colors[s])
+            
+            ax3.plot(density,data[:,4,2]/data[:,4,0],linestyle='-',linewidth=2,color=colors[s])
+            ax3.plot(density,data[:,5,2]/data[:,5,0],linestyle=':',linewidth=2,color=colors[s])
+            
+            ax4.plot(density,data[:,6,2]/data[:,6,0],linestyle='-',linewidth=2,color=colors[s])
+            ax4.plot(density,data[:,7,2]/data[:,7,0],linestyle=':',linewidth=2,color=colors[s])
+            
+            ax5.plot(density,data[:,8,2]/data[:,8,0],linestyle='-',linewidth=2,color=colors[s])
+            ax5.plot(density,data[:,9,2]/data[:,9,0],linestyle=':',linewidth=2,color=colors[s])
+            
+            
+            
+        else:
+            data = data[sort_dens,:]
+            density = density[sort_dens]
+
+            ax1.plot(np.log10(density),np.log10(data[:,1]),marker='o',
+                    markersize=2,markerfacecolor='None',linestyle='none',label=sim.split('/')[-1])
+        os.chdir(cwd)
+        
+    # Add a common y-axis label on the right side of the smaller subplots
+    fig.text(0.97, 0.5, r'$\rho_X/\rho_{X,0}$', va='center', rotation=270, fontsize=16)
+    for ax in [ax2, ax3, ax4, ax5]:
+        ax.tick_params(which='both',axis="both",direction="in")
+        ax.yaxis.tick_right()  # Move y-ticks to the right
+        ax.yaxis.set_label_position('right')  # Move y-axis label to the right
+        ax.tick_params(labelsize=16)
+        ax.minorticks_on()
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+    # ax1.legend(loc='best',fontsize=10,frameon=False,ncol=1)
+    dummy_lines = [ax2.plot([],[],color='k',linestyle='-',label=r'H$_2$')[0],
+                   ax2.plot([],[],color='k',linestyle=':',label=r'CO')[0]]
+    new_leg = ax2.legend(handles=dummy_lines, loc='best', frameon=False, fontsize=12,ncol=2)
+    ax2.add_artist(new_leg)
+    dummy_lines = [ax3.plot([],[],color='k',linestyle='-',label=r'smallPAHs')[0],
+                   ax3.plot([],[],color='k',linestyle=':',label=r'largePAHs')[0]]
+    new_leg = ax3.legend(handles=dummy_lines, loc='best', frameon=False, fontsize=12,ncol=2)
+    ax3.add_artist(new_leg)
+    dummy_lines = [ax4.plot([],[],color='k',linestyle='-',label=r'smallC')[0],
+                   ax4.plot([],[],color='k',linestyle=':',label=r'largeC')[0]]
+    new_leg = ax4.legend(handles=dummy_lines, loc='best', frameon=False, fontsize=12,ncol=2)
+    ax4.add_artist(new_leg)
+    dummy_lines = [ax5.plot([],[],color='k',linestyle='-',label=r'smallSil')[0],
+                   ax5.plot([],[],color='k',linestyle=':',label=r'largeSil')[0]]
+    new_leg = ax5.legend(handles=dummy_lines, loc='best', frameon=False, fontsize=12,ncol=2)
+    ax5.add_artist(new_leg)
+
+    ax1.indicate_inset_zoom(axins, edgecolor="black")
+    ax1.indicate_inset_zoom(axins2, edgecolor="black")
+    
+    # Create a shared legend for all subplots
+    handles, labels = [], []
+    for handle, label in zip(*ax1.get_legend_handles_labels()):
+        handles.append(handle)
+        labels.append(label)
+
+    # Add a legend at the top of the figure, extending from side to side
+    fig.legend(handles, labels, loc='upper center', ncol=3, bbox_to_anchor=(0.5, 1.01),
+               bbox_transform=fig.transFigure, frameon=False, fontsize=9)
+    
+    fig.subplots_adjust(top=0.80,bottom=0.1,left=0.07,right=0.93,hspace=0,wspace=0)
+        
+    if not nolist:
+        print('Making comparison plot in final_temperature_comparison.png')
+        fig.savefig('./plots/equil_comparison_thesis.pdf', format='pdf', dpi=300)
+    else:
+        print(f'equil_thesis_{simname[0].split("/")[-1]}.png')
+        fig.savefig(f'./plots/equil_thesis_{simname[0].split("/")[-1]}.png', format='png', dpi=300)
             
 if __name__ == '__main__':
 
@@ -737,3 +1025,5 @@ if __name__ == '__main__':
         plot_T_for_proposal(fields,args.dust,args.simname)
     elif args.type == 'initial_density':
         plot_n_init_value(fields,args.dust,args.simname)
+    elif args.type == 'thesis_plot':
+        plot_for_thesis(fields,args.dust,args.simname)

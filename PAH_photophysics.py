@@ -524,7 +524,6 @@ def compute_h2_dissociation_rate(args):
     f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
     I = f.to('W/m**2/eV').d
     
-    
     # 2. Compute the ionisation yield
     IP = ionisation_potential(Z,a0*1e3)
     ion_yield = np.array([ionisation_yield(Nc,Z,E[i],IP) for i in range(0,len(E))])
@@ -566,8 +565,12 @@ def compute_h2_dissociation_rate(args):
     
     return R
 
-def plot_h2_dissociation_rate(G0min,G0max,n_G0=100):
+def linear_fit(x,a,b):
     
+    return a*x + b
+
+def plot_h2_dissociation_rate(G0min,G0max,n_G0=100):
+    from scipy.optimize import curve_fit
     import matplotlib.pyplot as plt
     import seaborn as sns
     sns.set_theme(style="white")
@@ -596,60 +599,68 @@ def plot_h2_dissociation_rate(G0min,G0max,n_G0=100):
     dist.Nc = 54
     Z = 0
     wav,sigma_abs_neutral = absorption_cross_section(dist,0)
-    args_list = []
+    args_list_neu = []
     E0 = np.array([dissociation_parameters['Murga2020']['dehydrogenated']['H(Z<= 0)']['E0'],
           dissociation_parameters['Murga2020']['dehydrogenated']['H2']['E0']])
     S = np.array([dissociation_parameters['Murga2020']['dehydrogenated']['H(Z<= 0)']['S'],
           dissociation_parameters['Murga2020']['dehydrogenated']['H2']['S']])
     for k in range(0,n_G0):
-        args_list.append((wav,sigma_abs_neutral,G0[k],E0,S,dist,Z))
+        args_list_neu.append((wav,sigma_abs_neutral,G0[k],E0,S,dist,Z))
     num_cores = 5
+
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(tqdm(executor.map(compute_h2_dissociation_rate, args_list), total=n_G0,
+        results_neu = list(tqdm(executor.map(compute_h2_dissociation_rate, args_list_neu), total=n_G0,
                             desc=f'    Computing H2 dissociation rate for neutral', unit=' steps'))
-    R_neutral = np.array(results)
+    R_neutral = np.array(results_neu)
       
     ax.plot(G0,R_neutral,linestyle='-',color='g',label=r'$N_{\rm C}=54$, $Z=0$')
+    params_neutral, _ = curve_fit(curve_hydro, np.log10(G0), np.log10(R_neutral), maxfev=10000)
+    print('Neutral: ',params_neutral)
     
     # 3. Compute the rate for the circumcoronene cation
     dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
     dist.Nc = 54
     Z = 1
     wav,sigma_abs_cation = absorption_cross_section(dist,1)
-    args_list = []
+    args_list_ca = []
     E0 = np.array([dissociation_parameters['Murga2020']['dehydrogenated']['H(Z>0)']['E0'],
           dissociation_parameters['Murga2020']['dehydrogenated']['H2']['E0']])
     S = np.array([dissociation_parameters['Murga2020']['dehydrogenated']['H(Z>0)']['S'],
           dissociation_parameters['Murga2020']['dehydrogenated']['H2']['S']])
     for k in range(0,n_G0):
-        args_list.append((wav,sigma_abs_cation,G0[k],E0,S,dist,Z))
+        args_list_ca.append((wav,sigma_abs_cation,G0[k],E0,S,dist,Z))
     num_cores = 5
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(tqdm(executor.map(compute_h2_dissociation_rate, args_list), total=n_G0,
+        results_ca = list(tqdm(executor.map(compute_h2_dissociation_rate, args_list_ca), total=n_G0,
                             desc=f'    Computing H2 dissociation rate for cation', unit=' steps'))
-    R_cation = np.array(results)
+    R_cation = np.array(results_ca)
       
     ax.plot(G0,R_cation,linestyle='--',color='b',label=r'$N_{\rm C}=54$, $Z=1$')
+    params_cation, _ = curve_fit(curve_hydro, np.log10(G0), np.log10(R_cation), maxfev=10000)
+    print('Cation: ',params_cation)
     
     # 4. Compute the rate for the circumcoronene dication
     dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
     dist.Nc = 54
     Z = 2
     wav,sigma_abs_dication = absorption_cross_section(dist,1)
-    args_list = []
+    args_list_di = []
     E0 = np.array([dissociation_parameters['Murga2020']['dehydrogenated']['H(Z>0)']['E0'],
           dissociation_parameters['Murga2020']['dehydrogenated']['H2']['E0']])
     S = np.array([dissociation_parameters['Murga2020']['dehydrogenated']['H(Z>0)']['S'],
           dissociation_parameters['Murga2020']['dehydrogenated']['H2']['S']])
     for k in range(0,n_G0):
-        args_list.append((wav,sigma_abs_dication,G0[k],E0,S,dist,Z))
+        args_list_di.append((wav,sigma_abs_dication,G0[k],E0,S,dist,Z))
     num_cores = 5
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(tqdm(executor.map(compute_h2_dissociation_rate, args_list), total=n_G0,
+        results_di = list(tqdm(executor.map(compute_h2_dissociation_rate, args_list_di), total=n_G0,
                             desc=f'    Computing H2 dissociation rate for dication', unit=' steps'))
-    R_dication = np.array(results)
+    R_dication = np.array(results_di)
       
     ax.plot(G0,R_dication,linestyle='-.',color='r',label=r'$N_{\rm C}=54$, $Z=2$')
+    params_dication, _ = curve_fit(curve_hydro, np.log10(G0), np.log10(R_dication), maxfev=10000)
+    print('Dication: ',params_dication)
+
     
     ax.legend(loc='best', frameon=False, fontsize=14)
     fig.savefig('H2_photodissociation_rate.png',format='png',dpi=300)
