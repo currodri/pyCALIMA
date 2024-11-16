@@ -281,10 +281,47 @@ def modified_mmp83_radiation_field(wavelength):
     u_lambda_CMB = (4 * np.pi / c) * B_lambda_CMB
 
     # Total radiation field energy density u_lambda
-    u_lambda = (u_lambda_uv + u_lambda_optical) + u_lambda_CMB
+    u_lambda = (u_lambda_uv + wavelength * u_lambda_optical) + wavelength * u_lambda_CMB
 
     return u_lambda
 
+def plot_compare_radiation_fields():
+    # This function compares the radiation fields from Mathis 1983, the modified MMP83 radiation field and the Draine 2011 radiation field
+    wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
+    
+    # 1. Draine ISRF is given in photons per cm^2/s/nm
+    I_draine = Draine_1978_isrf(wav*1e7) # in photons/cm^2/s/nm
+    I_draine = I_draine * h * 1e7 # in erg/cm^3
+    
+    # 2. Mathis ISRF is given in erg cm-2 s-1 Å-1
+    I_mathis = 4. * np.pi * mathis_radiation_field(wav*1e8) # in erg cm-2 s-1 Å-1
+    I_mathis = I_mathis / c * wav*1e8 # in erg/cm^3
+    
+    # 3. Modified MMP83 radiation field is given in erg/cm^3
+    I_mmp83 = modified_mmp83_radiation_field(wav) # in erg/cm^3
+    
+    # 4. Setup the figure
+    fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$\lambda$ [$\mu$m]',fontsize=20)
+    ax.set_ylabel(r'$\lambda u_{\lambda}$ [erg cm$^{-3}$]',fontsize=20)
+    ax.tick_params
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    
+    # 5. Plot the results
+    ax.plot(wav*1e4,I_mmp83,label='Modified Mathis et al. (1983)',color='k',linestyle='-',linewidth=2.5)
+    ax.plot(wav*1e4,I_mathis,label='Mathis et al. (1983)',color='r',linestyle='-',linewidth=2.5)
+    ax.plot(wav*1e4,I_draine,label='Draine (2011)',color='b',linestyle='-',linewidth=2.5)
+    
+    # 6. Finalise the figure and save
+    ax.legend(loc='best',fontsize=14,frameon=False)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
+    fig.savefig('./radiation_fields.png', format='png', dpi=300)
+    
 
 def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
     
@@ -301,9 +338,7 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
     wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
     radiation_field = np.zeros((len(wav),2))
     radiation_field[:,0] = wav
-    old_mathis = 4. * np.pi * 1e8 * mathis_radiation_field(wav) # in erg/cm^2/s/cm
     radiation_field[:,1] = modified_mmp83_radiation_field(wav) / wav * c # erg/cm^2/cm/s
-    print(radiation_field[:,1]/old_mathis)
     
     # radiation_field[(radiation_field[:,0]<2000*1e-8),1] = 0.0
     
@@ -377,3 +412,65 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
     ax2.legend(loc='best',fontsize=14,frameon=False)
     fig2.subplots_adjust(top=0.99,bottom=0.12,left=0.1,right=0.99,hspace=0,wspace=0)
     fig2.savefig('./absorption_cross_sections.pdf', format='pdf', dpi=300)
+    
+def plot_emission_spectra(dust_types,G0=[1.]):
+    
+    # 1. Define the radiation field
+    wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
+    radiation_field = np.zeros((len(wav),2))
+    radiation_field[:,0] = wav
+    radiation_field[:,1] = modified_mmp83_radiation_field(wav) / wav * c # erg/cm^2/cm/s
+    
+    wavelengths_em = np.logspace(np.log10(0.1),np.log10(1000),1000) * 1e-4 # Convert to cm
+    
+    # 2. Setup the figures
+    fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$\lambda$ [$\mu$m]',fontsize=20)
+    ax.set_ylabel(r'$\lambda L_{\lambda}$ [erg/s]',fontsize=20)
+    ax.tick_params
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_ylim([1e-20,1e-5])
+
+    # List of line colors and styles for the number of dust types
+    colors = ['k','r','b','g','m','c']
+    linestyles = ['-','--','-.',':']
+    
+    import matplotlib.cm as cm
+
+    for idx, dust_type in enumerate(dust_types):
+        # 3A. Obtain the absorption cross section and interpolate over the wavelengths
+        a0, wavelengths, C_sca, C_abs, C_rp = compute_cross_sections(dust_type, do_average=False)
+        C_abs_interp = np.interp(radiation_field[:, 0], wavelengths[::-1], C_abs[::-1])
+        C_abs_em_interp = np.interp(wavelengths_em, wavelengths[::-1], C_abs[::-1])
+        print('Absorption cross section for', dust_type, 'computed')
+        # 3B. Compute the radiation field averaged cross section
+        int_radfield = np.trapz(radiation_field[:, 1], x=radiation_field[:, 0])
+        C_abs_avg = np.trapz(C_abs_interp * radiation_field[:, 1], x=radiation_field[:, 0]) / int_radfield / (np.pi * a0**2.)
+        print('Average absorption cross section for', dust_type, 'computed')
+        print('Given by', C_abs_avg)
+        linestyle = linestyles.pop()
+        
+        # 3C. Compute the equilibrium temperature
+        for g0_idx, g0 in enumerate(G0):
+            Teq = compute_equilibrium_temperature(radiation_field[:, 0],
+                                                  wavelengths_em,
+                                                  g0 * radiation_field[:, 1],
+                                                  C_abs_interp, C_abs_em_interp)
+            # 3D. Compute the emitted power
+            L_lambda = np.zeros(len(wavelengths_em))
+            for i in range(0, len(wavelengths_em)):
+                L_lambda[i] = wavelengths_em[i] * planck_function(wavelengths_em[i], Teq) * C_abs_em_interp[i]
+            color = cm.viridis(g0_idx / len(G0))
+            ax.plot(wavelengths_em * 1e4, 4. * np.pi * L_lambda, label=None,
+                    color=color, linestyle=linestyle, linewidth=2.5)
+        # Add legend entry for the dust type with black color
+        ax.plot([], [], label=dust_type, color='k', linestyle=linestyle, linewidth=2.5)
+    # 4. Finalise the figure and save
+    ax.legend(loc='best', fontsize=14, frameon=False)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
+    fig.savefig('./dust_eq_emission_spectra.png', format='png', dpi=300)
