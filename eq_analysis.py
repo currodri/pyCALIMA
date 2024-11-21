@@ -65,6 +65,7 @@ clean_name = {'no_dust':'No Dusty-PRISM',
                   'acsstrh_cde_free':r'+ PAH freezing',
                   'acsstrh_cdef_spu':r'+ PAH sputtering',
                   'acsstrh_cdefs_peh':r'+ PAH PEH',
+                  'acsstrh_cdefsp_h2':r'+ PAH H$_2$ formation',
                   'pah_h2':r'+ PAH H$_2$ formation',
                   'pah_peh':r'PAH photoelectric heating'}
 

@@ -21,7 +21,7 @@ import swiftascmaps
 import matplotlib.pylab as pl
 import matplotlib as mpl
 import seaborn as sns
-from unyt import nm,m,cm,eV,J,s,h,c
+from unyt import nm,m,cm,eV,J,s,h,c,erg
 from dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
 from dust_oppacity import pah_efficiencies
 from PAHs_model import Draine_1978_isrf
@@ -50,12 +50,12 @@ partition_coeff = 0.46        # Partition coefficient estimated from Bréchignac
 # FUNCTIONS
 class PAHDataset:
     def __init__(self, file_path):
-        self.file_path = file_path
-        self.entries = []
-        self._parse_file()
+        file_path = file_path
+        entries = []
+        _parse_file()
 
     def _parse_file(self):
-        with open(self.file_path, 'r') as file:
+        with open(file_path, 'r') as file:
             content = file.read()
 
         # Split the content into individual entries using the UID field as delimiter
@@ -122,16 +122,16 @@ class PAHDataset:
                     }
                     data['TRANSITIONS'].append(transition_data)
 
-            self.entries.append(data)
+            entries.append(data)
 
     def get_entry_by_uid(self, uid):
-        for entry in self.entries:
+        for entry in entries:
             if entry['UID'] == uid:
                 return entry
         return None
 
     def get_all_entries(self):
-        return self.entries
+        return entries
 
 def ionisation_potential(Z,a):
     """Ionisation potential following the empirical formalism of Weingartner
@@ -149,7 +149,7 @@ def ionisation_potential(Z,a):
     if Z == -1:
         IP = 0.0
     else:
-        IP = 3.9 + e/(4.*np.pi*epsilon_0) * ((Z + 0.5) / a + (Z+2.)/a * (0.003/a)) 
+        IP = 3.9 + e/(4.*np.pi*epsilon_0) * ((Z + 0.5) / a + (Z+2.)/a * (0.03/a)) 
         
     return IP
 
@@ -183,9 +183,14 @@ def ionisation_yield(Nc,Z,photon_energy,IP):
     """    
     
     if Z == -1:
-        Y = 1.
+        if photon_energy < IP:
+            Y = 0.
+        else:
+            Y = 1.
     elif Z == 0:
-        if IP + 9.2 >= photon_energy:
+        if photon_energy < IP:
+            Y = 0.
+        elif IP + 9.2 >= photon_energy:
             Y = (photon_energy - IP) / 9.2
         else:
             Y = 1.
@@ -205,6 +210,21 @@ def ionisation_yield(Nc,Z,photon_energy,IP):
         Y = 0.0
     
     return Y
+
+def plot_ionisation_yield(Nc,Z):
+    """Plot the ionisation yield as a function of the photon energy
+
+    Args:
+        Nc (int): number of carbon atoms in PAH molecule
+        Z (int): PAH charge
+    """    
+    IP = ionisation_potential(Z,(Nc/468)**(1./3.))
+    E = np.linspace(4,13.6,100)
+    Y = np.array([ionisation_yield(Nc,Z,E[i],IP) for i in range(0,len(E))])
+    plt.plot(E,Y)
+    plt.xlabel(r'Photon energy [eV]')
+    plt.ylabel(r'Yield')
+    plt.savefig('ionisation_yield.png', format='png', dpi=300)
 
 def recombination_rate_Spitzer(Nc,Z,T):
     """Recombination rate following the Spitzer's formalism (Spitzer 2004) modified
@@ -309,7 +329,126 @@ def absorption_cross_section(distribution,Z):
     
     return w, C_abs_eff*1e-12
 
-def ionisation_rate(sigma_ion,I,E):
+def absorption_cross_section_Berne(Nc):
+    """Compute the distribution-averaged cross section for a
+    given PAH molecule, considering whether or not the PAH is neutral
+    or ionised. NOTE: anions are not allowed for this function.
+
+    Args:
+        distribution (LogNormal_Distribution): PAH molecule underlying log-normal distribution
+        Z (int): charge of the PAH molecule
+
+    Returns:
+        (np.array,np.array): wavelength [microns], absorption cross section [m^2]
+    """    
+    
+    '''==========================|building of the cross section|======================='''
+    ''' derives a mean photoabsorption cross section of the molecule considered, in 3 size ranges'''
+    
+    ''' small size '''
+    mb = 1e-18 #1Mb = 1e-18cm2, Mb for Megabarn (unit used to express the cross sectional area of nuclei)
+    energy_negative_charged,cross_anion = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/coronene_anion.txt',unpack=True) #C24
+    
+    energy_negative_charged,crossa_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/ovalene_anion.txt',unpack=True) #C32
+    energy_neutral,crossn_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/ovalene_neutral.txt',unpack=True) #C32
+    energy_charged,crossc_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/ovalene_cation.txt',unpack=True) #C32
+    energy_double_charged,crossdc_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/ovalene_dication.txt',unpack=True) #C32
+    
+    energy_negative_charged,crossa_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/tetrabenzocoronene_anion.txt',unpack=True) #C36
+    energy_neutral,crossn_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/tetrabenzocoronene_neutral.txt',unpack=True) #C36
+    energy_charged,crossc_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/tetrabenzocoronene_cation.txt',unpack=True) #C36
+    energy_double_charged,crossdc_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/tetrabenzocoronene_dication.txt',unpack=True) #C36
+    
+    energy_negative_charged,crossa_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumbiphenyl_anion.txt',unpack=True) #C38
+    energy_neutral,crossn_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumbiphenyl_neutral.txt',unpack=True) #C38
+    energy_charged,crossc_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumbiphenyl_cation.txt',unpack=True) #C38
+    energy_double_charged,crossdc_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumbiphenyl_dication.txt',unpack=True) #C38
+    
+    ''' medium size '''
+    energy_negative_charged,crossa_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumanthracene_anion.txt',unpack=True) #C40
+    energy_neutral,crossn_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumanthracene_neutral.txt',unpack=True) #C40
+    energy_charged,crossc_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumanthracene_cation.txt',unpack=True) #C40
+    energy_double_charged,crossdc_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumanthracene_dication.txt',unpack=True) #C40
+    
+    energy_negative_charged,crossa_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumpyrene_anion.txt',unpack=True) #C42
+    energy_neutral,crossn_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumpyrene_neutral.txt',unpack=True) #C42
+    energy_charged,crossc_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumpyrene_cation.txt',unpack=True) #C42
+    energy_double_charged,crossdc_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumpyrene_dication.txt',unpack=True) #C42
+    
+    energy_negative_charged,crossa_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/hexabenzocoronene_anion.txt',unpack=True) #C42
+    energy_neutral,crossn_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/hexabenzocoronene_neutral.txt',unpack=True) #C42
+    energy_charged,crossc_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/hexabenzocoronene_cation.txt',unpack=True) #C42
+    energy_double_charged,crossdc_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/hexabenzocoronene_dication.txt',unpack=True) #C42    
+    
+    ''' large size '''
+    energy_negative_charged,crossa_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/dicoronylene_anion.txt',unpack=True) #C48
+    energy_neutral,crossn_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/dicoronylene_neutral.txt',unpack=True) #C48
+    energy_charged,crossc_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/dicoronylene_cation.txt',unpack=True) #C48
+    energy_double_charged,crossdc_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/dicoronylene_dication.txt',unpack=True) #C48
+    
+    energy_negative_charged,crossa_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumcoronene_anion.txt',unpack=True) #C54
+    energy_neutral,crossn_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumcoronene_neutral.txt',unpack=True) #C54
+    energy_charged,crossc_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumcoronene_cation.txt',unpack=True) #C54
+    energy_double_charged,crossdc_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumcoronene_dication.txt',unpack=True) #C54
+    
+    energy_negative_charged,crossa_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumovalene_anion.txt',unpack=True) #C66
+    energy_neutral,crossn_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumovalene_neutral.txt',unpack=True) #C66
+    energy_charged,crossc_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumovalene_cation.txt',unpack=True) #C66
+    energy_double_charged,crossdc_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumovalene_dication.txt',unpack=True) #C66
+    #for each cross section for each state of the molecule, we have an associated energy 
+    
+    energy_range  = np.where(energy_neutral<13.6)[0]
+
+    pah_cross_a = ( ( (cross_anion/24)   +(crossa_1_case1/32)+(crossa_2_case1/36) +\
+                            (crossa_3_case1/38)+(crossa_1_case2/40)+(crossa_2_case2/42) +\
+                            (crossa_3_case2/42)+(crossa_1_case3/48)+(crossa_2_case3/54) +\
+                            (crossa_3_case3/66)                                         )/10 ) * Nc
+    pah_cross_n = ( ( (crossn_1_case1/32)+(crossn_2_case1/36)+(crossn_3_case1/38) +\
+                            (crossn_1_case2/40)+(crossn_2_case2/42)+(crossn_3_case2/42) +\
+                            (crossn_1_case3/48)+(crossn_2_case3/54)+(crossn_3_case3/66) )/9 ) * Nc
+    pah_cross_c = ( ( (crossc_1_case1/32)+(crossc_2_case1/36)+(crossc_3_case1/38) +\
+                            (crossc_1_case2/40)+(crossc_2_case2/42)+(crossc_3_case2/42) +\
+                            (crossc_1_case3/48)+(crossc_2_case3/54)+(crossc_3_case3/66) )/9 ) * Nc
+    pah_cross_dc = ( ((crossdc_1_case1/32)+(crossdc_2_case1/36)+(crossdc_3_case1/38) +\
+                            (crossdc_1_case2/40)+(crossdc_2_case2/42)+(crossdc_3_case2/42) +\
+                            (crossdc_1_case3/48)+(crossdc_2_case3/54)+(crossdc_3_case3/66) )/9 ) * Nc
+    
+    energy = np.linspace(5.17,13.6,1000)
+
+    pah_cross_a = np.interp(energy,energy_neutral[energy_range],pah_cross_a[energy_range]) * mb
+    pah_cross_n = np.interp(energy,energy_neutral[energy_range],pah_cross_n[energy_range]) * mb
+    pah_cross_c = np.interp(energy,energy_neutral[energy_range],pah_cross_c[energy_range]) * mb
+    pah_cross_dc = np.interp(energy,energy_neutral[energy_range],pah_cross_dc[energy_range]) * mb
+
+    wav = 1.2398 / energy
+
+    return wav, pah_cross_a*1e-4, pah_cross_n*1e-4, pah_cross_c*1e-4, pah_cross_dc*1e-4
+def compare_cross_sections(Nc):
+    """Compare the cross sections from the two methods in an individual plot.
+
+    Args:
+        Nc (int): Number of carbon atoms in PAH molecule
+    """
+    # Compute cross sections using the two methods
+    wav1, sigma_abs1 = absorption_cross_section(LogNormal_Distribution(basic_a0[0], basic_amin[0], basic_amax[0], basic_sigma[0], basic_s[0]), 0)
+    wav2, pah_cross_a, pah_cross_n, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(Nc)
+
+    # Plot the cross sections
+    plt.figure(figsize=(10, 6))
+    plt.xlim(0.0912,1)
+    plt.plot(wav1, sigma_abs1, label='Method 1', linestyle='-', color='blue')
+    plt.plot(wav2, pah_cross_n*1e-4, label='Method 2 (Neutral)', linestyle='--', color='green')
+    plt.plot(wav2, pah_cross_c*1e-4, label='Method 2 (Cation)', linestyle='-.', color='red')
+    plt.plot(wav2, pah_cross_dc*1e-4, label='Method 2 (Dication)', linestyle=':', color='purple')
+    plt.xlabel('Wavelength [microns]')
+    plt.ylabel(r'Absorption Cross Section [m$^2$]')
+    plt.legend()
+    plt.title(f'Comparison of Absorption Cross Sections for Nc={Nc}')
+    plt.grid(True, which="both", ls="--")
+    plt.savefig(f'cross_section_comparison_Nc_{Nc}.png', format='png', dpi=300)
+    
+
+def ionisation_rate(IP,sigma_ion,I,E):
     """Compute the ionisation rate for a given PAH molecule bathed
     in the interstellar UV radiation field.
 
@@ -322,7 +461,7 @@ def ionisation_rate(sigma_ion,I,E):
         np.float: Photo-ionisation rate [s-1]
     """    
     k_pe = sigma_ion * I / E * 6.24150935e+18 # Convert [W] to [eV/s]
-    k_pe = np.trapz(k_pe,E)
+    k_pe = np.trapz(k_pe,E-IP)
     
     return k_pe
 
@@ -337,13 +476,9 @@ def power_absorbed(sigma_abs,I,E):
     Returns:
         np.float: Total radiation power absorbed [W]
     """    
-    mask = E<13.6
+    mask = (E<=13.6)
     P_rad = sigma_abs[mask] * I[mask]
     P_rad = np.trapz(P_rad,E[mask])
-    
-    mask = (E>5.4) & (E<13.6)
-    P_rad_2 = sigma_abs[mask] * I[mask]
-    P_rad_2 = np.trapz(P_rad_2,E[mask])
     
     return P_rad
     
@@ -359,35 +494,99 @@ def power_injected(IP,sigma_ion,I,E):
     Returns:
         np.float: Injected power [W]
     """    
-    mask = (E>IP) & (E<13.6)
-    P_inj = partition_coeff * (E[mask] - IP) * sigma_ion[mask] * I[mask] / E[mask]
+    mask = (E>=IP) & (E<=13.6)
+    P_inj = (E[mask] - IP) * sigma_ion[mask] * I[mask] / E[mask]
     P_inj = np.trapz(P_inj,E[mask])
     
     return P_inj
+
+def compute_integrated_absorbed_power_G0(pah_type):
+
+    # 1. Load the averaged PAH cross sections
+    if 'PAHSmall' in pah_type:
+        dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+        dist.Nc = 54
+    elif 'PAHLarge' in pah_type:
+        dist = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
+        dist.Nc = 400
+    if 'nPAH' in pah_type:
+        wav,sigma_abs = absorption_cross_section(dist,0)
+    elif 'iPAH' in pah_type:
+        wav,sigma_abs = absorption_cross_section(dist,1)
+    
+    wav, sigma_abs = wav[::-1], sigma_abs[::-1]
+
+    # 2. Load the ISRF
+    I = Draine_1978_isrf(wav*1e3) / 1.7 # [#/cm^2/s/nm]
+    E = h * c / (wav * 1e-4 * cm)
+    I = I * E.to('erg').d * 1e7 # [erg/s/cm^2/cm]
+
+    # 3. Define the Habing band (6-13.6 eV))
+    habing_mask = (wav>0.0912) & (wav<0.2066)
+
+    # 3. Compute the absorbed power
+    P_rad = sigma_abs * 1e4 * I # [erg/s/cm]
+    P_rad = np.trapz(P_rad[habing_mask],wav[habing_mask]*1e-4) # [erg/s]
+
+    # 4. Compute the integrated ISRF radiation field in [erg/s/cm^2]
+    G0 = np.trapz(I[habing_mask],wav[habing_mask]*1e-4) # [erg/s/cm^2]
+
+    # 4. Cleaning print to screan the integrated absorbed power for the given PAH
+    print(f'For a radiation field of G0={G0:.6e} erg/s/cm^2 in the Habing band')
+    print(f'Integrated absorbed power for {pah_type}: {P_rad:.6e} erg/s')
+
+
+def plot_radiation_fields():
+    from astropy.table import Table
+
+    wav = np.linspace(0.0912, 0.2066, 1000) * 1e3  # in nm
+    E = 1.2398 / (wav*1e-3)
+    # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
+    I_draine =  Draine_1978_isrf(wav) 
+    I_draine_converted = I_draine * (h * c / (wav * nm)).to('erg').d
+
+    # Read the radiation field in erg s-1 cm-2 nm-1 sr-1
+    wave_intensity = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+    wavelength = wave_intensity['col1']  # in nm
+    wavelength_intensity = wave_intensity['col2']  # in erg cm-2 s-1 nm-1 sr-1
+    I_file_converted = 2. *np.pi * np.interp(wav, wavelength, wavelength_intensity)
+
+    # Plot the two radiation fields
+    plt.figure(figsize=(10, 6))
+    plt.plot(wav, I_draine_converted, label='Draine 1978 ISRF')
+    plt.plot(wav, I_file_converted, label='File-based ISRF', linestyle='--')
+    plt.xlabel('Wavelength (nm)')
+    plt.yscale('log')
+    plt.ylabel(r'Intensity (erg cm-2 s-1 nm-1 sr-1)')
+    plt.title('Comparison of Radiation Fields')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('radiation_fields_comparison.png', format='png', dpi=300)
 
 def compute_heating_efficiency(args):
     
     # 1. Unpack arguments
     G0,T,ne,dist,attach_model,wav,\
         sigma_abs_anion,sigma_abs_neu,\
-            sigma_abs_cation = args
-    a0 = dist.a0
+            sigma_abs_cation, \
+                sigma_abs_dication = args
+    a0 = (dist.Nc/468)**(1./3.)*1e-3 #dist.a0
     Nc = dist.Nc
     # print('SIZE:',a0*1e3,Nc,(Nc/468)**(1./3.))
     
     # 3. Convert wavelength [micron] to photon energy [eV]
     E = 1.2398 / wav
     # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
-    I = G0 * Draine_1978_isrf(wav*1e3) /1.7 * cm**-2/s/nm
+    I = G0 * Draine_1978_isrf(wav*1e3) /1.7 * cm**-2/s/nm 
     F = I * E * eV
     f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
-    I = f.to('W/m**2/eV').d
+    I = f.to('W/m**2/eV').d * 2.
     
     # 4. Compute the e- detachment rate from the anion
     IP_anion = ionisation_potential(-1,a0*1e3)
     yield_anion = np.array([ionisation_yield(Nc,-1,E[i],IP_anion) for i in range(0,len(E))])
-    mask = (E>IP_anion) & (E < 13.6)
-    k_det = ionisation_rate(yield_anion[mask]*sigma_abs_anion[mask],I[mask],E[mask])
+    mask = (E>=IP_anion) & (E <= 13.6)
+    k_det = ionisation_rate(IP_anion,yield_anion[mask]*sigma_abs_anion[mask],I[mask],E[mask])
     # print('k_det',k_det)
     
     # 5. e- attachment to a neutral
@@ -400,21 +599,21 @@ def compute_heating_efficiency(args):
     # 6. Ionisation rate of Z=0 to Z=1
     IP_neutral = ionisation_potential(0,a0*1e3)
     yield_neutral = np.array([ionisation_yield(Nc,0,E[i],IP_neutral) for i in range(0,len(E))])
-    mask = (E>IP_neutral) & (E < 13.6)
+    mask = (E>=IP_neutral) & (E <= 13.6)
     # print(IP_neutral,E[mask],I[mask],yield_neutral[mask],sigma_abs_neu[mask])
-    k_pe_0 = ionisation_rate(yield_neutral[mask]*sigma_abs_neu[mask],I[mask],E[mask])
+    k_pe_0 = ionisation_rate(IP_neutral,yield_neutral[mask]*sigma_abs_neu[mask],I[mask],E[mask])
     # print('k_pe_0',k_pe_0)
     
     # 7. Recombination rate from Z=1 to Z=0
     if attach_model == 'Berne':
-        k_rec_1 = recombination_rate_Spitzer(Nc,1,T)
+        k_rec_1 = recombination_rate_Spitzer(Nc,0,T)
     elif attach_model == 'Tielens':
         k_rec_1 = recombination_rate_Tielens21(Nc,T)
     # print('k_rec_1',k_rec_1)
     
     # 8. Recombination rate from Z=2 to Z=1
     if attach_model == 'Berne':
-        k_rec_2 = recombination_rate_Spitzer(Nc,2,T)
+        k_rec_2 = recombination_rate_Spitzer(Nc,1,T)
     elif attach_model == 'Tielens':
         k_rec_2 = recombination_rate_Tielens21(Nc,T)
     # print('k_rec_2',k_rec_2)
@@ -423,8 +622,8 @@ def compute_heating_efficiency(args):
     # 9. Ionisation rate of Z=1 to Z=2
     IP_cation = ionisation_potential(1,a0*1e3)
     yield_cation = np.array([ionisation_yield(Nc,1,E[i],IP_cation) for i in range(0,len(E))])
-    mask = (E>IP_cation) & (E < 13.6)
-    k_pe_1 = ionisation_rate(yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
+    mask = (E>=IP_cation) & (E <= 13.6)
+    k_pe_1 = ionisation_rate(IP_cation,yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
     # print('k_pe_1',k_pe_1)
 
     
@@ -443,7 +642,21 @@ def compute_heating_efficiency(args):
     
     # 13. Fraction of Z=2
     f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
-                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_1**2.))
+                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
+
+    print('G0:',G0)
+    print('temperature:',T)
+    print('ne:',ne)
+    print('f_anion:',f_anion)
+    print('f_neutral:',f_neutral)
+    print('f_1:',f_1)
+    print('f_2:',f_2)
+    print('k_det:',k_det)
+    print('k_att:',k_att)
+    print('k_pe_0:',k_pe_0)
+    print('k_rec_1:',k_rec_1)
+    print('k_pe_1:',k_pe_1)
+    print('k_rec_2:',k_rec_2)
     
     # 14. Check that all fractions add up to 1
     f_tot = f_anion + f_neutral + f_1 + f_2
@@ -451,8 +664,8 @@ def compute_heating_efficiency(args):
     
     # 15. Compute the total injected power
     Pinj_anion = power_injected(IP_anion,yield_anion*sigma_abs_anion,I,E)
-    Pinj_neutral = power_injected(IP_neutral,yield_neutral*sigma_abs_neu,I,E)
-    Pinj_cation = power_injected(IP_cation,yield_cation*sigma_abs_cation,I,E)
+    Pinj_neutral = partition_coeff * power_injected(IP_neutral,yield_neutral*sigma_abs_neu,I,E)
+    Pinj_cation = partition_coeff * power_injected(IP_cation,yield_cation*sigma_abs_cation,I,E)
     
     Pinj = f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation
     
@@ -460,11 +673,16 @@ def compute_heating_efficiency(args):
     Prad_anion = power_absorbed(sigma_abs_anion,I,E)
     Prad_neutral = power_absorbed(sigma_abs_neu,I,E)
     Prad_cation = power_absorbed(sigma_abs_cation,I,E)
+    Prad_dication = power_absorbed(sigma_abs_dication,I,E)
     
-    Prad = f_anion * Prad_anion + f_neutral * Prad_neutral + (f_1 + f_2) * Prad_cation
+    Prad = f_anion * Prad_anion + f_neutral * Prad_neutral + f_1 * Prad_cation + f_2 * Prad_dication
     
     # 17. Compute the heating efficiency as the ratio of injected to absorbed power
     eff = Pinj / Prad
+
+    # print(f'For G0={G0:.6e} erg/s/cm^2, ne={ne:.6e} cm^-3, T={T} K')
+    # print(f'Efficiency: {eff:.6e}')
+    # print(f'Heating rate: {eff*Prad*(0.1/Nc)*2.7e-4:.6e} W/H')
     
     return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff
     
@@ -558,7 +776,8 @@ def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_col
         args_list = []
         for k in range(0,n_G0):
             args = G0_list[k],T,ne_list[j],dist,attach_model,wav,\
-                    sigma_abs_anion,sigma_abs_neu,sigma_abs_cation
+                    sigma_abs_anion,sigma_abs_neu,sigma_abs_cation,\
+                    sigma_abs_cation
             args_list.append(args)
             gamma[k] = G0_list[k] * np.sqrt(T) / ne_list[j]
         with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
@@ -608,18 +827,20 @@ def my_efficiency2(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,fig,axes,n_n
         icol = 1
     
     # 2. Compute the distribution-averaged absorption cross sections
-    # NOTE: I am using the same cross section for Z=-1 than for Z=0
-    wav,sigma_abs_anion = absorption_cross_section(dist,0)
-    wav,sigma_abs_neu = absorption_cross_section(dist,0)
-    wav,sigma_abs_cation = absorption_cross_section(dist,1)
-
+    # # NOTE: I am using the same cross section for Z=-1 than for Z=0
+    # wav,sigma_abs_anion = absorption_cross_section(dist,0)
+    # wav,sigma_abs_neu = absorption_cross_section(dist,0)
+    # wav,sigma_abs_cation = absorption_cross_section(dist,1)
+    wav,sigma_abs_anion,sigma_abs_neu,sigma_abs_cation,sigma_abs_dication = absorption_cross_section_Berne(dist.Nc)
+    
     for j in range(0, n_ne):
         gamma = np.zeros(n_G0)
         num_cores = 20#min(os.cpu_count(),n_G0)
         args_list = []
         for k in range(0,n_G0):
             args = G0_list[k],T,ne_list[j],dist,attach_model,wav,\
-                    sigma_abs_anion,sigma_abs_neu,sigma_abs_cation
+                    sigma_abs_anion,sigma_abs_neu,sigma_abs_cation,\
+                    sigma_abs_dication
             args_list.append(args)
             gamma[k] = G0_list[k] * np.sqrt(T) / ne_list[j]
         with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
@@ -857,7 +1078,7 @@ def export_heating(G0_min,G0_max,T_min,T_max,ne_min,ne_max,n_G0,n_T,n_ne,model='
     wav,sigma_abs_anion = absorption_cross_section(dist_small,0)
     wav,sigma_abs_neu = absorption_cross_section(dist_small,0)
     wav,sigma_abs_cation = absorption_cross_section(dist_small,1)
-    params_small = [(G0, T, ne, dist_small, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation)
+    params_small = [(G0, T, ne, dist_small, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation,sigma_abs_cation)
           for G0 in G0_values for ne in ne_values for T in T_values]
 
     dist_large = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
@@ -865,7 +1086,7 @@ def export_heating(G0_min,G0_max,T_min,T_max,ne_min,ne_max,n_G0,n_T,n_ne,model='
     wav,sigma_abs_anion = absorption_cross_section(dist_large,0)
     wav,sigma_abs_neu = absorption_cross_section(dist_large,0)
     wav,sigma_abs_cation = absorption_cross_section(dist_large,1)
-    params_large = [(G0, T, ne, dist_large, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation)
+    params_large = [(G0, T, ne, dist_large, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation,sigma_abs_cation)
           for G0 in G0_values for ne in ne_values for T in T_values]
 
 

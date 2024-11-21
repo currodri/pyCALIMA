@@ -67,10 +67,10 @@ def compute_cross_sections(dust_type, do_average=True):
         data, columns, name = dust_efficiencies(filename)
     elif dust_type == 'iPAHSmall' or dust_type == 'iPAHLarge':
         filename = './li_draine_2001/PAHion_30'
-        data, columns, name = pah_efficiencies(filename)
+        data,columns,dust_type,nwav = pah_efficiencies(filename)
     elif dust_type == 'nPAHSmall' or dust_type == 'nPAHLarge':
         filename = './li_draine_2001/PAHneu_30'
-        data, columns, name = pah_efficiencies(filename)
+        data,columns,name,nwav = pah_efficiencies(filename)
 
     # 2. Setup the underlying distribution
     if 'PAHSmall' in dust_type:
