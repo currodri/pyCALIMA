@@ -158,6 +158,18 @@ def planck_function(wavelength, T):
     """    
     return (2. * h * c**2. / wavelength**5.) / (np.exp((h * c / wavelength) / (kb * T)) - 1.)
 
+def planck_function_derivative(wavelength, T):
+    """This function computes the derivative of the Planck function for a given wavelength
+
+    Args:
+        wavelength (np.array): The wavelength in cm
+        T (np.float): The temperature in K
+
+    Returns:
+        np.float: Derivative of emittance in erg/s/cm^2/cm/steradian/K
+    """    
+    return (2. * h * c**2. / wavelength**5.) / (np.exp((h * c / wavelength) / (kb * T)) - 1.)**2. * (h * c / wavelength) / (kb * T**2.)
+
 def absorbed_power(wavelengths,radiation_field,C_abs):
     """This function computes the absorbed power by a dust grain given a radiation field
     and the absorption cross section.
@@ -474,3 +486,137 @@ def plot_emission_spectra(dust_types,G0=[1.]):
     ax.legend(loc='best', fontsize=14, frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
     fig.savefig('./dust_eq_emission_spectra.png', format='png', dpi=300)
+
+def compute_Rosseland_oppacity(wavelengths,kappa_abs,Td):
+    """This function computes the Rosseland mean opacity given the absorption cross section
+    and the dust temperature.
+    Args:
+        wavelengths (np.array): The wavelength in cm
+        kappa_abs (np.array): The absorption mass cross section in cm^2/g
+        Td (np.float): The dust temperature in K
+    Returns:
+        np.float: The Rosseland mean opacity in cm^2/g
+    """
+
+    # 1. Compute Planck function derivatives for all wavelengths
+    dB_dT = planck_function_derivative(wavelengths,Td)
+
+    # 2. Compute the Rosseland mean opacity using the harmonic mean
+    integrand_denominator = dB_dT / kappa_abs
+    integrand_numerator = dB_dT
+
+    denominator = np.trapz(integrand_denominator,x=wavelengths)
+    numerator = np.trapz(integrand_numerator,x=wavelengths)
+
+    return numerator / denominator
+
+def read_HensleyDraine2023_mean_oppacity(file_path):
+    """This function reads the mean oppacity from the Hensley & Draine 2023 paper
+    and returns a DataFrame with the data.
+    Args:
+        file_path (str): The path to the file with the data
+    Returns:
+        pd.DataFrame: The DataFrame with the data
+    """
+    # Read the file, skipping comment lines (starting with '#')
+    df = pd.read_csv(
+        file_path,
+        delim_whitespace=True,  # Handles whitespace-delimited data
+        comment='#',            # Ignores comment lines
+        header=None             # No header in the data lines
+    )
+    
+    # Set column names based on the header in the file
+    df.columns = ["Temp", "kappa_abs_P", "kappa_ext_P", "kappa_abs_R", "kappa_ext_R"]
+    
+    # Return the DataFrame
+    return df
+
+def read_Semenov2003_mean_oppacity(file_path):
+    """This function reads the mean oppacity from the Semenov et al. 2003 paper
+    and returns a DataFrame with the data.
+    Args:
+        file_path (str): The path to the file with the data
+    
+    Returns:
+        pd.DataFrame: The DataFrame with the data
+    """
+
+    df = pd.read_csv(
+        file_path,
+        delim_whitespace=True,  # Handle space-separated values
+        header=None,            # No header in the file
+        names=["Temperature", "Rosseland_Opacity"]  # Assign column names
+    )
+    
+    return df
+
+def plot_Rosseland_oppacity(dust_types):
+
+    # 1. Setup the figure
+    fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$T_{\rm D}$ [K]',fontsize=20)
+    ax.set_ylabel(r'$\kappa_{\rm R}$ [cm$^2$/g]',fontsize=20)
+    ax.tick_params
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_ylim([1e-1,2e5])
+
+    # 2. Compute the range of dust temperatures
+    Td = np.logspace(np.log10(5),np.log10(1e5),100)
+
+    # 3. List of line colors and styles for the number of dust types
+    colors = ['k','r','b','g','m','c']
+    linestyles = ['-','--','-.',':']
+
+    for idx, dust_type in enumerate(dust_types):
+        # 4.a Obtain the absorption cross section
+        a0, wavelengths, C_sca, C_abs, C_rp = compute_cross_sections(dust_type, do_average=True)
+
+        # 4.b Compute the mass absorption cross section based on the grain mass
+        if dust_type == 'SilSmall' or dust_type == 'SilLarge':
+            dust_s = basic_s[5]
+        elif dust_type == 'CSmall' or dust_type == 'CLarge':
+            dust_s = basic_s[2]
+        dust_mass = dust_s * 3.92e-27 # [g/H] - Dust mass per hydrogen atom
+        kappa_abs = C_abs * 3.31e-10 / dust_mass
+
+        # 4.c Compute the Rosseland mean opacity
+        kappa_R = np.zeros(len(Td))
+        for i in range(0,len(Td)):
+            kappa_R[i] = compute_Rosseland_oppacity(wavelengths[::-1],kappa_abs[::-1],Td[i])
+        
+        # 4.d Plot the results
+        linestyle = linestyles.pop()
+        color = colors.pop()
+        ax.plot(Td,kappa_R,label=dust_type,color=color,linestyle=linestyle,linewidth=2.5)
+
+    # 5. Add the Hensley & Draine 2023 data
+    file_path = './hensley_draine_2023/astrodust+PAH_mean_opacities.dat'
+    df = read_HensleyDraine2023_mean_oppacity(file_path)
+    ax.plot(df["Temp"], df["kappa_abs_R"], label='Hensley \& Draine (2023)', color='b', linestyle='-', linewidth=2.5)
+
+    # 6. Add the power-law scaling in Krumholz & Thompson 2013 paper
+    kappa_PLT = 10.**(-1.5) * (Td / 10.)**2.
+    ax.plot(Td, kappa_PLT, label='Krumholz \& Thompson (2013)', color='r', linestyle='-', linewidth=2.5)   
+
+    # 7. Add the Semenov et al. 2003 data
+    file_path = './semenov_2003/kR.out'
+    df = read_Semenov2003_mean_oppacity(file_path)
+    ax.plot(df["Temperature"], df["Rosseland_Opacity"], label='Semenov et al. (2003)', color='g', linestyle='-', linewidth=2.5)
+
+    # 8. Add vertical shaded regions for the dust sublimation temperatures with the name of the dust type
+    ax.axvspan(1100, 1300, color='k', alpha=0.4)
+    ax.text(1200, 1e4, 'Silicate', fontsize=14)
+    ax.axvspan(1900, 2100, color='r', alpha=0.4)
+    ax.text(2000, 1e2, 'Carbonaceous', fontsize=14)
+
+    # 8. Finalise the figure and save
+    ax.legend(loc='best',fontsize=14,frameon=False)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
+    fig.savefig('./Rosseland_opacity.png', format='png', dpi=300)
+        
