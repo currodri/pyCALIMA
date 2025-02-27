@@ -1,0 +1,2 @@
+# from PAH_photoelectric_heating import compare_eff_curves_all; compare_eff_curves_all(1000,1e-5,1e4,n_ne=100)
+from PAH_photoelectric_heating import compare_eff_curves_ISRF; compare_eff_curves_ISRF(500,1e-5,5e5,n_ne=100)

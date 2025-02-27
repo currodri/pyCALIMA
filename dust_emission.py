@@ -34,6 +34,7 @@ from joblib import Parallel, delayed
 kb               = 1.3806488e-16 # [erg/K] - Boltzmann constant
 c                = 2.99792458e10 # [cm/s] - Speed of light
 h                = 6.6260755e-27 # [erg s] - Planck constant
+sigma_sb         = 5.6703744e-05 # [g s-3 K-4] - Stefan-Boltzmann constant
 
 # Functions
 def compute_cross_sections(dust_type, do_average=True):
@@ -188,6 +189,14 @@ def absorbed_power(wavelengths,radiation_field,C_abs):
     
     return absorbed_power
 
+def absorbed_power_reemited(wavelengths,Tdust,C_abs):
+
+    # 1. Compute the emitted power
+    emp = np.zeros(len(wavelengths))
+    for i in range(0,len(wavelengths)):
+        emp[i] = planck_function(wavelengths[i],Tdust)
+    
+
 def emitted_power(Tdust,wavelengths,C_abs):
     """This function computes the emitted power by a dust grain given a temperature
     and the absorption cross section.
@@ -204,7 +213,6 @@ def emitted_power(Tdust,wavelengths,C_abs):
     # 1. Compute the emitted power
     emp = np.zeros(len(wavelengths))
     for i in range(0,len(wavelengths)):
-        
         emp[i] = planck_function(wavelengths[i],Tdust)
     emitted_power = 4. * np.pi * np.trapz(C_abs * emp, x=wavelengths)
     return emitted_power
@@ -234,6 +242,22 @@ def compute_equilibrium_temperature(wavelengths,wavelengths_em,radiation_field,C
         return result.root
     else:
         raise RuntimeError("Failed to find equilibrium temperature")
+
+def compute_equilibrium_temperature_cheap(dust_type,a,wavelengths,radiation_field,C_abs):
+    
+    # 1. Compute the absorbed power
+    abs_power = absorbed_power(wavelengths,radiation_field,C_abs)
+
+    # 2. Compute the emission cross-section based on the approximations by Draine 2008 (eqs. 24.15 and 24.16)
+    if 'Sil' in dust_type:
+        C_em = 4. * np.pi * (a)**2. * 1.3e-6 * (a*1e4/0.1)
+    elif 'C' in dust_type:
+        C_em = 4. * np.pi * (a)**2. * 8e-7 * (a*1e4/0.1)
+
+    # 3. Solve for Td based on the scaling in the Draine 2008 approximations
+    Td = (abs_power / (C_em*sigma_sb)) **(1./6.)
+
+    return Td
     
 def mathis_radiation_field(l):
     """This function computes the Mathis radiation field as a function of the wavelength
@@ -410,11 +434,19 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
                                wavelengths_em,
                                G0[i]*radiation_field[:,1],
                                C_abs_interp,C_abs_em_interp)
+        def compute_temp_cheap(i):
+            return compute_equilibrium_temperature_cheap(dust_type,
+                                a0,radiation_field[:,0],
+                                G0[i]*radiation_field[:,1],
+                                C_abs_interp)
 
         Teq = Parallel(n_jobs=-1)(delayed(compute_temp)(i) for i in range(nG0))
+
+        Teq_cheap = Parallel(n_jobs=-1)(delayed(compute_temp_cheap)(i) for i in range(nG0))
     
         # 3C. Plot the results
         ax.plot(G0,Teq,label=dust_type,color=color,linestyle=linestyle,linewidth=2.5)
+        ax.plot(G0,Teq_cheap,color=color,linestyle=linestyle,linewidth=2.5,alpha=0.6)
 
     # 4. Finalise the figure and save
     ax.legend(loc='best',fontsize=14,frameon=False)
@@ -422,7 +454,7 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
     fig.savefig('./equilibrium_temperature.pdf', format='pdf', dpi=300)
     
     ax2.legend(loc='best',fontsize=14,frameon=False)
-    fig2.subplots_adjust(top=0.99,bottom=0.12,left=0.1,right=0.99,hspace=0,wspace=0)
+    fig2.subplots_adjust(top=0.99,bottom=0.125,left=0.12,right=0.99,hspace=0,wspace=0)
     fig2.savefig('./absorption_cross_sections.pdf', format='pdf', dpi=300)
     
 def plot_emission_spectra(dust_types,G0=[1.]):

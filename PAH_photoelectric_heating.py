@@ -21,7 +21,7 @@ import swiftascmaps
 import matplotlib.pylab as pl
 import matplotlib as mpl
 import seaborn as sns
-from unyt import nm,m,cm,eV,J,s,h,c,erg
+from unyt import nm,m,cm,eV,J,s,h,c,erg,K,kb
 from dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
 from dust_oppacity import pah_efficiencies
 from PAHs_model import Draine_1978_isrf
@@ -46,6 +46,7 @@ pahion_filepath = '/home/currodri/Codes/DustRAMSES/li_draine_2001/PAHion_30'
 epsilon_0 =  8.8541878188e-21 # Vacuum permittivity [F/nm]
 e = 1.602176634e-19           # Elementary charge [C]
 partition_coeff = 0.46        # Partition coefficient estimated from Bréchignac et al. 2014
+J_to_erg = 1e7                # Conversion factor from J to erg
 
 # FUNCTIONS
 class PAHDataset:
@@ -147,7 +148,7 @@ def ionisation_potential(Z,a):
     
     
     if Z == -1:
-        IP = 0.0
+        IP = 6.0
     else:
         IP = 3.9 + e/(4.*np.pi*epsilon_0) * ((Z + 0.5) / a + (Z+2.)/a * (0.03/a)) 
         
@@ -270,7 +271,7 @@ def attachment_rate_Carelli13(T):
     # Parameters for coronene (C24H12) from Carelli et al. (2013)
     a = 2.74e-9 # [cm-3]
     b = 0.11
-    c = -1.11
+    c = -1.12
     k_att = a * (T/300.)**b * np.exp(-c/T) # [cm^3/s]
     
     return k_att
@@ -413,16 +414,15 @@ def absorption_cross_section_Berne(Nc):
                             (crossdc_1_case2/40)+(crossdc_2_case2/42)+(crossdc_3_case2/42) +\
                             (crossdc_1_case3/48)+(crossdc_2_case3/54)+(crossdc_3_case3/66) )/9 ) * Nc
     
-    energy = np.linspace(5.17,13.6,1000)
 
-    pah_cross_a = np.interp(energy,energy_neutral[energy_range],pah_cross_a[energy_range]) * mb
-    pah_cross_n = np.interp(energy,energy_neutral[energy_range],pah_cross_n[energy_range]) * mb
-    pah_cross_c = np.interp(energy,energy_neutral[energy_range],pah_cross_c[energy_range]) * mb
-    pah_cross_dc = np.interp(energy,energy_neutral[energy_range],pah_cross_dc[energy_range]) * mb
+    pah_cross_a = pah_cross_a[energy_range] * mb * 1e-4
+    pah_cross_n = pah_cross_n[energy_range] * mb * 1e-4
+    pah_cross_c = pah_cross_c[energy_range] * mb * 1e-4
+    pah_cross_dc = pah_cross_dc[energy_range] * mb * 1e-4
 
-    wav = 1.2398 / energy
-
-    return wav, pah_cross_a*1e-4, pah_cross_n*1e-4, pah_cross_c*1e-4, pah_cross_dc*1e-4
+    return energy_negative_charged[energy_range], energy_neutral[energy_range], \
+        energy_charged[energy_range], energy_double_charged[energy_range], \
+            pah_cross_a, pah_cross_n, pah_cross_c, pah_cross_dc
 def compare_cross_sections(Nc):
     """Compare the cross sections from the two methods in an individual plot.
 
@@ -431,15 +431,21 @@ def compare_cross_sections(Nc):
     """
     # Compute cross sections using the two methods
     wav1, sigma_abs1 = absorption_cross_section(LogNormal_Distribution(basic_a0[0], basic_amin[0], basic_amax[0], basic_sigma[0], basic_s[0]), 0)
-    wav2, pah_cross_a, pah_cross_n, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(Nc)
+    wav1, sigma_abs2 = absorption_cross_section(LogNormal_Distribution(basic_a0[0], basic_amin[0], basic_amax[0], basic_sigma[0], basic_s[0]), 1)
+    energy_anion,energy_neutral, energy_charged, energy_double_charged,\
+        pah_cross_a, pah_cross_n, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(Nc)
 
+    energy_range = (energy_anion>=0.05) & (energy_anion<=13.6)
+    wav2 = 1.2398 / energy_anion[energy_range]
     # Plot the cross sections
     plt.figure(figsize=(10, 6))
     plt.xlim(0.0912,1)
-    plt.plot(wav1, sigma_abs1, label='Method 1', linestyle='-', color='blue')
-    plt.plot(wav2, pah_cross_n*1e-4, label='Method 2 (Neutral)', linestyle='--', color='green')
-    plt.plot(wav2, pah_cross_c*1e-4, label='Method 2 (Cation)', linestyle='-.', color='red')
-    plt.plot(wav2, pah_cross_dc*1e-4, label='Method 2 (Dication)', linestyle=':', color='purple')
+    plt.plot(wav1, sigma_abs1, label='Method 1 (Neutral)', linestyle='-', color='blue')
+    plt.plot(wav1, sigma_abs2, label='Method 1 (Ion)', linestyle='-', color='red')
+    plt.plot(wav2, pah_cross_a[energy_range], label='Method 2 (Anion)', linestyle='-', color='orange')
+    plt.plot(wav2, pah_cross_n[energy_range], label='Method 2 (Neutral)', linestyle='--', color='green')
+    plt.plot(wav2, pah_cross_c[energy_range], label='Method 2 (Cation)', linestyle='-.', color='red')
+    plt.plot(wav2, pah_cross_dc[energy_range], label='Method 2 (Dication)', linestyle=':', color='purple')
     plt.xlabel('Wavelength [microns]')
     plt.ylabel(r'Absorption Cross Section [m$^2$]')
     plt.legend()
@@ -459,9 +465,10 @@ def ionisation_rate(IP,sigma_ion,I,E):
 
     Returns:
         np.float: Photo-ionisation rate [s-1]
-    """    
-    k_pe = sigma_ion * I / E * 6.24150935e+18 # Convert [W] to [eV/s]
-    k_pe = np.trapz(k_pe,E-IP)
+    """
+    mask = (E>=IP) & (E<=13.6)    
+    k_pe = sigma_ion[mask] * I[mask] / E[mask] * 6.24150935e+18 # Convert [W] to [eV/s]
+    k_pe = np.trapz(k_pe,E[mask]-IP)
     
     return k_pe
 
@@ -496,7 +503,7 @@ def power_injected(IP,sigma_ion,I,E):
     """    
     mask = (E>=IP) & (E<=13.6)
     P_inj = (E[mask] - IP) * sigma_ion[mask] * I[mask] / E[mask]
-    P_inj = np.trapz(P_inj,E[mask])
+    P_inj = np.trapz(P_inj,E[mask]-IP)
     
     return P_inj
 
@@ -539,31 +546,32 @@ def compute_integrated_absorbed_power_G0(pah_type):
 def plot_radiation_fields():
     from astropy.table import Table
 
-    wav = np.linspace(0.0912, 0.2066, 1000) * 1e3  # in nm
-    E = 1.2398 / (wav*1e-3)
-    # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
-    I_draine =  Draine_1978_isrf(wav) 
-    I_draine_converted = I_draine * (h * c / (wav * nm)).to('erg').d
-
     # Read the radiation field in erg s-1 cm-2 nm-1 sr-1
-    wave_intensity = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+    wave_intensity = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
     wavelength = wave_intensity['col1']  # in nm
+    print(wavelength.min(),wavelength.max())
     wavelength_intensity = wave_intensity['col2']  # in erg cm-2 s-1 nm-1 sr-1
-    I_file_converted = 2. *np.pi * np.interp(wav, wavelength, wavelength_intensity)
+    I_file_converted = 2. *np.pi * wavelength_intensity
+
+    # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
+    I_draine =  Draine_1978_isrf(wavelength) 
+    I_draine_converted = I_draine * (h * c / (wavelength * nm)).to('erg').d
 
     # Plot the two radiation fields
     plt.figure(figsize=(10, 6))
-    plt.plot(wav, I_draine_converted, label='Draine 1978 ISRF')
-    plt.plot(wav, I_file_converted, label='File-based ISRF', linestyle='--')
+    plt.plot(wavelength, I_draine_converted, label='Draine 1978 ISRF')
+    plt.plot(wavelength, I_file_converted, label='File-based ISRF', linestyle='--')
     plt.xlabel('Wavelength (nm)')
     plt.yscale('log')
     plt.ylabel(r'Intensity (erg cm-2 s-1 nm-1 sr-1)')
     plt.title('Comparison of Radiation Fields')
+    plt.ylim(1e-6,1e-4)
     plt.legend()
     plt.grid(True)
     plt.savefig('radiation_fields_comparison.png', format='png', dpi=300)
 
 def compute_heating_efficiency(args):
+    from astropy.table import Table
     
     # 1. Unpack arguments
     G0,T,ne,dist,attach_model,wav,\
@@ -577,16 +585,22 @@ def compute_heating_efficiency(args):
     # 3. Convert wavelength [micron] to photon energy [eV]
     E = 1.2398 / wav
     # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
-    I = G0 * Draine_1978_isrf(wav*1e3) /1.7 * cm**-2/s/nm 
+    wave_intensity = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+    wavelength = wave_intensity['col1']  # in nm
+    wavelength_intensity = wave_intensity['col2']  # in erg cm-2 s-1 nm-1 sr-1
+    I_file_converted = np.interp(wav*1e-3, wavelength, wavelength_intensity)
+    I_Draine = I_file_converted / (h * c / (wav*1e-3 * nm)).to('erg').d
+    #I_Draine = Draine_1978_isrf(wav*1e3)
+    I = G0 * I_Draine /1.7 * cm**-2/s/nm
     F = I * E * eV
     f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
-    I = f.to('W/m**2/eV').d * 2.
+    I = f.to('W/m**2/eV').d 
     
     # 4. Compute the e- detachment rate from the anion
     IP_anion = ionisation_potential(-1,a0*1e3)
     yield_anion = np.array([ionisation_yield(Nc,-1,E[i],IP_anion) for i in range(0,len(E))])
     mask = (E>=IP_anion) & (E <= 13.6)
-    k_det = ionisation_rate(IP_anion,yield_anion[mask]*sigma_abs_anion[mask],I[mask],E[mask])
+    k_det = ionisation_rate(IP_anion,2*np.pi*yield_anion[mask]*sigma_abs_anion[mask],I[mask],E[mask])
     # print('k_det',k_det)
     
     # 5. e- attachment to a neutral
@@ -601,7 +615,7 @@ def compute_heating_efficiency(args):
     yield_neutral = np.array([ionisation_yield(Nc,0,E[i],IP_neutral) for i in range(0,len(E))])
     mask = (E>=IP_neutral) & (E <= 13.6)
     # print(IP_neutral,E[mask],I[mask],yield_neutral[mask],sigma_abs_neu[mask])
-    k_pe_0 = ionisation_rate(IP_neutral,yield_neutral[mask]*sigma_abs_neu[mask],I[mask],E[mask])
+    k_pe_0 = ionisation_rate(IP_neutral,2*np.pi*yield_neutral[mask]*sigma_abs_neu[mask],I[mask],E[mask])
     # print('k_pe_0',k_pe_0)
     
     # 7. Recombination rate from Z=1 to Z=0
@@ -623,7 +637,7 @@ def compute_heating_efficiency(args):
     IP_cation = ionisation_potential(1,a0*1e3)
     yield_cation = np.array([ionisation_yield(Nc,1,E[i],IP_cation) for i in range(0,len(E))])
     mask = (E>=IP_cation) & (E <= 13.6)
-    k_pe_1 = ionisation_rate(IP_cation,yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
+    k_pe_1 = ionisation_rate(IP_cation,2*np.pi*yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
     # print('k_pe_1',k_pe_1)
 
     
@@ -637,19 +651,41 @@ def compute_heating_efficiency(args):
                     k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
     
     # 12. Fraction of Z=1
-    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / k_rec_2 + \
+    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) + \
                 k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
     
     # 13. Fraction of Z=2
     f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
                 k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
+    
+    # 14. Check that all fractions add up to 1
+    f_tot = f_anion + f_neutral + f_1 + f_2
+    f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
+    
+    # 15. Compute the total injected power
+    Pinj_anion = power_injected(IP_anion,2*np.pi*yield_anion*sigma_abs_anion,I,E)
+    Pinj_neutral = partition_coeff * power_injected(IP_neutral,2*np.pi*yield_neutral*sigma_abs_neu,I,E)
+    Pinj_cation = partition_coeff * power_injected(IP_cation,2*np.pi*yield_cation*sigma_abs_cation,I,E)
+    
+    Pinj = f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation
+    
+    # 16. Compute the total absorbed power
+    Prad_anion = power_absorbed(2*np.pi*sigma_abs_anion,I,E)
+    Prad_neutral = power_absorbed(2*np.pi*sigma_abs_neu,I,E)
+    Prad_cation = power_absorbed(2*np.pi*sigma_abs_cation,I,E)
+    Prad_dication = power_absorbed(2*np.pi*sigma_abs_dication,I,E)
+    
+    Prad = f_anion * Prad_anion + f_neutral * Prad_neutral + f_1 * Prad_cation + f_2 * Prad_dication
+    
+    # 17. Compute the heating efficiency as the ratio of injected to absorbed power
+    eff = Pinj / Prad
 
     print('G0:',G0)
     print('temperature:',T)
     print('ne:',ne)
     print('f_anion:',f_anion)
     print('f_neutral:',f_neutral)
-    print('f_1:',f_1)
+    print('f_1:',f_1, k_rec_1*ne / k_pe_0,  k_pe_1 / k_rec_2, k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
     print('f_2:',f_2)
     print('k_det:',k_det)
     print('k_att:',k_att)
@@ -657,32 +693,135 @@ def compute_heating_efficiency(args):
     print('k_rec_1:',k_rec_1)
     print('k_pe_1:',k_pe_1)
     print('k_rec_2:',k_rec_2)
+    print('Pinj:',Pinj)
+    print('Prad:',Prad)
+    print('eff:',eff)
+
+    # print(f'For G0={G0:.6e} erg/s/cm^2, ne={ne:.6e} cm^-3, T={T} K')
+    # print(f'Efficiency: {eff:.6e}')
+    # print(f'Heating rate: {eff*Prad*(0.1/Nc)*2.7e-4:.6e} W/H')
+    
+    return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff
+
+def compute_heating_efficiency2(args):
+    
+    # 1. Unpack arguments
+    T,ne,dist,attach_model,radiation_field, \
+        anion_data,neutral_data,cation_data, \
+                dication_data = args
+    a0 = (dist.Nc/468)**(1./3.) #dist.a0
+    Nc = dist.Nc
+    
+    # 2. Get the radiation field and prepare the correct units
+    wavelength_intensity = radiation_field[:,1] # in erg cm-2 s-1 nm-1 sr-1
+    wavelength = radiation_field[:,0] # in nm
+    I_rad = wavelength_intensity / (h * c / (wavelength * nm)).to('erg').d
+    E = 1.2398 / (wavelength[::-1]*1e-3)
+    I = I_rad[::-1] * cm**-2/s/nm
+    F = I * E * eV
+    f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
+    I = f.to('W/m**2/eV').d 
+    G0 = np.trapz(2.*np.pi*I[(E<=13.6)&(E>=5.17)],E[(E<=13.6)&(E>=5.17)]) / 1.68e-6
+
+    # 3. Compute the interpolated cross sections
+    sigma_abs_anion = np.interp(E,anion_data[:,0],anion_data[:,1])
+    sigma_abs_neu = np.interp(E,neutral_data[:,0],neutral_data[:,1])
+    sigma_abs_cation = np.interp(E,cation_data[:,0],cation_data[:,1])
+    sigma_abs_dication = np.interp(E,dication_data[:,0],dication_data[:,1])
+    
+    # 4. Compute the e- detachment rate from the anion
+    IP_anion = ionisation_potential(-1,a0)
+    yield_anion = np.array([ionisation_yield(Nc,-1,E[i],IP_anion) for i in range(0,len(E))])
+    mask = (E>=IP_anion) & (E <= 13.6)
+    k_det = ionisation_rate(IP_anion,2*np.pi*yield_anion[mask]*sigma_abs_anion[mask],I[mask],E[mask])
+    
+    # 5. e- attachment to a neutral
+    if attach_model == 'Berne':
+        k_att = attachment_rate_Carelli13(T)
+    elif attach_model == 'Tielens':
+        k_att = attachment_rate_Tielens05(Nc)
+    
+    # 6. Ionisation rate of Z=0 to Z=1
+    IP_neutral = ionisation_potential(0,a0)
+    yield_neutral = np.array([ionisation_yield(Nc,0,E[i],IP_neutral) for i in range(0,len(E))])
+    mask = (E>=IP_neutral) & (E <= 13.6)
+    k_pe_0 = ionisation_rate(IP_neutral,2*np.pi*yield_neutral[mask]*sigma_abs_neu[mask],I[mask],E[mask])
+    
+    # 7. Recombination rate from Z=1 to Z=0
+    if attach_model == 'Berne':
+        k_rec_1 = recombination_rate_Spitzer(Nc,0,T)
+    elif attach_model == 'Tielens':
+        k_rec_1 = recombination_rate_Tielens21(Nc,T)
+    
+    # 8. Recombination rate from Z=2 to Z=1
+    if attach_model == 'Berne':
+        k_rec_2 = recombination_rate_Spitzer(Nc,1,T)
+    elif attach_model == 'Tielens':
+        k_rec_2 = recombination_rate_Tielens21(Nc,T)
+
+    
+    # 9. Ionisation rate of Z=1 to Z=2
+    IP_cation = ionisation_potential(1,a0)
+    yield_cation = np.array([ionisation_yield(Nc,1,E[i],IP_cation) for i in range(0,len(E))])
+    mask = (E>=IP_cation) & (E <= 13.6)
+    k_pe_1 = ionisation_rate(IP_cation,2*np.pi*yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
+
+    
+    # 10. Fraction of Z=-1
+    f_anion = 1. / (1. + k_det / (k_att*ne) + \
+                    k_det * k_pe_0 / (k_att*k_rec_1*ne**2.) + \
+                    k_det * k_pe_0 * k_pe_1 / (k_att*k_rec_1*k_rec_2*ne**3.))
+    
+    # 11. Fraction of Z=0
+    f_neutral = 1. / (1. + k_att*ne / k_det + k_pe_0 / (k_rec_1*ne) + \
+                    k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
+    
+    # 12. Fraction of Z=1
+    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) + \
+                k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
+    
+    # 13. Fraction of Z=2
+    f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
+                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
     
     # 14. Check that all fractions add up to 1
     f_tot = f_anion + f_neutral + f_1 + f_2
     f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
     
     # 15. Compute the total injected power
-    Pinj_anion = power_injected(IP_anion,yield_anion*sigma_abs_anion,I,E)
-    Pinj_neutral = partition_coeff * power_injected(IP_neutral,yield_neutral*sigma_abs_neu,I,E)
-    Pinj_cation = partition_coeff * power_injected(IP_cation,yield_cation*sigma_abs_cation,I,E)
+    Pinj_anion = power_injected(IP_anion,2*np.pi*yield_anion*sigma_abs_anion,I,E)
+    Pinj_neutral = partition_coeff * power_injected(IP_neutral,2*np.pi*yield_neutral*sigma_abs_neu,I,E)
+    Pinj_cation = partition_coeff * power_injected(IP_cation,2*np.pi*yield_cation*sigma_abs_cation,I,E)
     
     Pinj = f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation
     
     # 16. Compute the total absorbed power
-    Prad_anion = power_absorbed(sigma_abs_anion,I,E)
-    Prad_neutral = power_absorbed(sigma_abs_neu,I,E)
-    Prad_cation = power_absorbed(sigma_abs_cation,I,E)
-    Prad_dication = power_absorbed(sigma_abs_dication,I,E)
+    Prad_anion = power_absorbed(2*np.pi*sigma_abs_anion,I,E)
+    Prad_neutral = power_absorbed(2*np.pi*sigma_abs_neu,I,E)
+    Prad_cation = power_absorbed(2*np.pi*sigma_abs_cation,I,E)
+    Prad_dication = power_absorbed(2*np.pi*sigma_abs_dication,I,E)
     
     Prad = f_anion * Prad_anion + f_neutral * Prad_neutral + f_1 * Prad_cation + f_2 * Prad_dication
     
     # 17. Compute the heating efficiency as the ratio of injected to absorbed power
     eff = Pinj / Prad
 
-    # print(f'For G0={G0:.6e} erg/s/cm^2, ne={ne:.6e} cm^-3, T={T} K')
-    # print(f'Efficiency: {eff:.6e}')
-    # print(f'Heating rate: {eff*Prad*(0.1/Nc)*2.7e-4:.6e} W/H')
+    # print('temperature :',T)
+    # print('ne :',ne)
+    # print('Nc : ',dist.Nc)
+    # print('detachment rate : ',k_det)
+    # print('photoemission rate of the neutral : ', k_pe_0)
+    # print('photoemission rate of the charged : ', k_pe_1)
+    # print('attachment rate : ', k_att*ne)
+    # print('recombination rate of the neutral : ', k_rec_1*ne)
+    # print('recombination rate of the charged : ', k_rec_2*ne)
+    # print('anion fraction : ', f_anion)
+    # print('neutral fraction : ', f_neutral)
+    # print('charged fraction : ', f_1)
+    # print('double charged fraction : ', f_2)
+    # print('total injected power : ', Pinj)
+    # print('total absorbed radiation power : ', Prad)
+    # print('heating efficiency : ', eff)
     
     return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff
     
@@ -723,8 +862,7 @@ def multiline(xs, ys, c, ax=None, **kwargs):
     ax.add_collection(lc)
     return lc
 
-def Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,ax,fig):
-    n_ne = 20
+def Berne22_efficiency(ne_min,ne_max,n_ne,T,ax,fig):
     ne_list = np.logspace(np.log10(ne_min),np.log10(ne_max),n_ne)
     eff = np.zeros(n_ne)
     gamma = np.zeros(n_ne)
@@ -806,19 +944,67 @@ def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_col
     fig2.subplots_adjust(top=0.98,bottom=0.13,left=0.13,right=0.95)
     fig2.savefig(f'pah_charge_distribution_{attach_model}_{dist.Nc}C_{str(int(T))}K.pdf', format='pdf', dpi=300)
 
-def my_efficiency2(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=100,n_G0=100,do_colorbar=False):
-    G0_list = np.logspace(np.log10(G0min),np.log10(G0max),n_G0)
+
+def blackbody_radiation(T, lambda_min, lambda_max, num_points=1000):
+    """
+    Computes the blackbody radiation intensity in erg cm⁻² s⁻¹ nm⁻¹ sr⁻¹ 
+    for a given temperature over a range of wavelengths.
+
+    Parameters:
+        T (float or unyt_quantity): Temperature in Kelvin.
+        lambda_min (float or unyt_quantity): Minimum wavelength in nm.
+        lambda_max (float or unyt_quantity): Maximum wavelength in nm.
+        num_points (int): Number of wavelength points (default: 1000).
+
+    Returns:
+        wavelengths (unyt_array): Wavelengths in nm.
+        intensity (unyt_array): Spectral radiance in erg cm⁻² s⁻¹ nm⁻¹ sr⁻¹.
+    """
+    # Ensure inputs are unyt quantities
+    T = T * K if not hasattr(T, "units") else T
+    lambda_min = lambda_min * nm if not hasattr(lambda_min, "units") else lambda_min
+    lambda_max = lambda_max * nm if not hasattr(lambda_max, "units") else lambda_max
+
+
+    # Generate wavelength array in nm
+    wavelengths = np.linspace(lambda_min.value, lambda_max.value, num_points) * nm
+
+    # Compute the Planck function B_lambda(T) in erg cm⁻² s⁻¹ cm⁻¹ sr⁻¹
+    exponent = (h * c) / (wavelengths * kb * T)
+    intensity = (2 * h * c**2) / (wavelengths**5 * (np.exp(exponent) - 1))
+
+    # # Create and save the plot
+    # plt.figure(figsize=(8, 5))
+    # plt.plot(wavelengths.value, intensity.to('erg/cm**2/s/nm').value, label=f"T = {T:.0f}", color='r')
+    # plt.xlabel(f"Wavelength ({wavelengths.units})")
+    # plt.yscale('log')
+    # plt.ylabel(f"Intensity ({intensity.to('erg/cm**2/s/nm').units})")
+    # plt.title("Blackbody Radiation Spectrum")
+    # plt.legend()
+    # plt.grid()
+
+    # # Save the plot
+    # save_path = f'BB_{int(T)}K_spectrum.png'
+    # plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    # plt.close()  # Close the plot to free memory
+
+    # print(f"Plot saved as {save_path}")
+
+    return wavelengths, intensity
+
+def my_efficiency2(pahtype,attach_model,radiation_model,ne_min,ne_max,T,fig,axes,n_ne=100,single_ax=False):
+    from astropy.table import Table
     ne_list = np.logspace(np.log10(ne_min),np.log10(ne_max),n_ne)
-    xs = []
-    ys = []
     if pahtype == 'small':
         dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
         dist.Nc = 54
         linestyle = '-'
+        color = 'blue'
     elif pahtype == 'large':
         dist = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
-        dist.Nc = 400
+        dist.Nc = 418
         linestyle = '--'
+        color = 'royalblue'
 
 
     if attach_model == 'Berne':
@@ -827,54 +1013,166 @@ def my_efficiency2(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,fig,axes,n_n
         icol = 1
     
     # 2. Compute the distribution-averaged absorption cross sections
-    # # NOTE: I am using the same cross section for Z=-1 than for Z=0
-    # wav,sigma_abs_anion = absorption_cross_section(dist,0)
-    # wav,sigma_abs_neu = absorption_cross_section(dist,0)
-    # wav,sigma_abs_cation = absorption_cross_section(dist,1)
-    wav,sigma_abs_anion,sigma_abs_neu,sigma_abs_cation,sigma_abs_dication = absorption_cross_section_Berne(dist.Nc)
+    energy_negative_charged, energy_neutral, \
+    energy_charged, energy_double_charged, \
+    sigma_abs_anion, sigma_abs_neu, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(dist.Nc)
     
-    for j in range(0, n_ne):
-        gamma = np.zeros(n_G0)
-        num_cores = 20#min(os.cpu_count(),n_G0)
-        args_list = []
-        for k in range(0,n_G0):
-            args = G0_list[k],T,ne_list[j],dist,attach_model,wav,\
-                    sigma_abs_anion,sigma_abs_neu,sigma_abs_cation,\
-                    sigma_abs_dication
-            args_list.append(args)
-            gamma[k] = G0_list[k] * np.sqrt(T) / ne_list[j]
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-            results = list(tqdm(executor.map(compute_heating_efficiency, args_list), total=n_G0,
-                                desc=f'    Computing efficiency for ne={ne_list[j]} cm^-3', unit=' steps'))
-        
-        bla1,bla2,bla3,f_anion,f_neutral,f_1,f_2,epsilon = zip(*results)
-        factor = (np.log10(ne_list[j])-np.log10(0.9*ne_list.min()))/(np.log10(1.1*ne_list.max())-np.log10(0.9*ne_list.min()))
-        axes[1,icol].plot(gamma,f_anion,color='k',linewidth=2.5*factor,linestyle=linestyle)
-        axes[1,icol].plot(gamma,f_neutral,color='g',linewidth=2.5*factor,linestyle=linestyle)
-        axes[1,icol].plot(gamma,f_1,color='b',linewidth=2.5*factor,linestyle=linestyle)
-        axes[1,icol].plot(gamma,f_2,color='r',linewidth=2.5*factor,linestyle=linestyle)
+    anion_data = np.column_stack([energy_negative_charged,sigma_abs_anion])
+    neutral_data = np.column_stack([energy_neutral,sigma_abs_neu])
+    cation_data = np.column_stack([energy_charged,pah_cross_c])
+    dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
 
-        xs.append(gamma)
-        ys.append(epsilon)
-    lc = multiline(xs,ys,ne_list,cmap='plasma',ax=axes[0,icol],lw=2.5,linestyle=linestyle)   
-    if do_colorbar:
-        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-        width_ex = str(int(100*2))
-        cbaxes = inset_axes(axes[0,0], width=width_ex+"%", height="5%", loc='upper left',
-                            bbox_to_anchor=(0.0, 0., 1.0, 1.05),
-                            bbox_transform=axes[0,0].transAxes,borderpad=0)
-        cbar = fig.colorbar(lc, cax=cbaxes, orientation='horizontal')
-        cbar.set_label(r'$n_e$ [cm$^{-3}$]',fontsize=20)
-        cbar.ax.tick_params(labelsize=14)
-        cbaxes.xaxis.set_label_position('top')
-        cbaxes.xaxis.set_ticks_position('top')
+    num_cores = 20#min(os.cpu_count(),n_ne)
+    args_list = []
+    if radiation_model == 'Draine':
+        draine1978 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+        rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
+        rad_name = 'Draine 1978'
+        rad_color = '#BBD8B3'
+        linestyle= ':'
+    elif radiation_model == 'Habing':
+        habing1968 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/habing1968.txt', format='ascii')
+        rad_field = np.column_stack([habing1968['col1'],habing1968['col2']])
+        rad_name = 'Habing 1968'
+        rad_color = '#F3B61F'
+        linestyle= ':'
+    elif radiation_model == 'Mathis':
+        mathis1983 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
+        rad_field = np.column_stack([mathis1983['col1'],mathis1983['col2']])
+        rad_name = 'Mathis+1983'
+        rad_color = '#A29F15'
+        linestyle= ':'
+    elif radiation_model == 'HD200775':
+        HD200775 = Table.read('/home/currodri/Codes/photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'HD200775'
+        rad_color = '#510D0A'
+        linestyle= '--'
+    elif radiation_model[:2] == 'BB':
+        T_star = float(radiation_model[2:])
+        # Obtain the black body radiation field in units of erg cm-2 s-1 nm-1 sr-1 for the 
+        # given temperature
+        BB = blackbody_radiation(T_star, 23.0, 500, num_points=1000)
+        rad_field = np.column_stack([BB[0].to('nm').d,BB[1].to('erg/cm**2/s/nm').d])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'BB $T_{\star}=$'+str(int(T_star))+' K'
+        rad_color = '#256EFF'
+        linestyle= '--'
+    elif radiation_model == 'O6V':
+        O6V = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_40000', format='ascii')
+        rad_field = np.column_stack([O6V['col1'],O6V['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'O6V'
+        rad_color = '#C33149'
+        linestyle= '-.'
+    elif radiation_model == 'B0V':
+        B0V = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_30000', format='ascii')
+        rad_field = np.column_stack([B0V['col1'],B0V['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'B0V'
+        rad_color = '#4B543B'
+        linestyle= '-.'
+    elif radiation_model == 'A0':
+        A0 = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_10000', format='ascii')
+        rad_field = np.column_stack([A0['col1'],A0['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'A0'
+        rad_color = '#533A71'
+        linestyle= '-.'
+    elif radiation_model == 'BPASS_veryyoung_lowz':
+        from read_ramses_sed import read_sed_tables
+        from unyt import Gyr
+        metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
+        fixed_age = 0.01 # 10 Myr
+        fixed_metallicity = 0.0002 # 0.01 Zsun
+        # Find the index of the closest age to the desired fixed age
+        age_index = np.argmin(np.abs(ages - fixed_age * Gyr))
+        # Find the index of the closest metallicity to the desired fixed metallicity
+        metallicity_index = np.argmin(np.abs(metallicities - fixed_metallicity))
+        bpass = SEDs[metallicity_index,age_index,:]
+        rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
+        rad_name = r'BPASS ($t=10$ Myr, $Z=0.01Z_{\odot}$)'
+        rad_color = '#258EA6'
+        linestyle= '-'
+    elif radiation_model == 'BPASS_young_midz':
+        from read_ramses_sed import read_sed_tables
+        from unyt import Gyr
+        metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
+        fixed_age = 0.1 # 0.1 Gyr
+        fixed_metallicity = 0.01 # 0.5 Zsun
+        # Find the index of the closest age to the desired fixed age
+        age_index = np.argmin(np.abs(ages - fixed_age * Gyr))
+        # Find the index of the closest metallicity to the desired fixed metallicity
+        metallicity_index = np.argmin(np.abs(metallicities - fixed_metallicity))
+        bpass = SEDs[metallicity_index,age_index,:]
+        rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
+        rad_name = r'BPASS ($t=1$ Gyr, $Z=0.5Z_{\odot}$)'
+        rad_color = '#F75590'
+        linestyle= '-'
+    elif radiation_model == 'BPASS_old_highz':
+        from read_ramses_sed import read_sed_tables
+        from unyt import Gyr
+        metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
+        fixed_age = 1 # 1 Gyr
+        fixed_metallicity = 0.02 # 1 Zsun
+        # Find the index of the closest age to the desired fixed age
+        age_index = np.argmin(np.abs(ages - fixed_age * Gyr))
+        # Find the index of the closest metallicity to the desired fixed metallicity
+        metallicity_index = np.argmin(np.abs(metallicities - fixed_metallicity))
+        bpass = SEDs[metallicity_index,age_index,:]
+        rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
+        rad_name = r'BPASS ($t=1$ Gyr, $Z=Z_{\odot}$)'
+        rad_color = '#D84A05'
+        linestyle= '-'
+
+
+    for j in range(0, n_ne):
+        args = T,ne_list[j],dist,attach_model,rad_field,\
+                anion_data,neutral_data,cation_data,dication_data
+        args_list.append(args)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_heating_efficiency2, args_list), total=n_ne,
+                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
     
-        dummy_lines = [axes[1,icol].plot([],[],color='k',linestyle='-',label=r'$Z=-1$',linewidth=2.5)[0],
-                    axes[1,icol].plot([],[],color='g',linestyle='-',label=r'$Z=0$',linewidth=2.5)[0],
-                    axes[1,icol].plot([],[],color='b',linestyle='-',label=r'$Z=1$',linewidth=2.5)[0],
-                    axes[1,icol].plot([],[],color='r',linestyle='-',label=r'$Z=2$',linewidth=2.5)[0]]
-        first_legend = axes[1,icol].legend(handles=dummy_lines, loc='best', frameon=False, fontsize=14)
-        axes[1,icol].add_artist(first_legend)
+    G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon = zip(*results)
+    gamma = G0 * np.sqrt(Tgas) / ne
+    if single_ax:
+        axes.plot(gamma,epsilon,color=rad_color,linewidth=2.5,linestyle=linestyle, 
+                    label=rad_name)
+    else:
+        axes[1,icol].plot(gamma,f_anion,color='k',linewidth=2.5,linestyle=linestyle)
+        axes[1,icol].plot(gamma,f_neutral,color='g',linewidth=2.5,linestyle=linestyle)
+        axes[1,icol].plot(gamma,f_1,color='b',linewidth=2.5,linestyle=linestyle)
+        axes[1,icol].plot(gamma,f_2,color='r',linewidth=2.5,linestyle=linestyle)
+
+        axes[0,icol].plot(gamma,epsilon,color=color,linewidth=2.5,linestyle=linestyle, 
+                        label=rf'$N_C=$ {dist.Nc} (This work)')
 
 def Tielens2001_efficiency(ax):
     n_gamma = 20
@@ -907,7 +1205,7 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     mydir = os.getcwd()
     # 1. Add Berne+2022 efficiency results
     os.chdir(BERNEPATH)
-    Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,ax,fig)
+    Berne22_efficiency(ne_min,ne_max,T,ax,fig)
     os.chdir(mydir)
     
     Tielens2001_efficiency(ax)
@@ -928,7 +1226,7 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     fig.subplots_adjust(top=0.98,bottom=0.13,left=0.13,right=0.95)
     fig.savefig('dust_heating_efficiency_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
 
-def compare_eff_curves_all(G0min,G0max,T,ne_min,ne_max,n_ne=100,n_G0=100):
+def compare_eff_curves_all(T,ne_min,ne_max,n_ne=100):
     
     fig, axes = plt.subplots(2, 2, sharex=True, figsize=(10,8), dpi=300, facecolor='w', edgecolor='k')
 
@@ -970,8 +1268,8 @@ def compare_eff_curves_all(G0min,G0max,T,ne_min,ne_max,n_ne=100,n_G0=100):
     mydir = os.getcwd()
     # 1. Add Berne+2022 efficiency results
     os.chdir(BERNEPATH)
-    Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,axes[0,0],fig)
-    Berne22_efficiency(G0min,G0max,ne_min,ne_max,T,axes[0,1],fig)
+    Berne22_efficiency(ne_min,ne_max,n_ne,T,axes[0,0],fig)
+    Berne22_efficiency(ne_min,ne_max,n_ne,T,axes[0,1],fig)
     os.chdir(mydir)
     
     Tielens2001_efficiency(axes[0,0])
@@ -980,19 +1278,56 @@ def compare_eff_curves_all(G0min,G0max,T,ne_min,ne_max,n_ne=100,n_G0=100):
     Wolfire2003_efficiency(T,axes[0,0])
     Wolfire2003_efficiency(T,axes[0,1])
     
-    my_efficiency2('small','Berne',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0,do_colorbar=True)
-    my_efficiency2('small','Tielens',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0)
+    my_efficiency2('small','Berne',ne_min,ne_max,T,fig,axes,n_ne=n_ne)
+    my_efficiency2('small','Tielens',ne_min,ne_max,T,fig,axes,n_ne=n_ne)
     
-    my_efficiency2('large','Berne',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0)
-    my_efficiency2('large','Tielens',G0min,G0max,ne_min,ne_max,T,fig,axes,n_ne=n_ne,n_G0=n_G0)
+    my_efficiency2('large','Berne',ne_min,ne_max,T,fig,axes,n_ne=n_ne)
+    my_efficiency2('large','Tielens',ne_min,ne_max,T,fig,axes,n_ne=n_ne)
                 
     axes[0,0].text(0.65, 0.9, r'$T=$ %i K'%int(T),
                         transform=axes[0,0].transAxes, fontsize=16,verticalalignment='top',
                         color='black')
     axes[0,0].legend(loc='lower left',fontsize=14,frameon=False)
 
-    fig.subplots_adjust(top=0.9,bottom=0.07,left=0.07,right=0.98,wspace=0,hspace=0)
+    fig.subplots_adjust(top=0.97,bottom=0.07,left=0.07,right=0.98,wspace=0,hspace=0)
     fig.savefig('dust_heating_efficiency_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
+
+def compare_eff_curves_ISRF(T,ne_min,ne_max,n_ne=100):
+    
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
+
+    ax.set_ylabel(r'$\epsilon_{\rm PAH}$', fontsize=16)
+    ax.set_xlabel(r'$\gamma (G0\sqrt{T}/n_e)$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.tick_params(labelsize=14)
+    ax.minorticks_on()
+    ax.set_xlim([10,1e+6])
+    ax.set_ylim([1e-4,1])
+        
+    my_efficiency2('small','Berne','Draine',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','Habing',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    # my_efficiency2('small','Berne','Mathis',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    # my_efficiency2('small','Berne','HD200775',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','O6V',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','B0V',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','A0',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','BPASS_veryyoung_lowz',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','BPASS_young_midz',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+    my_efficiency2('small','Berne','BPASS_old_highz',ne_min,ne_max,T,fig,ax,n_ne=n_ne,single_ax=True)
+
+
+    ax.text(0.65, 0.9, r'$T_{\rm gas}=$ %i K'%int(T),
+                        transform=ax.transAxes, fontsize=16,verticalalignment='top',
+                        color='black')
+    ax.legend(loc='lower left',fontsize=12,frameon=False,ncol=2)
+
+    fig.subplots_adjust(top=0.97,bottom=0.12,left=0.12,right=0.96,wspace=0,hspace=0)
+    fig.savefig('comparison_ISRF_dust_heating_efficiency_'+str(int(T))+'K.pdf', format='pdf', dpi=300)
 
 
 def save_results_to_txt(filename, results, x, y, z):
