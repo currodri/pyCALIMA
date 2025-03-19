@@ -54,10 +54,10 @@ class LogNormal_Distribution(object):
 
     def _init_integral(self):
         y = (1.0/self.a) * np.exp(-(np.log(self.a/self.a0))**2/(2*self.sigma**2))
-        return (3/(4*np.pi*self.grain_density))*np.trapz(y,self.a)
+        return (4*np.pi*self.grain_density/3)*np.trapz(y,self.a)
 
     def n_density(self,mass_density,sizes):
-        C = mass_density*self.sintegral
+        C = mass_density/self.sintegral
         dist = (C/sizes**4)*np.exp(-(np.log(sizes/self.a0))**2/(2*self.sigma**2))
         dist[sizes<self.amin] = 0.0
         dist[sizes>self.amax] = 0.0
@@ -104,6 +104,72 @@ class LogNormal_Distribution(object):
         y = np.trapz(y,sizes[mask])
         avg = y / norm     
         return avg
+
+class Classical_LogNormal_Distribution(object):
+
+    def __init__(self,a0,amin,amax,sigma,grain_density):
+        self.Nc = None
+        self.a0 = a0
+        self.amin = amin
+        self.amax = amax
+        self.sigma = sigma
+        self.a = np.logspace(np.log(amin),np.log10(amax),1000)
+        self.grain_density = grain_density
+        self.sintegral = self._init_integral()
+        self.grain_mass = 4./3. * np.pi * grain_density * a0**3.
+
+    def _init_integral(self):
+        y = self.a**3. * np.exp(-(np.log(self.a/self.a0))**2/(2*self.sigma**2))
+        return (4*np.pi*self.grain_density/3)*np.trapz(y,self.a)
+
+    def n_density(self,mass_density,sizes):
+        C = mass_density/self.sintegral
+        dist = C*np.exp(-(np.log(sizes/self.a0))**2/(2*self.sigma**2))
+        dist[sizes<self.amin] = 0.0
+        dist[sizes>self.amax] = 0.0
+        return dist
+
+    def averaged_over_number(self,X,sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        norm = np.exp(-(np.log10(sizes[mask]/self.a0))**2/(2*self.sigma**2))
+        norm = np.trapz(norm,sizes[mask])
+        y = X[mask]* np.exp(-(np.log10(sizes[mask]/self.a0))**2/(2*self.sigma**2))
+        y = np.trapz(y,sizes[mask])
+        avg = y / norm     
+        return avg
+
+class PowerLaw_ExpCutoff_Distribution(object):
+    
+    def __init__(self,amin,amax,a_cutoff,powlaw_index,grain_density):
+        self.Nc = None
+        self.amin = amin
+        self.amax = amax
+        self.a_cutoff = a_cutoff
+        self.powlaw_index = powlaw_index
+        self.a = np.logspace(np.log10(amin),np.log10(amax),1000)
+        self.grain_density = grain_density
+        self.sintegral = self._init_integral()
+        self.grain_mass = 4./3. * np.pi * grain_density * a_cutoff**3.
+
+    def _init_integral(self):
+        y = (self.a)**(3.-self.powlaw_index) * np.exp(-self.a/self.a_cutoff)
+        return (4*np.pi*self.grain_density/3)*np.trapz(y,self.a)
+
+    def n_density(self,mass_density,sizes):
+        C = mass_density/self.sintegral
+        dist = C * (sizes)**(-self.powlaw_index) * np.exp(-sizes/self.a_cutoff)
+        dist[sizes<self.amin] = 0.0
+        dist[sizes>self.amax] = 0.0
+        return dist
+    
+    def averaged_over_number(self,X,sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        norm = (sizes[mask]**(-self.powlaw_index)) * np.exp(-sizes[mask]/self.a_cutoff)
+        norm = np.trapz(norm,sizes[mask])
+        y = (X[mask]/sizes[mask]**(-self.powlaw_index)) * np.exp(-sizes[mask]/self.a_cutoff)
+        y = np.trapz(y,sizes[mask])
+        avg = y / norm
+        return avg 
     
 def Tielens_rate(fit,T):
     R = fit['a0'] + fit['a1']*T + fit['a2']*T**2 + fit['a3']*T**3 + fit['a4']*T**4 + fit['a5']*T**5
