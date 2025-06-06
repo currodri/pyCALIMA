@@ -640,7 +640,7 @@ def plot_relative_velocity(target_a,projectile_a,target_s,projectile_s,compositi
     
     import matplotlib.pyplot as plt
     import seaborn as sns
-    sns.set(style="white")
+    sns.set_theme(style="white")
     
     Mach = np.logspace(-1,1,nMach)
     

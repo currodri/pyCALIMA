@@ -1001,10 +1001,10 @@ if __name__ == '__main__':
     if len(args.simname) == 1:
         args.simname = args.simname[0]
     if args.dust and args.pahs:
-        fields = basic_hydro + metal_massfrac + dust_densities + co_massfrac + metal_ion + ions + noadvect
+        fields = basic_hydro + metal_massfrac + co_massfrac + dust_densities + metal_ion + ions + noadvect
         setup_yt(True,True)
     elif args.dust:
-        fields = basic_hydro + metal_massfrac + dust_densities[1:] + co_massfrac + metal_ion + ions + noadvect
+        fields = basic_hydro + metal_massfrac + co_massfrac + dust_densities[1:] + metal_ion + ions + noadvect
         setup_yt(True,False)
     else:
         fields = basic_hydro + metal_massfrac + co_massfrac + metal_ion + ions + ['unknown1','unknown2','unknown3','unknown4','unknown5','unknown6'] + noadvect

@@ -114,7 +114,7 @@ def pah_efficiencies(filename,verbose=False):
             data[a] = myarray
 
 
-    return data,columns,dust_type,nwav
+    return nwav,data,columns,dust_type
 
 def plot_efficiencies(filename,dust_type='grains',
                       do_average=True,

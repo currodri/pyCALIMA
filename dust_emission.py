@@ -36,6 +36,71 @@ c                = 2.99792458e10 # [cm/s] - Speed of light
 h                = 6.6260755e-27 # [erg s] - Planck constant
 sigma_sb         = 5.6703744e-05 # [g s-3 K-4] - Stefan-Boltzmann constant
 
+# PRIMA telescope band specifications
+# (https://prima.ipac.caltech.edu/page/instruments)
+PRIMA_bands = {
+    'PHI1': {
+        'band_name': 'PHI1',
+        'band_center': 34.5,  # [micron]
+        'band_width': 21,  # [micron]
+        'spectral_resolving_power': 10,
+        'band_min': 34.5 - 21 / 2,  # [micron]
+        'band_max': 34.5 + 21 / 2,  # [micron]
+        'band_FWHM': 4.1, # [arcsec]
+        'pixel_size': 4.1, # [arcsec]
+        'pixel_count': [63,23], # [x,y]
+        'polarimetry':False
+    },
+    'PHI2': {
+        'band_name': 'PHI2',
+        'band_center': 64.5,  # [micron]
+        'band_width': 39,  # [micron]
+        'spectral_resolving_power': 10,
+        'band_min': 64.5 - 39 / 2,  # [micron]
+        'band_max': 64.5 + 39 / 2,  # [micron]
+        'band_FWHM': 7.4, # [arcsec]
+        'pixel_size': 7.4, # [arcsec]
+        'pixel_count': [33,14], # [x,y],
+        'polarimetry':False
+    },
+    'PPI1': {
+        'band_name': 'PPI1',
+        'band_center': 92,  # [micron]
+        'spectral_resolving_power': 4,
+        'band_FWHM': 10.8, # [arcsec]
+        'pixel_size': 10.8, # [arcsec]
+        'pixel_count': [36,31], # [x,y]
+        'polarimetry':True
+    },
+    'PPI2': {
+        'band_name': 'PPI2',
+        'band_center': 126,  # [micron]
+        'spectral_resolving_power': 4,
+        'band_FWHM': 14.8, # [arcsec]
+        'pixel_size': 14.8, # [arcsec]
+        'pixel_count': [24,21], # [x,y]
+        'polarimetry':True
+    },
+    'PPI3': {
+        'band_name': 'PPI3',
+        'band_center': 172,  # [micron]
+        'spectral_resolving_power': 4,
+        'band_FWHM': 20.2, # [arcsec]
+        'pixel_size': 20.2, # [arcsec]
+        'pixel_count': [18,16], # [x,y]
+        'polarimetry':True
+    },
+    'PPI4': {
+        'band_name': 'PPI4',
+        'band_center': 235,  # [micron]
+        'spectral_resolving_power': 4,
+        'band_FWHM': 27.6, # [arcsec]
+        'pixel_size': 27.6, # [arcsec]
+        'pixel_count': [12,11], # [x,y]
+        'polarimetry':True
+    }
+}
+
 # Functions
 def compute_cross_sections(dust_type, do_average=True):
     """This function generates the cross sections for a given dust type
@@ -62,16 +127,18 @@ def compute_cross_sections(dust_type, do_average=True):
     # 1. Read the efficiencies
     if dust_type == 'SilSmall' or dust_type == 'SilLarge':
         filename = './draine_lee_1984/suvSil_81'
-        data, columns, name = dust_efficiencies(filename)
+        nwav,data, columns, name = dust_efficiencies(filename)
     elif dust_type == 'CSmall' or dust_type == 'CLarge':
         filename = './draine_lee_1984/Gra_81'
-        data, columns, name = dust_efficiencies(filename)
+        nwav,data, columns, name = dust_efficiencies(filename)
     elif dust_type == 'iPAHSmall' or dust_type == 'iPAHLarge':
         filename = './li_draine_2001/PAHion_30'
-        data,columns,dust_type,nwav = pah_efficiencies(filename)
+        nwav,data,columns,dust_type = pah_efficiencies(filename)
     elif dust_type == 'nPAHSmall' or dust_type == 'nPAHLarge':
         filename = './li_draine_2001/PAHneu_30'
-        data,columns,name,nwav = pah_efficiencies(filename)
+        nwav,data,columns,name = pah_efficiencies(filename)
+    else:
+        raise ValueError('Dust type not recognised: ',dust_type)
 
     # 2. Setup the underlying distribution
     if 'PAHSmall' in dust_type:
@@ -518,6 +585,85 @@ def plot_emission_spectra(dust_types,G0=[1.]):
     ax.legend(loc='best', fontsize=14, frameon=False)
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
     fig.savefig('./dust_eq_emission_spectra.png', format='png', dpi=300)
+
+def plot_emission_PRIMA_bands(dust_types,G0=[1.]):
+
+    from itertools import cycle
+    
+    # 1. Define the radiation field
+    wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
+    radiation_field = np.zeros((len(wav),2))
+    radiation_field[:,0] = wav
+    radiation_field[:,1] = modified_mmp83_radiation_field(wav) / wav * c # erg/cm^2/cm/s
+    
+    wavelengths_em = np.logspace(np.log10(0.1),np.log10(1000),1000) * 1e-4 # Convert to cm
+    
+    # 2. Setup the figures
+    fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$\lambda$ [$\mu$m]',fontsize=20)
+    ax.set_ylabel(r'$L_{\lambda}$ [erg/s]',fontsize=20)
+    ax.tick_params
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_ylim([1e-20,1e-5])
+
+    # List of line colors and styles for the number of dust types
+    colors = ['k','r','b','g','m','c']
+    linestyles = ['-','--','-.',':']
+    
+    import matplotlib.cm as cm
+
+    for idx, dust_type in enumerate(dust_types):
+        # 3A. Obtain the absorption cross section and interpolate over the wavelengths
+        a0, wavelengths, C_sca, C_abs, C_rp = compute_cross_sections(dust_type, do_average=False)
+        C_abs_interp = np.interp(radiation_field[:, 0], wavelengths[::-1], C_abs[::-1])
+        C_abs_em_interp = np.interp(wavelengths_em, wavelengths[::-1], C_abs[::-1])
+        
+        print('Absorption cross section for', dust_type, 'computed')
+        # Create a dictionary where each key is the luminosity array for a given PRIMA band
+        luminosity_prima = {}
+        for band in PRIMA_bands.values():
+            luminosity_prima[band['band_name']] = np.zeros(len(G0))
+
+        # 3B. Compute the radiation field averaged cross section
+        int_radfield = np.trapz(radiation_field[:, 1], x=radiation_field[:, 0])
+        # 3C. Compute the equilibrium temperature
+        for g0_idx, g0 in enumerate(G0):
+            Teq = compute_equilibrium_temperature(radiation_field[:, 0],
+                                                  wavelengths_em,
+                                                  g0 * radiation_field[:, 1],
+                                                  C_abs_interp, C_abs_em_interp)
+            # 3D. Loop over the PRIMA bands, integrating the luminosity if it is not a polarimeter
+            # and only showing the emission at a single wavelength if it is a polarimeter
+            for band in PRIMA_bands.values():
+                if band['polarimetry']:
+                    wavelength = band['band_center'] * 1e-4
+                    C_abs_em_interp = np.interp(wavelength, wavelengths[::-1], C_abs[::-1])
+                    L_lambda = planck_function(wavelength, Teq) * C_abs_em_interp
+                    luminosity_prima[band['band_name']][g0_idx] = 4. * np.pi * L_lambda
+                else:
+                    L_lambda = np.zeros(50)
+                    wavelength = np.linspace(band['band_min'],band['band_max'],50) * 1e-4
+                    C_abs_em_interp = np.interp(wavelength, wavelengths[::-1], C_abs[::-1])
+                    for i in range(0, len(wavelength)):
+                        L_lambda[i] = planck_function(wavelength[i], Teq) * C_abs_em_interp[i]
+                    luminosity_prima[band['band_name']][g0_idx] = 4. * np.pi * np.trapz(L_lambda, x=wavelength)
+        # 3E. Plot the results
+        for band,linestyle in zip(PRIMA_bands.values(),cycle(linestyles)):
+            color = cm.viridis(band['band_center'] / 1000)
+            ax.plot(G0, luminosity_prima[band['band_name']], label=band['band_name'],
+                    color=color, linestyle=linestyle, linewidth=2.5)
+        # Add legend entry for the dust type with black color
+        ax.plot([], [], label=dust_type, color='k', linestyle=linestyle, linewidth=2.5)
+    # 4. Finalise the figure and save
+    ax.legend(loc='best', fontsize=14, frameon=False)
+    fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
+    fig.savefig('./dust_eq_emission_PRIMA_bands.png', format='png', dpi=300)
+            
 
 def compute_Rosseland_oppacity(wavelengths,kappa_abs,Td):
     """This function computes the Rosseland mean opacity given the absorption cross section
