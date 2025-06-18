@@ -36,13 +36,13 @@ plt.rcParams.update({
     "font.serif": "Computer Modern Roman",
 })
 
-BERNEPATH = '/home/currodri/Codes/photoelectric-heating'
+BERNEPATH = '../photoelectric-heating'
 sys.path.append(BERNEPATH)
 from four_levels_model import HeatingGas
 
 # CONSTANTS
-pahneu_filepath = '/home/currodri/Codes/DustRAMSES/li_draine_2001/PAHneu_30'
-pahion_filepath = '/home/currodri/Codes/DustRAMSES/li_draine_2001/PAHion_30'
+pahneu_filepath = './li_draine_2001/PAHneu_30'
+pahion_filepath = './li_draine_2001/PAHion_30'
 epsilon_0 =  8.8541878188e-21 # Vacuum permittivity [F/nm]
 e = 1.602176634e-19           # Elementary charge [C]
 partition_coeff = 0.46        # Partition coefficient estimated from Bréchignac et al. 2014
@@ -376,54 +376,54 @@ def absorption_cross_section_Berne(Nc):
     
     ''' small size '''
     mb = 1e-18 #1Mb = 1e-18cm2, Mb for Megabarn (unit used to express the cross sectional area of nuclei)
-    energy_negative_charged,cross_anion = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/coronene_anion.txt',unpack=True) #C24
+    energy_negative_charged,cross_anion = np.loadtxt('../photoelectric-heating/anions/coronene_anion.txt',unpack=True) #C24
     
-    energy_negative_charged,crossa_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/ovalene_anion.txt',unpack=True) #C32
-    energy_neutral,crossn_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/ovalene_neutral.txt',unpack=True) #C32
-    energy_charged,crossc_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/ovalene_cation.txt',unpack=True) #C32
-    energy_double_charged,crossdc_1_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/ovalene_dication.txt',unpack=True) #C32
+    energy_negative_charged,crossa_1_case1 = np.loadtxt('../photoelectric-heating/anions/ovalene_anion.txt',unpack=True) #C32
+    energy_neutral,crossn_1_case1 = np.loadtxt('../photoelectric-heating/neutrals/ovalene_neutral.txt',unpack=True) #C32
+    energy_charged,crossc_1_case1 = np.loadtxt('../photoelectric-heating/cations/ovalene_cation.txt',unpack=True) #C32
+    energy_double_charged,crossdc_1_case1 = np.loadtxt('../photoelectric-heating/dications/ovalene_dication.txt',unpack=True) #C32
     
-    energy_negative_charged,crossa_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/tetrabenzocoronene_anion.txt',unpack=True) #C36
-    energy_neutral,crossn_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/tetrabenzocoronene_neutral.txt',unpack=True) #C36
-    energy_charged,crossc_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/tetrabenzocoronene_cation.txt',unpack=True) #C36
-    energy_double_charged,crossdc_2_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/tetrabenzocoronene_dication.txt',unpack=True) #C36
+    energy_negative_charged,crossa_2_case1 = np.loadtxt('../photoelectric-heating/anions/tetrabenzocoronene_anion.txt',unpack=True) #C36
+    energy_neutral,crossn_2_case1 = np.loadtxt('../photoelectric-heating/neutrals/tetrabenzocoronene_neutral.txt',unpack=True) #C36
+    energy_charged,crossc_2_case1 = np.loadtxt('../photoelectric-heating/cations/tetrabenzocoronene_cation.txt',unpack=True) #C36
+    energy_double_charged,crossdc_2_case1 = np.loadtxt('../photoelectric-heating/dications/tetrabenzocoronene_dication.txt',unpack=True) #C36
     
-    energy_negative_charged,crossa_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumbiphenyl_anion.txt',unpack=True) #C38
-    energy_neutral,crossn_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumbiphenyl_neutral.txt',unpack=True) #C38
-    energy_charged,crossc_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumbiphenyl_cation.txt',unpack=True) #C38
-    energy_double_charged,crossdc_3_case1 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumbiphenyl_dication.txt',unpack=True) #C38
+    energy_negative_charged,crossa_3_case1 = np.loadtxt('../photoelectric-heating/anions/circumbiphenyl_anion.txt',unpack=True) #C38
+    energy_neutral,crossn_3_case1 = np.loadtxt('../photoelectric-heating/neutrals/circumbiphenyl_neutral.txt',unpack=True) #C38
+    energy_charged,crossc_3_case1 = np.loadtxt('../photoelectric-heating/cations/circumbiphenyl_cation.txt',unpack=True) #C38
+    energy_double_charged,crossdc_3_case1 = np.loadtxt('../photoelectric-heating/dications/circumbiphenyl_dication.txt',unpack=True) #C38
     
     ''' medium size '''
-    energy_negative_charged,crossa_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumanthracene_anion.txt',unpack=True) #C40
-    energy_neutral,crossn_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumanthracene_neutral.txt',unpack=True) #C40
-    energy_charged,crossc_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumanthracene_cation.txt',unpack=True) #C40
-    energy_double_charged,crossdc_1_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumanthracene_dication.txt',unpack=True) #C40
+    energy_negative_charged,crossa_1_case2 = np.loadtxt('../photoelectric-heating/anions/circumanthracene_anion.txt',unpack=True) #C40
+    energy_neutral,crossn_1_case2 = np.loadtxt('../photoelectric-heating/neutrals/circumanthracene_neutral.txt',unpack=True) #C40
+    energy_charged,crossc_1_case2 = np.loadtxt('../photoelectric-heating/cations/circumanthracene_cation.txt',unpack=True) #C40
+    energy_double_charged,crossdc_1_case2 = np.loadtxt('../photoelectric-heating/dications/circumanthracene_dication.txt',unpack=True) #C40
     
-    energy_negative_charged,crossa_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumpyrene_anion.txt',unpack=True) #C42
-    energy_neutral,crossn_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumpyrene_neutral.txt',unpack=True) #C42
-    energy_charged,crossc_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumpyrene_cation.txt',unpack=True) #C42
-    energy_double_charged,crossdc_2_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumpyrene_dication.txt',unpack=True) #C42
+    energy_negative_charged,crossa_2_case2 = np.loadtxt('../photoelectric-heating/anions/circumpyrene_anion.txt',unpack=True) #C42
+    energy_neutral,crossn_2_case2 = np.loadtxt('../photoelectric-heating/neutrals/circumpyrene_neutral.txt',unpack=True) #C42
+    energy_charged,crossc_2_case2 = np.loadtxt('../photoelectric-heating/cations/circumpyrene_cation.txt',unpack=True) #C42
+    energy_double_charged,crossdc_2_case2 = np.loadtxt('../photoelectric-heating/dications/circumpyrene_dication.txt',unpack=True) #C42
     
-    energy_negative_charged,crossa_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/hexabenzocoronene_anion.txt',unpack=True) #C42
-    energy_neutral,crossn_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/hexabenzocoronene_neutral.txt',unpack=True) #C42
-    energy_charged,crossc_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/hexabenzocoronene_cation.txt',unpack=True) #C42
-    energy_double_charged,crossdc_3_case2 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/hexabenzocoronene_dication.txt',unpack=True) #C42    
+    energy_negative_charged,crossa_3_case2 = np.loadtxt('../photoelectric-heating/anions/hexabenzocoronene_anion.txt',unpack=True) #C42
+    energy_neutral,crossn_3_case2 = np.loadtxt('../photoelectric-heating/neutrals/hexabenzocoronene_neutral.txt',unpack=True) #C42
+    energy_charged,crossc_3_case2 = np.loadtxt('../photoelectric-heating/cations/hexabenzocoronene_cation.txt',unpack=True) #C42
+    energy_double_charged,crossdc_3_case2 = np.loadtxt('../photoelectric-heating/dications/hexabenzocoronene_dication.txt',unpack=True) #C42    
     
     ''' large size '''
-    energy_negative_charged,crossa_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/dicoronylene_anion.txt',unpack=True) #C48
-    energy_neutral,crossn_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/dicoronylene_neutral.txt',unpack=True) #C48
-    energy_charged,crossc_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/dicoronylene_cation.txt',unpack=True) #C48
-    energy_double_charged,crossdc_1_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/dicoronylene_dication.txt',unpack=True) #C48
+    energy_negative_charged,crossa_1_case3 = np.loadtxt('../photoelectric-heating/anions/dicoronylene_anion.txt',unpack=True) #C48
+    energy_neutral,crossn_1_case3 = np.loadtxt('../photoelectric-heating/neutrals/dicoronylene_neutral.txt',unpack=True) #C48
+    energy_charged,crossc_1_case3 = np.loadtxt('../photoelectric-heating/cations/dicoronylene_cation.txt',unpack=True) #C48
+    energy_double_charged,crossdc_1_case3 = np.loadtxt('../photoelectric-heating/dications/dicoronylene_dication.txt',unpack=True) #C48
     
-    energy_negative_charged,crossa_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumcoronene_anion.txt',unpack=True) #C54
-    energy_neutral,crossn_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumcoronene_neutral.txt',unpack=True) #C54
-    energy_charged,crossc_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumcoronene_cation.txt',unpack=True) #C54
-    energy_double_charged,crossdc_2_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumcoronene_dication.txt',unpack=True) #C54
+    energy_negative_charged,crossa_2_case3 = np.loadtxt('../photoelectric-heating/anions/circumcoronene_anion.txt',unpack=True) #C54
+    energy_neutral,crossn_2_case3 = np.loadtxt('../photoelectric-heating/neutrals/circumcoronene_neutral.txt',unpack=True) #C54
+    energy_charged,crossc_2_case3 = np.loadtxt('../photoelectric-heating/cations/circumcoronene_cation.txt',unpack=True) #C54
+    energy_double_charged,crossdc_2_case3 = np.loadtxt('../photoelectric-heating/dications/circumcoronene_dication.txt',unpack=True) #C54
     
-    energy_negative_charged,crossa_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/anions/circumovalene_anion.txt',unpack=True) #C66
-    energy_neutral,crossn_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/neutrals/circumovalene_neutral.txt',unpack=True) #C66
-    energy_charged,crossc_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/cations/circumovalene_cation.txt',unpack=True) #C66
-    energy_double_charged,crossdc_3_case3 = np.loadtxt('/home/currodri/Codes/photoelectric-heating/dications/circumovalene_dication.txt',unpack=True) #C66
+    energy_negative_charged,crossa_3_case3 = np.loadtxt('../photoelectric-heating/anions/circumovalene_anion.txt',unpack=True) #C66
+    energy_neutral,crossn_3_case3 = np.loadtxt('../photoelectric-heating/neutrals/circumovalene_neutral.txt',unpack=True) #C66
+    energy_charged,crossc_3_case3 = np.loadtxt('../photoelectric-heating/cations/circumovalene_cation.txt',unpack=True) #C66
+    energy_double_charged,crossdc_3_case3 = np.loadtxt('../photoelectric-heating/dications/circumovalene_dication.txt',unpack=True) #C66
     #for each cross section for each state of the molecule, we have an associated energy 
     
     energy_range  = np.where(energy_neutral<13.6)[0]
@@ -579,7 +579,7 @@ def plot_radiation_fields():
     from astropy.table import Table
 
     # Read the radiation field in erg s-1 cm-2 nm-1 sr-1
-    wave_intensity = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
+    wave_intensity = Table.read('../photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
     wavelength = wave_intensity['col1']  # in nm
     print(wavelength.min(),wavelength.max())
     wavelength_intensity = wave_intensity['col2']  # in erg cm-2 s-1 nm-1 sr-1
@@ -617,7 +617,7 @@ def compute_heating_efficiency(args):
     # 3. Convert wavelength [micron] to photon energy [eV]
     E = 1.2398 / wav
     # Convert from [photons cm^-2 s^-1 nm^-1] to [W m^-2 eV^-1]
-    wave_intensity = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+    wave_intensity = Table.read('../photoelectric-heating/ISRF/draine1978.txt', format='ascii')
     wavelength = wave_intensity['col1']  # in nm
     wavelength_intensity = wave_intensity['col2']  # in erg cm-2 s-1 nm-1 sr-1
     I_file_converted = np.interp(wav*1e-3, wavelength, wavelength_intensity)
@@ -943,12 +943,12 @@ def compute_heating_efficiency3(args):
     f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
     
     # 15. Compute the total injected power
-    partition_coeff = 0.5 * E / (E - IP_anion) # Partition coefficient for the anion
+    partition_coeff = 1 #0.5 * E / (E - IP_anion) # Partition coefficient for the anion
     Pinj_anion = power_injected(IP_anion,partition_coeff*2*np.pi*yield_anion*sigma_abs_anion,I,E)
-    partition_coeff = 0.5 * E / (E - IP_neutral) # Partition coefficient for the neutral
-    Pinj_neutral =  power_injected(IP_neutral,partition_coeff*2*np.pi*yield_neutral*sigma_abs_neu,I,E)
-    partition_coeff = 0.5 * E / (E - IP_cation) # Partition coefficient for the cation
-    Pinj_cation = power_injected(IP_cation,partition_coeff*2*np.pi*yield_cation*sigma_abs_cation,I,E)
+    partition_coeff = partition_coeff #0.5 * E / (E - IP_neutral) # Partition coefficient for the neutral
+    Pinj_neutral =  partition_coeff*power_injected(IP_neutral,2*np.pi*yield_neutral*sigma_abs_neu,I,E)
+    partition_coeff = partition_coeff #0.5 * E / (E - IP_cation) # Partition coefficient for the cation
+    Pinj_cation = partition_coeff*power_injected(IP_cation,2*np.pi*yield_cation*sigma_abs_cation,I,E)
     
     Pinj = W2ergs*(f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation) # Convert from W to erg/s
     
@@ -967,6 +967,7 @@ def compute_heating_efficiency3(args):
     P_rec = k_att * ne * f_neutral * (3./2.* kB * T) + \
             k_rec_1 * ne * f_1 * (3./2.* kB * T ) + \
             k_rec_2 * ne * f_2 * (3./2.* kB * T )
+
     
     return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff, Pinj, P_rec
     
@@ -1022,7 +1023,7 @@ def Berne22_efficiency(ne_min,ne_max,n_ne,T,axes):
         result = PEH.parameters()
         eff[j] = result[1]
         gamma[j] = result[3]
-        Pinj[j] = result[7]
+        Pinj[j] = result[0] * (54./0.1) / 2.7e-4
         f_anion[j] = PEH.frac_anion
         f_neutral[j] = PEH.frac_neutral
         f_1[j] = PEH.frac_charged
@@ -1202,25 +1203,25 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
     num_cores = 20#min(os.cpu_count(),n_ne)
     args_list = []
     if radiation_model == 'Draine':
-        draine1978 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+        draine1978 = Table.read('../photoelectric-heating/ISRF/draine1978.txt', format='ascii')
         rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
         rad_name = 'Draine 1978'
         rad_color = '#BBD8B3'
         linestyle= ':'
     elif radiation_model == 'Habing':
-        habing1968 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/habing1968.txt', format='ascii')
+        habing1968 = Table.read('../photoelectric-heating/ISRF/habing1968.txt', format='ascii')
         rad_field = np.column_stack([habing1968['col1'],habing1968['col2']])
         rad_name = 'Habing 1968'
         rad_color = '#F3B61F'
         linestyle= ':'
     elif radiation_model == 'Mathis':
-        mathis1983 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
+        mathis1983 = Table.read('../photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
         rad_field = np.column_stack([mathis1983['col1'],mathis1983['col2']])
         rad_name = 'Mathis+1983'
         rad_color = '#A29F15'
         linestyle= ':'
     elif radiation_model == 'HD200775':
-        HD200775 = Table.read('/home/currodri/Codes/photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        HD200775 = Table.read('../photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
         rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1247,7 +1248,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#256EFF'
         linestyle= '--'
     elif radiation_model == 'O6V':
-        O6V = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_40000', format='ascii')
+        O6V = Table.read('../photoelectric-heating/stars/kp00_40000', format='ascii')
         rad_field = np.column_stack([O6V['col1'],O6V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1259,7 +1260,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#C33149'
         linestyle= '-.'
     elif radiation_model == 'B0V':
-        B0V = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_30000', format='ascii')
+        B0V = Table.read('../photoelectric-heating/stars/kp00_30000', format='ascii')
         rad_field = np.column_stack([B0V['col1'],B0V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1271,7 +1272,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#4B543B'
         linestyle= '-.'
     elif radiation_model == 'A0':
-        A0 = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_10000', format='ascii')
+        A0 = Table.read('../photoelectric-heating/stars/kp00_10000', format='ascii')
         rad_field = np.column_stack([A0['col1'],A0['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1400,25 +1401,25 @@ def compute_peh_model(pahtype,attach_model,radiation_model,optical_model,ne_min,
     num_cores = 20#min(os.cpu_count(),n_ne)
     args_list = []
     if radiation_model == 'Draine':
-        draine1978 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+        draine1978 = Table.read('../photoelectric-heating/ISRF/draine1978.txt', format='ascii')
         rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
         rad_name = 'Draine 1978'
         rad_color = '#BBD8B3'
         linestyle= ':'
     elif radiation_model == 'Habing':
-        habing1968 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/habing1968.txt', format='ascii')
+        habing1968 = Table.read('../photoelectric-heating/ISRF/habing1968.txt', format='ascii')
         rad_field = np.column_stack([habing1968['col1'],habing1968['col2']])
         rad_name = 'Habing 1968'
         rad_color = '#F3B61F'
         linestyle= ':'
     elif radiation_model == 'Mathis':
-        mathis1983 = Table.read('/home/currodri/Codes/photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
+        mathis1983 = Table.read('../photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
         rad_field = np.column_stack([mathis1983['col1'],mathis1983['col2']])
         rad_name = 'Mathis+1983'
         rad_color = '#A29F15'
         linestyle= ':'
     elif radiation_model == 'HD200775':
-        HD200775 = Table.read('/home/currodri/Codes/photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        HD200775 = Table.read('../photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
         rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1445,7 +1446,7 @@ def compute_peh_model(pahtype,attach_model,radiation_model,optical_model,ne_min,
         rad_color = '#256EFF'
         linestyle= '--'
     elif radiation_model == 'O6V':
-        O6V = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_40000', format='ascii')
+        O6V = Table.read('../photoelectric-heating/stars/kp00_40000', format='ascii')
         rad_field = np.column_stack([O6V['col1'],O6V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1457,7 +1458,7 @@ def compute_peh_model(pahtype,attach_model,radiation_model,optical_model,ne_min,
         rad_color = '#C33149'
         linestyle= '-.'
     elif radiation_model == 'B0V':
-        B0V = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_30000', format='ascii')
+        B0V = Table.read('../photoelectric-heating/stars/kp00_30000', format='ascii')
         rad_field = np.column_stack([B0V['col1'],B0V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1469,7 +1470,7 @@ def compute_peh_model(pahtype,attach_model,radiation_model,optical_model,ne_min,
         rad_color = '#4B543B'
         linestyle= '-.'
     elif radiation_model == 'A0':
-        A0 = Table.read('/home/currodri/Codes/photoelectric-heating/stars/kp00_10000', format='ascii')
+        A0 = Table.read('../photoelectric-heating/stars/kp00_10000', format='ascii')
         rad_field = np.column_stack([A0['col1'],A0['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1539,7 +1540,6 @@ def compute_peh_model(pahtype,attach_model,radiation_model,optical_model,ne_min,
     gamma = G0 * np.sqrt(Tgas) / ne
 
     return gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec
-
 
 def Tielens2001_efficiency(ax):
     n_gamma = 20
@@ -1766,259 +1766,254 @@ def compute_tables_ISRF(T,ne_min,ne_max,n_ne=100,radiation_model='Draine',
     fig.subplots_adjust(top=0.97,bottom=0.135,left=0.085,right=0.935,wspace=0,hspace=0)
     fig.savefig(f'peh_Pinj_ISRF_{radiation_model}_{op_model}_{attach_model}_{int(T)}K.pdf', format='pdf', dpi=300)
 
-
-def save_results_to_txt(filename, results, x, y, z):
-    with open(filename, 'w', newline='') as txtfile:
-        ni,nj,nk = results.shape
-        txtfile.write(f'{ni} {nj} {nk}\n')
-        for i in range(0,ni):
-            for j in range(0, nj):
-                for k in range(0, nk):
-                    txtfile.write(f'{np.log10(x[i])} {np.log10(y[j])} {np.log10(z[k])} {results[i,j,k]}\n')            
-
-def read_data(filename):
-    # Read the data from the file
-    data = np.loadtxt(filename,skiprows=1)
+def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
+                              optical_model='Malloci',attach_model='Berne'):
     
-    # Separate the data into log10 space components and values
-    log_G0 = data[:, 0]
-    log_ne = data[:, 1]
-    log_T = data[:, 2]
-    values = data[:, 3]
-
-    # Get unique values for log_G0, log_ne, and log_T
-    unique_log_G0 = np.unique(log_G0)
-    unique_log_ne = np.unique(log_ne)
-    unique_log_T = np.unique(log_T)
-
-    # Reshape the values to reconstruct the matrix
-    ni = len(unique_log_G0)
-    nj = len(unique_log_ne)
-    nk = len(unique_log_T)
+    from astropy.table import Table
+    T_list = np.logspace(np.log10(Tmin*K),np.log10(Tmax*K),nT)
     
-    # Ensure the reshaping works properly
-    values_matrix = values.reshape((ni, nj, nk))
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
+
+    ax.set_ylabel(r'$P_{\rm inj},P_{\rm rec}$', fontsize=16)
+    ax.set_xlabel(r'$T$ [K]',fontsize=16)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_xlim([Tmin,Tmax])
+
+    # 1. Load the radiation field
+    if radiation_model == 'Draine':
+        draine1978 = Table.read('../photoelectric-heating/ISRF/draine1978.txt', format='ascii')
+        rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
+        rad_name = 'Draine 1978'
+        rad_color = '#BBD8B3'
+        linestyle= ':'
+    elif radiation_model == 'Habing':
+        habing1968 = Table.read('../photoelectric-heating/ISRF/habing1968.txt', format='ascii')
+        rad_field = np.column_stack([habing1968['col1'],habing1968['col2']])
+        rad_name = 'Habing 1968'
+        rad_color = '#F3B61F'
+        linestyle= ':'
+    elif radiation_model == 'Mathis':
+        mathis1983 = Table.read('../photoelectric-heating/ISRF/mathis1983.txt', format='ascii')
+        rad_field = np.column_stack([mathis1983['col1'],mathis1983['col2']])
+        rad_name = 'Mathis+1983'
+        rad_color = '#A29F15'
+        linestyle= ':'
+    elif radiation_model == 'HD200775':
+        HD200775 = Table.read('../photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'HD200775'
+        rad_color = '#510D0A'
+        linestyle= '--'
+    elif radiation_model[:2] == 'BB':
+        T_star = float(radiation_model[2:])
+        # Obtain the black body radiation field in units of erg cm-2 s-1 nm-1 sr-1 for the 
+        # given temperature
+        BB = blackbody_radiation(T_star, 23.0, 500, num_points=1000)
+        rad_field = np.column_stack([BB[0].to('nm').d,BB[1].to('erg/cm**2/s/nm').d])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'BB $T_{\star}=$'+str(int(T_star))+' K'
+        rad_color = '#256EFF'
+        linestyle= '--'
+    elif radiation_model == 'O6V':
+        O6V = Table.read('../photoelectric-heating/stars/kp00_40000', format='ascii')
+        rad_field = np.column_stack([O6V['col1'],O6V['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'O6V'
+        rad_color = '#C33149'
+        linestyle= '-.'
+    elif radiation_model == 'B0V':
+        B0V = Table.read('../photoelectric-heating/stars/kp00_30000', format='ascii')
+        rad_field = np.column_stack([B0V['col1'],B0V['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'B0V'
+        rad_color = '#4B543B'
+        linestyle= '-.'
+    elif radiation_model == 'A0':
+        A0 = Table.read('../photoelectric-heating/stars/kp00_10000', format='ascii')
+        rad_field = np.column_stack([A0['col1'],A0['col2']])
+        distance = 1. # at 20 pc
+        star_radius = 10. # in solar radius units
+        d_0 = 3.086e18*distance #1pc = 3.086e18cm
+        r = star_radius*7e10 #radius of the star in cm
+        ''' geometrical dilution '''
+        rad_field[:,1] = rad_field[:,1]*(r/d_0)**2
+        rad_name = r'A0'
+        rad_color = '#533A71'
+        linestyle= '-.'
+    elif radiation_model == 'BPASS_veryyoung_lowz':
+        from read_ramses_sed import read_sed_tables
+        from unyt import Gyr
+        metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
+        fixed_age = 0.01 # 10 Myr
+        fixed_metallicity = 0.0002 # 0.01 Zsun
+        # Find the index of the closest age to the desired fixed age
+        age_index = np.argmin(np.abs(ages - fixed_age * Gyr))
+        # Find the index of the closest metallicity to the desired fixed metallicity
+        metallicity_index = np.argmin(np.abs(metallicities - fixed_metallicity))
+        bpass = SEDs[metallicity_index,age_index,:]
+        rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
+        rad_name = r'BPASS ($t=10$ Myr, $Z=0.01Z_{\odot}$)'
+        rad_color = '#258EA6'
+        linestyle= '-'
+    elif radiation_model == 'BPASS_young_midz':
+        from read_ramses_sed import read_sed_tables
+        from unyt import Gyr
+        metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
+        fixed_age = 0.1 # 0.1 Gyr
+        fixed_metallicity = 0.01 # 0.5 Zsun
+        # Find the index of the closest age to the desired fixed age
+        age_index = np.argmin(np.abs(ages - fixed_age * Gyr))
+        # Find the index of the closest metallicity to the desired fixed metallicity
+        metallicity_index = np.argmin(np.abs(metallicities - fixed_metallicity))
+        bpass = SEDs[metallicity_index,age_index,:]
+        rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
+        rad_name = r'BPASS ($t=1$ Gyr, $Z=0.5Z_{\odot}$)'
+        rad_color = '#F75590'
+        linestyle= '-'
+    elif radiation_model == 'BPASS_old_highz':
+        from read_ramses_sed import read_sed_tables
+        from unyt import Gyr
+        metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
+        fixed_age = 1 # 1 Gyr
+        fixed_metallicity = 0.02 # 1 Zsun
+        # Find the index of the closest age to the desired fixed age
+        age_index = np.argmin(np.abs(ages - fixed_age * Gyr))
+        # Find the index of the closest metallicity to the desired fixed metallicity
+        metallicity_index = np.argmin(np.abs(metallicities - fixed_metallicity))
+        bpass = SEDs[metallicity_index,age_index,:]
+        rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
+        rad_name = r'BPASS ($t=1$ Gyr, $Z=Z_{\odot}$)'
+        rad_color = '#D84A05'
+        linestyle= '-'
+
+    rad_field[:,1] = rad_field[:,1] * G0  # Scale the radiation field by G0
+
+    # 2. Small PAHs
+    dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    dist.Nc = 54
+    linestyle = '-'
+    color = 'blue'
+
+    if optical_model == 'Malloci':
+        energy_negative_charged, energy_neutral, \
+        energy_charged, energy_double_charged, \
+        sigma_abs_anion, sigma_abs_neu, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(dist.Nc)
+    elif optical_model == 'Draine':
+        wav1, sigma_abs_neutral = absorption_cross_section(dist, 0, True)
+        wav1, sigma_abs_ion = absorption_cross_section(dist, 1, True)
+        energy_range = (wav1 > 0.0912)
+        wav1 = wav1[energy_range]
+        sigma_abs_neutral = sigma_abs_neutral[energy_range]
+        sigma_abs_ion = sigma_abs_ion[energy_range]
+        energy_negative_charged = 1.2398 / wav1 # in eV
+        energy_neutral = energy_negative_charged
+        energy_charged = 1.2398 / wav1
+        energy_double_charged = 1.2398 / wav1
+        sigma_abs_anion = sigma_abs_neutral
+        sigma_abs_neu = sigma_abs_neutral
+        pah_cross_c = sigma_abs_ion
+        pah_cross_dc = sigma_abs_ion
+
+    anion_data = np.column_stack([energy_negative_charged,sigma_abs_anion])
+    neutral_data = np.column_stack([energy_neutral,sigma_abs_neu])
+    cation_data = np.column_stack([energy_charged,pah_cross_c])
+    dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
+
+    args_list = []
+    for j in range(0, nT):
+        args = T_list[j],ne,dist,attach_model,rad_field,\
+                anion_data,neutral_data,cation_data,dication_data
+        args_list.append(args)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=20) as executor:
+        results = list(tqdm(executor.map(compute_heating_efficiency3, args_list), total=nT,
+                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
     
-    return unique_log_G0, unique_log_ne, unique_log_T, values_matrix
+    G0,ne_tab,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec = zip(*results)
+    gamma = G0 * np.sqrt(Tgas) / ne_tab
 
-def interpolate_linear(log_G0, log_ne, log_T, values_matrix, G0, ne, T):
-    log_G0_query = np.log10(G0)
-    log_ne_query = np.log10(ne)
-    log_T_query = np.log10(T)
+    ax.plot(T_list,Pinj,color='r',linewidth=2.5,linestyle=linestyle,
+             label=rf'$N_C=$ {dist.Nc}')
+    ax.plot(T_list,Prec,color='b',linewidth=2.5,linestyle=linestyle)
 
-    # Find indices for the interpolation
-    i = np.searchsorted(log_G0, log_G0_query) - 1
-    j = np.searchsorted(log_ne, log_ne_query) - 1
-    k = np.searchsorted(log_T, log_T_query) - 1
+    # 3. Large PAHs
+    dist = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
+    dist.Nc = 418
+    linestyle = '--'
+    color = 'royalblue'
 
-    i = np.clip(i, 0, len(log_G0) - 2)
-    j = np.clip(j, 0, len(log_ne) - 2)
-    k = np.clip(k, 0, len(log_T) - 2)
+    if optical_model == 'Malloci':
+        energy_negative_charged, energy_neutral, \
+        energy_charged, energy_double_charged, \
+        sigma_abs_anion, sigma_abs_neu, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(dist.Nc)
+    elif optical_model == 'Draine':
+        wav1, sigma_abs_neutral = absorption_cross_section(dist, 0, True)
+        wav1, sigma_abs_ion = absorption_cross_section(dist, 1, True)
+        energy_range = (wav1 > 0.0912)
+        wav1 = wav1[energy_range]
+        sigma_abs_neutral = sigma_abs_neutral[energy_range]
+        sigma_abs_ion = sigma_abs_ion[energy_range]
+        energy_negative_charged = 1.2398 / wav1 # in eV
+        energy_neutral = energy_negative_charged
+        energy_charged = 1.2398 / wav1
+        energy_double_charged = 1.2398 / wav1
+        sigma_abs_anion = sigma_abs_neutral
+        sigma_abs_neu = sigma_abs_neutral
+        pah_cross_c = sigma_abs_ion
+        pah_cross_dc = sigma_abs_ion
 
-    # Compute interpolation weights
-    x1, x2 = log_G0[i], log_G0[i + 1]
-    y1, y2 = log_ne[j], log_ne[j + 1]
-    z1, z2 = log_T[k], log_T[k + 1]
+    anion_data = np.column_stack([energy_negative_charged,sigma_abs_anion])
+    neutral_data = np.column_stack([energy_neutral,sigma_abs_neu])
+    cation_data = np.column_stack([energy_charged,pah_cross_c])
+    dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
 
-    xd = (log_G0_query - x1) / (x2 - x1)
-    yd = (log_ne_query - y1) / (y2 - y1)
-    zd = (log_T_query - z1) / (z2 - z1)
-
-    # Interpolate
-    c00 = values_matrix[i, j, k] * (1 - xd) + values_matrix[i + 1, j, k] * xd
-    c01 = values_matrix[i, j, k + 1] * (1 - xd) + values_matrix[i + 1, j, k + 1] * xd
-    c10 = values_matrix[i, j + 1, k] * (1 - xd) + values_matrix[i + 1, j + 1, k] * xd
-    c11 = values_matrix[i, j + 1, k + 1] * (1 - xd) + values_matrix[i + 1, j + 1, k + 1] * xd
-
-    c0 = c00 * (1 - yd) + c10 * yd
-    c1 = c01 * (1 - yd) + c11 * yd
-
-    interpolated_value = c0 * (1 - zd) + c1 * zd
-
-    return interpolated_value
-
-def export_heating(G0_min,G0_max,T_min,T_max,ne_min,ne_max,n_G0,n_T,n_ne,model='Berne'):
+    args_list = []
+    for j in range(0, nT):
+        args = T_list[j],ne,dist,attach_model,rad_field,\
+                anion_data,neutral_data,cation_data,dication_data
+        args_list.append(args)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=20) as executor:
+        results = list(tqdm(executor.map(compute_heating_efficiency3, args_list), total=nT,
+                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
     
-    # 1. Prepare the parameter space
-    G0_values = np.logspace(np.log10(G0_min),np.log10(G0_max),n_G0)
-    T_values = np.logspace(np.log10(T_min),np.log10(T_max),n_T)
-    ne_values = np.logspace(np.log10(ne_min),np.log10(ne_max),n_ne)
-    
-    # 2. Prepare arguments for parallel computation
-    dist_small = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
-    dist_small.Nc = 54
-    wav,sigma_abs_anion = absorption_cross_section(dist_small,0)
-    wav,sigma_abs_neu = absorption_cross_section(dist_small,0)
-    wav,sigma_abs_cation = absorption_cross_section(dist_small,1)
-    params_small = [(G0, T, ne, dist_small, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation,sigma_abs_cation)
-          for G0 in G0_values for ne in ne_values for T in T_values]
+    G0,ne_tab,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec = zip(*results)
+    gamma = G0 * np.sqrt(Tgas) / ne_tab
 
-    dist_large = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
-    dist_large.Nc = 400
-    wav,sigma_abs_anion = absorption_cross_section(dist_large,0)
-    wav,sigma_abs_neu = absorption_cross_section(dist_large,0)
-    wav,sigma_abs_cation = absorption_cross_section(dist_large,1)
-    params_large = [(G0, T, ne, dist_large, model, wav, sigma_abs_anion, sigma_abs_neu, sigma_abs_cation,sigma_abs_cation)
-          for G0 in G0_values for ne in ne_values for T in T_values]
+    ax.plot(T_list,Pinj,color='r',linewidth=2.5,linestyle=linestyle,
+             label=rf'$N_C=$ {dist.Nc}')
+    ax.plot(T_list,Prec,color='b',linewidth=2.5,linestyle=linestyle)
 
+    # 4. Add labelling and legend
+    ax.text(0.65, 0.9, r'$n_e=$ %i cm$^{-3}$'%int(ne),
+                        transform=ax.transAxes, fontsize=16,
+                        verticalalignment='top', color='black')
+    ax.legend(loc='best', fontsize=14, frameon=False)
 
-    # 3. Perform parallel computation
-    results_small = []
-    num_cores = 20
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-            results_small = list(tqdm(executor.map(compute_heating_efficiency, params_small), total=n_G0*n_ne*n_T,
-                                desc=f'    Computing efficiency for small PAHs Nc={dist_small.Nc}', unit=' steps'))
-    
-    results_large = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-            results_large = list(tqdm(executor.map(compute_heating_efficiency, params_large), total=n_G0*n_ne*n_T,
-                                desc=f'    Computing efficiency for large PAHs Nc={dist_large.Nc}', unit=' steps'))
-                    
-            
-    # 4. Initialize matrices to store the results
-    efficiency_matrix_small = np.zeros((n_G0, n_ne, n_T))
-    f_anion_matrix_small = np.zeros((n_G0, n_ne, n_T))
-    f_neutral_matrix_small = np.zeros((n_G0, n_ne, n_T))
-    f_1_matrix_small = np.zeros((n_G0, n_ne, n_T))
-    f_2_matrix_small = np.zeros((n_G0, n_ne, n_T))
-    
-    efficiency_matrix_large = np.zeros((n_G0, n_ne, n_T))
-    f_anion_matrix_large = np.zeros((n_G0, n_ne, n_T))
-    f_neutral_matrix_large = np.zeros((n_G0, n_ne, n_T))
-    f_1_matrix_large = np.zeros((n_G0, n_ne, n_T))
-    f_2_matrix_large = np.zeros((n_G0, n_ne, n_T))
-    
-    # 5. Fill matrices with the computed results
-    for result in results_small:
-        G0, ne, T, f_anion, f_neutral, f_1, f_2, eff = result
-        i = np.argmin(np.abs(G0_values - G0))
-        j = np.argmin(np.abs(ne_values - ne))
-        k = np.argmin(np.abs(T_values - T))
-        efficiency_matrix_small[i, j, k] = eff
-        f_anion_matrix_small[i, j, k] = f_anion
-        f_neutral_matrix_small[i, j, k] = f_neutral
-        f_1_matrix_small[i, j, k] = f_1
-        f_2_matrix_small[i, j, k] = f_2
-    for result in results_large:
-        G0, ne, T, f_anion, f_neutral, f_1, f_2, eff = result
-        i = np.argmin(np.abs(G0_values - G0))
-        j = np.argmin(np.abs(ne_values - ne))
-        k = np.argmin(np.abs(T_values - T))
-        efficiency_matrix_large[i, j, k] = eff
-        f_anion_matrix_large[i, j, k] = f_anion
-        f_neutral_matrix_large[i, j, k] = f_neutral
-        f_1_matrix_large[i, j, k] = f_1
-        f_2_matrix_large[i, j, k] = f_2
-        
-    # 6. Save the results to the data files
-    save_results_to_txt('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), efficiency_matrix_small, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_anion_matrix_small, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_neutral_matrix_small, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_1_matrix_small, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_small.a0), f_2_matrix_small, G0_values, ne_values, T_values)
-    
-    save_results_to_txt('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), efficiency_matrix_large, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_anion_matrix_large, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_neutral_matrix_large, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_1_matrix_large, G0_values, ne_values, T_values)
-    save_results_to_txt('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_large.a0), f_2_matrix_large, G0_values, ne_values, T_values)
-
-def check_tables(G0_min,G0_max,ne_test,T_test,model):
-    
-    dist_small = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
-    dist_small.Nc = 54
-
-    dist_large = LogNormal_Distribution(basic_a0[1],basic_amin[1],basic_amax[1],basic_sigma[1],basic_s[1])
-    dist_large.Nc = 400
-
-    # 7. Test that everything is alright by obtaining a mock curve for a given ne and T
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(6,7), dpi=300, facecolor='w', edgecolor='k')
-
-    axes[0,0].set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
-    axes[1].set_ylabel(r'Charge fraction', fontsize=16)
-    axes[2].set_ylabel(r'Ionised fraction', fontsize=16)
-    axes[2].set_xlabel(r'$\gamma (G0\sqrt{T}/n_e)$ [K$^{1/2}$ cm$^{-3}$]',fontsize=16)
-    axes[0,0].set_yscale('log')
-    axes[0,0].set_xscale('log')
-    axes[0,0].tick_params(labelsize=14)
-    axes[0,0].xaxis.set_ticks_position('both')
-    axes[0,0].yaxis.set_ticks_position('both')
-    axes[0,0].minorticks_on()
-    axes[0,0].tick_params(which='both',axis="both",direction="in")
-    axes[0,0].set_xlim([10,1e+6])
-    axes[0,0].set_ylim([3e-4,1])
-    axes[1].set_xscale('log')
-    axes[1].tick_params(labelsize=14)
-    axes[1].xaxis.set_ticks_position('both')
-    axes[1].yaxis.set_ticks_position('both')
-    axes[1].minorticks_on()
-    axes[1].tick_params(which='both',axis="both",direction="in")
-    axes[1].set_xlim([10,1e+6])
-    axes[1].set_ylim([0,1])
-    axes[2].set_xscale('log')
-    axes[2].tick_params(labelsize=14)
-    axes[2].xaxis.set_ticks_position('both')
-    axes[2].yaxis.set_ticks_position('both')
-    axes[2].minorticks_on()
-    axes[2].tick_params(which='both',axis="both",direction="in")
-    axes[2].set_xlim([10,1e+6])
-    axes[2].set_ylim([0,1])
-    G0_test = np.logspace(np.log10(G0_min),np.log10(G0_max),200)
-    interpolated_eff = np.zeros(200)
-    interpolated_f_anion = np.zeros(200)
-    interpolated_f_neutral = np.zeros(200)
-    interpolated_f_cation = np.zeros(200)
-    interpolated_f_dication = np.zeros(200)
-    
-    log_G0, log_ne, log_T, eff_matrix = read_data('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
-    log_G0, log_ne, log_T, f_anion_matrix = read_data('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
-    log_G0, log_ne, log_T, f_neutral_matrix = read_data('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
-    log_G0, log_ne, log_T, f_cation_matrix = read_data('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
-    log_G0, log_ne, log_T, f_dication_matrix = read_data('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_small.a0))
-    
-    for i in range(0, len(G0_test)):
-        interpolated_eff[i] = interpolate_linear(log_G0, log_ne, log_T, eff_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_anion[i] = interpolate_linear(log_G0, log_ne, log_T, f_anion_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_neutral[i] = interpolate_linear(log_G0, log_ne, log_T, f_neutral_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_cation[i] = interpolate_linear(log_G0, log_ne, log_T, f_cation_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_dication[i] = interpolate_linear(log_G0, log_ne, log_T, f_dication_matrix, G0_test[i], ne_test, T_test)
-
-        
-    axes[0,0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='-',color='k')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_anion, label='$Z=-1$',linestyle='-',color='b')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_neutral, label='$Z=0$',linestyle='-',color='orange')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation, label='$Z=1$',linestyle='-',color='g')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_dication, label='$Z=2$',linestyle='-',color='r')
-    axes[2].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation+interpolated_f_dication,linestyle='-',color='k')
-    
-    log_G0, log_ne, log_T, eff_matrix = read_data('./PAH_PEH_data/peh_efficiency_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
-    log_G0, log_ne, log_T, f_anion_matrix = read_data('./PAH_PEH_data/f_anion_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
-    log_G0, log_ne, log_T, f_neutral_matrix = read_data('./PAH_PEH_data/f_neutral_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
-    log_G0, log_ne, log_T, f_cation_matrix = read_data('./PAH_PEH_data/f_cation_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
-    log_G0, log_ne, log_T, f_dication_matrix = read_data('./PAH_PEH_data/f_dication_%s_pah_%.4f_micron.dat'%(model,dist_large.a0))
-    
-    for i in range(0, len(G0_test)):
-        interpolated_eff[i] = interpolate_linear(log_G0, log_ne, log_T, eff_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_anion[i] = interpolate_linear(log_G0, log_ne, log_T, f_anion_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_neutral[i] = interpolate_linear(log_G0, log_ne, log_T, f_neutral_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_cation[i] = interpolate_linear(log_G0, log_ne, log_T, f_cation_matrix, G0_test[i], ne_test, T_test)
-        interpolated_f_dication[i] = interpolate_linear(log_G0, log_ne, log_T, f_dication_matrix, G0_test[i], ne_test, T_test)
-
-        
-    axes[0,0].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_eff,linestyle='--',color='k')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_anion,linestyle='--',color='b')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_neutral,linestyle='--',color='orange')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation,linestyle='--',color='g')
-    axes[1].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_dication,linestyle='--',color='r')
-    axes[2].plot(G0_test*np.sqrt(T_test)/ne_test, interpolated_f_cation+interpolated_f_dication,linestyle='--',color='k')
-
-    
-    axes[0,0].text(0.65, 0.9, r'$T=$ %.1e K'%float(T_test)+'\n'+\
-                            r'$n_e=$ %.1e ${\rm cm}^{-3}$'%float(ne_test),
-                        transform=axes[0,0].transAxes, fontsize=16,verticalalignment='top',
-                        color='black')
-    axes[1].legend(loc='lower left',fontsize=14,frameon=False)
-
-    fig.subplots_adjust(top=0.98,bottom=0.1,left=0.13,right=0.95,hspace=0.0)
-    fig.savefig('test_peh_table.png', format='png', dpi=300)
-    
+    fig.subplots_adjust(top=0.97, bottom=0.12, left=0.12, right=0.96, wspace=0, hspace=0)
+    fig.savefig(f'peh_vs_recombination_ISRF_{radiation_model}_{optical_model}_{attach_model}_ne{int(ne)}.pdf', format='pdf', dpi=300)
