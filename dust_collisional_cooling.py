@@ -1971,3 +1971,81 @@ def export_collisional_cooling(Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
             f.write(f'{T:14.6e} {H:14.6e}\n')
 
     print('Done!')
+
+def load_cooling_tables(table_dir='./collisional_cooling_data'):
+    """
+    Reads all collisional cooling tables from `table_dir` and loads them into a dictionary.
+    
+    Returns
+    -------
+    cooling_tables : dict
+        A dictionary of the form:
+        {
+            'electron_cooling_0.0050_micron_Gra': {'logT': array, 'logH': array},
+            'H_cooling_0.0050_micron_Gra': {'logT': array, 'logH': array},
+            ...
+        }
+    """
+    cooling_tables = {}
+
+    for fname in os.listdir(table_dir):
+        if not fname.endswith('.txt') and not fname.startswith('.'):
+            full_path = os.path.join(table_dir, fname)
+            with open(full_path, 'r') as f:
+                try:
+                    nT = int(f.readline().strip())
+                    data = np.loadtxt(f, max_rows=nT)
+                    logT, logH = data[:, 0], data[:, 1]
+                    cooling_tables[fname] = {'logT': logT, 'logH': logH}
+                except Exception as e:
+                    print(f"Failed to read {fname}: {e}")
+    
+    return cooling_tables
+
+def interpolate1D(x_table, y_table, x):
+    """Simple linear interpolation in log-log space."""
+    return np.interp(x, x_table, y_table)
+
+def compute_dust_coll_heating(
+    ne, nH, nHe, nC, Tgas, Td,
+    T_dust_collisional,
+    electron_rate_table, H_rate_table, He_rate_table, C_rate_table
+):
+    """
+    Compute total collisional heating for an array of dust grains.
+    Inputs:
+        - ne, nH, nHe, nC: number densities
+        - Tgas: gas temperature
+        - Td: dust temperature array
+        - T_dust_collisional: log10(T) values for interpolation
+        - *_rate_table: log10(heating rate) [nT x ndust]
+    Output:
+        - Hcoll_each: collisional heating per dust grain [erg/s]
+    """
+
+    Hcoll_each = 0.0
+    lT = np.log10(Tgas)
+    dT = Tgas - Td
+
+
+    # Interpolate in log10-space
+    electron_cool = interpolate1D(T_dust_collisional, electron_rate_table[:], lT)
+    H_cool       = interpolate1D(T_dust_collisional, H_rate_table[:], lT)
+    He_cool      = interpolate1D(T_dust_collisional, He_rate_table[:], lT)
+    C_cool       = interpolate1D(T_dust_collisional, C_rate_table[:], lT)
+
+    # Convert from log10 to linear
+    electron_cool = 10**electron_cool
+    H_cool        = 10**H_cool
+    He_cool       = 10**He_cool
+    C_cool        = 10**C_cool
+
+    # Electrons
+    Hcoll_each += ne * electron_cool * dT
+
+    # Neutral projectiles
+    Hcoll_each += nH * H_cool * dT
+    Hcoll_each += nHe * He_cool * dT
+    Hcoll_each += nC * C_cool * dT
+
+    return Hcoll_each

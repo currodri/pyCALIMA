@@ -309,6 +309,127 @@ def compute_equilibrium_temperature(wavelengths,wavelengths_em,radiation_field,C
         return result.root
     else:
         raise RuntimeError("Failed to find equilibrium temperature")
+    
+def compute_eqT_withcollisions(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                               ne,nH,nHe,nC,Tgas,T_dust_collisional,
+                               electron_rate_table,H_rate_table,
+                               He_rate_table,C_rate_table):
+    """This function computes the equilibrium temperature of a dust grain given a radiation field
+    and the absorption cross section.
+
+    Args:
+        wavelengths (np.array): The wavelength in cm
+        radiation_field (np.array): The radiation field in erg/s/cm^2/cm
+        C_abs (np.array): The absorption cross section in cm^2
+        wavelengths_em (np.array): The wavelength in cm for the emission
+        C_abs_em (np.array): The absorption cross section in cm^2 for the emission
+
+    Raises:
+        RuntimeError: If the solution did not converge
+
+    Returns:
+        np.float: The equilibrium temperature in K
+    """    
+    from dust_collisional_cooling import compute_dust_coll_heating
+    
+    # 1. Define the function to be solved
+    func = lambda T: absorbed_power(wavelengths,radiation_field,C_abs) \
+                    + compute_dust_coll_heating(ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
+                                                electron_rate_table,H_rate_table,
+                                                He_rate_table,C_rate_table) \
+                        - emitted_power(T,wavelengths_em,C_abs_em)
+    result = root_scalar(func, bracket=[2.7, 800])  # Reasonable temperature range in K
+    
+    # 2. Check if the solution converged
+    if result.converged:
+        return result.root
+    else:
+        raise RuntimeError("Failed to find equilibrium temperature")
+    
+def compute_eqT_withcollisions_newton(dust_type,a,wavelengths,wavelengths_em,
+                                      radiation_field,C_abs,C_abs_em,
+                                      ne,nH,nHe,nC,Tgas,T_dust_collisional,
+                                      electron_rate_table,H_rate_table,
+                                      He_rate_table,C_rate_table):
+    """This function computes the equilibrium temperature of a dust grain given a radiation field
+    and the absorption cross section.
+
+    Args:
+        wavelengths (np.array): The wavelength in cm
+        radiation_field (np.array): The radiation field in erg/s/cm^2/cm
+        C_abs (np.array): The absorption cross section in cm^2
+        wavelengths_em (np.array): The wavelength in cm for the emission
+        C_abs_em (np.array): The absorption cross section in cm^2 for the emission
+
+    Raises:
+        RuntimeError: If the solution did not converge
+
+    Returns:
+        np.float: The equilibrium temperature in K
+    """    
+    from dust_collisional_cooling import compute_dust_coll_heating
+
+    def f(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                               ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
+                               electron_rate_table,H_rate_table,
+                               He_rate_table,C_rate_table):
+        emission = emitted_power(T,wavelengths_em,C_abs_em)
+        absorbed = absorbed_power(wavelengths,radiation_field,C_abs)
+        collheat = compute_dust_coll_heating(ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
+                                                electron_rate_table,H_rate_table,
+                                                He_rate_table,C_rate_table)
+        return emission - (absorbed + collheat)
+    
+    def df_dT(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                               ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
+                               electron_rate_table,H_rate_table,
+                               He_rate_table,C_rate_table):
+        dT = 1e-4 * T
+        f1 = f(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                                 ne,nH,nHe,nC,Tgas,T + dT,T_dust_collisional,
+                                 electron_rate_table,H_rate_table,
+                                 He_rate_table,C_rate_table)
+        f2 = f(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                                    ne,nH,nHe,nC,Tgas,T - dT,T_dust_collisional,
+                                    electron_rate_table,H_rate_table,
+                                    He_rate_table,C_rate_table)
+        return (f1 - f2) / (2 * dT)
+    
+    def newton_method(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                               ne,nH,nHe,nC,Tgas,T_dust_collisional,
+                               electron_rate_table,H_rate_table,
+                               He_rate_table,C_rate_table,
+                               T0=20.,tol=1e-3,max_iter=100):
+        T = T0
+        for i in range(max_iter):
+            f_val = f(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                                 ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
+                                 electron_rate_table,H_rate_table,
+                                 He_rate_table,C_rate_table)
+            df_val = df_dT(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                                 ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
+                                 electron_rate_table,H_rate_table,
+                                 He_rate_table,C_rate_table)
+            if df_val == 0:
+                raise RuntimeError("Derivative is zero, cannot continue Newton's method")
+            T_new = T - f_val / df_val
+            if abs(T_new - T) < tol:
+                print('Converged in', i, 'iterations at Tgas=', Tgas)
+                return T_new
+            T = T_new
+        raise RuntimeError("Newton's method did not converge within the maximum number of iterations")
+        
+    # 1. Compute a guess of the equilibrium temperature using the cheap method
+    T_guess = compute_equilibrium_temperature_cheap(dust_type,a,wavelengths,radiation_field,C_abs)
+
+    # 2. Use the Newton's method to find the equilibrium temperature
+    T_eq = newton_method(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
+                         ne,nH,nHe,nC,Tgas,T_dust_collisional,
+                         electron_rate_table,H_rate_table,
+                         He_rate_table,C_rate_table,
+                         T0=T_guess)
+    print('Initial guess for equilibrium temperature:', T_guess, 'final equilibrium temperature:', T_eq)
+    return T_eq
 
 def compute_equilibrium_temperature_cheap(dust_type,a,wavelengths,radiation_field,C_abs):
     
@@ -798,3 +919,121 @@ def plot_Rosseland_oppacity(dust_types):
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.13,right=0.99,hspace=0,wspace=0)
     fig.savefig('./Rosseland_opacity.png', format='png', dpi=300)
         
+
+def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0min=1e-1,G0max=1e7):
+    """This function computes the equilibrium temperature of a dust grain given a radiation field
+    and the absorption cross section, including the effect of collisions with gas particles.
+
+    Args:
+        dust_type (str): The type of dust grain
+        ne (float): The electron density in cm^-3
+        nH (float): The hydrogen density in cm^-3
+        nHe (float): The helium density in cm^-3
+        nC (float): The carbon density in cm^-3
+        Tmin (float): The minimum temperature in K
+        Tmax (float): The maximum temperature in K
+        nG0 (int): The number of G0 values to compute
+        nT (int): The number of temperatures to compute
+        G0min (float): The minimum G0 value
+        G0max (float): The maximum G0 value
+    """
+    from dust_collisional_cooling import load_cooling_tables
+    
+    # 1. Define the radiation field
+    G0 = np.logspace(np.log10(G0min),np.log10(G0max),nG0)
+    wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
+    radiation_field = np.zeros((len(wav),2))
+    radiation_field[:,0] = wav
+    radiation_field[:,1] = modified_mmp83_radiation_field(wav) / wav * c # erg/cm^2/cm/s
+    
+    wavelengths_em = np.logspace(np.log10(0.1),np.log10(1000),1000) * 1e-4 # Convert to cm
+    
+    # 2. Obtain the absorption cross section and interpolate over the wavelengths
+    a0, wavelengths,C_sca,C_abs,C_rp = compute_cross_sections(dust_type,do_average=False)
+    C_abs_interp = np.interp(radiation_field[:,0],wavelengths[::-1],C_abs[::-1])
+    C_abs_em_interp = np.interp(wavelengths_em,wavelengths[::-1],C_abs[::-1])
+    
+    # 3. Compute the radiation field averaged cross section
+    int_radfield = np.trapz(radiation_field[:,1],x=radiation_field[:,0])
+    C_abs_avg = np.trapz(C_abs_interp * radiation_field[:,1],x=radiation_field[:,0]) / int_radfield /(np.pi*a0**2.)
+    print('Average absorption cross section for',dust_type,'computed')
+    print('Given by',C_abs_avg)
+
+    # 4. Create the figure
+    fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$G_0$',fontsize=20)
+    ax.set_ylabel(r'$T_{\rm eq}$ [K]',fontsize=20)
+    ax.tick_params
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+
+    # 5. Load the rate tables for the collisions
+    coll_tables = load_cooling_tables()
+    a0 = a0 * 1e4  # Convert a0 to micron
+    electron_rate_table = coll_tables[f'electron_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
+    H_rate_table = coll_tables[f'H_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
+    He_rate_table = coll_tables[f'He_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
+    C_rate_table = coll_tables[f'C_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
+    T_dust_collisional = coll_tables[f'C_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logT']
+    
+    # 6. Set the range of temperatures and loop, with increasing temperature
+    # having a different color with a colormap
+    import matplotlib as mpl
+    cmap = plt.get_cmap('viridis')
+    T = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    for i in range(0,nT):
+        
+        # 7. Compute the equilibrium temperature
+        Teq = np.zeros(nG0)
+        def compute_temp_coll(j):
+            return compute_eqT_withcollisions(radiation_field[:,0],
+                               wavelengths_em,
+                               G0[j]*radiation_field[:,1],
+                               C_abs_interp,C_abs_em_interp,
+                               ne,nH,nHe,nC,T[i],T_dust_collisional,
+                               electron_rate_table,H_rate_table,
+                               He_rate_table,C_rate_table)
+        
+        def compute_temp_coll_newton(j):
+            return compute_eqT_withcollisions_newton(
+                               dust_type,a0*1e-4,
+                               radiation_field[:,0],
+                               wavelengths_em,
+                               G0[j]*radiation_field[:,1],
+                               C_abs_interp,C_abs_em_interp,
+                               ne,nH,nHe,nC,T[i],T_dust_collisional,
+                               electron_rate_table,H_rate_table,
+                               He_rate_table,C_rate_table)
+
+        def compute_temp(j):
+            return compute_equilibrium_temperature(radiation_field[:,0],
+                               wavelengths_em,
+                               G0[j]*radiation_field[:,1],
+                               C_abs_interp,C_abs_em_interp)
+        
+        Teq_coll = Parallel(n_jobs=-1)(delayed(compute_temp_coll)(j) for j in range(nG0))
+
+        Teq_coll_newton = Parallel(n_jobs=-1)(delayed(compute_temp_coll_newton)(j) for j in range(nG0))
+
+        Teq = Parallel(n_jobs=-1)(delayed(compute_temp)(j) for j in range(nG0))
+        
+        # 8. Plot the results with a colormap
+        color = cmap(i / nT)
+        ax.plot(G0,Teq_coll,color=color,linewidth=2.5)
+        ax.plot(G0,Teq_coll_newton,color=color,linewidth=2.5,linestyle=':',alpha=0.6)
+        ax.plot(G0,Teq,color='k',linewidth=2.5,alpha=0.3)
+    
+    # 9. Add a log colorbar
+    norm = mpl.colors.LogNorm(vmin=Tmin, vmax=Tmax)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, orientation='vertical', pad=0.02)
+    cbar.set_label(r'$T_{\rm gas}$ [K]', fontsize=20)
+
+    # 10. Save figure
+    fig.subplots_adjust(top=0.99, bottom=0.13, left=0.13, right=0.99, hspace=0, wspace=0)
+    fig.savefig(f'./eqtemp_withcollisions_{dust_type}.pdf', format='pdf', dpi=300)
