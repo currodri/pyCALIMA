@@ -943,13 +943,13 @@ def compute_heating_efficiency3(args):
     f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
     
     # 15. Compute the total injected power
-    partition_coeff = 1 #0.5 * E / (E - IP_anion) # Partition coefficient for the anion
-    Pinj_anion = power_injected(IP_anion,partition_coeff*2*np.pi*yield_anion*sigma_abs_anion,I,E)
-    partition_coeff = partition_coeff #0.5 * E / (E - IP_neutral) # Partition coefficient for the neutral
-    Pinj_neutral =  partition_coeff*power_injected(IP_neutral,2*np.pi*yield_neutral*sigma_abs_neu,I,E)
-    partition_coeff = partition_coeff #0.5 * E / (E - IP_cation) # Partition coefficient for the cation
-    Pinj_cation = partition_coeff*power_injected(IP_cation,2*np.pi*yield_cation*sigma_abs_cation,I,E)
-    
+    pcof = 1 #0.5 * E / (E - IP_anion) # Partition coefficient for the anion
+    Pinj_anion = power_injected(IP_anion,pcof*2*np.pi*yield_anion*sigma_abs_anion,I,E)
+    pcof = partition_coeff #0.5 * E / (E - IP_neutral) # Partition coefficient for the neutral
+    Pinj_neutral = power_injected(IP_neutral,pcof*2*np.pi*yield_neutral*sigma_abs_neu,I,E)
+    pcof = partition_coeff #0.5 * E / (E - IP_cation) # Partition coefficient for the cation
+    Pinj_cation = power_injected(IP_cation,pcof*2*np.pi*yield_cation*sigma_abs_cation,I,E)
+
     Pinj = W2ergs*(f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation) # Convert from W to erg/s
     
     # 16. Compute the total absorbed power
@@ -968,8 +968,7 @@ def compute_heating_efficiency3(args):
             k_rec_1 * ne * f_1 * (3./2.* kB * T ) + \
             k_rec_2 * ne * f_2 * (3./2.* kB * T )
 
-    
-    return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff, Pinj, P_rec
+    return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff, Pinj, P_rec, Prad
     
 def multiline(xs, ys, c, ax=None, **kwargs):
     """Plot lines with different colorings
@@ -1023,7 +1022,7 @@ def Berne22_efficiency(ne_min,ne_max,n_ne,T,axes):
         result = PEH.parameters()
         eff[j] = result[1]
         gamma[j] = result[3]
-        Pinj[j] = result[0] * (54./0.1) / 2.7e-4
+        Pinj[j] = result[7] #result[0] * (54./0.1) / 2.7e-4
         f_anion[j] = PEH.frac_anion
         f_neutral[j] = PEH.frac_neutral
         f_1[j] = PEH.frac_charged
@@ -1033,7 +1032,6 @@ def Berne22_efficiency(ne_min,ne_max,n_ne,T,axes):
     axes[1].plot(gamma,f_neutral,linestyle=':',color='g',linewidth=2.5)
     axes[1].plot(gamma,f_1,linestyle=':',color='b',linewidth=2.5)
     axes[1].plot(gamma,f_2,linestyle=':',color='r',linewidth=2.5)
-    print(f_2)
 
 def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=False):
     n_ne = 100
@@ -1536,10 +1534,10 @@ def compute_peh_model(pahtype,attach_model,radiation_model,optical_model,ne_min,
         results = list(tqdm(executor.map(compute_heating_efficiency3, args_list), total=n_ne,
                             desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
     
-    G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec = zip(*results)
+    G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec,Prad = zip(*results)
     gamma = G0 * np.sqrt(Tgas) / ne
 
-    return gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec
+    return dist.a0, gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec,Prad
 
 def Tielens2001_efficiency(ax):
     n_gamma = 20
@@ -1726,10 +1724,12 @@ def compute_tables_ISRF(T,ne_min,ne_max,n_ne=100,radiation_model='Draine',
     axes[1].minorticks_on()
     axes[1].set_ylim([1e-4,1])
 
-    gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec = \
+    a0, gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec, Prad = \
         compute_peh_model('small',attach_model,radiation_model,op_model,ne_min,ne_max,T,n_ne=n_ne)
     Pinj = np.array(Pinj)
     Prec = np.array(Prec)
+    Prad = np.array(Prad)
+    efficiency = np.array(epsilon)
     axes[0].plot(gamma,Pinj,color='r',linewidth=2.5,linestyle='-',
                  label=rf'$N_C=$ {54}')
     axes[0].plot(gamma,Prec,color='b',linewidth=2.5,linestyle='-')
@@ -1741,11 +1741,25 @@ def compute_tables_ISRF(T,ne_min,ne_max,n_ne=100,radiation_model='Draine',
                     label=r'Cation')
     axes[1].plot(gamma,f_2,color='r',linewidth=2.5,linestyle='-',
                     label=r'Dication')
+    # Save results to file
+    if not os.path.exists('PAH_PEH_tables'):
+        os.makedirs('PAH_PEH_tables')
+    np.savetxt(
+        f'PAH_PEH_tables/peh_Pinj_ISRF_{radiation_model}_{op_model}_{attach_model}_{a0:.4f}_micron_PAH.dat',
+        np.column_stack([np.log10(gamma), np.log10(efficiency), np.log10(Prad),
+                        f_anion, f_neutral, f_1, f_2]),
+        header=f'log(gamma [K^0.5/cm^3]) log10(eff) log10(Prad [erg/s]) '
+            f'f_anion f_neutral f_1 f_2\n{n_ne}',
+        fmt='%14.6e %14.6e %14.6e %14.6e %14.6e %14.6e %14.6e',
+        comments=''
+    )
     
-    gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec = \
+    a0, gamma, epsilon, f_anion, f_neutral, f_1, f_2, Pinj, Prec, Prad = \
         compute_peh_model('large',attach_model,radiation_model,op_model,ne_min,ne_max,T,n_ne=n_ne)
     Pinj = np.array(Pinj)
     Prec = np.array(Prec)
+    Prad = np.array(Prad)
+    efficiency = np.array(epsilon)
     axes[0].plot(gamma,Pinj,color='r',linewidth=2.5,linestyle='--',
                  label=rf'$N_C=$ {418}')
     axes[0].plot(gamma,Prec,color='b',linewidth=2.5,linestyle='--')
@@ -1757,6 +1771,15 @@ def compute_tables_ISRF(T,ne_min,ne_max,n_ne=100,radiation_model='Draine',
     axes[0].legend(loc='best',fontsize=14,frameon=False)
     axes[1].legend(loc='best',fontsize=14,frameon=False)
 
+    np.savetxt(
+        f'PAH_PEH_tables/peh_Pinj_ISRF_{radiation_model}_{op_model}_{attach_model}_{a0:.4f}_micron_PAH.dat',
+        np.column_stack([np.log10(gamma), np.log10(efficiency), np.log10(Prad),
+                        f_anion, f_neutral, f_1, f_2]),
+        header=f'log(gamma [K^0.5/cm^3]) log10(eff) log10(Prad [erg/s]) '
+            f'f_anion f_neutral f_1 f_2\n{n_ne}',
+        fmt='%14.6e %14.6e %14.6e %14.6e %14.6e %14.6e %14.6e',
+        comments=''
+    )
     # 1. Add Berne+2022 efficiency results
     mydir = os.getcwd()
     os.chdir(BERNEPATH)
