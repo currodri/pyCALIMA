@@ -45,8 +45,17 @@ kb = 1.3806488e-16 # [erg/K]
 friction_params = {
     'H' : {'Gamma_0': 0.33,'R_2': 2.28},
     'He': {'Gamma_0': 0.75,'R_2': 0.88},
-    'C' : {'Gamma_0' : 1.68,'R_2': 0.90}
+    'C' : {'Gamma_0' : 1.68,'R_2': 0.90},
+    'O' : {'Gamma_0' : 1.62,'R_2': 0.57}
 }
+
+Asplund09_massfractions = {
+    'H': 0.7381,
+    'He': 0.2485,
+    'C': 2.38e-3,
+    'O': 5.73e-3,
+}
+
 
 # Basic physical functions
 def Maxwell_Boltzmann_function(v,m,T):
@@ -294,6 +303,9 @@ def electronic_destruction_rate_T(Tgas,particle_type,Nc,
     elif particle_type == 'C':
         m_particle = 1.9944733e-23 # [g]
         int_type ='ion'
+    elif particle_type == 'O':
+        m_particle = 2.6566962e-23 # [g]
+        int_type ='ion'
     else:
         raise NameError(f'This particle_type is not included in this model: {particle_type}')
     
@@ -403,37 +415,6 @@ def electronic_destruction_rate(Tmin,Tmax,particle_type,Nc,
 
 # Nuclear collisions
 
-# Threshold energy T0 and critical kinetic energy E0n for H, He and C
-# ions impacting on a carbon atom, as given in Table 2 of Micelotta
-# et al. (2010a) – all in eV
-E_0n        = {
-    4.5     : {
-        'H' : 15.8,
-        'He': 6.0,
-        'C' : 4.5
-    },
-    7.5     : {
-        'H' : 26.4,
-        'He': 10.,
-        'C' : 7.5
-    },
-    10.     : {
-        'H' : 35.2,
-        'He': 13.,
-        'C' : 10.
-    },
-    12.     : {
-        'H' : 42.3,
-        'He': 16.,
-        'C' : 12.
-    },
-    15.     : {
-        'H' : 52.8,
-        'He': 20.,
-        'C' : 15.
-    }
-}
-
 # Data extracted from the cross sections for H, He and C against C collision
 # as given by the results of Micelotta et al. (2010a) in Fig. 2
 H2C_cross_section = pd.read_csv('H2C_cross_section.csv',header=1)
@@ -468,14 +449,17 @@ def nuclear_cross_section_interpolfunc(particle_type):
     
     return interpolation_function
 
-def nuclear_destruction_rate_T(Tgas,critical_E,m_particle,sigma_func,nbins_v=100):
+def nuclear_destruction_rate_T(Tgas,M1,M2,Z1,Z2,threshold_E,m_particle,nbins_v=100):
     """Destruction rate per C atom of a PAH for nuclear collisions at temperature T.
 
     Args:
         Tgas (float): gas temperature in K
-        critical_E (float): critical energy for the given particle type in eV
+        M1 (float): mass of incident particle in amu
+        M2 (float): mass of target particle in amu
+        Z1 (int): atomic number of incident particle
+        Z2 (int): atomic number of target particle
+        threshold_E (float): threshold energy for the PAH dissociation in eV
         m_particle (float): particle mass in g
-        sigma_func (scipy.interpolate.interpolate.interp1d): cross section interpolation function in Angstrom^2/atom
         nbins_v (int, optional): number of velocity bins for the Maxwellian integral. Defaults to 100.
 
     Returns:
@@ -485,7 +469,7 @@ def nuclear_destruction_rate_T(Tgas,critical_E,m_particle,sigma_func,nbins_v=100
     from scipy.integrate import trapezoid
     
     # 1. Compute minimum velocity based on threshold energy
-    v_0 = np.sqrt(2. * critical_E * eV2erg / m_particle) # [cm/s]
+    v_0 = np.sqrt(2. * threshold_E * eV2erg / m_particle) # [cm/s]
     
     # 2. We set the maximum velocity to the thermal energy of gas at ~1e9 K
     v_max = np.sqrt(2. * 1e5 * eV2erg / m_particle) # [cm/s]
@@ -498,9 +482,7 @@ def nuclear_destruction_rate_T(Tgas,critical_E,m_particle,sigma_func,nbins_v=100
         vi = v[i]
         Ei = (0.5 * m_particle * v[i]**2.) / eV2erg
         mb_factor = Maxwell_Boltzmann_function(vi,m_particle,Tgas)
-        cross_section = 10**sigma_func(np.log10(Ei)) * 1e-16 # [cm^2]
-        if cross_section < 0.:
-            print(sigma_func(np.log10(Ei)),Ei)
+        cross_section = energy_transfer_cross_section(M1,M2,Z1,Z2,Ei,threshold_E) * 1e-16 # [cm^2]
         J_v[i] = mb_factor * cross_section * vi
 
     # 4. Integrate J_v with the trapezoid method
@@ -509,8 +491,8 @@ def nuclear_destruction_rate_T(Tgas,critical_E,m_particle,sigma_func,nbins_v=100
     return J
 
 def wrapper_nuclear_rate(args):
-   Tgas,critical_e,m_particle,sigma_func,nbins_v = args
-   return Tgas,nuclear_destruction_rate_T(Tgas,critical_e,m_particle,sigma_func,nbins_v) 
+   Tgas,M1,M2,Z1,Z2,threshold_E,m_particle,nbins_v = args
+   return Tgas,nuclear_destruction_rate_T(Tgas,M1,M2,Z1,Z2,threshold_E,m_particle,nbins_v) 
 
 def nuclear_destruction_rate(Tmin,Tmax,particle_type,Nc,
                              threshold_energy=7.5,
@@ -536,18 +518,24 @@ def nuclear_destruction_rate(Tmin,Tmax,particle_type,Nc,
     
     # 1. Get the specific particle details
     if particle_type == 'H':
-        m_particle = 1.673557e-24 # [g]
-        crit_E = E_0n[threshold_energy]['H']
+        particle_am = 1.00784 # [u]
+        Z1 = 1
     elif particle_type == 'He':
-        m_particle = 6.6464731e-24 # [g]
-        crit_E = E_0n[threshold_energy]['H']
+        particle_am = 4.002602 # [u]
+        Z1 = 2
     elif particle_type == 'C':
-        m_particle = 1.9944733e-23 # [g]
-        crit_E = E_0n[threshold_energy]['C']
+        particle_am = 12.0107 # [u]
+        Z1 = 6
+    elif particle_type == 'O':
+        particle_am = 15.999 # [u]
+        Z1 = 8
     else:
         raise NameError(f'This particle_type is not included in this model: {particle_type}')
     
-    sigma_function = nuclear_cross_section_interpolfunc(particle_type)
+    M1 = particle_am # [amu]
+    M2 = 12.0107 # [amu] - carbon target
+    Z2 = 6 # atomic number of carbon
+    m_particle = particle_am * 1.66053906660e-24 # [g]
     
     T = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
     
@@ -557,7 +545,7 @@ def nuclear_destruction_rate(Tmin,Tmax,particle_type,Nc,
     num_cores = os.cpu_count()
     print(f"    Number of cores available: {num_cores}")
     # Create argument list for parallel processing
-    args_list = [(Ti, crit_E, m_particle, sigma_function, nbins_v) for Ti in T]
+    args_list = [(Ti, M1, M2, Z1, Z2, threshold_energy, m_particle, nbins_v) for Ti in T]
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
         results = list(tqdm(executor.map(wrapper_nuclear_rate, args_list), total=nT, desc=f'    Calculating nuclear {particle_type} rates', unit=' steps'))
 
@@ -569,7 +557,8 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
                  binding_energy=E_0,nT=100,
                  nbins_v=100,nbins_theta=50,
                  radius_method='Draine21',
-                 plot_rates=True):
+                 plot_rates=True,nH_plot=1.0,
+                 Z_plot=1):
     start_time = time.time()
     print(40*"-")
     print('PAH SPUTTERING IN A HOT GAS')
@@ -614,7 +603,7 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
                                         threshold_energy=threshold_energy,
                                         nT=nT,nbins_v=nbins_v)
         
-        J_ion[ptype] = J
+        J_ion[ptype] = 0.5 * Nc * J
     
     print(' => Rates done!')
     
@@ -670,11 +659,30 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
         })
         fig, ax = plt.subplots(1,1, figsize=(6,4),dpi=300,facecolor='w',edgecolor='k',sharey=True)
         
-        ax.plot(T,J_electron,label='Electrons',linestyle='-',linewidth=2.5)
-        for i, ptype in enumerate(friction_params.keys()):
-            ax.plot(T,J_electronic[ptype],label=f'{ptype} electronic',linestyle=':',linewidth=2.5)
-            ax.plot(T,J_ion[ptype],label=f'{ptype} nuclear',linestyle='-.',linewidth=2.5)
+        # Compute number densities for fully ionized gas
+        # Assuming solar abundances: He/H ~ 0.1, C/H ~ 3e-4, O/H ~ 6e-4
+        n_H = nH_plot  # [cm^-3]
+        n_He = 0.1 * Z_plot * n_H  # [cm^-3]
+        n_C = 3e-4 * Z_plot * n_H  # [cm^-3]
+        n_O = 6e-4 * Z_plot * n_H  # [cm^-3]
+        n_e = n_H  # [cm^-3]
         
+        # Multiply rates by densities to get sputtering rates in 1/s
+        total_rate = 2.*J_electron * n_e
+        ax.plot(T, 2.*J_electron * n_e, label='Electrons', linestyle='-', linewidth=2.5)
+        for i, ptype in enumerate(friction_params.keys()):
+            if ptype == 'H':
+                n_species = n_H
+            elif ptype == 'He':
+                n_species = n_He
+            elif ptype == 'C':
+                n_species = n_C
+            elif ptype == 'O':
+                n_species = n_O
+            ax.plot(T, 2.*J_electronic[ptype] * n_species, label=f'{ptype} electronic', linestyle=':', linewidth=2.5)
+            ax.plot(T, J_ion[ptype] * n_species, label=f'{ptype} nuclear', linestyle='-.', linewidth=2.5)
+            total_rate += 2.*J_electronic[ptype] * n_species + J_ion[ptype] * n_species
+        ax.plot(T, total_rate, linestyle='--', color='k', linewidth=3)
         ax.tick_params(labelsize=14)
         ax.xaxis.set_ticks_position('both')
         ax.yaxis.set_ticks_position('both')
@@ -682,14 +690,15 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
         ax.tick_params(which='both',axis="both",direction="in")
         ax.set_yscale('log')
         ax.set_xscale('log')
-        ax.legend(loc='upper left',frameon=False,ncol=2,fontsize=14)
-        ax.set_ylabel(r'Rate Constant [cm$^3$/s]',fontsize=16)
+        ax.legend(loc='upper left',frameon=False,ncol=2,fontsize=12)
+        ax.set_ylabel(r'Sputtering Rate [C-atom/s]',fontsize=16)
         ax.set_xlabel(r'Gas Temperature [K]',fontsize=16)
-        ax.set_ylim([1e-20,1e-2])
+        ax.set_ylim([1e-17,1e-2])
         
-        # ax.text(0.05, 0.1, r'%s $\rightarrow$ PAH ($N_{\rm C}=%i$)'%(ptype,int(Nc)),
-        #                             verticalalignment='bottom', horizontalalignment='left',
-        #                             transform=ax.transAxes,fontsize=14)
+        # Add text showing nH and metallicity
+        ax.text(0.95, 0.05, r'$n_{\rm H} = %.2f$ cm$^{-3}$' % nH_plot + '\n' + r'$Z = %.2f$ Z$_{\odot}$' % Z_plot,
+                            verticalalignment='bottom', horizontalalignment='right',
+                            transform=ax.transAxes, fontsize=12, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
         fig.subplots_adjust(top=0.96,bottom=0.14,left=0.14,right=0.99,hspace=0,wspace=0)
         plot_name =  PAH_dir+f'/PAH_{Nc}_thermal_sputtering_rates.pdf'
         fig.savefig(plot_name, format='pdf', dpi=300)
@@ -700,4 +709,109 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
     print('All done!!')
     print(40*"-")
     
+def Lindhard_reduced_energy(M1,M2,Z1,Z2,a,E):
+    """Lindhard reduced energy for nuclear collisions.
+
+    Args:
+        M1 (float): mass of incident particle in amu
+        M2 (float): mass of target particle in amu
+        Z1 (int): atomic number of incident particle
+        Z2 (int): atomic number of target particle
+        a (float): screening length in Angstrom
+        E (float): kinetic energy of incident particle in eV
+    """    
     
+    epsilon = (M2/(M1+M2)) * (a/(Z1*Z2*14.39)) * E
+    return epsilon
+
+def ZBL_screening_length(Z1,Z2):
+    """ZBL screening length.
+
+    Args:
+        Z1 (int): atomic number of incident particle
+        Z2 (int): atomic number of target particle
+
+    Returns:
+        float: screening length in Angstrom
+    """    
+    
+    a = 0.8854 * 0.529 / (Z1**(0.23) + Z2**(0.23))
+    return a
+
+def ZBL_reduced_nuclear_stopping_crosssection(epsilon):
+    """ZBL reduced nuclear stopping cross section.
+
+    Args:
+        epsilon (float): Lindhard reduced energy
+
+    Returns:
+        float: reduced nuclear stopping cross section in Angstrom^2
+    """    
+    if epsilon <= 30:
+        S_n = 0.5 * np.log(1.+1.1383*epsilon) / (epsilon + 0.01321 * epsilon**0.21226 + 0.19593 * epsilon**0.5)
+    else:
+        S_n = np.log(epsilon) / (2. * epsilon)
+    return S_n
+
+def Ziegler1985_m(epsilon):
+    """Ziegler et al. (1985) expression for quantity m.
+
+    Args:
+        epsilon (float or array): Lindhard reduced energy
+    Returns:
+        float or array: quantity m [dimensionless]
+    """
+    # Base 10^-9 reduced energy constant
+    eps1 = 1e-9
+
+    # Compute u = 0.1 * ln(epsilon/eps1)
+    u = 0.1 * np.log(epsilon / eps1)
+
+    # Coefficients from Ziegler et al. (1985), via Micelotta et al. (2010)
+    a = np.array([-2.432, -0.1509, 2.648, -2.742, 1.215, -0.1665])
+
+    # Build the polynomial
+    # Note: use u**i, not (0.1*x**i)
+    X = sum(a[i] * u**i for i in range(len(a)))
+
+    # Final expression
+    m = 1.0 - np.exp(-np.exp(X))
+
+    return m
+
+def energy_transfer_cross_section(M1,M2,Z1,Z2,E,threshold_E):
+    """Energy transfer cross section for nuclear collisions based on
+    the ZBL theory.
+
+    Args:
+        M1 (float): mass of incident particle in amu
+        M2 (float): mass of target particle in amu
+        Z1 (int): atomic number of incident particle
+        Z2 (int): atomic number of target particle
+        E (float): kinetic energy of incident particle in eV
+        threshold_E (float): threshold energy for the PAH dissociation in eV
+    Returns:
+        float: energy transfer cross section in Angstrom^2
+    """
+    if E < threshold_E:
+        return 0.0
+    # 1. Compute the screening length
+    a = ZBL_screening_length(Z1,Z2)
+
+    # 2. Compute the Lindhard reduced energy
+    epsilon = Lindhard_reduced_energy(M1,M2,Z1,Z2,a,E)
+
+    # 3. Compute the reduced nuclear stopping cross section
+    S_n = ZBL_reduced_nuclear_stopping_crosssection(epsilon)
+
+    # 4. Compute the quantity m
+    m = Ziegler1985_m(epsilon)
+
+    # 5. Compute the energy transfer cross section
+    mu = M1 / (M1 + M2)
+    gamma = 4. * M1 * M2 / (M1 + M2)**2.
+    S_m = S_n * (1. - m)/m / (gamma * E)
+    E_thres = (threshold_E / E)**(-m) - 1.
+    sigma_E = 4. * np.pi * a * Z1 * Z2 * 14.39 * mu * S_m * E_thres
+
+    return sigma_E

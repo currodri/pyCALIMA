@@ -30,8 +30,9 @@ os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Constants
-pahneu_filepath = '/home/currodri/Codes/DustRAMSES/li_draine_2001/PAHneu_30'
-pahion_filepath = '/home/currodri/Codes/DustRAMSES/li_draine_2001/PAHion_30'
+current_dir = os.path.dirname(os.path.abspath(__file__))
+pahneu_filepath = os.path.join(current_dir, 'li_draine_2001', 'PAHneu_30')
+pahion_filepath = os.path.join(current_dir, 'li_draine_2001', 'PAHion_30')
 Delta_epsilon = 0.145 # [eV] - change in internal energy of PAH due to IR photon emission of a typical C-C mode
 kb = 1.3806488e-16 # [erg/K] - Boltzmann constant
 mh = 1.6735575e-24 # [g] - mass of Hydrogen atom
@@ -145,9 +146,9 @@ def absorption_cross_section(distribution,Z):
     if Z < 0:
         raise ValueError('Z cannot be negative!') 
     elif Z == 0:
-        data,columns,name,nwav = pah_efficiencies(pahneu_filepath)
+        nwav,data,columns,name = pah_efficiencies(pahneu_filepath)
     else:
-        data,columns,name,nwav = pah_efficiencies(pahion_filepath)
+        nwav,data,columns,name = pah_efficiencies(pahion_filepath)
     
     # 2. Obtain the distribution averaged absorption cross section
     C_abs_eff = np.zeros(nwav)
@@ -316,6 +317,90 @@ def plot_evaporation_rate():
 
     ax.legend(loc='best', frameon=False, fontsize=14)
     fig.savefig('PAH_cluster_evaporation_time.png',format='png',dpi=300)
+
+def plot_destruction_timescale_ratio(G0min,G0max,nHmin,nHmax):
+    """Plot the ratio of large-PAH evaporation to small-PAH dissociation timescales.
+
+    The evaporation timescale is based on the mean fit used in plot_evaporation_rate,
+    while the dissociation rate follows plot_acetylene_dissociation_rate.
+    """
+    from scipy.optimize import curve_fit
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+
+    # 1. Large-PAH evaporation timescale fit (in years)
+    C54H18_4 = np.array([[10.155542455979203, 1326721.2821181505],
+                [100.99848964447678, 15280.770324389228],
+                [1030.9350963606964, 87.25629056691685],
+                [10518.431343866167, 0.22625087563449475]
+                ])
+    C54H18_12 = np.array([[3888.5930193337376, 2744576.321114021],
+                            [40553.078563969466, 2.6530025474682906],
+                            [400877.4887208798, 8.197162440732647e-7],
+                            [4098320.880197934, 7.100195219251391e-8],
+                            [41909220.00407155, 9.535724414677071e-9],
+                            ])
+    mean_up_x = 0.5*(np.log10(C54H18_4[0,0])+np.log10(C54H18_12[0,0]))
+    mean_up_y = 0.5*(np.log10(C54H18_4[0,1])+np.log10(C54H18_12[0,1]))
+    mean_down_x = 0.5*(np.log10(C54H18_4[3,0])+np.log10(C54H18_12[1,0]))
+    mean_down_y = 0.5*(np.log10(C54H18_4[3,1])+np.log10(C54H18_12[1,1]))
+    slope = (mean_down_y-mean_up_y) / (mean_down_x-mean_up_x)
+    intercept = mean_down_y - slope * mean_down_x
+
+    # 2. Small-PAH dissociation rate (in 1/s)
+    montillaud_fraction = read_sections('montillaud13_hydrogenation_fraction_C54.csv')
+    params, _ = curve_fit(curve_hydro, np.log10(montillaud_fraction[1][0]), np.log10(montillaud_fraction[1][1]), maxfev=10000)
+
+    G0 = np.linspace(np.log10(G0min), np.log10(G0max),100)
+    nH = np.linspace(np.log10(nHmin), np.log10(nHmax),100)
+    f_dehydro = np.zeros((100,100))
+    for i in range(0,100):
+        for j in range(0, 100):
+            f_dehydro[j,i] = find_value(G0[i],nH[j],*params)*10**G0[i]
+
+    params = dissociation_parameters['Murga2020']
+    dist = LogNormal_Distribution(basic_a0[0],basic_amin[0],basic_amax[0],basic_sigma[0],basic_s[0])
+    dist.Nc = 54
+    wav,sigma_abs_cation = absorption_cross_section(dist,1)
+    R = compute_acetylene_dissociation_rate((wav,sigma_abs_cation,dist,params))
+    diss_rate = R * f_dehydro
+
+    # 3. Ratio of timescales (dimensionless)
+    G0_lin = 10**G0
+    tau_evap_yr = 10**(slope*np.log10(G0_lin)+intercept)
+    tau_evap_s = tau_evap_yr * 3.15576e7
+    ratio = (tau_evap_s) * diss_rate
+    log_ratio = np.log10(ratio)
+    finite_mask = np.isfinite(log_ratio)
+    if np.any(finite_mask):
+        vlim = np.nanpercentile(np.abs(log_ratio[finite_mask]), 95)
+        vlim = max(vlim, 1.0)
+    else:
+        vlim = 1.0
+
+    # 4. Plot
+    fig, ax = plt.subplots(1,1, figsize=(6,5),dpi=300,facecolor='w',edgecolor='k')
+    ax.set_xlabel(r'$G0$', fontsize=20)
+    ax.set_ylabel(r'$n_{\rm H}$ [cm$^{3}$]', fontsize=20)
+    ax.tick_params(labelsize=14)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    G0_grid, nH_grid = np.meshgrid(G0_lin, 10**nH)
+    levels = np.linspace(-vlim, vlim, 41)
+    pc = ax.contourf(G0_grid, nH_grid, log_ratio, levels=levels, cmap='coolwarm')
+    ax.contour(G0_grid, nH_grid, log_ratio, levels=[0.0], colors='k', linewidths=1.4)
+    fig.colorbar(pc,label=r'$\log(\tau_{\rm evap}/\tau_{\rm diss})$')
+    fig.savefig('PAH_destruction_timescale_ratio.png',format='png',dpi=300)
 
 def read_sections(filename):
     with open(filename, 'r') as file:

@@ -1584,6 +1584,128 @@ def plot_collisional_cooling(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
     ax.legend(loc='best',frameon=False,fontsize=12,ncol=2)
     fig.subplots_adjust(top=0.99,bottom=0.1,left=0.12,right=0.99,hspace=0,wspace=0)
     fig.savefig('hightemp_collisional_cooling.pdf',format='pdf')
+
+def plot_collisional_cooling_simple(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
+    from unyt import g,cm,eV
+    from scipy.optimize import curve_fit
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    sns.color_palette("Paired")
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+    me = 9.10938e-28 # [g]
+    # 1. Setup the figure
+    fig, ax = plt.subplots(1,1, figsize=(7,4),dpi=300,facecolor='w',edgecolor='k',sharey=True)
+    ax.set_xlabel(r'$T$ [K]', fontsize=16)
+    ax.set_ylabel(r'$h(\vec{\mathcal{P}}_j,T)$ [erg cm$^3$/s]',fontsize=16)
+    ax.tick_params(labelsize=14)
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    ax.set_ylim([7e-23,8e-11])
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    
+    Tgas = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
+    
+    # 2. Plot the fitting function by Dwek and Werner (1981)
+    ax.plot(Tgas,DwekWerner81_cooling(0.005,Tgas),linestyle='--',color='k',label=r'DW81',lw=2)
+    
+    # 3. Compute the fitting to the electron stopping power
+    # Data from table 1 in Ashley and Anderson (1981)
+    E = np.array([15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 600, 800, 1000, 2000, 4000, 6000, 8000, 10000])
+    S_prime = np.array([2.40, 6.64, 26.2, 55.1, 105, 128, 137, 141, 137, 127, 117, 99.6, 87.5, 78.1, 52.8, 33.5, 25.1, 20.4, 17.4])
+    
+    # Convert S_prime [MeV cm^2 /g] to S in [eV/A]
+    rho_Si02 = 2.65 * g /cm**3
+    S_prime = S_prime * 1e6 * eV *cm**2/g
+    S = S_prime * rho_Si02
+    
+    popt_sil,pcov = curve_fit(stopping_fit,E,S.to('eV/Angstrom').d)
+    print('Silicate: ',popt_sil)
+    
+    num_cores = 5 #os.cpu_count()
+    print(f"    Number of cores available: {num_cores}")
+    
+    # 5. Electron cooling for silicate material
+    a_dust = dust_model.basic_a0[5]*1e-4
+    args_list = [(Ti,a_dust,popt_sil,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency_electron, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating electron cooling rate for smallSil',
+                            unit=' steps'))
+
+    h_electron = np.array(results)
+    H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_electron
+    ax.plot(Tgas,H_electron,linestyle='-',color='saddlebrown',label=r'e$^{-}$',lw=2)
+    
+    # 7. Hydrogen cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 1.00784 * au2cgs_m
+    Zi = 1
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Hydrogen heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_hydrogen,linestyle='--',color='saddlebrown',label=r'H',lw=2)
+    
+    # 9. Helium cooling for silicate material
+    s_dust = dust_model.basic_s[5]
+    a_dust = dust_model.basic_a0[5]*1e-4
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7. * au2cgs_m
+    an_dust = int((4*8 + 14 + 26 + 12) / 7)
+    ne_val = (2+8+4+4*6) / 7
+    Mi = 4.002602 * au2cgs_m
+    Zi = 2
+
+    args_list = [(Ti,a_dust,s_dust,ne_val,Zi,an_dust,am_dust,Mi,nv,delta_max) for Ti in Tgas]
+    
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        results = list(tqdm(executor.map(compute_efficiency, args_list), 
+                            total=nT, 
+                            desc=f'    Calculating Helium heating rates',
+                            unit=' steps'))
+
+    h_eff = np.array(results)
+    H_helium = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
+    ax.plot(Tgas,H_helium,linestyle=':',color='saddlebrown',label=r'He',lw=2)
+
+
+    # 13. Add the HM79 low temperature cooling for silicate grains at Td=2.73K, for a primordial gas
+    
+    am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7.
+    ax.plot(Tgas, low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'H'),linestyle='--',color='dodgerblue',label=r'H (HM79)',lw=2)
+    ax.plot(Tgas, low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'He'),linestyle=':',color='dodgerblue',label=r'He (HM79)',lw=2)
+    supp_factor = 1. - 1./(1.+np.exp(-10.*(np.log10(Tgas)-4.)))
+    supp_factor_inv = 1.0 / (1.0 + np.exp(-10.0*(np.log10(Tgas) - 4.0)))
+    combined_H = supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'H') + supp_factor_inv*H_hydrogen
+    ax.plot(Tgas, combined_H, linestyle='--', color='forestgreen', label=r'H (eff)', lw=2,zorder=-10)
+    combined_He = supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'He') + supp_factor_inv*H_helium
+    ax.plot(Tgas, combined_He, linestyle=':', color='forestgreen', label=r'He (eff)', lw=2,zorder=-10)
+
+
+    ax.legend(loc='upper left',frameon=False,fontsize=12,ncol=2)
+    fig.subplots_adjust(top=0.99,bottom=0.125,left=0.12,right=0.99,hspace=0,wspace=0)
+    fig.savefig('collisional_cooling.pdf',format='pdf')
     
 def export_collisional_cooling(Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
     from unyt import g,cm,eV

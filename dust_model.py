@@ -26,8 +26,14 @@ sec2Myr = 3.1536e13
 basic_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,5e-3,1e-1])
 basic_amin = np.array([3e-4,3e-4,1e-3,5e-3,4e-4,5e-4,5e-3])
 basic_amax = np.array([1e-3,9e-3,0.1,1,2e-3,0.1,1.0])
-basic_sigma = np.array([0.3,0.4,0.7,0.8,0.4,0.75,0.75])
+basic_sigma = np.array([0.3,0.4,0.7,0.7,0.4,0.75,0.75])
 basic_s = np.array([2,2,2.2,2.2,3.3,3.3,3.3])
+
+shattering_a0 = np.array([5e-4,1e-3,1e-2,1e-1,5e-4,5e-3,1e-1])
+shattering_amin = np.array([5e-4,1e-3,4e-3,3e-2,4.5e-4,1e-3,2e-2])
+shattering_amax = np.array([6e-4,4e-3,3e-2,1,4.5e-4,2e-2,1.0])
+shattering_sigma = np.array([0.3,0.4,0.7,0.7,0.4,0.75,0.75])
+shattering_s = np.array([2,2,2.2,2.2,3.3,3.3,3.3])
 
 
 # Tielens et al. (1994) - Thermal sputtering rates for silicate 
@@ -246,7 +252,7 @@ def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius,gamma=None):
     # integer dust charges
     
     # Fitting parameters form their Table 1
-    fit_params = {'silicates':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
+    fit_params = {'silicate':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
                                         'c+':0.4123,'eta+':0.2513,'d':0.1891,'c-':0.4845,
                                         'eta-':0.3532},
                                 '5A':{'alpha':0.3141,'k':0.0372,'b':-0.3043,'hz':86,
@@ -268,7 +274,7 @@ def grain_charge_dist(Gtot,T,ne,grain_type,grain_radius,gamma=None):
                                         'c+':5.9813,'eta+':20.6410,'d':0.6961,'c-':-0.1885,
                                         'eta-':0.4237}},
 
-                'carbonaceous':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
+                'graphite':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
                                         'c+':0.3103,'eta+':0.2744,'d':0.2551,'c-':0.3766,
                                         'eta-':0.5241},
                                 '5A':{'alpha':0.4386,'k':0.0195,'b':-0.3084,'hz':95,
@@ -317,7 +323,7 @@ def grain_mean_charge(Gtot,T,ne,grain_type,grain_radius,gamma=None):
     # which are detailed in the Eq. 17-19.
     
     # Fitting parameters form their Table 1
-    fit_params = {'silicates':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
+    fit_params = {'silicate':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
                                         'c+':0.4123,'eta+':0.2513,'d':0.1891,'c-':0.4845,
                                         'eta-':0.3532},
                                 '5A':{'alpha':0.3141,'k':0.0372,'b':-0.3043,'hz':86,
@@ -339,7 +345,7 @@ def grain_mean_charge(Gtot,T,ne,grain_type,grain_radius,gamma=None):
                                         'c+':5.9813,'eta+':20.6410,'d':0.6961,'c-':-0.1885,
                                         'eta-':0.4237}},
 
-                'carbonaceous':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
+                'graphite':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
                                         'c+':0.3103,'eta+':0.2744,'d':0.2551,'c-':0.3766,
                                         'eta-':0.5241},
                                 '5A':{'alpha':0.4386,'k':0.0195,'b':-0.3084,'hz':95,
@@ -369,6 +375,527 @@ def grain_mean_charge(Gtot,T,ne,grain_type,grain_radius,gamma=None):
     Z = sfit['k'] * (1.0 - np.exp(-charPar/sfit['hz'])) * (charPar**sfit['alpha']) + sfit['b']
     return Z
 
+def grain_charge_sigma(Gtot,T,ne,grain_type,grain_radius,gamma=None):
+    from scipy.stats import norm
+    # This uses the fitting function from Ibanez-Mejias et al. (2019)
+    # (https://ui.adsabs.harvard.edu/abs/2019MNRAS.485.1220I/abstract)
+    # which are detailed in the Eq. 17-19.
+    
+    # Fitting parameters form their Table 1
+    fit_params = {'silicate':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
+                                        'c+':0.4123,'eta+':0.2513,'d':0.1891,'c-':0.4845,
+                                        'eta-':0.3532},
+                                '5A':{'alpha':0.3141,'k':0.0372,'b':-0.3043,'hz':86,
+                                        'c+':0.2734,'eta+':0.2925,'d':0.3233,'c-':0.3615,
+                                        'eta-':0.6532},
+                                '10A':{'alpha':0.3535,'k':0.0494,'b':-0.4865,'hz':73,
+                                        'c+':0.4353,'eta+':0.7459,'d':0.4451,'c-':0.1053,
+                                        'eta-':0.5803},
+                                '50A':{'alpha':0.5115,'k':0.0717,'b':-0.4106,'hz':107,
+                                        'c+':1.0758,'eta+':1.7832,'d':0.5860,'c-':-1.0379e3,
+                                        'eta-':7.7069e3},
+                                '100A':{'alpha':0.3525,'k':0.6591,'b':-0.1649,'hz':384,
+                                        'c+':1.6245,'eta+':2.8390,'d':0.6346,'c-':-4.2075e2,
+                                        'eta-':1.9840e3},
+                                '500A':{'alpha':0.3643,'k':2.6283,'b':0.5217,'hz':345,
+                                        'c+':4.0732,'eta+':11.0200,'d':0.6797,'c-':-0.2418,
+                                        'eta-':0.5910},
+                                '1000A':{'alpha':0.3927,'k':3.6493,'b':0.8389,'hz':372,
+                                        'c+':5.9813,'eta+':20.6410,'d':0.6961,'c-':-0.1885,
+                                        'eta-':0.4237}},
+
+                'graphite':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
+                                        'c+':0.3103,'eta+':0.2744,'d':0.2551,'c-':0.3766,
+                                        'eta-':0.5241},
+                                '5A':{'alpha':0.4386,'k':0.0195,'b':-0.3084,'hz':95,
+                                        'c+':0.3699,'eta+':0.5654,'d':0.4158,'c-':0.2890,
+                                        'eta-':1.6241},
+                                '10A':{'alpha':0.4994,'k':0.0199,'b':-0.4959,'hz':78,
+                                        'c+':0.6511,'eta+':0.9839,'d':0.5275,'c-':0.0213,
+                                        'eta-':0.0977},
+                                '50A':{'alpha':0.6009,'k':0.0523,'b':-0.4092,'hz':218,
+                                        'c+':1.6536,'eta+':2.6688,'d':0.6671,'c-':-9.5138,
+                                        'eta-':35.3519},
+                                '100A':{'alpha':0.2900,'k':2.2310,'b':-0.2061,'hz':1063,
+                                        'c+':2.5445,'eta+':4.3352,'d':0.7010,'c-':-2.5341e3,
+                                        'eta-':8.1962e3},
+                                '500A':{'alpha':0.3400,'k':5.8944,'b':0.1727,'hz':1034,
+                                        'c+':5.9455,'eta+':18.3186,'d':0.8377,'c-':-2.4189e3,
+                                        'eta-':4.9424e3},
+                                '1000A':{'alpha':0.3500,'k':9.6536,'b':0.4183,'hz':1273,
+                                        'c+':8.7003,'eta+':36.1014,'d':0.9094,'c-':-2.6009e3,
+                                        'eta-':4.7029e3}}}
+
+    sfit = fit_params[grain_type][grain_radius]
+    if gamma != None:
+        charPar = gamma
+    else:
+        charPar = Gtot *np.sqrt(T) / ne
+    Z = sfit['k'] * (1.0 - np.exp(-charPar/sfit['hz'])) * (charPar**sfit['alpha']) + sfit['b']
+    if Z>0:
+        sigma = sfit['c+'] * (1.0 - np.exp(-Z/sfit['eta+'])) + sfit['d']
+    else:
+        sigma = sfit['c-'] * (1.0 - np.exp(-abs(Z)/sfit['eta-'])) + sfit['d']
+    return sigma
+
+def plot_grain_charge_dist(Gtot,T,ne,grain_type,grain_radius,gamma=None):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,4), dpi=300, facecolor='w', edgecolor='k')
+    
+    dist,Z = grain_charge_dist(Gtot,T,ne,grain_type,grain_radius,gamma)
+    meanZ = grain_mean_charge(Gtot,T,ne,grain_type,grain_radius,gamma)
+    print('Mean charge: '+str(meanZ))
+    
+    ax.step(Z,dist,color='b',alpha=0.5,label='Charge distribution',where='mid')
+    ax.axvline(meanZ,color='r',linestyle='--',label='Mean charge: '+str(round(meanZ,2)))
+
+    draine_Z = np.array([0,1,2,3])
+    draine_P = np.array([0.,0.2,0.75,0.08])
+    ax.step(draine_Z,draine_P,alpha=0.5,color='g',linestyle=':',label='Weingartner & Draine (2001)',where='mid')
+    
+    ax.set_ylabel(r'Probability', fontsize=13)
+    ax.set_xlabel(r'Grain charge $Z$',fontsize=16)
+    ax.set_ylim([0,1])
+    ax.set_xlim([min(Z)-1,max(Z)+1])
+    ax.tick_params(labelsize=12)
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both',axis="both",direction="in")
+    ax.legend(loc='best',fontsize=10,frameon=False)
+    
+    fig.subplots_adjust(top=0.97,bottom=0.13,left=0.15,right=0.99)
+    fig.savefig('dust_grain_charge_dist_'+grain_type+'_'+grain_radius+'.png',format='png',dpi=300)
+    plt.close(fig)
+
+def grain_charge_probability(Gtot,T,ne,grain_type,grain_radius,Zi,gamma=None):
+    """
+    Compute the probability of a grain having a specific charge Zi.
+    
+    This function uses the same fitting function from Ibanez-Mejias et al. (2019)
+    as grain_charge_dist, but returns only the probability for a specific charge.
+    
+    Parameters
+    ----------
+    Gtot : float
+        Total radiation field intensity.
+    T : float
+        Temperature in K.
+    ne : float
+        Electron density in cm^-3.
+    grain_type : str
+        Type of grain ('silicate' or 'graphite').
+    grain_radius : str
+        Grain radius designation (e.g., '50A', '100A', etc.).
+    Zi : int
+        Specific charge for which to compute the probability.
+    gamma : float, optional
+        Charging parameter. If None, computed as Gtot * sqrt(T) / ne.
+        
+    Returns
+    -------
+    float
+        Probability of the grain having charge Zi.
+    """
+    # Fitting parameters from Ibanez-Mejias et al. (2019) Table 1
+    fit_params = {'silicate':{'3.5A':{'alpha':0.3263,'k':0.0149,'b':-0.1212,'hz':57,
+                                        'c+':0.4123,'eta+':0.2513,'d':0.1891,'c-':0.4845,
+                                        'eta-':0.3532},
+                                '5A':{'alpha':0.3141,'k':0.0372,'b':-0.3043,'hz':86,
+                                        'c+':0.2734,'eta+':0.2925,'d':0.3233,'c-':0.3615,
+                                        'eta-':0.6532},
+                                '10A':{'alpha':0.3535,'k':0.0494,'b':-0.4865,'hz':73,
+                                        'c+':0.4353,'eta+':0.7459,'d':0.4451,'c-':0.1053,
+                                        'eta-':0.5803},
+                                '50A':{'alpha':0.5115,'k':0.0717,'b':-0.4106,'hz':107,
+                                        'c+':1.0758,'eta+':1.7832,'d':0.5860,'c-':-1.0379e3,
+                                        'eta-':7.7069e3},
+                                '100A':{'alpha':0.3525,'k':0.6591,'b':-0.1649,'hz':384,
+                                        'c+':1.6245,'eta+':2.8390,'d':0.6346,'c-':-4.2075e2,
+                                        'eta-':1.9840e3},
+                                '500A':{'alpha':0.3643,'k':2.6283,'b':0.5217,'hz':345,
+                                        'c+':4.0732,'eta+':11.0200,'d':0.6797,'c-':-0.2418,
+                                        'eta-':0.5910},
+                                '1000A':{'alpha':0.3927,'k':3.6493,'b':0.8389,'hz':372,
+                                        'c+':5.9813,'eta+':20.6410,'d':0.6961,'c-':-0.1885,
+                                        'eta-':0.4237}},
+
+                'graphite':{'3.5A':{'alpha':0.4699,'k':0.0085,'b':-0.1162,'hz':48,
+                                        'c+':0.3103,'eta+':0.2744,'d':0.2551,'c-':0.3766,
+                                        'eta-':0.5241},
+                                '5A':{'alpha':0.4386,'k':0.0195,'b':-0.3084,'hz':95,
+                                        'c+':0.3699,'eta+':0.5654,'d':0.4158,'c-':0.2890,
+                                        'eta-':1.6241},
+                                '10A':{'alpha':0.4994,'k':0.0199,'b':-0.4959,'hz':78,
+                                        'c+':0.6511,'eta+':0.9839,'d':0.5275,'c-':0.0213,
+                                        'eta-':0.0977},
+                                '50A':{'alpha':0.6009,'k':0.0523,'b':-0.4092,'hz':218,
+                                        'c+':1.6536,'eta+':2.6688,'d':0.6671,'c-':-9.5138,
+                                        'eta-':35.3519},
+                                '100A':{'alpha':0.2900,'k':2.2310,'b':-0.2061,'hz':1063,
+                                        'c+':2.5445,'eta+':4.3352,'d':0.7010,'c-':-2.5341e3,
+                                        'eta-':8.1962e3},
+                                '500A':{'alpha':0.3400,'k':5.8944,'b':0.1727,'hz':1034,
+                                        'c+':5.9455,'eta+':18.3186,'d':0.8377,'c-':-2.4189e3,
+                                        'eta-':4.9424e3},
+                                '1000A':{'alpha':0.3500,'k':9.6536,'b':0.4183,'hz':1273,
+                                        'c+':8.7003,'eta+':36.1014,'d':0.9094,'c-':-2.6009e3,
+                                        'eta-':4.7029e3}}}
+
+    sfit = fit_params[grain_type][grain_radius]
+    if gamma != None:
+        charPar = gamma
+    else:
+        charPar = Gtot *np.sqrt(T) / ne
+    Z = sfit['k'] * (1.0 - np.exp(-charPar/sfit['hz'])) * (charPar**sfit['alpha']) + sfit['b']
+    if Z>0:
+        sigma = sfit['c+'] * (1.0 - np.exp(-Z/sfit['eta+'])) + sfit['d']
+    else:
+        sigma = sfit['c-'] * (1.0 - np.exp(-abs(Z)/sfit['eta-'])) + sfit['d']
+    
+    # Compute the probability for the specific charge Zi
+    prob_Zi = (1. / (sigma * np.sqrt(2.*np.pi))) * np.exp(-0.5*((float(Zi) - Z) / sigma)**2.)
+    
+    # To get the normalized probability, we need to compute the normalization factor
+    # by integrating over the range where the distribution is significant
+    Zmin = round(Z - 3.*sigma)
+    Zmax = round(Z + 3.*sigma)
+    x = np.arange(Zmin, Zmax+1)
+    norm_factor = 0.0
+    for i in range(0, len(x)):
+        norm_factor += (1. / (sigma * np.sqrt(2.*np.pi))) * np.exp(-0.5*((float(x[i]) - Z) / sigma)**2.)
+    
+    # Return normalized probability
+    return prob_Zi / norm_factor
+
+
+def charge_equilibrium_from_rates(k_up, k_down, Zmin, Zmax):
+    """
+    Compute steady-state charge distribution f(Z) for integer charges Zmin..Zmax
+    given upward (Z->Z+1) and downward (Z->Z-1) transition rates.
+
+    Parameters
+    ----------
+    k_up : callable
+        Function taking integer Z and returning rate [s^-1] for transition Z->Z+1
+    k_down : callable
+        Function taking integer Z and returning rate [s^-1] for transition Z->Z-1
+    Zmin, Zmax : int
+        Inclusive bounds for integer charges to consider.
+
+    Returns
+    -------
+    f : ndarray
+        Normalized probability array for charges Zmin..Zmax
+    Z : ndarray
+        Array of integer charges from Zmin to Zmax
+
+    Notes
+    -----
+    Solves detailed balance in steady state:
+        f(Z) * k_up(Z) = f(Z+1) * k_down(Z+1)
+    which can be recursively solved up to an overall normalization.
+    """
+    Z = np.arange(Zmin, Zmax+1, dtype=int)
+    n = len(Z)
+    f = np.zeros(n, dtype=float)
+
+    # Choose a reference Z0 (we'll pick Zmin) and set f(Zmin)=1 before normalizing
+    f[0] = 1.0
+    # Upwards recursion: build f(Z+1) from f(Z)
+    for i in range(0, n-1):
+        Zi = Z[i]
+        kip = k_up(Zi)
+        kdown_next = k_down(Zi+1)
+        # avoid division by zero; if both zero, set next prob to zero
+        if kdown_next > 0.0:
+            f[i+1] = f[i] * (kip / kdown_next)
+        else:
+            f[i+1] = 0.0
+
+    # If some lower charges might be populated by downward transitions from reference,
+    # we could also recurse downward. Here reference is Zmin so nothing below.
+
+    # Normalize
+    s = np.sum(f)
+    if s <= 0.0:
+        raise RuntimeError('All probabilities zero in charge_equilibrium_from_rates')
+    f /= s
+    return f, Z
+
+
+def grain_charge_equilibrium_WD01(grain_type, a_cm, radiation_field, C_abs, Im, ne, nH, T, Zmin=None, Zmax=None,
+                                 ion_charge=1, method='WD01_simple'):
+    """
+    Compute equilibrium grain charge distribution following Weingartner & Draine (2001)
+    using photoemission (photoelectric) and collisional charging (electron/ion capture).
+
+    This is a practical implementation that requires the caller to provide the
+    radiation_field and absorption cross section arrays. It computes:
+      k_pe(Z): photoemission rate [s^-1] (Z -> Z+1)
+      k_e(Z): electron capture rate [s^-1] (Z -> Z-1)
+      k_ion(Z): ion capture rate [s^-1] (Z -> Z+1)
+
+    The net upward rate used is k_up(Z) = k_pe(Z) + k_ion(Z) and the downward
+    rate is k_down(Z) = k_e(Z).
+
+    Parameters
+    ----------
+    grain_type : {'silicate','graphite'}
+        Grain composition
+    a_cm : float
+        Grain radius in cm
+    radiation_field : ndarray (N,3)
+        Array with columns [E_eV, I_lambda?, flux_photon?]. The function expects
+        column 0 = photon energy in eV and column 2 = energy density or flux-like
+        quantity where integrand = flux/E * ... (compatible with routines in
+        `dust_photoelectric_heating.py`).
+    C_abs : ndarray (N,)
+        Absorption cross section for each photon energy (cm^2)
+    ne : float
+        Electron density [cm^-3]
+    nH : float
+        Hydrogen density [cm^-3]
+    T : float
+        Gas temperature [K]
+    Zmin, Zmax : int, optional
+        Charge bounds to consider. If None, automatically set to +/- 10 around the
+        mean estimated charge from the Ibanez-Mejias fit.
+    ion_charge : int
+        Ion charge (usually +1)
+
+    Returns
+    -------
+    f, Z : ndarray
+        Normalized charge distribution and corresponding integer charges
+
+    Notes
+    -----
+    This implementation uses simplified formulae for collisional capture rates
+    following DS87/WD01 (see `DS87_J_function` and `DS87_lambda_function`) and
+    computes photoemission rate by integrating the photoelectric yield times photon
+    flux divided by photon energy times cross section. The photoelectric yield model
+    is not reimplemented here; instead this function expects `C_abs` and
+    `radiation_field` consistent with `dust_photoelectric_heating.compute_photoelectric_heating_rate`.
+    """
+    # Lazy import to avoid circular import at module load
+    from dust_photoelectric_heating import (
+        escape_fraction_attempting_electrons,
+        photoelectric_yield_graphite,
+        photoelectric_yield_silicate,
+        min_energy_ejection,
+        ionisation_potential_valence,
+        min_photon_energy,
+        graphite_work_function,
+        silicate_work_function,
+        DS87_J_function,
+    )
+    # use cgs Boltzmann constant to avoid unyt dependency
+    kB = 1.380649e-16  # erg/K
+
+    # Determine a representative grain radius in nm used by some helper functions
+    a_nm = a_cm * 1e7  # cm -> nm
+
+    # Estimate mean charge if Zmin/Zmax not provided
+    if Zmin is None or Zmax is None:
+        try:
+            from dust_model import grain_mean_charge
+            Zmean = int(round(grain_mean_charge(1.0, T, ne, 'silicate' if grain_type=='silicate' else 'graphite', f'{int(a_nm)}A')))
+        except Exception:
+            Zmean = 0
+        Zmin = -max(10, abs(Zmean) + 10) if Zmin is None else Zmin
+        Zmax = max(10, abs(Zmean) + 10) if Zmax is None else Zmax
+
+    # Photon energies and flux-like column index expectation
+    E = radiation_field[:,0]  # eV
+    flux_term = radiation_field[:,2]
+
+    # Helper: photoemission rate k_pe(Z)
+    def k_pe(Z, yield_func=None):
+        # compute IPV and minimum photon energy for ejection
+        if grain_type == 'graphite':
+            IPV = ionisation_potential_valence(graphite_work_function, Z, a_nm)
+        else:
+            IPV = ionisation_potential_valence(silicate_work_function, Z, a_nm)
+
+        Emin_ej = min_photon_energy(IPV, Z, a_nm)
+        # Integrate yield * (flux / E) * C_abs over E > Emin_ej
+        mask = E >= Emin_ej
+        if not np.any(mask):
+            return 0.0
+
+        # If a full radiation & Im & C_abs are available, call compute_photoemission_rate
+        if radiation_field is not None and C_abs is not None:
+            try:
+                from dust_photoelectric_heating import compute_photoemission_rate
+                args = (Z, a_nm, radiation_field, grain_type, Im, C_abs)
+                return compute_photoemission_rate(args)
+            except Exception:
+                pass
+
+        # fallback crude default: small constant yield for photons above threshold
+        yields_masked = np.full(np.count_nonzero(mask), 0.1)
+        integrand = yields_masked * (flux_term[mask] / E[mask]) * C_abs[mask]
+        # result in s^-1 (photons * yield * cross-section integrated)
+        return float(np.trapz(integrand, E[mask]))
+
+    # Helper: collisional capture rates
+    e_c = 4.8032047e-10  # statC
+    m_e = 9.1093837015e-28  # g
+
+    def k_e(Z):
+        # electron thermal velocity * cross section * coulomb focusing
+        v_th = np.sqrt(8. * kB * T / (np.pi * m_e))
+        sigma_geom = np.pi * a_cm**2
+        # Coulomb factor J from DS87
+        # a_cm is provided in cm here; DS87_J_function expects a in meters -> convert
+        J = DS87_J_function(Z, -1., a_cm / 100.0, T)
+        # electron density ne assumed provided
+        return ne * v_th * sigma_geom * J
+
+    def k_ion(Z):
+        # ions (protons) capture rate; use hydrogen as dominant ion with charge +1
+        m_p = 1.67262192369e-24
+        v_th_ion = np.sqrt(8. * kB * T / (np.pi * m_p))
+        sigma_geom = np.pi * a_cm**2
+        # Coulomb factor for positive charge interacting with ion of charge +1
+        # convert a_cm (cm) to meters for DS87_J_function
+        J = DS87_J_function(Z, ion_charge, a_cm / 100.0, T)
+        return nH * v_th_ion * sigma_geom * J
+
+    # Define up/down rates used by solver
+    def k_up(Z):
+        return k_pe(Z) + k_ion(Z)
+
+    def k_down(Z):
+        return k_e(Z)
+
+    # Compute equilibrium distribution
+    f, Z = charge_equilibrium_from_rates(k_up, k_down, Zmin, Zmax)
+    return f, Z
+
+
+def compare_charge_dist_mathis(grain_type, grain_size_cm, ne, nH, T, plot=False):
+    """
+    Compare equilibrium charge distribution computed with the WD01-based
+    solver against the Ibanez-Mejias (fitting) result used in `grain_charge_dist`.
+
+    Parameters
+    ----------
+    grain_type : {'silicate','graphite'}
+    grain_size_cm : float
+        Grain radius in cm
+    ne, nH : float
+        Electron and hydrogen densities [cm^-3]
+    T : float
+        Gas temperature [K]
+    plot : bool
+        If True, plot the two distributions for visual comparison.
+
+    Returns
+    -------
+    result : dict
+        Contains keys 'Z', 'f_WD', 'f_fit' where f_WD is the distribution from
+        `grain_charge_equilibrium_WD01` and f_fit is from `grain_charge_dist`.
+    """
+    from dust_photoelectric_heating import read_dielectric_file
+    # 1. Load Mathis ISRF (file included in repo as mathis1983.dat)
+    data = np.loadtxt('mathis1983.dat')
+    # file has columns: wavelength (nm), intensity (photons s-1 cm-2 nm-1)
+    wav_nm = data[:,0]
+    intensity_phot = data[:,1]
+
+    # Convert to photon energy in eV: E[eV] = hc / lambda
+    h = 6.6260755e-27  # erg s
+    c = 2.99792458e10  # cm/s
+    eV2erg = 1.602176634e-12
+    wav_cm = wav_nm * 1e-7
+    wav_micron = wav_nm * 1e-3
+    E_erg = h * c / wav_cm
+    E_eV = E_erg / eV2erg
+
+    # Build radiation_field array compatible with other routines: [E_eV, placeholder, flux_like]
+    # Convert intensity (photons s-1 cm-2 nm-1) to photons s-1 cm-2 eV-1
+    # d(lambda)/dE = -hc/E^2 => intensity_E = intensity_lambda * (lambda^2/(hc))
+    intensity_phot_per_eV = intensity_phot * (wav_cm**2) / (h*c)  # photons s-1 cm-2 eV-1
+    # For our routines we use flux_term = intensity_phot_per_eV * E (photons * E?)
+    # The photoemission integrand in existing code uses (radiation_field[:,2] / radiation_field[:,0])
+    # so we set column 2 = intensity_phot_per_eV * E_eV (so flux/E -> intensity_phot_per_eV)
+    flux_term = intensity_phot_per_eV * E_eV
+    radiation_field = np.column_stack([E_eV, wav_nm[::-1], flux_term])
+
+    # 2. Get absorption cross section for this grain size using dust_emission helpers
+    # Get the dielectric properties and interpolate to the desired wavelengths
+    if grain_type == 'graphite':
+        data_perp = read_dielectric_file('draine_lee_1984/callindex.out_CpeD03_0.10')
+        data_para = read_dielectric_file('draine_lee_1984/callindex.out_CpaD03_0.10')
+        Imperp = np.interp(wav_micron[::-1],data_perp['table']['wavelength_um'][::-1], data_perp['table']['Im_n'][::-1])
+        Impara = np.interp(wav_micron[::-1],data_para['table']['wavelength_um'][::-1], data_para['table']['Im_n'][::-1])
+        Im = np.column_stack([Imperp[::-1], Impara[::-1]])  # first column perpendicular, second parallel
+    elif grain_type == 'silicate':
+        data_sil = read_dielectric_file('draine_lee_1984/eps_suvSil')
+        Im = np.interp(wav_micron[::-1],data_sil['table']['wavelength_um'][::-1], data_sil['table']['Im_n'][::-1])[::-1]
+    from dust_emission import interpolate_cross_sections
+    # interpolate_cross_sections returns (a0_micron, wav_cm, C_sca, C_abs, C_rp)
+    grain_size_micron = grain_size_cm * 1e4
+    _, wav_out_cm, _, C_abs_out, _ = interpolate_cross_sections('graphite' if grain_type=='graphite' else 'silicate', grain_size_micron)
+    # interpolate_cross_sections returns wavelengths in cm; we need C_abs on the same E grid as ISRF
+    # convert wav_out_cm to E_eV_out and interpolate C_abs_out to E_eV
+    h = 6.6260755e-27
+    c = 2.99792458e10
+    eV2erg = 1.602176634e-12
+    E_out_eV = (h*c) / wav_out_cm / eV2erg
+    # Interpolate C_abs_out(E) onto E_eV
+    C_abs = np.interp(E_eV, E_out_eV, C_abs_out)
+
+    # 3. Compute WD01 equilibrium using our wrapper
+    f_WD, Z_WD = grain_charge_equilibrium_WD01(grain_type, grain_size_cm, radiation_field, C_abs, Im, ne, nH, T)
+
+    # 4. Compute fitting distribution from grain_charge_dist (Ibanez-Mejias fit)
+    # Convert grain size to IM19 label (e.g., '50A', '100A' etc.) by nearest
+    a_nm = grain_size_cm * 1e7
+    # available radii in grain_charge_dist fit: 3.5,5,10,50,100,500,1000 A
+    im_sizes_A = np.array([3.5,5.,10.,50.,100.,500.,1000.])
+    nearest = im_sizes_A[np.argmin(np.abs(im_sizes_A - a_nm))]
+    radius_label = f'{int(nearest)}A'
+    f_fit, Z_fit = grain_charge_dist(1.0, T, ne, 'silicate' if grain_type=='silicate' else 'graphite', radius_label)
+
+    # 5. Rebin/align Z arrays to a common Z range
+    Zmin = min(Z_WD[0], Z_fit[0])
+    Zmax = max(Z_WD[-1], Z_fit[-1])
+    Z_common = np.arange(Zmin, Zmax+1)
+
+    def regrid(Z_src, f_src, Z_common):
+        f_common = np.zeros(len(Z_common))
+        for i,z in enumerate(Z_common):
+            if z in Z_src:
+                f_common[i] = f_src[np.where(Z_src == z)[0][0]]
+        # normalize
+        s = f_common.sum()
+        if s>0:
+            f_common /= s
+        return f_common
+
+    f_WD_common = regrid(Z_WD, f_WD, Z_common)
+    f_fit_common = regrid(Z_fit, f_fit, Z_common)
+
+    # 6. Optionally plot
+    if plot:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.plot(Z_common, f_WD_common, drawstyle='steps-mid', label='WD01 solver')
+        ax.plot(Z_common, f_fit_common, drawstyle='steps-mid', label='Ibanez-Mejias fit')
+        ax.set_xlabel('Charge Z')
+        ax.set_ylabel('Probability')
+        ax.legend()
+        ax.set_yscale('log')
+        plt.show()
+
+    result = {'Z': Z_common, 'f_WD': f_WD_common, 'f_fit': f_fit_common}
+    return result
+
 def cmp_D_WD99(charge_dist,x,Zi,T,a):
     # This is based on Eq. 6-7 in Weingartner & Draine (1999) which allows
     # the computation of the Coulomb enhancement factor from the charge
@@ -392,8 +919,88 @@ def cmp_D_WD99(charge_dist,x,Zi,T,a):
         D = 1.0
     D = max(D,1e-10)
     return D
+
+
+def _compute_D_for_size(args):
+    """Worker helper: compute D for a single size and environment.
+
+    args: tuple (Gtot, ne_val, T_val, material, a_micron, a_cm, Zi)
+    Returns float D or nan on error.
+    """
+    Gtot, ne_val, T_val, material, a_micron, a_cm, Zi = args
+    from dust_charging import equilibrium_charge_for_grain
+    Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
+        Gtot, ne_val, T_val, material, a_micron,
+        radiation_model='Mathis', rad_field=None, yield_params=None, debug=False)
+    D = cmp_D_WD99(P, Zs, Zi, T_val, a_cm)
+    return float(D)
+
+def _compute_phi_for_size(args):
+    """Worker helper: compute average surface potential (Volts) for a single size and environment.
+
+    args: tuple (Gtot, ne_val, T_val, material, a_micron, a_cm, Zi)
+    Returns float phi (Volts) or nan on error.
+    """
+    try:
+        Gtot, ne_val, T_val, material, a_micron, a_cm, Zi = args
+        from dust_charging import equilibrium_charge_for_grain
+        # compute equilibrium charge distribution and mean
+        Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
+            Gtot, ne_val, T_val, material, a_micron,
+            radiation_model='Mathis', rad_field=None, yield_params=None, debug=False)
+        if Zs is None or P is None or len(Zs) == 0 or len(P) == 0:
+            return float('nan')
+        # compute mean Z
+        meanZ = float(np.sum(np.asarray(Zs) * np.asarray(P)))
+        # convert a_cm (cm) to meters
+        a_m = float(a_cm) * 1e-2
+        # constants (SI)
+        e_SI = 1.602176634e-19
+        epsilon0_SI = 8.854187817e-12
+        if a_m <= 0:
+            return float('nan')
+        phi = meanZ * e_SI / (4.0 * np.pi * epsilon0_SI * a_m)
+        return float(phi)
+    except Exception:
+        return float('nan')
+
+def _compute_D_phi_for_size(args):
+    """Worker helper: compute both D and average potential for a single size/env in one call.
+
+    Returns tuple (D, phi) where either may be NaN on error.
+    """
+    try:
+        Gtot, ne_val, T_val, material, a_micron, a_cm, Zi = args
+        from dust_charging import equilibrium_charge_for_grain
+        Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
+            Gtot, ne_val, T_val, material, a_micron,
+            radiation_model='Mathis', rad_field=None, yield_params=None, debug=False)
+        if Zs is None or P is None or len(Zs) == 0 or len(P) == 0:
+            return (float('nan'), float('nan'))
+        # D
+        D = cmp_D_WD99(P, Zs, Zi, T_val, a_micron * 1e-4)
+        # mean Z (use returned Zmean_eq if available)
+        if Zmean_eq is None:
+            meanZ = float(np.sum(np.asarray(Zs) * np.asarray(P)))
+        else:
+            meanZ = float(Zmean_eq)
+        # convert a_cm to meters
+        a_m = a_micron * 1e-6
+        e_SI = 1.602176634e-19
+        epsilon0_SI = 8.854187817e-12
+        if a_m <= 0:
+            phi = float('nan')
+        else:
+            phi = meanZ * e_SI / (4.0 * np.pi * epsilon0_SI * a_m)
+        return (float(D), float(phi))
+    except Exception:
+        return (float('nan'), float('nan'))
     
-def plot_coulomb_enhancement(Gtot,Zi):
+def plot_coulomb_enhancement(Gtot,Zi,nsizes=10):
+    import concurrent.futures
+    import os
+    from tqdm import tqdm
+    from dust_charging import equilibrium_charge_for_grain
     from scipy.interpolate import interp1d
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -430,87 +1037,122 @@ def plot_coulomb_enhancement(Gtot,Zi):
         label = names[i*2].split('_')[0]
         ax.plot(x*1e4,y,label=label,linestyle=linestyles[i],color='k')
 
-    IM19_sizes = ['3.5A','5A','10A','50A','100A','500A','1000A']
-    sizes_incm = np.array([3.5e-8,5e-8,1e-7,5e-7,1e-6,5e-6,1e-5])
-    
-    # CNM: nH=30 Hcc, T=100K, xe=0.0015
-    D_CNM = np.zeros(len(IM19_sizes))
-    for i in range(0,len(IM19_sizes)):
-        #ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'silicates',IM19_sizes[i])
-        ch_dist,x = grain_charge_dist(Gtot,94.9113984403983,0.194638139893389,'silicates',IM19_sizes[i])
-        a = sizes_incm[i]
-        D = cmp_D_WD99(ch_dist,x,Zi,100,a)
-        D_CNM[i] = D
-    ax.plot(sizes_incm*1e4,D_CNM,color='sandybrown',linestyle='-')
-    f = interp1d(np.log10(sizes_incm),np.log10(D_CNM), fill_value='extrapolate',kind='linear')
-    xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='sandybrown',linestyle='-',alpha=0.6)
-    D_CNM = np.zeros(len(IM19_sizes))
-    for i in range(0,len(IM19_sizes)):
-        # ch_dist,x = grain_charge_dist(Gtot,100,30*0.0015,'carbonaceous',IM19_sizes[i])
-        ch_dist,x = grain_charge_dist(Gtot,99.7592216672557,0.194638139893389,'carbonaceous',IM19_sizes[i])
-        a = sizes_incm[i]
-        D = cmp_D_WD99(ch_dist,x,Zi,100,a)
-        D_CNM[i] = D
-    ax.plot(sizes_incm*1e4,D_CNM,color='steelblue',linestyle='-')
-    f = interp1d(np.log10(sizes_incm),np.log10(D_CNM), fill_value='extrapolate',kind='linear')
-    xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='steelblue',linestyle='-',alpha=0.6)
-    
-    # WNM: nH=0.4 Hcc, T=6000K, xe=0.1
-    D_WNM = np.zeros(len(IM19_sizes))
-    for i in range(0,len(IM19_sizes)):
-        ch_dist,x = grain_charge_dist(Gtot,6000,0.4*0.1,'silicates',IM19_sizes[i])
-        a = sizes_incm[i]
-        D = cmp_D_WD99(ch_dist,x,Zi,6000,a)
-        D_WNM[i] = D
-    ax.plot(sizes_incm*1e4,D_WNM,color='sandybrown',linestyle='--')
-    f = interp1d(np.log10(sizes_incm),np.log10(D_WNM), fill_value='extrapolate',kind='linear')
-    xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='sandybrown',linestyle='--',alpha=0.6)
-    D_WNM = np.zeros(len(IM19_sizes))
-    for i in range(0,len(IM19_sizes)):
-        ch_dist,x = grain_charge_dist(Gtot,6000,0.4*0.1,'carbonaceous',IM19_sizes[i])
-        a = sizes_incm[i]
-        D = cmp_D_WD99(ch_dist,x,Zi,6000,a)
-        D_WNM[i] = D
-    ax.plot(sizes_incm*1e4,D_WNM,color='steelblue',linestyle='--')
-    f = interp1d(np.log10(sizes_incm),np.log10(D_WNM), fill_value='extrapolate',kind='linear')
-    xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='steelblue',linestyle='--',alpha=0.6)
-    
-    # WIM: nH=0.1 Hcc, T=8000K, xe=0.99
-    D_WIM = np.zeros(len(IM19_sizes))
-    for i in range(0,len(IM19_sizes)):
-        ch_dist,x = grain_charge_dist(Gtot,8000,0.1*0.99,'silicates',IM19_sizes[i])
-        a = sizes_incm[i]
-        D = cmp_D_WD99(ch_dist,x,Zi,8000,a)
-        D_WIM[i] = D
-    ax.plot(sizes_incm*1e4,D_WIM,color='sandybrown',linestyle=':')
-    f = interp1d(np.log10(sizes_incm),np.log10(D_WIM), fill_value='extrapolate',kind='linear')
-    xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='sandybrown',linestyle=':',alpha=0.6)
-    D_WIM = np.zeros(len(IM19_sizes))
-    for i in range(0,len(IM19_sizes)):
-        ch_dist,x = grain_charge_dist(Gtot,8000,0.1*0.99,'carbonaceous',IM19_sizes[i])
-        a = sizes_incm[i]
-        D = cmp_D_WD99(ch_dist,x,Zi,8000,a)
-        D_WIM[i] = D
-    ax.plot(sizes_incm*1e4,D_WIM,color='steelblue',linestyle=':')
-    f = interp1d(np.log10(sizes_incm),np.log10(D_WIM), fill_value='extrapolate',kind='linear')
-    xnew = np.logspace(np.log10(3.5e-8),np.log10(2.5e-5),100)
-    ax.plot(xnew*1e4,10**f(np.log10(xnew)),color='steelblue',linestyle=':',alpha=0.6)
+    asizes_micron = np.logspace(-3,1,nsizes) # in micron
+    asizes_cm = asizes_micron * 1e-4
+    materials = ['graphite','silicate']
+    colours = ['steelblue','sandybrown']
+    nmaterials = len(materials)
+
+    # Separate figure for average electrostatic potential (Volts)
+    fig_phi, ax_phi = plt.subplots(1, 1, sharex=True, figsize=(7,5), dpi=300, facecolor='w', edgecolor='k')
+    ax_phi.set_xscale('log')
+    ax_phi.set_xlabel(r'$a$ [$\mu$m]', fontsize=16)
+    ax_phi.set_ylabel(r'Average potential $\langle U \rangle$ (V)', fontsize=16)
+    ax_phi.tick_params(labelsize=14)
+    ax_phi.xaxis.set_ticks_position('both')
+    ax_phi.yaxis.set_ticks_position('both')
+    ax_phi.minorticks_on()
+    ax_phi.tick_params(which='both',axis="both",direction="in")
+    ax_phi.set_ylim([-2,2.5])
+    ax_phi.set_xlim([7e-4,0.25])
+
+    # plot the results from Draine_potential_graphite.csv and Draine_potential_silicate.csv\
+    phases_Draine = ['CNM','WNM']
+    for i, phase in enumerate(phases_Draine):
+        for mat_idx, mat in enumerate(materials):
+            if mat == 'graphite':
+                data = np.loadtxt(f'Draine_potential_graphite_{phase}.csv', delimiter=',', skiprows=1)
+            elif mat == 'silicate':
+                data = np.loadtxt(f'Draine_potential_silicate_{phase}.csv', delimiter=',', skiprows=1)
+            sizes_draine = data[:, 0]*1e-4  # in cm
+            potentials_draine = data[:, 1]  # in eV
+            ax_phi.plot(sizes_draine, potentials_draine, 
+                        linestyle=linestyles[i], 
+                        color=colours[mat_idx],lw=2,alpha=0.6)
+
+    max_workers = min(nsizes, os.cpu_count() or 1)
+    print(f'Using max_workers={max_workers} for parallel computation')
+
+    # helper to run a mapping (with optional tqdm)
+    def _map_with_tqdm(executor, func, tasks, desc=None):
+        try:
+            from tqdm import tqdm as _tqdm
+        except Exception:
+            _tqdm = None
+        it = executor.map(func, tasks)
+        if _tqdm is not None:
+            return list(_tqdm(it, total=len(tasks), desc=desc))
+        else:
+            return list(it)
+
+    # Generic environment loop (env_name, T_val, ne_val, linestyle)
+    environments = [
+        ('CNM', 100, 0.03, '-'),
+        ('WNM', 6000, 0.03, '--'),
+        ('WIM', 8000, 0.099, ':'),
+    ]
+
+
+    for env_name, T_env, ne_env, env_ls in environments:
+        for i in range(0, nmaterials):
+            # build tasks for this material and environment
+            tasks = []
+            for j in range(nsizes):
+                Gtot_local = 1.0
+                T_val = T_env
+                ne_val = ne_env
+                a_micron = asizes_micron[j]
+                a_cm = asizes_cm[j]
+                tasks.append((Gtot_local, ne_val, T_val, materials[i], a_micron, a_cm, Zi))
+
+            # attempt parallel computation for D and phi in a single solver call; if it fails, fall back to sequential
+            try:
+                with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    results = _map_with_tqdm(executor, _compute_D_phi_for_size, tasks, desc=f'{env_name} {materials[i]} D+phi')
+                # results is a list of (D, phi) tuples
+                D_list, phi_list = zip(*results) if len(results) else ([], [])
+                D_arr = np.asarray(D_list, dtype=float)
+                phi_arr = np.asarray(phi_list, dtype=float)
+            except Exception:
+                # sequential fallback for both D and phi
+                D_list = []
+                phi_list = []
+                for t in tasks:
+                    try:
+                        dval, phival = _compute_D_phi_for_size(t)
+                        D_list.append(dval)
+                        phi_list.append(phival)
+                    except Exception:
+                        D_list.append(float('nan'))
+                        phi_list.append(float('nan'))
+                D_arr = np.asarray(D_list, dtype=float)
+                phi_arr = np.asarray(phi_list, dtype=float)
+
+            # plot D on left axis
+            if env_name == 'CNM':
+                ax.plot(asizes_micron, D_arr, color=colours[i], linestyle='-',lw=2)
+            elif env_name == 'WNM':
+                ax.plot(asizes_micron, D_arr, color=colours[i], linestyle='--',lw=2)
+            else:
+                ax.plot(asizes_micron, D_arr, color=colours[i], linestyle=':',lw=2)
+            # plot phi on separate figure; use same colour but dotted to distinguish
+            if env_name == 'CNM':
+                ax_phi.plot(asizes_micron, phi_arr, color=colours[i], linestyle='-',lw=2)
+            elif env_name == 'WNM':
+                ax_phi.plot(asizes_micron, phi_arr, color=colours[i], linestyle='--',lw=2)
+            else:
+                ax_phi.plot(asizes_micron, phi_arr, color=colours[i], linestyle=':',lw=2)
     
     init_legend = ax.legend(loc='upper right',fontsize=14,frameon=False,ncol=2)
     ax.add_artist(init_legend)
     
-    dummy_lines = [ax.plot([],[],color='sandybrown',linestyle='-',label='Silicates')[0],
-                   ax.plot([],[],color='steelblue',linestyle='-',label='Carbonaceous')[0]]
+    dummy_lines = [ax.plot([],[],color='sandybrown',linestyle='-',label='Silicate',lw=2)[0],
+                   ax.plot([],[],color='steelblue',linestyle='-',label='Graphite',lw=2)[0]]
     first_legend = ax.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=14)
     ax.add_artist(first_legend)
-    dummy_lines = [ax.plot([],[],color='k',linestyle='-',label='CNM')[0],
-                   ax.plot([],[],color='k',linestyle='--',label='WNM')[0],
-                   ax.plot([],[],color='k',linestyle=':',label='WIM')[0]]
+    dummy_lines = [ax.plot([],[],color='k',linestyle='-',label='CNM',lw=2)[0],
+                   ax.plot([],[],color='k',linestyle='--',label='WNM',lw=2)[0],
+                   ax.plot([],[],color='k',linestyle=':',label='WIM',lw=2)[0]]
     second_legends = ax.legend(handles=dummy_lines, loc='lower right', frameon=False, fontsize=14)
     ax.add_artist(second_legends)
 
@@ -527,14 +1169,33 @@ def plot_coulomb_enhancement(Gtot,Zi):
     ax.minorticks_on()
     ax.tick_params(which='both',axis="both",direction="in")
     
-    ax.axvline(x=0.1, color='cornflowerblue', linestyle='-',alpha=0.6)
-    ax.axvline(x=0.01, color='steelblue', linestyle='--',alpha=0.6)
-    ax.axvline(x=0.1, color='sandybrown', linestyle='-',alpha=0.6)
-    ax.axvline(x=0.005, color='saddlebrown', linestyle='--',alpha=0.6)
+    # ax.axvline(x=0.1, color='cornflowerblue', linestyle='-',alpha=0.6)
+    # ax.axvline(x=0.01, color='steelblue', linestyle='--',alpha=0.6)
+    # ax.axvline(x=0.1, color='sandybrown', linestyle='-',alpha=0.6)
+    # ax.axvline(x=0.005, color='saddlebrown', linestyle='--',alpha=0.6)
     
     fig.subplots_adjust(top=0.99,bottom=0.11,left=0.11,right=0.99)
     fig.savefig('dust_coulomb_enhancement.pdf',format='pdf',dpi=300)
     plt.close(fig)
+
+
+    init_legend = ax_phi.legend(loc='upper right',fontsize=14,frameon=False,ncol=2)
+    ax_phi.add_artist(init_legend)
+    
+    dummy_lines = [ax_phi.plot([],[],color='sandybrown',linestyle='-',label='Silicate')[0],
+                   ax_phi.plot([],[],color='steelblue',linestyle='-',label='Graphite')[0]]
+    first_legend = ax_phi.legend(handles=dummy_lines, loc='lower left', frameon=False, fontsize=14)
+    ax_phi.add_artist(first_legend)
+    dummy_lines = [ax_phi.plot([],[],color='k',linestyle='-',label='CNM')[0],
+                   ax_phi.plot([],[],color='k',linestyle='--',label='WNM')[0],
+                   ax_phi.plot([],[],color='k',linestyle=':',label='WIM')[0]]
+    second_legends = ax_phi.legend(handles=dummy_lines, loc='lower right', frameon=False, fontsize=14)
+    ax_phi.add_artist(second_legends)
+
+    # finalize and save the average potential figure
+    fig_phi.subplots_adjust(top=0.99,bottom=0.11,left=0.11,right=0.99)
+    fig_phi.savefig('dust_avg_potential.pdf', format='pdf', dpi=300)
+    plt.close(fig_phi)
 
 def t_shattering(Dbig,nH,a,s):
     
@@ -677,8 +1338,7 @@ def plot_relative_velocity(target_a,projectile_a,target_s,projectile_s,compositi
     fig.savefig('relative_velocity_%s_%s.png'%(str(target_a/1e-4),composition),format='png',dpi=300)
     plt.close(fig)
         
-    
-    
+ 
 def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition,nH,ne,T,nprojectile,nMach=100):
     # This function plots the shattering fragment distribution for big grains
     # based on the power-law model 
@@ -1210,7 +1870,252 @@ def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
     fig2.subplots_adjust(top=0.98,bottom=0.07,left=0.06,right=0.99,hspace=0,wspace=0)
     fig2.savefig('shattering_timescale_full.pdf',format='pdf',dpi=300)
     plt.close(fig2)
+
+def plot_shattering_frag_simple(nMach=100):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    sns.set_theme(style="white")
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "serif",
+        "font.serif": "Computer Modern Roman",
+    })
+
+    from utils import as_si
+    fig, axes = plt.subplots(1,2, figsize=(10,4),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     
+    # Shattering model quantities (Kobayashi & Tanaka 2010)
+    Q_D = [8.9e9,4.3e10]
+    alpha_f = 3.3
+
+    phase_details = {'T':8000,'nH':0.1,'ne':0.0991,'L':100}
+    compositions = ['Carbonaceous']
+    comp_simple_name = ['C','Sil']
+    collision_model = {'Carbonaceous':{'Big-Big':{'target_a':0.1e-4,'projectile_a':0.1e-4},
+                       'Big-Small':{'target_a':0.1e-4,'projectile_a':0.01e-4}},
+                       'Silicates':{'Big-Big':{'target_a':0.1e-4,'projectile_a':0.1e-4},
+                                    'Big-Small':{'target_a':0.1e-4,'projectile_a':0.005e-4}}}
+    colors = [['lightsteelblue','blue','royalblue','steelblue','cornflowerblue'],
+              ['chocolate','saddlebrown','sandybrown']]
+    
+    
+    # Loop over grain compositions
+    for c,comp in enumerate(compositions):
+    
+        if comp == 'Carbonaceous':
+            index = 0
+            target_s = 2.2
+            projectile_s = 2.2
+        elif comp == 'Silicates':
+            index = 1
+            target_s = 3.3
+            projectile_s = 3.3
+        
+        # Loop over collision models
+        for m,model_name in enumerate(collision_model[comp]):
+            model = collision_model[comp][model_name]
+            target_a = model['target_a']
+            projectile_a = model['projectile_a']
+        
+            # Grain quantities
+            mass_target = 4./3. * np.pi * target_s * (target_a**3.)
+            mass_projectile = 4./3. * np.pi * projectile_s * (projectile_a**3.)
+            
+            Mach = np.logspace(-1,1,nMach)
+            
+            # Limits of the distributions
+            if comp == 'Carbonaceous':
+                m_dest_min = 4./3. * np.pi * target_s * ((shattering_a0[0]*1e-4)**3.)
+                m_vvsmall_min = 4./3. * np.pi * target_s * ((shattering_amin[0]*1e-4)**3.)
+                m_vvsmall_max = 4./3. * np.pi * target_s * ((shattering_amax[0]*1e-4)**3.)
+                m_vsmall_min = 4./3. * np.pi * target_s * ((shattering_amin[1]*1e-4)**3.)
+                m_vsmall_max = 4./3. * np.pi * target_s * ((shattering_amax[1]*1e-4)**3.)
+                m_small_min = 4./3. * np.pi * target_s * ((shattering_amin[2]*1e-4)**3.)
+                m_small_max = 4./3. * np.pi * target_s * ((shattering_amax[2]*1e-4)**3.)
+                m_big_min = 4./3. * np.pi * target_s * ((shattering_amin[3]*1e-4)**3.)
+                m_big_max = 4./3. * np.pi * target_s * ((shattering_amax[3]*1e-4)**3.)
+            elif comp == 'Silicates':
+                m_dest_min = 4./3. * np.pi * target_s * ((shattering_a0[4]*1e-4)**3.)
+                m_small_min = 4./3. * np.pi * target_s * ((shattering_amin[5]*1e-4)**3.)
+                m_small_max = 4./3. * np.pi * target_s * ((shattering_amax[5]*1e-4)**3.)
+                m_big_min = 4./3. * np.pi * target_s * ((shattering_amin[6]*1e-4)**3.)
+                m_big_max = 4./3. * np.pi * target_s * ((shattering_amax[6]*1e-4)**3.)
+
+            exponent1 = (4.-alpha_f)/3.
+
+            ax = axes[m]
+            nH = phase_details['nH']
+            T = phase_details['T']
+            ne = phase_details['ne']
+            Lmax = phase_details['L']
+            
+            
+            M_dest = np.zeros((nMach,3))
+            M_vvsmall = np.zeros((nMach,3))
+            M_vsmall = np.zeros((nMach,3))
+            M_small = np.zeros((nMach,3))
+            M_big = np.zeros((nMach,3))
+            
+            for i in range(0, nMach):
+                
+                # Relative velocity between two grains of the same size (Eq. 18 of Hirashita & Aoyama 2019)
+                v_target = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(target_a/1e-5) * ((T/1e4)**(1./4.)) * (nH**(-1./4.)) * np.sqrt(target_s/3.5)
+                v_projectile = 1.1e5 * (Mach[i]**(3./2.)) * np.sqrt(projectile_a/1e-5) * ((T/1e4)**(1./4.)) * (nH**(-1./4.)) * np.sqrt(projectile_s/3.5)
+                v_rel_min = min(abs(v_target-v_projectile),v_target,v_projectile)
+                v_rel_max = v_target+v_projectile
+                
+                
+                # Average collision velocity as given by the Ormel & Cuzzy (2007) fitting functions
+                v_rel_avg = relative_velocity('Ormel and Cuzzi2007',T,nH,ne,Mach[i],Lmax,target_a,projectile_a,
+                                            target_s,projectile_s)
+                v_rel = np.array([max(v_rel_min,v_projectile),v_rel_max,v_rel_avg])
+                
+                # Disrupted mass computation (Eqs. 20-22 of Hirashita & Aoyama 2019)
+                E_imp = 0.5 * (mass_projectile*mass_target)/(mass_target+mass_projectile) * v_rel**2.
+                phi = E_imp / (mass_target*Q_D[index])
+                m_ej = phi / (1.+phi) * mass_target
+                
+                # Now compute the maximum and minimum masses of the fragments
+                m_remnant = mass_target - m_ej
+                m_max = 0.02*m_ej
+                m_min = 1e-6*m_max
+                
+                # Compute the mass fractions for each size bin
+                prefactor = m_ej /(m_max**exponent1-m_min**exponent1)
+                for j in range(0,3):
+                    # 1. Destruction to the gas phase (1e-4 mum)
+                    if m_min[j] >= m_dest_min:
+                        M_dest[i,j] = 0.0
+                        if m_remnant[j] < m_dest_min:
+                                M_dest[i,j] += m_remnant[j]
+                    else:
+                        M_dest[i,j] = prefactor[j] * (min(m_dest_min,m_max[j])**exponent1-m_min[j]**exponent1)
+                        if m_remnant[j] < m_dest_min:
+                                M_dest[i,j] += m_remnant[j]
+
+                    # 2. Destruction to very very small grains (only for Carbonaceous)
+                    if comp == 'Carbonaceous':
+                        if m_min[j] >= m_vvsmall_max or m_max[j] < m_vvsmall_min:
+                            M_vvsmall[i,j] =  0.0
+                            if m_vvsmall_min <= m_remnant[j] < m_vvsmall_max:
+                                M_vvsmall[i,j] += m_remnant[j]
+                        else:
+                            M_vvsmall[i,j] = prefactor[j] * (min(m_vvsmall_max,m_max[j])**exponent1-max(m_vvsmall_min,m_min[j])**exponent1)
+                            if m_vvsmall_min <= m_remnant[j] < m_vvsmall_max:
+                                M_vvsmall[i,j] += m_remnant[j]
+                    
+                    # 2. Destruction to very small grains (only for Carbonaceous)
+                    if comp == 'Carbonaceous':
+                        if m_min[j] >= m_vsmall_max or m_max[j] < m_vsmall_min:
+                            M_vsmall[i,j] =  0.0
+                            if m_vsmall_min <= m_remnant[j] < m_vsmall_max:
+                                M_vsmall[i,j] += m_remnant[j]
+                        else:
+                            M_vsmall[i,j] = prefactor[j] * (min(m_vsmall_max,m_max[j])**exponent1-max(m_vsmall_min,m_min[j])**exponent1)
+                            if m_vsmall_min <= m_remnant[j] < m_vsmall_max:
+                                M_vsmall[i,j] += m_remnant[j]
+                    
+                    # 3. Destruction to small grains
+                    if m_min[j] >= m_small_max or m_max[j] < m_small_min:
+                        M_small[i,j] = 0.
+                        if m_small_min <= m_remnant[j] < m_small_max:
+                            M_small[i,j] += m_remnant[j]
+                    else:
+                        M_small[i,j] = prefactor[j] * (min(m_small_max,m_max[j])**exponent1-max(m_small_min,m_min[j])**exponent1)
+                        if m_small_min <= m_remnant[j] < m_small_max:
+                            M_small[i,j] += m_remnant[j]
+
+                    # 4. Destruction to big grains
+                    if m_min[j] >= m_big_max or m_max[j] < m_big_min:
+                        M_big[i,j] =  0.0
+                        if m_big_min <= m_remnant[j] < m_big_max:
+                            M_big[i,j] += m_remnant[j]
+                    else:
+                        M_big[i,j] = prefactor[j] * (min(m_big_max,m_max[j])**exponent1-max(m_big_min,m_min[j])**exponent1)
+                        if m_big_min <= m_remnant[j] < m_big_max:
+                            M_big[i,j] += m_remnant[j]
+                    
+                # 5. Put remnant fragment to its correct bin
+                M_tot = (M_dest[i] + M_vvsmall[i] + M_vsmall[i] + M_small[i] + M_big[i])
+                
+                M_dest[i] = M_dest[i]/M_tot
+                M_vvsmall[i] = M_vvsmall[i]/M_tot
+                M_vsmall[i] = M_vsmall[i]/M_tot
+                M_small[i] = M_small[i]/M_tot
+                M_big[i] = M_big[i]/M_tot
+                                      
+            selected = (M_dest[:,0]>0.) & (M_dest[:,1]>0.)
+            if m == 1 and comp == 'Silicates':
+                ax.fill_between(Mach,M_dest[:,0],M_dest[:,1],label='Destroyed '+comp_simple_name[index],alpha=0.5,where=(selected),color=colors[index][0])
+                ax.fill_between(Mach,M_small[:,0],M_small[:,1],label='small'+comp_simple_name[index],alpha=0.5,where=M_small[:,1]>0.,color=colors[index][1])
+                ax.fill_between(Mach,M_big[:,0],M_big[:,1],label='large'+comp_simple_name[index],alpha=0.5,where=M_big[:,1]>0.,color=colors[index][2])
+            elif m == 0 and comp == 'Carbonaceous':
+                ax.fill_between(Mach,M_dest[:,0],M_dest[:,1],label='Destroyed '+comp_simple_name[index],alpha=0.5,where=(selected),color=colors[index][0])
+                ax.fill_between(Mach,M_vvsmall[:,0],M_vvsmall[:,1],label='smallPAH',alpha=0.5,where=M_vvsmall[:,1]>0.,color=colors[index][1])
+                ax.fill_between(Mach,M_vsmall[:,0],M_vsmall[:,1],label='largePAH',alpha=0.5,where=M_vsmall[:,1]>0.,color=colors[index][2])
+                ax.fill_between(Mach,M_small[:,0],M_small[:,1],label='small'+comp_simple_name[index],alpha=0.5,where=M_small[:,1]>0.,color=colors[index][3])
+                ax.fill_between(Mach,M_big[:,0],M_big[:,1],label='large'+comp_simple_name[index],alpha=0.5,where=M_big[:,1]>0.,color=colors[index][4])
+            else:
+                ax.fill_between(Mach,M_dest[:,0],M_dest[:,1],alpha=0.5,where=(selected),color=colors[index][0])
+                if comp == 'Carbonaceous':
+                    ax.fill_between(Mach,M_vvsmall[:,0],M_vvsmall[:,1],alpha=0.5,where=M_vvsmall[:,1]>0.,color=colors[index][1])
+                    ax.fill_between(Mach,M_vsmall[:,0],M_vsmall[:,1],alpha=0.5,where=M_vsmall[:,1]>0.,color=colors[index][2])
+                    ax.fill_between(Mach,M_small[:,0],M_small[:,1],alpha=0.5,where=M_small[:,1]>0.,color=colors[index][3])
+                    ax.fill_between(Mach,M_big[:,0],M_big[:,1],alpha=0.5,where=M_big[:,1]>0.,color=colors[index][4])
+                else:
+                    ax.fill_between(Mach,M_small[:,0],M_small[:,1],alpha=0.5,where=M_small[:,1]>0.,color=colors[index][1])
+                    ax.fill_between(Mach,M_big[:,0],M_big[:,1],alpha=0.5,where=M_big[:,1]>0.,color=colors[index][2])         
+                
+            ax.plot(Mach,M_dest[:,2],linestyle='-',color=colors[index][0],lw=2)
+            if comp == 'Carbonaceous':
+                ax.plot(Mach,M_vvsmall[:,2],linestyle='-',color=colors[index][1],lw=2)
+                ax.plot(Mach,M_vsmall[:,2],linestyle='-',color=colors[index][2],lw=2)
+                ax.plot(Mach,M_small[:,2],linestyle='-',color=colors[index][3],lw=2)
+                ax.plot(Mach,M_big[:,2],linestyle='-',color=colors[index][4],lw=2)
+            else:
+                ax.plot(Mach,M_small[:,2],linestyle='-',color=colors[index][1],lw=2)
+                ax.plot(Mach,M_big[:,2],linestyle='-',color=colors[index][2],lw=2)
+                    
+    # Add legend of composition/size type
+    ax = axes[0]
+    first_legend = ax.legend(loc='lower right', fontsize=12,frameon=False)
+    ax.add_artist(first_legend)
+    
+    # Add legend of velocity model type
+    ax = axes[1]
+    first_legend = ax.legend(loc='upper left', fontsize=12,frameon=False)
+    ax.add_artist(first_legend)
+    dummy_lines = []
+
+    dummy_lines.append(ax.fill_between([],[], color="black",label = 'Hirashita and Aoyama 2019'))
+    dummy_lines.append(ax.plot([],[], color="black", ls = '-',label = 'Ormel and Cuzzi 2007')[0])
+    second_legend = ax.legend(handles=dummy_lines, loc='upper left', frameon=False, fontsize=12,ncol=1)         
+    ax.add_artist(second_legend)
+    
+    # Setup axes
+    for i in range(0,2):
+        ax = axes[i]
+        ax.tick_params(labelsize=14)
+        ax.xaxis.set_ticks_position('both')
+        ax.yaxis.set_ticks_position('both')
+        ax.minorticks_on()
+        ax.tick_params(which='both',axis="both",direction="in")
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        ax.set_ylim([1e-4,1])
+        ax.set_xlabel(r'$\mathcal{M}$',fontsize=16)
+
+    # Setup y-labels
+    axes[0].set_ylabel(r'$\chi_{\rm frag}(a,\mathcal{M};a_{\rm L},a_{\rm L})$', fontsize=20)
+    # Set this y label on the right
+    axes[1].yaxis.set_label_position("right")
+    axes[1].yaxis.tick_right()
+    axes[1].yaxis.set_ticks_position('right')
+    axes[1].set_ylabel(r'$\chi_{\rm frag}(a,\mathcal{M};a_{\rm L},a_{\rm S})$', fontsize=20)
+
+    fig.subplots_adjust(top=0.97,bottom=0.12,left=0.08,right=0.92,hspace=0,wspace=0)
+    fig.savefig('shattering_efficiency_WIM.pdf',format='pdf',dpi=300)
+    plt.close(fig)
     
 def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,ne,T,nsmall,nMach=100):
     # This function plots the shattering fragment distribution for big grains

@@ -213,7 +213,70 @@ def compute_cross_sections(dust_type, do_average=True):
                 g = np.interp(dist.a0,a,g)
                 C_rp[i] = C_abs[i] + (1-g)*C_sca[i]
         return dist.a0*1e-4,wavelengths*1e-4,C_sca* 1e-8,C_abs* 1e-8,C_rp* 1e-8
-        
+    
+def interpolate_cross_sections(dust_type, grain_size,efficiency=False,
+                               data_table=None):
+    # 1. Read the efficiencies
+    if data_table is None:
+        if dust_type == 'silicate':
+            filename = './draine_lee_1984/suvSil_81'
+            nwav,data, columns, name = dust_efficiencies(filename)
+        elif dust_type == 'graphite':
+            filename = './draine_lee_1984/Gra_81'
+            nwav,data, columns, name = dust_efficiencies(filename)
+        elif dust_type == 'iPAH':
+            filename = './li_draine_2001/PAHion_30'
+            nwav,data,columns,dust_type = pah_efficiencies(filename)
+        elif dust_type == 'nPAH':
+            filename = './li_draine_2001/PAHneu_30'
+            nwav,data,columns,name = pah_efficiencies(filename)
+        elif dust_type == 'PAH':
+            filename = './li_draine_2001/PAHneu_30'
+            nwav,data,columns,name = pah_efficiencies(filename)
+        else:
+            raise ValueError('Dust type not recognised: ',dust_type)
+    else:
+        nwav,data,columns,name = data_table
+    
+    # Compute the cross section by looking for the nearest grain size
+    # in the data dictionary. If not found, interpolate
+    C_sca = np.zeros(len(data[list(data.keys())[0]][:,columns.index('Q_sca')]))
+    C_abs = np.zeros(len(data[list(data.keys())[0]][:,columns.index('Q_abs')]))
+    C_rp = np.zeros(len(data[list(data.keys())[0]][:,columns.index('Q_abs')]))
+    wavelengths = data[list(data.keys())[0]][:,columns.index('w(micron)')]
+
+    # Check if the size grain_size is in the data dictionary
+    if str(grain_size) in data:
+        C_sca = data[str(grain_size)][:,columns.index('Q_sca')]
+        C_abs = data[str(grain_size)][:,columns.index('Q_abs')]
+        g = data[str(grain_size)][:,columns.index('g=<cos>')]
+        C_rp = C_abs + (1-g)*C_sca
+    else:
+        # Interpolate
+        for i in range(0,len(C_sca)):
+            a = np.array([float(r) for r in data.keys()])
+            Q_sca = np.array([d[i,columns.index('Q_sca')] for d in data.values()])
+            Q_abs = np.array([d[i,columns.index('Q_abs')] for d in data.values()])
+            g = np.array([d[i,columns.index('g=<cos>')] for d in data.values()])
+            if efficiency:
+                C_sca[i] = 10.**np.interp(np.log10(grain_size),np.log10(a),np.log10(Q_sca))
+                C_abs[i] = 10.**np.interp(np.log10(grain_size),np.log10(a),np.log10(Q_abs))
+            else:
+                C_sca[i] = 10.**np.interp(np.log10(grain_size),np.log10(a),np.log10(Q_sca)) * np.pi * grain_size**2
+                C_abs[i] = 10.**np.interp(np.log10(grain_size),np.log10(a),np.log10(Q_abs)) * np.pi * grain_size**2
+            g = np.interp(grain_size,a,g)
+            C_rp[i] = C_abs[i] + (1-g)*C_sca[i]
+
+    wavelengths = wavelengths*1e-4
+    grain_size = grain_size*1e-4
+    if not efficiency:
+        C_sca = C_sca* 1e-8
+        C_abs = C_abs* 1e-8
+        C_rp = C_rp* 1e-8
+
+    return grain_size,wavelengths,C_sca,C_abs,C_rp
+
+
 def planck_function(wavelength, T):
     """This function computes the Planck function for a given wavelength
 
@@ -597,10 +660,31 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
     
     for dust_type in dust_types:
         # 3A. Obtain the absorption cross section and interpolate over the wavelengths
-        a0, wavelengths,C_sca,C_abs,C_rp = compute_cross_sections(dust_type,do_average=False)
+        a0, wavelengths,C_sca,C_abs,C_rp = compute_cross_sections(dust_type,do_average=True)
         C_abs_interp = np.interp(radiation_field[:,0],wavelengths[::-1],C_abs[::-1])
         C_abs_em_interp = np.interp(wavelengths_em,wavelengths[::-1],C_abs[::-1])
         print('Absorption cross section for',dust_type,'computed')
+        # --- Precompute Planck-mean opacity table for this dust type ---
+        # Determine grain material density for mass calculation
+        if 'Sil' in dust_type:
+            grain_density = basic_s[5]
+        elif 'C' in dust_type:
+            grain_density = basic_s[2]
+        else:
+            grain_density = basic_s[2]
+        # a0 is returned in cm by compute_cross_sections
+        m_grain = 4.0/3.0 * np.pi * grain_density * (a0)**3.0
+        # Compute mass absorption coefficient kappa_abs(λ) [cm^2/g]
+        kappa_abs = C_abs / m_grain
+        # Temperature grid for Planck-mean table
+        planck_temps = np.logspace(np.log10(1.0), np.log10(1000.0), 100)
+        # Precompute Planck-mean opacities for this dust type
+        planck_kappa = np.zeros_like(planck_temps)
+        for ii, Tval in enumerate(planck_temps):
+            planck_kappa[ii] = compute_Planck_oppacity(wavelengths, kappa_abs, Tval)
+        print('Precomputed Planck-mean table for', dust_type)
+        print('Temperatures from', planck_temps[0], 'to', planck_temps[-1], 'K')
+        print('Pem from', 4.0 * sigma_sb * planck_kappa[0]*m_grain*planck_temps[0]**4., 'to', 4.0 * sigma_sb * planck_kappa[-1]*m_grain*planck_temps[-1]**4., 'erg/s')
         # 3B. Compute the radiation field averaged cross section
         int_radfield = np.trapz(radiation_field[:,1],x=radiation_field[:,0])
         C_abs_avg = np.trapz(C_abs_interp * radiation_field[:,1],x=radiation_field[:,0]) / int_radfield /(np.pi*a0**2.)
@@ -622,15 +706,17 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
                                wavelengths_em,
                                G0[i]*radiation_field[:,1],
                                C_abs_interp,C_abs_em_interp)
-        def compute_temp_cheap(i):
-            return compute_equilibrium_temperature_cheap(dust_type,
-                                a0,radiation_field[:,0],
+        def compute_temp_fast(i):
+            return compute_equilibrium_temperature_planck_table_fast(
+                                radiation_field[:,0],
                                 G0[i]*radiation_field[:,1],
-                                C_abs_interp)
+                                C_abs_interp,
+                                planck_temps, planck_kappa, m_grain,
+                                Tmin=planck_temps[0], Tmax=planck_temps[-1])
 
         Teq = Parallel(n_jobs=-1)(delayed(compute_temp)(i) for i in range(nG0))
 
-        Teq_cheap = Parallel(n_jobs=-1)(delayed(compute_temp_cheap)(i) for i in range(nG0))
+        Teq_cheap = Parallel(n_jobs=-1)(delayed(compute_temp_fast)(i) for i in range(nG0))
     
         # 3C. Plot the results
         ax.plot(G0,Teq,label=dust_type,color=color,linestyle=linestyle,linewidth=2.5)
@@ -808,6 +894,180 @@ def compute_Rosseland_oppacity(wavelengths,kappa_abs,Td):
     numerator = np.trapz(integrand_numerator,x=wavelengths)
 
     return numerator / denominator
+
+
+def compute_Planck_oppacity(wavelengths, kappa_abs, Td):
+    """This function computes the Planck mean opacity given the absorption mass
+    cross section and the dust temperature.
+
+    Args:
+        wavelengths (np.array): The wavelength in cm
+        kappa_abs (np.array): The absorption mass cross section in cm^2/g
+        Td (np.float): The dust temperature in K
+
+    Returns:
+        np.float: The Planck mean opacity in cm^2/g
+    """
+
+    # 1. Compute the Planck function for all wavelengths
+    B_lambda = planck_function(wavelengths, Td)
+
+    # 2. Compute the Planck mean opacity as the weighted average of kappa_abs
+    numerator = np.trapz(kappa_abs * B_lambda, x=wavelengths)
+    denominator = np.trapz(B_lambda, x=wavelengths)
+
+    return numerator / denominator
+
+
+def compute_equilibrium_temperature_planck_table(wavelengths, radiation_field, C_abs,
+                                                planck_temps, planck_kappa, m_grain,
+                                                Tmin=2.7, Tmax=800., tol=1e-3, max_iter=100):
+    """Compute equilibrium dust temperature using a pre-computed Planck-mean table.
+
+    This function assumes the Planck-mean opacity `planck_kappa` is given as a
+    function of temperature `planck_temps` and is (monotonically) increasing.
+    It finds the temperature T such that the absorbed power by the grain equals
+    the emitted power estimated using the Planck mean opacity via binary search.
+
+    Args:
+        wavelengths (np.array): Wavelength grid for the absorption calculation (cm).
+        radiation_field (np.array): Spectral radiation field (same length as `wavelengths`),
+            in units erg/s/cm^2/cm.
+        C_abs (np.array): Absorption cross section for the grain (cm^2), same length as `wavelengths`.
+        planck_temps (np.array): Temperatures corresponding to the Planck-mean opacities (K),
+            must be sorted in ascending order.
+        planck_kappa (np.array): Planck-mean opacities (cm^2/g) at the temperatures in `planck_temps`.
+        m_grain (float): Mass of the grain (g).
+        Tmin (float): Minimum temperature to search (K).
+        Tmax (float): Maximum temperature to search (K).
+        tol (float): Relative tolerance on power match (fraction).
+        max_iter (int): Maximum number of binary search iterations.
+
+    Returns:
+        float: Equilibrium temperature in K.
+
+    Notes:
+        Emitted power per grain is approximated as P_emit = 4 * kappa_P(T) * sigma_sb * T^4 * m_grain,
+        which follows from P_emit = 4*pi * \int kappa_abs B_lambda d\lambda = 4 * kappa_P * sigma_sb * T^4 * m_grain.
+    """
+
+    # 1. Compute absorbed power (per grain)
+    absorbed = np.trapz(radiation_field * C_abs, x=wavelengths)
+
+    # 2. Sanity check: planck_kappa monotonicity (user assumed monotonic increasing)
+    if not np.all(np.diff(planck_kappa) >= 0):
+        print('Warning: provided Planck-mean opacities are not monotonically increasing. Binary search may not be valid.')
+
+    # 3. Binary search over temperature
+    low = Tmin
+    high = Tmax
+    P_low = None
+    P_high = None
+
+    for i in range(max_iter):
+        mid = 0.5 * (low + high)
+        # interpolate kappa_P at mid temperature
+        kappa_mid = np.interp(mid, planck_temps, planck_kappa)
+        P_mid = 4.0 * kappa_mid * sigma_sb * mid**4. * m_grain
+
+        # initialize endpoints powers if not set
+        if P_low is None:
+            kappa_l = np.interp(low, planck_temps, planck_kappa)
+            P_low = 4.0 * kappa_l * sigma_sb * low**4. * m_grain
+        if P_high is None:
+            kappa_h = np.interp(high, planck_temps, planck_kappa)
+            P_high = 4.0 * kappa_h * sigma_sb * high**4. * m_grain
+
+        # If mid power matches absorbed within tolerance, return
+        if abs(P_mid - absorbed) <= tol * max(absorbed, 1e-30):
+            return mid
+
+        # Decide which half to keep. If emitted power increases with T, then
+        # P_mid < absorbed -> need larger T (move low up), else move high down.
+        if P_mid < absorbed:
+            low = mid
+            P_low = P_mid
+        else:
+            high = mid
+            P_high = P_mid
+
+        # If interval small enough, return midpoint
+        if (high - low) / max(mid, 1e-12) < 1e-6:
+            return 0.5 * (low + high)
+
+    # If we exit loop without meeting tolerance, return best estimate
+    return 0.5 * (low + high)
+
+
+def fast_solve_Td(T_grid, G_grid, A):
+    """Solve G(T) = A using monotonic binary search + single interpolation.
+
+    Assumes `G_grid` is strictly increasing with `T_grid`.
+    """
+    T_grid = np.asarray(T_grid)
+    G_grid = np.asarray(G_grid)
+
+    # Edge cases
+    if A <= G_grid[0]:
+        return T_grid[0]
+    if A >= G_grid[-1]:
+        return T_grid[-1]
+
+    lo, hi = 0, len(T_grid) - 1
+    # Binary search indices
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if G_grid[mid] < A:
+            lo = mid
+        else:
+            hi = mid
+
+    # Linear interpolation between the bracketing nodes
+    T1, T2 = T_grid[lo], T_grid[hi]
+    G1, G2 = G_grid[lo], G_grid[hi]
+    if G2 == G1:
+        return 0.5 * (T1 + T2)
+    Td = T1 + (T2 - T1) * (A - G1) / (G2 - G1)
+    return Td
+
+
+def compute_equilibrium_temperature_planck_table_fast(wavelengths, radiation_field, C_abs,
+                                                      planck_temps, planck_kappa, m_grain,
+                                                      Tmin=None, Tmax=None):
+    """Fast equilibrium temperature from a pre-computed Planck-mean table.
+
+    Builds G(T) = 4 * kappa_P(T) * sigma_sb * T^4 * m_grain and solves G(T)=P_abs
+    using a single binary-index search + interpolation (fast and robust if G(T)
+    is monotonic increasing).
+    """
+
+    # 1. Compute absorbed power (per grain)
+    P_abs = np.trapz(radiation_field * C_abs, x=wavelengths)
+
+    # 2. Build emitted-power grid G(T)
+    T_grid = np.asarray(planck_temps)
+    kappa_grid = np.asarray(planck_kappa)
+    G_grid = 4.0 * kappa_grid * sigma_sb * T_grid**4.0 * m_grain
+
+    # 3. Optional bounds checks
+    if Tmin is not None:
+        P_tmin = 4.0 * np.interp(Tmin, T_grid, kappa_grid) * sigma_sb * Tmin**4.0 * m_grain
+        if P_abs <= P_tmin:
+            return Tmin
+    if Tmax is not None:
+        P_tmax = 4.0 * np.interp(Tmax, T_grid, kappa_grid) * sigma_sb * Tmax**4.0 * m_grain
+        if P_abs >= P_tmax:
+            return Tmax
+
+    # 4. Check monotonicity
+    if not np.all(np.diff(G_grid) >= 0):
+        print('Warning: emitted-power grid G(T) is not monotonically increasing. Results may be inaccurate.')
+
+    # 5. Solve using index-based binary search + interpolation
+    Td = fast_solve_Td(T_grid, G_grid, P_abs)
+    return Td
+
+
 
 def read_HensleyDraine2023_mean_oppacity(file_path):
     """This function reads the mean oppacity from the Hensley & Draine 2023 paper
