@@ -189,3 +189,5 @@ info_*.txt
 hydro_file_descriptor.txt
 header_*.txt
 job.sh
+/plots
+/plots/*
