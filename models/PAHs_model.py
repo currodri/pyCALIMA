@@ -21,7 +21,7 @@ mH_amu = 1.007825
 # Galliano data on dust destruction timescales by UV photons
 # See https://irfu.cea.fr/Pisp/frederic.galliano/HDR/hdrch6.html#x7-3070004 (Section 4.2.2.1)
 names = ['3A_x','3A_y','3.67A_x','3.67A_y','4.48A_x','4.48_y','5.47A_x','5.47A_y']
-carbon_subl_time = pd.read_csv('uv_subl_carbonaceous.csv',names=names,header=2)
+# carbon_subl_time = pd.read_csv('data/uv_subl_carbonaceous.csv',names=names,header=2)
 
 # Allain et al. (1996) C2H2 dissociation timescales by UV photons
 # See https://articles.adsabs.harvard.edu/pdf/1996A%26A...305..602A (Eq. 25 and Table 6)
@@ -29,7 +29,7 @@ allain_Nc = [6,14,16,24,32,50]
 allain_rates = [1.49e-10,1.89e-10,7.13e-11,4.55e-11,4.85e-12,3.56e-18]
 
 # Murga et al. (2019) - SHIVA model prediction for PAH of 5 Angstrom photo-destruction
-murga_subl_time = pd.read_csv('uv_subl_pah_Murga2019.csv',header=1)
+# murga_subl_time = pd.read_csv('data/uv_subl_pah_Murga2019.csv',header=1)
 
 # Micelotta et al. (2010) PAH processing in a hot gas
 # See 
@@ -56,7 +56,7 @@ thermal_spu = {'50':{'electrons': {'a':-2136.83,'b':1632.17,'c':-499.822,'d':76.
 # of the hydrogenated ion with an electron.
 names = ['C32_x','C32_y','C40_x','C40_y','C50_x','C50_y','C80_x',
          'C80_y','C100_x','C100_y','C120_x','C120_y','C150_x','C150_y']
-H2_rate_LePage = pd.read_csv('H2_formation_rate_PAH_LePage2009.csv',header=1,names=names)
+# H2_rate_LePage = pd.read_csv('data/H2_formation_rate_PAH_LePage2009.csv',header=1,names=names)
 
 def Nc_from_size(a):
     """This function returns the effective number of Carbon atoms
@@ -124,10 +124,10 @@ def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallS
     small = LogNormal_Distribution(basic_a0[2],basic_amin[2],basic_amax[2],basic_sigma[2],basic_s[2])
     large = LogNormal_Distribution(basic_a0[3],basic_amin[3],basic_amax[3],basic_sigma[3],basic_s[3])
 
-    n_smallPAHs = smallPAHs.n_density(rho_gas*D_smallPAHs,sizes)
-    n_largePAHs = largePAHs.n_density(rho_gas*D_largePAHs,sizes)
-    n_small = small.n_density(rho_gas*D_smallC,sizes)
-    n_large = large.n_density(rho_gas*D_largeC,sizes)
+    n_smallPAHs = smallPAHs.n_density(rho_gas*D_smallPAHs*0.00619,sizes)
+    n_largePAHs = largePAHs.n_density(rho_gas*D_largePAHs*0.00619,sizes)
+    n_small = small.n_density(rho_gas*D_smallC*0.00619,sizes)
+    n_large = large.n_density(rho_gas*D_largeC*0.00619,sizes)
 
     n_tot = n_smallPAHs + n_largePAHs + n_small + n_large
 
@@ -145,15 +145,15 @@ def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallS
     small = LogNormal_Distribution(basic_a0[5],basic_amin[5],basic_amax[5],basic_sigma[5],basic_s[5])
     large = LogNormal_Distribution(basic_a0[6],basic_amin[6],basic_amax[6],basic_sigma[6],basic_s[6])
 
-    n_small = small.n_density(rho_gas*D_smallSil,sizes)
-    n_large = large.n_density(rho_gas*D_largeSil,sizes)
+    n_small = small.n_density(rho_gas*D_smallSil*0.00619,sizes)
+    n_large = large.n_density(rho_gas*D_largeSil*0.00619,sizes)
 
     n_tot = n_small + n_large
 
     n_tot = (sizes**4)*n_tot
 
-    axes[1].plot(sizes,(sizes**4)*n_small,'-.',color='saddlebrown',label='smallC',linewidth=2.5)
-    axes[1].plot(sizes,(sizes**4)*n_large,':',color='sandybrown',label='largeC',linewidth=2.5)
+    axes[1].plot(sizes,(sizes**4)*n_small,'-.',color='saddlebrown',label='smallSil',linewidth=2.5)
+    axes[1].plot(sizes,(sizes**4)*n_large,':',color='sandybrown',label='largeSil',linewidth=2.5)
     axes[1].plot(sizes,n_tot,'k--',label='Total Sil',linewidth=2.5)
     
     axes[0].set_ylim([4e-30,3e-27])
@@ -188,7 +188,7 @@ def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallS
 
     fig.subplots_adjust(top=0.99,bottom=0.13,left=0.1,right=0.99,hspace=0,wspace=0)
 
-    return fig
+    plt.savefig('dusty_gsd_zubko.pdf',format='pdf',dpi=300)
 
 def subl_func1(x,a,b,c):
     # Power law with exponential cutoff

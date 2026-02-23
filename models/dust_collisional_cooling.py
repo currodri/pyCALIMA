@@ -1600,13 +1600,14 @@ def plot_collisional_cooling_simple(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
     })
     me = 9.10938e-28 # [g]
     # 1. Setup the figure
-    fig, ax = plt.subplots(1,1, figsize=(7,4),dpi=300,facecolor='w',edgecolor='k',sharey=True)
-    ax.set_xlabel(r'$T$ [K]', fontsize=16)
-    ax.set_ylabel(r'$h(\vec{\mathcal{P}}_j,T)$ [erg cm$^3$/s]',fontsize=16)
-    ax.tick_params(labelsize=14)
+    fig, ax = plt.subplots(1,1, figsize=(7,5),dpi=300,facecolor='w',edgecolor='k',sharey=True)
+    ax.set_xlabel(r'$T$ [K]', fontsize=18)
+    ax.set_ylabel(r'$h(\vec{\mathcal{P}}_j,T)$ [erg cm$^3$/s]',fontsize=18)
+    ax.tick_params(labelsize=16)
     ax.set_yscale('log')
     ax.set_xscale('log')
     ax.set_ylim([7e-23,8e-11])
+    ax.set_xlim([10,1e9])
     ax.xaxis.set_ticks_position('both')
     ax.yaxis.set_ticks_position('both')
     ax.minorticks_on()
@@ -1645,7 +1646,7 @@ def plot_collisional_cooling_simple(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
 
     h_electron = np.array(results)
     H_electron = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_electron
-    ax.plot(Tgas,H_electron,linestyle='-',color='saddlebrown',label=r'e$^{-}$',lw=2)
+    ax.plot(Tgas,H_electron,linestyle='-',color='saddlebrown',label=r'e$^{-}$',lw=2.5)
     
     # 7. Hydrogen cooling for silicate material
     s_dust = dust_model.basic_s[5]
@@ -1666,7 +1667,7 @@ def plot_collisional_cooling_simple(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
 
     h_eff = np.array(results)
     H_hydrogen = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
-    ax.plot(Tgas,H_hydrogen,linestyle='--',color='saddlebrown',label=r'H',lw=2)
+    ax.plot(Tgas,H_hydrogen,linestyle='--',color='saddlebrown',label=r'H',lw=2.5)
     
     # 9. Helium cooling for silicate material
     s_dust = dust_model.basic_s[5]
@@ -1687,24 +1688,24 @@ def plot_collisional_cooling_simple(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
 
     h_eff = np.array(results)
     H_helium = np.sqrt(32./(np.pi*Mi)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas)*kb*(Tgas-Td) * h_eff
-    ax.plot(Tgas,H_helium,linestyle=':',color='saddlebrown',label=r'He',lw=2)
+    ax.plot(Tgas,H_helium,linestyle=':',color='saddlebrown',label=r'He',lw=2.5)
 
 
     # 13. Add the HM79 low temperature cooling for silicate grains at Td=2.73K, for a primordial gas
     
     am_dust = (24.305 + 55.845 + 28.0855 + 4*15.999) / 7.
-    ax.plot(Tgas, low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'H'),linestyle='--',color='dodgerblue',label=r'H (HM79)',lw=2)
-    ax.plot(Tgas, low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'He'),linestyle=':',color='dodgerblue',label=r'He (HM79)',lw=2)
+    ax.plot(Tgas, low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'H'),linestyle='--',color='dodgerblue',label=r'H (HM79)',lw=2.5)
+    ax.plot(Tgas, low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'He'),linestyle=':',color='dodgerblue',label=r'He (HM79)',lw=2.5)
     supp_factor = 1. - 1./(1.+np.exp(-10.*(np.log10(Tgas)-4.)))
     supp_factor_inv = 1.0 / (1.0 + np.exp(-10.0*(np.log10(Tgas) - 4.0)))
     combined_H = supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'H') + supp_factor_inv*H_hydrogen
-    ax.plot(Tgas, combined_H, linestyle='--', color='forestgreen', label=r'H (eff)', lw=2,zorder=-10)
+    ax.plot(Tgas, combined_H, linestyle='--', color='forestgreen', label=r'H (eff)', lw=2.5,zorder=-10)
     combined_He = supp_factor*low_temp_cooling(Tgas,dust_model.basic_a0[5]*1e-4,Td,am_dust,'He') + supp_factor_inv*H_helium
-    ax.plot(Tgas, combined_He, linestyle=':', color='forestgreen', label=r'He (eff)', lw=2,zorder=-10)
+    ax.plot(Tgas, combined_He, linestyle=':', color='forestgreen', label=r'He (eff)', lw=2.5,zorder=-10)
 
 
-    ax.legend(loc='upper left',frameon=False,fontsize=12,ncol=2)
-    fig.subplots_adjust(top=0.99,bottom=0.125,left=0.12,right=0.99,hspace=0,wspace=0)
+    ax.legend(loc='upper left',frameon=False,fontsize=14,ncol=2)
+    fig.subplots_adjust(top=0.99,bottom=0.135,left=0.13,right=0.975,hspace=0,wspace=0)
     fig.savefig('collisional_cooling.pdf',format='pdf')
     
 def export_collisional_cooling(Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
