@@ -392,6 +392,160 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
     
     print(f"PAH optical properties exported to {output_dir}/")
 
+
+def test_pah_ionised_neutral_ratio(grain_size_micron=5e-4, Emin_eV=None, Emax_eV=None,
+                                   output_path=None, show=False,
+                                   optical_model='Draine', Nc=None):
+    """Simple check plot: ionised/neutral PAH cross-section ratios at fixed size.
+
+    Parameters
+    ----------
+    grain_size_micron : float
+        Grain size in microns.
+    Emin_eV : float or None
+        Minimum photon energy in eV. If provided with Emax_eV, the corresponding
+        wavelength interval is shaded in the plot.
+    Emax_eV : float or None
+        Maximum photon energy in eV. If provided with Emin_eV, the corresponding
+        wavelength interval is shaded in the plot.
+    output_path : str or None
+        Output figure path.
+    show : bool
+        If True, show figure interactively.
+    optical_model : str
+        Optical dataset to use: 'Draine' (default) or 'Malloci'.
+    Nc : int or None
+        Number of carbon atoms for Malloci mode. If None, inferred from
+        grain_size_micron using Nc ~= 468 * (a[nm])^3.
+    """
+    optical_model = str(optical_model).strip().lower()
+
+    def _safe_ratio(num, den):
+        num = np.asarray(num, dtype=float)
+        den = np.asarray(den, dtype=float)
+        return np.divide(num, den, out=np.full_like(num, np.nan), where=den > 0.0)
+
+    curves = []
+    inferred_Nc = None
+    if optical_model == 'draine':
+        _, wav_cm_n, C_sca_n, C_abs_n, C_rp_n = interpolate_pah_cross_sections_2d(
+            'nPAH', grain_size_micron, target_wavelengths=None, efficiency=False
+        )
+        _, wav_cm_i, C_sca_i, C_abs_i, C_rp_i = interpolate_pah_cross_sections_2d(
+            'iPAH', grain_size_micron, target_wavelengths=None, efficiency=False
+        )
+
+        if wav_cm_n.shape != wav_cm_i.shape or not np.allclose(wav_cm_n, wav_cm_i):
+            raise ValueError('Neutral and ionised PAH wavelength grids do not match.')
+
+        wav_micron = wav_cm_n * 1e4
+        curves = [
+            (r'$C_{\rm abs}^{\rm ion}/C_{\rm abs}^{\rm neu}$', _safe_ratio(C_abs_i, C_abs_n)),
+            (r'$C_{\rm sca}^{\rm ion}/C_{\rm sca}^{\rm neu}$', _safe_ratio(C_sca_i, C_sca_n)),
+        ]
+    elif optical_model == 'malloci':
+        from models.PAH_charge.PAH_photoelectric_heating import absorption_cross_section_Berne
+
+        if Nc is None:
+            a_nm = float(grain_size_micron) * 1e3
+            inferred_Nc = max(1, int(round(468.0 * (a_nm ** 3))))
+        else:
+            inferred_Nc = int(Nc)
+
+        E_a, E_n, E_c, E_dc, C_a, C_n, C_c, C_dc = absorption_cross_section_Berne(inferred_Nc)
+        if len(E_n) == 0:
+            raise RuntimeError('Malloci cross-section table is empty for the selected Nc.')
+
+        hc_eV_micron = 1.23984193
+        E_n = np.asarray(E_n, dtype=float)
+        Cn_raw = np.asarray(C_n, dtype=float)
+        Ca_raw = np.asarray(C_a, dtype=float)
+        Cc_raw = np.asarray(C_c, dtype=float)
+        Cdc_raw = np.asarray(C_dc, dtype=float)
+
+        valid = np.isfinite(E_n) & (E_n > 0.0) & np.isfinite(Cn_raw)
+        if not np.any(valid):
+            raise RuntimeError('Malloci data does not contain valid E>0 samples.')
+
+        wav_micron = hc_eV_micron / E_n[valid]
+        order = np.argsort(wav_micron)
+        wav_micron = wav_micron[order]
+
+        Cn = Cn_raw[valid][order]
+        Ca = Ca_raw[valid][order]
+        Cc = Cc_raw[valid][order]
+        Cdc = Cdc_raw[valid][order]
+
+        curves = [
+            (r'$C_{\rm abs}^{\rm anion}/C_{\rm abs}^{\rm neu}$', _safe_ratio(Ca, Cn)),
+            (r'$C_{\rm abs}^{\rm cation}/C_{\rm abs}^{\rm neu}$', _safe_ratio(Cc, Cn)),
+            (r'$C_{\rm abs}^{\rm dication}/C_{\rm abs}^{\rm neu}$', _safe_ratio(Cdc, Cn)),
+        ]
+    else:
+        raise ValueError("optical_model must be 'Draine' or 'Malloci'.")
+
+    hc_eV_micron = 1.23984193  # eV * micron
+    band_label = None
+    lam_min = lam_max = None
+    if Emin_eV is not None or Emax_eV is not None:
+        if Emin_eV is None or Emax_eV is None:
+            raise ValueError('Provide both Emin_eV and Emax_eV, or neither.')
+        Emin_eV = float(Emin_eV)
+        Emax_eV = float(Emax_eV)
+        if Emin_eV <= 0.0 or Emax_eV <= 0.0:
+            raise ValueError('Emin_eV and Emax_eV must be > 0.')
+        if Emax_eV < Emin_eV:
+            Emin_eV, Emax_eV = Emax_eV, Emin_eV
+        lam_max = hc_eV_micron / Emin_eV
+        lam_min = hc_eV_micron / Emax_eV
+        band_label = f'E=[{Emin_eV:.3g}, {Emax_eV:.3g}] eV'
+
+    if output_path is None:
+        out_dir = os.path.join('model_data', 'optical_properties')
+        os.makedirs(out_dir, exist_ok=True)
+        output_path = os.path.join(
+            out_dir,
+            f'pah_ratio_{optical_model}_a{grain_size_micron:.4g}micron.png'
+        )
+
+    fig, ax = plt.subplots(figsize=(7, 5), dpi=180)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    for label, yvals in curves:
+        ax.plot(wav_micron, yvals, label=label, linewidth=2)
+    if lam_min is not None and lam_max is not None:
+        ax.axvspan(lam_min, lam_max, color='gray', alpha=0.15, label=band_label)
+        ax.axvline(lam_min, color='gray', linestyle=':', linewidth=1.0, alpha=0.8)
+        ax.axvline(lam_max, color='gray', linestyle=':', linewidth=1.0, alpha=0.8)
+    ax.axhline(1.0, color='k', linestyle='--', linewidth=1.2, alpha=0.6)
+    ax.set_xlabel(r'$\lambda$ [$\mu$m]')
+    ax.set_ylabel('Cross-section ratio to neutral')
+    title = f'PAH cross-section ratios at a={grain_size_micron:.4g} micron ({optical_model.capitalize()})'
+    if inferred_Nc is not None:
+        title += f', Nc={inferred_Nc}'
+    ax.set_title(title)
+    ax.grid(True, which='both', alpha=0.25)
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(output_path)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+    print(f"Saved ratio test plot: {output_path}")
+    return {
+        'output_path': output_path,
+        'grain_size_micron': float(grain_size_micron),
+        'optical_model': optical_model,
+        'Nc': None if inferred_Nc is None else int(inferred_Nc),
+        'Emin_eV': None if Emin_eV is None else float(Emin_eV),
+        'Emax_eV': None if Emax_eV is None else float(Emax_eV),
+        'lambda_min_micron': None if lam_min is None else float(lam_min),
+        'lambda_max_micron': None if lam_max is None else float(lam_max),
+        'wavelength_min_micron': float(np.min(wav_micron)),
+        'wavelength_max_micron': float(np.max(wav_micron)),
+    }
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Export optical properties for all PAH bins.'
@@ -402,6 +556,59 @@ if __name__ == '__main__':
         default=None,
         help='Path to JSON grain size configuration file. If not provided, uses default.'
     )
+    parser.add_argument(
+        '--test-ion-neutral-ratio',
+        action='store_true',
+        help='Run a test plot of ionised/neutral PAH cross-section ratios.'
+    )
+    parser.add_argument(
+        '--ratio-size',
+        type=float,
+        default=5e-4,
+        help='PAH grain size in microns for --test-ion-neutral-ratio.'
+    )
+    parser.add_argument(
+        '--ratio-output',
+        type=str,
+        default=None,
+        help='Optional output filename for --test-ion-neutral-ratio.'
+    )
+    parser.add_argument(
+        '--Emin',
+        type=float,
+        default=None,
+        help='Minimum photon energy in eV for wavelength-band overlay.'
+    )
+    parser.add_argument(
+        '--Emax',
+        type=float,
+        default=None,
+        help='Maximum photon energy in eV for wavelength-band overlay.'
+    )
+    parser.add_argument(
+        '--ratio-optical-model',
+        type=str,
+        default='Draine',
+        choices=['Draine', 'Malloci', 'draine', 'malloci'],
+        help='Optical model for ratio test: Draine or Malloci.'
+    )
+    parser.add_argument(
+        '--ratio-Nc',
+        type=int,
+        default=None,
+        help='Nc for Malloci ratio test. If omitted, inferred from --ratio-size.'
+    )
     args = parser.parse_args()
-    
-    export_pah_optical_properties(config_path=args.config)
+
+    if args.test_ion_neutral_ratio:
+        test_pah_ionised_neutral_ratio(
+            grain_size_micron=args.ratio_size,
+            Emin_eV=args.Emin,
+            Emax_eV=args.Emax,
+            output_path=args.ratio_output,
+            show=False,
+            optical_model=args.ratio_optical_model,
+            Nc=args.ratio_Nc,
+        )
+    else:
+        export_pah_optical_properties(config_path=args.config)
