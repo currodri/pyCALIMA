@@ -32,7 +32,7 @@
   "export_parameters": {
     "collisional_cooling": {
       "Tmin": 10.0,
-      "Tmax": 1000000000.0,
+      "Tmax": 1e9,
       "nT": 100,
       "nv": 200,
       "nphi": 100,
@@ -40,7 +40,7 @@
     },
     "dust_sputtering": {
       "Tmin": 1000.0,
-      "Tmax": 1000000000.0,
+      "Tmax": 1e9,
       "nT": 100,
       "nphi": 100,
       "nbins_v": 200,
@@ -48,7 +48,7 @@
     },
     "pah_sputtering": {
       "Tmin": 1000.0,
-      "Tmax": 1000000000.0,
+      "Tmax": 1e9,
       "nT": 100,
       "nbins_v": 300,
       "nbins_theta": 30
@@ -78,20 +78,14 @@
       "ne_min": 1e-05,
       "ne_max": 100000.0,
       "n_ne": 100,
-      "radiation_models": [
-        "Draine",
-        "Habing",
-        "Mathis",
-        "O6V",
-        "B0V",
-        "A0"
-      ],
+      "radiation_models": ["Mathis"],
       "optical_models": [
         "Malloci",
         "Draine"
       ],
       "attachment_models": [
-        "Berne"
+        "Berne",
+        "Tielens"
       ]
     },
     "pah_dissociation": {

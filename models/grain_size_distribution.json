@@ -1,43 +1,37 @@
 {
   "bins": [
     {
-      "id": "pah_bin_0",
+      "id": "PAHbin_01",
       "composition": "graphite",
       "is_pah": true,
       "bin_rank": 0
     },
     {
-      "id": "pah_bin_1",
+      "id": "PAHbin_02",
       "composition": "graphite",
       "is_pah": true,
       "bin_rank": 1
     },
     {
-      "id": "graphite_bin_0",
+      "id": "DustBin_01",
       "composition": "graphite",
       "is_pah": false,
       "bin_rank": 0
     },
     {
-      "id": "graphite_bin_1",
+      "id": "DustBin_02",
       "composition": "graphite",
       "is_pah": false,
       "bin_rank": 1
     },
     {
-      "id": "pah_reference_bin",
-      "composition": "graphite",
-      "is_pah": true,
-      "bin_rank": 2
-    },
-    {
-      "id": "silicate_bin_0",
+      "id": "DustBin_03",
       "composition": "silicate",
       "is_pah": false,
       "bin_rank": 0
     },
     {
-      "id": "silicate_bin_1",
+      "id": "DustBin_04",
       "composition": "silicate",
       "is_pah": false,
       "bin_rank": 1
@@ -49,7 +43,6 @@
       0.001,
       0.01,
       0.1,
-      0.0005,
       0.005,
       0.1
     ],
@@ -58,7 +51,6 @@
       0.0003,
       0.001,
       0.005,
-      0.0004,
       0.0005,
       0.005
     ],
@@ -67,7 +59,6 @@
       0.009,
       0.1,
       1.0,
-      0.002,
       0.1,
       1.0
     ],
@@ -76,7 +67,6 @@
       0.4,
       0.7,
       0.7,
-      0.4,
       0.75,
       0.75
     ],
@@ -85,7 +75,6 @@
       2.0,
       2.2,
       2.2,
-      3.3,
       3.3,
       3.3
     ]
@@ -96,7 +85,6 @@
       0.001,
       0.01,
       0.1,
-      0.0005,
       0.005,
       0.1
     ],
@@ -105,7 +93,6 @@
       0.001,
       0.004,
       0.03,
-      0.00045,
       0.001,
       0.02
     ],
@@ -114,7 +101,6 @@
       0.004,
       0.03,
       1.0,
-      0.00045,
       0.02,
       1.0
     ],
@@ -123,7 +109,6 @@
       0.4,
       0.7,
       0.7,
-      0.4,
       0.75,
       0.75
     ],
@@ -133,14 +118,13 @@
       2.2,
       2.2,
       3.3,
-      3.3,
       3.3
     ]
   },
   "export_parameters": {
     "collisional_cooling": {
       "Tmin": 10.0,
-      "Tmax": 1000000000.0,
+      "Tmax": 1e9,
       "nT": 100,
       "nv": 200,
       "nphi": 100,
@@ -148,7 +132,7 @@
     },
     "dust_sputtering": {
       "Tmin": 1000.0,
-      "Tmax": 1000000000.0,
+      "Tmax": 1e9,
       "nT": 100,
       "nphi": 100,
       "nbins_v": 200,
@@ -156,7 +140,7 @@
     },
     "pah_sputtering": {
       "Tmin": 1000.0,
-      "Tmax": 1000000000.0,
+      "Tmax": 1e9,
       "nT": 100,
       "nbins_v": 300,
       "nbins_theta": 30
@@ -186,20 +170,14 @@
       "ne_min": 1e-05,
       "ne_max": 100000.0,
       "n_ne": 100,
-      "radiation_models": [
-        "Draine",
-        "Habing",
-        "Mathis",
-        "O6V",
-        "B0V",
-        "A0"
-      ],
+      "radiation_models": ["Mathis"],
       "optical_models": [
         "Malloci",
         "Draine"
       ],
       "attachment_models": [
-        "Berne"
+        "Berne",
+        "Tielens"
       ]
     },
     "pah_dissociation": {

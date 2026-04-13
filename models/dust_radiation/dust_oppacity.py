@@ -19,7 +19,7 @@ sns.set_theme(style="white")
 plt.rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
+    "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
 })
 import re
 from pathlib import Path
@@ -27,11 +27,254 @@ from models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s
                         LogNormal_Distribution,PowerLaw_ExpCutoff_Distribution, \
                         Classical_LogNormal_Distribution
 from models.grain_size_config import get_optical_props_path
+from models.tools.radiation_fields import Mathis83_radiation_field
 
 PATH_OPTICS = str(get_optical_props_path())
 PATH_TABLES = str(get_optical_props_path() / 'dust_oppacity_tables')
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+PATH_MODEL_OPTICAL_OUTPUT = _REPO_ROOT / 'model_data' / 'optical_properties'
+PATH_EXTERNAL_DATA = _REPO_ROOT / 'external_data'
 # Note: PAH-specific functions are now in models.PAH_radiation.pah_oppacity
 # Functions
+
+
+def compute_isrf_averaged_absorption_efficiency_all_sizes(E_min=0.1, E_max=13.6,
+                                                          nE=2000,
+                                                          save=True,
+                                                          outfile='isrf_averaged_qabs_mathis83.csv',
+                                                          print_integrated_uE=False):
+    """Compute Mathis83-ISRF averaged Q_abs for all graphite and silicate sizes.
+
+    The average is
+        <Q_abs> = Integral[Q_abs(E) * u_E(E) dE] / Integral[u_E(E) dE)
+    where ``u_E`` is given by ``Mathis83_radiation_field``.
+
+    Parameters
+    ----------
+    E_min, E_max : float
+        Integration limits in eV.
+    nE : int
+        Number of points in the integration energy grid.
+    save : bool
+        If True, save the output table to disk.
+    outfile : str
+        Output file path. Relative paths are written under ``PATH_TABLES``.
+    print_integrated_uE : bool
+        If True, print the integrated ISRF energy density over the selected
+        energy range in erg cm^-3.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: grain_type, size_micron, size_angstrom, qabs_isrf_avg.
+    """
+    e_min = float(max(E_min, 1e-4))
+    e_max = float(min(E_max, 13.6))
+    if e_max <= e_min:
+        raise ValueError(f'Invalid energy range: E_min={E_min}, E_max={E_max}')
+
+    E_grid = np.logspace(np.log10(e_min), np.log10(e_max), int(nE))
+    uE = np.array([Mathis83_radiation_field(float(E)) for E in E_grid], dtype=float)
+    uE = np.where(np.isfinite(uE), uE, 0.0)
+    denom = np.trapezoid(uE, E_grid)
+    if denom <= 0.0:
+        raise RuntimeError('Mathis83_radiation_field produced zero integrated energy density.')
+    if print_integrated_uE:
+        print(f"Integrated ISRF energy density [{e_min:.3g}, {e_max:.3g}] eV: {denom:.6e} erg cm^-3")
+        hard_min = max(6.0, e_min)
+        hard_max = min(13.6, e_max)
+        if hard_max > hard_min:
+            hard_mask = (E_grid >= hard_min) & (E_grid <= hard_max)
+            if np.count_nonzero(hard_mask) >= 2:
+                uE_hard = np.trapezoid(uE[hard_mask], E_grid[hard_mask])
+            else:
+                uE_hard = 0.0
+            print(f"Integrated ISRF energy density [{hard_min:.3g}, {hard_max:.3g}] eV: {uE_hard:.6e} erg cm^-3")
+        else:
+            print("Integrated ISRF energy density [6, 13.6] eV: 0.000000e+00 erg cm^-3 (outside selected range)")
+
+    conv_eum = 1.239841984  # E[eV] * lambda[um]
+    records = []
+    table_map = {
+        'graphite': os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81'),
+        'silicate': os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81'),
+    }
+
+    for grain_type, table_file in table_map.items():
+        _, data, columns, _ = dust_efficiencies(table_file)
+        wcol = columns.index('w(micron)')
+        qcol = columns.index('Q_abs')
+
+        for size_key in sorted(data.keys(), key=float):
+            arr = np.asarray(data[size_key], dtype=float)
+            wav_um = arr[:, wcol]
+            q_abs = arr[:, qcol]
+
+            E_tab = conv_eum / np.maximum(wav_um, 1e-30)
+            order = np.argsort(E_tab)
+            q_on_grid = np.interp(E_grid, E_tab[order], q_abs[order], left=0.0, right=0.0)
+
+            q_avg = np.trapezoid(q_on_grid * uE, E_grid) / denom
+            size_micron = float(size_key)
+            records.append({
+                'grain_type': grain_type,
+                'size_micron': size_micron,
+                'size_angstrom': size_micron * 1e4,
+                'qabs_isrf_avg': float(q_avg),
+            })
+
+    df = pd.DataFrame.from_records(records)
+    df = df.sort_values(['grain_type', 'size_micron']).reset_index(drop=True)
+
+    if save:
+        if os.path.isabs(outfile):
+            out = outfile
+        else:
+            os.makedirs(PATH_TABLES, exist_ok=True)
+            out = os.path.join(PATH_TABLES, outfile)
+        df.to_csv(out, index=False)
+        print('Saved ISRF-averaged Q_abs table to', out)
+
+    return df
+
+
+def compute_isrf_averaged_cross_sections(wavelengths_cm, C_abs, C_sca, C_rp,
+                                         E_min=0.1, E_max=13.6):
+    """Compute Mathis83-ISRF averaged cross sections from spectral arrays.
+
+    Parameters
+    ----------
+    wavelengths_cm : array-like
+        Wavelength grid in cm.
+    C_abs, C_sca, C_rp : array-like
+        Cross-sections in cm^2 sampled on the same wavelength grid.
+    E_min, E_max : float
+        Energy integration limits in eV.
+
+    Returns
+    -------
+    dict
+        {'C_abs_isrf', 'C_sca_isrf', 'C_rp_isrf'} in cm^2.
+    """
+    wav_cm = np.asarray(wavelengths_cm, dtype=float)
+    c_abs = np.asarray(C_abs, dtype=float)
+    c_sca = np.asarray(C_sca, dtype=float)
+    c_rp = np.asarray(C_rp, dtype=float)
+
+    if not (wav_cm.size == c_abs.size == c_sca.size == c_rp.size):
+        raise ValueError('wavelengths_cm, C_abs, C_sca and C_rp must have the same length.')
+
+    e_min = float(max(E_min, 1e-6))
+    e_max = float(min(E_max, 13.6))
+    if e_max <= e_min:
+        raise ValueError(f'Invalid energy range: E_min={E_min}, E_max={E_max}')
+
+    energy_eV = 1.239841984e-4 / np.maximum(wav_cm, 1e-300)
+    valid = np.isfinite(energy_eV) & np.isfinite(c_abs) & np.isfinite(c_sca) & np.isfinite(c_rp)
+    valid &= (energy_eV >= e_min) & (energy_eV <= e_max)
+    if np.count_nonzero(valid) < 2:
+        raise RuntimeError('Insufficient valid samples to compute ISRF-averaged cross sections.')
+
+    e = energy_eV[valid]
+    c_abs_e = c_abs[valid]
+    c_sca_e = c_sca[valid]
+    c_rp_e = c_rp[valid]
+
+    order = np.argsort(e)
+    e = e[order]
+    c_abs_e = c_abs_e[order]
+    c_sca_e = c_sca_e[order]
+    c_rp_e = c_rp_e[order]
+
+    u_e = np.array([Mathis83_radiation_field(float(x)) for x in e], dtype=float)
+    u_e = np.where(np.isfinite(u_e), u_e, 0.0)
+    denom = np.trapezoid(u_e, e)
+    if denom <= 0.0:
+        raise RuntimeError('Mathis83_radiation_field produced zero integrated energy density.')
+
+    c_abs_isrf = np.trapezoid(c_abs_e * u_e, e) / denom
+    c_sca_isrf = np.trapezoid(c_sca_e * u_e, e) / denom
+    c_rp_isrf = np.trapezoid(c_rp_e * u_e, e) / denom
+    return {
+        'C_abs_isrf': float(c_abs_isrf),
+        'C_sca_isrf': float(c_sca_isrf),
+        'C_rp_isrf': float(c_rp_isrf),
+    }
+
+
+def plot_isrf_averaged_qabs_vs_size(E_min=0.1, E_max=13.6, nE=2000,
+                                    savefile='qabs_vs_size_mathis83_isrf.pdf',
+                                    also_save_table=True,
+                                    tablefile='isrf_averaged_qabs_mathis83.csv'):
+    """Plot ISRF-averaged Q_abs versus grain size for graphite and silicate.
+
+    The figure is saved into ``model_data/optical_properties`` by default.
+    """
+    df = compute_isrf_averaged_absorption_efficiency_all_sizes(
+        E_min=E_min,
+        E_max=E_max,
+        nE=nE,
+        save=also_save_table,
+        outfile=tablefile,
+        print_integrated_uE=True,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(6.5, 4.8), dpi=300, facecolor='w', edgecolor='k')
+    ax.set_xlabel(r'$a$ [$\AA$]', fontsize=14)
+    ax.set_ylabel(r'$\langle Q_{\rm abs} \rangle_{\rm ISRF}$', fontsize=14)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.tick_params(which='both', axis='both', direction='in', labelsize=12)
+    ax.minorticks_on()
+
+    styles = {
+        'graphite': {'color': 'steelblue', 'linestyle': '-'},
+        'silicate': {'color': 'sandybrown', 'linestyle': '-'},
+    }
+    for grain_type in ['graphite', 'silicate']:
+        sub = df[df['grain_type'] == grain_type]
+        if len(sub) == 0:
+            continue
+        ax.plot(sub['size_angstrom'].to_numpy(dtype=float),
+                sub['qabs_isrf_avg'].to_numpy(dtype=float),
+                label=grain_type,
+                linewidth=2.0,
+                **styles.get(grain_type, {}))
+
+    # Overplot analytic Draine-like approximations as dashed curves:
+    # silicate: qabs = 0.18 * (a / 0.1 micron)^0.6
+    # graphite: qabs = 0.8  * (a / 0.1 micron)^0.85
+    aA_all = df['size_angstrom'].to_numpy(dtype=float)
+    aA_grid = np.logspace(np.log10(np.nanmin(aA_all)), np.log10(np.nanmax(aA_all)), 300)
+    a_micron_grid = aA_grid * 1e-4
+
+    sil_mask = (a_micron_grid >= 0.01) & (a_micron_grid <= 1.0)
+    gra_mask = (a_micron_grid >= 0.005) & (a_micron_grid <= 0.15)
+
+    qabs_sil_approx = 0.18 * (a_micron_grid[sil_mask] / 0.1) ** 0.6
+    qabs_gra_approx = 0.8 * (a_micron_grid[gra_mask] / 0.1) ** 0.85
+
+    ax.plot(aA_grid[gra_mask], qabs_gra_approx,
+            linestyle='--', linewidth=2.0,
+            color=styles['graphite']['color'],
+            label='graphite approx')
+    ax.plot(aA_grid[sil_mask], qabs_sil_approx,
+            linestyle='--', linewidth=2.0,
+            color=styles['silicate']['color'],
+            label='silicate approx')
+
+    ax.legend(loc='best', frameon=False, fontsize=12)
+    fig.subplots_adjust(top=0.97, bottom=0.14, left=0.15, right=0.98)
+
+    out_dir = PATH_MODEL_OPTICAL_OUTPUT
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / savefile
+    fig.savefig(out_path, format='pdf', dpi=300)
+    plt.close(fig)
+    print('Saved Qabs-vs-size plot to', str(out_path))
+    return str(out_path)
 
 def dust_efficiencies(filename,print_info=False):
     """

@@ -97,7 +97,7 @@ def main(config_path=None):
         rank = int(bin_info['bin_rank'])
         params = get_lognormal_parameters(bin_id, model_name='basic')
         grain_size_micron = float(params['a0'])
-        pah_label = f'{comp}_pah_bin_{rank:02d}'
+        pah_label = bin_id
 
         print(
             f"\n[bin={bin_id}] composition={comp}, rank={rank}, "
@@ -125,9 +125,11 @@ def main(config_path=None):
         ]
         for p in table_paths:
             if p.exists():
-                created_tables.append(str(p))
+                renamed = output_dir / p.name.replace('pah_sputtering_', 'sputtering_', 1)
+                p.replace(renamed)
+                created_tables.append(str(renamed))
 
-        fig_path = output_dir / f'pah_sputtering_{pah_label}_quicklook.png'
+        fig_path = output_dir / f'sputtering_{pah_label}_quicklook.png'
         _save_quicklook_plot(
             fig_path,
             T,

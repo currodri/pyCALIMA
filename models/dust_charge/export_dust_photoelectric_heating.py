@@ -11,6 +11,7 @@ in simulations, plus quick-look plots showing how rates vary with ISM conditions
 import argparse
 from pathlib import Path
 import json
+import concurrent.futures
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -236,119 +237,137 @@ def main(config_path=None):
     created_files = []
     results_summary = []
 
-    for bin_info in bins:
-        bin_id = bin_info['id']
-        comp = bin_info['composition']
-        rank = int(bin_info['bin_rank'])
-        params = get_lognormal_parameters(bin_id, model_name='basic')
-        grain_size_micron = float(params['a0'])
-        grain_size_cm = grain_size_micron * 1e-4
+    shared_executor = None
+    if n_workers != 1:
+        max_workers = None if n_workers is None or n_workers <= 0 else int(n_workers)
+        shared_executor = concurrent.futures.ProcessPoolExecutor(max_workers=max_workers)
 
-        print(
-            f"\n[bin={bin_id}] composition={comp}, rank={rank}, "
-            f"grain_size={grain_size_micron:.4e} micron"
-        )
+    try:
+        for bin_info in bins:
+            bin_id = bin_info['id']
+            comp = bin_info['composition']
+            rank = int(bin_info['bin_rank'])
+            params = get_lognormal_parameters(bin_id, model_name='basic')
+            grain_size_micron = float(params['a0'])
+            grain_size_cm = grain_size_micron * 1e-4
 
-        # Map composition to grain_type (graphite or silicate)
-        if comp.lower() == 'silicate':
-            grain_type = 'silicate'
-        else:
-            grain_type = 'graphite'
-
-        try:
-            # Compute heating/cooling rate tables
-            result = make_rate_gamma_T_tables(
-                grain_type=grain_type,
-                a_cm=grain_size_cm,
-                radiation_model=radiation_model,
-                mode=mode,
-                fixed_value=fixed_value,
-                Tmin=Tmin,
-                Tmax=Tmax,
-                nT=nT,
-                gamma_min=gamma_min,
-                gamma_max=gamma_max,
-                n_gamma=n_gamma,
-                num_workers=n_workers,
-                out_dir=str(output_dir),
-                debug=False,
-                grain_label=bin_id,
+            print(
+                f"\n[bin={bin_id}] composition={comp}, rank={rank}, "
+                f"grain_size={grain_size_micron:.4e} micron"
             )
 
-            # Extract gamma and T grids and rates
-            T = result['T_vals']
-            gamma = result['gamma_vals']
-            
-            log_peh = result.get('log_peh', np.zeros((len(gamma), len(T))))
-            log_rec = result.get('log_rec', np.zeros((len(gamma), len(T))))
-            
-            # Convert from log space if needed
-            peh_rate = np.power(10.0, log_peh) if np.any(np.isfinite(log_peh)) else np.zeros_like(log_peh)
-            rec_rate = np.power(10.0, log_rec) if np.any(np.isfinite(log_rec)) else np.zeros_like(log_rec)
-            
-            # Save rates as HDF5 or NPZ (binary format for fast loading)
-            npz_path = output_dir / f'heating_rates_{bin_id}.npz'
-            np.savez(npz_path, 
-                     T=T, gamma=gamma, peh_rate=peh_rate, rec_rate=rec_rate,
-                     grain_type=grain_type, composition=comp, rank=rank,
-                     bin_id=bin_id, grain_size_micron=grain_size_micron)
-            created_files.append(str(npz_path))
-            print(f"  ✓ Data saved (NPZ): {npz_path.name}")
+            # Map composition to grain_type (graphite or silicate)
+            if comp.lower() == 'silicate':
+                grain_type = 'silicate'
+            else:
+                grain_type = 'graphite'
 
-            # Save figure with quick-look plots
-            fig_path = output_dir / f'heating_rates_{bin_id}.png'
-            _save_rate_plot(fig_path, T, gamma, 
-                           {'peh_rate': peh_rate, 'rec_rate': rec_rate},
-                           radiation_model=radiation_model,
-                           grain_type=grain_type)
-            created_files.append(str(fig_path))
-            print(f"  ✓ Figure saved: {fig_path.name}")
+            try:
+                # Compute heating/cooling rate tables
+                result = make_rate_gamma_T_tables(
+                    grain_type=grain_type,
+                    a_cm=grain_size_cm,
+                    radiation_model=radiation_model,
+                    mode=mode,
+                    fixed_value=fixed_value,
+                    Tmin=Tmin,
+                    Tmax=Tmax,
+                    nT=nT,
+                    gamma_min=gamma_min,
+                    gamma_max=gamma_max,
+                    n_gamma=n_gamma,
+                    num_workers=n_workers,
+                    out_dir=str(output_dir),
+                    debug=False,
+                    grain_label=bin_id,
+                    executor=shared_executor,
+                )
 
-            # Save metadata as JSON
-            json_data = {
-                'bin_id': bin_id,
-                'composition': comp,
-                'grain_type': grain_type,
-                'bin_rank': rank,
-                'grain_size_micron': grain_size_micron,
-                'radiation_model': radiation_model,
-                'temperature_grid': {
-                    'Tmin': float(Tmin),
-                    'Tmax': float(Tmax),
-                    'nT': int(nT),
-                },
-                'gamma_grid': {
-                    'gamma_min': float(gamma_min),
-                    'gamma_max': float(gamma_max),
-                    'n_gamma': int(n_gamma),
-                },
-                'mode': mode,
-                'fixed_value': float(fixed_value),
-            }
+                # Extract gamma and T grids and rates
+                T = result['T_vals']
+                gamma = result['gamma_vals']
+                G0_grid = result.get('G0_vals')
+                ne_grid = result.get('ne_vals')
+                zmean_grid = result.get('Zmean')
+                zsigma_grid = result.get('Zsigma')
 
-            json_path = output_dir / f'heating_rates_{bin_id}.json'
-            with open(json_path, 'w') as f:
-                json.dump(json_data, f, indent=2)
-            created_files.append(str(json_path))
-            print(f"  ✓ Metadata saved: {json_path.name}")
+                log_peh = result.get('log_peh', np.zeros((len(gamma), len(T))))
+                log_rec = result.get('log_rec', np.zeros((len(gamma), len(T))))
 
-            results_summary.append({
-                'bin_id': bin_id,
-                'composition': comp,
-                'rank': rank,
-                'status': 'Success',
-            })
+                # Convert from log space if needed
+                peh_rate = np.power(10.0, log_peh) if np.any(np.isfinite(log_peh)) else np.zeros_like(log_peh)
+                rec_rate = np.power(10.0, log_rec) if np.any(np.isfinite(log_rec)) else np.zeros_like(log_rec)
 
-        except Exception as e:
-            print(f"  ✗ Error: {e}")
-            import traceback
-            traceback.print_exc()
-            results_summary.append({
-                'bin_id': bin_id,
-                'composition': comp,
-                'rank': rank,
-                'status': f'Error: {str(e)}',
-            })
+                # Save rates as binary tables with name_binname convention
+                file_stem = f'heating_{bin_id}'
+                npz_path = output_dir / f'{file_stem}.npz'
+                np.savez(npz_path,
+                         T=T, gamma=gamma, peh_rate=peh_rate, rec_rate=rec_rate,
+                         G0_grid=G0_grid, ne_grid=ne_grid,
+                         Zmean_grid=zmean_grid, Zsigma_grid=zsigma_grid,
+                         mode=mode, fixed_value=fixed_value,
+                         grain_type=grain_type, composition=comp, rank=rank,
+                         bin_id=bin_id, grain_size_micron=grain_size_micron)
+                created_files.append(str(npz_path))
+                print(f"  ✓ Data saved (NPZ): {npz_path.name}")
+
+                # Save figure with quick-look plots
+                fig_path = output_dir / f'{file_stem}.png'
+                _save_rate_plot(fig_path, T, gamma,
+                                {'peh_rate': peh_rate, 'rec_rate': rec_rate},
+                                radiation_model=radiation_model,
+                                grain_type=grain_type)
+                created_files.append(str(fig_path))
+                print(f"  ✓ Figure saved: {fig_path.name}")
+
+                # Save metadata as JSON
+                json_data = {
+                    'bin_id': bin_id,
+                    'composition': comp,
+                    'grain_type': grain_type,
+                    'bin_rank': rank,
+                    'grain_size_micron': grain_size_micron,
+                    'radiation_model': radiation_model,
+                    'temperature_grid': {
+                        'Tmin': float(Tmin),
+                        'Tmax': float(Tmax),
+                        'nT': int(nT),
+                    },
+                    'gamma_grid': {
+                        'gamma_min': float(gamma_min),
+                        'gamma_max': float(gamma_max),
+                        'n_gamma': int(n_gamma),
+                    },
+                    'mode': mode,
+                    'fixed_value': float(fixed_value),
+                }
+
+                json_path = output_dir / f'{file_stem}.json'
+                with open(json_path, 'w') as f:
+                    json.dump(json_data, f, indent=2)
+                created_files.append(str(json_path))
+                print(f"  ✓ Metadata saved: {json_path.name}")
+
+                results_summary.append({
+                    'bin_id': bin_id,
+                    'composition': comp,
+                    'rank': rank,
+                    'status': 'Success',
+                })
+
+            except Exception as e:
+                print(f"  ✗ Error: {e}")
+                import traceback
+                traceback.print_exc()
+                results_summary.append({
+                    'bin_id': bin_id,
+                    'composition': comp,
+                    'rank': rank,
+                    'status': f'Error: {str(e)}',
+                })
+    finally:
+        if shared_executor is not None:
+            shared_executor.shutdown(wait=True)
 
     # Print summary
     print("\n" + "=" * 80)
@@ -368,6 +387,15 @@ def main(config_path=None):
         'bins_processed': successful,
         'successful': successful,
         'failed': failed,
+        'Tmin': float(Tmin),
+        'Tmax': float(Tmax),
+        'nT': int(nT),
+        'gamma_min': float(gamma_min),
+        'gamma_max': float(gamma_max),
+        'n_gamma': int(n_gamma),
+        'radiation_model': radiation_model,
+        'mode': mode,
+        'fixed_value': float(fixed_value),
     }
 
 

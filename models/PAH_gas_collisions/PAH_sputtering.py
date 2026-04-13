@@ -48,6 +48,13 @@ eV2erg = 1.6021773300241e-12 # [erg] conversion between eV to erg
 au2cgs_v = 2.18769126364e8    # [cm/s] conversion between a.u. velocity and cgs velocity
 kb = 1.3806488e-16 # [erg/K]
 elem_charge = 4.8032047e-10 # [statC]
+KB_OVER_H = 2.083661912332757e10 # [K^-1 s^-1]
+_ELECTRON_STOPPING_LOOKUP_N = 4096
+_ELECTRON_STOPPING_LOOKUP_PAD = 1.2
+_ELECTRON_STOPPING_LOOKUP_E_MAX = 1e6
+_ELECTRON_STOPPING_E_GRID = None
+_ELECTRON_STOPPING_F_GRID = None
+_ION_COLLISION_S_SAMPLES = 128
 
 # Fitting parameters for the friction coefficient scaling law from the
 # results of Puska & Nieminen (1983). Gamma_0 is in terms of (a.u.)^2.
@@ -182,6 +189,39 @@ def inv_electron_stopping_power(E):
 
     return S2 / S1
 
+
+def _build_electron_stopping_lookup(E_max_eV):
+    """Build lookup table for F(E)=int_{e_sp_min}^E inv_stopping(x) dx."""
+
+    E_hi = max(float(E_max_eV), e_sp_min * 1.001)
+    npts = int(max(256, _ELECTRON_STOPPING_LOOKUP_N))
+
+    E_grid = np.logspace(np.log10(e_sp_min), np.log10(E_hi), npts)
+    inv_s = inv_electron_stopping_power(E_grid)
+
+    dE = np.diff(E_grid)
+    f_mid = 0.5 * (inv_s[1:] + inv_s[:-1])
+
+    F_grid = np.zeros_like(E_grid)
+    F_grid[1:] = np.cumsum(dE * f_mid)
+    return E_grid, F_grid
+
+
+def _get_electron_stopping_lookup(required_E_eV):
+    """Return cached lookup arrays; rebuild only if larger E coverage is needed."""
+
+    global _ELECTRON_STOPPING_E_GRID, _ELECTRON_STOPPING_F_GRID
+
+    required = max(float(required_E_eV), e_sp_min * 1.001)
+    if _ELECTRON_STOPPING_E_GRID is None:
+        E_max = max(_ELECTRON_STOPPING_LOOKUP_E_MAX, required * _ELECTRON_STOPPING_LOOKUP_PAD)
+        _ELECTRON_STOPPING_E_GRID, _ELECTRON_STOPPING_F_GRID = _build_electron_stopping_lookup(E_max)
+    elif required > _ELECTRON_STOPPING_E_GRID[-1]:
+        E_max = required * _ELECTRON_STOPPING_LOOKUP_PAD
+        _ELECTRON_STOPPING_E_GRID, _ELECTRON_STOPPING_F_GRID = _build_electron_stopping_lookup(E_max)
+
+    return _ELECTRON_STOPPING_E_GRID, _ELECTRON_STOPPING_F_GRID
+
 def effective_temperature(Nc,Te,binding_energy):
     """Effective temperature of the PAH in the microcanonical description
     of a PAH (see Tielens 2005, 2021).
@@ -213,33 +253,31 @@ def electronic_electron_collision(R,d,theta,init_energy):
         float: final excitation energy in eV
     """    
     
-    from scipy.integrate import trapezoid,quad
-    from scipy.optimize import fsolve
-    
-    def F(E):
-        E = float(np.atleast_1d(E)[0])
-        if E <= e_sp_min:
-            return 0.0
-        integrand = lambda x: inv_electron_stopping_power(x)
-        result, error = quad(integrand, e_sp_min, E)
-        return result
-    
     # 1. Compute length through the PAH (convert from a.u. to Angstrom)
     l = path_l(R,d,theta) * a_0 / 1e-8
 
+    Ei = float(init_energy)
+    if Ei <= e_sp_min:
+        return 0.0
+
+    E_grid, F_grid = _get_electron_stopping_lookup(Ei)
+
     # 2. Obtain the value of F for E0
-    F_0 = F(init_energy)
+    F_0 = np.interp(Ei, E_grid, F_grid, left=0.0, right=F_grid[-1])
     
     # 3. Compute F(E_1)
     F_1 = F_0 - l
 
-    # 4. Compute E1 by solving F(E_1) numerically
-    E_1 = float(fsolve(lambda x: F(x) - F_1, x0=e_sp_min)[0])
+    # 4. Compute E1 by inverse interpolation of precomputed F(E)
+    if F_1 <= 0.0:
+        E_1 = e_sp_min
+    else:
+        E_1 = float(np.interp(F_1, F_grid, E_grid, left=e_sp_min, right=E_grid[-1]))
     
     # 5. The final excitation energy is the difference between E1 and the initial electron energy
-    T = init_energy - E_1
+    T = Ei - E_1
 
-    return T
+    return max(0.0, T)
 
 def electron_density(s,theta):
     """Valence electron density in the jellium model for the thick-disk 
@@ -310,6 +348,21 @@ def electronic_ion_collision(v,R,d,theta,particle_type):
     
     return T
 
+
+def _ion_collision_theta_loss_integral(R, d, theta, particle_type, nsamples=_ION_COLLISION_S_SAMPLES):
+    """Compute integral of friction coefficient over path length for fixed theta.
+
+    This is the expensive, velocity-independent part of ion electronic collision.
+    """
+
+    l = path_l(R, d, theta)
+    n = int(max(16, nsamples))
+    s_grid = np.linspace(-0.5 * l, 0.5 * l, n)
+    gamma = np.zeros(n, dtype=float)
+    for i in range(n):
+        gamma[i] = friction_coefficient(particle_type, s_grid[i], theta)
+    return float(np.trapezoid(gamma, s_grid))
+
 def dissociation_probability(binding_energy,Nc,T_av):
     """Normalised PAH dissociation probability.
 
@@ -321,7 +374,6 @@ def dissociation_probability(binding_energy,Nc,T_av):
     Returns:
         float: normalised probability for dissociation
     """
-    from unyt import h,K,kb    
     # 1. Compute the maximum number of IR photon emissions
     # as suggested by the results of Micelotta et al. (2010b)
     n_max = float(int(Nc / 5))
@@ -329,9 +381,10 @@ def dissociation_probability(binding_energy,Nc,T_av):
     # 2. Compute the probability based on the value of T_av
     DeltaS = 10 # [cal/K/mol]
     R = 1.98720425864083 # [cal/K/mol]
-    k_0 = kb*T_av*K/h * np.exp(1.+DeltaS/R)
+    k_0 = KB_OVER_H * float(T_av) * np.exp(1.0 + DeltaS / R) # [s^-1]
+    boltz = np.exp(-binding_energy / (8.617e-5 * float(T_av)))
     
-    P = k_0.to('1/s').d * np.exp(-binding_energy/(8.617e-5*T_av)) / ((k_IR / (n_max + 1.)) + k_0.to('1/s').d * np.exp(-binding_energy/(8.617e-5*T_av)))
+    P = (k_0 * boltz) / ((k_IR / (n_max + 1.0)) + (k_0 * boltz))
     
     return P
     
@@ -539,7 +592,18 @@ def _build_electronic_kernel_lookup(particle_type, Nc,
     K_v = np.zeros_like(v)
 
     theta = np.linspace(0.0, np.pi / 2.0, nbins_theta)
+    sigma_theta = np.array([cross_section_geometrical(R, d, th) for th in theta], dtype=float)
     sin_theta = np.sin(theta)
+
+    if int_type == 'electron':
+        E_charge_electron = coulomb_energy_shift_eV(-1, pah_charge, R_cm)
+        ion_loss_theta = None
+    else:
+        E_charge_electron = 0.0
+        ion_loss_theta = np.array([
+            _ion_collision_theta_loss_integral(R, d, th, particle_type)
+            for th in theta
+        ], dtype=float)
 
     for i in range(len(v)):
         vi = v[i]
@@ -547,11 +611,9 @@ def _build_electronic_kernel_lookup(particle_type, Nc,
         J_theta = np.zeros(nbins_theta)
 
         for j in range(nbins_theta):
-            sigma = cross_section_geometrical(R, d, theta[j])
+            sigma = sigma_theta[j]
 
             if int_type == 'electron':
-                # For electrons, compute Coulomb shift with electron charge = -1
-                E_charge_electron = coulomb_energy_shift_eV(-1, pah_charge, R_cm)
                 Ei_eff = Ei + E_charge_electron
                 if Ei_eff > e_sp_min:
                     T_0_local = electronic_electron_collision(R, d, theta[j], Ei_eff)
@@ -564,7 +626,7 @@ def _build_electronic_kernel_lookup(particle_type, Nc,
                     J_theta[j] = 0.0
                     continue
                 vi_eff = np.sqrt(2.0 * Ei_eff * eV2erg / m_particle) / au2cgs_v
-                T_0_local = electronic_ion_collision(vi_eff, R, d, theta[j], particle_type)
+                T_0_local = 27.2116 * vi_eff * ion_loss_theta[j]
 
             T_nmax = T_0_local - n_max * Delta_epsilon
             if T_nmax <= 0.0 or T_nmax <= 0.2 * binding_energy:

@@ -110,7 +110,16 @@ def main(
                     new_tables = sorted(table_after)
 
                 if new_tables:
-                    tables_generated += len(new_tables)
+                    for it, src_table in enumerate(new_tables):
+                        if it == 0:
+                            dst_table = Path(f'dissociation_{pah_bin_id}.dat')
+                        else:
+                            dst_table = Path(f'dissociation_{pah_bin_id}_{it}.dat')
+                        if dst_table.exists() and not overwrite:
+                            print(f'  - table exists, keeping existing: {dst_table.name}')
+                        else:
+                            src_table.replace(dst_table)
+                            tables_generated += 1
 
                 if plot_default.exists():
                     target_plot = Path(f'{pah_bin_id}_integrated_dissociation_rate.png')

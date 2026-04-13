@@ -43,6 +43,8 @@ from models.dust_charge.shared_physics import (
     min_energy_ejection_vec,
     photodetachment_energy_graphite_vec,
     photodetachment_energy_silicate_vec,
+    photodetachment_energy_graphite_scalar,
+    photodetachment_energy_silicate_scalar,
     photodetachment_cross_section_vec,
     min_photon_energy_vec,
     parameter_theta_vec,
@@ -60,6 +62,10 @@ from models.dust_charge.shared_physics import (
     most_positive_allowed_charge,
     electron_sticking_coefficient_graphite,
     electron_sticking_coefficient_silicate,
+    electron_sticking_coefficient_graphite_scalar,
+    electron_sticking_coefficient_silicate_scalar,
+    collisional_rates_electrons_scalar,
+    collisional_rates_ions_scalar,
     collisional_rates_electrons_vector,
     collisional_rates_ions_vector,
 )
@@ -137,48 +143,62 @@ _INF_RATIO = 1e300
 # FUNCTIONS
 ## Low-level cgs helper physics is imported from shared_physics.
 
-def photoelectric_yield_graphite_vec(W, Zs, a, le, E, wav, Imperp, Impar):
+def photoelectric_yield_graphite_vec(W, Zs, a, le, E, wav, Imperp, Impar, la=None):
     """
     Vectorized version of photoelectric_yield_graphite for all (E, Z).
     E and wav are 1D arrays [N_E]; Zs is 1D [N_Z].
     Returns Y(E,Z) array of shape [N_E, N_Z].
     """
-    E, Z = np.meshgrid(E, Zs, indexing='ij')
+    E = np.asarray(E, dtype=float)[:, None]
+    Z = np.asarray(Zs, dtype=float)[None, :]
 
     IPV = ionisation_potential_valence_vec(W, Z, a)
     Emin_ej = min_photon_energy_vec(IPV, Z, a)
 
     mask = E >= Emin_ej
 
-    theta = parameter_theta_vec(E, Emin_ej, Z, a)
+    coul = _coulomb_energy_over_a(Z, a)
+    theta = parameter_theta_vec(E, Emin_ej, Z, a, coulomb_over_a=coul)
     y0 = BT94_y0_graphite_vec(theta, W)
 
-    la = photon_attenuation_length_graphite_vec(wav[:, None], Imperp[:, None], Impar[:, None])
+    if la is None:
+        la = photon_attenuation_length_graphite_vec(wav[:, None], Imperp[:, None], Impar[:, None])
+    else:
+        la = np.asarray(la, dtype=float)
+        if la.ndim == 1:
+            la = la[:, None]
     y1 = Watson73_y1_vec(a, la, le)
 
-    y2 = escape_fraction_attempting_electrons_vec(E, Emin_ej, Z, a)
+    y2 = escape_fraction_attempting_electrons_vec(E, Emin_ej, Z, a, coulomb_over_a=coul)
 
     Y = np.where(mask, y2 * np.minimum(y0 * y1, 1.0), 0.0)
     return Y
 
-def photoelectric_yield_silicate_vec(W, Zs, a, le, E, wav, Im):
+def photoelectric_yield_silicate_vec(W, Zs, a, le, E, wav, Im, la=None):
     """
     Vectorized version of photoelectric_yield_silicate.
     Returns Y(E,Z) array [N_E, N_Z].
     """
-    E, Z = np.meshgrid(E, Zs, indexing='ij')
+    E = np.asarray(E, dtype=float)[:, None]
+    Z = np.asarray(Zs, dtype=float)[None, :]
 
     IPV = ionisation_potential_valence_vec(W, Z, a)
     Emin_ej = min_photon_energy_vec(IPV, Z, a)
     mask = E >= Emin_ej
 
-    theta = parameter_theta_vec(E, Emin_ej, Z, a)
+    coul = _coulomb_energy_over_a(Z, a)
+    theta = parameter_theta_vec(E, Emin_ej, Z, a, coulomb_over_a=coul)
     y0 = y0_silicate_vec(theta, W)
 
-    la = photon_attenuation_length_silicate_vec(wav[:, None], Im[:, None])
+    if la is None:
+        la = photon_attenuation_length_silicate_vec(wav[:, None], Im[:, None])
+    else:
+        la = np.asarray(la, dtype=float)
+        if la.ndim == 1:
+            la = la[:, None]
     y1 = Watson73_y1_vec(a, la, le)
 
-    y2 = escape_fraction_attempting_electrons_vec(E, Emin_ej, Z, a)
+    y2 = escape_fraction_attempting_electrons_vec(E, Emin_ej, Z, a, coulomb_over_a=coul)
 
     Y = np.where(mask, y2 * np.minimum(y0 * y1, 1.0), 0.0)
     return Y
@@ -188,18 +208,20 @@ def yield_graphite_vectorized(nu, Zs, a, params):
     W = params['W']
     le = params['le']
     wav = params.get('wav', c_cgs / np.asarray(nu))
+    E = params.get('E_eV', h_cgs * np.asarray(nu) / eV2erg)
     Imperp = params['Imperp']
     Impar  = params['Impar']
-    E = h_cgs * np.asarray(nu) / eV2erg # convert to eV
-    return photoelectric_yield_graphite_vec(W, np.asarray(Zs), a, le, E, wav, Imperp, Impar)
+    la = params.get('la', None)
+    return photoelectric_yield_graphite_vec(W, np.asarray(Zs), a, le, E, wav, Imperp, Impar, la=la)
 
 def yield_silicate_vectorized(nu, Zs, a, params):
     W = params['W']
     le = params['le']
     wav = params.get('wav', c_cgs / np.asarray(nu))
     Im  = params['Im']
-    E = h_cgs * np.asarray(nu) / eV2erg # convert to eV
-    return photoelectric_yield_silicate_vec(W, np.asarray(Zs), a, le, E, wav, Im)
+    E = params.get('E_eV', h_cgs * np.asarray(nu) / eV2erg)
+    la = params.get('la', None)
+    return photoelectric_yield_silicate_vec(W, np.asarray(Zs), a, le, E, wav, Im, la=la)
 
 def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, J_is_per_sr=False, pdt_func=None):
 
@@ -231,6 +253,15 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
     if isinstance(yield_params, dict) and ('include_photodetachment' in yield_params):
         include_pd = bool(yield_params.get('include_photodetachment'))
 
+    E_eV = None
+    if isinstance(yield_params, dict) and 'E_eV' in yield_params:
+        try:
+            E_eV = np.asarray(yield_params['E_eV'], dtype=float)
+        except Exception:
+            E_eV = None
+    if E_eV is None:
+        E_eV = h_cgs * np.asarray(nu) / eV2erg
+
     # if even a single-column temporary would exceed the budget, fall back to streaming per-Z
     if bytes_per_Zcol * est_overhead_factor > max_tmp_bytes:
         if isinstance(yield_params, dict) and yield_params.get('debug'):
@@ -245,7 +276,6 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
         Ccol = C_abs_nu[:, None]
         Jcol = J_nu[:, None]
         # prepare photodetachment helpers if requested
-        E_eV = h_cgs * np.asarray(nu) / eV2erg
         if include_pd and pdt_func is None:
             if isinstance(yield_params, dict) and callable(yield_params.get('photodetachment_func')):
                 pdt_func = yield_params.get('photodetachment_func')
@@ -263,8 +293,10 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
             base_int = float(np.trapezoid(integrand[:, 0], nu))
             add_pd = 0.0
             if include_pd and pdt_func is not None and Z < 0:
-                Zarr = np.array([Z])
-                E_pdt_val = float(pdt_func(Zarr, a)[0])
+                if material == 'graphite':
+                    E_pdt_val = photodetachment_energy_graphite_scalar(Z, a)
+                else:
+                    E_pdt_val = photodetachment_energy_silicate_scalar(Z, a)
                 sigma = photodetachment_cross_section_vec(E_eV, E_pdt_val, Z)
                 integrand_pd = sigma * J_nu 
                 add_pd = float(np.trapezoid(integrand_pd, nu))
@@ -274,7 +306,6 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
                 del integrand
             except Exception:
                 pass
-            gc.collect()
         return out
 
     # if we can compute all at once, do it; otherwise iterate over chunks
@@ -289,8 +320,6 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
         Rpe_Z = np.trapezoid(integrand, nu, axis=0)
         # If requested, compute photodetachment heating contribution and add to Rpe_Z
         if include_pd:
-            # shared conversions/helpers
-            E_eV = h_cgs * np.asarray(nu) / eV2erg
             pd_add = np.zeros_like(Rpe_Z)
             # choose pdt function once
             if pdt_func is None:
@@ -306,7 +335,10 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
                 if Zint >= 0:
                     pd_add[iz] = 0.0
                     continue
-                E_pdt_val = float(pdt_func(np.array([Zint]), a)[0])
+                if material == 'graphite':
+                    E_pdt_val = photodetachment_energy_graphite_scalar(Zint, a)
+                else:
+                    E_pdt_val = photodetachment_energy_silicate_scalar(Zint, a)
                 sigma = photodetachment_cross_section_vec(E_eV, E_pdt_val, Zint)
                 integrand_pd = sigma * J_nu
                 pd_add[iz] = float(np.trapezoid(integrand_pd, nu))
@@ -320,13 +352,10 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
             del pd_add
         except Exception:
             pass
-        gc.collect()
         return np.asarray(Rpe_Z, dtype=float)
     else:
         out = np.zeros(N_Z, dtype=float)
         # process in chunks of size 'chunk'
-        # prepare photodetachment helpers once for chunk processing
-        E_eV = h_cgs * np.asarray(nu) / eV2erg
         # choose pdt function once (if requested)
         if include_pd and pdt_func is None:
             if isinstance(yield_params, dict) and callable(yield_params.get('photodetachment_func')):
@@ -355,7 +384,10 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
                     if Zint >= 0:
                         pd_add[iz] = 0.0
                         continue
-                    E_pdt_val = float(pdt_func(np.array([Zint]), a)[0])
+                    if material == 'graphite':
+                        E_pdt_val = photodetachment_energy_graphite_scalar(Zint, a)
+                    else:
+                        E_pdt_val = photodetachment_energy_silicate_scalar(Zint, a)
                     sigma = photodetachment_cross_section_vec(E_eV, E_pdt_val, Zint)
                     integrand_pd = sigma * J_nu
                     pd_add[iz] = float(np.trapezoid(integrand_pd, nu))
@@ -373,7 +405,6 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
                 del Jcol
             except Exception:
                 pass
-            gc.collect()
         return np.asarray(out, dtype=float)
 
 
@@ -550,9 +581,9 @@ def find_Zref_and_bounds_optimized(a, n_e, T_e, ion_species, nu, J_nu, C_abs_nu,
         s_e_func = electron_sticking_coefficient_graphite if material == 'graphite' else electron_sticking_coefficient_silicate
     def ratio_collisional_only(Z):
         # compute electron capture
-        J_e = collisional_rates_electrons_vector(np.array([a]), np.array([Z]), n_e, T_e, s_e_func)[0]
+        J_e = collisional_rates_electrons_scalar(a, Z, n_e, T_e, s_e_func)
         # compute ion capture using provided ion_species (may be empty)
-        J_ion_total = collisional_rates_ions_vector(np.array([a]), np.array([Z]), ion_species)[0] if ion_species else 0.0
+        J_ion_total = collisional_rates_ions_scalar(a, Z, ion_species) if ion_species else 0.0
         # R_plus ~ J_ion_total (ignoring R_pe) ; R_minus ~ J_e
         denom = J_e
         num = J_ion_total
@@ -657,7 +688,7 @@ def find_Zref_and_bounds_optimized(a, n_e, T_e, ion_species, nu, J_nu, C_abs_nu,
             denomZ = Z + 1
             if denomZ in rpc.cache:
                 denom = rpc.cache.get(denomZ) if False else None  # we don't store J_e in rpc; compute directly
-                denom = collisional_rates_electrons_vector(np.array([a]), np.array([denomZ]), n_e, T_e, s_e_func)[0]
+                denom = collisional_rates_electrons_scalar(a, denomZ, n_e, T_e, s_e_func)
             if denom <= 0:
                 r_list.append(_INF_RATIO if num > 0 else 0.0)
             else:
@@ -676,7 +707,7 @@ def find_Zref_and_bounds_optimized(a, n_e, T_e, ion_species, nu, J_nu, C_abs_nu,
             diffs = []
             for j in neigh:
                 num = R_plus_arr[j]
-                denom = collisional_rates_electrons_vector(np.array([a]), np.array([Zs[j] + 1]), n_e, T_e, s_e_func)[0]
+                denom = collisional_rates_electrons_scalar(a, Zs[j] + 1, n_e, T_e, s_e_func)
                 diff = abs(num - denom)
                 diffs.append(diff)
             best_rel = neigh[np.argmin(diffs)]
@@ -940,8 +971,6 @@ def compute_equilibrium_charge_distribution_vectorized(
         del J_ion_arr_total
     except Exception:
         pass
-    gc.collect()
-
     # 5) solve recursion using Zref index
     idx_ref = int(np.where(Zs == Zref)[0][0])
     N = len(Zs)
@@ -1263,7 +1292,9 @@ def equilibrium_charge_for_grain(G0, ne, T, grain_type, a_cm,
         lambda_cm = wav_nm * 1e-7
         nu = c_cgs / lambda_cm
         # I_E is per eV; convert to photon flux per Hz using dE_eV/dnu = h / eV2erg
-        J_nu = I_E / np.maximum(nu * eV2erg, _TINY)
+        # Apply the requested field scaling so this branch is consistent with
+        # the wavelength/intensity branch below.
+        J_nu = (I_E * float(G0)) / np.maximum(nu * eV2erg, _TINY)
         E_for_interp = E_eV
         wav_cm_for_interp = lambda_cm
 
@@ -1500,6 +1531,80 @@ def compute_G0_from_model(radiation_model='Draine', E_min=6.0, E_max=13.6):
     return compute_G0_from_rad_field(rad, E_min=E_min, E_max=E_max)
 
 
+def _prepare_gamma_scan_context(grain_type, a_cm, radiation_model='Mathis', yield_params=None):
+    """Prepare invariant radiation/optical inputs once for a gamma scan."""
+    from models.dust_charge.dust_photoelectric_heating import get_radiation_field, read_dielectric_file
+    from models.dust_radiation.dust_emission import interpolate_cross_sections
+
+    if yield_params is None:
+        yield_params = {}
+
+    material = yield_params.get('material', 'graphite' if grain_type.lower().startswith('gra') or grain_type.lower().startswith('car') else 'silicate')
+    rad0, _ = get_radiation_field(radiation_model)
+    rad0 = np.asarray(rad0)
+
+    if rad0.ndim == 2 and rad0.shape[1] >= 3:
+        E_eV = np.asarray(rad0[:, 0], dtype=float)
+        wav_nm = np.asarray(rad0[:, 1], dtype=float)
+        I_E = np.asarray(rad0[:, 2], dtype=float)
+        order = np.argsort(E_eV)
+        E_eV = E_eV[order]
+        wav_cm = wav_nm[order] * 1e-7
+        nu = c_cgs / wav_cm
+        J_nu = I_E[order] / np.maximum(nu * eV2erg, _TINY)
+        wav_cm_for_interp = wav_cm
+        E_for_interp = E_eV
+    elif rad0.ndim == 2 and rad0.shape[1] >= 2:
+        wavelength_nm = np.asarray(rad0[:, 0], dtype=float)
+        wavelength_intensity = np.asarray(rad0[:, 1], dtype=float)
+        wav_nm_rev = wavelength_nm[::-1]
+        wav_int_rev = wavelength_intensity[::-1]
+        wav_cm = wav_nm_rev * 1e-7
+        nu = c_cgs / wav_cm
+        I_lambda_per_cm = wav_int_rev * 1e7
+        n_nu_per_sr = I_lambda_per_cm * (wav_cm**3) / (h_cgs * c_cgs**2)
+        J_nu = n_nu_per_sr * (4.0 * np.pi)
+        E_for_interp = 1.2398 / (wav_nm_rev * 1e-3)
+        wav_cm_for_interp = wav_cm
+    else:
+        raise ValueError('radiation model returned an unsupported field shape')
+
+    a_micron = float(a_cm) * 1e4
+    _, wav_cs, _, C_abs_cs, _ = interpolate_cross_sections(material, a_micron)
+    optical_E = 1.2398 / (wav_cs * 1e4)
+    C_abs_interp_cm2 = np.interp(E_for_interp, optical_E, C_abs_cs)
+
+    if material == 'graphite':
+        data_perp = read_dielectric_file(f'{PATH_OPTICS}/draine_lee_1984/callindex.out_CpeD03_0.10')
+        data_par = read_dielectric_file(f'{PATH_OPTICS}/draine_lee_1984/callindex.out_CpaD03_0.10')
+        wav_micron = wav_cm_for_interp * 1e4
+        Im_perp = np.interp(wav_micron, data_perp['table']['wavelength_um'][::-1], data_perp['table']['Im_n'][::-1])
+        Im_par = np.interp(wav_micron, data_par['table']['wavelength_um'][::-1], data_par['table']['Im_n'][::-1])
+        la = photon_attenuation_length_graphite_vec(wav_cm_for_interp, Im_perp, Im_par)
+        yield_params_local = dict(yield_params)
+        yield_params_local.update({'W': graphite_work_function, 'le': electron_escape_length, 'Imperp': Im_perp, 'Impar': Im_par, 'wav': wav_cm_for_interp, 'la': la, 'E_eV': h_cgs * nu / eV2erg})
+        yield_func = yield_graphite_vectorized
+    else:
+        data = read_dielectric_file(f'{PATH_OPTICS}/draine_lee_1984/eps_suvSil')
+        wav_micron = wav_cm_for_interp * 1e4
+        Im = np.interp(wav_micron, data['table']['wavelength_um'][::-1], data['table']['Im_n'][::-1])
+        la = photon_attenuation_length_silicate_vec(wav_cm_for_interp, Im)
+        yield_params_local = dict(yield_params)
+        yield_params_local.update({'W': silicate_work_function, 'le': electron_escape_length, 'Im': Im, 'wav': wav_cm_for_interp, 'la': la, 'E_eV': h_cgs * nu / eV2erg})
+        yield_func = yield_silicate_vectorized
+
+    yield_params_local['material'] = material
+
+    return {
+        'material': material,
+        'nu': np.asarray(nu, dtype=float),
+        'J_nu': np.asarray(J_nu, dtype=float),
+        'C_abs_nu': np.asarray(C_abs_interp_cm2, dtype=float),
+        'yield_func': yield_func,
+        'yield_params': yield_params_local,
+    }
+
+
 def compute_energy_density_from_rad_field(rad_field, E_min=6.0, E_max=13.6):
     """
     Compute the energy density (erg/cm^3) integrated between E_min and E_max.
@@ -1658,6 +1763,7 @@ def compute_charge_vs_gamma(
         ne_samples = np.asarray(ne_samples, dtype=float)
 
     tasks = []
+    scan_context = _prepare_gamma_scan_context(grain_type, a, radiation_model=radiation_model, yield_params=yield_params)
     for gamma in gamma_values:
         for i in range(combos_per_gamma):
             T = float(rng.choice(T_samples))
@@ -1669,6 +1775,12 @@ def compute_charge_vs_gamma(
                           'grain_type': grain_type, 'a': a,
                           'radiation_model': radiation_model,
                           'ion_species': ion_species, 'yield_params': yield_params,
+                          'prepared_nu': scan_context['nu'],
+                          'prepared_J_nu': scan_context['J_nu'],
+                          'prepared_C_abs_nu': scan_context['C_abs_nu'],
+                          'prepared_yield_func': scan_context['yield_func'],
+                          'prepared_yield_params': scan_context['yield_params'],
+                          'skip_worker_memory_guard': True,
                           'debug': debug,
                           'warn_on_single_charge': bool(warn_on_single_charge),
                           'outlier_factor': float(outlier_factor)})
@@ -2262,22 +2374,42 @@ def _compute_single_combo(task):
         yp = task.get('yield_params')
         if isinstance(yp, dict):
             max_tmp = yp.get('max_tmp_bytes', None)
-        # get system available memory
-        total_mem = get_system_memory_bytes()
-        proc_rss = get_process_rss_bytes()
-        avail_mem = max(0, total_mem - proc_rss)
         # snapshot worker ru before heavy work
         worker_ru_before = get_process_rss_bytes()
-        if max_tmp is not None and avail_mem < max_tmp * 2:
-            return dict(task, Zmean=None, Zsigma=None, error=f'Insufficient available memory: avail={avail_mem} < required~{max_tmp*2}')
+        if (not task.get('skip_worker_memory_guard', False)):
+            total_mem = get_system_memory_bytes()
+            proc_rss = get_process_rss_bytes()
+            avail_mem = max(0, total_mem - proc_rss)
+            if max_tmp is not None and avail_mem < max_tmp * 2:
+                return dict(task, Zmean=None, Zsigma=None, error=f'Insufficient available memory: avail={avail_mem} < required~{max_tmp*2}')
+        elif max_tmp is not None:
+            # Parent already sized the pool conservatively; trust the parent's guard.
+            pass
 
-        Zs, P, rates, Zmean, Zsigma = equilibrium_charge_for_grain(
-            task['G0'], task['ne'], task['T'], task['grain_type'], task['a'],
-            radiation_model=task.get('radiation_model', 'Mathis'),
-            ion_species=task.get('ion_species', []),
-            yield_params=task.get('yield_params', None),
-            Z_start=0, debug=task.get('debug', False)
-        )
+        prepared_nu = task.get('prepared_nu', None)
+        prepared_J_nu = task.get('prepared_J_nu', None)
+        prepared_C_abs_nu = task.get('prepared_C_abs_nu', None)
+        prepared_yield_func = task.get('prepared_yield_func', None)
+        prepared_yield_params = task.get('prepared_yield_params', None)
+
+        if prepared_nu is not None and prepared_J_nu is not None and prepared_C_abs_nu is not None and prepared_yield_func is not None:
+            # The prepared context stores a base radiation field; scale it per task.
+            J_nu_scaled = np.asarray(prepared_J_nu, dtype=float) * float(task.get('G0', 1.0))
+            Zs, P, rates, Zmean, Zsigma = compute_equilibrium_charge_distribution_vectorized(
+                task['a'], task['ne'], task['T'], task.get('ion_species', []),
+                np.asarray(prepared_nu), J_nu_scaled, np.asarray(prepared_C_abs_nu),
+                yield_func=prepared_yield_func, yield_params=prepared_yield_params,
+                Z_start=0, debug=task.get('debug', False),
+                max_cache_bytes=task.get('yield_params', {}).get('max_cache_bytes', None) if isinstance(task.get('yield_params', None), dict) else None
+            )
+        else:
+            Zs, P, rates, Zmean, Zsigma = equilibrium_charge_for_grain(
+                task['G0'], task['ne'], task['T'], task['grain_type'], task['a'],
+                radiation_model=task.get('radiation_model', 'Mathis'),
+                ion_species=task.get('ion_species', []),
+                yield_params=task.get('yield_params', None),
+                Z_start=0, debug=task.get('debug', False)
+            )
         # snapshot worker ru after
         worker_ru_after = get_process_rss_bytes()
         out = dict(task)

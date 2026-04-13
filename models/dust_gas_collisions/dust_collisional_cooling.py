@@ -9,6 +9,7 @@ import numpy as np
 import models.dust_model as dust_model
 import pandas as pd
 import os
+from pathlib import Path
 from tqdm import tqdm
 import concurrent.futures
 import time
@@ -1992,7 +1993,8 @@ def export_collisional_cooling(Tmin,Tmax,
                                 electron_stopping_fit_params=None,
                                 nT=100,nv=300,delta_max=0.1,
                                 nphi=20,Td=20.0,
-                                table_dir='./collisional_cooling_data'):
+                                table_dir='./collisional_cooling_data',
+                                executor=None):
     """
     Generalized function to export collisional cooling tables for arbitrary grain sizes,
     compositions, and ion species, including charge effects (phi dependence).
@@ -2137,7 +2139,13 @@ def export_collisional_cooling(Tmin,Tmax,
                   E_lookup_el, E_imp_lookup_el)
                  for Ti in Tgas]
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+    if executor is None:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as local_executor:
+            results = list(tqdm(local_executor.map(compute_efficiency_electron_batch_phi, args_list),
+                                total=nT,
+                                desc='    Electron cooling (batched phi, with lookup)',
+                                unit=' steps'))
+    else:
         results = list(tqdm(executor.map(compute_efficiency_electron_batch_phi, args_list),
                             total=nT,
                             desc='    Electron cooling (batched phi, with lookup)',
@@ -2181,7 +2189,13 @@ def export_collisional_cooling(Tmin,Tmax,
                      E_lookup_ion, E_imp_lookup_ion)
                     for Ti in Tgas]
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        if executor is None:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as local_executor:
+                results = list(tqdm(local_executor.map(compute_efficiency_batch_phi, args_list),
+                                    total=nT,
+                                    desc=f'    Ion cooling (Z={Zi}, batched phi, with lookup)',
+                                    unit=' steps'))
+        else:
             results = list(tqdm(executor.map(compute_efficiency_batch_phi, args_list),
                                 total=nT,
                                 desc=f'    Ion cooling (Z={Zi}, batched phi, with lookup)',
@@ -2279,7 +2293,7 @@ def export_collisional_cooling(Tmin,Tmax,
     print('Done!')
 
 
-def load_cooling_tables(table_dir='./collisional_cooling_data'):
+def load_cooling_tables(table_dir=None):
     """
     Reads all collisional cooling tables from `table_dir` and loads them into a dictionary.
     
@@ -2293,10 +2307,15 @@ def load_cooling_tables(table_dir='./collisional_cooling_data'):
             ...
         }
     """
+    if table_dir is None:
+        table_dir = Path(__file__).resolve().parents[2] / 'model_data' / 'collisional_cooling_data'
+
     cooling_tables = {}
 
     for fname in os.listdir(table_dir):
         if fname.startswith('.'):
+            continue
+        if not fname.startswith('cooling_'):
             continue
 
         full_path = os.path.join(table_dir, fname)

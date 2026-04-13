@@ -1,86 +1,187 @@
 #!/usr/bin/env python3
 """
-Profile memory (peak RSS) and wall time for representative dust_charging operations.
-Saves a small JSON report and prints a summary table.
+Profile wall time and function hotspots for representative dust charging runs.
+
+Usage:
+  python -m models.dust_charge.profile_dust_charging
+
+Outputs:
+  model_data/dust_charging_data/profiles/dust_charging_profile_report.json
 """
-import time
+
+from __future__ import annotations
+
+import cProfile
+import io
 import json
-import os, sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import resource
-import numpy as np
-from models.dust_charge.dust_charging import RpeCache, compute_Rpe_vectorized, compute_equilibrium_charge_distribution_vectorized
+import os
+import pstats
+import time
+from pathlib import Path
+
+from models.dust_charge.dust_charging import equilibrium_charge_for_grain
 
 
-def mb_from_ru(ru):
-    if sys.platform.startswith('darwin'):
-        return ru / (1024.0 * 1024.0)
-    else:
-        return (ru * 1024.0) / (1024.0 * 1024.0)
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
-def snapshot(label):
-    ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return {'label': label, 'ru_raw': int(ru), 'ru_mb': float(mb_from_ru(ru)), 'time': time.time()}
+def _output_path() -> Path:
+    out_dir = _repo_root() / "model_data" / "dust_charging_data" / "profiles"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir / "dust_charging_profile_report.json"
 
 
-def measure(fn, *args, **kwargs):
-    before = snapshot('before')
-    t0 = time.time()
-    res = fn(*args, **kwargs)
-    t1 = time.time()
-    after = snapshot('after')
-    return {'duration_s': t1 - t0, 'before': before, 'after': after, 'result_summary': str(type(res))}
+def _profile_case(case: dict, top_n: int = 25) -> dict:
+    """Run one charging case under cProfile and return summarized stats."""
+    params = dict(case)
 
-
-def main():
-    out = {}
-    # build synthetic nu/J and cross section (like earlier test)
-    c_SI = 2.99792458e8
-    nu = np.logspace(14, 16, 800)
-    J_nu = 1e8 * (nu / 1e15) ** -1.5
-    C_abs_nu = np.full_like(nu, 1e-18)
-    a_m = 0.1e-6
-
-    # dummy yield returns zeros (fast) and a simple synthetic yield that is small
-    def dummy_yield(nu_arr, Zs, a_val, params):
-        nu_arr = np.asarray(nu_arr)
-        Zs = np.asarray(Zs)
-        return np.zeros((nu_arr.size, Zs.size), dtype=float)
-
-    # 1) small vectorized compute
-    Zs_small = np.arange(-10, 11, dtype=int)
-    out['vec_small'] = measure(compute_Rpe_vectorized, nu, J_nu, C_abs_nu, a_m, Zs_small, dummy_yield, {'material': 'graphite'})
-
-    # 2) large vectorized compute (should create big temporaries)
-    Zs_large = np.arange(-2000, 2001, dtype=int)
-    out['vec_large'] = measure(compute_Rpe_vectorized, nu, J_nu, C_abs_nu, a_m, Zs_large, dummy_yield, {'material': 'graphite'})
-
-    # 3) RpeCache get with small budget (forces no persistent caching and chunked computation path)
-    rpc = RpeCache(nu, J_nu, C_abs_nu, a_m, dummy_yield, {'material': 'graphite'}, max_cache_bytes=20 * 1024 * 1024)
-    out['rpc_get'] = measure(rpc.get_Rpe_for_Zs, Zs_large)
-
-    # 4) equilibrium solver on a realistic single case (uses the vectorized solver internally)
-    # Build minimal fake radiative field expected by compute_equilibrium_charge_distribution_vectorized
-    # Here we pass nu and J_nu as the actual arrays expected by the lower-level functions
-    ion_species = []
-    # use dummy_yield as yield_func so we don't require dielectric tables or W
-    out['equilibrium_single'] = measure(
-        compute_equilibrium_charge_distribution_vectorized,
-        a_m, 1.0, 100.0, ion_species, nu, J_nu, C_abs_nu,
-        dummy_yield, {'material': 'graphite'}, 0, 20, 1e-6, False
+    # Warm-up once to avoid import/JIT effects in the measured run.
+    equilibrium_charge_for_grain(
+        params["G0"],
+        params["ne"],
+        params["T"],
+        params["grain_type"],
+        params["a_cm"],
+        radiation_model=params.get("radiation_model", "Mathis"),
+        ion_species=params.get("ion_species", []),
+        debug=False,
     )
 
-    # write report
-    outpath = os.path.join(os.path.dirname(__file__), 'profile_report.json')
-    with open(outpath, 'w') as f:
-        json.dump(out, f, indent=2)
+    pr = cProfile.Profile()
+    t0 = time.perf_counter()
+    pr.enable()
+    Zs, P, rates, zmean, zsigma = equilibrium_charge_for_grain(
+        params["G0"],
+        params["ne"],
+        params["T"],
+        params["grain_type"],
+        params["a_cm"],
+        radiation_model=params.get("radiation_model", "Mathis"),
+        ion_species=params.get("ion_species", []),
+        debug=False,
+    )
+    pr.disable()
+    wall_s = time.perf_counter() - t0
 
-    # print table
-    print('\nProfile summary:')
-    for k, v in out.items():
-        print(f"{k:20s} duration={v['duration_s']:.3f}s  ru_before={v['before']['ru_mb']:.2f}MB  ru_after={v['after']['ru_mb']:.2f}MB")
-    print('\nReport written to', outpath)
+    # Gather top cumulative functions.
+    stream_cum = io.StringIO()
+    ps_cum = pstats.Stats(pr, stream=stream_cum).sort_stats("cumtime")
+    ps_cum.print_stats(top_n)
 
-if __name__ == '__main__':
+    # Gather top self-time functions.
+    stream_self = io.StringIO()
+    ps_self = pstats.Stats(pr, stream=stream_self).sort_stats("tottime")
+    ps_self.print_stats(top_n)
+
+    # Extract a few key cumulative timings programmatically.
+    key_funcs = [
+        ("dust_charging.py", "compute_equilibrium_charge_distribution_vectorized"),
+        ("dust_photoelectric_heating.py", "compute_photoelectric_heating_rate"),
+        ("dust_charging.py", "compute_Rpe_vectorized"),
+        ("dust_charging.py", "find_Zref_and_bounds_optimized"),
+    ]
+    key_totals = {}
+    for suffix, func_name in key_funcs:
+        total = 0.0
+        calls = 0
+        for (file_name, _line, name), stat in ps_cum.stats.items():
+            _cc, nc, _tt, ct, _callers = stat
+            if file_name.endswith(suffix) and name == func_name:
+                total += float(ct)
+                calls += int(nc)
+        key_totals[f"{suffix}:{func_name}"] = {"cumtime_s": total, "calls": calls}
+
+    return {
+        "case": {
+            "grain_type": params["grain_type"],
+            "a_cm": params["a_cm"],
+            "G0": params["G0"],
+            "ne": params["ne"],
+            "T": params["T"],
+            "radiation_model": params.get("radiation_model", "Mathis"),
+        },
+        "result": {
+            "N_Z": int(len(Zs)),
+            "Zmean": float(zmean),
+            "Zsigma": float(zsigma),
+            "Gamma_total": float(rates.get("Gamma_total", 0.0)),
+            "Recomb_total": float(rates.get("Recomb_total", 0.0)),
+            "efficiency": float(rates.get("efficiency", 0.0)),
+        },
+        "timing": {
+            "wall_s": float(wall_s),
+            "profiler_total_s": float(pstats.Stats(pr).total_tt),
+        },
+        "key_cumulative": key_totals,
+        "top_cumulative_text": stream_cum.getvalue(),
+        "top_self_text": stream_self.getvalue(),
+    }
+
+
+def main() -> None:
+    # A compact set of representative cases across material and charging regime.
+    cases = [
+        {
+            "grain_type": "graphite",
+            "a_cm": 1.0e-6,
+            "G0": 0.01,
+            "ne": 0.007,
+            "T": 33.0,
+            "radiation_model": "Mathis",
+            "ion_species": [
+                {"n": 3e-3, "T": 33.0, "m": 1.6726219e-24, "z": 1},
+                {"n": 0.0042, "T": 33.0, "m": 12.0 * 1.66053906660e-24, "z": 1},
+            ],
+        },
+        {
+            "grain_type": "graphite",
+            "a_cm": 5.0e-7,
+            "G0": 1.0,
+            "ne": 0.03,
+            "T": 100.0,
+            "radiation_model": "Mathis",
+            "ion_species": [{"n": 1e-2, "T": 100.0, "m": 1.6726219e-24, "z": 1}],
+        },
+        {
+            "grain_type": "silicate",
+            "a_cm": 5.0e-7,
+            "G0": 1.0,
+            "ne": 0.03,
+            "T": 100.0,
+            "radiation_model": "Mathis",
+            "ion_species": [{"n": 1e-2, "T": 100.0, "m": 1.6726219e-24, "z": 1}],
+        },
+    ]
+
+    report = {
+        "generated_at_unix_s": time.time(),
+        "cwd": os.getcwd(),
+        "python_executable": os.environ.get("PYTHON_EXECUTABLE", ""),
+        "cases": [],
+    }
+
+    print("Running dust charging profiler cases...")
+    for i, case in enumerate(cases, start=1):
+        print(
+            f"[{i}/{len(cases)}] {case['grain_type']}, a={case['a_cm']:.3e} cm, "
+            f"G0={case['G0']}, ne={case['ne']}, T={case['T']}"
+        )
+        case_report = _profile_case(case)
+        report["cases"].append(case_report)
+        print(
+            f"  -> wall={case_report['timing']['wall_s']:.3f}s, "
+            f"N_Z={case_report['result']['N_Z']}, "
+            f"Zmean={case_report['result']['Zmean']:.3f}, "
+            f"Zsigma={case_report['result']['Zsigma']:.3f}"
+        )
+
+    out_path = _output_path()
+    with out_path.open("w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2)
+
+    print(f"\nReport written to {out_path}")
+
+
+if __name__ == "__main__":
     main()

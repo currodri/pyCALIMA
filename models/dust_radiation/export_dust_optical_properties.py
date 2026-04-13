@@ -18,7 +18,11 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path
-from models.dust_radiation.dust_oppacity import dust_efficiencies, interpolate_cross_sections_2d
+from models.dust_radiation.dust_oppacity import (
+    dust_efficiencies,
+    interpolate_cross_sections_2d,
+    compute_isrf_averaged_cross_sections,
+)
 
 PATH_OPTICS = str(get_optical_props_path())
 
@@ -136,39 +140,43 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
                     data_table=optical_tables[composition]
                 )
             
-            # Compute efficiencies (dividing by geometric area)
-            area_cm2 = np.pi * (grain_size_cm ** 2)
-            Q_sca = C_sca / area_cm2
-            Q_abs = C_abs / area_cm2
-            Q_rp = C_rp / area_cm2
-            
         except Exception as e:
             print(f"  ✗ Error computing optical properties for bin {bin_id}: {e}")
             failed_exports += 1
             continue
         
-        # Create output filename based on bin metadata
-        output_filename = f"{composition}_bin_{bin_rank}_a{a0:.4g}micron.txt"
+        # Use a unified prefix for downstream tooling consistency.
+        file_stem = f"averaged_cross_section_{bin_id}"
+        output_filename = f"{file_stem}.txt"
         output_path = os.path.join(output_dir, output_filename)
-        plot_filename = f"{composition}_bin_{bin_rank}_a{a0:.4g}micron_quicklook.png"
+        plot_filename = f"{file_stem}_quicklook.png"
         plot_path = os.path.join(output_dir, plot_filename)
         
         # Write to file
         try:
+            isrf_avg = compute_isrf_averaged_cross_sections(
+                wavelengths_cm=wavelengths_cm,
+                C_abs=C_abs,
+                C_sca=C_sca,
+                C_rp=C_rp,
+            )
+
             with open(output_path, 'w') as f:
                 f.write(f"# Dust optical properties\n")
                 f.write(f"# Bin ID: {bin_id}\n")
                 f.write(f"# Composition: {composition}\n")
                 f.write(f"# Bin rank: {bin_rank}\n")
                 f.write(f"# Grain size a0: {a0} micron\n")
+                f.write(f"# NWAV\n")
+                f.write(f"{len(wavelengths_cm):d}\n")
+                f.write(f"# ISRF-average: Mathis83, energy range [0.1, 13.6] eV\n")
+                f.write(f"# ISRF_AVG_CROSS_SECTIONS_CM2: C_abs_ISRF C_sca_ISRF C_rp_ISRF\n")
+                f.write(f"{isrf_avg['C_abs_isrf']: .12E} {isrf_avg['C_sca_isrf']: .12E} {isrf_avg['C_rp_isrf']: .12E}\n")
                 f.write(f"# \n")
-                f.write(f"# Columns: lambda[Angstrom] Q_abs Q_sca Q_rp C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]\n")
+                f.write(f"# Columns: lambda[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]\n")
                 
                 for j in range(len(wavelengths_cm)):
                     f.write(f"{wavelengths_cm[j]:14.6e} ")
-                    f.write(f"{Q_abs[j]:14.6e} ")
-                    f.write(f"{Q_sca[j]:14.6e} ")
-                    f.write(f"{Q_rp[j]:14.6e} ")
                     f.write(f"{C_abs[j]:14.6e} ")
                     f.write(f"{C_sca[j]:14.6e} ")
                     f.write(f"{C_rp[j]:14.6e}\n")

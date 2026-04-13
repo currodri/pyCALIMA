@@ -19,11 +19,12 @@ sns.set_theme(style="white")
 plt.rcParams.update({
     "text.usetex": True,
     "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
+    "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
 })
 
 from models.grain_size_config import get_bins, get_lognormal_parameters, build_lognormal_distribution, get_optical_props_path
 from models.dust_model import LogNormal_Distribution
+from models.dust_radiation.dust_oppacity import compute_isrf_averaged_cross_sections
 
 PATH_OPTICS = str(get_optical_props_path())
 
@@ -315,11 +316,6 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
         print("No PAH bins found in grain configuration.")
         return
     
-    # Define PAH types mapping
-    pah_type_map = {
-        'graphite': 'nPAH',  # Neutral PAH for graphite
-    }
-    
     print(f"Exporting optical properties for {len(pah_bins)} PAH bins...")
     
     # Process each PAH bin
@@ -340,47 +336,82 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
             continue
         
         grain_size_micron = a0
-        pah_type = pah_type_map.get(composition, 'nPAH')
-        
-        # Compute optical properties
+        # Compute neutral and ionised optical properties on the same wavelength grid
         try:
-            grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp = \
+            grain_size_cm, wavelengths_cm_neu, C_sca_neu, C_abs_neu, C_rp_neu = \
                 interpolate_pah_cross_sections_2d(
-                    pah_type, grain_size_micron,
+                    'nPAH', grain_size_micron,
                     target_wavelengths=None, efficiency=False
                 )
+            _, wavelengths_cm_ion, C_sca_ion, C_abs_ion, C_rp_ion = \
+                interpolate_pah_cross_sections_2d(
+                    'iPAH', grain_size_micron,
+                    target_wavelengths=None, efficiency=False
+                )
+
+            if wavelengths_cm_neu.shape != wavelengths_cm_ion.shape or \
+               not np.allclose(wavelengths_cm_neu, wavelengths_cm_ion):
+                raise RuntimeError('Neutral and ionised PAH wavelength grids do not match.')
+
+            wavelengths_cm = wavelengths_cm_neu
         except Exception as e:
             print(f"Error computing optical properties for PAH bin {bin_id}: {e}")
             continue
         
-        # Create output filename based on bin metadata
-        output_filename = f"{composition}_pah_bin_{bin_rank}_a{a0:.4g}micron.txt"
+        # Use a unified prefix for downstream tooling consistency.
+        file_stem = f"averaged_cross_section_{bin_id}"
+        output_filename = f"{file_stem}.txt"
         output_path = os.path.join(output_dir, output_filename)
-        plot_filename = f"{composition}_pah_bin_{bin_rank}_a{a0:.4g}micron_quicklook.png"
+        plot_filename = f"{file_stem}_quicklook.png"
         plot_path = os.path.join(output_dir, plot_filename)
         
         # Write to file
         try:
+            isrf_avg_neu = compute_isrf_averaged_cross_sections(
+                wavelengths_cm=wavelengths_cm,
+                C_abs=C_abs_neu,
+                C_sca=C_sca_neu,
+                C_rp=C_rp_neu,
+            )
+            isrf_avg_ion = compute_isrf_averaged_cross_sections(
+                wavelengths_cm=wavelengths_cm,
+                C_abs=C_abs_ion,
+                C_sca=C_sca_ion,
+                C_rp=C_rp_ion,
+            )
+
             with open(output_path, 'w') as f:
                 f.write(f"# PAH optical properties\n")
                 f.write(f"# Bin ID: {bin_id}\n")
                 f.write(f"# Composition: {composition}\n")
-                f.write(f"# PAH Type: {pah_type}\n")
+                f.write(f"# PAH blocks: neutral then ionised\n")
                 f.write(f"# Grain size a0: {a0} micron\n")
+                f.write(f"# NWAV\n")
+                f.write(f"{len(wavelengths_cm):d}\n")
+                f.write(f"# ISRF-average: Mathis83, energy range [0.1, 13.6] eV\n")
+                f.write(f"# ISRF_AVG_CROSS_SECTIONS_NEUTRAL_CM2: C_abs_ISRF C_sca_ISRF C_rp_ISRF\n")
+                f.write(f"{isrf_avg_neu['C_abs_isrf']: .12E} {isrf_avg_neu['C_sca_isrf']: .12E} {isrf_avg_neu['C_rp_isrf']: .12E}\n")
+                f.write(f"# ISRF_AVG_CROSS_SECTIONS_IONISED_CM2: C_abs_ISRF C_sca_ISRF C_rp_ISRF\n")
+                f.write(f"{isrf_avg_ion['C_abs_isrf']: .12E} {isrf_avg_ion['C_sca_isrf']: .12E} {isrf_avg_ion['C_rp_isrf']: .12E}\n")
                 f.write(f"# \n")
-                f.write(f"# Columns: wavelength[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]\n")
+                f.write("# Columns: lambda_neutral[Angstrom] C_abs_neutral[cm^2] C_sca_neutral[cm^2] C_rp_neutral[cm^2] | lambda_ionised[Angstrom] C_abs_ionised[cm^2] C_sca_ionised[cm^2] C_rp_ionised[cm^2]\n")
                 
                 for j in range(len(wavelengths_cm)):
                     f.write(f"{wavelengths_cm[j]:14.6e} ")
-                    f.write(f"{C_abs[j]:14.6e} ")
-                    f.write(f"{C_sca[j]:14.6e} ")
-                    f.write(f"{C_rp[j]:14.6e}\n")
+                    f.write(f"{C_abs_neu[j]:14.6e} ")
+                    f.write(f"{C_sca_neu[j]:14.6e} ")
+                    f.write(f"{C_rp_neu[j]:14.6e} ")
+                    f.write("| ")
+                    f.write(f"{wavelengths_cm[j]:14.6e} ")
+                    f.write(f"{C_abs_ion[j]:14.6e} ")
+                    f.write(f"{C_sca_ion[j]:14.6e} ")
+                    f.write(f"{C_rp_ion[j]:14.6e}\n")
 
             _save_optical_quicklook_plot(
                 plot_path,
                 wavelengths_cm,
-                C_abs,
-                C_sca,
+                C_abs_neu,
+                C_sca_neu,
                 title=f"PAH {composition} bin {bin_rank}, a0={a0:.4g} micron"
             )
             

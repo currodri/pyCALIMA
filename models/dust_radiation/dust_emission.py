@@ -18,20 +18,49 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set_theme(style="white")
 plt.rcParams.update({
-    "text.usetex": True,
+    "text.usetex": False,
     "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
+    "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
 })
 import re
+import time
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
 from models.dust_model import basic_s, build_distribution_from_dust_type
 from models.dust_radiation.dust_oppacity import dust_efficiencies
 from models.PAH_radiation.pah_oppacity import pah_efficiencies
-from models.grain_size_config import get_optical_props_path
+from models.grain_size_config import get_optical_props_path, get_repo_root
+from models.tools.radiation_fields import Draine_1978_isrf
 from joblib import Parallel, delayed
 
 PATH_OPTICS = str(get_optical_props_path())
+
+
+def _resolve_collisional_dust_label(dust_type):
+    dust_token = str(dust_type).lower()
+    match = re.search(r'(silicate|graphite)_bin_(\d+)', dust_token)
+    if match:
+        return f'{match.group(1)}_bin_{int(match.group(2)):02d}'
+    if 'silicate' in dust_token:
+        return 'silicate_bin_00'
+    if 'graphite' in dust_token:
+        return 'graphite_bin_00'
+    raise ValueError(f'Unsupported dust type for collisional tables: {dust_type}')
+
+
+def _extract_phi0_rate(table_entry):
+    logT = np.asarray(table_entry['logT'], dtype=float)
+    logH = np.asarray(table_entry['logH'], dtype=float)
+
+    if logH.ndim == 1:
+        return logT, logH
+
+    phi = np.asarray(table_entry.get('phi', []), dtype=float)
+    if phi.size == 0:
+        raise ValueError('2D collisional table is missing phi grid.')
+
+    phi_idx = int(np.argmin(np.abs(phi)))
+    return logT, logH[:, phi_idx]
 
 # Constants
 kb               = 1.3806488e-16 # [erg/K] - Boltzmann constant
@@ -277,7 +306,9 @@ def planck_function(wavelength, T):
     Returns:
         np.float: Emittance in erg/s/cm^2/cm/steradian
     """    
-    return (2. * h * c**2. / wavelength**5.) / (np.exp((h * c / wavelength) / (kb * T)) - 1.)
+    x = (h * c / wavelength) / (kb * T)
+    x = np.clip(x, 0.0, 700.0)
+    return (2. * h * c**2. / wavelength**5.) / np.expm1(x)
 
 def planck_function_derivative(wavelength, T):
     """This function computes the derivative of the Planck function for a given wavelength
@@ -289,7 +320,13 @@ def planck_function_derivative(wavelength, T):
     Returns:
         np.float: Derivative of emittance in erg/s/cm^2/cm/steradian/K
     """    
-    return (2. * h * c**2. / wavelength**5.) / (np.exp((h * c / wavelength) / (kb * T)) - 1.)**2. * (h * c / wavelength) / (kb * T**2.)
+    x = (h * c / wavelength) / (kb * T)
+    x = np.clip(x, 0.0, 700.0)
+    prefactor = (2. * h * c**2. / wavelength**5.)
+    expm1_x = np.expm1(x)
+    B_lambda = prefactor / expm1_x
+    correction = 1.0 + 1.0 / expm1_x
+    return B_lambda * (x / T) * correction
 
 def absorbed_power(wavelengths,radiation_field,C_abs):
     """This function computes the absorbed power by a dust grain given a radiation field
@@ -467,7 +504,6 @@ def compute_eqT_withcollisions_newton(dust_type,a,wavelengths,wavelengths_em,
                 raise RuntimeError("Derivative is zero, cannot continue Newton's method")
             T_new = T - f_val / df_val
             if abs(T_new - T) < tol:
-                print('Converged in', i, 'iterations at Tgas=', Tgas)
                 return T_new
             T = T_new
         raise RuntimeError("Newton's method did not converge within the maximum number of iterations")
@@ -481,8 +517,342 @@ def compute_eqT_withcollisions_newton(dust_type,a,wavelengths,wavelengths_em,
                          electron_rate_table,H_rate_table,
                          He_rate_table,C_rate_table,
                          T0=T_guess)
-    print('Initial guess for equilibrium temperature:', T_guess, 'final equilibrium temperature:', T_eq)
     return T_eq
+
+def compute_eqT_withcollisions_newton_linearized(dust_type,a,wavelengths,wavelengths_em,
+                                                 radiation_field,C_abs,C_abs_em,
+                                                 ne,nH,nHe,nC,Tgas,T_dust_collisional,
+                                                 electron_rate_table,H_rate_table,
+                                                 He_rate_table,C_rate_table,
+                                                 T0=None,dT_frac=1e-2):
+    """Compute equilibrium temperature using a linearized collisional heating term.
+
+    The collisional contribution is approximated around `T0` as
+    Hcoll(T) ≈ H0 + dH_dT * (T - T0),
+    while the dust emission and radiative absorption are still evaluated exactly.
+    """
+    from models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
+
+    if T0 is None:
+        T0 = compute_equilibrium_temperature_cheap(dust_type, a, wavelengths, radiation_field, C_abs)
+
+    absorbed = absorbed_power(wavelengths, radiation_field, C_abs)
+    H0 = compute_dust_coll_heating(ne, nH, nHe, nC, Tgas, T0, T_dust_collisional,
+                                   electron_rate_table, H_rate_table,
+                                   He_rate_table, C_rate_table)
+
+    dT = max(abs(T0) * dT_frac, 1e-6)
+    H_plus = compute_dust_coll_heating(ne, nH, nHe, nC, Tgas, T0 + dT, T_dust_collisional,
+                                       electron_rate_table, H_rate_table,
+                                       He_rate_table, C_rate_table)
+    H_minus = compute_dust_coll_heating(ne, nH, nHe, nC, Tgas, max(T0 - dT, 1e-8), T_dust_collisional,
+                                        electron_rate_table, H_rate_table,
+                                        He_rate_table, C_rate_table)
+    dH_dT = (H_plus - H_minus) / (2.0 * dT)
+
+    def f(T):
+        Hcoll_linear = H0 + dH_dT * (T - T0)
+        return absorbed + Hcoll_linear - emitted_power(T, wavelengths_em, C_abs_em)
+
+    def df_dT(T):
+        d_emitted = planck_function_derivative(wavelengths_em, T)
+        d_emitted_power = 4. * np.pi * np.trapezoid(C_abs_em * d_emitted, x=wavelengths_em)
+        return dH_dT - d_emitted_power
+
+    def newton_method(T_guess, tol=1e-3, max_iter=100):
+        T = T_guess
+        for i in range(max_iter):
+            f_val = f(T)
+            df_val = df_dT(T)
+            if (not np.isfinite(f_val)) or (not np.isfinite(df_val)) or df_val == 0:
+                raise RuntimeError("Derivative is zero, cannot continue Newton's method")
+            T_new = T - f_val / df_val
+            # Keep Newton updates in a physical range; shrink step if needed.
+            for _ in range(12):
+                if np.isfinite(T_new) and (2.7 <= T_new <= 800.0):
+                    break
+                T_new = 0.5 * (T_new + T)
+            if abs(T_new - T)/T < tol:
+                return T_new
+            T = T_new
+        raise RuntimeError("Newton's method did not converge within the maximum number of iterations")
+
+    T_eq = newton_method(T0)
+    return T_eq
+
+
+def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
+                                                 ne, nH, nHe, nC,
+                                                 tolerance=0.01,
+                                                 specific_heat=None,
+                                                 table_dir=None,
+                                                 n_steps=400,
+                                                 max_time_s=None,
+                                                 time_sampling='log'):
+    """Estimate how fast a dust grain thermally equilibrates with the gas.
+
+    This assumes no radiative heating/cooling and uses only collisional energy exchange.
+    Since the implemented collisional term is linear in (Tgas - Tdust), the solution is
+    exponential with characteristic timescale tau = C_grain / K_coll.
+
+    Args:
+        dust_type (str): Dust label, e.g. "silicate_bin_00" or "graphite_bin_00".
+        Tgas (float): Gas temperature [K], assumed constant.
+        Tdust0 (float): Initial dust temperature [K].
+        ne, nH, nHe, nC (float): Number densities [cm^-3].
+        tolerance (float, optional): |Tdust - Tgas| threshold [K] used to define "equilibrium".
+        specific_heat (float, optional): Grain specific heat [erg g^-1 K^-1]. Defaults to 1e7.
+        table_dir (str, optional): Directory of collisional cooling tables.
+        n_steps (int, optional): Number of time samples in the returned history.
+        max_time_s (float, optional): Maximum integration time [s]. Auto-set if None.
+        time_sampling (str, optional): "log" (default) or "linear" sampling for
+            the returned time history.
+
+    Returns:
+        dict: {
+            'tau_s': characteristic timescale [s],
+            'time_to_tolerance_s': time to reach tolerance [s],
+            'time_to_tolerance_yr': same in years,
+            'times_s': sampled times [s],
+            'Tdust_history_K': sampled temperatures [K],
+            'Tgas_K': gas temperature [K],
+            'Tdust0_K': initial dust temperature [K],
+            'tolerance_K': tolerance [K],
+            'grain_mass_g': grain mass [g],
+            'grain_heat_capacity_erg_per_K': grain heat capacity [erg/K],
+            'collisional_coupling_erg_per_s_per_K': coupling coefficient K_coll [erg/s/K],
+        }
+    """
+    from models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
+
+    if Tgas <= 0 or Tdust0 <= 0:
+        raise ValueError('Tgas and Tdust0 must be positive.')
+    if tolerance <= 0:
+        raise ValueError('tolerance must be positive.')
+    if n_steps < 2:
+        raise ValueError('n_steps must be >= 2.')
+    if str(time_sampling).lower() not in ('log', 'linear'):
+        raise ValueError('time_sampling must be "log" or "linear".')
+
+    # 1) Grain size/mass and heat capacity
+    a0, _, _, _, _ = compute_cross_sections(dust_type, do_average=False)
+    dust_token = str(dust_type).lower()
+    if 'silicate' in dust_token:
+        grain_density = 3.5  # g/cm^3
+    elif ('graphite' in dust_token) or ('carbon' in dust_token) or ('pah' in dust_token):
+        grain_density = 2.2  # g/cm^3
+    else:
+        raise ValueError(f'Unsupported dust type for equilibration timescale: {dust_type}')
+
+    grain_mass = 4.0 / 3.0 * np.pi * a0**3.0 * grain_density
+    if specific_heat is None:
+        specific_heat = 1.0e7
+    grain_heat_capacity = grain_mass * specific_heat
+
+    # 2) Collisional coupling coefficient K_coll so that Hcoll = K_coll * (Tgas - Tdust)
+    dust_label = _resolve_collisional_dust_label(dust_type)
+    if table_dir is None:
+        table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
+
+    coll_tables = load_cooling_tables(table_dir=table_dir)
+    electron_entry = coll_tables[f'cooling_{dust_label}_Z_0']
+    H_entry = coll_tables[f'cooling_{dust_label}_Z_1']
+    He_entry = coll_tables[f'cooling_{dust_label}_Z_2']
+    C_entry = coll_tables[f'cooling_{dust_label}_Z_6']
+
+    T_dust_collisional, electron_rate_table = _extract_phi0_rate(electron_entry)
+    _, H_rate_table = _extract_phi0_rate(H_entry)
+    _, He_rate_table = _extract_phi0_rate(He_entry)
+    _, C_rate_table = _extract_phi0_rate(C_entry)
+
+    lT = np.log10(Tgas)
+    electron_cool = 10.0**np.interp(lT, T_dust_collisional, electron_rate_table)
+    H_cool = 10.0**np.interp(lT, T_dust_collisional, H_rate_table)
+    He_cool = 10.0**np.interp(lT, T_dust_collisional, He_rate_table)
+    C_cool = 10.0**np.interp(lT, T_dust_collisional, C_rate_table)
+
+    K_coll = ne * electron_cool + nH * H_cool + nHe * He_cool + nC * C_cool
+    if K_coll <= 0:
+        raise RuntimeError('Collisional coupling is non-positive; cannot estimate equilibration timescale.')
+
+    tau_s = grain_heat_capacity / K_coll
+
+    # 3) Exponential approach to Tgas and time-to-tolerance
+    delta0 = abs(Tdust0 - Tgas)
+    if delta0 <= tolerance:
+        time_to_tolerance_s = 0.0
+    else:
+        time_to_tolerance_s = tau_s * np.log(delta0 / tolerance)
+
+    if max_time_s is None:
+        if time_to_tolerance_s > 0:
+            max_time_s = 1.25 * time_to_tolerance_s
+        else:
+            max_time_s = 5.0 * tau_s
+
+    if max_time_s <= 0:
+        times_s = np.zeros(int(n_steps), dtype=float)
+    elif str(time_sampling).lower() == 'linear':
+        times_s = np.linspace(0.0, max_time_s, int(n_steps))
+    else:
+        # Keep t=0 for the exact initial condition and use log spacing afterwards
+        # to resolve the early-time approach when plotting on a log-time axis.
+        n_tail = int(n_steps) - 1
+        tmin = max_time_s * 1.0e-8
+        tail = np.logspace(np.log10(tmin), np.log10(max_time_s), n_tail)
+        times_s = np.concatenate(([0.0], tail))
+
+    Tdust_history = Tgas - (Tgas - Tdust0) * np.exp(-times_s / tau_s)
+
+    return {
+        'tau_s': tau_s,
+        'time_to_tolerance_s': time_to_tolerance_s,
+        'time_to_tolerance_yr': time_to_tolerance_s / (3600.0 * 24.0 * 365.25),
+        'times_s': times_s,
+        'Tdust_history_K': Tdust_history,
+        'Tgas_K': Tgas,
+        'Tdust0_K': Tdust0,
+        'tolerance_K': tolerance,
+        'grain_mass_g': grain_mass,
+        'grain_heat_capacity_erg_per_K': grain_heat_capacity,
+        'collisional_coupling_erg_per_s_per_K': K_coll,
+    }
+
+
+def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
+                                              Tgas_values,
+                                              density_scalings,
+                                              ne_ref, nH_ref, nHe_ref, nC_ref,
+                                              tolerance=0.01,
+                                              specific_heat=None,
+                                              table_dir=None,
+                                              n_steps=400,
+                                              max_time_s=None,
+                                              time_unit='yr',
+                                              output_dir=None,
+                                              filename=None):
+    """Plot collision-only dust temperature relaxation for multiple gas cases.
+
+    Args:
+        dust_type (str): Dust label, e.g. "silicate_bin_00".
+        Tdust0 (float): Initial dust temperature [K].
+        Tgas_values (array-like): Gas temperatures [K] to test.
+        density_scalings (array-like): Multiplicative factors applied to
+            (ne_ref, nH_ref, nHe_ref, nC_ref).
+        ne_ref, nH_ref, nHe_ref, nC_ref (float): Reference number densities [cm^-3].
+        tolerance (float, optional): Equilibrium threshold in |Tdust-Tgas| [K].
+        specific_heat (float, optional): Grain specific heat [erg g^-1 K^-1].
+        table_dir (str, optional): Collisional cooling table directory.
+        n_steps (int, optional): Number of samples in each temperature history.
+        max_time_s (float, optional): Time extent [s] passed to each run.
+        time_unit (str, optional): "s", "yr", or "kyr".
+        output_dir (str, optional): Directory where figure is saved.
+        filename (str, optional): Output filename. Auto-generated if None.
+
+    Returns:
+        tuple: (results, output_path)
+            - results is a list of dictionaries with one entry per curve.
+            - output_path is the saved figure path.
+    """
+
+    Tgas_values = np.asarray(Tgas_values, dtype=float)
+    density_scalings = np.asarray(density_scalings, dtype=float)
+
+    if Tgas_values.size == 0 or density_scalings.size == 0:
+        raise ValueError('Tgas_values and density_scalings must be non-empty.')
+
+    unit = str(time_unit).lower()
+    if unit == 's':
+        time_scale = 1.0
+        time_label = 't [s]'
+    elif unit == 'yr':
+        time_scale = 3600.0 * 24.0 * 365.25
+        time_label = 't [yr]'
+    elif unit == 'kyr':
+        time_scale = 3600.0 * 24.0 * 365.25 * 1.0e3
+        time_label = 't [kyr]'
+    else:
+        raise ValueError('time_unit must be one of: s, yr, kyr')
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5), dpi=300, facecolor='w', edgecolor='k')
+    ax.set_xlabel(time_label, fontsize=16)
+    ax.set_ylabel(r'$T_{\rm dust}$ [K]', fontsize=16)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both', axis='both', direction='in')
+
+    cmap = plt.get_cmap('viridis')
+    color_positions = np.linspace(0.1, 0.95, max(len(Tgas_values), 2))
+    linestyles = ['-', '--', '-.', ':']
+
+    results = []
+    for i, Tgas in enumerate(Tgas_values):
+        color = cmap(color_positions[i if len(Tgas_values) > 1 else 0])
+        for j, scale in enumerate(density_scalings):
+            ne = ne_ref * scale
+            nH = nH_ref * scale
+            nHe = nHe_ref * scale
+            nC = nC_ref * scale
+
+            run = compute_collision_only_thermal_equilibration(
+                dust_type=dust_type,
+                Tgas=Tgas,
+                Tdust0=Tdust0,
+                ne=ne,
+                nH=nH,
+                nHe=nHe,
+                nC=nC,
+                tolerance=tolerance,
+                specific_heat=specific_heat,
+                table_dir=table_dir,
+                n_steps=n_steps,
+                max_time_s=max_time_s,
+            )
+
+            label = f'Tgas={Tgas:.3g} K, n-scale={scale:.3g}'
+            ax.plot(run['times_s'] / time_scale,
+                    run['Tdust_history_K'],
+                    color=color,
+                    linestyle=linestyles[j % len(linestyles)],
+                    linewidth=2.0,
+                    label=label)
+
+            results.append({
+                'Tgas_K': Tgas,
+                'density_scale': scale,
+                'ne_cm3': ne,
+                'nH_cm3': nH,
+                'nHe_cm3': nHe,
+                'nC_cm3': nC,
+                'tau_s': run['tau_s'],
+                'time_to_tolerance_s': run['time_to_tolerance_s'],
+                'time_to_tolerance_yr': run['time_to_tolerance_yr'],
+                'times_s': run['times_s'],
+                'Tdust_history_K': run['Tdust_history_K'],
+            })
+
+            print(
+                f"Tgas={Tgas:.6g} K | n-scale={scale:.6g} | "
+                f"tau={run['tau_s']:.3e} s | "
+                f"t_eq(|Td-Tg|<{tolerance:g}K)={run['time_to_tolerance_s']:.3e} s"
+            )
+
+    ax.legend(loc='best', fontsize=9, frameon=False)
+    fig.subplots_adjust(top=0.98, bottom=0.13, left=0.12, right=0.98, hspace=0, wspace=0)
+
+    if output_dir is None:
+        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+    os.makedirs(output_dir, exist_ok=True)
+
+    if filename is None:
+        filename = f'collision_only_relaxation_{dust_type}.pdf'
+    output_path = os.path.join(output_dir, filename)
+    fig.savefig(output_path, format='pdf', dpi=300)
+
+    return results, output_path
 
 def compute_equilibrium_temperature_cheap(dust_type,a,wavelengths,radiation_field,C_abs):
     
@@ -490,10 +860,13 @@ def compute_equilibrium_temperature_cheap(dust_type,a,wavelengths,radiation_fiel
     abs_power = absorbed_power(wavelengths,radiation_field,C_abs)
 
     # 2. Compute the emission cross-section based on the approximations by Draine 2008 (eqs. 24.15 and 24.16)
-    if 'Sil' in dust_type:
+    dust_token = str(dust_type).lower()
+    if 'silicate' in dust_token:
         C_em = 4. * np.pi * (a)**2. * 1.3e-6 * (a*1e4/0.1)
-    elif 'C' in dust_type:
+    elif 'graphite' in dust_token or 'carbon' in dust_token:
         C_em = 4. * np.pi * (a)**2. * 8e-7 * (a*1e4/0.1)
+    else:
+        raise ValueError(f'Unsupported dust type for cheap temperature estimate: {dust_type}')
 
     # 3. Solve for Td based on the scaling in the Draine 2008 approximations
     Td = (abs_power / (C_em*sigma_sb)) **(1./6.)
@@ -549,12 +922,12 @@ def modified_mmp83_radiation_field(wavelength):
 
     u_lambda_optical = np.zeros_like(wavelength)
     for T, W in zip(T_values, W_values):
-        B_lambda = (2 * h * c**2 / wavelength**5) / (np.exp(h * c / (wavelength * kb * T)) - 1)
+        B_lambda = planck_function(wavelength, T)
         u_lambda_optical += (4 * np.pi / c) * W * B_lambda
 
     # CMB component
     T_CMB = 2.725  # CMB temperature in K
-    B_lambda_CMB = (2 * h * c**2 / wavelength**5) / (np.exp(h * c / (wavelength * kb * T_CMB)) - 1)
+    B_lambda_CMB = planck_function(wavelength, T_CMB)
     u_lambda_CMB = (4 * np.pi / c) * B_lambda_CMB
 
     # Total radiation field energy density u_lambda
@@ -1202,7 +1575,8 @@ def plot_Rosseland_oppacity(dust_types):
     fig.savefig('./Rosseland_opacity.png', format='png', dpi=300)
         
 
-def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0min=1e-1,G0max=1e7):
+def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0min=1e-1,G0max=1e7,
+                              output_dir=None):
     """This function computes the equilibrium temperature of a dust grain given a radiation field
     and the absorption cross section, including the effect of collisions with gas particles.
 
@@ -1241,8 +1615,12 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
     print('Average absorption cross section for',dust_type,'computed')
     print('Given by',C_abs_avg)
 
+    dust_label = _resolve_collisional_dust_label(dust_type)
+    table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
+
     # 4. Create the figure
     fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
+    from matplotlib.lines import Line2D
     ax.set_xlabel(r'$G_0$',fontsize=20)
     ax.set_ylabel(r'$T_{\rm eq}$ [K]',fontsize=20)
     ax.tick_params
@@ -1254,13 +1632,30 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
     ax.tick_params(which='both',axis="both",direction="in")
 
     # 5. Load the rate tables for the collisions
-    coll_tables = load_cooling_tables()
-    a0 = a0 * 1e4  # Convert a0 to micron
-    electron_rate_table = coll_tables[f'electron_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
-    H_rate_table = coll_tables[f'H_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
-    He_rate_table = coll_tables[f'He_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
-    C_rate_table = coll_tables[f'C_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logH']
-    T_dust_collisional = coll_tables[f'C_cooling_{a0:.4f}_micron_{dust_type[:3]}']['logT']
+    coll_tables = load_cooling_tables(table_dir=table_dir)
+    electron_rate_table = coll_tables[f'cooling_{dust_label}_Z_0']
+    H_rate_table = coll_tables[f'cooling_{dust_label}_Z_1']
+    He_rate_table = coll_tables[f'cooling_{dust_label}_Z_2']
+    C_rate_table = coll_tables[f'cooling_{dust_label}_Z_6']
+
+    T_dust_collisional, electron_rate_table = _extract_phi0_rate(electron_rate_table)
+    _, H_rate_table = _extract_phi0_rate(H_rate_table)
+    _, He_rate_table = _extract_phi0_rate(He_rate_table)
+    _, C_rate_table = _extract_phi0_rate(C_rate_table)
+
+    # 6. Reference Draine (2011) approximate scalings for silicate and graphite
+    reference_curves = {}
+    for reference_dust_type in ('silicate_bin_00', 'graphite_bin_00'):
+        a_ref, ref_wavelengths, _, ref_C_abs, _ = compute_cross_sections(reference_dust_type, do_average=False)
+        ref_C_abs_interp = np.interp(radiation_field[:, 0], ref_wavelengths[::-1], ref_C_abs[::-1])
+        T_ref = compute_equilibrium_temperature_cheap(
+            reference_dust_type,
+            a_ref,
+            radiation_field[:, 0],
+            radiation_field[:, 1],
+            ref_C_abs_interp,
+        )
+        reference_curves[reference_dust_type] = T_ref * G0**(1.0 / 6.0)
     
     # 6. Set the range of temperatures and loop, with increasing temperature
     # having a different color with a colormap
@@ -1271,18 +1666,21 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
         
         # 7. Compute the equilibrium temperature
         Teq = np.zeros(nG0)
-        def compute_temp_coll(j):
-            return compute_eqT_withcollisions(radiation_field[:,0],
+        
+        def compute_temp_coll_newton(j):
+            return compute_eqT_withcollisions_newton(
+                               dust_type,a0,
+                               radiation_field[:,0],
                                wavelengths_em,
                                G0[j]*radiation_field[:,1],
                                C_abs_interp,C_abs_em_interp,
                                ne,nH,nHe,nC,T[i],T_dust_collisional,
                                electron_rate_table,H_rate_table,
                                He_rate_table,C_rate_table)
-        
-        def compute_temp_coll_newton(j):
-            return compute_eqT_withcollisions_newton(
-                               dust_type,a0*1e-4,
+
+        def compute_temp_coll_linearized(j):
+            return compute_eqT_withcollisions_newton_linearized(
+                               dust_type,a0,
                                radiation_field[:,0],
                                wavelengths_em,
                                G0[j]*radiation_field[:,1],
@@ -1297,17 +1695,33 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
                                G0[j]*radiation_field[:,1],
                                C_abs_interp,C_abs_em_interp)
         
-        Teq_coll = Parallel(n_jobs=-1)(delayed(compute_temp_coll)(j) for j in range(nG0))
 
+        t_start_newton = time.perf_counter()
         Teq_coll_newton = Parallel(n_jobs=-1)(delayed(compute_temp_coll_newton)(j) for j in range(nG0))
+        dt_newton = time.perf_counter() - t_start_newton
 
+        t_start_linearized = time.perf_counter()
+        Teq_coll_linearized = Parallel(n_jobs=-1)(delayed(compute_temp_coll_linearized)(j) for j in range(nG0))
+        dt_linearized = time.perf_counter() - t_start_linearized
+
+        t_start_cheap = time.perf_counter()
         Teq = Parallel(n_jobs=-1)(delayed(compute_temp)(j) for j in range(nG0))
+        dt_cheap = time.perf_counter() - t_start_cheap
+
+        print(
+            f"Tgas={T[i]:.6g} K | "
+            f"times [s] cheap={dt_cheap:.3f}, newton={dt_newton:.3f}, linearized={dt_linearized:.3f} | "
+            f"final T@G0max [K] cheap={Teq[-1]:.6g}, newton={Teq_coll_newton[-1]:.6g}, linearized={Teq_coll_linearized[-1]:.6g}"
+        )
         
         # 8. Plot the results with a colormap
         color = cmap(i / nT)
-        ax.plot(G0,Teq_coll,color=color,linewidth=2.5)
         ax.plot(G0,Teq_coll_newton,color=color,linewidth=2.5,linestyle=':',alpha=0.6)
+        ax.plot(G0,Teq_coll_linearized,color=color,linewidth=2.5,linestyle='-.',alpha=0.6)
         ax.plot(G0,Teq,color='k',linewidth=2.5,alpha=0.3)
+
+        ax.plot(G0, reference_curves['silicate_bin_00'], color='0.25', linestyle='--', linewidth=2.5)
+        ax.plot(G0, reference_curves['graphite_bin_00'], color='0.25', linestyle=':', linewidth=2.5)
     
     # 9. Add a log colorbar
     norm = mpl.colors.LogNorm(vmin=Tmin, vmax=Tmax)
@@ -1316,6 +1730,18 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
     cbar = plt.colorbar(sm, ax=ax, orientation='vertical', pad=0.02)
     cbar.set_label(r'$T_{\rm gas}$ [K]', fontsize=20)
 
+    line_handles = [
+        Line2D([0], [0], color='k', linestyle=':', linewidth=2.5, label='Computed: collisional equilibrium (Newton)'),
+        Line2D([0], [0], color='k', linestyle='-.', linewidth=2.5, label='Computed: collisional equilibrium (linearized)'),
+        Line2D([0], [0], color='k', linestyle='-', linewidth=2.5, alpha=0.3, label='Computed: no collisions'),
+        Line2D([0], [0], color='0.25', linestyle='--', linewidth=2.5, label='Draine 2011 approx.: silicate'),
+        Line2D([0], [0], color='0.25', linestyle=':', linewidth=2.5, label='Draine 2011 approx.: graphite'),
+    ]
+    ax.legend(handles=line_handles, loc='best', fontsize=10, frameon=False)
+
     # 10. Save figure
     fig.subplots_adjust(top=0.99, bottom=0.13, left=0.13, right=0.99, hspace=0, wspace=0)
-    fig.savefig(f'./eqtemp_withcollisions_{dust_type}.pdf', format='pdf', dpi=300)
+    if output_dir is None:
+        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+    os.makedirs(output_dir, exist_ok=True)
+    fig.savefig(os.path.join(output_dir, f'eqtemp_withcollisions_{dust_type}.pdf'), format='pdf', dpi=300)

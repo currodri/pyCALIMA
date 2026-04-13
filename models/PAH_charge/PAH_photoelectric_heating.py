@@ -852,119 +852,161 @@ def compute_heating_efficiency2(args):
     # 2. Get the radiation field and prepare the correct units
     wavelength_intensity = radiation_field[:,1] # in erg cm-2 s-1 nm-1 sr-1
     wavelength = radiation_field[:,0] # in nm
+
+
+def _prepare_pah_heating_context(dist, attach_model, radiation_field,
+                                 anion_data, neutral_data, cation_data, dication_data):
+    """Build the invariant PAH photoelectric heating context for one table."""
+
+    wavelength_intensity = radiation_field[:, 1]
+    wavelength = radiation_field[:, 0]
+    I_rad = wavelength_intensity / (h * c / (wavelength * nm)).to('erg').d
+    E = 1.2398 / (wavelength[::-1] * 1e-3)
+    I = I_rad[::-1] * cm**-2 / s / nm
+    F = I * E * eV
+    f = F * nm / (1e-9 * m) * h * c / (E * eV)**2 * eV / (e * J)
+    I = f.to('W/m**2/eV').d
+
+    habing_mask = (E <= 13.6) & (E >= 5.17)
+    G0 = np.trapezoid(2. * np.pi * I[habing_mask], E[habing_mask]) / 1.68e-6
+
+    sigma_abs_anion = np.interp(E, anion_data[:, 0], anion_data[:, 1])
+    sigma_abs_neu = np.interp(E, neutral_data[:, 0], neutral_data[:, 1])
+    sigma_abs_cation = np.interp(E, cation_data[:, 0], cation_data[:, 1])
+    sigma_abs_dication = np.interp(E, dication_data[:, 0], dication_data[:, 1])
+
+    Nc = dist.Nc
+    a0 = (Nc / 468)**(1. / 3.)
+
+    IP_anion = ionisation_potential(-1, a0)
+    yield_anion = np.array([ionisation_yield(Nc, -1, E[i], IP_anion) for i in range(len(E))])
+    mask_anion = (E >= IP_anion) & (E <= 13.6)
+    anion_kernel = 2. * np.pi * yield_anion * sigma_abs_anion
+
+    IP_neutral = ionisation_potential(0, a0)
+    yield_neutral = np.array([ionisation_yield(Nc, 0, E[i], IP_neutral) for i in range(len(E))])
+    mask_neutral = (E >= IP_neutral) & (E <= 13.6)
+    neutral_kernel = 2. * np.pi * yield_neutral * sigma_abs_neu
+
+    IP_cation = ionisation_potential(1, a0)
+    yield_cation = np.array([ionisation_yield(Nc, 1, E[i], IP_cation) for i in range(len(E))])
+    mask_cation = (E >= IP_cation) & (E <= 13.6)
+    cation_kernel = 2. * np.pi * yield_cation * sigma_abs_cation
+
+    Pinj_anion = power_injected(IP_anion, anion_kernel, I, E)
+    Pinj_neutral = partition_coeff * power_injected(IP_neutral, neutral_kernel, I, E)
+    Pinj_cation = partition_coeff * power_injected(IP_cation, cation_kernel, I, E)
+
+    Prad_anion = power_absorbed(2. * np.pi * sigma_abs_anion, I, E)
+    Prad_neutral = power_absorbed(2. * np.pi * sigma_abs_neu, I, E)
+    Prad_cation = power_absorbed(2. * np.pi * sigma_abs_cation, I, E)
+    Prad_dication = power_absorbed(2. * np.pi * sigma_abs_dication, I, E)
+
+    return {
+        'G0': float(G0),
+        'E': E,
+        'I': I,
+        'Nc': Nc,
+        'a0': a0,
+        'IP_anion': IP_anion,
+        'IP_neutral': IP_neutral,
+        'IP_cation': IP_cation,
+        'mask_anion': mask_anion,
+        'mask_neutral': mask_neutral,
+        'mask_cation': mask_cation,
+        'anion_kernel': anion_kernel,
+        'neutral_kernel': neutral_kernel,
+        'cation_kernel': cation_kernel,
+        'Pinj_anion': Pinj_anion,
+        'Pinj_neutral': Pinj_neutral,
+        'Pinj_cation': Pinj_cation,
+        'Prad_anion': Prad_anion,
+        'Prad_neutral': Prad_neutral,
+        'Prad_cation': Prad_cation,
+        'Prad_dication': Prad_dication,
+    }
+
+
+def _evaluate_pah_heating_context(context, T, ne, attach_model):
+    """Evaluate one (T, ne) point using a cached PAH heating context."""
+
+    E = context['E']
+    I = context['I']
+    Nc = context['Nc']
+
+    if attach_model == 'Berne':
+        k_att = attachment_rate_Carelli13(T)
+        k_rec_1 = recombination_rate_Spitzer(Nc, 0, T)
+        k_rec_2 = recombination_rate_Spitzer(Nc, 1, T)
+    elif attach_model == 'Tielens':
+        k_att = attachment_rate_Tielens05(Nc)
+        k_rec_1 = recombination_rate_Tielens21(Nc, T)
+        k_rec_2 = recombination_rate_Tielens21(Nc, T)
+    else:
+        raise ValueError("attach_model must be 'Berne' or 'Tielens'")
+
+    k_det = ionisation_rate(
+        context['IP_anion'],
+        context['anion_kernel'][context['mask_anion']],
+        I[context['mask_anion']],
+        E[context['mask_anion']],
+    )
+    k_pe_0 = ionisation_rate(
+        context['IP_neutral'],
+        context['neutral_kernel'][context['mask_neutral']],
+        I[context['mask_neutral']],
+        E[context['mask_neutral']],
+    )
+    k_pe_1 = ionisation_rate(
+        context['IP_cation'],
+        context['cation_kernel'][context['mask_cation']],
+        I[context['mask_cation']],
+        E[context['mask_cation']],
+    )
+
+    f_anion = 1. / (1. + k_det / (k_att * ne) +
+                    k_det * k_pe_0 / (k_att * k_rec_1 * ne**2.) +
+                    k_det * k_pe_0 * k_pe_1 / (k_att * k_rec_1 * k_rec_2 * ne**3.))
+
+    f_neutral = 1. / (1. + k_att * ne / k_det + k_pe_0 / (k_rec_1 * ne) +
+                       k_pe_0 * k_pe_1 / (k_rec_1 * k_rec_2 * ne**2.))
+
+    f_1 = 1. / (1. + k_rec_1 * ne / k_pe_0 + k_pe_1 / (k_rec_2 * ne) +
+                k_att * k_rec_1 * ne**2. / (k_det * k_pe_0))
+
+    f_2 = 1. / (1. + k_rec_2 * ne / k_pe_1 + k_rec_1 * k_rec_2 * ne**2. / (k_pe_0 * k_pe_1) +
+                k_att * k_rec_1 * k_rec_2 * ne**3. / (k_det * k_pe_0 * k_pe_0))
+
+    f_tot = f_anion + f_neutral + f_1 + f_2
+    f_anion, f_neutral, f_1, f_2 = f_anion / f_tot, f_neutral / f_tot, f_1 / f_tot, f_2 / f_tot
+
+    Pinj = W2ergs * (f_anion * context['Pinj_anion'] +
+                     f_neutral * context['Pinj_neutral'] +
+                     f_1 * context['Pinj_cation'])
+
+    Prad = W2ergs * (f_anion * context['Prad_anion'] +
+                     f_neutral * context['Prad_neutral'] +
+                     f_1 * context['Prad_cation'] +
+                     f_2 * context['Prad_dication'])
+
+    eff = Pinj / Prad
+    P_rec = k_att * ne * f_neutral * (3. / 2. * kB * T) + \
+            k_rec_1 * ne * f_1 * (3. / 2. * kB * T) + \
+            k_rec_2 * ne * f_2 * (3. / 2. * kB * T)
+
+    return context['G0'], ne, T, f_anion, f_neutral, f_1, f_2, eff, Pinj, P_rec, Prad
     I_rad = wavelength_intensity / (h * c / (wavelength * nm)).to('erg').d
     E = 1.2398 / (wavelength[::-1]*1e-3)
-    I = I_rad[::-1] * cm**-2/s/nm
-    F = I * E * eV
+    """Compatibility wrapper for the cached PAH heating evaluator."""
+
     f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
     I = f.to('W/m**2/eV').d 
     G0 = np.trapezoid(2.*np.pi*I[(E<=13.6)&(E>=5.17)],E[(E<=13.6)&(E>=5.17)]) / 1.68e-6
-
-    # 3. Compute the interpolated cross sections
-    sigma_abs_anion = np.interp(E,anion_data[:,0],anion_data[:,1])
-    sigma_abs_neu = np.interp(E,neutral_data[:,0],neutral_data[:,1])
-    sigma_abs_cation = np.interp(E,cation_data[:,0],cation_data[:,1])
-    sigma_abs_dication = np.interp(E,dication_data[:,0],dication_data[:,1])
-    
-    # 4. Compute the e- detachment rate from the anion
-    IP_anion = ionisation_potential(-1,a0)
-    yield_anion = np.array([ionisation_yield(Nc,-1,E[i],IP_anion) for i in range(0,len(E))])
-    mask = (E>=IP_anion) & (E <= 13.6)
-    k_det = ionisation_rate(IP_anion,2*np.pi*yield_anion[mask]*sigma_abs_anion[mask],I[mask],E[mask])
-    
-    # 5. e- attachment to a neutral
-    if attach_model == 'Berne':
-        k_att = attachment_rate_Carelli13(T)
-    elif attach_model == 'Tielens':
-        k_att = attachment_rate_Tielens05(Nc)
-    
-    # 6. Ionisation rate of Z=0 to Z=1
-    IP_neutral = ionisation_potential(0,a0)
-    yield_neutral = np.array([ionisation_yield(Nc,0,E[i],IP_neutral) for i in range(0,len(E))])
-    mask = (E>=IP_neutral) & (E <= 13.6)
-    k_pe_0 = ionisation_rate(IP_neutral,2*np.pi*yield_neutral[mask]*sigma_abs_neu[mask],I[mask],E[mask])
-    
-    # 7. Recombination rate from Z=1 to Z=0
-    if attach_model == 'Berne':
-        k_rec_1 = recombination_rate_Spitzer(Nc,0,T)
-    elif attach_model == 'Tielens':
-        k_rec_1 = recombination_rate_Tielens21(Nc,T)
-    
-    # 8. Recombination rate from Z=2 to Z=1
-    if attach_model == 'Berne':
-        k_rec_2 = recombination_rate_Spitzer(Nc,1,T)
-    elif attach_model == 'Tielens':
-        k_rec_2 = recombination_rate_Tielens21(Nc,T)
-
-    
-    # 9. Ionisation rate of Z=1 to Z=2
-    IP_cation = ionisation_potential(1,a0)
-    yield_cation = np.array([ionisation_yield(Nc,1,E[i],IP_cation) for i in range(0,len(E))])
-    mask = (E>=IP_cation) & (E <= 13.6)
-    k_pe_1 = ionisation_rate(IP_cation,2*np.pi*yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
-
-    
-    # 10. Fraction of Z=-1
-    f_anion = 1. / (1. + k_det / (k_att*ne) + \
-                    k_det * k_pe_0 / (k_att*k_rec_1*ne**2.) + \
-                    k_det * k_pe_0 * k_pe_1 / (k_att*k_rec_1*k_rec_2*ne**3.))
-    
-    # 11. Fraction of Z=0
-    f_neutral = 1. / (1. + k_att*ne / k_det + k_pe_0 / (k_rec_1*ne) + \
-                    k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
-    
-    # 12. Fraction of Z=1
-    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) + \
-                k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
-    
-    # 13. Fraction of Z=2
-    f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
-                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
-    
-    # 14. Check that all fractions add up to 1
-    f_tot = f_anion + f_neutral + f_1 + f_2
-    f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
-    
-    # 15. Compute the total injected power
-    Pinj_anion = power_injected(IP_anion,2*np.pi*yield_anion*sigma_abs_anion,I,E)
-    Pinj_neutral = partition_coeff * power_injected(IP_neutral,2*np.pi*yield_neutral*sigma_abs_neu,I,E)
-    Pinj_cation = partition_coeff * power_injected(IP_cation,2*np.pi*yield_cation*sigma_abs_cation,I,E)
-    
-    Pinj = f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation
-    
-    # 16. Compute the total absorbed power
-    Prad_anion = power_absorbed(2*np.pi*sigma_abs_anion,I,E)
-    Prad_neutral = power_absorbed(2*np.pi*sigma_abs_neu,I,E)
-    Prad_cation = power_absorbed(2*np.pi*sigma_abs_cation,I,E)
-    Prad_dication = power_absorbed(2*np.pi*sigma_abs_dication,I,E)
-    
-    Prad = f_anion * Prad_anion + f_neutral * Prad_neutral + f_1 * Prad_cation + f_2 * Prad_dication
-    
-    # 17. Compute the heating efficiency as the ratio of injected to absorbed power
-    eff = Pinj / Prad
-
-    # print('temperature :',T)
-    # print('ne :',ne)
-    # print('Nc : ',dist.Nc)
-    # print('detachment rate : ',k_det)
-    # print('photoemission rate of the neutral : ', k_pe_0)
-    # print('photoemission rate of the charged : ', k_pe_1)
-    # print('attachment rate : ', k_att*ne)
-    # print('recombination rate of the neutral : ', k_rec_1*ne)
-    # print('recombination rate of the charged : ', k_rec_2*ne)
-    # print('anion fraction : ', f_anion)
-    # print('neutral fraction : ', f_neutral)
-    # print('charged fraction : ', f_1)
-    # print('double charged fraction : ', f_2)
-    # print('total injected power : ', Pinj)
-    # print('total absorbed radiation power : ', Prad)
-    # print('heating efficiency : ', eff)
-    
-    return G0, ne, T, f_anion,f_neutral,f_1,f_2,eff
-
-
-def compute_peh_point(G0, ne, T, Nc, a0, amin, amax, sigma, s, attach_model='Berne',
-                      radiation_model='Draine', optical_model='Draine', debug=False):
+    context = _prepare_pah_heating_context(
+        dist, attach_model, radiation_field,
+        anion_data, neutral_data, cation_data, dication_data,
+    )
+    return _evaluate_pah_heating_context(context, T, ne, attach_model)
     """
     Compute PAH photoelectric heating efficiency and diagnostic rates for a single point.
 
@@ -1627,15 +1669,16 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         linestyle= '-'
 
 
-    for j in range(0, n_ne):
-        args = T,ne_list[j],dist,attach_model,rad_field,\
-                anion_data,neutral_data,cation_data,dication_data
-        args_list.append(args)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(tqdm(executor.map(compute_heating_efficiency2, args_list), total=n_ne,
-                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
-    
-    G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon = zip(*results)
+    context = _prepare_pah_heating_context(
+        dist, attach_model, rad_field,
+        anion_data, neutral_data, cation_data, dication_data,
+    )
+    results = [
+        _evaluate_pah_heating_context(context, T, float(ne_value), attach_model)
+        for ne_value in tqdm(ne_list, desc=f'    Computing efficiency for {rad_name} field', unit=' steps')
+    ]
+
+    G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,_,_,_ = zip(*results)
     gamma = G0 * np.sqrt(Tgas) / ne
     if single_ax:
         axes.plot(gamma,epsilon,color=rad_color,linewidth=2.5,linestyle=linestyle, 
@@ -1689,8 +1732,6 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
     cation_data = np.column_stack([energy_charged,pah_cross_c])
     dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
 
-    num_cores = 1#min(os.cpu_count(),n_ne)
-    args_list = []
     if radiation_model == 'Draine':
         draine1978 = _load_isrf_data('Draine')
         rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
@@ -1819,14 +1860,15 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         linestyle= '-'
 
 
-    for j in range(0, n_ne):
-        args = T,ne_list[j],dist,attach_model,rad_field,\
-                anion_data,neutral_data,cation_data,dication_data
-        args_list.append(args)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
-        results = list(tqdm(executor.map(compute_heating_efficiency3, args_list), total=n_ne,
-                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
-    
+    context = _prepare_pah_heating_context(
+        dist, attach_model, rad_field,
+        anion_data, neutral_data, cation_data, dication_data,
+    )
+    results = [
+        _evaluate_pah_heating_context(context, T, float(ne_value), attach_model)
+        for ne_value in tqdm(ne_list, desc=f'    Computing efficiency for {rad_name} field', unit=' steps')
+    ]
+
     G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec,Prad = zip(*results)
     gamma = G0 * np.sqrt(Tgas) / ne
 
@@ -2115,15 +2157,8 @@ def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=10
     f_1 = np.array(f_1)[sorted_indices]
     f_2 = np.array(f_2)[sorted_indices]
 
-    np.savetxt(
-        f'PAH_PEH_tables/peh_Pinj_ISRF_{radiation_model}_{op_model}_{attach_model}_{a0:.4f}_micron_PAH.dat',
-        np.column_stack([np.log10(gamma), np.log10(efficiency), np.log10(Prad),
-                        f_anion, f_neutral, f_1, f_2]),
-        header=f'log(gamma [K^0.5/cm^3]) log10(eff) log10(Prad [erg/s]) '
-            f'f_anion f_neutral f_1 f_2\n{n_ne}',
-        fmt='%14.6e %14.6e %14.6e %14.6e %14.6e %14.6e %14.6e',
-        comments=''
-    )
+    # NOTE: results are saved in output_dir above. Avoid writing to legacy
+    # hardcoded relative folders that may not exist in export workflows.
     # 1. Add Berne+2022 efficiency results
     mydir = os.getcwd()
     os.chdir(BERNEPATH)
@@ -2314,15 +2349,16 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
     dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
 
     args_list = []
-    for j in range(0, nT):
-        args = T_list[j],ne,dist,attach_model,rad_field,\
-                anion_data,neutral_data,cation_data,dication_data
-        args_list.append(args)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=20) as executor:
-        results = list(tqdm(executor.map(compute_heating_efficiency3, args_list), total=nT,
-                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
-    
-    G0,ne_tab,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec = zip(*results)
+    context = _prepare_pah_heating_context(
+        dist, attach_model, rad_field,
+        anion_data, neutral_data, cation_data, dication_data,
+    )
+    results = [
+        _evaluate_pah_heating_context(context, float(T_value), ne, attach_model)
+        for T_value in tqdm(T_list, desc=f'    Computing efficiency for {rad_name} field', unit=' steps')
+    ]
+
+    G0,ne_tab,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec,Prad = zip(*results)
     gamma = G0 * np.sqrt(Tgas) / ne_tab
 
     ax.plot(T_list,Pinj,color='r',linewidth=2.5,linestyle=linestyle,
@@ -2361,15 +2397,16 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
     dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
 
     args_list = []
-    for j in range(0, nT):
-        args = T_list[j],ne,dist,attach_model,rad_field,\
-                anion_data,neutral_data,cation_data,dication_data
-        args_list.append(args)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=20) as executor:
-        results = list(tqdm(executor.map(compute_heating_efficiency3, args_list), total=nT,
-                            desc=f'    Computing efficiency for {rad_name} field', unit=' steps'))
-    
-    G0,ne_tab,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec = zip(*results)
+    context = _prepare_pah_heating_context(
+        dist, attach_model, rad_field,
+        anion_data, neutral_data, cation_data, dication_data,
+    )
+    results = [
+        _evaluate_pah_heating_context(context, float(T_value), ne, attach_model)
+        for T_value in tqdm(T_list, desc=f'    Computing efficiency for {rad_name} field', unit=' steps')
+    ]
+
+    G0,ne,Tgas,f_anion,f_neutral,f_1,f_2,epsilon,Pinj,Prec,Prad = zip(*results)
     gamma = G0 * np.sqrt(Tgas) / ne_tab
 
     ax.plot(T_list,Pinj,color='r',linewidth=2.5,linestyle=linestyle,

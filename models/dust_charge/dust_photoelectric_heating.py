@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import math
 sns.set_theme(style="white")
 plt.rcParams.update({
     "text.usetex": True,
@@ -22,7 +23,7 @@ plt.rcParams.update({
 
 from models.dust_charge.IM19_charging import grain_charge_dist,grain_mean_charge,grain_charge_probability
 from models.grain_size_config import get_optical_props_path
-from models.tools.radiation_fields import Draine_1978_isrf
+from models.tools.radiation_fields import Draine_1978_isrf, Mathis83_radiation_field
 from models.dust_charge.shared_physics import (
     ionisation_potential_valence_vec as _ip_valence_vec,
     electron_affinity_graphite_vec as _ea_graphite_vec,
@@ -45,9 +46,22 @@ from models.dust_charge.shared_physics import (
     most_positive_allowed_charge as _zmax_allowed,
     electron_sticking_coefficient_graphite as _stick_graphite,
     electron_sticking_coefficient_silicate as _stick_silicate,
+    DS87_J_function_scalar as _ds87_j_scalar,
+    DS87_lambda_scalar as _ds87_lambda_scalar,
     DS87_J_function_vec as _ds87_j_vec,
     _coulomb_energy_over_a as _coulomb_e_over_a,
 )
+
+try:
+    from numba import njit
+    _NUMBA_AVAILABLE = True
+except Exception:
+    _NUMBA_AVAILABLE = False
+
+    def njit(*args, **kwargs):
+        def _identity(func):
+            return func
+        return _identity
 
 # CONSTANTS
 graphite_work_function = 4.4 # [eV]
@@ -99,6 +113,282 @@ def _grain_output_label(a_cm=None, grain_label=None, a_micron=None):
     if a_cm is None:
         return 'grain'
     return f'a_{float(a_cm):.3e}_cm'
+
+
+@njit(cache=True)
+def _coulomb_energy_over_a_nb(Z, a):
+    a_safe = a if a > 1e-300 else 1e-300
+    return (4.8032047e-10 ** 2.0) * (Z + 1.0) / a_safe / 1.602176634e-12
+
+
+@njit(cache=True)
+def _ionisation_potential_valence_nb(W, Z, a):
+    a_safe = a if a > 1e-300 else 1e-300
+    return W + (4.8032047e-10 ** 2.0) / a_safe * ((Z + 0.5) + (Z + 2.0) * (0.3e-8 / a_safe)) / 1.602176634e-12
+
+
+@njit(cache=True)
+def _electron_affinity_graphite_nb(Z, a):
+    a_safe = a if a > 1e-300 else 1e-300
+    return 4.4 + (4.8032047e-10 ** 2.0) / a_safe * ((Z - 0.5) - (4e-8 / (a_safe + 7e-8))) / 1.602176634e-12
+
+
+@njit(cache=True)
+def _electron_affinity_silicate_nb(Z, a):
+    a_safe = a if a > 1e-300 else 1e-300
+    return 8.0 - 5.0 + (4.8032047e-10 ** 2.0) / a_safe * (Z - 0.5) / 1.602176634e-12
+
+
+@njit(cache=True)
+def _min_energy_ejection_nb(Z, a):
+    if Z >= 0:
+        return 0.0
+    a_safe = a if a > 1e-300 else 1e-300
+    att = 1.0 + (27e-8 / a_safe) ** 0.75
+    return -(Z + 1.0) * (4.8032047e-10 ** 2.0) / (a_safe * att) / 1.602176634e-12
+
+
+@njit(cache=True)
+def _min_photon_energy_nb(IPV, Z, a):
+    emin = _min_energy_ejection_nb(Z, a)
+    if Z >= -1:
+        return IPV
+    return IPV + emin
+
+
+@njit(cache=True)
+def _parameter_theta_nb(E, Emin_ej, Z, a):
+    if Z >= 0:
+        return E - Emin_ej + _coulomb_energy_over_a_nb(Z, a)
+    return E - Emin_ej
+
+
+@njit(cache=True)
+def _escape_fraction_nb(hnu, Emin_ej, Z, a):
+    if Z < 0:
+        return 1.0
+    elow = -_coulomb_energy_over_a_nb(Z, a)
+    ehigh = hnu - Emin_ej
+    denom = (ehigh - elow) ** 3.0
+    if abs(denom) < 1e-300:
+        denom = 1e-300
+    y2 = (ehigh ** 2.0) * (ehigh - 3.0 * elow) / denom
+    if y2 < 0.0:
+        return 0.0
+    if y2 > 1.0:
+        return 1.0
+    return y2
+
+
+@njit(cache=True)
+def _attempting_integral_nb(hnu, Emin, Emin_ej, Z, a):
+    if Z < 0:
+        Elow = Emin
+        Ehigh = Emin + hnu - Emin_ej
+        Ei = Emin
+        Ef = Ehigh
+    else:
+        Elow = -_coulomb_energy_over_a_nb(Z, a)
+        Ehigh = hnu - Emin_ej
+        Ei = 0.0
+        Ef = Ehigh
+
+    den = (Elow - Ehigh) ** 3
+    if abs(den) < 1e-300:
+        den = 1e-300
+    A = Ef ** 2 * (6.0 * Ehigh * Elow - 4.0 * Elow * Ef - 4.0 * Ehigh * Ef + 3.0 * Ef ** 2) / (2.0 * den)
+    B = Ei ** 2 * (6.0 * Ehigh * Elow - 4.0 * Elow * Ei - 4.0 * Ehigh * Ei + 3.0 * Ei ** 2) / (2.0 * den)
+    return A - B
+
+
+@njit(cache=True)
+def _photon_attenuation_length_graphite_nb(wav, Imperp, Impar):
+    l_inv = (4.0 * math.pi / wav) * ((2.0 / 3.0) * Imperp + (1.0 / 3.0) * Impar)
+    if l_inv < 1e-300:
+        l_inv = 1e-300
+    return 1.0 / l_inv
+
+
+@njit(cache=True)
+def _photon_attenuation_length_silicate_nb(wav, Im):
+    den = 4.0 * math.pi * Im
+    if den < 1e-300:
+        den = 1e-300
+    return wav / den
+
+
+@njit(cache=True)
+def _watson_y1_nb(a, la, le):
+    beta = a / la
+    alpha = a / le + a / la
+    num = (beta / alpha) ** 2.0 * (alpha ** 2 - 2.0 * alpha + 2.0 - 2.0 * math.exp(-alpha))
+    den = beta ** 2 - 2.0 * beta + 2.0 - 2.0 * math.exp(-beta)
+    if den < 1e-300:
+        den = 1e-300
+    return num / den
+
+
+@njit(cache=True)
+def _y0_graphite_nb(theta, W):
+    w_safe = W if W > 1e-300 else 1e-300
+    x = theta / w_safe
+    if x < 0.0:
+        x = 0.0
+    x5 = x ** 5
+    return (9e-3 * x5) / (1.0 + 3.7e-2 * x5)
+
+
+@njit(cache=True)
+def _y0_silicate_nb(theta, W):
+    w_safe = W if W > 1e-300 else 1e-300
+    x = theta / w_safe
+    if x < 0.0:
+        x = 0.0
+    return 0.5 * x / (1.0 + 5.0 * x)
+
+
+@njit(cache=True)
+def _photodetachment_cross_nb(E, E_det, Z):
+    x = (E - E_det) / 3.0
+    if x < 0.0:
+        return 0.0
+    return 1.2e-17 * abs(Z) * x / (1.0 + (x * x) / 3.0) ** 2.0
+
+
+@njit(cache=True)
+def _photodetachment_energy_graphite_nb(Z, a):
+    return _electron_affinity_graphite_nb(Z + 1, a) + _min_energy_ejection_nb(Z, a)
+
+
+@njit(cache=True)
+def _photodetachment_energy_silicate_nb(Z, a):
+    return _electron_affinity_silicate_nb(Z + 1, a) + _min_energy_ejection_nb(Z, a)
+
+
+@njit(cache=True)
+def _compute_photoelectric_heating_graphite_numba(Z, a, energy_eV, wav_cm, I_E_surface, C_abs, Im_perp, Im_par):
+    n = energy_eV.size
+    Emin = _min_energy_ejection_nb(Z, a)
+    IPV = _ionisation_potential_valence_nb(4.4, Z, a)
+    Emin_ej = _min_photon_energy_nb(IPV, Z, a)
+
+    Gamma = 0.0
+    have_prev = False
+    prev_x = 0.0
+    prev_y = 0.0
+
+    for i in range(n):
+        E = energy_eV[i]
+        if E < Emin_ej or E <= 0.0:
+            y = 0.0
+        else:
+            theta = _parameter_theta_nb(E, Emin_ej, Z, a)
+            y0 = _y0_graphite_nb(theta, 4.4)
+            la = _photon_attenuation_length_graphite_nb(wav_cm[i], Im_perp[i], Im_par[i])
+            y1 = _watson_y1_nb(a, la, 1e-7)
+            y2 = _escape_fraction_nb(E, Emin_ej, Z, a)
+            yld = y2 * min(y0 * y1, 1.0)
+            if yld > 0.0 and y2 > 0.0:
+                integral_fE = _attempting_integral_nb(E, Emin, Emin_ej, Z, a) / y2
+                if integral_fE > 0.0:
+                    y = yld * (I_E_surface[i] / E) * C_abs[i] * integral_fE
+                else:
+                    y = 0.0
+            else:
+                y = 0.0
+
+        if have_prev:
+            dx = E - prev_x
+            Gamma += 0.5 * (prev_y + y) * dx
+        prev_x = E
+        prev_y = y
+        have_prev = True
+
+    if Z < 0:
+        E_pdt = _photodetachment_energy_graphite_nb(Z, a)
+        have_prev = False
+        prev_x = 0.0
+        prev_y = 0.0
+        Gamma_det = 0.0
+        for i in range(n):
+            E = energy_eV[i]
+            if E <= 0.0:
+                y = 0.0
+            else:
+                sigma = _photodetachment_cross_nb(E, E_pdt, Z)
+                y = sigma * (I_E_surface[i] / E) * (E - E_pdt + Emin)
+            if have_prev:
+                dx = E - prev_x
+                Gamma_det += 0.5 * (prev_y + y) * dx
+            prev_x = E
+            prev_y = y
+            have_prev = True
+        Gamma += Gamma_det
+
+    return Gamma
+
+
+@njit(cache=True)
+def _compute_photoelectric_heating_silicate_numba(Z, a, energy_eV, wav_cm, I_E_surface, C_abs, Im):
+    n = energy_eV.size
+    Emin = _min_energy_ejection_nb(Z, a)
+    IPV = _ionisation_potential_valence_nb(8.0, Z, a)
+    Emin_ej = _min_photon_energy_nb(IPV, Z, a)
+
+    Gamma = 0.0
+    have_prev = False
+    prev_x = 0.0
+    prev_y = 0.0
+
+    for i in range(n):
+        E = energy_eV[i]
+        if E < Emin_ej or E <= 0.0:
+            y = 0.0
+        else:
+            theta = _parameter_theta_nb(E, Emin_ej, Z, a)
+            y0 = _y0_silicate_nb(theta, 8.0)
+            la = _photon_attenuation_length_silicate_nb(wav_cm[i], Im[i])
+            y1 = _watson_y1_nb(a, la, 1e-7)
+            y2 = _escape_fraction_nb(E, Emin_ej, Z, a)
+            yld = y2 * min(y0 * y1, 1.0)
+            if yld > 0.0 and y2 > 0.0:
+                integral_fE = _attempting_integral_nb(E, Emin, Emin_ej, Z, a) / y2
+                if integral_fE > 0.0:
+                    y = yld * (I_E_surface[i] / E) * C_abs[i] * integral_fE
+                else:
+                    y = 0.0
+            else:
+                y = 0.0
+
+        if have_prev:
+            dx = E - prev_x
+            Gamma += 0.5 * (prev_y + y) * dx
+        prev_x = E
+        prev_y = y
+        have_prev = True
+
+    if Z < 0:
+        E_pdt = _photodetachment_energy_silicate_nb(Z, a)
+        have_prev = False
+        prev_x = 0.0
+        prev_y = 0.0
+        Gamma_det = 0.0
+        for i in range(n):
+            E = energy_eV[i]
+            if E <= 0.0:
+                y = 0.0
+            else:
+                sigma = _photodetachment_cross_nb(E, E_pdt, Z)
+                y = sigma * (I_E_surface[i] / E) * (E - E_pdt + Emin)
+            if have_prev:
+                dx = E - prev_x
+                Gamma_det += 0.5 * (prev_y + y) * dx
+            prev_x = E
+            prev_y = y
+            have_prev = True
+        Gamma += Gamma_det
+
+    return Gamma
 
 # FUNCTIONS
 def ionisation_potential_valence(W,Z,a):
@@ -601,6 +891,33 @@ def compute_photoelectric_heating_rate(args):
 
     Z,a,radiation_field,grain_type,Im,C_abs = args
 
+    # Fast path: execute the expensive per-energy loop in Numba when inputs are numeric arrays.
+    if _NUMBA_AVAILABLE:
+        try:
+            rf = np.asarray(radiation_field, dtype=float)
+            cab = np.asarray(C_abs, dtype=float)
+            if rf.ndim == 2 and rf.shape[1] >= 3 and cab.ndim == 1 and cab.size == rf.shape[0]:
+                e_arr = np.ascontiguousarray(rf[:, 0], dtype=np.float64)
+                wav_arr = np.ascontiguousarray(rf[:, 1], dtype=np.float64)
+                i_arr = np.ascontiguousarray(rf[:, 2], dtype=np.float64)
+                c_arr = np.ascontiguousarray(cab, dtype=np.float64)
+
+                gtype = str(grain_type).lower()
+                if gtype == 'graphite':
+                    im = np.asarray(Im, dtype=float)
+                    if im.ndim == 2 and im.shape[1] >= 2 and im.shape[0] == rf.shape[0]:
+                        im_perp = np.ascontiguousarray(im[:, 0], dtype=np.float64)
+                        im_par = np.ascontiguousarray(im[:, 1], dtype=np.float64)
+                        return float(_compute_photoelectric_heating_graphite_numba(int(Z), float(a), e_arr, wav_arr, i_arr, c_arr, im_perp, im_par))
+                elif gtype == 'silicate':
+                    im = np.asarray(Im, dtype=float)
+                    if im.ndim == 1 and im.size == rf.shape[0]:
+                        im1 = np.ascontiguousarray(im, dtype=np.float64)
+                        return float(_compute_photoelectric_heating_silicate_numba(int(Z), float(a), e_arr, wav_arr, i_arr, c_arr, im1))
+        except Exception:
+            # Fall back to the original Python implementation if fast-path checks fail.
+            pass
+
     # 1. Compute the minimum energy for ejection
     Emin = min_energy_ejection(Z,a)
     if grain_type == 'graphite':
@@ -799,11 +1116,11 @@ def compute_photoelectric_heating_rate_single_bin(Z, a_cm, E_eV, I_E_surface,
 def compute_recombination_cooling_rate(args):
     Z,a,ne,T,grain_type = args
 
-    ltilde = DS87_lambda_function(Z,-1.,a,T)
+    ltilde = _ds87_lambda_scalar(Z,-1.,a,T)
     if grain_type == 'graphite':
-        s = electron_sticking_coefficient_graphite(Z,a)
+        s = _stick_graphite(Z,a)
     elif grain_type == 'silicate':
-        s = electron_sticking_coefficient_silicate(Z,a)
+        s = _stick_silicate(Z,a)
     recomb_rate = np.pi * a**2 * ne * s * np.sqrt(8. * kb_cgs * T / (np.pi * me)) * ltilde * kb_cgs * T
     return recomb_rate
 
@@ -814,7 +1131,7 @@ def compute_autoionisation_cooling_rate(args):
         EA = electron_affinity_graphite(graphite_work_function,Zmin,a)
     elif grain_type == 'silicate':
         EA = electron_affinity_silicate(silicate_work_function,Zmin,a)
-    Jtilde = DS87_J_function(Zmin,-1.,a,T)
+    Jtilde = _ds87_j_scalar(Zmin,-1.,a,T)
     autoion_rate = np.pi * a**2 * ne * prob_Zmin * np.sqrt(8. * kb_cgs * T / (np.pi * me)) *\
         Jtilde * EA * eV2erg
     return autoion_rate
@@ -1746,7 +2063,7 @@ def plot_efficiency(T,ne,radiation_model='Draine',G0factor=1.0,nsizes=50):
     ax.minorticks_on()
     fig_pot, ax_pot = plt.subplots(1, 1, figsize=(7, 5), dpi=150)
     ax_pot.set_xscale('log')
-    ax_pot.set_xlabel('grain size $a$ [\AA]')
+    ax_pot.set_xlabel(r'grain size $a$ [\AA]')
     ax_pot.set_ylabel('surface potential (V)')
     ax_pot.grid(True, which='both', ls=':', alpha=0.5)
     ax_pot.set_ylim([-2,8])
@@ -1758,12 +2075,12 @@ def plot_efficiency(T,ne,radiation_model='Draine',G0factor=1.0,nsizes=50):
     data = np.loadtxt(_external_data_path('1e4_Draine.csv'), delimiter=',')
     asize_draine = data[:, 0]  # in Angstroms
     efficiency_draine = data[:, 1]
-    ax.plot(asize_draine, efficiency_draine, label='Weingartner \& Draine 2001 (graphite)', color='k', linestyle=':', linewidth=2)
+    ax.plot(asize_draine, efficiency_draine, label=r'Weingartner \& Draine 2001 (graphite)', color='k', linestyle=':', linewidth=2)
 
     data = np.loadtxt(_external_data_path('1e4_silicate_draine.csv'), delimiter=',')
     asize_draine = data[:, 0]  # in Angstroms
     efficiency_draine = data[:, 1]
-    ax.plot(asize_draine, efficiency_draine, label='Weingartner \& Draine 2001 (silicate)', color='k', linestyle='-.', linewidth=2)
+    ax.plot(asize_draine, efficiency_draine, label=r'Weingartner \& Draine 2001 (silicate)', color='k', linestyle='-.', linewidth=2)
 
     # plot the results from Draine_potential_graphite.csv and Draine_potential_silicate.csv
     for mat in grain_types:
@@ -2008,13 +2325,65 @@ def _compute_rates_point(task):
     Returns (peh, rec) as floats (or nan on error).
     """
     G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
-    Zs, P, rates, Zmean, Zsigma = equilibrium_charge_for_grain(
-        float(G0_used), float(ne_used), float(T_used), grain_type, a_cm,
-        radiation_model=radiation_model, rad_field=None, yield_params=None, Z_start=0, debug=False)
+
+    from models.dust_charge import dust_charging as _dc
+
+    # Per-process cache to avoid rebuilding radiation/optical/yield setup for
+    # every grid point. This is the same invariant context used in gamma scans.
+    global _DPEH_WORKER_PREPARED_CONTEXTS
+    try:
+        _DPEH_WORKER_PREPARED_CONTEXTS
+    except NameError:
+        _DPEH_WORKER_PREPARED_CONTEXTS = {}
+
+    ctx_key = (str(grain_type), float(a_cm), str(radiation_model))
+    ctx = _DPEH_WORKER_PREPARED_CONTEXTS.get(ctx_key)
+    if ctx is None:
+        scan_ctx = _dc._prepare_gamma_scan_context(
+            grain_type, a_cm, radiation_model=radiation_model, yield_params=None
+        )
+        ctx = {
+            'nu': np.asarray(scan_ctx['nu'], dtype=float),
+            'J_nu_base': np.asarray(scan_ctx['J_nu'], dtype=float),
+            'C_abs_nu': np.asarray(scan_ctx['C_abs_nu'], dtype=float),
+            'yield_func': scan_ctx['yield_func'],
+            'yield_params': dict(scan_ctx['yield_params']),
+        }
+        _DPEH_WORKER_PREPARED_CONTEXTS[ctx_key] = ctx
+
+    J_nu_scaled = ctx['J_nu_base'] * float(G0_used)
+
+    Zs, P, rates, Zmean, Zsigma = _dc.compute_equilibrium_charge_distribution_vectorized(
+        float(a_cm), float(ne_used), float(T_used), [],
+        ctx['nu'], J_nu_scaled, ctx['C_abs_nu'],
+        yield_func=ctx['yield_func'],
+        yield_params=ctx['yield_params'],
+        Z_start=0,
+        debug=False,
+    )
     peh = float(rates.get('Gamma_total', np.nan) - float(rates.get('Autoionisation_cooling', 0.0)))
     rec = float(rates.get('Recomb_total', 0.0))
     return peh, rec, Zmean, Zsigma
+
+
+def _compute_rates_batch(batch_tasks):
+    """Worker helper: compute a batch of points to reduce process-pool overhead."""
+
+    out = []
+    for task in batch_tasks:
+        pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model = task
+        try:
+            peh, rec, Zm, Zs = _compute_rates_point((G0, ne, T_task, grain_type, a_cm, radiation_model))
+        except Exception as exc:
+            msg = (
+                '[make_rate_gamma_T_tables] Worker batch task failed: '
+                f'pos={pos}, iT={iT}, ig={ig}, T={T_task:.6e} K, '
+                f'G0={G0:.6e}, ne={ne:.6e} cm^-3, '
+                f'grain={grain_type}, a_cm={a_cm:.3e}, radiation_model={radiation_model}'
+            )
+            raise RuntimeError(msg) from exc
+        out.append((pos, peh, rec, Zm, Zs))
+    return out
 
 
 def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
@@ -2022,7 +2391,7 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
                              Tmin=10.0, Tmax=1e5, nT=50,
                              gamma_min=1e-6, gamma_max=1e6, n_gamma=100,
                              num_workers=None, out_dir='tables', debug=False,
-                             grain_label=None):
+                             grain_label=None, executor=None):
     """
     Compute grids of photoelectric heating and recombination cooling on a
     log(T) x log(gamma) grid and write ASCII tables suitable for Fortran
@@ -2054,12 +2423,17 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
             tasks.append((iT, ig, G0, ne, float(T)))
 
     N = len(tasks)
+    G0_vals = np.full(N, np.nan)
+    ne_vals = np.full(N, np.nan)
     peh_vals = np.full(N, np.nan)
     rec_vals = np.full(N, np.nan)
+    Zmean_vals = np.full(N, np.nan)
+    Zsigma_vals = np.full(N, np.nan)
+    for pos, t in enumerate(tasks):
+        G0_vals[pos] = t[2]
+        ne_vals[pos] = t[3]
 
     import concurrent.futures
-    import traceback
-
     # Debug mode: run in main process for full local traceback visibility.
     if num_workers == 1:
         count = 0
@@ -2078,52 +2452,64 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
                 raise RuntimeError(msg) from exc
             peh_vals[pos] = peh
             rec_vals[pos] = rec
+            Zmean_vals[pos] = Zm
+            Zsigma_vals[pos] = Zs
             count += 1
             if count % 100 == 0 or count == len(tasks):
                 print(f'[make_rate_gamma_T_tables] Processed {count}/{len(tasks)} tasks (in-process)')
     else:
-        # execute in parallel, mapping futures back to task positions for deterministic output
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as exe:
-            future_to_pos = {}
-            for pos, t in enumerate(tasks):
-                fut = exe.submit(_compute_rates_point, (t[2], t[3], t[4], grain_type, a_cm, radiation_model))
-                future_to_pos[fut] = pos
+        # Execute in parallel with batched tasks to reduce inter-process overhead.
+        if num_workers is None or int(num_workers) <= 0:
+            num_workers = os.cpu_count() or 1
 
+        worker_inputs = []
+        for pos, t in enumerate(tasks):
+            iT, ig, G0, ne, T_task = t
+            worker_inputs.append((pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model))
+
+        # Heuristic: create multiple batches per worker while keeping enough
+        # work per batch to amortize process communication.
+        target_batches = max(4 * int(num_workers), 1)
+        batch_size = max(16, int(np.ceil(len(worker_inputs) / float(target_batches))))
+        batches = [worker_inputs[i:i + batch_size] for i in range(0, len(worker_inputs), batch_size)]
+
+        exe = executor
+        owns_executor = exe is None
+        if exe is None:
+            exe = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
+
+        try:
             # progress bar if available
             try:
                 from tqdm import tqdm
-                iterator = tqdm(concurrent.futures.as_completed(future_to_pos.keys()), total=len(future_to_pos), desc='Computing rates')
+                iterator = tqdm(exe.map(_compute_rates_batch, batches, chunksize=1),
+                                total=len(batches), desc='Computing rates')
                 use_tqdm = True
             except Exception:
-                iterator = concurrent.futures.as_completed(future_to_pos.keys())
+                iterator = exe.map(_compute_rates_batch, batches, chunksize=1)
                 use_tqdm = False
 
             count = 0
-            for fut in iterator:
-                pos = future_to_pos[fut]
-                try:
-                    peh, rec, Zm, Zs = fut.result()
-                except Exception as exc:
-                    iT, ig, G0, ne, T_task = tasks[pos]
-                    gamma_task = gamma_vals[ig]
-                    remote_tb = traceback.format_exc()
-                    msg = (
-                        '[make_rate_gamma_T_tables] Multiprocessing task failed: '
-                        f'pos={pos}, iT={iT}, ig={ig}, T={T_task:.6e} K, '
-                        f'gamma={gamma_task:.6e}, G0={G0:.6e}, ne={ne:.6e} cm^-3, '
-                        f'grain={grain_type}, a_cm={a_cm:.3e}, radiation_model={radiation_model}.\n'
-                        f'Remote traceback:\n{remote_tb}'
-                    )
-                    raise RuntimeError(msg) from exc
-                peh_vals[pos] = peh
-                rec_vals[pos] = rec
-                count += 1
-                if not use_tqdm and (count % 100 == 0 or count == len(future_to_pos)):
-                    print(f'[make_rate_gamma_T_tables] Processed {count}/{len(future_to_pos)} tasks')
+            for batch_out in iterator:
+                for pos, peh, rec, Zm, Zs in batch_out:
+                    peh_vals[pos] = peh
+                    rec_vals[pos] = rec
+                    Zmean_vals[pos] = Zm
+                    Zsigma_vals[pos] = Zs
+                count += len(batch_out)
+                if not use_tqdm and (count % 100 == 0 or count == len(worker_inputs)):
+                    print(f'[make_rate_gamma_T_tables] Processed {count}/{len(worker_inputs)} tasks')
+        finally:
+            if owns_executor:
+                exe.shutdown(wait=True)
 
     # reshape into (nT, n_gamma)
+    G0_mat = G0_vals.reshape((nT, n_gamma))
+    ne_mat = ne_vals.reshape((nT, n_gamma))
     peh_mat = peh_vals.reshape((nT, n_gamma))
     rec_mat = rec_vals.reshape((nT, n_gamma))
+    Zmean_mat = Zmean_vals.reshape((nT, n_gamma))
+    Zsigma_mat = Zsigma_vals.reshape((nT, n_gamma))
 
     # Table-convention fix (always applied): decompose the signed
     # recombination channel into cooling (positive part) and heating
@@ -2215,8 +2601,12 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
     return {
         'T_vals': T_vals,
         'gamma_vals': gamma_vals,
+        'G0_vals': G0_mat,
+        'ne_vals': ne_mat,
         'log_peh': log_peh,
         'log_rec': log_rec,
+        'Zmean': Zmean_mat,
+        'Zsigma': Zsigma_mat,
         'out_dir': os.path.abspath(out_dir)
     }
 
@@ -2440,7 +2830,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
         sizes_draine = data[:, 0]  # in Angstroms
         potentials_draine = data[:, 1]  # in eV
         if mat_idx == 0:
-            ax.plot(sizes_draine, potentials_draine, label=f'Weingartner \& Draine 2001', linestyle=linestyles[mat_idx], color='k',lw=2)
+            ax.plot(sizes_draine, potentials_draine, label=r'Weingartner \& Draine 2001', linestyle=linestyles[mat_idx], color='k',lw=2)
         else:
             ax.plot(sizes_draine, potentials_draine, linestyle=linestyles[mat_idx], color='k',lw=2)
 
@@ -2574,7 +2964,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     fig2, ax2 = plt.subplots(1, 1, figsize=(7, 5), dpi=150)
     ax2.set_xscale('log')
     ax2.set_yscale('log')
-    ax2.set_xlabel('grain size $a$ [\AA]')
+    ax2.set_xlabel(r'grain size $a$ [\AA]')
     ax2.set_ylabel(r'flux-weighted $\langle C_{\rm abs} \rangle / (\pi a^2)$')
     ax2.grid(True, which='both', ls=':', alpha=0.5)
 
@@ -2615,44 +3005,6 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     out2 = _photoelectric_output_path(savefile.replace('.pdf', f'_fluxnorm_{radiation_model}.pdf') if savefile else f'avg_potential_{radiation_model}_fluxnorm.pdf')
     fig2.savefig(out2, dpi=200)
     plt.close(fig2)
-
-def Mathis83_radiation_field(E):
-    # Pure numeric implementation returning u_E in erg cm^-3 per eV
-    # E is in eV; convert to frequency (Hz): nu = E (eV) * (eV_to_J) / h
-    h_SI = 6.62607015e-34
-    eV2J = 1.602176634e-19
-    c_SI = 2.99792458e8
-
-    nu = E * eV2J / h_SI
-    dnu_dE = eV2J / h_SI
-    if E > 13.6:
-        return 0.0
-    elif 11.2 < E <= 13.6:
-        return 3.328e-9 * E ** (-4.4172)/nu * dnu_dE
-    elif 9.26 < E <= 11.2:
-        return 8.463e-13 / E /nu* dnu_dE
-    elif 5.04 < E <= 9.26:
-        return 2.055e-14 * E ** 0.6678/nu * dnu_dE
-    else:
-        # Numeric Planck-based composite
-        # Planck_function returns B_nu in erg cm^-2 s^-1 Hz^-1 sr^-1
-        B1 = Planck_function(7500, nu)
-        B2 = Planck_function(4000, nu)
-        B3 = Planck_function(3000, nu)
-
-        # Compose intensity per Hz and per sr (erg / cm^2 / s / Hz / sr)
-        I_nu = 1e-14 * B1 + 1.65e-13 * B2 + 4e-13 * B3
-
-        # Convert I_nu -> u_nu: u_nu = 4π I_nu / c  [erg cm^-3 Hz^-1]
-        # Use c in cm/s because I_nu is in cgs (erg cm^-2 s^-1 Hz^-1 sr^-1)
-        c_cgs = 2.99792458e10
-        u_nu = (4.0 * np.pi * I_nu) / c_cgs
-
-        # Convert u_nu (per Hz) -> u_E (per eV): dnu/dE = eV2J / h_SI  [Hz per eV]
-        
-        u_E = u_nu * dnu_dE
-
-        return float(u_E)
 
 def plot_csa_IM19():
     from dust_emission import interpolate_cross_sections

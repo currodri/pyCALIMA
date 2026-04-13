@@ -26,6 +26,17 @@ from tqdm import tqdm
 import concurrent.futures
 import time
 
+try:
+    from numba import njit
+    _NUMBA_AVAILABLE = True
+except Exception:
+    _NUMBA_AVAILABLE = False
+
+    def njit(*args, **kwargs):
+        def _identity(func):
+            return func
+        return _identity
+
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -158,6 +169,7 @@ def alpha_energy(mu):
     
     return alpha
 
+@njit(cache=True)
 def screening_length(Zi,Zd):
     """
     Ion screening length within the dust material.
@@ -171,6 +183,7 @@ def screening_length(Zi,Zd):
     """    
     return 0.885 * a_0 / np.sqrt(float(Zi)**(2./3.) + float(Zd)**(2./3.))
 
+@njit(cache=True)
 def reduced_energy(dust_atomic_mass,ion_atomic_mass,
                    screen_length,Zi,Zd,E):
     """Reduced energy equation.
@@ -189,6 +202,7 @@ def reduced_energy(dust_atomic_mass,ion_atomic_mass,
     return dust_atomic_mass / (dust_atomic_mass + ion_atomic_mass) *\
             screen_length / (float(Zi * Zd) * elem_charge**2) * E
             
+@njit(cache=True)
 def screened_Coulomb_function(epsilon):
     """
     Screened Coulomb interaction approximation (Matsunami et al. 1980).
@@ -314,8 +328,6 @@ def average_yields_T(args):
         float: final average(Y*v) yield [atom/ion]
     """    
     
-    from scipy.integrate import trapezoid
-    
     dust_radius,surface_energy,Kparam,rho_dust,\
         dust_atomic_mass,ion_atomic_mass,\
         dust_atomic_number,ion_atomic_number,\
@@ -361,7 +373,7 @@ def average_yields_T(args):
             n_size_corr += 1
 
     # 5. Integrate Y_v with the trapezoid method
-    Y0 = trapezoid(Y_v,v)
+    Y0 = np.trapezoid(Y_v, v)
     # print(Tgas,n_size_corr/nbins_v)
     return Y0
    
@@ -688,8 +700,6 @@ def _resolve_sputtering_setup(dust_type, composition=None, grain_size_micron=Non
 def average_yields_T_fixed_phi(args):
     """Average sputtering yield over Maxwell-Boltzmann velocities at fixed phi (in eV)."""
 
-    from scipy.integrate import trapezoid
-
     dust_radius, surface_energy, Kparam, rho_dust, \
         dust_atomic_mass, ion_atomic_mass, \
         dust_atomic_number, ion_atomic_number, \
@@ -729,7 +739,7 @@ def average_yields_T_fixed_phi(args):
                                  do_size_correction, 0.0)
         Y_v[i] = mb_factor * vi * Y
 
-    return trapezoid(Y_v, v)
+    return np.trapezoid(Y_v, v)
 
 
 def average_yields_T_phi_batch(args):
@@ -738,8 +748,6 @@ def average_yields_T_phi_batch(args):
     This avoids rebuilding the velocity grid and Maxwell-Boltzmann factors for
     every (T, phi) cell, which significantly reduces overhead.
     """
-
-    from scipy.integrate import trapezoid
 
     dust_radius, surface_energy, Kparam, rho_dust, \
         dust_atomic_mass, ion_atomic_mass, \
@@ -791,7 +799,7 @@ def average_yields_T_phi_batch(args):
                     do_size_correction, 0.0,
                 )
 
-        Y_phi[jphi] = trapezoid(mb_v * Y_v, v)
+        Y_phi[jphi] = np.trapezoid(mb_v * Y_v, v)
 
     return Y_phi
 
@@ -888,7 +896,8 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
                        do_size_correction=True,
                        use_yield_lookup=True,
                        nE_lookup=2048,
-                       label=''):
+                       label='',
+                       executor=None):
     """Export sputtering tables on a (T, phi) grid and create a validation figure.
 
      The phi range is estimated from Zk_min/Zk_max and physically allowed grain
@@ -1002,7 +1011,13 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
         ]
 
         print(f'Computing T-phi table for ion Z={Zi}, m={mi:.3f} a.u....')
-        with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as executor:
+        if executor is None:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=num_cores) as local_executor:
+                results = list(tqdm(local_executor.map(average_yields_T_phi_batch, args_list),
+                                    total=len(args_list),
+                                    desc=f'    T-phi integration (Z={Zi})',
+                                    unit=' temperatures'))
+        else:
             results = list(tqdm(executor.map(average_yields_T_phi_batch, args_list),
                                 total=len(args_list),
                                 desc=f'    T-phi integration (Z={Zi})',
@@ -1458,6 +1473,7 @@ def effective_charge_number(z,v_ion):
     
     return z_eff
 
+@njit(cache=True)
 def electronic_stopping_cs(n_dust,ne_val,Zi,Zd,Md,Mi,E):
     
     hbar = 6.626176e-27/(2.*np.pi) # [erg s]
@@ -1472,6 +1488,7 @@ def electronic_stopping_cs(n_dust,ne_val,Zi,Zd,Md,Mi,E):
     S = 8. * np.pi * Zi**(1./6.) * Zi * Zd / Z * a_sc * elem_charge**2. * (v/v0)
     return S
 
+@njit(cache=True)
 def compute_penetration_depth(E_init,m_ion,s_dust,Zi,Z_dust,M_dust,delta_max=0.01,nmax=1000):
     """Obtain the penetration depth using the Bethe-Bloch formula. It describes the mean energy loss
     per distance travelled of a charge particle traversing matter.

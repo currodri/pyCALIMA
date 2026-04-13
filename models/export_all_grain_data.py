@@ -19,13 +19,9 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 import json
+import time
 
 from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_bin_by_rank
-
-
-# Global constants for documentation in README
-GAMMA_MIN = 1e-4
-GAMMA_MAX = 1e6
 
 
 def get_git_info():
@@ -86,6 +82,61 @@ def get_git_info():
 def get_repo_root():
     """Get repository root directory."""
     return Path(__file__).resolve().parents[1]
+
+
+def _run_profiled_stage(stage_name, stage_func, config_path, stage_profile, enable_profile=True, **stage_kwargs):
+    """Run one export stage and capture wall-clock timing metadata."""
+    t0 = time.perf_counter()
+    result = stage_func(config_path, **stage_kwargs)
+    t1 = time.perf_counter()
+
+    if enable_profile:
+        elapsed = float(t1 - t0)
+        status = str(result.get('status', 'Unknown')) if isinstance(result, dict) else 'Unknown'
+        stage_profile[stage_name] = {
+            'seconds': elapsed,
+            'status': status,
+            'ok': status.startswith('Success'),
+        }
+
+    return result
+
+
+def _print_profile_summary(stage_profile, total_seconds):
+    """Print ranked wall-clock summary for full-export stages."""
+    print("\n" + "="*80)
+    print("EXPORT PROFILE SUMMARY (WALL-CLOCK)")
+    print("="*80)
+
+    if not stage_profile:
+        print("No stage profile information collected.")
+        print("="*80)
+        return
+
+    ranked = sorted(stage_profile.items(), key=lambda kv: kv[1]['seconds'], reverse=True)
+    for idx, (name, meta) in enumerate(ranked, start=1):
+        sec = float(meta['seconds'])
+        pct = (100.0 * sec / total_seconds) if total_seconds > 0.0 else 0.0
+        status = meta.get('status', 'Unknown')
+        print(f"{idx:>2d}. {name:<36} {sec:>9.2f}s  ({pct:>5.1f}%)  [{status}]")
+
+    print("-"*80)
+    print(f"Total full export wall-clock: {total_seconds:.2f}s")
+    print("="*80)
+
+
+def _write_profile_json(stage_profile, total_seconds, output_path):
+    """Write profile metrics to a JSON file for later analysis."""
+    payload = {
+        'generated_at': datetime.now().isoformat(timespec='seconds'),
+        'total_seconds': float(total_seconds),
+        'stages': stage_profile,
+    }
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, 'w') as f:
+        json.dump(payload, f, indent=2)
+    return str(out)
 
 
 def generate_readme(export_results, config_data, git_info, output_base='model_data'):
@@ -318,19 +369,67 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
 
     if 'dust_charging' in export_results:
         charging_result = export_results['dust_charging']
+        charging_source = charging_result.get('source', 'direct_charge_solver')
+        charging_gamma_min = charging_result.get('gamma_min')
+        charging_gamma_max = charging_result.get('gamma_max')
+        charging_n_gamma = charging_result.get('n_gamma')
+        charging_samples = charging_result.get('combos_per_gamma')
+        charging_samples_min = charging_result.get('combos_per_gamma_min')
+        charging_samples_max = charging_result.get('combos_per_gamma_max')
+        charging_mode = charging_result.get('mode')
+        charging_fixed = charging_result.get('fixed_value')
+        charging_temp_min = charging_result.get('temperature_min')
+        charging_temp_max = charging_result.get('temperature_max')
+        charging_n_temp = charging_result.get('n_temperature')
+
+        if charging_source == 'heating_tables':
+            function_line = "- **Function**: Reuse of `make_rate_gamma_T_tables()` outputs from `models.dust_charge.dust_photoelectric_heating`"
+            description_lines = [
+                "- **Description**: Equilibrium charge moments (Zmean, Zsigma) reused from dust-photoelectric-heating",
+                "  tables, preserving the same gamma/temperature sampling across both exports.",
+            ]
+        else:
+            function_line = "- **Function**: `compute_charge_vs_gamma()` from `models.dust_charge.dust_charging`"
+            description_lines = [
+                "- **Description**: Equilibrium charge (Zmean) distribution for dust grains as function of",
+                "  gamma parameter gamma = G0 * sqrt(T) / ne, sampled with random (G0, T, ne) combinations.",
+            ]
+
+        if charging_gamma_min is not None and charging_gamma_max is not None and charging_n_gamma is not None:
+            gamma_line = f"- **Gamma Range**: {charging_gamma_min:.2e} to {charging_gamma_max:.2e} ({int(charging_n_gamma)} points)"
+        else:
+            gamma_line = "- **Gamma Range**: dynamic"
+
+        if charging_samples is not None:
+            sampling_line = f"- **Samples per Gamma**: {int(charging_samples)}"
+        elif charging_samples_min is not None and charging_samples_max is not None:
+            sampling_line = f"- **Samples per Gamma**: variable ({int(charging_samples_min)} to {int(charging_samples_max)})"
+        else:
+            sampling_line = "- **Samples per Gamma**: dynamic"
+
         readme_lines.extend([
             f"- **Status**: {charging_result['status']}",
             f"- **Export Time**: {charging_result['timestamp']}",
             f"- **Output Directory**: `{charging_result['dir']}`",
-            f"- **Function**: `compute_charge_vs_gamma()` from `models.dust_charge.dust_charging`",
-            f"- **Description**: Equilibrium charge (Zmean) distribution for dust grains as function of",
-            f"  gamma parameter gamma = G0 * sqrt(T) / ne. Scans over 150 gamma values with 100",
-            f"  combinations per gamma value to sample different (G0, T, ne) combinations producing the same gamma.",
-            f"- **Gamma Range**: {GAMMA_MIN:.2e} to {GAMMA_MAX:.2e}",
+            function_line,
+            *description_lines,
+            gamma_line,
+            sampling_line,
             f"- **Output Format**: PNG scatter plots + JSON data files with Zmean and Zsigma",
             f"- **Files**: {charging_result.get('file_count', '?')} files ({charging_result.get('bins_processed', 0)} bins processed)",
             "",
         ])
+        if charging_source == 'heating_tables' and charging_temp_min is not None and charging_temp_max is not None and charging_n_temp is not None:
+            readme_lines.extend([
+                f"- **Temperature Grid Reused**: {charging_temp_min:.2e} to {charging_temp_max:.2e} K ({int(charging_n_temp)} points)",
+            ])
+        if charging_mode is not None:
+            if charging_fixed is None:
+                readme_lines.extend([f"- **Heating Coupling Mode**: {charging_mode}"])
+            else:
+                readme_lines.extend([f"- **Heating Coupling Mode**: {charging_mode} (fixed_value={float(charging_fixed):.3g})"])
+        if charging_source == 'heating_tables' or charging_mode is not None:
+            readme_lines.extend([""])
 
     readme_lines.extend([
         "### 7. Dust Photoelectric Heating Rates",
@@ -339,6 +438,26 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
 
     if 'dust_photoelectric_heating' in export_results:
         heating_result = export_results['dust_photoelectric_heating']
+        h_tmin = heating_result.get('Tmin')
+        h_tmax = heating_result.get('Tmax')
+        h_nt = heating_result.get('nT')
+        h_gmin = heating_result.get('gamma_min')
+        h_gmax = heating_result.get('gamma_max')
+        h_ng = heating_result.get('n_gamma')
+        h_mode = heating_result.get('mode')
+        h_fixed = heating_result.get('fixed_value')
+        h_rad = heating_result.get('radiation_model')
+
+        if h_tmin is not None and h_tmax is not None and h_nt is not None:
+            temp_grid_line = f"- **Temperature Grid**: {float(h_tmin):.2e} to {float(h_tmax):.2e} K ({int(h_nt)} points log-spaced)"
+        else:
+            temp_grid_line = "- **Temperature Grid**: dynamic"
+
+        if h_gmin is not None and h_gmax is not None and h_ng is not None:
+            gamma_grid_line = f"- **Gamma Grid**: {float(h_gmin):.2e} to {float(h_gmax):.2e} ({int(h_ng)} points log-spaced)"
+        else:
+            gamma_grid_line = "- **Gamma Grid**: dynamic"
+
         readme_lines.extend([
             f"- **Status**: {heating_result['status']}",
             f"- **Export Time**: {heating_result['timestamp']}",
@@ -346,8 +465,10 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
             f"- **Function**: `make_rate_gamma_T_tables()` from `models.dust_charge.dust_photoelectric_heating`",
             f"- **Description**: Photoelectric heating and recombination cooling rates for dust grains as 2D tables",
             f"  on gamma × temperature grid. Rates computed using equilibrium charge distribution.",
-            f"- **Temperature Grid**: 10 K to 100 kK (50 points log-spaced)",
-            f"- **Gamma Grid**: 1e-6 to 1e6 (100 points log-spaced)",
+            temp_grid_line,
+            gamma_grid_line,
+            f"- **Radiation Model**: {h_rad if h_rad is not None else 'dynamic'}",
+            f"- **Mode**: {h_mode if h_mode is not None else 'dynamic'}" + (f" (fixed_value={float(h_fixed):.3g})" if h_fixed is not None else ""),
             f"- **Output Format**: NPZ (binary numpy) + PNG quick-look plots with metadata",
             f"- **Files**: {heating_result.get('file_count', '?')} files ({heating_result.get('bins_processed', 0)} bins processed)",
             "",
@@ -451,45 +572,43 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         "```",
         "model_data/",
         "├── optical_properties/",
-        "│   ├── graphite_bin_0_a*.txt",
-        "│   ├── graphite_bin_1_a*.txt",
-        "│   ├── silicate_bin_0_a*.txt",
-        "│   ├── silicate_bin_1_a*.txt",
-        "│   ├── graphite_pah_bin_*.txt",
+        "│   ├── averaged_cross_section_graphite_bin_*.txt",
+        "│   ├── averaged_cross_section_silicate_bin_*.txt",
+        "│   ├── averaged_cross_section_pah_bin_*.txt",
         "│   └── ...",
         "├── collisional_cooling_data/",
         "│   ├── cooling_graphite_bin_*_Z_*.txt",
         "│   ├── cooling_silicate_bin_*_Z_*.txt",
         "│   └── ...",
         "├── thermal_sputtering_data/",
-        "│   ├── sputter_graphite_bin_*_*.txt",
-        "│   ├── sputter_graphite_bin_*_*.pdf",
-        "│   ├── sputter_silicate_bin_*_*.txt",
+        "│   ├── sputtering_graphite_bin_*_Z_*",
+        "│   ├── sputtering_silicate_bin_*_Z_*",
+        "│   ├── sputtering_Tphi_overview_*.png",
         "│   └── ...",
         "├── pah_sputtering_data/",
-        "│   ├── pah_sputtering_*_Z_0",
-        "│   ├── pah_sputtering_*_Z_1",
-        "│   ├── pah_sputtering_*_Z_2",
-        "│   ├── pah_sputtering_*_Z_6",
-        "│   ├── pah_sputtering_*_Z_8",
-        "│   ├── pah_sputtering_*_quicklook.png",
+        "│   ├── sputtering_pah_bin_*_Z_0",
+        "│   ├── sputtering_pah_bin_*_Z_1",
+        "│   ├── sputtering_pah_bin_*_Z_2",
+        "│   ├── sputtering_pah_bin_*_Z_6",
+        "│   ├── sputtering_pah_bin_*_Z_8",
+        "│   ├── sputtering_pah_bin_*_quicklook.png",
         "│   └── ...",
         "├── dust_charging_data/",
-        "│   ├── charging_vs_gamma_graphite_*.png",
-        "│   ├── charging_vs_gamma_graphite_*.json",
-        "│   ├── charging_vs_gamma_silicate_*.png",
-        "│   ├── charging_vs_gamma_silicate_*.json",
+        "│   ├── charge_graphite_bin_*.png",
+        "│   ├── charge_graphite_bin_*.json",
+        "│   ├── charge_silicate_bin_*.png",
+        "│   ├── charge_silicate_bin_*.json",
         "│   └── ...",
         "├── dust_photoelectric_heating_data/",
-        "│   ├── heating_rates_graphite_*.npz",
-        "│   ├── heating_rates_graphite_*.png",
-        "│   ├── heating_rates_graphite_*.json",
-        "│   ├── heating_rates_silicate_*.npz",
-        "│   ├── heating_rates_silicate_*.png",
-        "│   ├── heating_rates_silicate_*.json",
+        "│   ├── heating_graphite_bin_*.npz",
+        "│   ├── heating_graphite_bin_*.png",
+        "│   ├── heating_graphite_bin_*.json",
+        "│   ├── heating_silicate_bin_*.npz",
+        "│   ├── heating_silicate_bin_*.png",
+        "│   ├── heating_silicate_bin_*.json",
         "│   └── ...",
         "├── PAH_dissociation_data/",
-        "│   ├── acetylene_dissociation_table_*.dat",
+        "│   ├── dissociation_pah_bin_*.dat",
         "│   ├── *_integrated_dissociation_rate.png",
         "│   └── ...",
         "└── README.md (this file)",
@@ -747,7 +866,7 @@ def export_pah_sputtering_rates_wrapper(config_path=None):
         }
 
 
-def export_dust_charging_wrapper(config_path=None):
+def export_dust_charging_wrapper(config_path=None, reuse_heating_data=False):
     """Wrapper for dust charging vs gamma export with error handling."""
     from models.dust_charge.export_dust_charging_vs_gamma import main as export_charging
 
@@ -758,13 +877,25 @@ def export_dust_charging_wrapper(config_path=None):
         print("\n" + "="*80)
         print("EXPORTING DUST CHARGING (ZMEAN VS GAMMA)")
         print("="*80)
-        result = export_charging(config_path=config_path)
+        result = export_charging(config_path=config_path, reuse_heating_data=reuse_heating_data)
         return {
             'status': 'Success',
             'timestamp': timestamp_str,
             'dir': result.get('output_dir', 'model_data/dust_charging_data'),
             'file_count': result.get('file_count', 0),
             'bins_processed': result.get('bins_processed', 0),
+            'source': result.get('source', 'direct_charge_solver'),
+            'gamma_min': result.get('gamma_min'),
+            'gamma_max': result.get('gamma_max'),
+            'n_gamma': result.get('n_gamma'),
+            'combos_per_gamma': result.get('combos_per_gamma'),
+            'combos_per_gamma_min': result.get('combos_per_gamma_min'),
+            'combos_per_gamma_max': result.get('combos_per_gamma_max'),
+            'temperature_min': result.get('temperature_min'),
+            'temperature_max': result.get('temperature_max'),
+            'n_temperature': result.get('n_temperature'),
+            'mode': result.get('mode'),
+            'fixed_value': result.get('fixed_value'),
         }
     except Exception as e:
         print(f"Error: {e}")
@@ -774,6 +905,7 @@ def export_dust_charging_wrapper(config_path=None):
             'dir': 'model_data/dust_charging_data',
             'file_count': 0,
             'bins_processed': 0,
+            'source': 'direct_charge_solver',
         }
 
 
@@ -795,6 +927,15 @@ def export_dust_photoelectric_heating_wrapper(config_path=None):
             'dir': result.get('output_dir', 'model_data/dust_photoelectric_heating_data'),
             'file_count': result.get('file_count', 0),
             'bins_processed': result.get('bins_processed', 0),
+            'Tmin': result.get('Tmin'),
+            'Tmax': result.get('Tmax'),
+            'nT': result.get('nT'),
+            'gamma_min': result.get('gamma_min'),
+            'gamma_max': result.get('gamma_max'),
+            'n_gamma': result.get('n_gamma'),
+            'mode': result.get('mode'),
+            'fixed_value': result.get('fixed_value'),
+            'radiation_model': result.get('radiation_model'),
         }
     except Exception as e:
         print(f"Error: {e}")
@@ -819,12 +960,18 @@ def export_pah_photoelectric_heating_tables_wrapper(config_path=None):
         print("EXPORTING PAH PHOTOELECTRIC HEATING TABLES")
         print("="*80)
         result = export_pah_tables(config_path=config_path)
+        failed_count = int(result.get('failed', 0))
+        if failed_count > 0:
+            status = f"Error: {failed_count} configuration(s) failed"
+        else:
+            status = 'Success'
         return {
-            'status': 'Success',
+            'status': status,
             'timestamp': timestamp_str,
             'dir': result.get('output_dir', 'model_data/PAH_photoelectric_heating_data'),
             'file_count': result.get('file_count', 0),
             'tables_generated': result.get('tables_generated', 0),
+            'failed': failed_count,
         }
     except Exception as e:
         print(f"Error: {e}")
@@ -873,7 +1020,7 @@ def export_pah_dissociation_tables_wrapper(config_path=None):
         }
 
 
-def main(config_path=None):
+def main(config_path=None, profile=True, profile_output=None):
     """
     Master export script that coordinates all grain data exports.
     
@@ -916,33 +1063,93 @@ def main(config_path=None):
     
     # Run all exports
     export_results = {}
+    stage_profile = {}
+    t_full_start = time.perf_counter()
     
     # 1. Dust optical properties
-    export_results['dust_optical_properties'] = export_dust_optical_properties_wrapper(config_path)
+    export_results['dust_optical_properties'] = _run_profiled_stage(
+        'dust_optical_properties',
+        export_dust_optical_properties_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
     
     # 2. PAH optical properties
-    export_results['pah_optical_properties'] = export_pah_optical_properties_wrapper(config_path)
+    export_results['pah_optical_properties'] = _run_profiled_stage(
+        'pah_optical_properties',
+        export_pah_optical_properties_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
     
     # 3. Collisional cooling
-    export_results['collisional_cooling'] = export_collisional_cooling_wrapper(config_path)
+    export_results['collisional_cooling'] = _run_profiled_stage(
+        'collisional_cooling',
+        export_collisional_cooling_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
     
     # 4. Sputtering rates
-    export_results['sputtering_rates'] = export_sputtering_rates_wrapper(config_path)
+    export_results['sputtering_rates'] = _run_profiled_stage(
+        'sputtering_rates',
+        export_sputtering_rates_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
 
     # 5. PAH sputtering rates (phi=0)
-    export_results['pah_sputtering_rates'] = export_pah_sputtering_rates_wrapper(config_path)
+    export_results['pah_sputtering_rates'] = _run_profiled_stage(
+        'pah_sputtering_rates',
+        export_pah_sputtering_rates_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
 
-    # 6. Dust charging vs gamma
-    export_results['dust_charging'] = export_dust_charging_wrapper(config_path)
+    # 6. Dust photoelectric heating rates
+    export_results['dust_photoelectric_heating'] = _run_profiled_stage(
+        'dust_photoelectric_heating',
+        export_dust_photoelectric_heating_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
 
-    # 7. Dust photoelectric heating rates
-    export_results['dust_photoelectric_heating'] = export_dust_photoelectric_heating_wrapper(config_path)
+    # 7. Dust charging vs gamma (reused from heating-stage equilibrium solves)
+    export_results['dust_charging'] = _run_profiled_stage(
+        'dust_charging',
+        export_dust_charging_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+        reuse_heating_data=True,
+    )
 
     # 8. PAH photoelectric heating tables
-    export_results['pah_photoelectric_heating_tables'] = export_pah_photoelectric_heating_tables_wrapper(config_path)
+    export_results['pah_photoelectric_heating_tables'] = _run_profiled_stage(
+        'pah_photoelectric_heating_tables',
+        export_pah_photoelectric_heating_tables_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
 
     # 9. PAH dissociation tables
-    export_results['pah_dissociation_tables'] = export_pah_dissociation_tables_wrapper(config_path)
+    export_results['pah_dissociation_tables'] = _run_profiled_stage(
+        'pah_dissociation_tables',
+        export_pah_dissociation_tables_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
+
+    t_full_end = time.perf_counter()
+    total_seconds = float(t_full_end - t_full_start)
     
     # Generate README
     print("\n" + "="*80)
@@ -966,6 +1173,12 @@ def main(config_path=None):
     print(f"\nCompleted: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*80)
 
+    if profile:
+        _print_profile_summary(stage_profile, total_seconds)
+        if profile_output:
+            out_path = _write_profile_json(stage_profile, total_seconds, profile_output)
+            print(f"Profile JSON written to: {out_path}")
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Master export script for grain and PAH optical properties and collision data.'
@@ -976,6 +1189,17 @@ if __name__ == '__main__':
         default=None,
         help='Path to JSON grain size configuration file. If not provided, uses default (grain_size_distribution.json).'
     )
+    parser.add_argument(
+        '--no-profile',
+        action='store_true',
+        help='Disable wall-clock stage profiling output at the end of the run.'
+    )
+    parser.add_argument(
+        '--profile-output',
+        type=str,
+        default=None,
+        help='Optional JSON path to write stage profile metrics.'
+    )
     args = parser.parse_args()
     
-    main(config_path=args.config)
+    main(config_path=args.config, profile=(not args.no_profile), profile_output=args.profile_output)

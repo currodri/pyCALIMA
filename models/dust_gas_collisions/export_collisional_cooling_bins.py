@@ -6,6 +6,8 @@ non-PAH bins, generating cooling tables in `model_data/collisional_cooling_data`
 """
 
 import argparse
+import concurrent.futures
+import os
 from pathlib import Path
 
 import numpy as np
@@ -96,42 +98,47 @@ def main(config_path=None):
     print(f"Ion species: {len(ION_SPECIES)}")
     print("=" * 80)
 
-    for bin_info in bins:
-        composition = bin_info["composition"]
-        bin_id = bin_info["id"]
-        bin_rank = int(bin_info["bin_rank"])
+    max_workers = min(10, (os.cpu_count() or 1))
+    print(f"Shared worker pool: {max_workers}")
 
-        if composition not in COMPOSITION_PROPERTIES:
-            raise ValueError(
-                f"Unsupported composition '{composition}' for bin '{bin_id}'."
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for bin_info in bins:
+            composition = bin_info["composition"]
+            bin_id = bin_info["id"]
+            bin_rank = int(bin_info["bin_rank"])
+
+            if composition not in COMPOSITION_PROPERTIES:
+                raise ValueError(
+                    f"Unsupported composition '{composition}' for bin '{bin_id}'."
+                )
+
+            # Use bin central size a0 (micron) from JSON config.
+            params = get_lognormal_parameters(bin_id, model_name="basic")
+            grain_size_micron = float(params["a0"])
+
+            props = COMPOSITION_PROPERTIES[composition]
+            dust_label = f"{composition}_bin_{bin_rank:02d}"
+
+            print(f"\n[bin={bin_id}] composition={composition}, rank={bin_rank}, a0={grain_size_micron:.4e} micron")
+
+            export_collisional_cooling(
+                Tmin=Tmin,
+                Tmax=Tmax,
+                grain_size_micron=grain_size_micron,
+                grain_density=props["density"],
+                grain_atomic_mass=props["atomic_mass"],
+                grain_atomic_number=props["atomic_number"],
+                dust_label=dust_label,
+                ion_atomic_masses=ion_masses,
+                ion_atomic_numbers=ion_atomic_numbers,
+                nZ_ion=nZ_ion,
+                nT=nT,
+                nv=nv,
+                nphi=nphi,
+                delta_max=delta_max,
+                table_dir=str(table_dir),
+                executor=executor,
             )
-
-        # Use bin central size a0 (micron) from JSON config.
-        params = get_lognormal_parameters(bin_id, model_name="basic")
-        grain_size_micron = float(params["a0"])
-
-        props = COMPOSITION_PROPERTIES[composition]
-        dust_label = f"{composition}_bin_{bin_rank:02d}"
-
-        print(f"\n[bin={bin_id}] composition={composition}, rank={bin_rank}, a0={grain_size_micron:.4e} micron")
-
-        export_collisional_cooling(
-            Tmin=Tmin,
-            Tmax=Tmax,
-            grain_size_micron=grain_size_micron,
-            grain_density=props["density"],
-            grain_atomic_mass=props["atomic_mass"],
-            grain_atomic_number=props["atomic_number"],
-            dust_label=dust_label,
-            ion_atomic_masses=ion_masses,
-            ion_atomic_numbers=ion_atomic_numbers,
-            nZ_ion=nZ_ion,
-            nT=nT,
-            nv=nv,
-            nphi=nphi,
-            delta_max=delta_max,
-            table_dir=str(table_dir),
-        )
 
     print("\nAll non-PAH bins exported successfully.")
 
