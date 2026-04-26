@@ -4,9 +4,14 @@
 	<img src="assets/CALIMA_logo1.png" alt="pyCALIMA logo" width="420"/>
 </p>
 
-pyCALIMA is a research codebase for modeling dust and PAH microphysics used in Dusty-PRISM workflows.
+pyCALIMA is a research codebase for modeling dust and PAH microphysics used in RAMSES simulations.
 It combines grain-size distributions, radiation, charging, sputtering, collisional cooling, and
 PAH-specific photophysics into reusable Python modules plus export scripts that generate simulation-ready tables.
+
+## Related References
+
+- RAMSES repository: https://github.com/ramses-organisation/ramses
+- CALIMA model paper: https://ui.adsabs.harvard.edu/abs/2026arXiv260221790R/abstract
 
 ## What This Repository Contains
 
