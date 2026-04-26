@@ -125,30 +125,30 @@
     "collisional_cooling": {
       "Tmin": 10.0,
       "Tmax": 1e9,
-      "nT": 100,
+      "nT": 200,
       "nv": 200,
-      "nphi": 100,
+      "nphi": 200,
       "delta_max": 0.1
     },
     "dust_sputtering": {
       "Tmin": 1000.0,
       "Tmax": 1e9,
-      "nT": 100,
-      "nphi": 100,
+      "nT": 200,
+      "nphi": 200,
       "nbins_v": 200,
       "hnu_max_ev": 13.6
     },
     "pah_sputtering": {
       "Tmin": 1000.0,
       "Tmax": 1e9,
-      "nT": 100,
+      "nT": 200,
       "nbins_v": 300,
       "nbins_theta": 30
     },
     "dust_charging": {
-      "gamma_min": 0.0001,
-      "gamma_max": 1000000.0,
-      "n_gamma": 50,
+      "gamma_min": 1e-4,
+      "gamma_max": 1e6,
+      "n_gamma": 100,
       "combos_per_gamma": 20,
       "seed": 42
     },
@@ -162,7 +162,7 @@
       "radiation_model": "Mathis",
       "mode": "fix_G0",
       "fixed_value": 1.0,
-      "n_workers": null
+      "n_workers": 10
     },
     "pah_photoelectric_heating": {
       "temperature": 1000.0,
@@ -171,10 +171,7 @@
       "ne_max": 100000.0,
       "n_ne": 100,
       "radiation_models": ["Mathis"],
-      "optical_models": [
-        "Malloci",
-        "Draine"
-      ],
+      "optical_models": ["Draine"],
       "attachment_models": [
         "Berne",
         "Tielens"

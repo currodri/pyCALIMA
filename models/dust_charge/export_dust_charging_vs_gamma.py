@@ -13,6 +13,7 @@ Gamma characterizes different ISM conditions:
 import argparse
 from pathlib import Path
 import json
+import re
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -176,6 +177,111 @@ def _plot_results(results, grain_size_cm, out_png):
     plt.close(fig)
 
 
+def _safe_log10(x, floor=1e-300):
+    """Numerically safe log10 for positive arrays."""
+    arr = np.asarray(x, dtype=float)
+    return np.log10(np.maximum(arr, float(floor)))
+
+
+def _build_gamma_temperature_grids(results):
+    """Convert point-wise charging samples into regular gamma x temperature grids."""
+    if not results:
+        raise ValueError('No results available to build charging grids')
+
+    gamma_vals = np.asarray([r['gamma'] for r in results], dtype=float)
+    temp_vals = np.asarray([r['T'] for r in results], dtype=float)
+    zmean_vals = np.asarray([r['Zmean'] for r in results], dtype=float)
+    zsigma_vals = np.asarray([r['Zsigma'] for r in results], dtype=float)
+
+    gamma_grid = np.unique(gamma_vals)
+    temp_grid = np.unique(temp_vals)
+
+    zmean_grid = np.full((len(gamma_grid), len(temp_grid)), np.nan, dtype=float)
+    zsigma_grid = np.full((len(gamma_grid), len(temp_grid)), np.nan, dtype=float)
+
+    gamma_index = {float(g): i for i, g in enumerate(gamma_grid)}
+    temp_index = {float(t): j for j, t in enumerate(temp_grid)}
+
+    # Aggregate duplicates by median, matching previous table-generation behavior.
+    buckets = {}
+    for g, t, zm, zs in zip(gamma_vals, temp_vals, zmean_vals, zsigma_vals):
+        key = (float(g), float(t))
+        if key not in buckets:
+            buckets[key] = {'zm': [], 'zs': []}
+        buckets[key]['zm'].append(float(zm))
+        buckets[key]['zs'].append(float(zs))
+
+    for (g, t), vals in buckets.items():
+        i = gamma_index[g]
+        j = temp_index[t]
+        zmean_grid[i, j] = float(np.median(np.asarray(vals['zm'], dtype=float)))
+        zsigma_grid[i, j] = float(np.median(np.asarray(vals['zs'], dtype=float)))
+
+    return gamma_grid, temp_grid, zmean_grid, zsigma_grid
+
+
+def _fortran_dust_label(bin_id, fallback_index):
+    """Return the bin_id for use in legacy Fortran table filenames."""
+    if bin_id:
+        return bin_id
+    return f"dustbin_{int(fallback_index):03d}"
+
+
+def _write_legacy_fortran_tables(output_dir, dust_label, gamma_grid, temp_grid, zmean_grid, zsigma_grid):
+    """Write legacy charging tables in the format consumed by init_dust_charging_tables."""
+    charge_path = output_dir / f'dust_charge_Z_vs_T_{dust_label}'
+    sigma_path = output_dir / f'dust_charge_sigma_vs_T_{dust_label}'
+
+    ngamma = int(len(gamma_grid))
+    nT = int(len(temp_grid))
+    gamma_log = _safe_log10(gamma_grid)
+    temp_log = _safe_log10(temp_grid)
+
+    with open(charge_path, 'w') as fz, open(sigma_path, 'w') as fs:
+        # Fortran reader skips/consumes these lines in this exact order.
+        fz.write('# ngamma nT\n')
+        fs.write('# ngamma nT\n')
+        fz.write(f'{ngamma} {nT}\n')
+        fs.write(f'{ngamma} {nT}\n')
+        fz.write('# T_centers_log10(K)\n')
+        fs.write('# T_centers_log10(K)\n')
+        fz.write(' '.join(f'{v:.6e}' for v in temp_log) + '\n')
+        fs.write(' '.join(f'{v:.6e}' for v in temp_log) + '\n')
+        fz.write('# gamma_centers_log10(K**0.5 cm**-3)\n')
+        fs.write('# gamma_centers_log10(K**0.5 cm**-3)\n')
+        fz.write(' '.join(f'{v:.6e}' for v in gamma_log) + '\n')
+        fs.write(' '.join(f'{v:.6e}' for v in gamma_log) + '\n')
+        fz.write('# Zmean(gamma_i, T_j) rows over gamma\n')
+        fs.write('# Zsigma(gamma_i, T_j) rows over gamma\n')
+
+        for i in range(ngamma):
+            row_z = [f'{zmean_grid[i, j]:.6e}' if np.isfinite(zmean_grid[i, j]) else f'{np.nan:.6e}' for j in range(nT)]
+            row_s = [f'{zsigma_grid[i, j]:.6e}' if np.isfinite(zsigma_grid[i, j]) else f'{np.nan:.6e}' for j in range(nT)]
+            fz.write(' '.join(row_z) + '\n')
+            fs.write(' '.join(row_s) + '\n')
+
+    return charge_path, sigma_path
+
+
+def _cleanup_legacy_charging_tables(output_dir):
+    """Remove stale legacy table names so output uses JSON bin IDs consistently."""
+    legacy_patterns = [
+        re.compile(r'^dust_charge_(Z|sigma)_vs_T_dustbin_\d{3}$'),
+        re.compile(r'^dust_charge_(Z|sigma)_vs_T_dustbin_\d{3}\.dat$'),
+        re.compile(r'^dust_charge_(Z|sigma)_vs_T_[0-9eE+\-.]+_cm_.+\.dat$'),
+    ]
+
+    removed = 0
+    for existing in output_dir.iterdir():
+        if not existing.is_file():
+            continue
+        if any(pattern.match(existing.name) for pattern in legacy_patterns):
+            existing.unlink()
+            removed += 1
+
+    return removed
+
+
 def main(config_path=None, reuse_heating_data=False):
     """
     Export dust charging vs gamma for all dust bins.
@@ -198,6 +304,10 @@ def main(config_path=None, reuse_heating_data=False):
     repo_root = _repo_root()
     output_dir = repo_root / 'model_data' / 'dust_charging_data'
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    removed_legacy = _cleanup_legacy_charging_tables(output_dir)
+    if removed_legacy:
+        print(f'Removed {removed_legacy} legacy dust-charging table file(s).')
 
     bins = sorted(
         get_bins(is_pah=False),
@@ -229,7 +339,7 @@ def main(config_path=None, reuse_heating_data=False):
 
     first_grid_meta = None
 
-    for bin_info in bins:
+    for ibin, bin_info in enumerate(bins, start=1):
         bin_id = bin_info['id']
         comp = bin_info['composition']
         rank = int(bin_info['bin_rank'])
@@ -351,6 +461,21 @@ def main(config_path=None, reuse_heating_data=False):
             created_files.append(str(json_path))
             print(f"  ✓ Data saved: {json_path.name}")
 
+            # Write legacy Fortran-friendly tables expected by downstream RAMSES tooling.
+            dust_label = _fortran_dust_label(bin_id, fallback_index=ibin)
+            gamma_grid_vals, temp_grid_vals, zmean_grid_vals, zsigma_grid_vals = _build_gamma_temperature_grids(json_results)
+            charge_tbl, sigma_tbl = _write_legacy_fortran_tables(
+                output_dir=output_dir,
+                dust_label=dust_label,
+                gamma_grid=gamma_grid_vals,
+                temp_grid=temp_grid_vals,
+                zmean_grid=zmean_grid_vals,
+                zsigma_grid=zsigma_grid_vals,
+            )
+            created_files.extend([str(charge_tbl), str(sigma_tbl)])
+            print(f"  ✓ Legacy table saved: {charge_tbl.name}")
+            print(f"  ✓ Legacy table saved: {sigma_tbl.name}")
+
             results_summary.append({
                 'bin_id': bin_id,
                 'composition': comp,
@@ -408,6 +533,12 @@ def main(config_path=None, reuse_heating_data=False):
             'mode': first_grid_meta.get('mode'),
             'fixed_value': first_grid_meta.get('fixed_value'),
         })
+
+    # Some downstream charge solvers may emit legacy sidecar tables during execution.
+    # Remove them here so this exporter remains consistently bin-id based.
+    removed_postrun = _cleanup_legacy_charging_tables(output_dir)
+    if removed_postrun:
+        print(f'Removed {removed_postrun} legacy dust-charging table file(s) after export.')
 
     return {
         'output_dir': str(output_dir),

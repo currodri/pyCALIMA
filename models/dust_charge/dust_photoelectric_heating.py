@@ -2528,13 +2528,12 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
     log_peh[~np.isfinite(log_peh)] = fill_bad
     log_rec[~np.isfinite(log_rec)] = fill_bad
 
-    # write files using repository naming convention
-    mat = 'Gra' if 'graphite' in grain_type.lower() else 'suvSil'
+    # Write files with grain label/bin id as the primary identifier.
     size_tag = _grain_output_label(a_cm=a_cm, grain_label=grain_label)
-    fn_logT = os.path.join(out_dir, f'log10_Ts_{mat}_{size_tag}.dat')
-    fn_logg = os.path.join(out_dir, f'log10_gammas_{mat}_{size_tag}.dat')
-    fn_heating = os.path.join(out_dir, f'dust_rates_heating_{mode}_{mat}_{size_tag}.dat')
-    fn_cooling = os.path.join(out_dir, f'dust_rates_cooling_{mode}_{mat}_{size_tag}.dat')
+    fn_logT = os.path.join(out_dir, f'log10_Ts_{size_tag}.dat')
+    fn_logg = os.path.join(out_dir, f'log10_gammas_{size_tag}.dat')
+    fn_heating = os.path.join(out_dir, f'dust_rates_heating_{mode}_{size_tag}.dat')
+    fn_cooling = os.path.join(out_dir, f'dust_rates_cooling_{mode}_{size_tag}.dat')
     np.savetxt(fn_logT, np.log10(T_vals), fmt='%.12e')
     np.savetxt(fn_logg, np.log10(gamma_vals), fmt='%.12e')
     np.savetxt(fn_heating, log_peh, fmt='%.12e')
@@ -2576,7 +2575,7 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
     title_grain = grain_label if grain_label is not None else f'a={a_cm:.3e} cm'
     fig.suptitle(f'{grain_type}, {title_grain}, {radiation_model}, mode={mode}, fixed={fixed_value:.3e}')
     fig.subplots_adjust(top=0.90, bottom=0.14, left=0.12, right=0.92)
-    fn_plot = os.path.join(out_dir, f'dust_rates_vs_gamma_by_temperature_{mode}_{mat}_{size_tag}.pdf')
+    fn_plot = os.path.join(out_dir, f'dust_rates_vs_gamma_by_temperature_{mode}_{size_tag}.pdf')
     fig.savefig(fn_plot, dpi=200)
     plt.close(fig)
 

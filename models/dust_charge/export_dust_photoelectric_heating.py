@@ -12,6 +12,7 @@ import argparse
 from pathlib import Path
 import json
 import concurrent.futures
+import re
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -214,6 +215,17 @@ def main(config_path=None):
     repo_root = _repo_root()
     output_dir = repo_root / 'model_data' / 'dust_photoelectric_heating_data'
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove legacy filenames that used composition tags (Gra/suvSil).
+    legacy_patterns = [
+        re.compile(r'^log10_Ts_(Gra|suvSil)_.+\.dat$'),
+        re.compile(r'^log10_gammas_(Gra|suvSil)_.+\.dat$'),
+        re.compile(r'^dust_rates_(heating|cooling)_.+_(Gra|suvSil)_.+\.dat$'),
+        re.compile(r'^dust_rates_vs_gamma_by_temperature_.+_(Gra|suvSil)_.+\.pdf$'),
+    ]
+    for existing in output_dir.iterdir():
+        if existing.is_file() and any(p.match(existing.name) for p in legacy_patterns):
+            existing.unlink()
 
     bins = sorted(
         get_bins(is_pah=False),

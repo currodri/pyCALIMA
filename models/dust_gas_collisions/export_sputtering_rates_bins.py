@@ -10,6 +10,7 @@ import argparse
 import concurrent.futures
 import os
 from pathlib import Path
+import re
 import shutil
 
 import numpy as np
@@ -73,6 +74,15 @@ def main(config_path=None):
     output_dir = repo_root / "model_data" / "thermal_sputtering_data"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Remove legacy composition-based names to avoid mixed naming after reruns.
+    legacy_patterns = [
+        re.compile(r"^sputtering_(graphite|silicate)_bin_\d+_Z_\d+$"),
+        re.compile(r"^sputtering_Tphi_overview_(graphite|silicate)_bin_\d+-.+\.png$"),
+    ]
+    for existing in output_dir.iterdir():
+        if existing.is_file() and any(p.match(existing.name) for p in legacy_patterns):
+            existing.unlink()
+
     bins = sorted(
         get_bins(is_pah=False),
         key=lambda b: (b["composition"], b["bin_rank"], b["index"]),
@@ -98,7 +108,7 @@ def main(config_path=None):
             bin_id = bin_info["id"]
             comp = bin_info["composition"]
             rank = int(bin_info["bin_rank"])
-            dustlabel = f"{comp}_bin_{rank:02d}"
+            dustlabel = bin_id
             params = get_lognormal_parameters(bin_id, model_name="basic")
             grain_size_micron = float(params["a0"])
 

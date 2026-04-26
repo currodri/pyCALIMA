@@ -9,6 +9,7 @@ import argparse
 import concurrent.futures
 import os
 from pathlib import Path
+import re
 
 import numpy as np
 
@@ -77,6 +78,12 @@ def main(config_path=None):
     table_dir = repo_root / "model_data" / "collisional_cooling_data"
     table_dir.mkdir(parents=True, exist_ok=True)
 
+    # Remove legacy composition-based filenames to keep output naming consistent.
+    legacy_pattern = re.compile(r"^cooling_(graphite|silicate)_bin_\d+_Z_\d+$")
+    for existing in table_dir.iterdir():
+        if existing.is_file() and legacy_pattern.match(existing.name):
+            existing.unlink()
+
     ion_masses = np.array([sp["mass"] for sp in ION_SPECIES])
     ion_atomic_numbers = np.array([sp["Z"] for sp in ION_SPECIES])
     nZ_ion = np.array([sp["Z_max"] for sp in ION_SPECIES])
@@ -117,7 +124,7 @@ def main(config_path=None):
             grain_size_micron = float(params["a0"])
 
             props = COMPOSITION_PROPERTIES[composition]
-            dust_label = f"{composition}_bin_{bin_rank:02d}"
+            dust_label = bin_id
 
             print(f"\n[bin={bin_id}] composition={composition}, rank={bin_rank}, a0={grain_size_micron:.4e} micron")
 
