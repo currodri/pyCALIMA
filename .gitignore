@@ -28,6 +28,7 @@ MANIFEST
 
 # Get rid of plots
 *.png
+!assets/CALIMA_logo1.png
 *.pdf
 *.eps
 

@@ -1,8 +1,10 @@
-# CALIMA
+# pyCALIMA
 
-![CALIMA logo](CALIMA_logo1.png)
+<p align="center">
+	<img src="assets/CALIMA_logo1.png" alt="pyCALIMA logo" width="420"/>
+</p>
 
-CALIMA is a research codebase for modeling dust and PAH microphysics used in Dusty-PRISM workflows.
+pyCALIMA is a research codebase for modeling dust and PAH microphysics used in Dusty-PRISM workflows.
 It combines grain-size distributions, radiation, charging, sputtering, collisional cooling, and
 PAH-specific photophysics into reusable Python modules plus export scripts that generate simulation-ready tables.
 
