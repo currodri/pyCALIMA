@@ -38,6 +38,120 @@ PATH_EXTERNAL_DATA = _REPO_ROOT / 'external_data'
 # Functions
 
 
+def _table_output_path(path):
+    if os.path.isabs(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path
+    out_path = os.path.join(PATH_TABLES, path)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    return out_path
+
+
+def read_dielectric_file(filename):
+    """
+    Read a dielectric data file in either Draine 2003 or astronomical silicate format.
+
+    Returns a metadata dictionary with the parsed table stored under ``table``.
+    """
+    with open(filename, 'r') as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    is_draine2003 = lines[0].startswith("ICOMP=")
+
+    metadata = {
+        'icomp': None,
+        'temperature_K': None,
+    }
+
+    if is_draine2003:
+        metadata['icomp'] = lines[0].split(":", 1)[-1].strip()
+        metadata['radius_micron'] = float(lines[1].split('=')[0].strip())
+        metadata['temperature_K'] = float(lines[2].split('=')[0].strip())
+        metadata['n_wavelengths'] = int(lines[3].split('=')[0].strip())
+        col_names = ['wavelength_um', 'eps1_minus_1', 'eps2', 'Re_n_minus_1', 'Im_n']
+        data_start = 5
+    else:
+        header_index = None
+        for i, line in enumerate(lines):
+            if '=' in line and 'radius' in line:
+                metadata['radius_micron'] = float(line.split('=')[0].strip())
+            elif '=' in line and 'wavelengths' in line:
+                metadata['n_wavelengths'] = int(line.split('=')[0].strip())
+            elif line.lower().startswith('wave') or 'wave(' in line:
+                header_index = i
+                break
+
+        if header_index is None:
+            raise ValueError(f'Could not locate dielectric table header in {filename}')
+
+        col_names = ['wavelength_um', 'eps1_minus_1', 'eps2', 'Re_n_minus_1', 'Im_n']
+        data_start = header_index + 1
+
+    table_data = []
+    for line in lines[data_start:]:
+        parts = line.split()
+        if len(parts) == 5:
+            table_data.append(list(map(float, parts)))
+
+    metadata['table'] = pd.DataFrame(table_data, columns=col_names)
+    return metadata
+
+
+def save_imn_file(metadata, outfile):
+    """
+    Save wavelength (Angstrom) and Im_n from dielectric data in the same table
+    directory used for exported optical properties.
+    """
+    df = metadata['table'].copy()
+
+    if 'wavelength_um' not in df.columns or 'Im_n' not in df.columns:
+        raise KeyError("Input table must contain 'wavelength_um' and 'Im_n' columns")
+
+    df['wavelength_A'] = df['wavelength_um'].astype(float) * 1e4
+    df_sorted = df.sort_values('wavelength_A', ascending=True)
+    data = df_sorted[['wavelength_A', 'Im_n']].to_numpy(dtype=float)
+
+    outpath = _table_output_path(outfile)
+    with open(outpath, 'w') as f:
+        f.write(f"{len(data):8d}\n")
+        np.savetxt(f, data, fmt="%.12e %.12e")
+
+
+def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
+    """
+    Export the dielectric Im_n tables for a dust bin.
+
+    The output filenames follow the same bin-stem convention as the cross-section
+    export, using ``Im_n_<bin_id>``, ``Im_n_<bin_id>_pe`` and ``Im_n_<bin_id>_pa``.
+    """
+    composition_key = str(composition).lower()
+    if output_dir is None:
+        output_dir = PATH_MODEL_OPTICAL_OUTPUT
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_dir = Path(PATH_OPTICS) / 'draine_lee_1984'
+    if composition_key == 'graphite':
+        sources = [
+            (source_dir / 'callindex.out_CpeD03_0.10', f'Im_n_{bin_id}_pe'),
+            (source_dir / 'callindex.out_CpaD03_0.10', f'Im_n_{bin_id}_pa'),
+        ]
+    elif composition_key == 'silicate':
+        sources = [
+            (source_dir / 'eps_suvSil', f'Im_n_{bin_id}'),
+        ]
+    else:
+        raise ValueError(f"Unsupported composition '{composition}'.")
+
+    saved_paths = []
+    for src_path, out_stem in sources:
+        metadata = read_dielectric_file(str(src_path))
+        save_imn_file(metadata, str(output_dir / out_stem))
+        saved_paths.append(str(output_dir / out_stem))
+
+    return saved_paths
+
+
 def compute_isrf_averaged_absorption_efficiency_all_sizes(E_min=0.1, E_max=13.6,
                                                           nE=2000,
                                                           save=True,

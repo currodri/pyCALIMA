@@ -596,7 +596,6 @@ def plot_radiation_fields():
     # Read the radiation field in erg s-1 cm-2 nm-1 sr-1
     wave_intensity = _load_isrf_data('Mathis')
     wavelength = wave_intensity['col1']  # in nm
-    print(wavelength.min(),wavelength.max())
     wavelength_intensity = wave_intensity['col2']  # in erg cm-2 s-1 nm-1 sr-1
     I_file_converted = 2. *np.pi * wavelength_intensity
 
@@ -726,23 +725,6 @@ def compute_heating_efficiency(args):
     
     # 17. Compute the heating efficiency as the ratio of injected to absorbed power
     eff = Pinj / Prad
-
-    print('G0:',G0)
-    print('temperature:',T)
-    print('ne:',ne)
-    print('f_anion:',f_anion)
-    print('f_neutral:',f_neutral)
-    print('f_1:',f_1, k_rec_1*ne / k_pe_0,  k_pe_1 / k_rec_2, k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
-    print('f_2:',f_2)
-    print('k_det:',k_det)
-    print('k_att:',k_att)
-    print('k_pe_0:',k_pe_0)
-    print('k_rec_1:',k_rec_1)
-    print('k_pe_1:',k_pe_1)
-    print('k_rec_2:',k_rec_2)
-    print('Pinj:',Pinj)
-    print('Prad:',Prad)
-    print('eff:',eff)
 
     # print(f'For G0={G0:.6e} erg/s/cm^2, ne={ne:.6e} cm^-3, T={T} K')
     # print(f'Efficiency: {eff:.6e}')

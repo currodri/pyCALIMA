@@ -63,10 +63,10 @@
     "dust_photoelectric_heating": {
       "Tmin": 10.0,
       "Tmax": 100000.0,
-      "nT": 50,
+      "nT": 5,
       "gamma_min": 1e-06,
       "gamma_max": 1000000.0,
-      "n_gamma": 100,
+      "n_gamma": 10,
       "radiation_model": "Mathis",
       "mode": "fix_G0",
       "fixed_value": 1.0,

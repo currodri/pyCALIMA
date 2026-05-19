@@ -155,7 +155,7 @@
     "dust_photoelectric_heating": {
       "Tmin": 10.0,
       "Tmax": 100000.0,
-      "nT": 50,
+      "nT": 100,
       "gamma_min": 1e-06,
       "gamma_max": 1000000.0,
       "n_gamma": 100,

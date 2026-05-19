@@ -1,0 +1,4 @@
++ Bensby2018.txt: Asplund Solar values, all values that were not given are attributed a value of -10.0: DO NOT consider those values
++ Chen2000_AG.txt: Anders & Grevesse Solar values, all values that were not given are attributed a value of -10.0: DO NOT consider those values
++ Chen2000.txt: Asplund Solar values, all values that were not given are attributed a value of -10.0: DO NOT consider those values
++ Israelian2004_mine.txt: Anders & Grevesse values (?), all values that were not given are attributed a value of -10.0: DO NOT consider those values. All error values with -10.0 but not -10.0 in the abundance values are upper limits.

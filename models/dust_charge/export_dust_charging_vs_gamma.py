@@ -237,22 +237,24 @@ def _write_legacy_fortran_tables(output_dir, dust_label, gamma_grid, temp_grid, 
     gamma_log = _safe_log10(gamma_grid)
     temp_log = _safe_log10(temp_grid)
 
+    header_lines = [
+        '# Dust charging table metadata',
+        '# Units: Zmean and Zsigma are dimensionless',
+        '# Lines below are plain ASCII for direct Fortran READ access',
+        '# Format: one count line "nT n_gamma", then one line of log10(T) values and one line of log10(gamma) values, followed by n_gamma rows x nT columns',
+        '# Rows iterate over gamma (i=1..n_gamma), columns over T (j=1..nT)',
+        '# Missing/invalid entries are encoded as NaN',
+    ]
+
     with open(charge_path, 'w') as fz, open(sigma_path, 'w') as fs:
-        # Fortran reader skips/consumes these lines in this exact order.
-        fz.write('# ngamma nT\n')
-        fs.write('# ngamma nT\n')
-        fz.write(f'{ngamma} {nT}\n')
-        fs.write(f'{ngamma} {nT}\n')
-        fz.write('# T_centers_log10(K)\n')
-        fs.write('# T_centers_log10(K)\n')
+        fz.write('\n'.join(header_lines) + '\n')
+        fs.write('\n'.join(header_lines) + '\n')
+        fz.write(f'{nT} {ngamma}\n')
+        fs.write(f'{nT} {ngamma}\n')
         fz.write(' '.join(f'{v:.6e}' for v in temp_log) + '\n')
         fs.write(' '.join(f'{v:.6e}' for v in temp_log) + '\n')
-        fz.write('# gamma_centers_log10(K**0.5 cm**-3)\n')
-        fs.write('# gamma_centers_log10(K**0.5 cm**-3)\n')
         fz.write(' '.join(f'{v:.6e}' for v in gamma_log) + '\n')
         fs.write(' '.join(f'{v:.6e}' for v in gamma_log) + '\n')
-        fz.write('# Zmean(gamma_i, T_j) rows over gamma\n')
-        fs.write('# Zsigma(gamma_i, T_j) rows over gamma\n')
 
         for i in range(ngamma):
             row_z = [f'{zmean_grid[i, j]:.6e}' if np.isfinite(zmean_grid[i, j]) else f'{np.nan:.6e}' for j in range(nT)]

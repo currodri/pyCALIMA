@@ -2059,38 +2059,30 @@ def compute_charge_vs_gamma(
                 out_Z = np.column_stack([gamma_col_log, medianZ_mat])
                 out_sig = np.column_stack([gamma_col_log, medianSig_mat])
 
-                # Header listing log10 temperature centers for columns (after first gamma column)
-                T_header = ' '.join([f"{np.log10(t):.6e}" for t in T_centers])
-                header_line = f"T_centers_log10(K):\n{T_header}\nColumns: log10(gamma_center), then median values for each T bin from left to right"
-
                 fn_Z = os.path.join(save_dir, f"dust_charge_Z_vs_T_{a:.4e}_cm_{mat}.dat")
                 fn_sig = os.path.join(save_dir, f"dust_charge_sigma_vs_T_{a:.4e}_cm_{mat}.dat")
-                # Save files with explicit header formatting (log10 gamma and log10 T centers)
-                # First line: commented description
-                # Second line: n_gamma n_T
-                # Third line: commented label for T centers
-                # Fourth line: space-separated log10(T_centers)
-                # Fifth line: commented Columns description
+                header_lines = [
+                    '# Dust charging table metadata',
+                    '# Units: Zmean and Zsigma are dimensionless',
+                    '# Lines below are plain ASCII for direct Fortran READ access',
+                    '# Format: one count line "nT n_gamma", then one line of log10(T) values and one line of log10(gamma) values, followed by n_gamma rows x nT columns',
+                    '# Rows iterate over gamma (i=1..n_gamma), columns over T (j=1..nT)',
+                    '# Missing/invalid entries are encoded as NaN',
+                ]
                 with open(fn_Z, 'w') as fh:
-                    fh.write('# ngamma, nT\n')
-                    fh.write(f"{n_windows} {n_Tbins}\n")
-                    fh.write('# T_centers_log10(K): \n')
+                    fh.write('\n'.join(header_lines) + '\n')
+                    fh.write(f"{n_Tbins} {n_windows}\n")
                     fh.write(' '.join([f"{np.log10(t):.6e}" for t in T_centers]) + '\n')
-                    fh.write('# gamma_centers_log10(K**0.5 cm**-3):\n')
                     fh.write(' '.join([f"{g:.6e}" for g in gamma_col_log]) + '\n')
-                    fh.write('# Columns: median values for each T bin from left to right\n')
                     for i in range(n_windows):
                         row_vals = [f"{medianZ_mat[i, j]:.6e}" if np.isfinite(medianZ_mat[i, j]) else f"{np.nan:.6e}" for j in range(n_Tbins)]
                         fh.write(' '.join(row_vals) + '\n')
 
                 with open(fn_sig, 'w') as fh:
-                    fh.write('# ngamma, nT\n')
-                    fh.write(f"{n_windows} {n_Tbins}\n")
-                    fh.write('# T_centers_log10(K): \n')
+                    fh.write('\n'.join(header_lines) + '\n')
+                    fh.write(f"{n_Tbins} {n_windows}\n")
                     fh.write(' '.join([f"{np.log10(t):.6e}" for t in T_centers]) + '\n')
-                    fh.write('# gamma_centers_log10(K**0.5 cm**-3):\n')
                     fh.write(' '.join([f"{g:.6e}" for g in gamma_col_log]) + '\n')
-                    fh.write('# Columns: median values for each T bin from left to right\n')
                     for i in range(n_windows):
                         row_vals = [f"{medianSig_mat[i, j]:.6e}" if np.isfinite(medianSig_mat[i, j]) else f"{np.nan:.6e}" for j in range(n_Tbins)]
                         fh.write(' '.join(row_vals) + '\n')

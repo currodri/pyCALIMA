@@ -15,13 +15,21 @@ By: Curro Rodriguez (currodri@gmail.com)
 import os
 import sys
 import argparse
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+
+if __package__ in (None, ''):
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
 from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path
 from models.dust_radiation.dust_oppacity import (
     dust_efficiencies,
     interpolate_cross_sections_2d,
     compute_isrf_averaged_cross_sections,
+    export_dielectric_tables_for_bin,
 )
 
 PATH_OPTICS = str(get_optical_props_path())
@@ -176,7 +184,8 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
                 f.write(f"# Columns: lambda[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]\n")
                 
                 for j in range(len(wavelengths_cm)):
-                    f.write(f"{wavelengths_cm[j]:14.6e} ")
+                    wavelength_angstrom = wavelengths_cm[j] * 1e8  # Convert cm to Angstroms
+                    f.write(f"{wavelength_angstrom:14.6e} ")
                     f.write(f"{C_abs[j]:14.6e} ")
                     f.write(f"{C_sca[j]:14.6e} ")
                     f.write(f"{C_rp[j]:14.6e}\n")
@@ -187,6 +196,12 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
                 C_abs,
                 C_sca,
                 title=f"{composition} bin {bin_rank}, a0={a0:.4g} micron"
+            )
+
+            export_dielectric_tables_for_bin(
+                bin_id=bin_id,
+                composition=composition,
+                output_dir=output_dir,
             )
             
             print(f"  ✓ {output_filename}")

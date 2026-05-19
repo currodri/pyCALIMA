@@ -1395,30 +1395,37 @@ def _find_closest_zmean_table(grain_type: str, a_cm: float) -> Path:
 
 def _read_precomputed_zmean_table(path: Path) -> Dict[str, np.ndarray]:
     with open(path, "r", encoding="utf-8") as fh:
-        lines = [ln.strip() for ln in fh.readlines() if ln.strip()]
+        lines = [ln.strip() for ln in fh.readlines() if ln.strip() and not ln.lstrip().startswith("#")]
 
-    if len(lines) < 7:
+    if len(lines) < 4:
         raise ValueError(f"Unexpected short table format in {path}")
 
-    # Expected format (from dust_charging):
-    # line 2: ngamma nT
-    # line 4: T_centers_log10 values
-    # line 6: gamma_centers_log10 values
+    # Support both legacy (ngamma nT) and unified (nT ngamma) count ordering.
+    # The table layout is:
+    #   comments
+    #   count line
+    #   T axis line
+    #   gamma axis line
+    #   matrix rows over gamma
     try:
-        dims = lines[1].split()
-        ng = int(dims[0])
-        nT = int(dims[1])
-        T_log = np.fromstring(lines[3], sep=" ", dtype=float)
-        g_log = np.fromstring(lines[5], sep=" ", dtype=float)
+        dims = lines[0].split()
+        dim0 = int(dims[0])
+        dim1 = int(dims[1])
+        T_log = np.fromstring(lines[1], sep=" ", dtype=float)
+        g_log = np.fromstring(lines[2], sep=" ", dtype=float)
     except Exception as exc:
         raise ValueError(f"Could not parse precomputed Zmean table header from {path}: {exc}")
 
-    if T_log.size != nT or g_log.size != ng:
+    if T_log.size == dim0 and g_log.size == dim1:
+        nT, ng = dim0, dim1
+    elif T_log.size == dim1 and g_log.size == dim0:
+        nT, ng = dim1, dim0
+    else:
         raise ValueError(
-            f"Header/size mismatch in {path}: got nT={T_log.size} ng={g_log.size}, expected nT={nT} ng={ng}"
+            f"Header/size mismatch in {path}: got nT={T_log.size} ng={g_log.size}, count line={dim0} {dim1}"
         )
 
-    raw_rows = lines[7: 7 + ng]
+    raw_rows = lines[3: 3 + ng]
     if len(raw_rows) < ng:
         raise ValueError(f"Missing matrix rows in {path}: expected {ng}, got {len(raw_rows)}")
 

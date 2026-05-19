@@ -51,6 +51,7 @@ from models.dust_charge.shared_physics import (
     DS87_J_function_vec as _ds87_j_vec,
     _coulomb_energy_over_a as _coulomb_e_over_a,
 )
+from models.dust_radiation.dust_oppacity import read_dielectric_file, save_imn_file
 
 try:
     from numba import njit
@@ -113,6 +114,49 @@ def _grain_output_label(a_cm=None, grain_label=None, a_micron=None):
     if a_cm is None:
         return 'grain'
     return f'a_{float(a_cm):.3e}_cm'
+
+
+def _write_photoelectric_legacy_tables(out_dir, mode, size_tag, T_vals, gamma_vals, peh_log, rec_log):
+    """Write the legacy Fortran-facing photoelectric tables with metadata headers.
+
+    The grid file is omitted: axis values (log10(T) and log10(gamma)) are embedded
+    directly into the rate files to match the charging-table convention.
+    """
+    heating_path = os.path.join(out_dir, f'dust_rates_peh_{size_tag}.dat')
+    cooling_path = os.path.join(out_dir, f'dust_rates_rec_{size_tag}.dat')
+
+    log_T = np.log10(T_vals)
+    log_gamma = np.log10(gamma_vals)
+
+    header_lines = [
+        '# Photoelectric heating/cooling rate table metadata',
+        '# Units: log10(rate [erg s^-1])',
+        '# Lines below are plain ASCII for direct Fortran READ access',
+        '# Format: one count line "nT n_gamma", then one line of log10(T) values and one line of log10(gamma) values, followed by n_gamma rows x nT columns',
+        '# Rows iterate over gamma (j=1..n_gamma), columns over T (k=1..nT)',
+        '# Missing/invalid entries are encoded as -1e30',
+    ]
+
+    # Write heating file with embedded axes (nT n_gamma, then temp line, gamma line, then data rows)
+    with open(heating_path, 'w') as fh:
+        fh.write('\n'.join(header_lines) + '\n')
+        fh.write(f'{log_T.size} {log_gamma.size}\n')
+        fh.write(' '.join(f'{value:.12e}' for value in log_T) + '\n')
+        fh.write(' '.join(f'{value:.12e}' for value in log_gamma) + '\n')
+        for row in np.asarray(peh_log, dtype=float).T:
+            fh.write(' '.join(f'{value:.12e}' for value in row) + '\n')
+
+    # Write cooling file similarly
+    with open(cooling_path, 'w') as fh:
+        fh.write('\n'.join(header_lines) + '\n')
+        fh.write(f'{log_T.size} {log_gamma.size}\n')
+        fh.write(' '.join(f'{value:.12e}' for value in log_T) + '\n')
+        fh.write(' '.join(f'{value:.12e}' for value in log_gamma) + '\n')
+        for row in np.asarray(rec_log, dtype=float).T:
+            fh.write(' '.join(f'{value:.12e}' for value in row) + '\n')
+
+    # No separate grid file returned anymore
+    return None, heating_path, cooling_path
 
 
 @njit(cache=True)
@@ -540,109 +584,6 @@ def BT94_y0_graphite(theta,W):
 
 def y0_silicate(theta,W):
     return float(np.asarray(_y0_silicate_vec(theta, W), dtype=float))
-def read_dielectric_file(filename):
-    """
-    Reads a dust optical properties file in either "Draine 2003" or "Astronomical silicate" format.
-
-    Parameters
-    ----------
-    filename : str
-        Path to the input file.
-
-    Returns
-    -------
-    data : dict
-        Dictionary with available metadata:
-        - 'icomp': str or None
-        - 'radius_micron': float
-        - 'temperature_K': float or None
-        - 'n_wavelengths': int
-        - 'table': pandas.DataFrame with wavelength and optical constants
-    """
-    with open(filename, 'r') as f:
-        lines = [line.strip() for line in f if line.strip()]
-
-    # Detect format
-    is_draine2003 = lines[0].startswith("ICOMP=")
-
-    metadata = {
-        'icomp': None,
-        'temperature_K': None,
-    }
-
-    if is_draine2003:
-        # Format 1: Draine 2003 graphite
-        metadata['icomp'] = lines[0].split(":", 1)[-1].strip()
-        metadata['radius_micron'] = float(lines[1].split('=')[0].strip())
-        metadata['temperature_K'] = float(lines[2].split('=')[0].strip())
-        metadata['n_wavelengths'] = int(lines[3].split('=')[0].strip())
-
-        col_names = ['wavelength_um', 'eps1_minus_1', 'eps2', 'Re_n_minus_1', 'Im_n']
-        data_start = 5
-
-    else:
-        # Format 2: Astronomical silicate
-        for i, line in enumerate(lines):
-            if '=' in line and 'radius' in line:
-                metadata['radius_micron'] = float(line.split('=')[0].strip())
-            elif '=' in line and 'wavelengths' in line:
-                metadata['n_wavelengths'] = int(line.split('=')[0].strip())
-            elif line.lower().startswith("wave") or 'wave(' in line:
-                header_index = i
-                break
-
-        col_names = ['wavelength_um', 'eps1_minus_1', 'eps2', 'Re_n_minus_1', 'Im_n']
-        data_start = header_index + 1
-
-    # Read table
-    table_data = []
-    for line in lines[data_start:]:
-        parts = line.split()
-        if len(parts) == 5:
-            table_data.append(list(map(float, parts)))
-
-    df = pd.DataFrame(table_data, columns=col_names)
-
-    metadata['table'] = df
-    return metadata
-
-def save_imn_file(metadata, outfile):
-    """
-    Save wavelength (Angstrom) and Im_n from dielectric data into a file
-    formatted for Fortran90 reading.
-
-    Format:
-    - First line: number of wavelengths (i8)
-    - Then: wavelength (e14.6), Im_n (e14.6)
-
-    Parameters
-    ----------
-    metadata : dict
-        Output of read_dielectric_file, containing 'table' DataFrame.
-    outfile : str
-        Path to the output file.
-    """
-    df = metadata['table'].copy()
-
-    if 'wavelength_um' not in df.columns or 'Im_n' not in df.columns:
-        raise KeyError("Input table must contain 'wavelength_um' and 'Im_n' columns")
-
-    # convert wavelength from microns to Angstroms (1 um = 1e4 A)
-    df['wavelength_A'] = df['wavelength_um'].astype(float) * 1e4
-
-    # Sort by wavelength ascending
-    df_sorted = df.sort_values('wavelength_A', ascending=True)
-
-    data = df_sorted[['wavelength_A', 'Im_n']].to_numpy(dtype=float)
-    print(data)
-
-    outpath = _photoelectric_output_path(outfile)
-    with open(outpath, 'w') as f:
-        # First line: number of rows, right-justified in 8 columns
-        f.write(f"{len(data):8d}\n")
-        # Each line: two floats, e.12 format
-        np.savetxt(f, data, fmt="%.12e %.12e")
-
 def plot_dielectric_data(filename):
     """
     Plots the dielectric function data from the specified file.
@@ -2530,14 +2471,15 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
 
     # Write files with grain label/bin id as the primary identifier.
     size_tag = _grain_output_label(a_cm=a_cm, grain_label=grain_label)
-    fn_logT = os.path.join(out_dir, f'log10_Ts_{size_tag}.dat')
-    fn_logg = os.path.join(out_dir, f'log10_gammas_{size_tag}.dat')
-    fn_heating = os.path.join(out_dir, f'dust_rates_heating_{mode}_{size_tag}.dat')
-    fn_cooling = os.path.join(out_dir, f'dust_rates_cooling_{mode}_{size_tag}.dat')
-    np.savetxt(fn_logT, np.log10(T_vals), fmt='%.12e')
-    np.savetxt(fn_logg, np.log10(gamma_vals), fmt='%.12e')
-    np.savetxt(fn_heating, log_peh, fmt='%.12e')
-    np.savetxt(fn_cooling, log_rec, fmt='%.12e')
+    fn_grid, fn_heating, fn_cooling = _write_photoelectric_legacy_tables(
+        out_dir=out_dir,
+        mode=mode,
+        size_tag=size_tag,
+        T_vals=T_vals,
+        gamma_vals=gamma_vals,
+        peh_log=log_peh,
+        rec_log=log_rec,
+    )
 
     # plot rates vs gamma for every temperature in the grid
     fig, ax = plt.subplots(1, 1, figsize=(7, 5), dpi=200, facecolor='w', edgecolor='k')
@@ -2585,12 +2527,14 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
         fh.write('# Dust rate tables\n')
         fh.write('\n')
         fh.write('Files:\n')
-        fh.write(f'- {os.path.basename(fn_logT)} : log10(T) array (length nT)\n')
-        fh.write(f'- {os.path.basename(fn_logg)} : log10(gamma) array (length n_gamma)\n')
-        fh.write(f'- {os.path.basename(fn_heating)} : nT rows x n_gamma columns, log10(heating [erg s^-1])\n')
-        fh.write(f'- {os.path.basename(fn_cooling)} : nT rows x n_gamma columns, log10(cooling [erg s^-1])\n')
+        if fn_grid is not None:
+            fh.write(f'- {os.path.basename(fn_grid)} : shared log10(T) and log10(gamma) grid (2 columns)\n')
+        else:
+            fh.write(f'- {os.path.basename(fn_heating)} / {os.path.basename(fn_cooling)} : embed log10(T) and log10(gamma) axes directly (see description)\n')
+        fh.write(f'- {os.path.basename(fn_heating)} : n_gamma rows x nT columns, log10(heating [erg s^-1])\n')
+        fh.write(f'- {os.path.basename(fn_cooling)} : n_gamma rows x nT columns, log10(cooling [erg s^-1])\n')
         fh.write('\n')
-        fh.write('Rows correspond to increasing T (from Tmin to Tmax). Columns correspond to increasing gamma (from gamma_min to gamma_max).\n')
+        fh.write('Rows correspond to increasing gamma (from gamma_min to gamma_max). Columns correspond to increasing T (from Tmin to Tmax).\n')
         fh.write('The signed recombination channel is always decomposed before writing tables: negative values are transferred to heating and cooling is saved as the non-negative part.\n')
         fh.write('Missing/invalid values are encoded as -1e30. Tables are plain whitespace-separated ASCII suitable for Fortran reading.\n')
 

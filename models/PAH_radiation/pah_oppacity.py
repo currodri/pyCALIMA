@@ -397,12 +397,13 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
                 f.write("# Columns: lambda_neutral[Angstrom] C_abs_neutral[cm^2] C_sca_neutral[cm^2] C_rp_neutral[cm^2] | lambda_ionised[Angstrom] C_abs_ionised[cm^2] C_sca_ionised[cm^2] C_rp_ionised[cm^2]\n")
                 
                 for j in range(len(wavelengths_cm)):
-                    f.write(f"{wavelengths_cm[j]:14.6e} ")
+                    wavelength_angstrom = wavelengths_cm[j] * 1e8  # Convert cm to Angstroms
+                    f.write(f"{wavelength_angstrom:14.6e} ")
                     f.write(f"{C_abs_neu[j]:14.6e} ")
                     f.write(f"{C_sca_neu[j]:14.6e} ")
                     f.write(f"{C_rp_neu[j]:14.6e} ")
                     f.write("| ")
-                    f.write(f"{wavelengths_cm[j]:14.6e} ")
+                    f.write(f"{wavelength_angstrom:14.6e} ")
                     f.write(f"{C_abs_ion[j]:14.6e} ")
                     f.write(f"{C_sca_ion[j]:14.6e} ")
                     f.write(f"{C_rp_ion[j]:14.6e}\n")

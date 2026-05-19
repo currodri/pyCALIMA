@@ -1,0 +1,16 @@
+#---Details of Columns:
+#    Vel (km/s)     (F7.2)    [0/300] Velocity [ucd=phys.veloc;meta.modelled]
+#    [Fe/H] ([Sun]) (F7.2)    [-3/0] Metallicity [ucd=phys.abund.Z]
+#    Mass (Msun)    (F7.2)    [13/120] Initial mass [ucd=phys.mass]
+#    Ebind (10+44J) (E10.2)   [0.6/47.6] Binding energy; 1e+51erg (2) [ucd=phys.energy]
+#------ ------ ------ ---------
+#Mass   [Fe/H] Vel    Ebind    
+#(Msun) (Sun)  (km/s) (1e51erg)
+#------ ------ ------ ---------
+  13.00  -2.00 300.00  1.46e+00
+  15.00  -2.00 300.00  2.02e+00
+  20.00  -2.00 300.00  5.27e+00
+  25.00  -2.00 300.00  6.21e+00
+  30.00  -2.00 300.00  7.75e+00
+  40.00  -2.00 300.00  1.57e+01
+  60.00  -2.00 300.00  4.12e+01

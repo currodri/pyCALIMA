@@ -222,6 +222,10 @@ def main(config_path=None):
         re.compile(r'^log10_gammas_(Gra|suvSil)_.+\.dat$'),
         re.compile(r'^dust_rates_(heating|cooling)_.+_(Gra|suvSil)_.+\.dat$'),
         re.compile(r'^dust_rates_vs_gamma_by_temperature_.+_(Gra|suvSil)_.+\.pdf$'),
+        re.compile(r'^log10_Ts_.+\.dat$'),
+        re.compile(r'^log10_gammas_.+\.dat$'),
+        re.compile(r'^dust_rates_peh_.+\.dat$'),
+        re.compile(r'^dust_rates_rec_.+\.dat$'),
     ]
     for existing in output_dir.iterdir():
         if existing.is_file() and any(p.match(existing.name) for p in legacy_patterns):
