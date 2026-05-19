@@ -40,10 +40,6 @@ plt.rcParams.update({
 # Resolve Berne model path as sibling directory above CALIMA, independent of cwd.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _CALIMA_ROOT = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))
-_CALIMA_PARENT = os.path.dirname(_CALIMA_ROOT)
-BERNEPATH = os.path.join(_CALIMA_PARENT, 'photoelectric-heating')
-sys.path.insert(0, BERNEPATH)
-from four_levels_model import HeatingGas
 
 # CONSTANTS
 PAH_OPTICALS_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'li_draine_2001')
@@ -977,208 +973,6 @@ def _evaluate_pah_heating_context(context, T, ne, attach_model):
             k_rec_2 * ne * f_2 * (3. / 2. * kB * T)
 
     return context['G0'], ne, T, f_anion, f_neutral, f_1, f_2, eff, Pinj, P_rec, Prad
-    I_rad = wavelength_intensity / (h * c / (wavelength * nm)).to('erg').d
-    E = 1.2398 / (wavelength[::-1]*1e-3)
-    """Compatibility wrapper for the cached PAH heating evaluator."""
-
-    f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
-    I = f.to('W/m**2/eV').d 
-    G0 = np.trapezoid(2.*np.pi*I[(E<=13.6)&(E>=5.17)],E[(E<=13.6)&(E>=5.17)]) / 1.68e-6
-    context = _prepare_pah_heating_context(
-        dist, attach_model, radiation_field,
-        anion_data, neutral_data, cation_data, dication_data,
-    )
-    return _evaluate_pah_heating_context(context, T, ne, attach_model)
-    """
-    Compute PAH photoelectric heating efficiency and diagnostic rates for a single point.
-
-    Parameters
-    ----------
-    G0 : float
-        Desired radiation field strength (Draine units).
-    ne : float
-        Electron density in cm^-3.
-    T : float
-        Gas temperature in K.
-    Nc : int
-        Number of carbon atoms in the PAH.
-    a0 : float
-        Mode of lognormal distribution [microns].
-    amin, amax : float
-        Lower and upper cutoff sizes [microns].
-    sigma, s : float
-        Lognormal distribution width parameters.
-    attach_model : {'Berne','Tielens'}
-        Attachment/recombination model.
-    radiation_model : str
-        Radiation model name used to build the input spectrum ('Draine','Mathis',...)
-    optical_model : {'Draine','Malloci'}
-        Which optical data to use for cross sections.
-    debug : bool
-        If True print diagnostic info.
-
-    Returns
-    -------
-    dict with keys:
-      - G0, ne, T
-      - f_anion, f_neutral, f_1, f_2 (fractions)
-      - efficiency
-      - Pinj, Prad, Pinj_anion, Pinj_neutral, Pinj_cation, Prad_*
-      - k_det, k_att, k_pe_0, k_pe_1, k_rec_1, k_rec_2
-      - Nc, a0
-    """
-    # create distribution from provided parameters
-    dist = LogNormal_Distribution(a0, amin, amax, sigma, s)
-    dist.Nc = Nc
-
-    # optical cross sections
-    if optical_model == 'Malloci':
-        energy_negative_charged, energy_neutral, \
-        energy_charged, energy_double_charged, \
-        sigma_abs_anion, sigma_abs_neu, pah_cross_c, pah_cross_dc = absorption_cross_section_Berne(dist.Nc)
-    else:
-        wav1, sigma_abs_neutral = absorption_cross_section(dist, 0, True)
-        wav1, sigma_abs_ion = absorption_cross_section(dist, 1, True)
-        energy_negative_charged = 1.2398 / wav1
-        energy_neutral = energy_negative_charged
-        energy_charged = 1.2398 / wav1
-        energy_double_charged = 1.2398 / wav1
-        sigma_abs_anion = sigma_abs_neutral
-        sigma_abs_neu = sigma_abs_neutral
-        pah_cross_c = sigma_abs_ion
-        pah_cross_dc = sigma_abs_ion
-
-    anion_data = np.column_stack([energy_negative_charged,sigma_abs_anion])
-    neutral_data = np.column_stack([energy_neutral,sigma_abs_neu])
-    cation_data = np.column_stack([energy_charged,pah_cross_c])
-    dication_data = np.column_stack([energy_double_charged,pah_cross_dc])
-
-    # build radiation field
-    from astropy.table import Table
-    if radiation_model == 'Draine':
-        draine1978 = _load_isrf_data('Draine')
-        rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
-    elif radiation_model == 'Mathis':
-        mathis1983 = _load_isrf_data('Mathis')
-        rad_field = np.column_stack([mathis1983['col1'],mathis1983['col2']])
-    else:
-        # fallback to Draine if unknown
-        try:
-            draine1978 = _load_isrf_data('Draine')
-            rad_field = np.column_stack([draine1978['col1'],draine1978['col2']])
-        except Exception:
-            raise ValueError('Unknown radiation_model and could not load default ISRF')
-
-    # compute current G0 of the rad_field using same routine as compute_heating_efficiency2
-    wavelength_intensity = rad_field[:,1]
-    wavelength = rad_field[:,0]
-    # convert to I (W/m^2/eV) approx as in compute_heating_efficiency2
-    from unyt import nm,m,cm,eV,J,s,h,c,erg
-    I_rad = wavelength_intensity / (h * c / (wavelength * nm)).to('erg').d
-    E = 1.2398 / (wavelength[::-1]*1e-3)
-    I = I_rad[::-1] * cm**-2/s/nm
-    F = I * E * eV
-    from four_levels_model import HeatingGas
-    f_conv = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
-    I_for_G0 = f_conv.to('W/m**2/eV').d
-    G0_current = np.trapezoid(2.*np.pi*I_for_G0[(E<=13.6)&(E>=5.17)],E[(E<=13.6)&(E>=5.17)]) / 1.68e-6
-    if G0_current <= 0:
-        raise RuntimeError('Computed G0 for radiation field is zero or negative; cannot scale to requested G0')
-    scale = float(G0) / float(G0_current)
-    rad_field_scaled = rad_field.copy()
-    rad_field_scaled[:,1] = rad_field_scaled[:,1] * scale
-
-    # Now replicate compute_heating_efficiency2 logic but returning extra diagnostics
-    # Interpolate cross sections
-    sigma_abs_anion = np.interp(E,anion_data[:,0],anion_data[:,1])
-    sigma_abs_neu = np.interp(E,neutral_data[:,0],neutral_data[:,1])
-    sigma_abs_cation = np.interp(E,cation_data[:,0],cation_data[:,1])
-    sigma_abs_dication = np.interp(E,dication_data[:,0],dication_data[:,1])
-
-    # compute quantities using scaled radiation field
-    wavelength_intensity_s = rad_field_scaled[:,1]
-    wavelength_s = rad_field_scaled[:,0]
-    I_rad_s = wavelength_intensity_s / (h * c / (wavelength_s * nm)).to('erg').d
-    E_s = 1.2398 / (wavelength_s[::-1]*1e-3)
-    I_s = I_rad_s[::-1] * cm**-2/s/nm
-    F_s = I_s * E_s * eV
-    f_s = F_s *nm/ (1e-9*m) * h * c / (E_s*eV)**2 * eV / (e*J)
-    I_s = f_s.to('W/m**2/eV').d
-
-    # yields and rates
-    IP_anion = ionisation_potential(-1,(dist.Nc/468)**(1./3.))
-    yield_anion = np.array([ionisation_yield(dist.Nc,-1,E_s[i],IP_anion) for i in range(0,len(E_s))])
-    mask = (E_s>=IP_anion) & (E_s <= 13.6)
-    k_det = ionisation_rate(IP_anion,2*np.pi*yield_anion[mask]*sigma_abs_anion[mask],I_s[mask],E_s[mask])
-
-    if attach_model == 'Berne':
-        k_att = attachment_rate_Carelli13(T)
-    else:
-        k_att = attachment_rate_Tielens05(dist.Nc)
-
-    IP_neutral = ionisation_potential(0,(dist.Nc/468)**(1./3.))
-    yield_neutral = np.array([ionisation_yield(dist.Nc,0,E_s[i],IP_neutral) for i in range(0,len(E_s))])
-    mask = (E_s>=IP_neutral) & (E_s <= 13.6)
-    k_pe_0 = ionisation_rate(IP_neutral,2*np.pi*yield_neutral[mask]*sigma_abs_neu[mask],I_s[mask],E_s[mask])
-
-    if attach_model == 'Berne':
-        k_rec_1 = recombination_rate_Spitzer(dist.Nc,0,T)
-    else:
-        k_rec_1 = recombination_rate_Tielens21(dist.Nc,T)
-
-    if attach_model == 'Berne':
-        k_rec_2 = recombination_rate_Spitzer(dist.Nc,1,T)
-    else:
-        k_rec_2 = recombination_rate_Tielens21(dist.Nc,T)
-
-    IP_cation = ionisation_potential(1,(dist.Nc/468)**(1./3.))
-    yield_cation = np.array([ionisation_yield(dist.Nc,1,E_s[i],IP_cation) for i in range(0,len(E_s))])
-    mask = (E_s>=IP_cation) & (E_s <= 13.6)
-    k_pe_1 = ionisation_rate(IP_cation,2*np.pi*yield_cation[mask]*sigma_abs_cation[mask],I_s[mask],E_s[mask])
-
-    # fractions
-    f_anion = 1. / (1. + k_det / (k_att*ne) + \
-                    k_det * k_pe_0 / (k_att*k_rec_1*ne**2.) + \
-                    k_det * k_pe_0 * k_pe_1 / (k_att*k_rec_1*k_rec_2*ne**3.))
-    f_neutral = 1. / (1. + k_att*ne / k_det + k_pe_0 / (k_rec_1*ne) + \
-                    k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
-    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) + \
-                k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
-    f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
-                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
-    f_tot = f_anion + f_neutral + f_1 + f_2
-    f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
-
-    # injected and absorbed powers
-    Pinj_anion = power_injected(IP_anion,2*np.pi*yield_anion*sigma_abs_anion,I_s,E_s)
-    Pinj_neutral = partition_coeff * power_injected(IP_neutral,2*np.pi*yield_neutral*sigma_abs_neu,I_s,E_s)
-    Pinj_cation = partition_coeff * power_injected(IP_cation,2*np.pi*yield_cation*sigma_abs_cation,I_s,E_s)
-    Pinj = f_anion * Pinj_anion + f_neutral * Pinj_neutral + f_1 * Pinj_cation
-
-    Prad_anion = power_absorbed(2*np.pi*sigma_abs_anion,I_s,E_s)
-    Prad_neutral = power_absorbed(2*np.pi*sigma_abs_neu,I_s,E_s)
-    Prad_cation = power_absorbed(2*np.pi*sigma_abs_cation,I_s,E_s)
-    Prad_dication = power_absorbed(2*np.pi*sigma_abs_dication,I_s,E_s)
-    Prad = f_anion * Prad_anion + f_neutral * Prad_neutral + f_1 * Prad_cation + f_2 * Prad_dication
-
-    eff = Pinj / Prad
-
-    out = {
-        'G0': float(G0), 'ne': float(ne), 'T': float(T),
-        'f_anion': f_anion, 'f_neutral': f_neutral, 'f_1': f_1, 'f_2': f_2,
-        'efficiency': eff,
-        'Pinj': Pinj, 'Pinj_anion': Pinj_anion, 'Pinj_neutral': Pinj_neutral, 'Pinj_cation': Pinj_cation,
-        'Prad': Prad, 'Prad_anion': Prad_anion, 'Prad_neutral': Prad_neutral, 'Prad_cation': Prad_cation, 'Prad_dication': Prad_dication,
-        'k_det': k_det, 'k_att': k_att, 'k_pe_0': k_pe_0, 'k_pe_1': k_pe_1, 'k_rec_1': k_rec_1, 'k_rec_2': k_rec_2,
-        'Nc': dist.Nc, 'a0': (dist.Nc/468)**(1./3.)
-    }
-
-    if debug:
-        print('[compute_peh_point] G0_current', G0_current, 'scale', scale)
-        print('[compute_peh_point] f:', f_anion, f_neutral, f_1, f_2)
-        print('[compute_peh_point] rates:', 'k_det',k_det,'k_att',k_att,'k_pe_0',k_pe_0,'k_pe_1',k_pe_1)
-
-    return out
 
 def compute_heating_efficiency3(args):
     
@@ -1329,32 +1123,6 @@ def multiline(xs, ys, c, ax=None, **kwargs):
     #    Note: adding a collection doesn't autoscalee xlim/ylim
     ax.add_collection(lc)
     return lc
-
-def Berne22_efficiency(ne_min,ne_max,n_ne,T,axes):
-    ne_list = np.logspace(np.log10(ne_min),np.log10(ne_max),n_ne)
-    eff = np.zeros(n_ne)
-    gamma = np.zeros(n_ne)
-    Pinj = np.zeros(n_ne)
-    f_anion = np.zeros(n_ne)
-    f_neutral = np.zeros(n_ne)
-    f_1 = np.zeros(n_ne)
-    f_2 = np.zeros(n_ne)
-    for j in range(0, n_ne):
-        PEH = HeatingGas('ISRF/draine1978.txt',1,T,ne_list[j],
-                            54,0,ISRF=True)
-        result = PEH.parameters()
-        eff[j] = result[1]
-        gamma[j] = result[3]
-        Pinj[j] = result[7] #result[0] * (54./0.1) / 2.7e-4
-        f_anion[j] = PEH.frac_anion
-        f_neutral[j] = PEH.frac_neutral
-        f_1[j] = PEH.frac_charged
-        f_2[j] = PEH.frac_double_charged
-    axes[0].plot(gamma,Pinj,linestyle=':',color='k',linewidth=2.5,label='Berne et al. (2022)') 
-    axes[1].plot(gamma,f_anion,linestyle=':',color='k',linewidth=2.5,label='Berne et al. (2022)')
-    axes[1].plot(gamma,f_neutral,linestyle=':',color='g',linewidth=2.5)
-    axes[1].plot(gamma,f_1,linestyle=':',color='b',linewidth=2.5)
-    axes[1].plot(gamma,f_2,linestyle=':',color='r',linewidth=2.5)
 
 def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=False):
     n_ne = 100
@@ -1885,10 +1653,6 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     ax.set_ylim([1e-4,1])
     
     mydir = os.getcwd()
-    # 1. Add Berne+2022 efficiency results
-    os.chdir(BERNEPATH)
-    Berne22_efficiency(ne_min,ne_max,T,ax,fig)
-    os.chdir(mydir)
     
     Tielens2001_efficiency(ax)
     
@@ -1948,11 +1712,6 @@ def compare_eff_curves_all(T,ne_min,ne_max,n_ne=100):
     axes[0,1].set_ylim([1e-4,1])
     
     mydir = os.getcwd()
-    # 1. Add Berne+2022 efficiency results
-    os.chdir(BERNEPATH)
-    Berne22_efficiency(ne_min,ne_max,n_ne,T,axes[0,0],fig)
-    Berne22_efficiency(ne_min,ne_max,n_ne,T,axes[0,1],fig)
-    os.chdir(mydir)
     
     Tielens2001_efficiency(axes[0,0])
     Tielens2001_efficiency(axes[0,1])
@@ -2141,11 +1900,6 @@ def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=10
 
     # NOTE: results are saved in output_dir above. Avoid writing to legacy
     # hardcoded relative folders that may not exist in export workflows.
-    # 1. Add Berne+2022 efficiency results
-    mydir = os.getcwd()
-    os.chdir(BERNEPATH)
-    Berne22_efficiency(ne_min,ne_max,n_ne,T,axes)
-    os.chdir(mydir)
 
     fig.subplots_adjust(top=0.97,bottom=0.135,left=0.085,right=0.935,wspace=0,hspace=0)
     fig.savefig(os.path.join(output_dir, f'{file_prefix}peh_Pinj_ISRF_{radiation_model}_{op_model}_{attach_model}_{int(T)}K.pdf'), format='pdf', dpi=300)
