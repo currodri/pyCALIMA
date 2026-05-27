@@ -26,12 +26,12 @@ from pathlib import Path
 from models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,\
                         LogNormal_Distribution,PowerLaw_ExpCutoff_Distribution, \
                         Classical_LogNormal_Distribution
-from models.grain_size_config import get_optical_props_path
+from models.grain_size_config import get_optical_props_path, get_lognormal_parameters, load_grain_size_config
 from models.tools.radiation_fields import Mathis83_radiation_field
 
 PATH_OPTICS = str(get_optical_props_path())
-PATH_TABLES = str(get_optical_props_path() / 'dust_oppacity_tables')
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+PATH_TABLES = str(_REPO_ROOT / 'model_data' / 'optical_properties')
 PATH_MODEL_OPTICAL_OUTPUT = _REPO_ROOT / 'model_data' / 'optical_properties'
 PATH_EXTERNAL_DATA = _REPO_ROOT / 'external_data'
 # Note: PAH-specific functions are now in models.PAH_radiation.pah_oppacity
@@ -536,7 +536,7 @@ def plot_efficiencies(filename,dust_type='grains',
     axes[0].plot(data_zubko[:,0],data_zubko[:,1],'k--',label='Zubko et al. 2004')
 
     # Load the CLOUDY cross-sections for comparison
-    data_cloudy = np.loadtxt('grains_CLOUDY.dat')
+    data_cloudy = np.loadtxt(PATH_EXTERNAL_DATA / 'grains_CLOUDY.dat')
     axes[0].plot(data_cloudy[:,0],data_cloudy[:,1]*1e8,'r--',label='CLOUDY')
 
 
@@ -1179,10 +1179,12 @@ def plot_cs_sne(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallSil,D_l
 
 def compute_extinction_curve(dust_types, dists, mass_fractions,
                              mdust_per_H=None, convert_to_A_per_NH=True,
-                             nsize_per_bin=10, verbose=False):
+                             nsize_per_bin=10, verbose=False,
+                             optical_dir=None, pah_state='neutral'):
     """
-    Compute a composite extinction curve (kappa_lambda in cm^2 per gram of dust)
-    from one or more component datasets and their size distributions.
+    Compute a composite extinction curve from either:
+    1) precomputed DustBin/PAHbin tables, or
+    2) the legacy size-distribution integration path.
 
     Parameters
     - data_list : list of dict
@@ -1198,6 +1200,7 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
         PowerLaw_ExpCutoff_Distribution, etc.) describing the grain size
         distribution for each component. The distributions must accept sizes
         in microns (the same units as the data keys).
+        For precomputed bin usage this argument is accepted but ignored.
     - mass_fractions : list or array
         Mass fraction of the total dust mass assigned to each component.
         These should sum to 1.0 (the function will normalize if they don't).
@@ -1212,20 +1215,23 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
         throughout this codebase.
     - verbose : bool
         Print progress/info if True.
+    - optical_dir : str or Path or None
+        Directory containing averaged_cross_section_<BinID>.txt files.
+        Only used when `dust_types` are bin IDs.
+    - pah_state : str
+        PAH block to read from PAH precomputed tables: 'neutral' or 'ionised'.
 
     Returns
     A dict with keys:
     - 'wavelength' : 1D array of wavelengths [micron]
-    - 'kappa' : 1D array of kappa_lambda [cm^2 / g_dust]
+    - 'kappa' : 1D array [cm^2 / g_dust]
     - 'components' : list of per-component kappa arrays (same units)
     - 'A_per_NH' : 1D array of A_lambda/N_H [mag per H] if mdust_per_H provided else None
 
     Notes
-    - The implementation integrates the per-size cross-section C_ext(a,lambda)
-      multiplied by the number distribution normalized to 1 g of dust mass
-      (by calling dist.n_density(1.0, sizes)). The resulting integral has
-      units of cm^2 per g of dust for each component and is then weighted
-      by the provided mass fractions.
+        - If `dust_types` are bin IDs (for example 'PAHbin_01', 'DustBin_03'),
+            the function reads precomputed tables from model_data/optical_properties.
+        - Otherwise it falls back to the legacy integration over size distributions.
 
     Example usage
     -------------
@@ -1233,15 +1239,71 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
     k = compute_extinction_curve([data], [columns], [dist], [1.0], mdust_per_H=1e-26)
     """
     # normalize inputs to lists
+    if optical_dir is None:
+        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+
+    if isinstance(dust_types, str):
+        dust_types = [dust_types]
+
     if not isinstance(dists, (list, tuple)):
         dists = [dists]
+
     mass_fractions = np.array(mass_fractions, dtype=float)
-    if mass_fractions.size != len(dists):
+    if mass_fractions.size != len(dust_types):
         raise ValueError('mass_fractions length must match number of components')
     # normalize mass fractions
     if mass_fractions.sum() <= 0:
         raise ValueError('mass_fractions must sum to a positive value')
     mass_fractions = mass_fractions / mass_fractions.sum()
+
+    # Preferred path: use precomputed optical-property tables for DustBin/PAHbin IDs.
+    # This avoids recomputing size-integrated cross sections.
+    is_precomputed_bins = all(
+        isinstance(comp, str) and ('DustBin_' in comp or 'PAHbin_' in comp)
+        for comp in dust_types
+    )
+
+    if is_precomputed_bins:
+        component_tables = []
+        wavelength_sets = []
+
+        for comp in dust_types:
+            wav_i, cabs_i, csca_i, _ = _read_precomputed_cross_section_table(
+                comp,
+                optical_dir=optical_dir,
+                pah_state=pah_state,
+            )
+            order_i = np.argsort(wav_i)
+            wav_i = wav_i[order_i]
+            cext_i = (cabs_i + csca_i)[order_i]
+            component_tables.append((comp, wav_i, cext_i))
+            wavelength_sets.append(wav_i)
+
+        wav = np.unique(np.concatenate(wavelength_sets))
+        kappas_comp = np.zeros((len(dust_types), len(wav)))
+        for i, (_, wav_i, cext_i) in enumerate(component_tables):
+            kappas_comp[i, :] = np.interp(wav, wav_i, cext_i, left=0.0, right=0.0)
+
+        kappa_total = np.tensordot(mass_fractions, kappas_comp, axes=(0, 0))
+
+        A_per_NH = None
+        A_per_component = None
+        if mdust_per_H is not None and convert_to_A_per_NH:
+            A_per_NH = 1.086 * kappa_total * float(mdust_per_H)
+            A_per_component = (
+                1.086
+                * kappas_comp
+                * float(mdust_per_H)
+                * mass_fractions[:, np.newaxis]
+            )
+
+        return {
+            'wavelength': wav,
+            'kappa': kappa_total,
+            'components': kappas_comp,
+            'A_per_component': A_per_component,
+            'A_per_NH': A_per_NH,
+        }
 
     req_wav_micron = np.logspace(-1.5,1,100)  # 0.1 micron to 10 micron
     kappas_comp = np.zeros((len(dists), len(req_wav_micron)))
@@ -1345,75 +1407,300 @@ def getCrosssection_BARE_GR_S_DUST(lambda_angstrom):
 
     return Cabs
 
-def plot_extinction_from_massfractions(mass_fractions, mdust_per_H=None,
-                                      out_png='test_extinction_curve.png', 
-                                      nsize_per_bin=10, verbose=False):
+
+def _read_precomputed_cross_section_table(bin_id, optical_dir=None, pah_state='neutral'):
+    """Read one precomputed DustBin/PAHbin optical table.
+
+    Returns
+    -------
+    tuple of ndarray
+        wavelength_micron, C_abs, C_sca, C_rp
     """
-    Build grain size distributions for the six standard bins
-    (smallPAHs, largePAHs, smallC, largeC, smallSil, largeSil), combine them
-    according to `mass_fractions`, compute the extinction curve and plot it
-    normalized to the V band value (lambda_V = 0.55 micron).
+    if optical_dir is None:
+        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+
+    file_path = Path(optical_dir) / f'averaged_cross_section_{bin_id}.txt'
+    if not file_path.exists():
+        raise FileNotFoundError(f'Optical-property file not found for {bin_id}: {file_path}')
+
+    pah_state_token = str(pah_state).strip().lower()
+    use_ionised = pah_state_token in ('ionised', 'ionized')
+
+    rows = []
+    in_table = False
+    with open(file_path, 'r', encoding='utf-8') as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith('#'):
+                if line.lower().startswith('# columns:'):
+                    in_table = True
+                continue
+            if not in_table:
+                continue
+
+            if '|' in line:
+                left_block, right_block = line.split('|', 1)
+                tokens = right_block.split() if use_ionised else left_block.split()
+            else:
+                tokens = line.split()
+
+            if len(tokens) < 4:
+                continue
+            rows.append([float(value) for value in tokens[:4]])
+
+    if len(rows) == 0:
+        raise ValueError(f'Could not parse optical-property rows for {bin_id}: {file_path}')
+
+    data = np.asarray(rows, dtype=float)
+    wavelength_micron = data[:, 0] * 1e-4
+    return wavelength_micron, data[:, 1], data[:, 2], data[:, 3]
+
+
+def _resolve_bin_materials(component_bins, pah_state='neutral'):
+    """Resolve each bin ID to the material token used by interpolators."""
+    cfg = load_grain_size_config()
+    meta_by_id = {entry['id']: entry for entry in cfg['bins']}
+
+    pah_state_token = str(pah_state).strip().lower()
+    pah_material = 'iPAH' if pah_state_token in ('ionised', 'ionized') else 'nPAH'
+
+    materials = []
+    for bin_id in component_bins:
+        if bin_id not in meta_by_id:
+            raise KeyError(f'Bin {bin_id} not found in grain-size configuration')
+        meta = meta_by_id[bin_id]
+        if bool(meta['is_pah']):
+            materials.append(pah_material)
+        else:
+            materials.append(meta['composition'])
+    return materials
+
+
+def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
+                                             nsize_per_bin=30,
+                                             pah_state='neutral', verbose=False):
+    """Compute bin cross sections by integrating raw tables over JSON size distributions.
+
+    Returns per-component cross sections normalized per gram of dust (cm^2 / g_dust),
+    matching the normalization used in ``compute_extinction_curve``.
+    """
+    materials = _resolve_bin_materials(component_bins, pah_state=pah_state)
+    target_wavelengths = np.asarray(target_wavelengths, dtype=float)
+
+    ncomp = len(component_bins)
+    nwav = len(target_wavelengths)
+    cabs_comps = np.zeros((ncomp, nwav))
+    csca_comps = np.zeros((ncomp, nwav))
+    crp_comps = np.zeros((ncomp, nwav))
+
+    optical_cache = {}
+
+    for i, (bin_id, material) in enumerate(zip(component_bins, materials)):
+        if material not in optical_cache:
+            if material == 'silicate':
+                filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81')
+                optical_cache[material] = dust_efficiencies(filename)
+            elif material == 'graphite':
+                filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81')
+                optical_cache[material] = dust_efficiencies(filename)
+            elif material == 'iPAH':
+                from models.PAH_radiation.pah_oppacity import pah_efficiencies
+                filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
+                optical_cache[material] = pah_efficiencies(filename)
+            elif material == 'nPAH':
+                from models.PAH_radiation.pah_oppacity import pah_efficiencies
+                filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
+                optical_cache[material] = pah_efficiencies(filename)
+            else:
+                raise ValueError(f'Unsupported material for legacy interpolation: {material}')
+
+        p = get_lognormal_parameters(bin_id)
+        dist = LogNormal_Distribution(
+            p['a0'] * 1e-4,
+            p['amin'] * 1e-4,
+            p['amax'] * 1e-4,
+            p['sigma'],
+            p['s'],
+        )
+
+        size_bins = np.logspace(np.log10(dist.amin), np.log10(dist.amax), int(nsize_per_bin))
+        n_for_unit_mass = dist.n_density(1.0, size_bins)
+
+        cabs_dist = np.zeros((len(size_bins), nwav))
+        csca_dist = np.zeros((len(size_bins), nwav))
+        crp_dist = np.zeros((len(size_bins), nwav))
+
+        for isize, a_cm in enumerate(size_bins):
+            _, _, csca_i, cabs_i, crp_i = interpolate_cross_sections_2d(
+                material,
+                a_cm * 1e4,
+                target_wavelengths=target_wavelengths,
+                data_table=optical_cache[material],
+            )
+            cabs_dist[isize, :] = cabs_i * n_for_unit_mass[isize]
+            csca_dist[isize, :] = csca_i * n_for_unit_mass[isize]
+            crp_dist[isize, :] = crp_i * n_for_unit_mass[isize]
+
+        cabs_comps[i, :] = np.trapezoid(cabs_dist, size_bins, axis=0)
+        csca_comps[i, :] = np.trapezoid(csca_dist, size_bins, axis=0)
+        crp_comps[i, :] = np.trapezoid(crp_dist, size_bins, axis=0)
+
+        if verbose:
+            print(f'[plot_extinction_from_massfractions] legacy component done: {bin_id} ({material})')
+
+    return cabs_comps, csca_comps, crp_comps
+
+def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
+                                      pah_bins=None, pah_mass_fractions=None,
+                                      out_png='test_extinction_curve.png',
+                                      pah_state='neutral', verbose=False,
+                                      optical_dir=None, mdust_per_H=1e-26,
+                                      cabs_method='precomputed',
+                                      nsize_per_bin=30):
+    """
+    Read precomputed DustBin/PAHbin optical tables, combine them with the
+    supplied mass fractions, and plot the resulting extinction curve
+    normalized to the V-band value (lambda_V = 0.55 micron).
 
     Parameters
-    - mass_fractions : dict or list/array
-        If dict, keys should be the six names above. If list/array, it must be
-        length 6 and the order is [smallPAHs, largePAHs, smallC, largeC, smallSil, largeSil].
-    - mdust_per_H : float, optional
-        Dust mass per H nucleus (g / H). If provided, A_lambda/N_H is computed
-        and the plotted curve is A_lambda / A_V. If not provided, the kappa_
-        curve is normalized to kappa(V).
-    - gra_file, sil_file : str
-        File paths to the graphite and silicate efficiency files (used for both
-        small/large C and small/large Sil distributions).
-    - pah_small_file, pah_large_file : str or None
-        File paths to PAH efficiency files for small and large PAHs. If a PAH
-        mass fraction is non-zero but the corresponding file is None, an error
-        is raised.
+    - dust_bins : list[str] or str
+        Dust-bin IDs from the JSON configuration, for example
+        ['DustBin_01', 'DustBin_02', 'DustBin_03', 'DustBin_04'].
+    - dust_mass_fractions : array-like or dict
+        Mass fractions associated with `dust_bins`. If a dict is supplied,
+        its keys must be the dust-bin IDs.
+    - pah_bins : list[str] or str or None
+        Optional PAH-bin IDs from the JSON configuration, for example
+        ['PAHbin_01', 'PAHbin_02'].
+    - pah_mass_fractions : array-like or dict or None
+        Mass fractions associated with `pah_bins`. If omitted, PAH bins are not
+        included.
     - out_png : str or None
         If provided, save the plot to this path.
-    - show : bool
-        If True, call plt.show() at the end.
+    - pah_state : str
+        Which PAH block to read from the precomputed PAH tables: 'neutral'
+        or 'ionised'.
     - verbose : bool
         Print info during processing.
-
-    Returns the dict returned by `compute_extinction_curve`.
-    """
-    # prepare distributions using basic_* arrays from dust_model
-    # we need to convert the basic_* from micron to cm
-    basic_a0_cm = basic_a0 * 1e-4
-    basic_amin_cm = basic_amin * 1e-4
-    basic_amax_cm = basic_amax * 1e-4
+    - optical_dir : str or Path or None
+        Directory containing averaged_cross_section_<BinID>.txt files.
+    - mdust_per_H : float
+        Dust mass per H nucleus (g/H) for converting to A_lambda/N_H if desired.
+    - cabs_method : str
+        Method used to compute Cabs/Csca/Crp for the whole dust mixture.
+        Accepted values:
+        - 'precomputed': read averaged_cross_section_<BinID>.txt tables (default)
+        - 'legacy': integrate raw optical tables over JSON log-normal distributions
+          (old method)
+    - nsize_per_bin : int
+        Number of size samples for the 'legacy' integration method.
     
-    smallPAHs = LogNormal_Distribution(basic_a0_cm[0], basic_amin_cm[0], basic_amax_cm[0], basic_sigma[0], basic_s[0])
-    largePAHs = LogNormal_Distribution(basic_a0_cm[1], basic_amin_cm[1], basic_amax_cm[1], basic_sigma[1], basic_s[1])
-    smallC = LogNormal_Distribution(basic_a0_cm[2], basic_amin_cm[2], basic_amax_cm[2], basic_sigma[2], basic_s[2])
-    largeC = LogNormal_Distribution(basic_a0_cm[3], basic_amin_cm[3], basic_amax_cm[3], basic_sigma[3], basic_s[3])
-    smallSil = LogNormal_Distribution(basic_a0_cm[5], basic_amin_cm[5], basic_amax_cm[5], basic_sigma[5], basic_s[5])
-    largeSil = LogNormal_Distribution(basic_a0_cm[6], basic_amin_cm[6], basic_amax_cm[6], basic_sigma[6], basic_s[6])
 
-    names = ['smallPAHs', 'largePAHs', 'smallC', 'largeC', 'smallSil', 'largeSil']
-    grain_types = ['PAH', 'PAH', 'graphite', 'graphite', 'silicate', 'silicate']
-    colour = ['blue','royalblue','steelblue','cornflowerblue','saddlebrown','sandybrown']
-    dists = [smallPAHs, largePAHs, smallC, largeC, smallSil, largeSil]
+    Returns
+    -------
+    dict
+        Dictionary with wavelength grid, per-component curves, total cross
+        sections, and the normalized extinction curve.
+    """
+    if optical_dir is None:
+        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
 
-    # interpret mass_fractions
-    if isinstance(mass_fractions, dict):
-        mf = np.array([mass_fractions.get(n, 0.0) for n in names], dtype=float)
+    if isinstance(dust_bins, str):
+        dust_bins = [dust_bins]
+    if pah_bins is None:
+        pah_bins = []
+    elif isinstance(pah_bins, str):
+        pah_bins = [pah_bins]
+
+    dust_bins = list(dust_bins)
+    pah_bins = list(pah_bins)
+
+    if isinstance(dust_mass_fractions, dict):
+        dust_mf = np.array([dust_mass_fractions[bin_id] for bin_id in dust_bins], dtype=float)
     else:
-        mf = np.array(mass_fractions, dtype=float)
-        if mf.size != 6:
-            raise ValueError('mass_fractions must be length 6 or dict with the six standard keys')
+        dust_mf = np.asarray(dust_mass_fractions, dtype=float)
+
+    if len(dust_bins) != dust_mf.size:
+        raise ValueError('dust_bins and dust_mass_fractions must have the same length')
+
+    if len(pah_bins) == 0:
+        pah_mf = np.array([], dtype=float)
+    elif isinstance(pah_mass_fractions, dict):
+        pah_mf = np.array([pah_mass_fractions[bin_id] for bin_id in pah_bins], dtype=float)
+    else:
+        if pah_mass_fractions is None:
+            raise ValueError('pah_mass_fractions must be provided when pah_bins are supplied')
+        pah_mf = np.asarray(pah_mass_fractions, dtype=float)
+
+    if len(pah_bins) != pah_mf.size:
+        raise ValueError('pah_bins and pah_mass_fractions must have the same length')
+
+    component_bins = pah_bins + dust_bins
+    component_mf = np.concatenate((pah_mf, dust_mf))
+    if component_mf.size == 0:
+        raise ValueError('At least one DustBin or PAHbin must be provided')
+    if np.sum(component_mf) <= 0.0:
+        raise ValueError('Mass fractions must sum to a positive value')
+
+    component_mf = component_mf / np.sum(component_mf)
 
     if verbose:
-        print('[plot_extinction_from_massfractions] mass fractions (raw):', mf)
+        print('[plot_extinction_from_massfractions] bins:', component_bins)
+        print('[plot_extinction_from_massfractions] normalized mass fractions:', component_mf)
 
-    # compute extinction
-    result = compute_extinction_curve(grain_types, dists, mf, nsize_per_bin=nsize_per_bin, 
-                                      mdust_per_H=mdust_per_H, verbose=verbose)
+    ncomp = len(component_bins)
+    cabs_method_token = str(cabs_method).strip().lower()
+    if cabs_method_token in ('precomputed', 'pre-computed', 'table', 'tables'):
+        component_tables = []
+        wavelength_sets = []
+        for bin_id in component_bins:
+            wav_i, cabs_i, csca_i, crp_i = _read_precomputed_cross_section_table(
+                bin_id,
+                optical_dir=optical_dir,
+                pah_state=pah_state,
+            )
+            order_i = np.argsort(wav_i)
+            wav_i = wav_i[order_i]
+            cabs_i = cabs_i[order_i]
+            csca_i = csca_i[order_i]
+            crp_i = crp_i[order_i]
+            component_tables.append((bin_id, wav_i, cabs_i, csca_i, crp_i))
+            wavelength_sets.append(wav_i)
 
-    wav = result['wavelength']  # micron
-    total_y = result['A_per_NH']
-    comps_y = result['A_per_component']
+        wav = np.unique(np.concatenate(wavelength_sets))
+        cabs_comps = np.zeros((ncomp, len(wav)))
+        csca_comps = np.zeros((ncomp, len(wav)))
+        crp_comps = np.zeros((ncomp, len(wav)))
+
+        for i, (_, wav_i, cabs_i, csca_i, crp_i) in enumerate(component_tables):
+            cabs_comps[i, :] = np.interp(wav, wav_i, cabs_i, left=0.0, right=0.0)
+            csca_comps[i, :] = np.interp(wav, wav_i, csca_i, left=0.0, right=0.0)
+            crp_comps[i, :] = np.interp(wav, wav_i, crp_i, left=0.0, right=0.0)
+    elif cabs_method_token in ('legacy', 'old', 'raw', 'integration'):
+        wav = np.logspace(-1.5, 1.0, 100)
+        cabs_comps, csca_comps, crp_comps = _compute_component_cross_sections_legacy(
+            component_bins,
+            target_wavelengths=wav,
+            nsize_per_bin=nsize_per_bin,
+            pah_state=pah_state,
+            verbose=verbose,
+        )
+    else:
+        raise ValueError(
+            "cabs_method must be one of 'precomputed' or 'legacy' "
+            f"(got {cabs_method})"
+        )
+
+    cext_comps = cabs_comps + csca_comps
+    cabs_total = np.tensordot(component_mf, cabs_comps, axes=(0, 0))
+    csca_total = np.tensordot(component_mf, csca_comps, axes=(0, 0))
+    crp_total = np.tensordot(component_mf, crp_comps, axes=(0, 0))
+    cext_total = cabs_total + csca_total
+
+    total_y = 1.086 * cext_total
+    comps_y = 1.086 * cext_comps
 
     # find V band (0.55 micron) index for normalization
     lambda_V = 0.55
@@ -1431,25 +1718,40 @@ def plot_extinction_from_massfractions(mass_fractions, mdust_per_H=None,
     comp_norm = comps_y / yV
 
     # --- Top panel: grain size distributions (a^4 n(a)) scaled by mass fractions ---
-    a_cm = np.logspace(np.log10(basic_amin_cm[0]), np.log10(basic_amax_cm[-1]), 200)
+    params = [get_lognormal_parameters(bin_id) for bin_id in component_bins]
+    amin_cm = min(p['amin'] for p in params) * 1e-4
+    amax_cm = max(p['amax'] for p in params) * 1e-4
+    a_cm = np.logspace(np.log10(amin_cm), np.log10(amax_cm), 200)
     a_micron = a_cm * 1e4
     fig, (ax_top, ax_mid, ax_bot) = plt.subplots(3, 1, figsize=(7, 9), dpi=220,
                                          gridspec_kw={'height_ratios': [1, 1, 1.2]})
+    colour = sns.color_palette('tab10', n_colors=max(ncomp, 3))
 
     # plot each component's size distribution scaled by its mass fraction
-    for i, name in enumerate(names):
+    distributions = []
+    for p in params:
+        distributions.append(
+            LogNormal_Distribution(
+                p['a0'] * 1e-4,
+                p['amin'] * 1e-4,
+                p['amax'] * 1e-4,
+                p['sigma'],
+                p['s'],
+            )
+        )
+
+    for i, bin_id in enumerate(component_bins):
         try:
-            n_vs_a = dists[i].n_density(1.0, a_cm)  # per unit dust mass for that component
+            n_vs_a = distributions[i].n_density(1.0, a_cm)
         except Exception:
-            # fallback: zeros if distribution fails
             n_vs_a = np.zeros_like(a_cm)
-        ydist = a_cm**4 * n_vs_a * mf[i] * mdust_per_H
-        ax_top.plot(a_micron, ydist,color=colour[i], lw=2)
+        ydist = a_cm**4 * n_vs_a * component_mf[i] * mdust_per_H
+        ax_top.plot(a_micron, ydist, color=colour[i], lw=2, label=bin_id)
 
     # combined distribution
     total_dist = np.zeros_like(a_micron)
-    for i in range(len(dists)):
-        total_dist += a_cm**4 * dists[i].n_density(mf[i] * mdust_per_H, a_cm)
+    for i in range(ncomp):
+        total_dist += a_cm**4 * distributions[i].n_density(component_mf[i]*mdust_per_H, a_cm)
     ax_top.plot(a_micron, total_dist, color='k', lw=2)
 
     ax_top.plot(a_micron,3e-27*a_micron**(.5),':',color='gray',linewidth=2)
@@ -1462,29 +1764,25 @@ def plot_extinction_from_massfractions(mass_fractions, mdust_per_H=None,
     ax_top.set_ylabel(r'$a^4 n(a)$ (scaled by mass fraction)', fontsize=12)
     ax_top.set_xlabel(r'$a$ [$\mu$m]', fontsize=12)
     ax_top.set_ylim([5e-30,1e-27])
-    ax_top.set_xlim([basic_amin_cm[0]*1e4, basic_amax_cm[-1]*1e4])
+    ax_top.set_xlim([amin_cm * 1e4, amax_cm * 1e4])
     ax_top.tick_params(labelsize=10)
     ax_top.grid(alpha=0.2, which='both')
+    ax_top.legend(fontsize=10, loc='best', frameon=False, ncol=2)
 
 
-    # --- Middle panel: Cabs in [cm^2 per H] ---
+    # --- Middle panel: mass-fraction weighted Cabs ---
     x = 1.0 / wav
     order = np.argsort(x)
-    ax_mid.plot(x[order], total_y[order]/1.086, color='k', lw=2)
+    ax_mid.plot(x[order], cabs_total[order], color='k', lw=2)
 
     # plot per-component normalized contributions (if present)
-    for i, name in enumerate(names):
-        try:
-            comp_curve = comps_y[i, :]
-            # skip components with non-finite V normalization
-            if not np.isfinite(comp_curve[idx_V]):
-                continue
-            ax_mid.plot(x[order], comp_curve[order]/1.086, lw=2, color=colour[i])
-        except Exception:
-            continue
+    for i, bin_id in enumerate(component_bins):
+        comp_curve = component_mf[i] * cabs_comps[i, :]
+        if np.any(np.isfinite(comp_curve)):
+            ax_mid.plot(x[order], comp_curve[order], lw=2, color=colour[i])
 
     # Load the CLOUDY cross-sections for comparison
-    data_cloudy = np.loadtxt('grains_CLOUDY.dat')
+    data_cloudy = np.loadtxt(PATH_EXTERNAL_DATA / 'grains_CLOUDY.dat')
     ax_mid.plot(1/data_cloudy[:,0],data_cloudy[:,1],'r--',label='CLOUDY')
     ax_bot.plot(1/data_cloudy[:,0],data_cloudy[:,1]/yV*1.086,'r--')
 
@@ -1503,12 +1801,12 @@ def plot_extinction_from_massfractions(mass_fractions, mdust_per_H=None,
     ax_bot.plot(1/zb_wav_micron, 1.086*zb_Cabs/yV, 'm--', linewidth=2)
 
     # Plot the data from Zubko et al. (2004) BARE-GR-S model
-    zubko_data = np.loadtxt('zubko_BAREGRS_extinction.csv',delimiter=',')
+    zubko_data = np.loadtxt(PATH_EXTERNAL_DATA / 'zubko_BAREGRS_extinction.csv', delimiter=',')
     ax_mid.plot(zubko_data[:,0], zubko_data[:,1]*1e-21, 'm-.', label='Zubko et al. (2024) BARE-GR-S (Paper)', linewidth=2)
     ax_bot.plot(zubko_data[:,0], 1.086*zubko_data[:,1]*1e-21/yV, 'm-.', linewidth=2)
 
     ax_mid.set_xlabel(r'$\lambda^{-1} [\mu {\rm m}^{-1}]$', fontsize=12)
-    ylabel = r'$C_{\rm abs} [{\rm cm}^2 / {\rm H}]$'
+    ylabel = r'$C_{\rm abs} [{\rm cm}^2]$'
     ax_mid.set_ylabel(ylabel, fontsize=12)
     ax_mid.tick_params(labelsize=10)
     ax_mid.grid(alpha=0.25, which='both')
@@ -1524,15 +1822,10 @@ def plot_extinction_from_massfractions(mass_fractions, mdust_per_H=None,
     ax_bot.plot(x[order], y_norm[order], color='k', lw=2, label='Total')
 
     # plot per-component normalized contributions (if present)
-    for i, name in enumerate(names):
-        try:
-            comp_curve = comp_norm[i, :]
-            # skip components with non-finite V normalization
-            if not np.isfinite(comp_curve[idx_V]):
-                continue
-            ax_bot.plot(x[order], comp_curve[order],label=name, lw=2, color=colour[i])
-        except Exception:
-            continue
+    for i, bin_id in enumerate(component_bins):
+        comp_curve = comp_norm[i, :]
+        if np.any(np.isfinite(comp_curve)):
+            ax_bot.plot(x[order], comp_curve[order], label=bin_id, lw=2, color=colour[i])
 
     ax_bot.set_xlabel(r'$\lambda^{-1} [\mu {\rm m}^{-1}]$', fontsize=12)
     ylabel = r'$A_\lambda / A_V$'
@@ -1565,4 +1858,20 @@ def plot_extinction_from_massfractions(mass_fractions, mdust_per_H=None,
 
     plt.close(fig)
 
-    return result
+    return {
+        'wavelength': wav,
+        'bin_ids': component_bins,
+        'cabs_method': cabs_method_token,
+        'mass_fractions': component_mf,
+        'C_abs_total': cabs_total,
+        'C_sca_total': csca_total,
+        'C_rp_total': crp_total,
+        'C_ext_total': cext_total,
+        'C_abs_components': cabs_comps,
+        'C_sca_components': csca_comps,
+        'C_rp_components': crp_comps,
+        'A_total': total_y,
+        'A_components': comps_y,
+        'A_over_AV': y_norm,
+        'A_over_AV_components': comp_norm,
+    }

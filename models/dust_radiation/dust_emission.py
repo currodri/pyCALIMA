@@ -26,26 +26,135 @@ import re
 import time
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
-from models.dust_model import basic_s, build_distribution_from_dust_type
+from models.dust_model import basic_s, build_distribution
 from models.dust_radiation.dust_oppacity import dust_efficiencies
 from models.PAH_radiation.pah_oppacity import pah_efficiencies
-from models.grain_size_config import get_optical_props_path, get_repo_root
+from models.grain_size_config import get_optical_props_path, get_repo_root, load_grain_size_config
 from models.tools.radiation_fields import Draine_1978_isrf
 from joblib import Parallel, delayed
 
 PATH_OPTICS = str(get_optical_props_path())
 
 
-def _resolve_collisional_dust_label(dust_type):
+def _resolve_collisional_dust_label(dust_type, collisional_dust_bin=None):
+    """Resolve collisional-cooling table DustBin label.
+
+    Table names follow `cooling_DustBin_XX_Z_Y`. Users can provide this
+    explicitly through `collisional_dust_bin` (e.g. 'DustBin_00' or '00').
+    If omitted, we infer the bin index from `dust_type` when available.
+    """
+    if collisional_dust_bin is not None:
+        token = str(collisional_dust_bin).strip()
+        m = re.search(r'(\d+)', token)
+        if m is None:
+            raise ValueError(f'Could not parse DustBin index from: {collisional_dust_bin}')
+        return f'DustBin_{int(m.group(1)):02d}'
+
     dust_token = str(dust_type).lower()
-    match = re.search(r'(silicate|graphite)_bin_(\d+)', dust_token)
-    if match:
-        return f'{match.group(1)}_bin_{int(match.group(2)):02d}'
-    if 'silicate' in dust_token:
-        return 'silicate_bin_00'
-    if 'graphite' in dust_token:
-        return 'graphite_bin_00'
-    raise ValueError(f'Unsupported dust type for collisional tables: {dust_type}')
+    m = re.search(r'dustbin[_-]?(\d+)', dust_token)
+    if m is not None:
+        return f'DustBin_{int(m.group(1)):02d}'
+    m = re.search(r'_bin_(\d+)', dust_token)
+    if m is not None:
+        return f'DustBin_{int(m.group(1)):02d}'
+
+    # Backward-compatible fallback when no bin index exists in dust_type.
+    return 'DustBin_00'
+
+
+def _lookup_bin_metadata(dust_type):
+    cfg = load_grain_size_config()
+    token = str(dust_type).lower()
+    for item in cfg['bins']:
+        if str(item['id']).lower() == token:
+            return dict(item)
+    return None
+
+
+def _resolve_optical_material(dust_type):
+    meta = _lookup_bin_metadata(dust_type)
+    if meta is not None:
+        if meta['is_pah']:
+            return 'pah'
+        return str(meta['composition']).lower()
+
+    dust_token = str(dust_type).lower()
+    if 'silicate' in dust_token or 'sil' in dust_token:
+        return 'silicate'
+    if 'graphite' in dust_token or 'carbon' in dust_token or 'gra' in dust_token:
+        return 'graphite'
+    if 'pah' in dust_token:
+        return 'pah'
+    raise ValueError(f'Unsupported dust type for optical properties: {dust_type}')
+
+
+def _resolve_distribution_species(dust_type):
+    meta = _lookup_bin_metadata(dust_type)
+    if meta is not None:
+        return meta['id']
+    return dust_type
+
+
+def _read_precomputed_optical_properties(bin_id, optical_dir=None):
+    """Read exported optical properties for one bin from model_data/optical_properties."""
+    if optical_dir is None:
+        optical_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+
+    file_path = os.path.join(optical_dir, f'averaged_cross_section_{bin_id}.txt')
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f'Optical-property file not found for {bin_id}: {file_path}')
+
+    composition = None
+    a0_micron = None
+    data_rows = []
+    in_table = False
+
+    with open(file_path, 'r', encoding='utf-8') as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if line.startswith('#'):
+                lower_line = line.lower()
+                if lower_line.startswith('# composition:'):
+                    composition = line.split(':', 1)[1].strip().lower()
+                elif lower_line.startswith('# grain size a0:'):
+                    token = line.split(':', 1)[1].strip().split()[0]
+                    a0_micron = float(token)
+                elif lower_line.startswith('# columns:'):
+                    in_table = True
+                continue
+
+            if in_table:
+                values = [float(value) for value in line.split()]
+                if len(values) >= 4:
+                    data_rows.append(values[:4])
+
+    if a0_micron is None or composition is None or len(data_rows) == 0:
+        raise ValueError(f'Could not parse optical-property file for {bin_id}: {file_path}')
+
+    data = np.asarray(data_rows, dtype=float)
+    wavelengths = data[:, 0] * 1e-8  # Angstrom -> cm
+    C_abs = data[:, 1]
+    C_sca = data[:, 2]
+    C_rp = data[:, 3]
+    a0 = a0_micron * 1e-4  # micron -> cm
+    return a0, wavelengths, C_sca, C_abs, C_rp, composition
+
+
+def _compute_equilibrium_temperature_cheap_from_material(material, a, wavelengths, radiation_field, C_abs):
+    abs_power = absorbed_power(wavelengths, radiation_field, C_abs)
+
+    material_token = str(material).lower()
+    if material_token == 'silicate':
+        C_em = 4. * np.pi * a**2. * 1.3e-6 * (a * 1e4 / 0.1)
+    elif material_token == 'graphite':
+        C_em = 4. * np.pi * a**2. * 8e-7 * (a * 1e4 / 0.1)
+    else:
+        raise ValueError(f'Unsupported material for cheap temperature estimate: {material}')
+
+    return (abs_power / (C_em * sigma_sb)) ** (1.0 / 6.0)
 
 
 def _extract_phi0_rate(table_entry):
@@ -61,6 +170,155 @@ def _extract_phi0_rate(table_entry):
 
     phi_idx = int(np.argmin(np.abs(phi)))
     return logT, logH[:, phi_idx]
+
+
+# Asplund et al. (2009) photospheric abundances in log10 epsilon(X), with log10 epsilon(H)=12.
+_ASPLUND2009_LOGEPS = {
+    1: 12.00,
+    2: 10.93,
+    6: 8.43,
+    7: 7.83,
+    8: 8.69,
+    10: 7.93,
+    12: 7.60,
+    14: 7.51,
+    16: 7.12,
+    26: 7.50,
+}
+
+
+def _asplund2009_number_abundances():
+    """Return number abundances n_X / n_H from Asplund et al. (2009)."""
+    return {z: 10.0**(logeps - 12.0) for z, logeps in _ASPLUND2009_LOGEPS.items()}
+
+
+def _collect_collisional_tables_for_dustbin(coll_tables, dust_label):
+    """Collect available collisional tables for one DustBin keyed by atomic number Z."""
+    pattern = re.compile(rf'^cooling_{re.escape(dust_label)}_Z_(\d+)$')
+    z_to_table = {}
+    for key, entry in coll_tables.items():
+        match = pattern.match(str(key))
+        if match is None:
+            continue
+        z = int(match.group(1))
+        z_to_table[z] = _extract_phi0_rate(entry)
+
+    if len(z_to_table) == 0:
+        raise KeyError(f'No collisional tables found for {dust_label}.')
+
+    return z_to_table
+
+
+def _solar_projectile_densities_from_nH(nH, available_Z):
+    """Build projectile number densities from nH using Asplund (2009) abundances.
+
+    Assumption: all species are ionized enough that electron density can be
+    estimated from charge neutrality using the included ions.
+    """
+    abund = _asplund2009_number_abundances()
+    nproj = {}
+
+    for z in available_Z:
+        if z == 0:
+            continue
+        nproj[z] = nH * abund.get(z, 0.0)
+
+    n_e = 0.0
+    for z, n_z in nproj.items():
+        n_e += z * n_z
+    nproj[0] = n_e
+
+    return nproj
+
+
+def _compute_collisional_coupling_multiz(Tgas, z_to_table, z_to_density):
+    """Compute K_coll so Hcoll = K_coll * (Tgas - Tdust), summing all available Z."""
+    lT = np.log10(Tgas)
+    K_coll = 0.0
+    for z, (logT, logH) in z_to_table.items():
+        density = float(z_to_density.get(z, 0.0))
+        if density <= 0.0:
+            continue
+        rate = 10.0**np.interp(lT, logT, logH)
+        K_coll += density * rate
+    return K_coll
+
+
+def _solve_eqT_from_absorption_and_coupling(absorbed, wavelengths_em, C_abs_em,
+                                            Tgas, K_coll, method='linearized',
+                                            T0=30.0, Tmin=2.7, Tmax=800.0):
+    """Solve absorbed + K*(Tgas-T) = emitted(T) for equilibrium dust temperature."""
+    method_token = str(method).lower()
+
+    def f(T):
+        return absorbed + K_coll * (Tgas - T) - emitted_power(T, wavelengths_em, C_abs_em)
+
+    if method_token == 'linearized':
+        # Iterative local linearization of emitted power (re-linearized each iteration).
+        T = float(np.clip(T0, Tmin, Tmax))
+        for _ in range(100):
+            emitted_T = emitted_power(T, wavelengths_em, C_abs_em)
+            d_emitted = planck_function_derivative(wavelengths_em, T)
+            d_emitted_power = 4.0 * np.pi * np.trapezoid(C_abs_em * d_emitted, x=wavelengths_em)
+
+            denom = K_coll + d_emitted_power
+            if (not np.isfinite(emitted_T)) or (not np.isfinite(denom)) or (denom <= 0.0):
+                break
+
+            T_new = (
+                absorbed + K_coll * Tgas - emitted_T + d_emitted_power * T
+            ) / denom
+            T_new = float(np.clip(T_new, Tmin, Tmax))
+            if abs(T_new - T) / max(abs(T), 1e-12) < 1e-4:
+                return T_new
+            T = T_new
+
+    elif method_token == 'newton':
+        T = float(np.clip(T0, Tmin, Tmax))
+        for _ in range(100):
+            f_val = f(T)
+            d_emitted = planck_function_derivative(wavelengths_em, T)
+            d_emitted_power = 4.0 * np.pi * np.trapezoid(C_abs_em * d_emitted, x=wavelengths_em)
+            df_val = -K_coll - d_emitted_power
+
+            if (not np.isfinite(f_val)) or (not np.isfinite(df_val)) or (df_val == 0.0):
+                break
+
+            T_new = T - f_val / df_val
+            T_new = float(np.clip(T_new, Tmin, Tmax))
+            if abs(T_new - T) / max(abs(T), 1e-12) < 1e-4:
+                return T_new
+            T = T_new
+    else:
+        raise ValueError(f'Unknown solver method: {method}. Use "linearized" or "newton".')
+
+    f_min = f(Tmin)
+    f_max = f(Tmax)
+    if np.sign(f_min) == np.sign(f_max):
+        return Tmin if abs(f_min) <= abs(f_max) else Tmax
+
+    result = root_scalar(f, bracket=[Tmin, Tmax])
+    if result.converged:
+        return result.root
+    raise RuntimeError('Failed to solve multiz collisional equilibrium temperature.')
+
+
+def _solve_one_cell(nH, Tgas, z_to_table, available_Z,
+                   absorbed, wavelengths_em, C_abs_em_interp,
+                   method_token, T0_guess):
+    """Module-level worker for Parallel: solve one (nH, Tgas) grid cell."""
+    z_to_density = _solar_projectile_densities_from_nH(nH, available_Z)
+    K_coll = _compute_collisional_coupling_multiz(Tgas, z_to_table, z_to_density)
+    Tmax_solver = max(float(Tgas), 800.0)
+    try:
+        return _solve_eqT_from_absorption_and_coupling(
+            absorbed, wavelengths_em, C_abs_em_interp,
+            Tgas, K_coll, method=method_token, T0=T0_guess,
+            Tmax=Tmax_solver,
+        )
+    except Exception:
+        return np.nan
+
 
 # Constants
 kb               = 1.3806488e-16 # [erg/K] - Boltzmann constant
@@ -154,24 +412,25 @@ def compute_cross_sections(dust_type, do_average=True):
     
     # 1. Read the efficiencies
     dust_token = str(dust_type).lower()
+    optical_material = _resolve_optical_material(dust_type)
 
-    if 'silicate' in dust_token:
+    if optical_material == 'silicate':
         filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81')
         nwav,data, columns, name = dust_efficiencies(filename)
-    elif 'graphite' in dust_token:
+    elif optical_material == 'graphite':
         filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81')
         nwav,data, columns, name = dust_efficiencies(filename)
-    elif 'pah' in dust_token and 'ion' in dust_token:
+    elif optical_material == 'pah' and 'ion' in dust_token:
         filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
         nwav,data,columns,dust_type = pah_efficiencies(filename)
-    elif 'pah' in dust_token and 'neutral' in dust_token:
+    elif optical_material == 'pah':
         filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
         nwav,data,columns,name = pah_efficiencies(filename)
     else:
         raise ValueError('Dust type not recognised: ', dust_type)
 
     # 2. Setup the underlying distribution
-    dist = build_distribution_from_dust_type(dust_token)
+    dist = build_distribution(_resolve_distribution_species(dust_type))
     
     # 3. Return the cross sections
     if do_average:
@@ -550,41 +809,47 @@ def compute_eqT_withcollisions_newton_linearized(dust_type,a,wavelengths,wavelen
                                         He_rate_table, C_rate_table)
     dH_dT = (H_plus - H_minus) / (2.0 * dT)
 
-    def f(T):
+    # Iterative local linearization of emitted power while Hcoll remains linearized around T0.
+    T = float(np.clip(T0, 2.7, 800.0))
+    for _ in range(100):
         Hcoll_linear = H0 + dH_dT * (T - T0)
-        return absorbed + Hcoll_linear - emitted_power(T, wavelengths_em, C_abs_em)
-
-    def df_dT(T):
+        emitted_T = emitted_power(T, wavelengths_em, C_abs_em)
         d_emitted = planck_function_derivative(wavelengths_em, T)
         d_emitted_power = 4. * np.pi * np.trapezoid(C_abs_em * d_emitted, x=wavelengths_em)
-        return dH_dT - d_emitted_power
 
-    def newton_method(T_guess, tol=1e-3, max_iter=100):
-        T = T_guess
-        for i in range(max_iter):
-            f_val = f(T)
-            df_val = df_dT(T)
-            if (not np.isfinite(f_val)) or (not np.isfinite(df_val)) or df_val == 0:
-                raise RuntimeError("Derivative is zero, cannot continue Newton's method")
-            T_new = T - f_val / df_val
-            # Keep Newton updates in a physical range; shrink step if needed.
-            for _ in range(12):
-                if np.isfinite(T_new) and (2.7 <= T_new <= 800.0):
-                    break
-                T_new = 0.5 * (T_new + T)
-            if abs(T_new - T)/T < tol:
-                return T_new
-            T = T_new
-        raise RuntimeError("Newton's method did not converge within the maximum number of iterations")
+        denom = d_emitted_power - dH_dT
+        if (not np.isfinite(emitted_T)) or (not np.isfinite(denom)) or (denom <= 0.0):
+            break
 
-    T_eq = newton_method(T0)
-    return T_eq
+        # Solve linearized balance for the next iterate.
+        T_new = T + (absorbed + Hcoll_linear - emitted_T) / denom
+
+        # Keep updates in a physical range; shrink step if needed.
+        for _ in range(12):
+            if np.isfinite(T_new) and (2.7 <= T_new <= 800.0):
+                break
+            T_new = 0.5 * (T_new + T)
+
+        if abs(T_new - T) / max(abs(T), 1e-12) < 1e-4:
+            return T_new
+        T = T_new
+
+    # Robust fallback.
+    def f_fallback(Tval):
+        Hcoll_linear = H0 + dH_dT * (Tval - T0)
+        return absorbed + Hcoll_linear - emitted_power(Tval, wavelengths_em, C_abs_em)
+
+    result = root_scalar(f_fallback, bracket=[2.7, 800.0])
+    if result.converged:
+        return result.root
+    raise RuntimeError("Failed to solve linearized collisional equilibrium temperature")
 
 
 def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
                                                  ne, nH, nHe, nC,
                                                  tolerance=0.01,
                                                  specific_heat=None,
+                                                 collisional_dust_bin=None,
                                                  table_dir=None,
                                                  n_steps=400,
                                                  max_time_s=None,
@@ -602,6 +867,8 @@ def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
         ne, nH, nHe, nC (float): Number densities [cm^-3].
         tolerance (float, optional): |Tdust - Tgas| threshold [K] used to define "equilibrium".
         specific_heat (float, optional): Grain specific heat [erg g^-1 K^-1]. Defaults to 1e7.
+        collisional_dust_bin (str, optional): Collisional table bin label or index,
+            e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
         table_dir (str, optional): Directory of collisional cooling tables.
         n_steps (int, optional): Number of time samples in the returned history.
         max_time_s (float, optional): Maximum integration time [s]. Auto-set if None.
@@ -650,7 +917,7 @@ def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
     grain_heat_capacity = grain_mass * specific_heat
 
     # 2) Collisional coupling coefficient K_coll so that Hcoll = K_coll * (Tgas - Tdust)
-    dust_label = _resolve_collisional_dust_label(dust_type)
+    dust_label = _resolve_collisional_dust_label(dust_type, collisional_dust_bin=collisional_dust_bin)
     if table_dir is None:
         table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
 
@@ -725,6 +992,7 @@ def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
                                               ne_ref, nH_ref, nHe_ref, nC_ref,
                                               tolerance=0.01,
                                               specific_heat=None,
+                                              collisional_dust_bin=None,
                                               table_dir=None,
                                               n_steps=400,
                                               max_time_s=None,
@@ -742,6 +1010,8 @@ def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
         ne_ref, nH_ref, nHe_ref, nC_ref (float): Reference number densities [cm^-3].
         tolerance (float, optional): Equilibrium threshold in |Tdust-Tgas| [K].
         specific_heat (float, optional): Grain specific heat [erg g^-1 K^-1].
+        collisional_dust_bin (str, optional): Collisional table bin label or index,
+            e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
         table_dir (str, optional): Collisional cooling table directory.
         n_steps (int, optional): Number of samples in each temperature history.
         max_time_s (float, optional): Time extent [s] passed to each run.
@@ -807,6 +1077,7 @@ def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
                 nC=nC,
                 tolerance=tolerance,
                 specific_heat=specific_heat,
+                collisional_dust_bin=collisional_dust_bin,
                 table_dir=table_dir,
                 n_steps=n_steps,
                 max_time_s=max_time_s,
@@ -860,10 +1131,10 @@ def compute_equilibrium_temperature_cheap(dust_type,a,wavelengths,radiation_fiel
     abs_power = absorbed_power(wavelengths,radiation_field,C_abs)
 
     # 2. Compute the emission cross-section based on the approximations by Draine 2008 (eqs. 24.15 and 24.16)
-    dust_token = str(dust_type).lower()
-    if 'silicate' in dust_token:
+    optical_material = _resolve_optical_material(dust_type)
+    if optical_material == 'silicate':
         C_em = 4. * np.pi * (a)**2. * 1.3e-6 * (a*1e4/0.1)
-    elif 'graphite' in dust_token or 'carbon' in dust_token:
+    elif optical_material == 'graphite':
         C_em = 4. * np.pi * (a)**2. * 8e-7 * (a*1e4/0.1)
     else:
         raise ValueError(f'Unsupported dust type for cheap temperature estimate: {dust_type}')
@@ -1576,6 +1847,7 @@ def plot_Rosseland_oppacity(dust_types):
         
 
 def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0min=1e-1,G0max=1e7,
+                              collisional_dust_bin=None,
                               output_dir=None):
     """This function computes the equilibrium temperature of a dust grain given a radiation field
     and the absorption cross section, including the effect of collisions with gas particles.
@@ -1592,6 +1864,8 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
         nT (int): The number of temperatures to compute
         G0min (float): The minimum G0 value
         G0max (float): The maximum G0 value
+        collisional_dust_bin (str, optional): Collisional table bin label or index,
+            e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
     """
     from models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
     
@@ -1615,7 +1889,7 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
     print('Average absorption cross section for',dust_type,'computed')
     print('Given by',C_abs_avg)
 
-    dust_label = _resolve_collisional_dust_label(dust_type)
+    dust_label = _resolve_collisional_dust_label(dust_type, collisional_dust_bin=collisional_dust_bin)
     table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
 
     # 4. Create the figure
@@ -1745,3 +2019,180 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
         output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
     os.makedirs(output_dir, exist_ok=True)
     fig.savefig(os.path.join(output_dir, f'eqtemp_withcollisions_{dust_type}.pdf'), format='pdf', dpi=300)
+
+
+def plot_eqtemp_tgas_density_grid(dust_bin,
+                                  Tgas_min=10.0, Tgas_max=1e6,
+                                  nH_min=1e-4, nH_max=1e4,
+                                  near_equilibrium_tol=0.1,
+                                  method='newton',
+                                  output_dir=None,
+                                  filename=None):
+    """Plot Tdust/Tgas on a (Tgas, nH) grid.
+
+    The equilibrium temperature is computed using the same ingredients as
+    `plot_eqtemp_withcollision`: identical radiation field construction,
+    interpolated cross sections, and collisional tables loaded from the
+    precomputed cooling tables.
+
+    Args:
+        dust_bin (str): Bin id used for both optical properties and collisional
+            tables, e.g. 'DustBin_01'.
+        Tgas_min, Tgas_max (float, optional): Gas-temperature range [K].
+        nH_min, nH_max (float, optional): Hydrogen-number-density range [cm^-3].
+        near_equilibrium_tol (float, optional): Region criterion for near thermal coupling,
+            using |Tdust/Tgas - 1| <= near_equilibrium_tol.
+        method (str, optional): 'linearized' (default) or 'newton'.
+        output_dir (str, optional): Output directory for the plot.
+        filename (str, optional): Output filename. Auto-generated if None.
+
+    Returns:
+        dict: {
+            'Tgas_grid_K': 1D temperature grid,
+            'nH_grid_cm3': 1D nH grid,
+            'Tdust_grid_K': 2D equilibrium dust-temperature grid,
+            'ratio_grid': 2D Tdust/Tgas grid,
+            'near_equilibrium_mask': 2D boolean mask,
+            'output_path': figure path
+        }
+    """
+    import matplotlib as mpl
+    from models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
+
+    if Tgas_min <= 0 or Tgas_max <= 0 or Tgas_max <= Tgas_min:
+        raise ValueError('Require 0 < Tgas_min < Tgas_max.')
+    if nH_min <= 0 or nH_max <= 0 or nH_max <= nH_min:
+        raise ValueError('Require 0 < nH_min < nH_max.')
+    if near_equilibrium_tol < 0:
+        raise ValueError('near_equilibrium_tol must be non-negative.')
+
+    G0 = 1.0
+
+    method_token = str(method).lower()
+    if method_token not in ('linearized', 'newton'):
+        raise ValueError('method must be one of: linearized, newton')
+
+    # 1. Build the same radiation field used by the other equilibrium routines.
+    wav = np.logspace(np.log10(0.0912 * 1e-4), np.log10(1000 * 1e-4), 100)  # [cm]
+    radiation_field = np.zeros((len(wav), 2))
+    radiation_field[:, 0] = wav
+    radiation_field[:, 1] = modified_mmp83_radiation_field(wav) / wav * c  # [erg cm^-2 s^-1 cm^-1]
+
+    # 2. Cross sections for the selected bin from the exported optical-property files.
+    a0, wavelengths, _, C_abs, _, composition = _read_precomputed_optical_properties(dust_bin)
+    C_abs_interp = np.interp(radiation_field[:, 0], wavelengths[::-1], C_abs[::-1])
+
+    # Use the full wavelength range of the optical file for emission (covers 10 Å – 1 cm)
+    # so that emitted_power is correct even at high temperatures (Tdust ~ Tgas >> 1000 K).
+    wavelengths_em = np.logspace(np.log10(wavelengths.min()), np.log10(wavelengths.max()), 2000)
+    C_abs_em_interp = np.interp(wavelengths_em, wavelengths[::-1], C_abs[::-1])
+
+    # 3. Load precomputed collisional tables.
+    dust_label = _resolve_collisional_dust_label(dust_bin)
+    table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
+    coll_tables = load_cooling_tables(table_dir=table_dir)
+    z_to_table = _collect_collisional_tables_for_dustbin(coll_tables, dust_label)
+    available_Z = sorted(z_to_table.keys())
+    print(f'Using collisional channels for {dust_label}: Z={available_Z}')
+
+    # 4. Build the parameter-space grid from min/max bounds only.
+    # Keep the auto grid moderately sized so the bounds-only API stays responsive.
+    tgas_dex = np.log10(Tgas_max / Tgas_min)
+    nh_dex = np.log10(nH_max / nH_min)
+    nTgas = int(np.clip(np.ceil(8.0 * tgas_dex) + 8, 16, 36))
+    n_nH = int(np.clip(np.ceil(8.0 * nh_dex) + 8, 16, 36))
+    Tgas_grid = np.logspace(np.log10(Tgas_min), np.log10(Tgas_max), nTgas)
+    nH_grid = np.logspace(np.log10(nH_min), np.log10(nH_max), n_nH)
+
+    Tdust_grid = np.full((len(Tgas_grid), len(nH_grid)), np.nan, dtype=float)
+
+    # Cheap guess is independent of Tgas/density for fixed G0 and dust properties.
+    T0_guess = _compute_equilibrium_temperature_cheap_from_material(
+        composition,
+        a0,
+        radiation_field[:, 0],
+        G0 * radiation_field[:, 1],
+        C_abs_interp,
+    )
+    absorbed = absorbed_power(radiation_field[:, 0], G0 * radiation_field[:, 1], C_abs_interp)
+
+    # 5. Evaluate equilibrium temperature over the grid.
+    print(f'Solving Tgas-nH grid with {nTgas} x {n_nH} points...')
+    for i, Tgas_val in enumerate(Tgas_grid):
+        print(f'  Row {i + 1}/{len(Tgas_grid)}: Tgas={Tgas_val:.6g} K')
+        Tdust_grid[i, :] = Parallel(n_jobs=-1)(
+            delayed(_solve_one_cell)(
+                nH, Tgas_val, z_to_table, available_Z,
+                absorbed, wavelengths_em, C_abs_em_interp,
+                method_token, T0_guess,
+            )
+            for nH in nH_grid
+        )
+
+    ratio_grid = Tdust_grid / Tgas_grid[:, None]
+    near_equilibrium_mask = np.isfinite(ratio_grid) & (np.abs(ratio_grid - 1.0) <= near_equilibrium_tol)
+
+    # 6. Plot ratio map and highlight near-equilibrium region.
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5), dpi=300, facecolor='w', edgecolor='k')
+    ax.set_xlabel(r'$n_{\rm H}$ [cm$^{-3}$]', fontsize=16)
+    ax.set_ylabel(r'$T_{\rm gas}$ [K]', fontsize=16)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.tick_params(which='both', axis='both', direction='in')
+
+    finite_ratio = ratio_grid[np.isfinite(ratio_grid)]
+    if finite_ratio.size == 0:
+        raise RuntimeError('No finite Tdust/Tgas values were computed on the requested grid.')
+
+    vmin = max(np.min(finite_ratio), 1e-3)
+    vmax = max(np.max(finite_ratio), vmin * 1.001)
+    if vmin < 1.0 < vmax:
+        norm = mpl.colors.TwoSlopeNorm(vmin=vmin, vcenter=1.0, vmax=vmax)
+    else:
+        norm = mpl.colors.LogNorm(vmin=vmin, vmax=vmax)
+
+    pcm = ax.pcolormesh(nH_grid, Tgas_grid, ratio_grid,
+                        shading='auto', cmap='coolwarm', norm=norm)
+
+    # Draw a contour around cells where dust is close to gas temperature.
+    eq_indicator = near_equilibrium_mask.astype(float)
+    ax.contour(nH_grid, Tgas_grid, eq_indicator,
+               levels=[0.5], colors='k', linewidths=1.8)
+
+    cbar = plt.colorbar(pcm, ax=ax, orientation='vertical', pad=0.02)
+    cbar.set_label(r'$T_{\rm dust}/T_{\rm gas}$', fontsize=14)
+
+    frac_near = 100.0 * np.sum(near_equilibrium_mask) / near_equilibrium_mask.size
+    ax.set_title(
+        f'{dust_label}, G0=1, method={method_token}, solar abund. (Asplund+09), '
+        f'near-eq: |Td/Tg-1|<={near_equilibrium_tol:g} ({frac_near:.1f}%)',
+        fontsize=11,
+    )
+
+    fig.subplots_adjust(top=0.94, bottom=0.13, left=0.13, right=0.98, hspace=0, wspace=0)
+
+    if output_dir is None:
+        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+    os.makedirs(output_dir, exist_ok=True)
+
+    if filename is None:
+        filename = f'eqtemp_tgas_density_ratio_{dust_label}.pdf'
+    output_path = os.path.join(output_dir, filename)
+    fig.savefig(output_path, format='pdf', dpi=300)
+
+    print(
+        f'Grid complete for {dust_label}: finite={np.isfinite(ratio_grid).sum()}/{ratio_grid.size}, '
+        f'near-equilibrium fraction={frac_near:.2f}%.'
+    )
+
+    return {
+        'Tgas_grid_K': Tgas_grid,
+        'nH_grid_cm3': nH_grid,
+        'Tdust_grid_K': Tdust_grid,
+        'ratio_grid': ratio_grid,
+        'near_equilibrium_mask': near_equilibrium_mask,
+        'output_path': output_path,
+    }

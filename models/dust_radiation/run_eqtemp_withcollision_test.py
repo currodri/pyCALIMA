@@ -23,6 +23,8 @@ def build_parser():
         description='Run the dust equilibrium temperature test with collisions.'
     )
     parser.add_argument('--dust-type', default='silicate_bin_00')
+    parser.add_argument('--collisional-dust-bin', default=None,
+                        help='Collisional table bin, e.g. DustBin_00 or 00. Defaults to bin inferred from --dust-type.')
     parser.add_argument('--ne', type=float, default=1.0)
     parser.add_argument('--nH', type=float, default=1.0)
     parser.add_argument('--nHe', type=float, default=0.1)
@@ -54,6 +56,7 @@ def main():
         nT=args.nT,
         G0min=args.G0min,
         G0max=args.G0max,
+        collisional_dust_bin=args.collisional_dust_bin,
     )
 
 

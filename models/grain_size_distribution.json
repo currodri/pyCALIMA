@@ -162,7 +162,7 @@
       "radiation_model": "Mathis",
       "mode": "fix_G0",
       "fixed_value": 1.0,
-      "n_workers": 10
+      "n_workers": 8
     },
     "pah_photoelectric_heating": {
       "temperature": 1000.0,

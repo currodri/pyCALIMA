@@ -22,6 +22,7 @@ import numpy as np
 import models.dust_model as dust_model
 import pandas as pd
 import os
+from pathlib import Path
 from tqdm import tqdm
 import concurrent.futures
 import time
@@ -40,6 +41,9 @@ except Exception:
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_SPUTTERING_OUTPUT_DIR = _REPO_ROOT / 'model_data' / 'thermal_sputtering_data'
 
 # Constants
 a_0              = 5.291e-9 # [cm] - atomic length unit
@@ -490,9 +494,8 @@ def export_rates(Tmin,Tmax,ion_atomic_masses,
                  label=''):
     
     # 1. Crete the directory for the table data
-    table_dir = './thermal_sputtering_data'
-    if not os.path.exists(table_dir):
-        os.mkdir(table_dir)
+    table_dir = str(_SPUTTERING_OUTPUT_DIR)
+    os.makedirs(table_dir, exist_ok=True)
     
     # 2. Compute the rate for small carbonaceous grains
     a_dust, Tgas, Y_smallC = total_erosion_rate(Tmin,Tmax,'smallC',
@@ -972,9 +975,8 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
     phi_max = float(phi_grid[-1])
 
     num_cores = 5
-    table_dir = './thermal_sputtering_data'
-    if not os.path.exists(table_dir):
-        os.mkdir(table_dir)
+    table_dir = str(_SPUTTERING_OUTPUT_DIR)
+    os.makedirs(table_dir, exist_ok=True)
 
     all_rate_tables = []
     output_files = []
@@ -1334,9 +1336,8 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     ax.plot(Tgas,Y_Sil,linestyle='--',color='sandybrown',linewidth=3,label='Sil: Nozawa et al. (2006)')
     ax.plot(Tgas,Y_C,linestyle='--',color='cornflowerblue',linewidth=3,label='C: Nozawa et al. (2006)')
     
-    table_dir = './thermal_sputtering_data'
-    if not os.path.exists(table_dir):
-        os.mkdir(table_dir)
+    table_dir = str(_SPUTTERING_OUTPUT_DIR)
+    os.makedirs(table_dir, exist_ok=True)
     with open(os.path.join(table_dir,f"thermal_sputtering_polynomial_fits{label}.txt"), "w") as file:
         file.write("Thermal Dust sputtering Fit Results (with size and charge corrections)\n")
         

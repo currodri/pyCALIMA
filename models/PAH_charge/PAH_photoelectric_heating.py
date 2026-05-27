@@ -37,9 +37,21 @@ plt.rcParams.update({
     "text.latex.preamble": r"\usepackage{xcolor}"
 })
 
-# Resolve Berne model path as sibling directory above CALIMA, independent of cwd.
+# Resolve paths relative to the repository root, independent of cwd.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _CALIMA_ROOT = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))
+_EXTERNAL_DATA_DIR = os.path.join(_CALIMA_ROOT, 'external_data')
+_BERNE_2022_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'berne_2022')
+
+# BERNEPATH points to the Berne 2022 PAH cross-section dataset.
+# It defaults to optical_props/berne_2022/ inside this repository.
+# That directory must contain four subdirectories:
+#   anions/, cations/, dications/, neutrals/
+# Each holds one .txt file (energy [eV], cross-section [Mb]) per PAH species.
+# The neutrals/ subdirectory is required when optical_model='Malloci' is used.
+# See optical_props/berne_2022/README.md for the full file list.
+# Override with the BERNEPATH environment variable to use a different location.
+BERNEPATH = os.environ.get('BERNEPATH', _BERNE_2022_DIR)
 
 # CONSTANTS
 PAH_OPTICALS_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'li_draine_2001')
@@ -1310,7 +1322,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#A29F15'
         linestyle= ':'
     elif radiation_model == 'HD200775':
-        HD200775 = Table.read('../photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        HD200775 = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'HD200775_RF.txt'), format='ascii')
         rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1337,7 +1349,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#256EFF'
         linestyle= '--'
     elif radiation_model == 'O6V':
-        O6V = Table.read('../photoelectric-heating/stars/kp00_40000', format='ascii')
+        O6V = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_40000'), format='ascii')
         rad_field = np.column_stack([O6V['col1'],O6V['col2']])
         distance = 20. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1349,7 +1361,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#C33149'
         linestyle= '-.'
     elif radiation_model == 'B0V':
-        B0V = Table.read('../photoelectric-heating/stars/kp00_30000', format='ascii')
+        B0V = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_30000'), format='ascii')
         rad_field = np.column_stack([B0V['col1'],B0V['col2']])
         distance = 20. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1361,7 +1373,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#4B543B'
         linestyle= '-.'
     elif radiation_model == 'A0':
-        A0 = Table.read('../photoelectric-heating/stars/kp00_10000', format='ascii')
+        A0 = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_10000'), format='ascii')
         rad_field = np.column_stack([A0['col1'],A0['col2']])
         distance = 2. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1501,7 +1513,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#A29F15'
         linestyle= ':'
     elif radiation_model == 'HD200775':
-        HD200775 = Table.read('../photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        HD200775 = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'HD200775_RF.txt'), format='ascii')
         rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1528,7 +1540,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#256EFF'
         linestyle= '--'
     elif radiation_model == 'O6V':
-        O6V = Table.read('../photoelectric-heating/stars/kp00_40000', format='ascii')
+        O6V = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_40000'), format='ascii')
         rad_field = np.column_stack([O6V['col1'],O6V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1540,7 +1552,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#C33149'
         linestyle= '-.'
     elif radiation_model == 'B0V':
-        B0V = Table.read('../photoelectric-heating/stars/kp00_30000', format='ascii')
+        B0V = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_30000'), format='ascii')
         rad_field = np.column_stack([B0V['col1'],B0V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1552,7 +1564,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#4B543B'
         linestyle= '-.'
     elif radiation_model == 'A0':
-        A0 = Table.read('../photoelectric-heating/stars/kp00_10000', format='ascii')
+        A0 = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_10000'), format='ascii')
         rad_field = np.column_stack([A0['col1'],A0['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1773,7 +1785,7 @@ def compare_eff_curves_ISRF(T,ne_min,ne_max,n_ne=100,op_model='Malloci'):
 
 
 def _load_isrf_data(model_name):
-    """Load ISRF data using BERNEPATH (absolute path).
+    """Load ISRF data from the repository external_data directory.
     
     Parameters
     ----------
@@ -1783,19 +1795,23 @@ def _load_isrf_data(model_name):
     Returns
     -------
     astropy.table.Table
-        ISRF data table
+        ISRF data table with columns col1 (wavelength, nm) and col2 (intensity)
     """
     from astropy.table import Table
-    
-    if model_name == 'Draine':
-        filepath = os.path.join(BERNEPATH, 'ISRF', 'draine1978.txt')
-    elif model_name == 'Mathis':
-        filepath = os.path.join(BERNEPATH, 'ISRF', 'mathis1983.txt')
-    elif model_name == 'Habing':
-        filepath = os.path.join(BERNEPATH, 'ISRF', 'habing1968.txt')
-    else:
+
+    _filename_map = {
+        'Draine': 'draine1978.txt',
+        'Mathis': 'mathis1983.txt',
+        'Habing': 'habing1968.txt',
+    }
+    if model_name not in _filename_map:
         raise ValueError(f'Unknown ISRF model: {model_name}')
-    
+
+    filepath = os.path.join(_EXTERNAL_DATA_DIR, _filename_map[model_name])
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(
+            f"Could not find ISRF file for model '{model_name}' at '{filepath}'."
+        )
     return Table.read(filepath, format='ascii')
 
 def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=100, radiation_model='Draine',
@@ -1943,7 +1959,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#A29F15'
         linestyle= ':'
     elif radiation_model == 'HD200775':
-        HD200775 = Table.read('../photoelectric-heating/stars/HD200775_RF.txt', format='ascii')
+        HD200775 = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'HD200775_RF.txt'), format='ascii')
         rad_field = np.column_stack([HD200775['col1'],HD200775['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1970,7 +1986,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#256EFF'
         linestyle= '--'
     elif radiation_model == 'O6V':
-        O6V = Table.read('../photoelectric-heating/stars/kp00_40000', format='ascii')
+        O6V = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_40000'), format='ascii')
         rad_field = np.column_stack([O6V['col1'],O6V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1982,7 +1998,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#C33149'
         linestyle= '-.'
     elif radiation_model == 'B0V':
-        B0V = Table.read('../photoelectric-heating/stars/kp00_30000', format='ascii')
+        B0V = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_30000'), format='ascii')
         rad_field = np.column_stack([B0V['col1'],B0V['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
@@ -1994,7 +2010,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#4B543B'
         linestyle= '-.'
     elif radiation_model == 'A0':
-        A0 = Table.read('../photoelectric-heating/stars/kp00_10000', format='ascii')
+        A0 = Table.read(os.path.join(_EXTERNAL_DATA_DIR, 'kp00_10000'), format='ascii')
         rad_field = np.column_stack([A0['col1'],A0['col2']])
         distance = 1. # at 20 pc
         star_radius = 10. # in solar radius units
