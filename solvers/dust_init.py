@@ -1,0 +1,455 @@
+"""Load initial conditions for the dust chemistry ODE solver from a JSON file.
+
+Public API
+----------
+``load_initial_conditions(config_path)``
+    Parse the JSON file and return ``(DustChemistryState, y_gas_0, y_dust_0)``.
+
+JSON schema (see ``configs/example_ic.json`` for a complete example)
+---------------------------------------------------------------------
+{
+    "model_data_dir": "model_data",          // optional, default auto-detected
+    "environment": {
+        "gas_temperature_K": 100.0,
+        "hydrogen_number_density_cm3": 100.0,
+        "electron_number_density_cm3": 1e-3,
+        "radiation_field_G0": 1.0,
+        "radiation_field_model": "habing",   // informational
+        "mean_molecular_weight": 1.4
+    },
+    "elemental_abundances": {
+        "H":  {"mass_fraction": 0.706},
+        ...
+    },
+    "dust_bins": [
+        {
+            "id": "DustBin_01",
+            "composition": "graphite",
+            "grain_size_micron": 0.01,
+            "grain_density_gcm3": 2.24,
+            "elements": [{"name": "C", "mass_fraction": 1.0}],
+            "initial_mass_density_gcm3": 8e-28,
+            "sticking_coefficient": 1.0,
+            "nhmax_acc": 1e4,
+            "nh_coa": 0.1,
+            "coagulation_partner": "DustBin_02"   // optional bin id
+        },
+        ...
+    ],
+    "pah_bins": [
+        {
+            "id": "PAHbin_01",
+            "nc": 54,
+            "nc_min": 24,
+            "initial_mass_density_gcm3": 1e-29
+        },
+        ...
+    ],
+    "physics": {
+        "dust_accretion": true,
+        "dust_sputtering": true,
+        "dust_coagulation": true,
+        "pah_accretion": false,
+        "pah_photolysis": false
+    },
+    "solver": {
+        "type": "rk4",
+        "t_end_Myr": 100.0,
+        "h_init_s": 1e10,
+        "h_min_s": 1.0,
+        "h_max_Myr": 1.0,
+        "errmax": 0.1,
+        "countmax": 10000
+    }
+}
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+from typing import Tuple
+
+import numpy as np
+
+from .chemistry_state import (
+    AU2G,
+    ELEMENT_ATOMIC_MASSES_G,
+    ELEMENT_NAMES,
+    N_ELEMENTS,
+    DustBinParams,
+    DustChemistryState,
+    PAHBinParams,
+)
+from .table_io import (
+    build_sputtering_interpolator,
+    build_pah_photolysis_interpolator,
+    build_pah_sputtering_interpolator,
+)
+
+# ---------------------------------------------------------------------------
+# Physical constants (CGS)
+# ---------------------------------------------------------------------------
+
+KB_CGS: float = 1.3806488e-16   # Boltzmann constant [erg K⁻¹]
+MH_CGS: float = 1.6726219e-24   # Proton mass [g]
+PI: float = math.pi
+SEC2YR: float = 3.1536e7         # seconds per year [s yr⁻¹]
+SEC2MYR: float = 3.1536e13       # seconds per Myr  [s Myr⁻¹]
+
+# Sputtering tables exist for these ion species (atomic-number-keyed)
+# Must match the naming used in CALIMA's export_sputtering_rates_bins.py
+_ION_SPECIES = [
+    ("H",  1),
+    ("He", 2),
+    ("C",  6),
+    ("N",  7),
+    ("O",  8),
+    ("Ne", 10),
+    ("Mg", 12),
+    ("Si", 14),
+    ("S",  16),
+    ("Fe", 26),
+]
+
+# PAH sputtering species: electrons (Z=0) plus ions
+_PAH_SPUTTERING_SPECIES = [
+    ("electrons", 0),
+    ("H",  1),
+    ("He", 2),
+    ("C",  6),
+    ("O",  8),
+]
+
+
+# ---------------------------------------------------------------------------
+# Pre-computation helpers
+# ---------------------------------------------------------------------------
+
+def _k0_accretion(asize_cm: float, sgrain: float, sticking: float = 1.0) -> float:
+    """Accretion rate constant k₀_acc [cm³ g⁻⁰·⁵ K⁻⁰·⁵ s⁻¹].
+
+    From LeBourlot et al. (2012) the grain-growth rate per unit dust density is
+
+        rate [s⁻¹] = k0_acc × √T / (1 + 10⁻⁴ T^1.5)
+                     × y_gas[e] / (el_mfrac × √m_e_g)
+
+    where  k0_acc = π a² S √(8 k_B / π) / m_grain .
+    """
+    m_grain = (4.0 / 3.0) * PI * asize_cm ** 3 * sgrain
+    cross_section = PI * asize_cm ** 2
+    return cross_section * sticking * math.sqrt(8.0 * KB_CGS / PI) / m_grain
+
+
+def _k0_coagulation(asize_cm: float, sgrain: float) -> float:
+    """Coagulation rate constant k₀_coa [cm³ g⁻¹ s⁻¹].
+
+    From Aoyama et al. (2017)
+
+        rate [s⁻¹] = k0_coa × y_dust[small_bin] / n_H
+
+    k0_coa = √(8/(3π)) × π (2a)² / m_grain  ≡ collision cross section / mass.
+    """
+    m_grain = (4.0 / 3.0) * PI * asize_cm ** 3 * sgrain
+    return math.sqrt(8.0 / (3.0 * PI)) * PI * (2.0 * asize_cm) ** 2 / m_grain
+
+
+def _load_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
+    """Load thermal sputtering tables for all ion species for *bin_id*.
+
+    Returns a dict mapping ``element_name → evaluate_fn`` where
+    ``evaluate_fn(T, phi=0.0)`` gives the rate in [µm yr⁻¹ cm³].
+    Missing table files are silently skipped.
+    """
+    interps: dict = {}
+    for el_name, Z in _ION_SPECIES:
+        fname = data_dir / f"thermal_sputtering_{bin_id}_Z_{Z}"
+        if not fname.exists():
+            continue
+        try:
+            evaluate_fn, _ = build_sputtering_interpolator(fname)
+            interps[el_name] = evaluate_fn
+        except Exception:
+            pass  # corrupt table – skip gracefully
+    return interps
+
+
+def _load_pah_photolysis_table(bin_id: str, data_dir: Path):
+    """Load PAH photolysis 2-D table for *bin_id*.
+
+    Returns a callable ``(log10_G0, log10_nH) → log10(rate [s⁻¹])`` or
+    ``None`` if the file does not exist.
+    """
+    fname = data_dir / f"dissociation_{bin_id}.dat"
+    if not fname.exists():
+        return None
+    try:
+        evaluate_fn, _ = build_pah_photolysis_interpolator(fname)
+        return evaluate_fn
+    except Exception:
+        return None
+
+
+def _load_pah_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
+    """Load PAH sputtering 1-D T-tables for all ion species for *bin_id*.
+
+    Returns a dict mapping ``species_name → evaluate_fn(T)``
+    where ``evaluate_fn(T)`` gives J [cm³ s⁻¹].
+    Keys: ``'electrons'``, ``'H'``, ``'He'``, ``'C'``, ``'O'`` etc.
+    """
+    interps: dict = {}
+    for species_name, Z in _PAH_SPUTTERING_SPECIES:
+        fname = data_dir / f"sputtering_{bin_id}_Z_{Z}"
+        if not fname.exists():
+            continue
+        try:
+            evaluate_fn, _ = build_pah_sputtering_interpolator(fname)
+            interps[species_name] = evaluate_fn
+        except Exception:
+            pass
+    return interps
+
+
+# ---------------------------------------------------------------------------
+# Main loader
+# ---------------------------------------------------------------------------
+
+def load_initial_conditions(
+    config_path: str | Path,
+) -> Tuple[DustChemistryState, np.ndarray, np.ndarray]:
+    """Load dust chemistry initial conditions from a JSON file.
+
+    Parameters
+    ----------
+    config_path :
+        Path to the initial conditions JSON file.
+
+    Returns
+    -------
+    state : DustChemistryState
+    y_gas : ndarray, shape (n_elements,)
+        Gas-phase element mass densities [g cm⁻³].
+    y_dust : ndarray, shape (npah + ndust,)
+        PAH (first) and dust mass densities [g cm⁻³].
+    """
+    config_path = Path(config_path)
+    with config_path.open("r", encoding="utf-8") as fh:
+        cfg = json.load(fh)
+
+    # ------------------------------------------------------------------
+    # Resolve paths
+    # ------------------------------------------------------------------
+    default_data = Path(__file__).parents[1] / "model_data"
+    model_data_dir = Path(cfg.get("model_data_dir", str(default_data)))
+    sputtering_dir = model_data_dir / "thermal_sputtering_data"
+    pah_photolysis_dir = model_data_dir / "PAH_dissociation_data"
+    pah_sputtering_dir = model_data_dir / "pah_sputtering_data"
+
+    # ------------------------------------------------------------------
+    # Gas environment
+    # ------------------------------------------------------------------
+    env = cfg["environment"]
+    local_Tk = float(env["gas_temperature_K"])
+    local_nH = float(env["hydrogen_number_density_cm3"])
+    local_mu = float(env.get("mean_molecular_weight", 1.4))
+    local_rho = float(
+        env.get("gas_mass_density_gcm3", local_nH * MH_CGS * local_mu)
+    )
+    local_ne = float(env.get("electron_number_density_cm3", 1.0e-4 * local_nH))
+    local_G0 = float(env.get("radiation_field_G0", 1.0))
+
+    # ------------------------------------------------------------------
+    # Elemental abundances → y_gas
+    # ------------------------------------------------------------------
+    y_gas = np.zeros(N_ELEMENTS, dtype=np.float64)
+    for el_cfg in cfg.get("elemental_abundances", {}).items():
+        el_name, props = el_cfg
+        if el_name in ELEMENT_NAMES:
+            mfrac = float(props.get("mass_fraction", 0.0))
+            y_gas[ELEMENT_NAMES.index(el_name)] = mfrac * local_rho
+
+    # ------------------------------------------------------------------
+    # Dust bins
+    # ------------------------------------------------------------------
+    dust_cfgs = cfg.get("dust_bins", [])
+    dust_bins: list[DustBinParams] = []
+
+    for bd in dust_cfgs:
+        bin_id = bd["id"]
+        composition = bd.get("composition", "graphite")
+        asize_um = float(bd["grain_size_micron"])
+        asize_cm = asize_um * 1.0e-4
+        sgrain = float(bd["grain_density_gcm3"])
+        mgrain = (4.0 / 3.0) * PI * asize_cm ** 3 * sgrain
+        sticking = float(bd.get("sticking_coefficient", 1.0))
+
+        # Element composition
+        el_names: list[str] = []
+        el_indices: list[int] = []
+        el_mfracs: list[float] = []
+        for ec in bd.get("elements", []):
+            ename = ec["name"]
+            if ename in ELEMENT_NAMES:
+                el_names.append(ename)
+                el_indices.append(ELEMENT_NAMES.index(ename))
+                el_mfracs.append(float(ec["mass_fraction"]))
+
+        k0_acc = _k0_accretion(asize_cm, sgrain, sticking)
+        k0_coa = _k0_coagulation(asize_cm, sgrain)
+        sput_interps = _load_sputtering_tables(bin_id, sputtering_dir)
+
+        # Grain mass range for fragment distribution (shattering)
+        amin_um = float(bd.get("amin_micron", asize_um * 0.5))
+        amax_um = float(bd.get("amax_micron", asize_um * 2.0))
+        amin_cm = amin_um * 1.0e-4
+        amax_cm = amax_um * 1.0e-4
+        mgrain_min = (4.0 / 3.0) * PI * amin_cm ** 3 * sgrain
+        mgrain_max = (4.0 / 3.0) * PI * amax_cm ** 3 * sgrain
+
+        db = DustBinParams(
+            bin_id=bin_id,
+            composition=composition,
+            bin_index=len(dust_bins),
+            asize_micron=asize_um,
+            asize_cm=asize_cm,
+            sgrain=sgrain,
+            mgrain=mgrain,
+            el_names=el_names,
+            el_indices=el_indices,
+            el_mfractions=el_mfracs,
+            k0_acc=k0_acc,
+            k0_coa=k0_coa,
+            sputtering_interps=sput_interps,
+            nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
+            nh_coa=float(bd.get("nh_coa", 0.1)),
+            catastrophic_spec_energy=float(
+                bd.get("catastrophic_specific_energy_erg_g", 1.0e7)
+            ),
+            mgrain_min=mgrain_min,
+            mgrain_max=mgrain_max,
+            interact_pah=bool(bd.get("interact_pah", False)),
+            vthresh_coag=float(bd.get("vthresh_coag_cm_s", 1.0e4)),
+        )
+        # Store the coag-partner ID as a string; resolve to index below
+        if "coagulation_partner" in bd:
+            db.coag_partner_index = bd["coagulation_partner"]  # type: ignore[assignment]
+        dust_bins.append(db)
+
+    # Resolve coagulation partner string IDs → integer indices
+    id_to_idx = {db.bin_id: db.bin_index for db in dust_bins}
+    for db in dust_bins:
+        if isinstance(db.coag_partner_index, str):
+            db.coag_partner_index = id_to_idx.get(db.coag_partner_index)
+
+    # ------------------------------------------------------------------
+    # PAH bins
+    # ------------------------------------------------------------------
+    pah_cfgs = cfg.get("pah_bins", [])
+    pah_bins: list[PAHBinParams] = []
+
+    for pb in pah_cfgs:
+        bin_id = pb["id"]
+        nc = int(pb.get("nc", 54))
+        nc_min = int(pb.get("nc_min", 24))
+        nc_max = int(pb.get("nc_max", nc * 2))
+        spah = float(pb.get("grain_density_gcm3", 2.24))
+        mpah = float(pb.get("mpah_g", nc * 12.011 * AU2G))
+        mpah_min = nc_min * 12.011 * AU2G
+        mpah_max = nc_max * 12.011 * AU2G
+        apah_cm = (3.0 * mpah / (4.0 * PI * spah)) ** (1.0 / 3.0)
+
+        # Load photolysis and sputtering tables
+        dissociation_interp = _load_pah_photolysis_table(bin_id, pah_photolysis_dir)
+        sput_interps_pah = _load_pah_sputtering_tables(bin_id, pah_sputtering_dir)
+
+        pah_bin = PAHBinParams(
+            bin_id=bin_id,
+            bin_index=len(pah_bins),
+            nc=nc,
+            nc_min=nc_min,
+            nc_max=nc_max,
+            mpah=mpah,
+            spah=spah,
+            fpah=float(pb.get("fpah", 0.1)),
+            apah_cm=apah_cm,
+            mpah_min=mpah_min,
+            mpah_max=mpah_max,
+            dissociation_interp=dissociation_interp,
+            sputtering_interps=sput_interps_pah,
+            is_cluster=bool(pb.get("is_cluster", False)),
+            dust_index_interact=int(pb.get("dust_index_interact", -1)),
+            nd_bins=int(pb.get("nd_bins_interact", 0)),
+        )
+        pah_bins.append(pah_bin)
+
+    # ------------------------------------------------------------------
+    # y_dust initial conditions  (PAH bins first, then dust bins)
+    # ------------------------------------------------------------------
+    npah = len(pah_bins)
+    ndust = len(dust_bins)
+    y_dust = np.zeros(npah + ndust, dtype=np.float64)
+
+    for i, bd in enumerate(dust_cfgs):
+        y_dust[npah + i] = float(bd.get("initial_mass_density_gcm3", 0.0))
+
+    for i, pb in enumerate(pah_cfgs):
+        y_dust[i] = float(pb.get("initial_mass_density_gcm3", 0.0))
+
+    # ------------------------------------------------------------------
+    # Physics flags and solver settings
+    # ------------------------------------------------------------------
+    phys = cfg.get("physics", {})
+    solver_cfg = cfg.get("solver", {})
+    models_cfg = cfg.get("models", {})
+    turb_cfg = cfg.get("turbulence", {})
+
+    # Turbulent velocity and injection scale (convert from km/s and pc)
+    _PC2CM = 3.085677581e18  # 1 pc in cm
+    local_sigma = float(turb_cfg.get("local_sigma_km_s", 0.0)) * 1.0e5
+    local_dx = float(turb_cfg.get("local_dx_pc", 0.0)) * _PC2CM
+
+    state = DustChemistryState(
+        local_Tk=local_Tk,
+        local_nH=local_nH,
+        local_rho=local_rho,
+        local_ne=local_ne,
+        local_G0=local_G0,
+        local_mu=local_mu,
+        ndust=ndust,
+        npah=npah,
+        dust_bins=dust_bins,
+        pah_bins=pah_bins,
+        el_names=list(ELEMENT_NAMES),
+        el_atomic_mass_g=list(ELEMENT_ATOMIC_MASSES_G),
+        errmax=float(solver_cfg.get("errmax", 0.1)),
+        countmax=int(solver_cfg.get("countmax", 10000)),
+        # Physics flags
+        dust_accretion=bool(phys.get("dust_accretion", False)),
+        dust_sputtering=bool(phys.get("dust_sputtering", False)),
+        dust_coagulation=bool(phys.get("dust_coagulation", False)),
+        dust_shattering=bool(phys.get("dust_shattering", False)),
+        pah_accretion=bool(phys.get("pah_accretion", False)),
+        pah_photolysis=bool(phys.get("pah_photolysis", False)),
+        pah_sputtering=bool(phys.get("pah_sputtering", False)),
+        pah_coalescence=bool(phys.get("pah_coalescence", False)),
+        pah_cluster_evaporation=bool(phys.get("pah_cluster_evaporation", False)),
+        pah_freezing=bool(phys.get("pah_freezing", False)),
+        # Model selection
+        coagulation_model=str(models_cfg.get("coagulation_model", "Aoyama2017")),
+        shattering_model=str(models_cfg.get("shattering_model", "turbulent")),
+        dust_velocity_model=str(models_cfg.get("dust_velocity_model", "Ormel2007")),
+        coalescence_model=str(models_cfg.get("coalescence_model", "Totton2012")),
+        photolysis_model=str(models_cfg.get("photolysis_model", "RM2026")),
+        pah_sputtering_model=str(models_cfg.get("pah_sputtering_model", "RM2026")),
+        cluster_evaporation_model=str(
+            models_cfg.get("cluster_evaporation_model", "Montillaud2014")
+        ),
+        slope_frag_func=float(models_cfg.get("slope_frag_func", 1.3 / 3.0)),
+        # Turbulent environment
+        local_sigma=local_sigma,
+        local_dx=local_dx,
+        radiation_field_model=env.get("radiation_field_model", "habing"),
+    )
+
+    return state, y_gas, y_dust

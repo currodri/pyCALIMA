@@ -1,0 +1,106 @@
+# ====================================================================
+# CALIMA Dust Chemistry Solver  —  Evolution Output
+# Generated  : 2026-05-27 12:59:07
+# Config     : solvers/configs/equilibrium_nk_test.json
+# ====================================================================
+#
+# INITIAL CONDITIONS
+#   T_gas    = 1.000000e+02 K
+#   n_H      = 1.000000e+02 cm^-3
+#   n_e      = 1.000000e-03 cm^-3
+#   G0       = 1.000000e+00  (Habing units)
+#   mu       = 1.4000  (mean molecular weight)
+#   rho      = 2.341671e-22 g/cm^3
+#
+# INITIAL DENSITIES
+#   Gas phase:
+#     H     = 1.653219e-22 g/cm^3
+#     He    = 6.439594e-23 g/cm^3
+#     C     = 5.547418e-25 g/cm^3
+#     N     = 1.948270e-25 g/cm^3
+#     O     = 1.342948e-24 g/cm^3
+#     Mg    = 1.508036e-25 g/cm^3
+#     Si    = 1.571261e-25 g/cm^3
+#     S     = 7.985097e-26 g/cm^3
+#     Fe    = 2.945822e-25 g/cm^3
+#   Dust / PAH:
+#     DustBin_01    = 8.000000e-28 g/cm^3
+#     DustBin_02    = 8.000000e-27 g/cm^3
+#     DustBin_03    = 4.000000e-27 g/cm^3
+#     DustBin_04    = 8.000000e-27 g/cm^3
+#     PAHbin_01     = 1.000000e-30 g/cm^3
+#     PAHbin_02     = 1.000000e-30 g/cm^3
+#
+# DUST BINS  (ndust = 4)
+#    Idx  ID              Comp.             a [µm]           m [g]     sigma [cm2]  Elements
+#   ----------------------------------------------------------------------------------------
+#      0  DustBin_01      graphite      1.0000e-02      9.3829e-18      2.2400e+00  C
+#      1  DustBin_02      graphite      1.0000e-01      9.3829e-15      2.2400e+00  C
+#      2  DustBin_03      silicate      5.0000e-02      1.7279e-15      3.3000e+00  Mg, Si, O, Fe
+#      3  DustBin_04      silicate      2.0000e-01      1.1058e-13      3.3000e+00  Mg, Si, O, Fe
+#
+# PAH BINS  (npah = 2)
+#    Idx  ID                  Nc           m [g]     sigma [cm2]
+#   ------------------------------------------------------------
+#      0  PAHbin_01           54      1.0770e-21      2.2400e+00
+#      1  PAHbin_02           96      1.9147e-21      2.2400e+00
+#
+# ACTIVE PROCESSES  :  accretion, sputtering, coagulation, shattering, pah_accretion, pah_photolysis, pah_sputtering, pah_coalescence, pah_cluster_evaporation, pah_freezing
+#
+# SOLVER SETTINGS
+#   Type     = RK4 (adaptive Runge-Kutta 4th order)
+#   errmax   = 1.00e-01  (max accepted relative error per step)
+#   countmax = 10000  (max ODE iterations)
+#   t_end    = 100 Myr  (3.153600e+15 s)
+#
+# SOLVER DIAGNOSTICS
+#   Solver     = no convergence after 3532 F evaluations
+#   Converged  : False
+#   ||F|| init : 9.580235e-42  g cm^-3 s^-1
+#   ||F|| final: 4.179272e-34  g cm^-3 s^-1
+#   F evals    : 3533
+#   Wall time  : 1.2522 s
+#
+# MASS CONSERVATION  (gas + dust + PAH per element)
+#    Element    M_init [g/cm3]   M_final [g/cm3]       |dM|/M0
+#   ------------------------------------------------------------
+#          H      1.653219e-22      1.653219e-22    0.0000e+00
+#         He      6.439594e-23      6.439594e-23    0.0000e+00
+#          C      5.635438e-25      2.060386e-13    3.6561e+11  WARN
+#          N      1.948270e-25      1.948270e-25    0.0000e+00
+#          O      1.349812e-24      1.095047e-14    8.1126e+09  WARN
+#         Mg      1.525196e-25      2.737619e-15    1.7949e+10  WARN
+#         Si      1.590821e-25      3.120502e-15    1.9616e+10  WARN
+#          S      7.985097e-26      7.985097e-26    0.0000e+00
+#         Fe      2.960462e-25      2.335591e-15    7.8893e+09  WARN
+#   ------------------------------------------------------------
+#      TOTAL      2.325136e-22      2.251828e-13    9.6847e+08  WARN
+#
+# COLUMN DESCRIPTIONS  (ncols = 19,  nrows = 2)
+#   Row 1 is the initial state (t = 0); h_s and error are NaN there.
+#   Col 001:  time_s                Time  [s]
+#   Col 002:  time_Myr              Time  [Myr]
+#   Col 003:  h_s                   Accepted timestep  [s]  (NaN at t = 0)
+#   Col 004:  error                 Max relative step error  (NaN at t = 0)
+#   Col 005:  DustBin_01            DustBin_01 mass density  [g/cm^3]
+#   Col 006:  DustBin_02            DustBin_02 mass density  [g/cm^3]
+#   Col 007:  DustBin_03            DustBin_03 mass density  [g/cm^3]
+#   Col 008:  DustBin_04            DustBin_04 mass density  [g/cm^3]
+#   Col 009:  PAHbin_01             PAHbin_01 mass density  [g/cm^3]
+#   Col 010:  PAHbin_02             PAHbin_02 mass density  [g/cm^3]
+#   Col 011:  H_gas                 H gas-phase mass density  [g/cm^3]
+#   Col 012:  He_gas                He gas-phase mass density  [g/cm^3]
+#   Col 013:  C_gas                 C gas-phase mass density  [g/cm^3]
+#   Col 014:  N_gas                 N gas-phase mass density  [g/cm^3]
+#   Col 015:  O_gas                 O gas-phase mass density  [g/cm^3]
+#   Col 016:  Mg_gas                Mg gas-phase mass density  [g/cm^3]
+#   Col 017:  Si_gas                Si gas-phase mass density  [g/cm^3]
+#   Col 018:  S_gas                 S gas-phase mass density  [g/cm^3]
+#   Col 019:  Fe_gas                Fe gas-phase mass density  [g/cm^3]
+#
+# --------------------------------------------------------------------
+# DATA  (column names below, then rows)
+#                   time_s                  time_Myr                       h_s                     error                DustBin_01                DustBin_02                DustBin_03                DustBin_04                 PAHbin_01                 PAHbin_02                     H_gas                    He_gas                     C_gas                     N_gas                     O_gas                    Mg_gas                    Si_gas                     S_gas                    Fe_gas
+# --------------------------------------------------------------------
+   0.000000000000000e+00     0.000000000000000e+00                       nan                       nan     8.000000000000000e-28     8.000000000000000e-27     4.000000000000000e-27     8.000000000000000e-27     1.000000000000000e-30     1.000000000000000e-30     1.653219485960000e-22     6.439594315000001e-23     5.547417793540000e-25     1.948269989120000e-25     1.342948123510000e-24     1.508035905040000e-25     1.571261012860000e-25     7.985096950600000e-26     2.945821690280000e-25
+   3.153600000000000e+15     1.000000000000000e+02                       nan                       nan     0.000000000000000e+00     0.000000000000000e+00     1.914418632744077e-14     0.000000000000000e+00     0.000000000000000e+00     2.060385805257465e-13     1.653219485960000e-22     6.439594315000001e-23     0.000000000000000e+00     1.948269989120000e-25     0.000000000000000e+00     0.000000000000000e+00     0.000000000000000e+00     7.985096950600000e-26     0.000000000000000e+00
