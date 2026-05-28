@@ -157,9 +157,25 @@ def _run_point(
     """Run chemistry at a single (x_val, y_val) environment point."""
     state, y_gas_0, y_dust_0 = load_initial_conditions(config_path)
 
+    # Save reference nH before any override so we can rescale mass densities.
+    # y_gas_0 is computed as mass_fraction * local_rho where
+    # local_rho = nH * m_H * mu, so both y_gas_0, y_dust_0, and state.local_rho
+    # must be rescaled whenever nH (or mu) changes.
+    nH_ref  = state.local_nH
+    mu_ref  = state.local_mu
+
     # Override environment parameters
     setattr(state, _PARAM_TO_ATTR[x_param], float(x_val))
     setattr(state, _PARAM_TO_ATTR[y_param], float(y_val))
+
+    # Rescale initial mass densities to be consistent with the new nH / mu.
+    # The reference density is rho_ref = nH_ref * m_H * mu_ref, so the
+    # scale factor is simply (nH_new * mu_new) / (nH_ref * mu_ref).
+    rho_scale = (state.local_nH * state.local_mu) / max(nH_ref * mu_ref, 1e-300)
+    if abs(rho_scale - 1.0) > 1e-12:
+        y_gas_0         = y_gas_0  * rho_scale
+        y_dust_0        = y_dust_0 * rho_scale
+        state.local_rho = state.local_rho * rho_scale
 
     processes = build_process_list(state)
 
