@@ -1,13 +1,13 @@
 {
   "bins": [
     {
-      "id": "PAHbin_01",
+      "id": "PAHBin_01",
       "composition": "graphite",
       "is_pah": true,
       "bin_rank": 0
     },
     {
-      "id": "PAHbin_02",
+      "id": "PAHBin_02",
       "composition": "graphite",
       "is_pah": true,
       "bin_rank": 1

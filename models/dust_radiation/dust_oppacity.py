@@ -10,6 +10,7 @@ By: Curro Rodriguez (currodri@gmail.com)
 
 # Import some libraries
 import os
+import concurrent.futures
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import numpy as np
 import pandas as pd
@@ -146,8 +147,18 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
     saved_paths = []
     for src_path, out_stem in sources:
         metadata = read_dielectric_file(str(src_path))
-        save_imn_file(metadata, str(output_dir / out_stem))
-        saved_paths.append(str(output_dir / out_stem))
+        # Write directly to output_dir without routing through _table_output_path
+        # (which prepends PATH_TABLES and would double the directory on paths
+        # that already include model_data/optical_properties).
+        df = metadata['table'].copy()
+        df['wavelength_A'] = df['wavelength_um'].astype(float) * 1e4
+        df_sorted = df.sort_values('wavelength_A', ascending=True)
+        data_arr = df_sorted[['wavelength_A', 'Im_n']].to_numpy(dtype=float)
+        dest = output_dir / out_stem
+        with open(dest, 'w') as fout:
+            fout.write(f"{len(data_arr):8d}\n")
+            np.savetxt(fout, data_arr, fmt="%.12e %.12e")
+        saved_paths.append(str(dest))
 
     return saved_paths
 
@@ -1478,6 +1489,124 @@ def _resolve_bin_materials(component_bins, pah_state='neutral'):
     return materials
 
 
+def _build_q_table_2d(optical_table, target_wav_micron):
+    """Build a 2D Q table at (native_sizes, target_wavelengths) from an optical data tuple.
+
+    This is called ONCE per material so that the per-size inner loop in
+    ``_integrate_q_table_2d`` can be replaced by a single vectorised pass.
+
+    Parameters
+    ----------
+    optical_table : tuple
+        ``(nwav, data, columns, name)`` as returned by ``dust_efficiencies`` or
+        ``pah_efficiencies``.
+    target_wav_micron : ndarray
+        Target wavelength grid in microns.
+
+    Returns
+    -------
+    native_sizes : ndarray, shape (N,)
+        Native grain sizes in microns, sorted ascending.
+    Q_abs_2d, Q_sca_2d, g_2d : ndarray, shape (N, nwav_target)
+    """
+    _, data, columns, _ = optical_table
+    target_wav = np.asarray(target_wav_micron, dtype=float)
+    nwav_target = len(target_wav)
+
+    keys = list(data.keys())
+    sizes_raw = np.array([float(k) for k in keys])
+    order = np.argsort(sizes_raw)
+    native_sizes = sizes_raw[order]
+    sorted_keys = [keys[i] for i in order]
+
+    wcol = columns.index('w(micron)')
+    qabs_col = columns.index('Q_abs')
+    qsca_col = columns.index('Q_sca') if 'Q_sca' in columns else None
+    g_col    = columns.index('g=<cos>') if 'g=<cos>' in columns else None
+
+    first_arr = data[sorted_keys[0]]
+    native_wav = first_arr[:, wcol].copy()
+    flip_wav = native_wav[0] > native_wav[-1]
+    if flip_wav:
+        native_wav = native_wav[::-1]
+    log_native_wav = np.log10(native_wav)
+    log_target_wav = np.log10(target_wav)
+
+    nsizes_native = len(native_sizes)
+    Q_abs_2d = np.zeros((nsizes_native, nwav_target))
+    Q_sca_2d = np.zeros((nsizes_native, nwav_target))
+    g_2d     = np.zeros((nsizes_native, nwav_target))
+
+    for i, key in enumerate(sorted_keys):
+        arr = data[key]
+        if flip_wav:
+            arr = arr[::-1, :]
+        qa = arr[:, qabs_col]
+        qs = arr[:, qsca_col] if qsca_col is not None else np.zeros_like(qa)
+        g  = arr[:, g_col]    if g_col    is not None else np.zeros_like(qa)
+        # log-log interpolation with safe floor
+        Q_abs_2d[i] = 10.0 ** np.interp(log_target_wav, log_native_wav,
+                                         np.log10(np.maximum(qa, 1e-100)))
+        Q_sca_2d[i] = 10.0 ** np.interp(log_target_wav, log_native_wav,
+                                         np.log10(np.maximum(qs, 1e-100)))
+        g_2d[i]     = np.interp(target_wav, native_wav, g)
+
+    return native_sizes, Q_abs_2d, Q_sca_2d, g_2d
+
+
+def _integrate_q_table_2d(native_sizes, Q_abs_2d, Q_sca_2d, g_2d,
+                           target_sizes_micron, weights):
+    """Vectorised integration of C(a,lambda)*weights(a) over grain sizes.
+
+    Replaces the ``nsize`` calls to ``interpolate_cross_sections_2d`` with a
+    single pass of numpy operations.  The size interpolation loop is over
+    ``nwav`` (typically 100) rather than ``nsize`` (100-200), and each
+    iteration is a vectorised ``np.interp`` over all target sizes at once.
+
+    Parameters
+    ----------
+    native_sizes : ndarray, shape (N,)
+        From ``_build_q_table_2d``, in microns, sorted ascending.
+    Q_abs_2d, Q_sca_2d, g_2d : ndarray, shape (N, nwav)
+        From ``_build_q_table_2d``.
+    target_sizes_micron : ndarray, shape (M,)
+        Integration quadrature grid in microns.
+    weights : ndarray, shape (M,)
+        Values of the weighting function at each quadrature point (e.g.
+        dn/da in 1/(micron·H) or n(a) in cm^-3/micron).
+
+    Returns
+    -------
+    cabs, csca, crp : ndarray, shape (nwav,)
+        Integrated cross sections (units follow from ``weights``).
+    """
+    nwav = Q_abs_2d.shape[1]
+    log_native_a = np.log10(native_sizes)
+    log_target_a = np.log10(target_sizes_micron)
+
+    Q_abs_t = np.zeros((len(target_sizes_micron), nwav))
+    Q_sca_t = np.zeros_like(Q_abs_t)
+    g_t     = np.zeros_like(Q_abs_t)
+
+    for j in range(nwav):
+        Q_abs_t[:, j] = 10.0 ** np.interp(log_target_a, log_native_a,
+                                            np.log10(np.maximum(Q_abs_2d[:, j], 1e-100)))
+        Q_sca_t[:, j] = 10.0 ** np.interp(log_target_a, log_native_a,
+                                            np.log10(np.maximum(Q_sca_2d[:, j], 1e-100)))
+        g_t[:, j]     = np.interp(target_sizes_micron, native_sizes, g_2d[:, j])
+
+    area_cm2 = np.pi * (target_sizes_micron * 1e-4) ** 2  # (M,)
+    C_abs = Q_abs_t * area_cm2[:, np.newaxis]
+    C_sca = Q_sca_t * area_cm2[:, np.newaxis]
+    C_rp  = (Q_abs_t + (1.0 - g_t) * Q_sca_t) * area_cm2[:, np.newaxis]
+
+    w = weights[:, np.newaxis]
+    cabs = np.trapezoid(w * C_abs, target_sizes_micron, axis=0)
+    csca = np.trapezoid(w * C_sca, target_sizes_micron, axis=0)
+    crp  = np.trapezoid(w * C_rp,  target_sizes_micron, axis=0)
+    return cabs, csca, crp
+
+
 def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
                                              nsize_per_bin=30,
                                              pah_state='neutral', verbose=False):
@@ -1495,27 +1624,31 @@ def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
     csca_comps = np.zeros((ncomp, nwav))
     crp_comps = np.zeros((ncomp, nwav))
 
+    # Build optical tables once per unique material (avoids repeated file I/O)
     optical_cache = {}
+    q_table_cache = {}
+    for material in set(materials):
+        if material == 'silicate':
+            filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81')
+            optical_cache[material] = dust_efficiencies(filename)
+        elif material == 'graphite':
+            filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81')
+            optical_cache[material] = dust_efficiencies(filename)
+        elif material == 'iPAH':
+            from models.PAH_radiation.pah_oppacity import pah_efficiencies
+            filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
+            optical_cache[material] = pah_efficiencies(filename)
+        elif material == 'nPAH':
+            from models.PAH_radiation.pah_oppacity import pah_efficiencies
+            filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
+            optical_cache[material] = pah_efficiencies(filename)
+        else:
+            raise ValueError(f'Unsupported material for legacy interpolation: {material}')
+        # Pre-build the 2D Q table at the target wavelength grid
+        q_table_cache[material] = _build_q_table_2d(optical_cache[material], target_wavelengths)
 
-    for i, (bin_id, material) in enumerate(zip(component_bins, materials)):
-        if material not in optical_cache:
-            if material == 'silicate':
-                filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81')
-                optical_cache[material] = dust_efficiencies(filename)
-            elif material == 'graphite':
-                filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81')
-                optical_cache[material] = dust_efficiencies(filename)
-            elif material == 'iPAH':
-                from models.PAH_radiation.pah_oppacity import pah_efficiencies
-                filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
-                optical_cache[material] = pah_efficiencies(filename)
-            elif material == 'nPAH':
-                from models.PAH_radiation.pah_oppacity import pah_efficiencies
-                filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
-                optical_cache[material] = pah_efficiencies(filename)
-            else:
-                raise ValueError(f'Unsupported material for legacy interpolation: {material}')
-
+    def _process_bin(args):
+        i, bin_id, material = args
         p = get_lognormal_parameters(bin_id)
         dist = LogNormal_Distribution(
             p['a0'] * 1e-4,
@@ -1524,33 +1657,510 @@ def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
             p['sigma'],
             p['s'],
         )
+        # size_bins in cm; convert to microns for _integrate_q_table_2d
+        size_bins_cm = np.logspace(np.log10(dist.amin), np.log10(dist.amax), int(nsize_per_bin))
+        size_bins_um = size_bins_cm * 1e4
+        n_for_unit_mass = dist.n_density(1.0, size_bins_cm)
+        # dn/da is per cm; convert to per micron so the trapezoid integral is consistent
+        weights_per_um = n_for_unit_mass / 1e4
 
-        size_bins = np.logspace(np.log10(dist.amin), np.log10(dist.amax), int(nsize_per_bin))
-        n_for_unit_mass = dist.n_density(1.0, size_bins)
-
-        cabs_dist = np.zeros((len(size_bins), nwav))
-        csca_dist = np.zeros((len(size_bins), nwav))
-        crp_dist = np.zeros((len(size_bins), nwav))
-
-        for isize, a_cm in enumerate(size_bins):
-            _, _, csca_i, cabs_i, crp_i = interpolate_cross_sections_2d(
-                material,
-                a_cm * 1e4,
-                target_wavelengths=target_wavelengths,
-                data_table=optical_cache[material],
-            )
-            cabs_dist[isize, :] = cabs_i * n_for_unit_mass[isize]
-            csca_dist[isize, :] = csca_i * n_for_unit_mass[isize]
-            crp_dist[isize, :] = crp_i * n_for_unit_mass[isize]
-
-        cabs_comps[i, :] = np.trapezoid(cabs_dist, size_bins, axis=0)
-        csca_comps[i, :] = np.trapezoid(csca_dist, size_bins, axis=0)
-        crp_comps[i, :] = np.trapezoid(crp_dist, size_bins, axis=0)
-
+        native_sizes, Q_abs_2d, Q_sca_2d, g_2d = q_table_cache[material]
+        cabs, csca, crp = _integrate_q_table_2d(
+            native_sizes, Q_abs_2d, Q_sca_2d, g_2d,
+            size_bins_um, weights_per_um,
+        )
         if verbose:
             print(f'[plot_extinction_from_massfractions] legacy component done: {bin_id} ({material})')
+        return i, cabs, csca, crp
+
+    args_list = [(i, bin_id, mat)
+                 for i, (bin_id, mat) in enumerate(zip(component_bins, materials))]
+
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        for i, cabs, csca, crp in pool.map(_process_bin, args_list):
+            cabs_comps[i, :] = cabs
+            csca_comps[i, :] = csca
+            crp_comps[i, :] = crp
 
     return cabs_comps, csca_comps, crp_comps
+
+
+# ---------------------------------------------------------------------------
+# Zubko et al. (2004) BARE-GR-S grain size distribution functions
+# ---------------------------------------------------------------------------
+
+def _zubko_dnda_parametric(a_micron, A, c0, b0, a1, b1, m1, a2, b2, m2, a3, b3, m3, a4, b4, m4):
+    """Zubko (2004) parameterized grain size distribution.
+
+    Parameters
+    ----------
+    a_micron : float or ndarray
+        Grain size in microns.
+
+    Returns
+    -------
+    float or ndarray
+        dn/da in 1/(micron * H atom).
+    """
+    a = np.asarray(a_micron, dtype=float)
+    logg = (
+        c0
+        + b0 * np.log10(a)
+        - b1 * np.abs(np.log10(a / a1)) ** m1
+        - (b2 * np.abs(np.log10(a / a2)) ** m2 if b2 != 0.0 else 0.0)
+        - b3 * np.abs(a - a3) ** m3
+        - (b4 * np.abs(a - a4) ** m4 if b4 != 0.0 else 0.0)
+    )
+    return A * 10.0 ** logg
+
+
+def _zubko_dnda_graphite(a_micron):
+    """Zubko (2004) graphite dn/da.  a in microns, returns 1/(micron * H atom)."""
+    return _zubko_dnda_parametric(
+        a_micron,
+        A=1.905816e-7, c0=-9.86,      b0=-5.02082,
+        a1=0.415861,   b1=5.81215e-3, m1=4.63229,
+        a2=1.0,        b2=0.0,        m2=0.0,
+        a3=0.160344,   b3=1125.02,    m3=3.69897,
+        a4=0.160501,   b4=1126.02,    m4=3.69967,
+    )
+
+
+def _zubko_dnda_pah(a_micron):
+    """Zubko (2004) PAH dn/da.  a in microns, returns 1/(micron * H atom)."""
+    return _zubko_dnda_parametric(
+        a_micron,
+        A=2.227433e-7,  c0=-8.02895,  b0=-3.45764,
+        a1=1.0,         b1=1183.96,   m1=-8.20551,
+        a2=1.0,         b2=0.0,       m2=0.0,
+        a3=-5.29496e-3, b3=1.0e24,    m3=12.0146,
+        a4=1.0,         b4=0.0,       m4=0.0,
+    )
+
+
+def _zubko_dnda_silicate(a_micron):
+    """Zubko (2004) silicate dn/da.  a in microns, returns 1/(micron * H atom)."""
+    return _zubko_dnda_parametric(
+        a_micron,
+        A=1.471288e-7,  c0=-8.47091,   b0=-3.68708,
+        a1=7.64943e-3,  b1=2.37316e-5, m1=22.5489,
+        a2=1.0,         b2=0.0,        m2=0.0,
+        a3=0.480229,    b3=2961.28,    m3=12.1717,
+        a4=1.0,         b4=0.0,        m4=0.0,
+    )
+
+
+def compute_zubko2004_bare_gr_s_cross_sections(
+    wavelengths_micron=None,
+    nsize=100,
+    pah_neutral_fraction=0.5,
+    verbose=False,
+):
+    """
+    Compute size-integrated absorption/scattering cross sections per H atom
+    for the Zubko et al. (2004) BARE-GR-S dust model.
+
+    Model parameters
+    ----------------
+    mdust_per_H  = 1.44e-26 g/H
+    Mass fractions: PAH 4.57%, graphite 29.47%, silicate 65.96%.
+    PAH optical properties: Li & Draine 2001 (li_draine_2001), half neutral/half ionised.
+    Graphite optical properties: Draine & Lee 1984 (Gra_81), rho = 2.24 g/cm^3.
+    Silicate optical properties: Draine & Lee 1984 suvSil (suvSil_81), rho = 3.5 g/cm^3.
+
+    Size distribution functions from Zubko et al. (2004) as implemented in SKIRT:
+      Graphite : 0.00035 – 0.33 micron
+      PAH      : 0.00035 – 0.005 micron
+      Silicate : 0.00035 – 0.37 micron
+
+    The dn/da functions are absolutely normalised per H atom so no additional
+    mass-fraction weighting is required.
+
+    Parameters
+    ----------
+    wavelengths_micron : array-like or None
+        Target wavelength grid in microns.  Defaults to logspace(-1.5, 1, 100).
+    nsize : int
+        Number of quadrature points in grain size per component.
+    pah_neutral_fraction : float
+        Fraction of the PAH population that is neutral (default 0.5).
+    verbose : bool
+        Print progress messages.
+
+    Returns
+    -------
+    dict
+        wavelength       - wavelength grid [micron]
+        C_abs_total      - total C_abs per H [cm^2/H]
+        C_sca_total      - total C_sca per H [cm^2/H]
+        C_rp_total       - total C_rp per H [cm^2/H]
+        C_ext_total      - C_abs + C_sca per H [cm^2/H]
+        C_abs_graphite   - graphite contribution [cm^2/H]
+        C_sca_graphite
+        C_abs_silicate   - silicate contribution [cm^2/H]
+        C_sca_silicate
+        C_abs_pah        - combined PAH contribution [cm^2/H]
+        C_sca_pah
+        C_abs_pah_neutral
+        C_abs_pah_ionised
+    """
+    if wavelengths_micron is None:
+        wav = np.logspace(-1.5, 1.0, 100)
+    else:
+        wav = np.asarray(wavelengths_micron, dtype=float)
+
+    nwav = len(wav)
+
+    from models.PAH_radiation.pah_oppacity import pah_efficiencies
+    gra_table     = dust_efficiencies(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81'))
+    sil_table     = dust_efficiencies(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81'))
+    pah_neu_table = pah_efficiencies(os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30'))
+    pah_ion_table = pah_efficiencies(os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30'))
+
+    # Pre-build 2D Q tables once per material (avoids rebuilding inside the size loop)
+    q_gra     = _build_q_table_2d(gra_table,     wav)
+    q_sil     = _build_q_table_2d(sil_table,     wav)
+    q_pah_neu = _build_q_table_2d(pah_neu_table, wav)
+    q_pah_ion = _build_q_table_2d(pah_ion_table, wav)
+
+    def _integrate_component(q_tables, dnda_func, amin_um, amax_um, label):
+        """Vectorised size integration using pre-built Q tables."""
+        a_grid   = np.logspace(np.log10(amin_um), np.log10(amax_um), int(nsize))
+        dnda_val = dnda_func(a_grid)  # 1/(micron * H)
+        native_sizes, Q_abs_2d, Q_sca_2d, g_2d = q_tables
+        cabs, csca, crp = _integrate_q_table_2d(
+            native_sizes, Q_abs_2d, Q_sca_2d, g_2d, a_grid, dnda_val
+        )
+        if verbose:
+            print(f'[compute_zubko2004_bare_gr_s] done integrating {label}.')
+        return cabs, csca, crp
+
+    # Define the four independent tasks
+    tasks = [
+        (q_gra,     _zubko_dnda_graphite, 0.00035, 0.33,  'graphite'),
+        (q_sil,     _zubko_dnda_silicate, 0.00035, 0.37,  'silicate'),
+        (q_pah_neu, _zubko_dnda_pah,      0.00035, 0.005, 'PAH neutral'),
+        (q_pah_ion, _zubko_dnda_pah,      0.00035, 0.005, 'PAH ionised'),
+    ]
+
+    if verbose:
+        print('[compute_zubko2004_bare_gr_s] integrating 4 components in parallel...')
+
+    # ThreadPoolExecutor is safe here: numpy releases the GIL for heavy computations
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_integrate_component, *t) for t in tasks]
+        results = [f.result() for f in futures]
+
+    (cabs_gra, csca_gra, crp_gra),         \
+    (cabs_sil, csca_sil, crp_sil),         \
+    (cabs_pah_neu, csca_pah_neu, crp_pah_neu), \
+    (cabs_pah_ion, csca_pah_ion, crp_pah_ion) = results
+
+    f_neu = float(np.clip(pah_neutral_fraction, 0.0, 1.0))
+    f_ion = 1.0 - f_neu
+    cabs_pah = f_neu * cabs_pah_neu + f_ion * cabs_pah_ion
+    csca_pah = f_neu * csca_pah_neu + f_ion * csca_pah_ion
+    crp_pah  = f_neu * crp_pah_neu  + f_ion * crp_pah_ion
+
+    cabs_total = cabs_gra + cabs_sil + cabs_pah
+    csca_total = csca_gra + csca_sil + csca_pah
+    crp_total  = crp_gra  + crp_sil  + crp_pah
+    cext_total = cabs_total + csca_total
+
+    # The optical tables (Gra_81, suvSil_81, PAH) cover wavelengths up to
+    # 1000 µm.  Beyond that, _build_q_table_2d silently clamps Q to the last
+    # tabulated value (np.interp flat-fill), which gives unphysical flat cross
+    # sections instead of the correct ~1/λ Rayleigh fall-off.  Mask those
+    # wavelengths with NaN so callers cannot silently use wrong values.
+    _WAV_TABLE_MAX_UM = 1000.0
+    _out_of_range = wav > _WAV_TABLE_MAX_UM
+    if _out_of_range.any():
+        if verbose:
+            print(f'[compute_zubko2004_bare_gr_s] WARNING: {_out_of_range.sum()} '
+                  f'wavelength(s) exceed the optical table maximum '
+                  f'({_WAV_TABLE_MAX_UM} µm) — setting those cross sections to NaN.')
+        for _arr in (cabs_total, csca_total, crp_total, cext_total,
+                     cabs_gra, csca_gra, cabs_sil, csca_sil,
+                     cabs_pah, csca_pah, cabs_pah_neu, cabs_pah_ion):
+            _arr[_out_of_range] = np.nan
+
+    if verbose:
+        print('[compute_zubko2004_bare_gr_s] done.')
+
+    return {
+        'wavelength':        wav,
+        'C_abs_total':       cabs_total,
+        'C_sca_total':       csca_total,
+        'C_rp_total':        crp_total,
+        'C_ext_total':       cext_total,
+        'C_abs_graphite':    cabs_gra,
+        'C_sca_graphite':    csca_gra,
+        'C_abs_silicate':    cabs_sil,
+        'C_sca_silicate':    csca_sil,
+        'C_abs_pah':         cabs_pah,
+        'C_sca_pah':         csca_pah,
+        'C_abs_pah_neutral': cabs_pah_neu,
+        'C_abs_pah_ionised': cabs_pah_ion,
+    }
+
+
+def export_zubko2004_cross_sections(
+    outfile='zubko2004_bare_gr_s_cross_sections.dat',
+    wavelengths_micron=None,
+    nsize=200,
+    pah_neutral_fraction=0.5,
+    verbose=True,
+    plot_comparison=True,
+    out_png='zubko2004_bare_gr_s_comparison.png',
+):
+    """Compute and export the Zubko et al. (2004) BARE-GR-S dust cross sections
+    to a Fortran-readable ASCII file, and optionally produce a comparison plot
+    against the published reference tables (``zubko_2004_bare_gr_s.dat``).
+
+    The three columns written are:
+
+    - Wavelength            [Angstrom]
+    - C_abs                 [cm^2 / H atom]  -- absorption cross section
+    - C_sca                 [cm^2 / H atom]  -- scattering cross section
+    - (1-g)*C_sca           [cm^2 / H atom]  -- radiation-pressure scattering term
+                                                 derived as C_rp - C_abs, where
+                                                 C_rp = integral[dn/da*(C_abs(a)+(1-g(a))*C_sca(a))da]
+                                                 accounts for grain-size dependence of g(a)
+
+    The quantity (1-g)*C_sca is derived as  C_rp - C_abs, where C_rp is the
+    size-integrated radiation-pressure cross section
+        C_rp = integral[ dn/da * (C_abs(a) + (1-g(a))*C_sca(a)) da ]
+    computed directly during the grain-size integration, which correctly
+    accounts for the grain-size dependence of the asymmetry parameter g.
+
+    The header lines all start with '!' (the Fortran line-comment character)
+    so that a Fortran 90 driver can skip them with a simple loop::
+
+        integer :: i
+        open(10, file='zubko2004_bare_gr_s_cross_sections.dat', status='old')
+        do i = 1, N_HEADER_LINES     ! see NHEADER in the file header itself
+            read(10, *)
+        end do
+        do i = 1, N_WAV
+            read(10, *) wav_A(i), cabs(i), csca_rp(i)
+        end do
+
+    Parameters
+    ----------
+    outfile : str or Path
+        Output file path.  Relative paths are written relative to the current
+        working directory.
+    wavelengths_micron : array-like or None
+        Wavelength grid in microns.  If ``None``, a logarithmic grid of 400
+        points from 0.03 to 1000 microns is used.
+    nsize : int
+        Number of grain-size quadrature points for the size integration.
+        Default 200.
+    pah_neutral_fraction : float
+        Fraction of PAH grains that are neutral (rest are ionised).
+        Default 0.5 (equal mix, as in Zubko et al. 2004).
+    verbose : bool
+        Print progress and the output file path.
+    plot_comparison : bool
+        If ``True`` (default), produce a two-panel comparison plot of the
+        recomputed vs reference C_abs and C_sca curves.
+    out_png : str or Path
+        Path for the comparison plot PNG.  Ignored when
+        ``plot_comparison=False``.
+
+    Returns
+    -------
+    dict
+        path        - absolute path to the written ASCII file (str)
+        wavelength  - wavelength grid [micron]
+        C_abs       - recomputed C_abs per H [cm^2/H]
+        C_sca       - recomputed C_sca per H [cm^2/H]
+        C_sca_rp    - recomputed (1-g)*C_sca per H [cm^2/H]
+        C_abs_ref   - reference C_abs per H [cm^2/H], interpolated to output grid
+        C_sca_ref   - reference C_sca per H [cm^2/H], interpolated to output grid
+        C_sca_rp_ref- reference (1-g)*C_sca per H [cm^2/H], interpolated to output grid
+        plot_path   - absolute path to the comparison plot, or None
+    """
+    import datetime
+
+    if wavelengths_micron is None:
+        wavelengths_micron = np.logspace(np.log10(1e-3), np.log10(1e3), 1000)
+    wav_micron = np.asarray(wavelengths_micron, dtype=float)
+
+    if verbose:
+        print('[export_zubko2004_cross_sections] computing cross sections '
+              f'({len(wav_micron)} wavelengths, nsize={nsize}) ...')
+
+    result = compute_zubko2004_bare_gr_s_cross_sections(
+        wavelengths_micron=wav_micron,
+        nsize=nsize,
+        pah_neutral_fraction=pah_neutral_fraction,
+        verbose=verbose,
+    )
+
+    wav_angstrom  = wav_micron * 1e4          # micron -> Angstrom
+    cabs          = result['C_abs_total']     # cm^2/H
+    csca          = result['C_sca_total']     # cm^2/H
+    csca_rp       = result['C_rp_total'] - result['C_abs_total']  # (1-g)*C_sca  cm^2/H
+    nwav = len(wav_angstrom)
+
+    outpath = Path(outfile).expanduser().resolve()
+    outpath.parent.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------------
+    # Build the header.  Count lines so the Fortran driver can skip them.
+    # ------------------------------------------------------------------
+    header_lines = [
+        '! ============================================================',
+        '! Zubko et al. (2004) BARE-GR-S dust model — recomputed cross sections',
+        '! ============================================================',
+        '!',
+        '! Reference: Zubko, Dwek & Arendt (2004), ApJS, 152, 211',
+        '!   DOI: 10.1086/382351',
+        '!',
+        '! Model: BARE-GR-S (bare graphite + silicate + PAH, no ice mantles)',
+        '!',
+        '! Grain components and optical data sources',
+        '!   Graphite   : Draine & Lee (1984) tables  — Gra_81',
+        '!                grain density  rho = 2.24 g cm^-3',
+        '!                size range    [0.00035, 0.33]  micron',
+        '!   Silicate   : Draine & Lee (1984) tables  — suvSil_81',
+        '!                grain density  rho = 3.5  g cm^-3',
+        '!                size range    [0.00035, 0.37]  micron',
+        '!   PAH        : Li & Draine (2001) tables',
+        f'!                neutral fraction  f_neu = {pah_neutral_fraction:.3f}',
+        '!                size range    [0.00035, 0.005] micron',
+        '!',
+        '! Integrated dust-to-gas mass ratio',
+        '!   m_dust / H = 1.44e-26 g H^-1',
+        '!',
+        '! Column description',
+        '!   Col 1 — wavelength          [Angstrom]',
+        '!   Col 2 — C_abs               [cm^2 H^-1]   absorption cross section',
+        '!   Col 3 — C_sca               [cm^2 H^-1]   scattering cross section',
+        '!   Col 4 — (1-g)*C_sca         [cm^2 H^-1]   radiation-pressure scattering term',
+        '!             derived as C_rp - C_abs, where C_rp = integral[dn/da*(C_abs(a)+(1-g(a))*C_sca(a))da]',
+        '!             accounts for the grain-size dependence of the asymmetry parameter g(a)',
+        '!',
+        f'! Computation parameters: nsize = {nsize}',
+        f'! Generated: {datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC',
+        f'! N_WAV = {nwav}',
+        '!',
+        '! To read in Fortran 90:',
+        '!   integer, parameter :: NHEADER = <see NHEADER value below>',
+        '!   integer, parameter :: NWAV    = <see N_WAV above>',
+        '!   real(8) :: wav_A(NWAV), cabs(NWAV), csca(NWAV), csca_rp(NWAV)',
+        '!   do i = 1, NHEADER ; read(unit, *) ; end do',
+        '!   do i = 1, NWAV',
+        '!     read(unit, *) wav_A(i), cabs(i), csca(i), csca_rp(i)',
+        '!   end do',
+        '!',
+    ]
+    # Add the NHEADER count as the very last header line (+1 for the NHEADER line itself)
+    nheader = len(header_lines) + 1
+    header_lines.append(f'! NHEADER = {nheader}')
+    # Column label row (also a comment so Fortran skips it)
+    header_lines.append(
+        f'! {"wav_angstrom":>22s}  {"C_abs_cm2_per_H":>22s}  {"C_sca_cm2_per_H":>22s}  {"(1-g)Csca_cm2_per_H":>22s}'
+    )
+
+    # Only write rows where cabs, csca, and csca_rp are all finite (NaN rows mean
+    # the wavelength is beyond the optical table coverage and values are invalid).
+    _valid = np.isfinite(cabs) & np.isfinite(csca) & np.isfinite(csca_rp)
+    nwav_valid = int(_valid.sum())
+    # Update N_WAV in the header to reflect the actual number of rows written.
+    header_lines = [ln.replace(f'! N_WAV = {nwav}', f'! N_WAV = {nwav_valid}')
+                    for ln in header_lines]
+
+    with open(outpath, 'w') as fout:
+        for line in header_lines:
+            fout.write(line + '\n')
+        for i in range(nwav):
+            if _valid[i]:
+                fout.write(f'{wav_angstrom[i]:26.8e}  {cabs[i]:26.8e}  {csca[i]:26.8e}  {csca_rp[i]:26.8e}\n')
+
+    if verbose:
+        print(f'[export_zubko2004_cross_sections] wrote {nwav_valid} rows '
+              f'(of {nwav} requested) to {outpath}')
+
+    # ------------------------------------------------------------------
+    # Load the Zubko et al. (2004) reference tables for comparison.
+    # File columns: lam[um]  Cabs[cm^2]  Csca[cm^2]  Tau  a  g
+    # Convert from cm^2 (per dust column) to cm^2/H using the factor
+    # that normalises per H atom (N_H / cm^2 proportionality constant).
+    # ------------------------------------------------------------------
+    _NH_FACTOR = 1784268.76   # cm^2/H normalisation for Zubko 2004 BARE-GR-S
+    _ref_path = PATH_EXTERNAL_DATA / 'zubko_2004_bare_gr_s.dat'
+    _ref_data = np.loadtxt(str(_ref_path), comments='#')
+    _ref_wav_um  = _ref_data[:, 0]                    # micron
+    _ref_cabs_H  = _ref_data[:, 1] / _NH_FACTOR       # cm^2/H
+    _ref_csca_H  = _ref_data[:, 2] / _NH_FACTOR       # cm^2/H
+    _ref_g           = _ref_data[:, 5]                              # asymmetry parameter g
+    _ref_csca_rp_H   = (1.0 - _ref_g) * _ref_csca_H               # (1-g)*C_sca  cm^2/H
+    # Interpolate reference onto our output wavelength grid (log-space safe)
+    _ref_ord = np.argsort(_ref_wav_um)
+    cabs_ref     = np.interp(wav_micron, _ref_wav_um[_ref_ord], _ref_cabs_H[_ref_ord],
+                             left=np.nan, right=np.nan)
+    csca_ref     = np.interp(wav_micron, _ref_wav_um[_ref_ord], _ref_csca_H[_ref_ord],
+                             left=np.nan, right=np.nan)
+    csca_rp_ref  = np.interp(wav_micron, _ref_wav_um[_ref_ord], _ref_csca_rp_H[_ref_ord],
+                             left=np.nan, right=np.nan)
+
+    # ------------------------------------------------------------------
+    # Comparison plot — three panels: C_abs, C_sca, C_rp
+    # ------------------------------------------------------------------
+    plot_path = None
+    if plot_comparison:
+        fig, (ax_abs, ax_sca, ax_rp) = plt.subplots(3, 1, figsize=(8, 10), dpi=150,
+                                                      sharex=True)
+        ax_abs.loglog(wav_micron, cabs, color='steelblue', lw=2,
+                      label='Recomputed (this work)')
+        ax_abs.loglog(_ref_wav_um, _ref_cabs_H, 'k--', lw=1.5,
+                      label='Zubko et al. (2004) reference')
+        ax_abs.set_ylabel(r'$C_{\rm abs}$ [cm$^2$ H$^{-1}$]', fontsize=12)
+        ax_abs.legend(fontsize=11, frameon=False)
+        ax_abs.grid(alpha=0.2, which='both')
+        ax_abs.set_title('Zubko et al. (2004) BARE-GR-S — cross-section comparison',
+                         fontsize=12)
+
+        ax_sca.loglog(wav_micron, csca, color='darkorange', lw=2,
+                      label=r'Recomputed $C_{\rm sca}$')
+        ax_sca.loglog(_ref_wav_um, _ref_csca_H, 'k--', lw=1.5,
+                      label=r'$C_{\rm sca}$ reference (Zubko 2004)')
+        ax_sca.set_ylabel(r'$C_{\rm sca}$ [cm$^2$ H$^{-1}$]', fontsize=12)
+        ax_sca.legend(fontsize=11, frameon=False)
+        ax_sca.grid(alpha=0.2, which='both')
+
+        ax_rp.loglog(wav_micron, csca_rp, color='mediumseagreen', lw=2,
+                     label=r'Recomputed $(1-g)\,C_{\rm sca}$')
+        ax_rp.loglog(_ref_wav_um, _ref_csca_rp_H, 'k--', lw=1.5,
+                     label=r'$(1-g)\,C_{\rm sca}$ reference (Zubko 2004)')
+        ax_rp.set_xlabel(r'Wavelength [$\mu$m]', fontsize=12)
+        ax_rp.set_ylabel(r'$(1-g)\,C_{\rm sca}$ [cm$^2$ H$^{-1}$]', fontsize=12)
+        ax_rp.legend(fontsize=11, frameon=False)
+        ax_rp.grid(alpha=0.2, which='both')
+
+        fig.tight_layout()
+        plot_outpath = Path(out_png).expanduser().resolve()
+        plot_outpath.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(plot_outpath, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+        plot_path = str(plot_outpath)
+        if verbose:
+            print(f'[export_zubko2004_cross_sections] comparison plot saved to {plot_path}')
+
+    return {
+        'path':      str(outpath),
+        'wavelength': wav_micron,
+        'C_abs':         cabs,
+        'C_sca':         csca,
+        'C_sca_rp':      csca_rp,
+        'C_abs_ref':     cabs_ref,
+        'C_sca_ref':     csca_ref,
+        'C_sca_rp_ref':  csca_rp_ref,
+        'plot_path':     plot_path,
+    }
+
 
 def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
                                       pah_bins=None, pah_mass_fractions=None,
@@ -1717,6 +2327,20 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     y_norm = total_y / yV
     comp_norm = comps_y / yV
 
+    # Compute Zubko et al. (2004) BARE-GR-S cross sections on the same wavelength grid
+    zubko_result = compute_zubko2004_bare_gr_s_cross_sections(
+        wavelengths_micron=wav, nsize=200, verbose=verbose
+    )
+    zubko_cabs_H = zubko_result['C_abs_total']  # cm^2/H
+    zubko_cext_H = zubko_result['C_ext_total']  # cm^2/H
+    zubko_total_y = 1.086 * zubko_cext_H
+    zubko_idx_V = np.argmin(np.abs(wav - lambda_V))
+    zubko_yV = zubko_total_y[zubko_idx_V]
+    if np.isfinite(zubko_yV) and zubko_yV > 0:
+        zubko_y_norm = zubko_total_y / zubko_yV
+    else:
+        zubko_y_norm = np.full_like(zubko_total_y, np.nan)
+
     # --- Top panel: grain size distributions (a^4 n(a)) scaled by mass fractions ---
     params = [get_lognormal_parameters(bin_id) for bin_id in component_bins]
     amin_cm = min(p['amin'] for p in params) * 1e-4
@@ -1754,6 +2378,19 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
         total_dist += a_cm**4 * distributions[i].n_density(component_mf[i]*mdust_per_H, a_cm)
     ax_top.plot(a_micron, total_dist, color='k', lw=2)
 
+    # Zubko et al. (2004) BARE-GR-S grain size distributions for comparison
+    # a^4 * dn/da converted to cm^3/H: (a_um*1e-4)^4 * (dnda_per_um * 1e4)
+    _zubko_specs = [
+        ('Zubko PAH',      _zubko_dnda_pah,      0.00035, 0.005, 'navy'),
+        ('Zubko graphite', _zubko_dnda_graphite,  0.00035, 0.33,  'darkgreen'),
+        ('Zubko silicate', _zubko_dnda_silicate,  0.00035, 0.37,  'darkred'),
+    ]
+    for _zlabel, _zfunc, _zamin, _zamax, _zcol in _zubko_specs:
+        _az = np.logspace(np.log10(_zamin), np.log10(_zamax), 300)
+        _az_cm = _az * 1e-4
+        _y_z = _az_cm**4 * _zfunc(_az) * 1e4  # cm^3/H
+        ax_top.plot(_az, _y_z, '--', lw=1.5, color=_zcol, label=_zlabel)
+
     ax_top.plot(a_micron,3e-27*a_micron**(.5),':',color='gray',linewidth=2)
     ax_top.text(0.2, 0.6, r'MRN ($n\propto a^{-3.5}$)',
                                     verticalalignment='bottom', horizontalalignment='left',
@@ -1770,62 +2407,80 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     ax_top.legend(fontsize=10, loc='best', frameon=False, ncol=2)
 
 
-    # --- Middle panel: mass-fraction weighted Cabs ---
+    # --- Middle panel: mass-fraction weighted Cext per H ---
     x = 1.0 / wav
     order = np.argsort(x)
-    ax_mid.plot(x[order], cabs_total[order], color='k', lw=2)
+    ax_mid.plot(x[order], cext_total[order] * mdust_per_H, color='k', lw=2)
 
-    # plot per-component normalized contributions (if present)
-    for i, bin_id in enumerate(component_bins):
-        comp_curve = component_mf[i] * cabs_comps[i, :]
-        if np.any(np.isfinite(comp_curve)):
-            ax_mid.plot(x[order], comp_curve[order], lw=2, color=colour[i])
+    # # plot per-component normalized contributions (if present)
+    # for i, bin_id in enumerate(component_bins):
+    #     comp_curve = component_mf[i] * cabs_comps[i, :] * mdust_per_H
+    #     if np.any(np.isfinite(comp_curve)):
+    #         ax_mid.plot(x[order], comp_curve[order], lw=2, color=colour[i])
 
     # Load the CLOUDY cross-sections for comparison
     data_cloudy = np.loadtxt(PATH_EXTERNAL_DATA / 'grains_CLOUDY.dat')
+    _cloudy_order = np.argsort(data_cloudy[:, 0])
+    _cloudy_yV = 1.086 * np.interp(lambda_V, data_cloudy[_cloudy_order, 0], data_cloudy[_cloudy_order, 1])
     ax_mid.plot(1/data_cloudy[:,0],data_cloudy[:,1],'r--',label='CLOUDY')
-    ax_bot.plot(1/data_cloudy[:,0],data_cloudy[:,1]/yV*1.086,'r--')
+    ax_bot.plot(1/data_cloudy[:,0], 1.086*data_cloudy[:,1]/_cloudy_yV, 'r--')
 
     # Plot Harley's values
     harley_eV = np.array([0.1,  1.0, 8.245, 12.343, 14.371, 18.710, 29.321, 58.615])
     harley_wav_micron = 1.23984 / harley_eV
     harley_Cabs = np.array([5.190E-17, 7.611E-16, 2.140E-15, 2.830E-15, 2.955E-15, 2.929E-15, 2.442E-15, 1.303E-15])/1784268.76
+    _harley_order = np.argsort(harley_wav_micron)
+    _harley_yV = 1.086 * np.interp(lambda_V, harley_wav_micron[_harley_order], harley_Cabs[_harley_order])
     ax_mid.plot(1/harley_wav_micron, harley_Cabs, 'go', label='Harley', markersize=6)
-    ax_bot.plot(1/harley_wav_micron, 1.086*harley_Cabs/yV, 'go', markersize=6)
+    ax_bot.plot(1/harley_wav_micron, 1.086*harley_Cabs/_harley_yV, 'go', markersize=6)
 
     # Plot Zubko BARE-GR-S fit
     zb_wav_micron = np.logspace(-1.5,1,100)
     zb_wav_angstrom = zb_wav_micron * 1e4
     zb_Cabs = getCrosssection_BARE_GR_S_DUST(zb_wav_angstrom)/1784268.76
+    _zb_yV = 1.086 * np.interp(lambda_V, zb_wav_micron, zb_Cabs)
     ax_mid.plot(1/zb_wav_micron, zb_Cabs, 'm--', label='Zubko et al. (2024) BARE-GR-S (RAMSES)', linewidth=2)
-    ax_bot.plot(1/zb_wav_micron, 1.086*zb_Cabs/yV, 'm--', linewidth=2)
+    ax_bot.plot(1/zb_wav_micron, 1.086*zb_Cabs/_zb_yV, 'm--', linewidth=2)
 
     # Plot the data from Zubko et al. (2004) BARE-GR-S model
     zubko_data = np.loadtxt(PATH_EXTERNAL_DATA / 'zubko_BAREGRS_extinction.csv', delimiter=',')
-    ax_mid.plot(zubko_data[:,0], zubko_data[:,1]*1e-21, 'm-.', label='Zubko et al. (2024) BARE-GR-S (Paper)', linewidth=2)
-    ax_bot.plot(zubko_data[:,0], 1.086*zubko_data[:,1]*1e-21/yV, 'm-.', linewidth=2)
+    _zubko_paper_wav = 1.0 / zubko_data[:, 0]   # 1/micron -> micron
+    _zubko_paper_cabs = zubko_data[:, 1] * 1e-21
+    _zubko_paper_order = np.argsort(_zubko_paper_wav)
+    _zubko_paper_yV = 1.086 * np.interp(lambda_V, _zubko_paper_wav[_zubko_paper_order],
+                                         _zubko_paper_cabs[_zubko_paper_order])
+    ax_mid.plot(zubko_data[:,0], _zubko_paper_cabs, 'm-.', label='Zubko et al. (2004) BARE-GR-S (Paper)', linewidth=2)
+    ax_bot.plot(zubko_data[:,0], 1.086*_zubko_paper_cabs/_zubko_paper_yV, 'm-.', linewidth=2)
+
+    # Plot the recomputed Zubko et al. (2004) BARE-GR-S cross sections
+    _zub_x = 1.0 / wav
+    _zub_order = np.argsort(_zub_x)
+    ax_mid.plot(_zub_x[_zub_order], zubko_cext_H[_zub_order], color='purple', lw=2,
+                linestyle='-', label='Zubko et al. (2004) BARE-GR-S (recomputed)')
+    ax_bot.plot(_zub_x[_zub_order], zubko_y_norm[_zub_order], color='purple', lw=2,
+                linestyle='-', label='Zubko et al. (2004) BARE-GR-S (recomputed)')
 
     ax_mid.set_xlabel(r'$\lambda^{-1} [\mu {\rm m}^{-1}]$', fontsize=12)
-    ylabel = r'$C_{\rm abs} [{\rm cm}^2]$'
+    ylabel = r'$C_{\rm ext} [{\rm cm}^2 / {\rm H}]$'
     ax_mid.set_ylabel(ylabel, fontsize=12)
     ax_mid.tick_params(labelsize=10)
     ax_mid.grid(alpha=0.25, which='both')
-    ax_mid.set_title('Absorption cross-section', fontsize=12)
+    ax_mid.set_title('Extinction cross-section', fontsize=12)
     ax_mid.set_yscale('log')
     ax_mid.legend(fontsize=12, loc='best', ncol=1,frameon=False)
     ax_mid.set_xlim([0,16])
-    ax_mid.set_ylim([3e-25,5e-21])
+    ax_mid.set_ylim([2e-23,5e-21])
 
     # --- Bottom panel: extinction curve normalized at V ---
     x = 1.0 / wav
     order = np.argsort(x)
     ax_bot.plot(x[order], y_norm[order], color='k', lw=2, label='Total')
 
-    # plot per-component normalized contributions (if present)
-    for i, bin_id in enumerate(component_bins):
-        comp_curve = comp_norm[i, :]
-        if np.any(np.isfinite(comp_curve)):
-            ax_bot.plot(x[order], comp_curve[order], label=bin_id, lw=2, color=colour[i])
+    # # plot per-component normalized contributions (if present)
+    # for i, bin_id in enumerate(component_bins):
+    #     comp_curve = comp_norm[i, :]
+    #     if np.any(np.isfinite(comp_curve)):
+    #         ax_bot.plot(x[order], comp_curve[order], label=bin_id, lw=2, color=colour[i])
 
     ax_bot.set_xlabel(r'$\lambda^{-1} [\mu {\rm m}^{-1}]$', fontsize=12)
     ylabel = r'$A_\lambda / A_V$'
@@ -1834,7 +2489,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     ax_bot.grid(alpha=0.25)
     ax_bot.set_title('Extinction curve normalized at V (%.2f $\\mu$m)' % lambda_V, fontsize=12)
     ax_bot.legend(fontsize=12, loc='best', ncol=3,frameon=False)
-    ax_bot.set_xlim([0,16])
+    ax_bot.set_xlim([0,10])
 
     # Data for MW (Pei 1992)
     mw_wav_inv = np.array([0.21,0.29,0.45,0.61,0.80,1.11,
@@ -1874,4 +2529,377 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
         'A_components': comps_y,
         'A_over_AV': y_norm,
         'A_over_AV_components': comp_norm,
+    }
+
+
+def fit_massfractions_to_zubko2004(
+    dust_bins,
+    dust_mass_fractions_init,
+    pah_bins=None,
+    pah_mass_fractions_init=None,
+    out_png='fit_zubko_extinction.png',
+    pah_state='neutral',
+    verbose=True,
+    optical_dir=None,
+    mdust_per_H=1e-26,
+    cabs_method='precomputed',
+    nsize_per_bin=30,
+    nsize_zubko=200,
+    wav_fit_range=(0.1, 10.0),
+    composition_penalty_weight=10.0,
+    zubko_mf_ref=None,
+):
+    """Fit bin mass fractions to best reproduce the Zubko et al. (2004) BARE-GR-S
+    extinction cross section.
+
+    The per-component cross-section tables are computed once, then a chi-squared
+    minimisation in log-space finds the mass-fraction vector that minimises the
+    difference between the weighted sum of per-component C_ext curves and the
+    Zubko reference.
+
+    Strategy
+    --------
+    The problem is parameterised with ``ncomp - 1`` free ratios so that the
+    sum-to-one constraint is satisfied by construction (no equality constraint
+    needed).  A global search with ``scipy.optimize.differential_evolution`` is
+    run first; its best solution is then polished automatically by the built-in
+    ``polish=True`` option (L-BFGS-B).  This avoids the gradient / linesearch
+    failures that local methods (SLSQP, etc.) suffer when started far from the
+    optimum or near a boundary.
+
+    After convergence the best-fit fractions are printed and
+    ``plot_extinction_from_massfractions`` is called to produce a comparison
+    figure.
+
+    Parameters
+    ----------
+    dust_bins : list[str]
+        Dust-bin IDs.
+    dust_mass_fractions_init : array-like
+        Initial guess for dust mass fractions (will be renormalized).
+    pah_bins : list[str] or None
+        PAH-bin IDs.
+    pah_mass_fractions_init : array-like or None
+        Initial guess for PAH mass fractions.
+    out_png : str
+        Output filename for the best-fit comparison plot.
+    pah_state : str
+        'neutral' or 'ionised'.
+    verbose : bool
+        Print progress and results.
+    optical_dir : str or Path or None
+        Directory with precomputed cross-section tables.
+    mdust_per_H : float
+        Dust mass per H nucleus [g/H] for the absolute cross-section scale.
+    cabs_method : str
+        'precomputed' or 'legacy'.
+    nsize_per_bin : int
+        Number of size quadrature points for legacy method.
+    nsize_zubko : int
+        Number of size quadrature points for the Zubko reference integral.
+    wav_fit_range : tuple(float, float)
+        Wavelength range in microns over which the chi-squared is evaluated.
+    composition_penalty_weight : float
+        Weight applied to the composition constraint penalty.  The spectral
+        chi-squared is normalised by the number of fit wavelength points, so
+        it represents the *mean* squared log-residual per point (O(1) for a
+        reasonable fit).  The penalty uses the same scale::
+
+            objective = chi2_spec / nwav + w * [((mf_PAH  - ref_PAH)  / ref_PAH)²
+                                                + ((mf_GRA  - ref_GRA)  / ref_GRA)²
+                                                + ((mf_SIL  - ref_SIL)  / ref_SIL)²]
+
+        A value of ``w = 10`` means that deviating by 100 % in any single
+        composition type costs as much as 10 wavelength points with a
+        log-residual of 1 (i.e. a factor-of-10 flux error each).
+        Set to ``0`` to disable the constraint entirely.  Default is ``10.0``.
+    zubko_mf_ref : dict or None
+        Override the Zubko BARE-GR-S reference composition fractions.  Keys
+        are ``'pah'``, ``'graphite'``, ``'silicate'``; values are mass
+        fractions (they do **not** need to sum to 1 — they are used only as
+        penalty targets).  Any missing key falls back to the default values
+        ``{'pah': 0.0457, 'graphite': 0.2947, 'silicate': 0.6596}``.
+
+    Returns
+    -------
+    dict
+        best_mass_fractions : ndarray  -- best-fit fractions (normalized, sum=1)
+        bin_ids             : list[str]
+        chi2                : float    -- final chi-squared value (spectral only)
+        chi2_composition    : float    -- unweighted composition penalty
+        converged           : bool
+        plot_result         : dict     -- return value of plot_extinction_from_massfractions
+    """
+    from scipy.optimize import differential_evolution
+
+    if optical_dir is None:
+        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+
+    # ------------------------------------------------------------------ #
+    # 1. Assemble bin lists and initial fractions                         #
+    # ------------------------------------------------------------------ #
+    if isinstance(dust_bins, str):
+        dust_bins = [dust_bins]
+    if pah_bins is None:
+        pah_bins = []
+    elif isinstance(pah_bins, str):
+        pah_bins = [pah_bins]
+    dust_bins = list(dust_bins)
+    pah_bins  = list(pah_bins)
+
+    dust_mf0 = np.asarray(dust_mass_fractions_init, dtype=float)
+    pah_mf0  = np.asarray(pah_mass_fractions_init, dtype=float) \
+               if pah_mass_fractions_init is not None else np.array([], dtype=float)
+
+    component_bins = pah_bins + dust_bins
+    mf0 = np.concatenate((pah_mf0, dust_mf0))
+    mf0 = mf0 / mf0.sum()          # normalize initial guess
+    ncomp = len(component_bins)
+
+    if verbose:
+        print('[fit_massfractions_to_zubko2004] bins:', component_bins)
+        print('[fit_massfractions_to_zubko2004] initial mass fractions:', mf0)
+
+    # ------------------------------------------------------------------ #
+    # 1b. Classify each component bin by grain type                       #
+    #                                                                      #
+    # PAH bins are passed explicitly; dust bins are classified by reading  #
+    # their 'composition' field ('graphite' or 'silicate') from the JSON   #
+    # grain size configuration.                                            #
+    # ------------------------------------------------------------------ #
+    _zubko_mf_ref_default = {'pah': 0.0457, 'graphite': 0.2947, 'silicate': 0.6596}
+    if zubko_mf_ref is None:
+        zubko_mf_ref = _zubko_mf_ref_default
+    else:
+        zubko_mf_ref = {**_zubko_mf_ref_default, **zubko_mf_ref}
+
+    # Read composition directly from the JSON grain-size configuration so we
+    # get the actual 'graphite'/'silicate' field rather than relying on the
+    # lognormal-parameter dict (which does not carry composition metadata).
+    _cfg = load_grain_size_config()
+    _bin_meta = {b['id']: b for b in _cfg['bins']}
+
+    comp_types = []
+    for i, bin_id in enumerate(component_bins):
+        if i < len(pah_bins):
+            comp_types.append('pah')
+        else:
+            meta = _bin_meta.get(bin_id)
+            if meta is None:
+                raise KeyError(f"Bin '{bin_id}' not found in grain_size_distribution.json")
+            comp_types.append(str(meta['composition']).lower())
+
+    pah_mask = np.array([t == 'pah'      for t in comp_types])
+    gra_mask = np.array([t == 'graphite' for t in comp_types])
+    sil_mask = np.array([t == 'silicate' for t in comp_types])
+
+    ref_pah = float(zubko_mf_ref.get('pah',      0.0))
+    ref_gra = float(zubko_mf_ref.get('graphite', 0.0))
+    ref_sil = float(zubko_mf_ref.get('silicate', 0.0))
+
+    if verbose:
+        print('[fit_massfractions_to_zubko2004] grain types:', dict(zip(component_bins, comp_types)))
+        print(f'[fit_massfractions_to_zubko2004] Zubko composition targets  —  '
+              f'PAH: {ref_pah:.4f}  graphite: {ref_gra:.4f}  silicate: {ref_sil:.4f}')
+        print(f'[fit_massfractions_to_zubko2004] composition_penalty_weight = {composition_penalty_weight}')
+
+    # ------------------------------------------------------------------ #
+    # 2. Pre-compute per-component C_ext tables (done only once)         #
+    # ------------------------------------------------------------------ #
+    cabs_method_token = str(cabs_method).strip().lower()
+    if cabs_method_token in ('precomputed', 'pre-computed', 'table', 'tables'):
+        component_tables = []
+        wavelength_sets  = []
+        for bin_id in component_bins:
+            wav_i, cabs_i, csca_i, crp_i = _read_precomputed_cross_section_table(
+                bin_id, optical_dir=optical_dir, pah_state=pah_state
+            )
+            ord_i = np.argsort(wav_i)
+            component_tables.append((wav_i[ord_i], (cabs_i + csca_i)[ord_i]))
+            wavelength_sets.append(wav_i[ord_i])
+
+        wav = np.unique(np.concatenate(wavelength_sets))
+        cext_comps = np.zeros((ncomp, len(wav)))
+        for i, (wav_i, cext_i) in enumerate(component_tables):
+            cext_comps[i] = np.interp(wav, wav_i, cext_i, left=0.0, right=0.0)
+
+    elif cabs_method_token in ('legacy', 'old', 'raw', 'integration'):
+        wav = np.logspace(-1.5, 1.0, 100)
+        cabs_c, csca_c, _ = _compute_component_cross_sections_legacy(
+            component_bins,
+            target_wavelengths=wav,
+            nsize_per_bin=nsize_per_bin,
+            pah_state=pah_state,
+            verbose=verbose,
+        )
+        cext_comps = cabs_c + csca_c
+    else:
+        raise ValueError(f"cabs_method must be 'precomputed' or 'legacy' (got {cabs_method})")
+
+    # ------------------------------------------------------------------ #
+    # 3. Pre-compute Zubko reference C_ext (done only once)              #
+    # ------------------------------------------------------------------ #
+    if verbose:
+        print('[fit_massfractions_to_zubko2004] computing Zubko reference ...')
+    zubko_result = compute_zubko2004_bare_gr_s_cross_sections(
+        wavelengths_micron=wav, nsize=nsize_zubko, verbose=False
+    )
+    zubko_cext = zubko_result['C_ext_total']   # cm^2/H
+
+    # Restrict fit to the requested wavelength range
+    wav_mask = (wav >= wav_fit_range[0]) & (wav <= wav_fit_range[1])
+    if wav_mask.sum() < 2:
+        raise ValueError(
+            f'wav_fit_range {wav_fit_range} leaves fewer than 2 wavelength points; '
+            'widen the range or check the wavelength grid.'
+        )
+    zubko_fit = zubko_cext[wav_mask]          # cm^2/H
+    cext_fit  = cext_comps[:, wav_mask]       # (ncomp, nwav_fit) in cm^2/g_dust
+
+    log_zubko = np.log10(np.maximum(zubko_fit, 1e-100))
+    nwav_fit = int(wav_mask.sum())
+
+    # ------------------------------------------------------------------ #
+    # 4. Chi-squared objective in log-space                               #
+    #                                                                      #
+    # Parameterise with ncomp-1 free "shares" s_i ∈ [0, 1].              #
+    # The last fraction is derived as max(0, 1 - sum(s)), so the simplex  #
+    # constraint is enforced by construction.  The vector is renormalized  #
+    # after clipping for numerical safety.                                 #
+    #                                                                      #
+    # Scaling: the spectral term is normalised by nwav_fit so it gives    #
+    # the mean squared log-residual per wavelength point (O(1) for a      #
+    # reasonable fit).  The composition penalty terms are also O(1) at    #
+    # 100 % relative error, so composition_penalty_weight=10 means the    #
+    # constraint is worth ~10 wavelength points.                          #
+    # ------------------------------------------------------------------ #
+    def _mf_from_shares(s):
+        s = np.asarray(s, dtype=float)
+        mf = np.empty(ncomp)
+        mf[:-1] = np.clip(s, 0.0, 1.0)
+        mf[-1]  = max(0.0, 1.0 - mf[:-1].sum())
+        total = mf.sum()
+        return mf / total if total > 0 else mf
+
+    def _chi2(s):
+        mf = _mf_from_shares(s)
+        cext_model = np.dot(mf, cext_fit) * mdust_per_H
+        cext_model = np.maximum(cext_model, 1e-100)
+        residuals = np.log10(cext_model) - log_zubko
+        # Normalise by number of wavelength points so the spectral and
+        # composition terms are on the same O(1) scale.
+        chi2_spec_norm = float(np.sum(residuals ** 2)) / nwav_fit
+
+        if composition_penalty_weight > 0.0:
+            penalty = 0.0
+            if ref_pah > 0.0 and pah_mask.any():
+                penalty += ((mf[pah_mask].sum() - ref_pah) / ref_pah) ** 2
+            if ref_gra > 0.0 and gra_mask.any():
+                penalty += ((mf[gra_mask].sum() - ref_gra) / ref_gra) ** 2
+            if ref_sil > 0.0 and sil_mask.any():
+                penalty += ((mf[sil_mask].sum() - ref_sil) / ref_sil) ** 2
+            return chi2_spec_norm + composition_penalty_weight * penalty
+
+        return chi2_spec_norm
+
+    # Search bounds: each share in [0, 1]; the last fraction is implicit
+    bounds_de = [(0.0, 1.0)] * (ncomp - 1)
+
+    # Seed the initial population with the user-supplied guess
+    init_pop = np.tile(mf0[:-1], (max(15 * (ncomp - 1), 20), 1))
+    rng = np.random.default_rng(42)
+    init_pop += rng.uniform(-0.1, 0.1, init_pop.shape)
+    init_pop = np.clip(init_pop, 0.0, 1.0)
+
+    if verbose:
+        print('[fit_massfractions_to_zubko2004] running differential_evolution '
+              f'(ncomp={ncomp}, nwav_fit={wav_mask.sum()}) ...')
+
+    de_result = differential_evolution(
+        _chi2,
+        bounds_de,
+        init=init_pop,
+        seed=42,
+        maxiter=2000,
+        tol=1e-14,
+        popsize=15,
+        mutation=(0.5, 1.5),
+        recombination=0.9,
+        polish=True,          # L-BFGS-B polishing step after DE
+        workers=1,
+        disp=verbose,
+    )
+
+    mf_best = _mf_from_shares(de_result.x)
+    chi2_final = de_result.fun
+
+    # Decompose the final objective into its spectral and composition parts
+    _cext_best = np.dot(mf_best, cext_fit) * mdust_per_H
+    _cext_best = np.maximum(_cext_best, 1e-100)
+    chi2_spectral = float(np.sum((np.log10(_cext_best) - log_zubko) ** 2))
+    chi2_comp_pen = 0.0
+    if ref_pah > 0.0 and pah_mask.any():
+        chi2_comp_pen += ((mf_best[pah_mask].sum() - ref_pah) / ref_pah) ** 2
+    if ref_gra > 0.0 and gra_mask.any():
+        chi2_comp_pen += ((mf_best[gra_mask].sum() - ref_gra) / ref_gra) ** 2
+    if ref_sil > 0.0 and sil_mask.any():
+        chi2_comp_pen += ((mf_best[sil_mask].sum() - ref_sil) / ref_sil) ** 2
+
+    # ------------------------------------------------------------------ #
+    # 5. Print results                                                    #
+    # ------------------------------------------------------------------ #
+    print('\n' + '='*60)
+    print('fit_massfractions_to_zubko2004  —  RESULTS')
+    print('='*60)
+    print(f'  Converged          : {de_result.success}  ({de_result.message})')
+    print(f'  Final chi² (total) : {chi2_final:.6g}')
+    print(f'    spectral part    : {chi2_spectral:.6g}')
+    print(f'    composition pen. : {chi2_comp_pen:.6g}  (weight={composition_penalty_weight})')
+    print(f'  Wavelength fit range: {wav_fit_range[0]:.3g} – {wav_fit_range[1]:.3g} µm '
+          f'({wav_mask.sum()} points)')
+    print()
+    print(f'  {"Bin ID":<20}  {"Type":<10}  {"Init MF":>10}  {"Best-fit MF":>12}')
+    print(f'  {"-"*20}  {"-"*10}  {"-"*10}  {"-"*12}')
+    for i, bin_id in enumerate(component_bins):
+        print(f'  {bin_id:<20}  {comp_types[i]:<10}  {mf0[i]:>10.4f}  {mf_best[i]:>12.6f}')
+    print()
+    print(f'  {"Type":<12}  {"Best-fit total":>16}  {"Zubko ref":>12}  {"Rel. error":>12}')
+    print(f'  {"-"*12}  {"-"*16}  {"-"*12}  {"-"*12}')
+    for _type, _mask, _ref in [('PAH',      pah_mask, ref_pah),
+                                ('graphite', gra_mask, ref_gra),
+                                ('silicate', sil_mask, ref_sil)]:
+        if _mask.any() and _ref > 0.0:
+            _tot = mf_best[_mask].sum()
+            _rel = (_tot - _ref) / _ref
+            print(f'  {_type:<12}  {_tot:>16.6f}  {_ref:>12.4f}  {_rel:>+12.2%}')
+    print('='*60 + '\n')
+
+    # ------------------------------------------------------------------ #
+    # 6. Plot using the best-fit fractions                                #
+    # ------------------------------------------------------------------ #
+    n_pah        = len(pah_bins)
+    mf_best_pah  = mf_best[:n_pah]
+    mf_best_dust = mf_best[n_pah:]
+
+    plot_result = plot_extinction_from_massfractions(
+        dust_bins=dust_bins,
+        dust_mass_fractions=mf_best_dust,
+        pah_bins=pah_bins if pah_bins else None,
+        pah_mass_fractions=mf_best_pah if n_pah > 0 else None,
+        out_png=out_png,
+        pah_state=pah_state,
+        verbose=verbose,
+        optical_dir=optical_dir,
+        mdust_per_H=mdust_per_H,
+        cabs_method=cabs_method,
+        nsize_per_bin=nsize_per_bin,
+    )
+
+    return {
+        'best_mass_fractions': mf_best,
+        'bin_ids':             component_bins,
+        'chi2':                chi2_spectral,
+        'chi2_composition':    chi2_comp_pen,
+        'converged':           de_result.success,
+        'plot_result':         plot_result,
     }
