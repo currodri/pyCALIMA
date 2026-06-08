@@ -48,6 +48,7 @@ JSON schema (see ``configs/example_ic.json`` for a complete example)
     "physics": {
         "dust_accretion": true,
         "dust_sputtering": true,
+        "dust_sublimation": true,
         "dust_coagulation": true,
         "pah_accretion": false,
         "pah_photolysis": false
@@ -211,6 +212,42 @@ def _load_pah_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
     return interps
 
 
+def _load_erosion_rate_table(bin_id: str, data_dir: Path):
+    """Load pre-computed GD89 sublimation/erosion-rate table for *bin_id*.
+
+    Returns a callable ``(T_K) -> epsilon [s^-1]`` that linearly
+    interpolates the table produced by
+    ``models.dust_radiation.dust_sublimation.write_sublimation_rate_tables``.
+    Returns ``None`` when the file does not exist or cannot be read.
+
+    The expected file is ``<data_dir>/sublimation_rate_{bin_id}.dat`` (falling back to
+    ``erosion_rate_{bin_id}.dat``), with two columns (temperature [K], rate [s⁻¹]).
+    Lines starting with ``#`` are treated as comments and skipped.
+    """
+    fname = data_dir / f"sublimation_rate_{bin_id}.dat"
+    if not fname.exists():
+        fname = data_dir / f"erosion_rate_{bin_id}.dat"
+    if not fname.exists():
+        return None
+    try:
+        data = np.loadtxt(fname, comments="#")
+        if data.ndim != 2 or data.shape[1] < 2:
+            return None
+        T_tab = data[:, 0]
+        eps_tab = data[:, 1]
+        # Return a simple linear-log interpolant (extrapolate as 0)
+        from scipy.interpolate import interp1d
+        interp = interp1d(
+            T_tab, eps_tab,
+            kind="linear",
+            bounds_error=False,
+            fill_value=(0.0, eps_tab[-1]),
+        )
+        return interp
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Main loader
 # ---------------------------------------------------------------------------
@@ -245,6 +282,7 @@ def load_initial_conditions(
     sputtering_dir = model_data_dir / "thermal_sputtering_data"
     pah_photolysis_dir = model_data_dir / "PAH_dissociation_data"
     pah_sputtering_dir = model_data_dir / "pah_sputtering_data"
+    sublimation_dir = model_data_dir / "dust_sublimation"
 
     # ------------------------------------------------------------------
     # Gas environment
@@ -298,6 +336,7 @@ def load_initial_conditions(
         k0_acc = _k0_accretion(asize_cm, sgrain, sticking)
         k0_coa = _k0_coagulation(asize_cm, sgrain)
         sput_interps = _load_sputtering_tables(bin_id, sputtering_dir)
+        erosion_interp = _load_erosion_rate_table(bin_id, sublimation_dir)
 
         # Grain mass range for fragment distribution (shattering)
         amin_um = float(bd.get("amin_micron", asize_um * 0.5))
@@ -321,6 +360,7 @@ def load_initial_conditions(
             k0_acc=k0_acc,
             k0_coa=k0_coa,
             sputtering_interps=sput_interps,
+            erosion_rate_interp=erosion_interp,
             nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
             nh_coa=float(bd.get("nh_coa", 0.1)),
             catastrophic_spec_energy=float(
@@ -427,6 +467,7 @@ def load_initial_conditions(
         # Physics flags
         dust_accretion=bool(phys.get("dust_accretion", False)),
         dust_sputtering=bool(phys.get("dust_sputtering", False)),
+        dust_sublimation=bool(phys.get("dust_sublimation", False)),
         dust_coagulation=bool(phys.get("dust_coagulation", False)),
         dust_shattering=bool(phys.get("dust_shattering", False)),
         pah_accretion=bool(phys.get("pah_accretion", False)),

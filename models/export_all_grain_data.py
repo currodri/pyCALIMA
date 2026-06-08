@@ -515,6 +515,26 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
             f"- **Files**: {pah_diss_result.get('file_count', '?')} files ({pah_diss_result.get('tables_generated', 0)} tables, {pah_diss_result.get('plots_generated', 0)} plots)",
             "",
         ])
+
+    readme_lines.extend([
+        "### 10. Dust Sublimation",
+        "",
+    ])
+
+    if 'dust_sublimation' in export_results:
+        subl_result = export_results['dust_sublimation']
+        readme_lines.extend([
+            f"- **Status**: {subl_result['status']}",
+            f"- **Export Time**: {subl_result['timestamp']}",
+            f"- **Output Directory**: `{subl_result['dir']}`",
+            f"- **Function**: `export_dust_sublimation()` from `models.dust_radiation.dust_sublimation`",
+            f"- **Description**: Dust sublimation rate tables and plots of sublimation timescales and rates.",
+            f"  Sublimation rates are filtered to exclude temperatures where the sublimation timescale is",
+            f"  longer than 10 times the age of the Universe, preventing interpolation noise.",
+            f"- **Output Format**: DAT tables + PDF plots (sublimation vs T, and G0 and O6V timescales)",
+            f"- **Files**: {subl_result.get('file_count', '?')} tables, {subl_result.get('plots_generated', 0)} plots",
+            "",
+        ])
     
     readme_lines.extend([
         "---",
@@ -606,6 +626,11 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         "│   ├── dissociation_pah_bin_*.dat",
         "│   ├── *_integrated_dissociation_rate.png",
         "│   └── ...",
+        "├── dust_sublimation/",
+        "│   ├── sublimation_rate_DustBin_*.dat",
+        "│   ├── sublimation_rate_vs_T.pdf",
+        "│   ├── dust_sublimation.pdf",
+        "│   └── ...",
         "└── README.md (this file)",
         "```",
         "",
@@ -624,6 +649,7 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         "- **models.PAH_gas_collisions.PAH_sputtering**: PAH sputtering calculations (phi=0 mode)",
         "- **models.dust_charge.dust_charging**: Equilibrium grain charge calculations",
         "- **models.dust_charge.dust_photoelectric_heating**: Photoelectric heating rate calculations",
+        "- **models.dust_radiation.dust_sublimation**: Dust sublimation rate and timescale calculations",
         "",
         "---",
         "",
@@ -662,6 +688,9 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
 
         "# PAH dissociation tables",
         "python -m models.PAH_photophysics.export_pah_dissociation_tables",
+        "",
+        "# Dust sublimation rates and plots",
+        "python -m models.dust_radiation.dust_sublimation",
         "```",
         "",
         "### With custom configuration file:",
@@ -1015,6 +1044,40 @@ def export_pah_dissociation_tables_wrapper(config_path=None):
         }
 
 
+def export_dust_sublimation_wrapper(config_path=None):
+    """Wrapper for dust sublimation rate tables and plots export with error handling."""
+    from models.dust_radiation.dust_sublimation import export_dust_sublimation
+
+    start_time = datetime.now()
+    timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        print("\n" + "="*80)
+        print("EXPORTING DUST SUBLIMATION TABLES AND PLOTS")
+        print("="*80)
+        result = export_dust_sublimation(config_path=config_path)
+        return {
+            'status': 'Success',
+            'timestamp': timestamp_str,
+            'dir': result.get('output_dir', 'model_data/dust_sublimation'),
+            'file_count': len(result.get('tables', [])),
+            'tables_generated': len(result.get('tables', [])),
+            'plots_generated': len(result.get('plots', [])),
+        }
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'status': f'Error: {str(e)}',
+            'timestamp': timestamp_str,
+            'dir': 'model_data/dust_sublimation',
+            'file_count': 0,
+            'tables_generated': 0,
+            'plots_generated': 0,
+        }
+
+
 def main(config_path=None, profile=True, profile_output=None):
     """
     Master export script that coordinates all grain data exports.
@@ -1138,6 +1201,15 @@ def main(config_path=None, profile=True, profile_output=None):
     export_results['pah_dissociation_tables'] = _run_profiled_stage(
         'pah_dissociation_tables',
         export_pah_dissociation_tables_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
+
+    # 10. Dust sublimation rate tables and plots
+    export_results['dust_sublimation'] = _run_profiled_stage(
+        'dust_sublimation',
+        export_dust_sublimation_wrapper,
         config_path,
         stage_profile,
         enable_profile=profile,

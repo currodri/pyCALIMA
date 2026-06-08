@@ -60,6 +60,7 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
         accretion_rate,
         coagulation_rate,
         pah_accretion_rate,
+        sublimation_rate,
         thermal_sputtering_rate,
         # PAH rates
         pah_photolysis_rate,
@@ -87,6 +88,12 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     if state.dust_sputtering and state.ndust > 0:
         processes.append(
             DustProcess("sputtering", thermal_sputtering_rate, source=False, sink=True)
+        )
+
+    # ---- Grain destruction (thermal sublimation, GD89) ----
+    if state.dust_sublimation and state.ndust > 0:
+        processes.append(
+            DustProcess("sublimation", sublimation_rate, source=False, sink=True)
         )
 
     # ---- Grain coagulation (model-selected) ----

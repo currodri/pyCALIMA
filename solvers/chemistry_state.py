@@ -102,6 +102,11 @@ class DustBinParams:
 
     coag_partner_index: Optional[int] = None
     sputtering_interps: Dict[str, Any] = field(default_factory=dict)
+    erosion_rate_interp: Optional[Any] = None
+    """Callable ``(T_K) -> epsilon [s^-1]`` for thermal sublimation erosion.
+    Built at initialisation from the pre-computed CALIMA erosion-rate table
+    (``model_data/dust_sublimation/erosion_rate_{bin_id}.dat``).
+    ``None`` when the table is absent or sublimation is disabled."""
 
     nhmax_acc: float = 1.0e4
     nh_coa: float = 0.1
@@ -249,6 +254,7 @@ class DustChemistryState:
     # ---- Physics process flags ----
     dust_accretion: bool = False
     dust_sputtering: bool = False
+    dust_sublimation: bool = False
     dust_coagulation: bool = False
     dust_shattering: bool = False
     pah_accretion: bool = False
