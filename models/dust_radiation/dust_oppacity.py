@@ -119,6 +119,7 @@ def save_imn_file(metadata, outfile):
 
 
 def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
+    from models.grain_size_config import get_bins, get_lognormal_parameters
     """
     Export the dielectric Im_n tables for a dust bin.
 
@@ -130,6 +131,13 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
         output_dir = PATH_MODEL_OPTICAL_OUTPUT
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Load bin info for header
+    all_bins = get_bins()
+    bin_info = next((b for b in all_bins if b['id'] == bin_id), {})
+    bin_rank = bin_info.get('bin_rank', 'N/A')
+    lognormal_params = get_lognormal_parameters(bin_id)
+    a0 = lognormal_params.get('a0', 'N/A') if lognormal_params else 'N/A'
 
     source_dir = Path(PATH_OPTICS) / 'draine_lee_1984'
     if composition_key == 'graphite':
@@ -153,11 +161,39 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
         df = metadata['table'].copy()
         df['wavelength_A'] = df['wavelength_um'].astype(float) * 1e4
         df_sorted = df.sort_values('wavelength_A', ascending=True)
-        data_arr = df_sorted[['wavelength_A', 'Im_n']].to_numpy(dtype=float)
+        
+        # Extract native wavelength and Im_n arrays
+        wav_A = df_sorted['wavelength_A'].to_numpy(dtype=float)
+        Im_n = df_sorted['Im_n'].to_numpy(dtype=float)
+        
+        # Ensure we avoid log10 of zero or negative values
+        Im_n = np.maximum(Im_n, 1e-30)
+        
+        log10_wav_A = np.log10(wav_A)
+        log10_Im_n = np.log10(Im_n)
+        
+        # Create a perfectly uniform log-spaced grid for wavelengths (in Angstroms)
+        # preserving the native range and number of points.
+        target_log10_wav_A = np.linspace(log10_wav_A.min(), log10_wav_A.max(), len(log10_wav_A))
+        
+        # Interpolate log10(Im_n) vs log10(wavelength) to the uniform grid.
+        target_log10_Im_n = np.interp(target_log10_wav_A, log10_wav_A, log10_Im_n)
+        
+        # We export ACTUAL values (not logs) to be consistent with the header
+        # and to match the Fortran code's expected input (which takes log10 itself).
+        data_arr = np.column_stack([10**target_log10_wav_A, 10**target_log10_Im_n])
+        
         dest = output_dir / out_stem
         with open(dest, 'w') as fout:
+            fout.write(f"# Dust dielectric properties (Im_n)\n")
+            fout.write(f"# Bin ID: {bin_id}\n")
+            fout.write(f"# Composition: {composition}\n")
+            fout.write(f"# Bin rank: {bin_rank}\n")
+            fout.write(f"# Grain size a0: {a0} micron\n")
+            fout.write(f"# NWAV\n")
             fout.write(f"{len(data_arr):8d}\n")
-            np.savetxt(fout, data_arr, fmt="%.12e %.12e")
+            fout.write(f"# Columns: lambda[Angstrom] Im_n\n")
+            np.savetxt(fout, data_arr, fmt="%20.12e %20.12e")
         saved_paths.append(str(dest))
 
     return saved_paths
@@ -751,6 +787,72 @@ def interpolate_cross_sections_2d(dust_type, grain_size, target_wavelengths=None
 
     return grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp
 
+
+def compute_cross_sections_mie(composition, grain_size_micron, target_wavelengths=None,
+                               efficiency=False):
+    """
+    Compute efficiencies or cross sections for a single grain size directly using Mie theory.
+
+    Parameters
+    - composition: 'silicate' or 'graphite'
+    - grain_size_micron: grain size in microns
+    - target_wavelengths: array-like of wavelengths in microns. If None, uses a default grid.
+    - efficiency: if True, return Q values (dimensionless); otherwise return C (cm^2)
+
+    Returns (grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp)
+    """
+    import sys
+    tools_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tools')
+    if tools_path not in sys.path:
+        sys.path.insert(0, tools_path)
+    
+    from mie_theory import MieTheory
+    mie = MieTheory()
+
+    # Load dielectrics
+    mie.load_dielectric_constants(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'eps_suvSil'), 'suvSil')
+    mie.load_dielectric_constants(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'callindex.out_CpaD03_0.01'), 'graphite_pa')
+    mie.load_dielectric_constants(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'callindex.out_CpeD03_0.01'), 'graphite_pe')
+
+    if target_wavelengths is None:
+        target_wav = np.logspace(-3, 3, 241)
+    else:
+        target_wav = np.array(target_wavelengths, dtype=float)
+
+    if composition == 'silicate':
+        species_info = 'suvSil'
+    elif composition == 'graphite':
+        species_info = {'parallel': 'graphite_pa', 'perpendicular': 'graphite_pe'}
+    else:
+        raise ValueError(f"Unknown composition: {composition}")
+
+    qabs = np.zeros(len(target_wav))
+    qsca = np.zeros(len(target_wav))
+    g = np.zeros(len(target_wav))
+
+    for w_idx, w_um in enumerate(target_wav):
+        qa, qs, gg = mie.compute_grain_properties(grain_size_micron, w_um, species_info, extend_xrays=True)
+        qabs[w_idx] = qa
+        qsca[w_idx] = qs
+        g[w_idx] = gg
+
+    qrp = qabs + (1.0 - g) * qsca
+
+    wavelengths_cm = target_wav * 1e-4
+    grain_size_cm = grain_size_micron * 1e-4
+
+    if efficiency:
+        return grain_size_cm, wavelengths_cm, qsca, qabs, qrp
+
+    # Compute cross sections: area = pi * a^2 (in cm^2)
+    area_cm2 = np.pi * (grain_size_micron * 1e-4) ** 2
+    C_abs = qabs * area_cm2
+    C_sca = qsca * area_cm2
+    C_rp = qrp * area_cm2
+
+    return grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp
+
+
 def plot_cs_sne(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallSil,D_largeSil,export=False):
 
     # 1. Set up the figure
@@ -1194,7 +1296,7 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
                              optical_dir=None, pah_state='neutral'):
     """
     Compute a composite extinction curve from either:
-    1) precomputed DustBin/PAHbin tables, or
+    1) precomputed DustBin/PAHBin tables, or
     2) the legacy size-distribution integration path.
 
     Parameters
@@ -1267,10 +1369,10 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
         raise ValueError('mass_fractions must sum to a positive value')
     mass_fractions = mass_fractions / mass_fractions.sum()
 
-    # Preferred path: use precomputed optical-property tables for DustBin/PAHbin IDs.
+    # Preferred path: use precomputed optical-property tables for DustBin/PAHBin IDs.
     # This avoids recomputing size-integrated cross sections.
     is_precomputed_bins = all(
-        isinstance(comp, str) and ('DustBin_' in comp or 'PAHbin_' in comp)
+        isinstance(comp, str) and ('DustBin_' in comp or 'PAHBin_' in comp)
         for comp in dust_types
     )
 
@@ -1420,7 +1522,7 @@ def getCrosssection_BARE_GR_S_DUST(lambda_angstrom):
 
 
 def _read_precomputed_cross_section_table(bin_id, optical_dir=None, pah_state='neutral'):
-    """Read one precomputed DustBin/PAHbin optical table.
+    """Read one precomputed DustBin/PAHBin optical table.
 
     Returns
     -------
@@ -1671,6 +1773,117 @@ def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
         )
         if verbose:
             print(f'[plot_extinction_from_massfractions] legacy component done: {bin_id} ({material})')
+        return i, cabs, csca, crp
+
+    args_list = [(i, bin_id, mat)
+                 for i, (bin_id, mat) in enumerate(zip(component_bins, materials))]
+
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        for i, cabs, csca, crp in pool.map(_process_bin, args_list):
+            cabs_comps[i, :] = cabs
+            csca_comps[i, :] = csca
+            crp_comps[i, :] = crp
+
+    return cabs_comps, csca_comps, crp_comps
+
+
+def compute_component_cross_sections_mie(component_bins, target_wavelengths,
+                                         nsize_per_bin=30,
+                                         pah_state='neutral', verbose=False):
+    """Compute bin cross sections by integrating Mie theory calculations over JSON size distributions.
+
+    Returns per-component cross sections normalized per gram of dust (cm^2 / g_dust).
+    """
+    import sys
+    tools_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tools')
+    if tools_path not in sys.path:
+        sys.path.insert(0, tools_path)
+    
+    from mie_theory import MieTheory
+
+    mie = MieTheory()
+
+    # Load dielectric constants
+    mie.load_dielectric_constants(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'eps_suvSil'), 'suvSil')
+    mie.load_dielectric_constants(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'callindex.out_CpaD03_0.01'), 'graphite_pa')
+    mie.load_dielectric_constants(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'callindex.out_CpeD03_0.01'), 'graphite_pe')
+
+    materials = _resolve_bin_materials(component_bins, pah_state=pah_state)
+    target_wavelengths = np.asarray(target_wavelengths, dtype=float)
+
+    ncomp = len(component_bins)
+    nwav = len(target_wavelengths)
+    cabs_comps = np.zeros((ncomp, nwav))
+    csca_comps = np.zeros((ncomp, nwav))
+    crp_comps = np.zeros((ncomp, nwav))
+
+    # For PAH bins, we fall back to the legacy tables
+    optical_cache = {}
+    q_table_cache = {}
+    for material in set(materials):
+        if material in ('iPAH', 'nPAH'):
+            if material == 'iPAH':
+                from models.PAH_radiation.pah_oppacity import pah_efficiencies
+                filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
+                optical_cache[material] = pah_efficiencies(filename)
+            elif material == 'nPAH':
+                from models.PAH_radiation.pah_oppacity import pah_efficiencies
+                filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
+                optical_cache[material] = pah_efficiencies(filename)
+            q_table_cache[material] = _build_q_table_2d(optical_cache[material], target_wavelengths)
+
+    def _process_bin(args):
+        i, bin_id, material = args
+        p = get_lognormal_parameters(bin_id)
+        dist = LogNormal_Distribution(
+            p['a0'] * 1e-4,
+            p['amin'] * 1e-4,
+            p['amax'] * 1e-4,
+            p['sigma'],
+            p['s'],
+        )
+        size_bins_cm = np.logspace(np.log10(dist.amin), np.log10(dist.amax), int(nsize_per_bin))
+        size_bins_um = size_bins_cm * 1e4
+        n_for_unit_mass = dist.n_density(1.0, size_bins_cm)
+        weights_per_um = n_for_unit_mass / 1e4
+
+        if material in ('iPAH', 'nPAH'):
+            native_sizes, Q_abs_2d, Q_sca_2d, g_2d = q_table_cache[material]
+            cabs, csca, crp = _integrate_q_table_2d(
+                native_sizes, Q_abs_2d, Q_sca_2d, g_2d,
+                size_bins_um, weights_per_um,
+            )
+        else:
+            if material == 'silicate':
+                species_info = 'suvSil'
+            elif material == 'graphite':
+                species_info = {'parallel': 'graphite_pa', 'perpendicular': 'graphite_pe'}
+            else:
+                raise ValueError(f"Unknown material: {material}")
+
+            Q_abs_t = np.zeros((len(size_bins_um), nwav))
+            Q_sca_t = np.zeros((len(size_bins_um), nwav))
+            g_t     = np.zeros((len(size_bins_um), nwav))
+
+            for s_idx, a_um in enumerate(size_bins_um):
+                for w_idx, w_um in enumerate(target_wavelengths):
+                    qa, qs, g = mie.compute_grain_properties(a_um, w_um, species_info, extend_xrays=True)
+                    Q_abs_t[s_idx, w_idx] = qa
+                    Q_sca_t[s_idx, w_idx] = qs
+                    g_t[s_idx, w_idx]     = g
+
+            area_cm2 = np.pi * (size_bins_um * 1e-4) ** 2
+            C_abs = Q_abs_t * area_cm2[:, np.newaxis]
+            C_sca = Q_sca_t * area_cm2[:, np.newaxis]
+            C_rp  = (Q_abs_t + (1.0 - g_t) * Q_sca_t) * area_cm2[:, np.newaxis]
+
+            w = weights_per_um[:, np.newaxis]
+            cabs = np.trapezoid(w * C_abs, size_bins_um, axis=0)
+            csca = np.trapezoid(w * C_sca, size_bins_um, axis=0)
+            crp  = np.trapezoid(w * C_rp,  size_bins_um, axis=0)
+
+        if verbose:
+            print(f'Mie component done: {bin_id} ({material})')
         return i, cabs, csca, crp
 
     args_list = [(i, bin_id, mat)
@@ -2170,7 +2383,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
                                       cabs_method='precomputed',
                                       nsize_per_bin=30):
     """
-    Read precomputed DustBin/PAHbin optical tables, combine them with the
+    Read precomputed DustBin/PAHBin optical tables, combine them with the
     supplied mass fractions, and plot the resulting extinction curve
     normalized to the V-band value (lambda_V = 0.55 micron).
 
@@ -2204,6 +2417,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
         - 'precomputed': read averaged_cross_section_<BinID>.txt tables (default)
         - 'legacy': integrate raw optical tables over JSON log-normal distributions
           (old method)
+        - 'mie': compute efficiencies directly using Mie theory and integrate (new method)
     - nsize_per_bin : int
         Number of size samples for the 'legacy' integration method.
     
@@ -2250,7 +2464,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     component_bins = pah_bins + dust_bins
     component_mf = np.concatenate((pah_mf, dust_mf))
     if component_mf.size == 0:
-        raise ValueError('At least one DustBin or PAHbin must be provided')
+        raise ValueError('At least one DustBin or PAHBin must be provided')
     if np.sum(component_mf) <= 0.0:
         raise ValueError('Mass fractions must sum to a positive value')
 
@@ -2288,6 +2502,15 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
             cabs_comps[i, :] = np.interp(wav, wav_i, cabs_i, left=0.0, right=0.0)
             csca_comps[i, :] = np.interp(wav, wav_i, csca_i, left=0.0, right=0.0)
             crp_comps[i, :] = np.interp(wav, wav_i, crp_i, left=0.0, right=0.0)
+    elif cabs_method_token in ('mie', 'miedust'):
+        wav = np.logspace(-1.5, 1.0, 100)
+        cabs_comps, csca_comps, crp_comps = compute_component_cross_sections_mie(
+            component_bins,
+            target_wavelengths=wav,
+            nsize_per_bin=nsize_per_bin,
+            pah_state=pah_state,
+            verbose=verbose,
+        )
     elif cabs_method_token in ('legacy', 'old', 'raw', 'integration'):
         wav = np.logspace(-1.5, 1.0, 100)
         cabs_comps, csca_comps, crp_comps = _compute_component_cross_sections_legacy(
@@ -2299,7 +2522,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
         )
     else:
         raise ValueError(
-            "cabs_method must be one of 'precomputed' or 'legacy' "
+            "cabs_method must be one of 'precomputed', 'legacy' or 'mie' "
             f"(got {cabs_method})"
         )
 
@@ -2592,7 +2815,7 @@ def fit_massfractions_to_zubko2004(
     mdust_per_H : float
         Dust mass per H nucleus [g/H] for the absolute cross-section scale.
     cabs_method : str
-        'precomputed' or 'legacy'.
+        'precomputed', 'legacy', or 'mie'.
     nsize_per_bin : int
         Number of size quadrature points for legacy method.
     nsize_zubko : int
@@ -2723,6 +2946,16 @@ def fit_massfractions_to_zubko2004(
         for i, (wav_i, cext_i) in enumerate(component_tables):
             cext_comps[i] = np.interp(wav, wav_i, cext_i, left=0.0, right=0.0)
 
+    elif cabs_method_token in ('mie', 'miedust'):
+        wav = np.logspace(-1.5, 1.0, 100)
+        cabs_c, csca_c, _ = compute_component_cross_sections_mie(
+            component_bins,
+            target_wavelengths=wav,
+            nsize_per_bin=nsize_per_bin,
+            pah_state=pah_state,
+            verbose=verbose,
+        )
+        cext_comps = cabs_c + csca_c
     elif cabs_method_token in ('legacy', 'old', 'raw', 'integration'):
         wav = np.logspace(-1.5, 1.0, 100)
         cabs_c, csca_c, _ = _compute_component_cross_sections_legacy(
@@ -2734,7 +2967,7 @@ def fit_massfractions_to_zubko2004(
         )
         cext_comps = cabs_c + csca_c
     else:
-        raise ValueError(f"cabs_method must be 'precomputed' or 'legacy' (got {cabs_method})")
+        raise ValueError(f"cabs_method must be 'precomputed', 'legacy', or 'mie' (got {cabs_method})")
 
     # ------------------------------------------------------------------ #
     # 3. Pre-compute Zubko reference C_ext (done only once)              #

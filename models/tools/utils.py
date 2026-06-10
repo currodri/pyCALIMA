@@ -1,3 +1,5 @@
+import numpy as np
+
 def as_si(x, ndp):
     s = '{x:0.{ndp:d}e}'.format(x=x, ndp=ndp)
     m, e = s.split('e')
@@ -48,3 +50,24 @@ def mass_from_Nc(Nc):
     mass = mass * 1.66053906660e-24 # Convert to grams
     
     return mass
+
+def has_uniform_bins(array: np.ndarray, tolerance: float = 1e-6) -> bool:
+    """
+    Checks if the bin sizes (differences between consecutive elements) 
+    in an array are identical within a specified precision tolerance.
+    """
+    # Ensure the input is a numpy array
+    arr = np.asarray(array)
+    
+    # An array with fewer than 3 elements has at most 1 spacing interval,
+    # so by definition, its bin sizes are "uniform".
+    if len(arr) < 3:
+        return True
+        
+    # Calculate the step size between every consecutive pair of elements
+    bin_sizes = np.diff(arr)
+    print(bin_sizes)
+    
+    # Check if the maximum variation in bin sizes is within our tolerance
+    # (max bin size minus min bin size)
+    return bool((np.max(bin_sizes) - np.min(bin_sizes))/np.min(bin_sizes) <= tolerance)

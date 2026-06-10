@@ -174,3 +174,4 @@ cython_debug/
 
 # My ignores
 /model_data/*
+/results/*

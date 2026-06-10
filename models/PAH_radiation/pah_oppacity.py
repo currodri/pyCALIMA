@@ -336,17 +336,21 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
             continue
         
         grain_size_micron = a0
-        # Compute neutral and ionised optical properties on the same wavelength grid
+        # Compute neutral and ionised optical properties on a perfectly uniform log-spaced
+        # wavelength grid (300 points from 3e-3 to 10^3 micron) to ensure constant bin
+        # separation in log space for downstream interpolation.
         try:
+            target_wav_micron = np.logspace(np.log10(3e-3), 3, 300)
+
             grain_size_cm, wavelengths_cm_neu, C_sca_neu, C_abs_neu, C_rp_neu = \
                 interpolate_pah_cross_sections_2d(
                     'nPAH', grain_size_micron,
-                    target_wavelengths=None, efficiency=False
+                    target_wavelengths=target_wav_micron, efficiency=False
                 )
             _, wavelengths_cm_ion, C_sca_ion, C_abs_ion, C_rp_ion = \
                 interpolate_pah_cross_sections_2d(
                     'iPAH', grain_size_micron,
-                    target_wavelengths=None, efficiency=False
+                    target_wavelengths=target_wav_micron, efficiency=False
                 )
 
             if wavelengths_cm_neu.shape != wavelengths_cm_ion.shape or \
@@ -398,15 +402,14 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
                 
                 for j in range(len(wavelengths_cm)):
                     wavelength_angstrom = wavelengths_cm[j] * 1e8  # Convert cm to Angstroms
-                    f.write(f"{wavelength_angstrom:14.6e} ")
-                    f.write(f"{C_abs_neu[j]:14.6e} ")
-                    f.write(f"{C_sca_neu[j]:14.6e} ")
-                    f.write(f"{C_rp_neu[j]:14.6e} ")
-                    f.write("| ")
-                    f.write(f"{wavelength_angstrom:14.6e} ")
-                    f.write(f"{C_abs_ion[j]:14.6e} ")
-                    f.write(f"{C_sca_ion[j]:14.6e} ")
-                    f.write(f"{C_rp_ion[j]:14.6e}\n")
+                    f.write(f"{wavelength_angstrom:20.12e} ")
+                    f.write(f"{C_abs_neu[j]:20.12e} ")
+                    f.write(f"{C_sca_neu[j]:20.12e} ")
+                    f.write(f"{C_rp_neu[j]:20.12e} | ")
+                    f.write(f"{wavelength_angstrom:20.12e} ")
+                    f.write(f"{C_abs_ion[j]:20.12e} ")
+                    f.write(f"{C_sca_ion[j]:20.12e} ")
+                    f.write(f"{C_rp_ion[j]:20.12e}\n")
 
             _save_optical_quicklook_plot(
                 plot_path,

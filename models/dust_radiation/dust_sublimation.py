@@ -1396,14 +1396,14 @@ def write_sublimation_rate_tables(config_path=None,
                 f'# N rows : {len(T_filtered)}\n'
                 f'# Columns:\n'
                 f'#   col 1  T_d   [K]    dust temperature\n'
-                f'#   col 2  epsilon [s^-1]  fractional sublimation rate\n'
+                f'#   col 2  log10(epsilon/[s^-1])  fractional sublimation rate\n'
                 f'#\n'
             )
             # Two fixed-width columns: temperature (E14.6) and rate (E14.6).
             # Fortran can read these with:
             #   READ(unit, '(E14.6, 1X, E14.6)') T_d, epsilon
             for T, eps in zip(T_filtered, epsilon_filtered):
-                fh.write(f'{T:14.6E} {eps:14.6E}\n')
+                fh.write(f'{T:14.6E} {np.log10(eps):14.6E}\n')
 
         print(f'Written {fname}')
         written.append(fname)

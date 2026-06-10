@@ -27,7 +27,8 @@ if __package__ in (None, ''):
 from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path
 from models.dust_radiation.dust_oppacity import (
     dust_efficiencies,
-    interpolate_cross_sections_2d,
+    _compute_component_cross_sections_legacy,
+    compute_component_cross_sections_mie,
     compute_isrf_averaged_cross_sections,
     export_dielectric_tables_for_bin,
 )
@@ -56,7 +57,7 @@ def _save_optical_quicklook_plot(plot_path, wavelengths_cm, C_abs, C_sca, title)
     plt.close(fig)
 
 
-def export_dust_optical_properties(output_dir='model_data/optical_properties', config_path=None):
+def export_dust_optical_properties(output_dir='model_data/optical_properties', config_path=None, cabs_method='precomputed'):
     """
     Batch export optical properties for all dust grain bins.
     
@@ -76,6 +77,8 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
         Output directory for cross-section files. Default: 'model_data/optical_properties'
     config_path : str, optional
         Path to JSON configuration file. If provided, temporarily sets the config.
+    cabs_method : str, optional
+        Method to compute cross sections: 'precomputed' or 'mie'.
     """
     # Set config path if provided
     if config_path:
@@ -90,22 +93,6 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
     if not non_pah_bins:
         print("No non-PAH dust bins found in grain configuration.")
         return
-    
-    # Map composition to optical data file
-    composition_map = {
-        'graphite': os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81'),
-        'silicate': os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81'),
-    }
-    
-    # Pre-load optical data tables to avoid repeated file reads
-    optical_tables = {}
-    for composition, filepath in composition_map.items():
-        try:
-            nwav, data, columns, name = dust_efficiencies(filepath)
-            optical_tables[composition] = (nwav, data, columns, name)
-            print(f"Loaded {composition} optical data: {nwav} wavelengths")
-        except Exception as e:
-            print(f"Error loading {composition} optical data: {e}")
     
     print(f"\nExporting optical properties for {len(non_pah_bins)} dust bins...")
     
@@ -133,20 +120,37 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
         
         grain_size_micron = a0
         
-        # Check if we have loaded the optical data for this composition
-        if composition not in optical_tables:
-            print(f"  ✗ No optical data loaded for composition '{composition}' (bin {bin_id})")
-            failed_exports += 1
-            continue
-        
         # Compute optical properties
         try:
-            grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp = \
-                interpolate_cross_sections_2d(
-                    composition, grain_size_micron,
-                    target_wavelengths=None, efficiency=False,
-                    data_table=optical_tables[composition]
+            # Create a uniform log-spaced wavelength grid (241 points from 10^-3 to 10^3 micron)
+            # to ensure constant bin separation in log space for downstream interpolation.
+            target_wav_micron = np.logspace(-3, 3, 241)
+            
+            # Construct the distribution to get central grain mass
+            p = get_lognormal_parameters(bin_id)
+            from models.grain_distributions import LogNormal_Distribution
+            dist = LogNormal_Distribution(
+                p['a0'] * 1e-4,
+                p['amin'] * 1e-4,
+                p['amax'] * 1e-4,
+                p['sigma'],
+                p['s'],
+            )
+            m_a0 = dist.grain_mass  # in grams
+
+            if cabs_method == 'mie':
+                cabs_comps, csca_comps, crp_comps = compute_component_cross_sections_mie(
+                    [bin_id], target_wavelengths=target_wav_micron, nsize_per_bin=30, verbose=False
                 )
+            else:
+                cabs_comps, csca_comps, crp_comps = _compute_component_cross_sections_legacy(
+                    [bin_id], target_wavelengths=target_wav_micron, nsize_per_bin=30, verbose=False
+                )
+
+            wavelengths_cm = target_wav_micron * 1e-4
+            C_abs = m_a0 * cabs_comps[0]
+            C_sca = m_a0 * csca_comps[0]
+            C_rp  = m_a0 * crp_comps[0]
             
         except Exception as e:
             print(f"  ✗ Error computing optical properties for bin {bin_id}: {e}")
@@ -185,10 +189,10 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
                 
                 for j in range(len(wavelengths_cm)):
                     wavelength_angstrom = wavelengths_cm[j] * 1e8  # Convert cm to Angstroms
-                    f.write(f"{wavelength_angstrom:14.6e} ")
-                    f.write(f"{C_abs[j]:14.6e} ")
-                    f.write(f"{C_sca[j]:14.6e} ")
-                    f.write(f"{C_rp[j]:14.6e}\n")
+                    f.write(f"{wavelength_angstrom:20.12e} ")
+                    f.write(f"{C_abs[j]:20.12e} ")
+                    f.write(f"{C_sca[j]:20.12e} ")
+                    f.write(f"{C_rp[j]:20.12e}\n")
 
             _save_optical_quicklook_plot(
                 plot_path,
@@ -228,9 +232,16 @@ if __name__ == '__main__':
         default=None,
         help='Path to JSON grain size configuration file. If not provided, uses default.'
     )
+    parser.add_argument(
+        '--method',
+        type=str,
+        default='mie',
+        choices=['precomputed', 'mie'],
+        help="Method to compute cross sections: 'precomputed' (legacy size interpolation) or 'mie' (direct Mie theory)"
+    )
     args = parser.parse_args()
     
     if args.config:
         set_config_path(args.config)
     
-    export_dust_optical_properties()
+    export_dust_optical_properties(cabs_method=args.method)
