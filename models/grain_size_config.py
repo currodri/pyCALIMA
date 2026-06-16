@@ -274,3 +274,56 @@ def get_export_parameters(section=None, defaults=None):
     merged = dict(defaults)
     merged.update(section_cfg)
     return merged
+
+
+def get_git_info():
+    """Retrieve git branch and short commit hash."""
+    import subprocess
+    try:
+        branch = subprocess.check_output(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            stderr=subprocess.DEVNULL,
+            text=True
+        ).strip()
+        commit_short = subprocess.check_output(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            stderr=subprocess.DEVNULL,
+            text=True
+        ).strip()
+        return branch, commit_short
+    except Exception:
+        return 'unknown', 'unknown'
+
+
+def get_header_lines(title, script_name, bin_info=None, val_desc=None, num_lines=None):
+    """Generate standardized comment header lines for rate tables."""
+    from datetime import datetime
+    branch, commit = get_git_info()
+    date_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    headers = [
+        f"# {title}",
+        f"# Script: {script_name}",
+        f"# Date: {date_str}",
+        f"# Git: {branch} ({commit})",
+    ]
+    if bin_info:
+        headers.append(f"# {bin_info}")
+    else:
+        headers.append("# Bin info: none")
+        
+    if val_desc:
+        headers.append(f"# {val_desc}")
+    else:
+        headers.append("# Values: log10(rate)")
+
+    if num_lines is not None:
+        # Enforce exact line count if requested
+        if len(headers) < num_lines:
+            while len(headers) < num_lines:
+                headers.append("#")
+        elif len(headers) > num_lines:
+            headers = headers[:num_lines]
+            
+    return headers
+

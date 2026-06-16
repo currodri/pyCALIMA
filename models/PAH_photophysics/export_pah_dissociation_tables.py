@@ -59,7 +59,7 @@ def main(
     g0_max: float | None = None,
     nh_min: float | None = None,
     nh_max: float | None = None,
-    overwrite: bool = False,
+    overwrite: bool = True,
 ):
     """Export acetylene dissociation products for all configured PAH bins."""
     out_dir = Path(output_dir) if output_dir else (_repo_root() / 'model_data' / 'PAH_dissociation_data')

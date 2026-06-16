@@ -24,7 +24,7 @@ if __package__ in (None, ''):
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path, get_header_lines
 from models.dust_radiation.dust_oppacity import (
     dust_efficiencies,
     _compute_component_cross_sections_legacy,
@@ -173,19 +173,22 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
                 C_rp=C_rp,
             )
 
+            headers = get_header_lines(
+                title="Dust optical properties",
+                script_name="models/dust_radiation/export_dust_optical_properties.py",
+                bin_info=f"Bin ID: {bin_id}, Composition: {composition}, Bin rank: {bin_rank}, Grain size a0: {a0} micron",
+                val_desc="Columns: lambda[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]"
+            )
+
             with open(output_path, 'w') as f:
-                f.write(f"# Dust optical properties\n")
-                f.write(f"# Bin ID: {bin_id}\n")
-                f.write(f"# Composition: {composition}\n")
-                f.write(f"# Bin rank: {bin_rank}\n")
-                f.write(f"# Grain size a0: {a0} micron\n")
+                for line in headers:
+                    f.write(f"{line}\n")
                 f.write(f"# NWAV\n")
                 f.write(f"{len(wavelengths_cm):d}\n")
                 f.write(f"# ISRF-average: Mathis83, energy range [0.1, 13.6] eV\n")
                 f.write(f"# ISRF_AVG_CROSS_SECTIONS_CM2: C_abs_ISRF C_sca_ISRF C_rp_ISRF\n")
                 f.write(f"{isrf_avg['C_abs_isrf']: .12E} {isrf_avg['C_sca_isrf']: .12E} {isrf_avg['C_rp_isrf']: .12E}\n")
                 f.write(f"# \n")
-                f.write(f"# Columns: lambda[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]\n")
                 
                 for j in range(len(wavelengths_cm)):
                     wavelength_angstrom = wavelengths_cm[j] * 1e8  # Convert cm to Angstroms

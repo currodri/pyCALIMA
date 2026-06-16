@@ -15,6 +15,7 @@ def parse_args():
         description="Run plot_efficiency smoke test and verify output artifacts."
     )
     parser.add_argument("--nsizes", type=int, default=8, help="Number of grain sizes")
+    parser.add_argument("--use-li-draine", action="store_true", help="Use Li & Draine (2001) carbonaceous cross section blend.")
     return parser.parse_args()
 
 
@@ -24,6 +25,11 @@ def main():
         sys.path.insert(0, repo_root)
 
     args = parse_args()
+
+    if args.use_li_draine:
+        import models.dust_radiation.dust_emission as de
+        de.USE_LI_DRAINE_2001_CARBONACEOUS = True
+        print("[test_plot_efficiency] Enabling Li & Draine (2001) carbonaceous cross sections...")
 
     # Import after sys.path setup.
     from models.dust_charge import dust_photoelectric_heating as dph

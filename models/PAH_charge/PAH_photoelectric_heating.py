@@ -1888,12 +1888,21 @@ def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=10
     f_1 = np.array(f_1)[sort_index]
     f_2 = np.array(f_2)[sort_index]
     
+    from models.grain_size_config import get_header_lines
+    headers = get_header_lines(
+        title=f"PAH Photoelectric heating efficiency (radiation_model={radiation_model}, op_model={op_model}, attach_model={attach_model})",
+        script_name="models/PAH_charge/PAH_photoelectric_heating.py",
+        bin_info=f"PAH Bin (Nc={Nc}, a0={a0:.4e} micron)",
+        val_desc="Columns: log10(gamma), log10(efficiency), log10(Prad), f_anion, f_neutral, f_1, f_2",
+        num_lines=6
+    )
+    header_str = '\n'.join(headers) + f'\n{n_ne}'
+
     np.savetxt(
-        os.path.join(output_dir, f'{file_prefix}peh_Pinj_ISRF_{radiation_model}_{op_model}_{attach_model}_{a0:.4f}_micron_PAH.dat'),
+        os.path.join(output_dir, f'peh_ISRF_{radiation_model}_{op_model}_{attach_model}_{file_prefix}.dat'),
         np.column_stack([np.log10(gamma), np.log10(efficiency), np.log10(Prad),
                         f_anion, f_neutral, f_1, f_2]),
-        header=f'log(gamma [K^0.5/cm^3]) log10(eff) log10(Prad [erg/s]) '
-            f'f_anion f_neutral f_1 f_2\n{n_ne}',
+        header=header_str,
         fmt='%14.6e %14.6e %14.6e %14.6e %14.6e %14.6e %14.6e',
         comments=''
     )

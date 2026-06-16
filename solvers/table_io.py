@@ -49,7 +49,7 @@ def read_sputtering_table(
     """
     path = Path(table_file)
     with path.open("r", encoding="utf-8") as fh:
-        lines = [ln.strip() for ln in fh if ln.strip()]
+        lines = [ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith('#')]
 
     if len(lines) < 3:
         raise ValueError(f"Table file too short: {path}")

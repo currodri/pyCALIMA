@@ -206,12 +206,12 @@ def main(output_root=None, radiation_models=None, optical_models=None,
                             op_model=opt_model,
                             attach_model=att_model,
                             output_dir=output_root,
-                            file_prefix=f'heating_{pah_bin_id}_',
+                            file_prefix=f'{pah_bin_id}',
                         )
                         
                         # Register created files written directly into output_root.
-                        created_files.extend(str(path) for path in output_root.glob(f'heating_{pah_bin_id}_peh_Pinj_ISRF_{rad_model}_{opt_model}_{att_model}_*.dat'))
-                        created_files.extend(str(path) for path in output_root.glob(f'heating_{pah_bin_id}_peh_Pinj_ISRF_{rad_model}_{opt_model}_{att_model}_*.pdf'))
+                        created_files.extend(str(path) for path in output_root.glob(f'peh_ISRF_{rad_model}_{opt_model}_{att_model}_*.dat'))
+                        created_files.extend(str(path) for path in output_root.glob(f'peh_ISRF_{rad_model}_{opt_model}_{att_model}_*.pdf'))
                         
                         print(f"✓")
                         

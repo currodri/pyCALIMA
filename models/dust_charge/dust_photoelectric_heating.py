@@ -128,14 +128,14 @@ def _write_photoelectric_legacy_tables(out_dir, mode, size_tag, T_vals, gamma_va
     log_T = np.log10(T_vals)
     log_gamma = np.log10(gamma_vals)
 
-    header_lines = [
-        '# Photoelectric heating/cooling rate table metadata',
-        '# Units: log10(rate [erg s^-1])',
-        '# Lines below are plain ASCII for direct Fortran READ access',
-        '# Format: one count line "nT n_gamma", then one line of log10(T) values and one line of log10(gamma) values, followed by n_gamma rows x nT columns',
-        '# Rows iterate over gamma (j=1..n_gamma), columns over T (k=1..nT)',
-        '# Missing/invalid entries are encoded as -1e30',
-    ]
+    from models.grain_size_config import get_header_lines
+    header_lines = get_header_lines(
+        title=f"Photoelectric heating/cooling rate table metadata (mode={mode})",
+        script_name="models/dust_charge/dust_photoelectric_heating.py",
+        bin_info=f"Dust Bin: {size_tag}",
+        val_desc="Values: log10(rate [erg s^-1])",
+        num_lines=6
+    )
 
     # Write heating file with embedded axes (nT n_gamma, then temp line, gamma line, then data rows)
     with open(heating_path, 'w') as fh:
@@ -2010,7 +2010,9 @@ def plot_efficiency(T,ne,radiation_model='Draine',G0factor=1.0,nsizes=50):
     ax_pot.set_ylim([-2,8])
 
     grain_types = ['graphite','silicate']
-    grain_sizes = np.logspace(np.log10(10 * angstrom_to_cm), np.log10(10000 * angstrom_to_cm), nsizes)  # in cm
+    from models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
+    min_size_angstrom = 3 if USE_LI_DRAINE_2001_CARBONACEOUS else 10.0
+    grain_sizes = np.logspace(np.log10(min_size_angstrom * angstrom_to_cm), np.log10(10000 * angstrom_to_cm), nsizes)  # in cm
 
     # Read the two column file 1e4_Draine.csv
     data = np.loadtxt(_external_data_path('1e4_Draine.csv'), delimiter=',')
@@ -2157,7 +2159,9 @@ def plot_efficiency_all_fields(T, ne, G0factor=1.0, nsizes=50,
     fig_sed.subplots_adjust(top=0.95, bottom=0.12, left=0.12, right=0.97)
     fig_sed.savefig(_photoelectric_output_path(f'radiation_fields_comparison_T{int(T)}_ne{ne:.1e}.pdf'), format='pdf', dpi=300)
 
-    grain_sizes = np.logspace(np.log10(10 * angstrom_to_cm), np.log10(10000 * angstrom_to_cm), nsizes)  # cm
+    from models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
+    min_size_angstrom = 4.0 if USE_LI_DRAINE_2001_CARBONACEOUS else 10.0
+    grain_sizes = np.logspace(np.log10(min_size_angstrom * angstrom_to_cm), np.log10(10000 * angstrom_to_cm), nsizes)  # cm
 
     # Parallelise by radiation field
     import concurrent.futures
@@ -2262,10 +2266,11 @@ def Planck_function(T, nu):
 
 
 def _compute_rates_point(task):
-    """Helper for parallel execution: task is a tuple (G0_used, ne_used, T_used, grain_type, a_cm, radiation_model).
-    Returns (peh, rec) as floats (or nan on error).
+    """Helper for parallel execution: task is a tuple (G0_used, ne_used, T_used, grain_type, a_cm, radiation_model, ion_species).
+    Returns (peh, rec, Zmean, Zsigma, ion_recomb_rates, ion_recomb_rate_coefficients) (or nan/empty on error).
     """
-    G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task
+    G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task[:6]
+    ion_species = task[6] if len(task) > 6 else []
 
     from models.dust_charge import dust_charging as _dc
 
@@ -2295,7 +2300,7 @@ def _compute_rates_point(task):
     J_nu_scaled = ctx['J_nu_base'] * float(G0_used)
 
     Zs, P, rates, Zmean, Zsigma = _dc.compute_equilibrium_charge_distribution_vectorized(
-        float(a_cm), float(ne_used), float(T_used), [],
+        float(a_cm), float(ne_used), float(T_used), ion_species,
         ctx['nu'], J_nu_scaled, ctx['C_abs_nu'],
         yield_func=ctx['yield_func'],
         yield_params=ctx['yield_params'],
@@ -2304,7 +2309,9 @@ def _compute_rates_point(task):
     )
     peh = float(rates.get('Gamma_total', np.nan) - float(rates.get('Autoionisation_cooling', 0.0)))
     rec = float(rates.get('Recomb_total', 0.0))
-    return peh, rec, Zmean, Zsigma
+    ion_recomb_rates = rates.get('ion_recomb_rates', np.array([]))
+    ion_recomb_rate_coefficients = rates.get('ion_recomb_rate_coefficients', np.array([]))
+    return peh, rec, Zmean, Zsigma, ion_recomb_rates, ion_recomb_rate_coefficients
 
 
 def _compute_rates_batch(batch_tasks):
@@ -2312,9 +2319,10 @@ def _compute_rates_batch(batch_tasks):
 
     out = []
     for task in batch_tasks:
-        pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model = task
+        pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model = task[:9]
+        ion_species = task[9] if len(task) > 9 else []
         try:
-            peh, rec, Zm, Zs = _compute_rates_point((G0, ne, T_task, grain_type, a_cm, radiation_model))
+            peh, rec, Zm, Zs, ion_rec, ion_coeff = _compute_rates_point((G0, ne, T_task, grain_type, a_cm, radiation_model, ion_species))
         except Exception as exc:
             msg = (
                 '[make_rate_gamma_T_tables] Worker batch task failed: '
@@ -2322,8 +2330,9 @@ def _compute_rates_batch(batch_tasks):
                 f'G0={G0:.6e}, ne={ne:.6e} cm^-3, '
                 f'grain={grain_type}, a_cm={a_cm:.3e}, radiation_model={radiation_model}'
             )
+            # raise standard error with context
             raise RuntimeError(msg) from exc
-        out.append((pos, peh, rec, Zm, Zs))
+        out.append((pos, peh, rec, Zm, Zs, ion_rec, ion_coeff))
     return out
 
 
@@ -2332,7 +2341,7 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
                              Tmin=10.0, Tmax=1e5, nT=50,
                              gamma_min=1e-6, gamma_max=1e6, n_gamma=100,
                              num_workers=None, out_dir='tables', debug=False,
-                             grain_label=None, executor=None):
+                             grain_label=None, executor=None, ion_species=None):
     """
     Compute grids of photoelectric heating and recombination cooling on a
     log(T) x log(gamma) grid and write ASCII tables suitable for Fortran
@@ -2374,13 +2383,18 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
         G0_vals[pos] = t[2]
         ne_vals[pos] = t[3]
 
+    # Optional ion recombination lists to accumulate results per task
+    n_ions = len(ion_species) if ion_species else 0
+    ion_recomb_rates_vals = [None] * N
+    ion_recomb_rate_coeffs_vals = [None] * N
+
     import concurrent.futures
     # Debug mode: run in main process for full local traceback visibility.
     if num_workers == 1:
         count = 0
         for pos, t in enumerate(tasks):
             try:
-                peh, rec, Zm, Zs = _compute_rates_point((t[2], t[3], t[4], grain_type, a_cm, radiation_model))
+                peh, rec, Zm, Zs, ion_rec, ion_coeff = _compute_rates_point((t[2], t[3], t[4], grain_type, a_cm, radiation_model, ion_species))
             except Exception as exc:
                 iT, ig, G0, ne, T_task = t
                 gamma_task = gamma_vals[ig]
@@ -2395,6 +2409,8 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
             rec_vals[pos] = rec
             Zmean_vals[pos] = Zm
             Zsigma_vals[pos] = Zs
+            ion_recomb_rates_vals[pos] = ion_rec
+            ion_recomb_rate_coeffs_vals[pos] = ion_coeff
             count += 1
             if count % 100 == 0 or count == len(tasks):
                 print(f'[make_rate_gamma_T_tables] Processed {count}/{len(tasks)} tasks (in-process)')
@@ -2406,7 +2422,7 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
         worker_inputs = []
         for pos, t in enumerate(tasks):
             iT, ig, G0, ne, T_task = t
-            worker_inputs.append((pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model))
+            worker_inputs.append((pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model, ion_species))
 
         # Heuristic: create multiple batches per worker while keeping enough
         # work per batch to amortize process communication.
@@ -2432,11 +2448,13 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
 
             count = 0
             for batch_out in iterator:
-                for pos, peh, rec, Zm, Zs in batch_out:
+                for pos, peh, rec, Zm, Zs, ion_rec, ion_coeff in batch_out:
                     peh_vals[pos] = peh
                     rec_vals[pos] = rec
                     Zmean_vals[pos] = Zm
                     Zsigma_vals[pos] = Zs
+                    ion_recomb_rates_vals[pos] = ion_rec
+                    ion_recomb_rate_coeffs_vals[pos] = ion_coeff
                 count += len(batch_out)
                 if not use_tqdm and (count % 100 == 0 or count == len(worker_inputs)):
                     print(f'[make_rate_gamma_T_tables] Processed {count}/{len(worker_inputs)} tasks')
@@ -2451,6 +2469,13 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
     rec_mat = rec_vals.reshape((nT, n_gamma))
     Zmean_mat = Zmean_vals.reshape((nT, n_gamma))
     Zsigma_mat = Zsigma_vals.reshape((nT, n_gamma))
+
+    if n_ions > 0:
+        ion_recomb_rates_mat = np.array([r if r is not None else np.zeros(n_ions) for r in ion_recomb_rates_vals]).reshape((nT, n_gamma, n_ions))
+        ion_recomb_rate_coefficients_mat = np.array([c if c is not None else np.zeros(n_ions) for c in ion_recomb_rate_coeffs_vals]).reshape((nT, n_gamma, n_ions))
+    else:
+        ion_recomb_rates_mat = None
+        ion_recomb_rate_coefficients_mat = None
 
     # Table-convention fix (always applied): decompose the signed
     # recombination channel into cooling (positive part) and heating
@@ -2550,6 +2575,8 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
         'log_rec': log_rec,
         'Zmean': Zmean_mat,
         'Zsigma': Zsigma_mat,
+        'ion_recomb_rates_grid': ion_recomb_rates_mat,
+        'ion_recomb_rate_coefficients_grid': ion_recomb_rate_coefficients_mat,
         'out_dir': os.path.abspath(out_dir)
     }
 

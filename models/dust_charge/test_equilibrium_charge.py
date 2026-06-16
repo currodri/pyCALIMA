@@ -34,6 +34,12 @@ def main():
                                                                 radiation_model='Mathis')
 
     print(f'Zmean = {Zmean:.3f}, Zsigma = {Zsigma:.3f}')
+    
+    print("\nIon Recombination Rates (per grain [s^-1]):")
+    for ion, rate, coeff in zip(ion_species, rates['ion_recomb_rates'], rates['ion_recomb_rate_coefficients']):
+        print(f"  Ion z={ion['z']}, m={ion['m']:.3e} kg, density={ion['n']:.3e} cm^-3:")
+        print(f"    Recomb Rate: {rate:.4e} s^-1")
+        print(f"    Rate Coeff:  {coeff:.4e} cm^3 s^-1")
 
     fig, ax = plot_charge_distribution(Zs, P, title=f'{grain_type}, a={a_micron} um, G0={G0}, ne={ne}, T={T} K')
     out = 'equilibrium_charge_histogram.png'

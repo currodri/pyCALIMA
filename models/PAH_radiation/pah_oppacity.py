@@ -384,12 +384,17 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
                 C_rp=C_rp_ion,
             )
 
+            from models.grain_size_config import get_header_lines
+            headers = get_header_lines(
+                title="PAH optical properties (neutral and ionised)",
+                script_name="models/PAH_radiation/pah_oppacity.py",
+                bin_info=f"Bin ID: {bin_id}, Composition: {composition}, Bin rank: {bin_rank}, Grain size a0: {a0} micron",
+                val_desc="Columns: lambda_neutral[Angstrom] C_abs_neutral[cm^2] C_sca_neutral[cm^2] C_rp_neutral[cm^2] | lambda_ionised[Angstrom] C_abs_ionised[cm^2] C_sca_ionised[cm^2] C_rp_ionised[cm^2]"
+            )
+
             with open(output_path, 'w') as f:
-                f.write(f"# PAH optical properties\n")
-                f.write(f"# Bin ID: {bin_id}\n")
-                f.write(f"# Composition: {composition}\n")
-                f.write(f"# PAH blocks: neutral then ionised\n")
-                f.write(f"# Grain size a0: {a0} micron\n")
+                for line in headers:
+                    f.write(f"{line}\n")
                 f.write(f"# NWAV\n")
                 f.write(f"{len(wavelengths_cm):d}\n")
                 f.write(f"# ISRF-average: Mathis83, energy range [0.1, 13.6] eV\n")
@@ -398,7 +403,6 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
                 f.write(f"# ISRF_AVG_CROSS_SECTIONS_IONISED_CM2: C_abs_ISRF C_sca_ISRF C_rp_ISRF\n")
                 f.write(f"{isrf_avg_ion['C_abs_isrf']: .12E} {isrf_avg_ion['C_sca_isrf']: .12E} {isrf_avg_ion['C_rp_isrf']: .12E}\n")
                 f.write(f"# \n")
-                f.write("# Columns: lambda_neutral[Angstrom] C_abs_neutral[cm^2] C_sca_neutral[cm^2] C_rp_neutral[cm^2] | lambda_ionised[Angstrom] C_abs_ionised[cm^2] C_sca_ionised[cm^2] C_rp_ionised[cm^2]\n")
                 
                 for j in range(len(wavelengths_cm)):
                     wavelength_angstrom = wavelengths_cm[j] * 1e8  # Convert cm to Angstroms

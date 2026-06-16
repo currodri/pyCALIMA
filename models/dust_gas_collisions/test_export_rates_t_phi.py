@@ -28,14 +28,14 @@ def main():
     species = [
         {'name': 'H', 'mass': 1.008, 'Z': 1, 'Zk_min': 0, 'Zk_max': 1},
         {'name': 'He', 'mass': 4.002602, 'Z': 2, 'Zk_min': 0, 'Zk_max': 2},
-        {'name': 'C', 'mass': 12.011, 'Z': 6, 'Zk_min': 0, 'Zk_max': 7},
-        {'name': 'N', 'mass': 14.007, 'Z': 7, 'Zk_min': 0, 'Zk_max': 6},
-        {'name': 'O', 'mass': 15.999, 'Z': 8, 'Zk_min': 0, 'Zk_max': 6},
-        {'name': 'Ne', 'mass': 20.180, 'Z': 10, 'Zk_min': 0, 'Zk_max': 6},
-        {'name': 'Mg', 'mass': 24.305, 'Z': 12, 'Zk_min': 0, 'Zk_max': 6},
-        {'name': 'Si', 'mass': 28.086, 'Z': 14, 'Zk_min': 0, 'Zk_max': 6},
-        {'name': 'S', 'mass': 32.065, 'Z': 16, 'Zk_min': 0, 'Zk_max': 6},
-        {'name': 'Fe', 'mass': 55.845, 'Z': 26, 'Zk_min': 0, 'Zk_max': 6},
+        {'name': 'C', 'mass': 12.011, 'Z': 6, 'Zk_min': 0, 'Zk_max': 6},
+        {'name': 'N', 'mass': 14.007, 'Z': 7, 'Zk_min': 0, 'Zk_max': 7},
+        {'name': 'O', 'mass': 15.999, 'Z': 8, 'Zk_min': 0, 'Zk_max': 8},
+        {'name': 'Ne', 'mass': 20.180, 'Z': 10, 'Zk_min': 0, 'Zk_max': 10},
+        {'name': 'Mg', 'mass': 24.305, 'Z': 12, 'Zk_min': 0, 'Zk_max': 12},
+        {'name': 'Si', 'mass': 28.086, 'Z': 14, 'Zk_min': 0, 'Zk_max': 14},
+        {'name': 'S', 'mass': 32.065, 'Z': 16, 'Zk_min': 0, 'Zk_max': 16},
+        {'name': 'Fe', 'mass': 55.845, 'Z': 26, 'Zk_min': 0, 'Zk_max': 26},
     ]
 
     print('Running export_rates_T_phi with hardcoded settings')

@@ -183,16 +183,20 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
         # and to match the Fortran code's expected input (which takes log10 itself).
         data_arr = np.column_stack([10**target_log10_wav_A, 10**target_log10_Im_n])
         
+        from models.grain_size_config import get_header_lines
+        headers = get_header_lines(
+            title="Dust dielectric properties (Im_n)",
+            script_name="models/dust_radiation/dust_oppacity.py",
+            bin_info=f"Bin ID: {bin_id}, Composition: {composition}, Bin rank: {bin_rank}, Grain size a0: {a0} micron",
+            val_desc="Columns: lambda[Angstrom] Im_n"
+        )
+
         dest = output_dir / out_stem
         with open(dest, 'w') as fout:
-            fout.write(f"# Dust dielectric properties (Im_n)\n")
-            fout.write(f"# Bin ID: {bin_id}\n")
-            fout.write(f"# Composition: {composition}\n")
-            fout.write(f"# Bin rank: {bin_rank}\n")
-            fout.write(f"# Grain size a0: {a0} micron\n")
+            for line in headers:
+                fout.write(f"{line}\n")
             fout.write(f"# NWAV\n")
             fout.write(f"{len(data_arr):8d}\n")
-            fout.write(f"# Columns: lambda[Angstrom] Im_n\n")
             np.savetxt(fout, data_arr, fmt="%20.12e %20.12e")
         saved_paths.append(str(dest))
 
@@ -653,7 +657,7 @@ def plot_sil_comp():
     fig.savefig('compare_silicate_cs.pdf', format='pdf', dpi=300)
 
 def interpolate_cross_sections_2d(dust_type, grain_size, target_wavelengths=None,
-                                  efficiency=False, data_table=None):
+                                  efficiency=False, data_table=None, use_li_draine=None):
     """
     Interpolate cross sections in both size and wavelength.
 
@@ -664,10 +668,43 @@ def interpolate_cross_sections_2d(dust_type, grain_size, target_wavelengths=None
         If None, uses the native wavelengths from the table.
     - efficiency: if True, return Q values (dimensionless); otherwise return C (cm^2)
     - data_table: optional (nwav, data, columns, name) tuple to avoid re-reading files
+    - use_li_draine: optional boolean override for Li & Draine (2001) carbonaceous blend
 
     Returns (grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp)
     Similar units/shape as interpolate_cross_sections.
     """
+    from models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
+    if use_li_draine is None:
+        use_li_draine = USE_LI_DRAINE_2001_CARBONACEOUS
+
+    if use_li_draine and dust_type == 'graphite':
+        # Get classical graphite first
+        g_size_cm, wav_cm, C_sca_gra, C_abs_gra, C_rp_gra = interpolate_cross_sections_2d(
+            'graphite', grain_size, target_wavelengths=target_wavelengths, efficiency=efficiency, data_table=data_table, use_li_draine=False
+        )
+        # Get neutral PAH
+        _, wav_pah, C_sca_pah, C_abs_pah, C_rp_pah = interpolate_cross_sections_2d(
+            'PAH', grain_size, target_wavelengths=target_wavelengths, efficiency=efficiency, use_li_draine=False
+        )
+        
+        eps_PAH = 0.99 * min(1.0, (0.005 / max(grain_size, 1e-30)) ** 3)
+        
+        if len(wav_cm) == len(wav_pah) and np.allclose(wav_cm, wav_pah):
+            C_sca_pah_interp = C_sca_pah
+            C_abs_pah_interp = C_abs_pah
+            C_rp_pah_interp = C_rp_pah
+        else:
+            sort_idx = np.argsort(wav_pah)
+            C_sca_pah_interp = np.interp(wav_cm, wav_pah[sort_idx], C_sca_pah[sort_idx])
+            C_abs_pah_interp = np.interp(wav_cm, wav_pah[sort_idx], C_abs_pah[sort_idx])
+            C_rp_pah_interp = np.interp(wav_cm, wav_pah[sort_idx], C_rp_pah[sort_idx])
+            
+        C_sca_carb = eps_PAH * C_sca_pah_interp + (1.0 - eps_PAH) * C_sca_gra
+        C_abs_carb = eps_PAH * C_abs_pah_interp + (1.0 - eps_PAH) * C_abs_gra
+        C_rp_carb = eps_PAH * C_rp_pah_interp + (1.0 - eps_PAH) * C_rp_gra
+        
+        return g_size_cm, wav_cm, C_sca_carb, C_abs_carb, C_rp_carb
+
     # Read table if not provided
     if data_table is None:
         if dust_type == 'silicate':

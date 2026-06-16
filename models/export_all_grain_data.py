@@ -1021,7 +1021,7 @@ def export_pah_dissociation_tables_wrapper(config_path=None):
         print("\n" + "="*80)
         print("EXPORTING PAH DISSOCIATION TABLES")
         print("="*80)
-        result = export_pah_dissociation(config_path=config_path)
+        result = export_pah_dissociation(config_path=config_path, overwrite=True)
         return {
             'status': 'Success',
             'timestamp': timestamp_str,

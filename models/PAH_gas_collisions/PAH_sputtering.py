@@ -1483,10 +1483,21 @@ def export_rates_simple(RPAH, Tmin, Tmax, threshold_energy=7.5,
         'O': 8
     }
     
+    from models.grain_size_config import get_header_lines
+
     # Save electron rates (Z=0)
     Z_electron = atomic_number_map['e']
     electron_filename = f'{PAH_dir}/pah_sputtering_{pah_label}_Z_{Z_electron}'
+    headers = get_header_lines(
+        title="PAH Sputtering rates (Simple, no phi dependence)",
+        script_name="models/PAH_gas_collisions/PAH_sputtering.py",
+        bin_info=f"PAH Bin: {pah_label}, Size: {RPAH_micron:.4e} micron, Nc: {Nc}, Species: electrons (Z=0)",
+        val_desc="Values: log10(rate [cm^3 s^-1])",
+        num_lines=6
+    )
     with open(electron_filename, 'w', encoding='utf-8') as f:
+        for line in headers:
+            f.write(f"{line}\n")
         # Header: nT
         f.write(f'{nT:8d}\n')
         # Temperature values (log10)
@@ -1502,7 +1513,16 @@ def export_rates_simple(RPAH, Tmin, Tmax, threshold_energy=7.5,
     for ptype in friction_params.keys():
         Z = atomic_number_map[ptype]
         ion_filename = f'{PAH_dir}/pah_sputtering_{pah_label}_Z_{Z}'
+        headers = get_header_lines(
+            title="PAH Sputtering rates (Simple, no phi dependence)",
+            script_name="models/PAH_gas_collisions/PAH_sputtering.py",
+            bin_info=f"PAH Bin: {pah_label}, Size: {RPAH_micron:.4e} micron, Nc: {Nc}, Species: {ptype} (Z={Z})",
+            val_desc="Values: log10(rate [cm^3 s^-1])",
+            num_lines=6
+        )
         with open(ion_filename, 'w', encoding='utf-8') as f:
+            for line in headers:
+                f.write(f"{line}\n")
             # Header: nT
             f.write(f'{nT:8d}\n')
             # Temperature values (log10)

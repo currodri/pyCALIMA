@@ -35,6 +35,9 @@ from joblib import Parallel, delayed
 
 PATH_OPTICS = str(get_optical_props_path())
 
+# Global flag to enable/disable Li & Draine (2001) carbonaceous grain optical properties modification
+USE_LI_DRAINE_2001_CARBONACEOUS = False
+
 
 def _resolve_collisional_dust_label(dust_type, collisional_dust_bin=None):
     """Resolve collisional-cooling table DustBin label.
@@ -493,7 +496,34 @@ def compute_cross_sections(dust_type, do_average=True):
         return dist.a0*1e-4,wavelengths*1e-4,C_sca* 1e-8,C_abs* 1e-8,C_rp* 1e-8
     
 def interpolate_cross_sections(dust_type, grain_size,efficiency=False,
-                               data_table=None):
+                               data_table=None, use_li_draine=None):
+    if use_li_draine is None:
+        use_li_draine = USE_LI_DRAINE_2001_CARBONACEOUS
+
+    if use_li_draine and dust_type == 'graphite':
+        # Get classical graphite first
+        g_size_cm, wav_cm, C_sca_gra, C_abs_gra, C_rp_gra = interpolate_cross_sections(
+            'graphite', grain_size, efficiency=efficiency, data_table=data_table, use_li_draine=False
+        )
+        # Get neutral PAH
+        _, wav_pah, C_sca_pah, C_abs_pah, C_rp_pah = interpolate_cross_sections(
+            'PAH', grain_size, efficiency=efficiency, use_li_draine=False
+        )
+        
+        eps_PAH = 0.99 * min(1.0, (0.005 / max(grain_size, 1e-30)) ** 3)
+        # Interpolate PAH onto graphite wavelength grid
+        sort_idx = np.argsort(wav_pah)
+        C_sca_pah_interp = np.interp(wav_cm, wav_pah[sort_idx], C_sca_pah[sort_idx])
+        C_abs_pah_interp = np.interp(wav_cm, wav_pah[sort_idx], C_abs_pah[sort_idx])
+        C_rp_pah_interp = np.interp(wav_cm, wav_pah[sort_idx], C_rp_pah[sort_idx])
+        
+        # Blend
+        C_sca_carb = eps_PAH * C_sca_pah_interp + (1.0 - eps_PAH) * C_sca_gra
+        C_abs_carb = eps_PAH * C_abs_pah_interp + (1.0 - eps_PAH) * C_abs_gra
+        C_rp_carb = eps_PAH * C_rp_pah_interp + (1.0 - eps_PAH) * C_rp_gra
+        
+        return g_size_cm, wav_cm, C_sca_carb, C_abs_carb, C_rp_carb
+
     # 1. Read the efficiencies
     if data_table is None:
         if dust_type == 'silicate':

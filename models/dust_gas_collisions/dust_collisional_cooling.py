@@ -1994,7 +1994,9 @@ def export_collisional_cooling(Tmin,Tmax,
                                 nT=100,nv=300,delta_max=0.1,
                                 nphi=20,Td=20.0,
                                 table_dir='./collisional_cooling_data',
-                                executor=None):
+                                executor=None,
+                                phi_min=None,
+                                phi_max=None):
     """
     Generalized function to export collisional cooling tables for arbitrary grain sizes,
     compositions, and ion species, including charge effects (phi dependence).
@@ -2076,15 +2078,29 @@ def export_collisional_cooling(Tmin,Tmax,
         for Zk in [Zk_min, Zk_max]:
             phi_candidates.append(-Zk * Zg * elem_charge**2.0 / (a_dust * eV2erg))
 
-    phi_min = float(np.min(phi_candidates))
-    phi_max = float(np.max(phi_candidates))
-    if np.isclose(phi_min, phi_max):
-        dphi = max(1e-6, abs(phi_min) * 1e-3)
-        phi_min -= dphi
-        phi_max += dphi
+    if phi_min is None or phi_max is None:
+        phi_min = float(np.min(phi_candidates))
+        phi_max = float(np.max(phi_candidates))
+    else:
+        phi_min = float(phi_min)
+        phi_max = float(phi_max)
+    # Build a strictly uniform phi grid containing exactly 0.0
+    if phi_min < 0.0 and phi_max > 0.0:
+        ratio = abs(phi_min) / (phi_max - phi_min)
+        n_neg = int(np.round(ratio * (nphi - 1)))
+        n_neg = max(1, min(nphi - 2, n_neg))
+        n_pos = (nphi - 1) - n_neg
+        dphi = max(abs(phi_min) / n_neg, phi_max / n_pos)
+        phi_grid = np.arange(-n_neg, n_pos + 1) * dphi
+    elif phi_min >= 0.0:
+        dphi = phi_max / (nphi - 1)
+        phi_grid = np.arange(0, nphi) * dphi
+    else:
+        dphi = abs(phi_min) / (nphi - 1)
+        phi_grid = np.arange(-(nphi - 1), 1) * dphi
+    phi_min = float(phi_grid[0])
+    phi_max = float(phi_grid[-1])
 
-    phi_grid = np.linspace(phi_min, phi_max, nphi)
-    phi_grid[np.argmin(np.abs(phi_grid))] = 0.0
     print(f"    Grain-charge bounds: Zg in [{Zg_min}, {Zg_max}] | phi in [{phi_min:.3e}, {phi_max:.3e}] eV")
     
     # 3. Compute the electron stopping power fitting if not provided
@@ -2159,9 +2175,19 @@ def export_collisional_cooling(Tmin,Tmax,
     H_electron_2d = np.sqrt(32./(np.pi*me)) * np.pi * a_dust**2. * np.sqrt(kb*Tgas[:, np.newaxis]) * kb * h_electron_2d
     H_electron_2d = np.maximum(H_electron_2d, 1e-30)
 
-    # Write 2D table file (Fortran-friendly format)
+    # Write 2D table file (Fortran-friendly format) with 6-line header
+    from models.grain_size_config import get_header_lines
+    headers = get_header_lines(
+        title="Collisional cooling table (electrons)",
+        script_name="models/dust_gas_collisions/dust_collisional_cooling.py",
+        bin_info=f"Dust Bin: {dust_label}, Size: {grain_size_micron:.4e} micron, Species: electrons (Z=-1)",
+        val_desc="Values: log10(cooling rate [erg cm^3 s^-1])",
+        num_lines=6
+    )
     output_file = f'{table_dir}/cooling_{dust_label}_Z_0'
     with open(output_file, 'w', encoding='utf-8') as f:
+        for line in headers:
+            f.write(f"{line}\n")
         f.write(f"{nT:8d} {nphi:8d}\n")
         f.write(' '.join([f'{phi:.8e}' for phi in phi_grid]) + '\n')
         for iT, Ti in enumerate(Tgas):
@@ -2209,7 +2235,18 @@ def export_collisional_cooling(Tmin,Tmax,
         H_ion_2d = np.maximum(H_ion_2d, 1e-30)
 
         output_file = f'{table_dir}/cooling_{dust_label}_Z_{Zi}'
+        ion_name_dict = {1: 'H', 2: 'He', 6: 'C', 7: 'N', 8: 'O', 10: 'Ne', 12: 'Mg', 14: 'Si', 16: 'S', 26: 'Fe'}
+        ion_name_resolved = ion_name_dict.get(int(Zi), ion_name)
+        headers = get_header_lines(
+            title="Collisional cooling table (ions)",
+            script_name="models/dust_gas_collisions/dust_collisional_cooling.py",
+            bin_info=f"Dust Bin: {dust_label}, Size: {grain_size_micron:.4e} micron, Species: {ion_name_resolved} (Z={Zi})",
+            val_desc="Values: log10(cooling rate [erg cm^3 s^-1])",
+            num_lines=6
+        )
         with open(output_file, 'w', encoding='utf-8') as f:
+            for line in headers:
+                f.write(f"{line}\n")
             f.write(f"{nT:8d} {nphi:8d}\n")
             f.write(' '.join([f'{phi:.8e}' for phi in phi_grid]) + '\n')
             for iT, Ti in enumerate(Tgas):
@@ -2324,21 +2361,30 @@ def load_cooling_tables(table_dir=None):
 
         with open(full_path, 'r', encoding='utf-8') as f:
             try:
-                first_line = f.readline().strip().split()
+                # Read all non-empty lines and filter out comments
+                data_lines = []
+                for line in f:
+                    line_str = line.strip()
+                    if line_str and not line_str.startswith('#'):
+                        data_lines.append(line_str.split())
+                
+                if not data_lines:
+                    continue
+
+                first_line = data_lines[0]
                 if len(first_line) == 2:
                     # New 2D format: first line is nT nphi.
                     nT = int(first_line[0])
                     nphi = int(first_line[1])
-                    phi_vals = np.asarray([float(x) for x in f.readline().strip().split()], dtype=float)
+                    phi_vals = np.asarray([float(x) for x in data_lines[1]], dtype=float)
                     if len(phi_vals) != nphi:
                         raise ValueError(f'Expected {nphi} phi values, got {len(phi_vals)}')
 
                     rows = []
-                    for _ in range(nT):
-                        row = [float(x) for x in f.readline().strip().split()]
-                        if len(row) != nphi + 1:
+                    for row_parts in data_lines[2:2+nT]:
+                        if len(row_parts) != nphi + 1:
                             raise ValueError('Row does not have 1 + nphi columns')
-                        rows.append(row)
+                        rows.append([float(x) for x in row_parts])
 
                     data = np.asarray(rows, dtype=float)
                     cooling_tables[fname] = {
@@ -2349,7 +2395,10 @@ def load_cooling_tables(table_dir=None):
                 else:
                     # Backward-compatible 1D format.
                     nT = int(first_line[0])
-                    data = np.loadtxt(f, max_rows=nT)
+                    rows = []
+                    for row_parts in data_lines[1:1+nT]:
+                        rows.append([float(x) for x in row_parts])
+                    data = np.asarray(rows, dtype=float)
                     logT, logH = data[:, 0], data[:, 1]
                     cooling_tables[fname] = {'logT': logT, 'logH': logH}
             except Exception as e:

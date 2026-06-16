@@ -900,7 +900,9 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
                        use_yield_lookup=True,
                        nE_lookup=2048,
                        label='',
-                       executor=None):
+                       executor=None,
+                       phi_min=None,
+                       phi_max=None):
     """Export sputtering tables on a (T, phi) grid and create a validation figure.
 
      The phi range is estimated from Zk_min/Zk_max and physically allowed grain
@@ -942,9 +944,15 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
     grain_type = setup['grain_type']
     if grain_radius_micron is not None:
         a_dust = float(grain_radius_micron) * 1e-4
-    phi_min, phi_max, Zg_min, Zg_max = _compute_phi_bounds(
+    phi_min_calc, phi_max_calc, Zg_min, Zg_max = _compute_phi_bounds(
         Tmin, Tmax, a_dust, Zk_min, Zk_max, grain_type, hnu_max_ev=hnu_max_ev
     )
+    if phi_min is None or phi_max is None:
+        phi_min = phi_min_calc
+        phi_max = phi_max_calc
+    else:
+        phi_min = float(phi_min)
+        phi_max = float(phi_max)
 
     Tgas = np.logspace(np.log10(Tmin), np.log10(Tmax), nT)
 
@@ -967,10 +975,20 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
     else:
         nbins_v_by_T = np.full(nT, nbins_v_max, dtype=int)
 
-    phi_grid = np.linspace(phi_min, phi_max, nphi)
-    # Always enforce one phi=0 column so the no-charge correction case is present.
-    izero = int(np.argmin(np.abs(phi_grid)))
-    phi_grid[izero] = 0.0
+    # Build a strictly uniform phi grid containing exactly 0.0
+    if phi_min < 0.0 and phi_max > 0.0:
+        ratio = abs(phi_min) / (phi_max - phi_min)
+        n_neg = int(np.round(ratio * (nphi - 1)))
+        n_neg = max(1, min(nphi - 2, n_neg))
+        n_pos = (nphi - 1) - n_neg
+        dphi = max(abs(phi_min) / n_neg, phi_max / n_pos)
+        phi_grid = np.arange(-n_neg, n_pos + 1) * dphi
+    elif phi_min >= 0.0:
+        dphi = phi_max / (nphi - 1)
+        phi_grid = np.arange(0, nphi) * dphi
+    else:
+        dphi = abs(phi_min) / (nphi - 1)
+        phi_grid = np.arange(-(nphi - 1), 1) * dphi
     phi_min = float(phi_grid[0])
     phi_max = float(phi_grid[-1])
 
@@ -1034,13 +1052,21 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
 
         table_file = os.path.join(
             table_dir,
-            f'thermal_sputtering_{dustlabel}_Z_{Zi}'
+            f'sputtering_{dustlabel}_Z_{Zi}'
+        )
+        ion_name_dict = {1: 'H', 2: 'He', 6: 'C', 7: 'N', 8: 'O', 10: 'Ne', 12: 'Mg', 14: 'Si', 16: 'S', 26: 'Fe'}
+        ion_name_resolved = ion_name_dict.get(int(Zi), f'Z{int(Zi)}')
+        from models.grain_size_config import get_header_lines
+        headers = get_header_lines(
+            title="Thermal sputtering rate table",
+            script_name="models/dust_gas_collisions/dust_sputtering.py",
+            bin_info=f"Dust Bin: {dustlabel}, Composition: {grain_type}, Size: {a_dust * 1e4:.4e} micron, Species: {ion_name_resolved} (Z={Zi})",
+            val_desc="Values: log10(sputtering rate [micron yr^-1 cm^3])",
+            num_lines=6
         )
         with open(table_file, 'w', encoding='utf-8') as f:
-            # Fortran-friendly layout:
-            # line 1: nT nphi
-            # line 2: phi(1..nphi) in linear units (eV)
-            # next nT lines: log10(T) followed by log10(rate(phi_1..phi_nphi))
+            for line in headers:
+                f.write(f"{line}\n")
             f.write(f"{nT:8d} {nphi:8d}\n")
             f.write(' '.join([f'{phi:.8e}' for phi in phi_grid]) + '\n')
             for iT, Ti in enumerate(Tgas):
@@ -1106,7 +1132,7 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.96])
 
-    fig_file = os.path.join(table_dir, f'thermal_sputtering_Tphi_overview_{dustlabel}{label}.png')
+    fig_file = os.path.join(table_dir, f'sputtering_Tphi_overview_{dustlabel}{label}.png')
     fig.savefig(fig_file, format='png')
 
     print('Saved T-phi tables:')
@@ -1150,8 +1176,16 @@ def read_Tphi_table(table_file):
     if len(lines) == 0:
         raise ValueError(f'Empty table file: {table_file}')
 
-    # Legacy CSV format support
-    if any(',' in ln for ln in lines[:3]) or lines[0].startswith('#'):
+    # Check if this is the legacy CSV format (contains comma in the first few non-comment lines or starts with T_K/phi,)
+    is_legacy_csv = False
+    for ln in lines:
+        if ln.startswith('#'):
+            continue
+        if ',' in ln or ln.startswith('T_K/phi,'):
+            is_legacy_csv = True
+        break
+
+    if is_legacy_csv:
         phi_grid = None
         data_rows = []
         for text in lines:
@@ -1181,21 +1215,32 @@ def read_Tphi_table(table_file):
             )
         return Tgas, phi_grid, rates, metadata
 
-    # New Fortran-friendly format
-    nT, nphi = [int(x) for x in lines[0].split()[:2]]
-    phi_grid = np.asarray([float(x) for x in lines[1].split()], dtype=float)
+    # New Fortran-friendly format (with potential comments starting with #)
+    # Parse comments for metadata
+    for ln in lines:
+        if ln.startswith('#'):
+            item = ln[1:].strip()
+            if '=' in item:
+                key, value = item.split('=', 1)
+                metadata[key.strip()] = value.strip()
+
+    # Filter out comments
+    data_lines = [ln for ln in lines if not ln.startswith('#')]
+
+    nT, nphi = [int(x) for x in data_lines[0].split()[:2]]
+    phi_grid = np.asarray([float(x) for x in data_lines[1].split()], dtype=float)
     if len(phi_grid) != nphi:
         raise ValueError(
             f'Inconsistent phi count in {table_file}: header says {nphi} but line 2 has {len(phi_grid)} values.'
         )
 
-    if len(lines) < 2 + nT:
+    if len(data_lines) < 2 + nT:
         raise ValueError(
-            f'Not enough data rows in {table_file}: expected {nT}, found {max(0, len(lines)-2)}.'
+            f'Not enough data rows in {table_file}: expected {nT}, found {max(0, len(data_lines)-2)}.'
         )
 
     data_rows = []
-    for ln in lines[2:2+nT]:
+    for ln in data_lines[2:2+nT]:
         row = [float(x) for x in ln.split()]
         if len(row) != 1 + nphi:
             raise ValueError(

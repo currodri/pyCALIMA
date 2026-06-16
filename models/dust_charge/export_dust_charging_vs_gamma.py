@@ -58,6 +58,10 @@ def _load_results_from_heating_npz(npz_path, bin_id):
         ne_grid = np.asarray(data['ne_grid'], dtype=float)
         mode = str(data['mode']) if 'mode' in data else None
         fixed_value = float(data['fixed_value']) if 'fixed_value' in data else None
+        
+        # Load optional ion recombination grids if present
+        ion_recomb_rates_grid = np.asarray(data['ion_recomb_rates_grid']) if 'ion_recomb_rates_grid' in data else None
+        ion_recomb_rate_coefficients_grid = np.asarray(data['ion_recomb_rate_coefficients_grid']) if 'ion_recomb_rate_coefficients_grid' in data else None
 
     if zmean_grid.shape != (len(T), len(gamma)):
         raise ValueError(
@@ -75,14 +79,22 @@ def _load_results_from_heating_npz(npz_path, bin_id):
             zsigma = zsigma_grid[iT, ig]
             if not np.isfinite(zmean) or not np.isfinite(zsigma):
                 continue
-            results.append({
+            entry = {
                 'gamma': float(gamma_val),
                 'G0': float(G0_grid[iT, ig]),
                 'T': float(T_val),
                 'ne': float(ne_grid[iT, ig]),
                 'Zmean': float(zmean),
                 'Zsigma': float(zsigma),
-            })
+            }
+            if ion_recomb_rates_grid is not None:
+                # Convert array/list elements to serializable format
+                rates_val = ion_recomb_rates_grid[iT, ig]
+                entry['ion_recomb_rates'] = rates_val.tolist() if hasattr(rates_val, 'tolist') else list(rates_val)
+            if ion_recomb_rate_coefficients_grid is not None:
+                coeffs_val = ion_recomb_rate_coefficients_grid[iT, ig]
+                entry['ion_recomb_rate_coefficients'] = coeffs_val.tolist() if hasattr(coeffs_val, 'tolist') else list(coeffs_val)
+            results.append(entry)
     metadata = {
         'gamma_min': float(np.nanmin(gamma)),
         'gamma_max': float(np.nanmax(gamma)),
@@ -237,14 +249,14 @@ def _write_legacy_fortran_tables(output_dir, dust_label, gamma_grid, temp_grid, 
     gamma_log = _safe_log10(gamma_grid)
     temp_log = _safe_log10(temp_grid)
 
-    header_lines = [
-        '# Dust charging table metadata',
-        '# Units: Zmean and Zsigma are dimensionless',
-        '# Lines below are plain ASCII for direct Fortran READ access',
-        '# Format: one count line "nT n_gamma", then one line of log10(T) values and one line of log10(gamma) values, followed by n_gamma rows x nT columns',
-        '# Rows iterate over gamma (i=1..n_gamma), columns over T (j=1..nT)',
-        '# Missing/invalid entries are encoded as NaN',
-    ]
+    from models.grain_size_config import get_header_lines
+    header_lines = get_header_lines(
+        title="Dust charging table metadata",
+        script_name="models/dust_charge/export_dust_charging_vs_gamma.py",
+        bin_info=f"Dust Bin: {dust_label}",
+        val_desc="Values: dimensionless (log10(T) and log10(gamma) grids embedded)",
+        num_lines=6
+    )
 
     with open(charge_path, 'w') as fz, open(sigma_path, 'w') as fs:
         fz.write('\n'.join(header_lines) + '\n')
@@ -414,14 +426,21 @@ def main(config_path=None, reuse_heating_data=False):
                     continue
                     
                 try:
-                    json_results.append({
+                    entry = {
                         'gamma': float(r['gamma']),
                         'G0': float(r['G0']),
                         'T': float(r['T']),
                         'ne': float(r['ne']),
                         'Zmean': float(r['Zmean']),
                         'Zsigma': float(r['Zsigma']),
-                    })
+                    }
+                    if r.get('ion_recomb_rates') is not None:
+                        rates_val = r['ion_recomb_rates']
+                        entry['ion_recomb_rates'] = rates_val.tolist() if hasattr(rates_val, 'tolist') else list(rates_val)
+                    if r.get('ion_recomb_rate_coefficients') is not None:
+                        coeffs_val = r['ion_recomb_rate_coefficients']
+                        entry['ion_recomb_rate_coefficients'] = coeffs_val.tolist() if hasattr(coeffs_val, 'tolist') else list(coeffs_val)
+                    json_results.append(entry)
                 except (ValueError, KeyError, TypeError) as entry_err:
                     print(f"    Warning: Skipping invalid result entry: {entry_err}")
                     continue

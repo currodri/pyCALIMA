@@ -33,14 +33,14 @@ DEFAULT_EXPORT_PARAMS = {
 ION_SPECIES = [
     {"name": "H", "mass": 1.008, "Z": 1, "Zk_min": 0, "Zk_max": 1},
     {"name": "He", "mass": 4.002602, "Z": 2, "Zk_min": 0, "Zk_max": 2},
-    {"name": "C", "mass": 12.011, "Z": 6, "Zk_min": 0, "Zk_max": 7},
-    {"name": "N", "mass": 14.007, "Z": 7, "Zk_min": 0, "Zk_max": 6},
-    {"name": "O", "mass": 15.999, "Z": 8, "Zk_min": 0, "Zk_max": 6},
-    {"name": "Ne", "mass": 20.180, "Z": 10, "Zk_min": 0, "Zk_max": 6},
-    {"name": "Mg", "mass": 24.305, "Z": 12, "Zk_min": 0, "Zk_max": 6},
-    {"name": "Si", "mass": 28.086, "Z": 14, "Zk_min": 0, "Zk_max": 6},
-    {"name": "S", "mass": 32.065, "Z": 16, "Zk_min": 0, "Zk_max": 6},
-    {"name": "Fe", "mass": 55.845, "Z": 26, "Zk_min": 0, "Zk_max": 6},
+    {"name": "C", "mass": 12.011, "Z": 6, "Zk_min": 0, "Zk_max": 6},
+    {"name": "N", "mass": 14.007, "Z": 7, "Zk_min": 0, "Zk_max": 7},
+    {"name": "O", "mass": 15.999, "Z": 8, "Zk_min": 0, "Zk_max": 8},
+    {"name": "Ne", "mass": 20.180, "Z": 10, "Zk_min": 0, "Zk_max": 10},
+    {"name": "Mg", "mass": 24.305, "Z": 12, "Zk_min": 0, "Zk_max": 12},
+    {"name": "Si", "mass": 28.086, "Z": 14, "Zk_min": 0, "Zk_max": 14},
+    {"name": "S", "mass": 32.065, "Z": 16, "Zk_min": 0, "Zk_max": 16},
+    {"name": "Fe", "mass": 55.845, "Z": 26, "Zk_min": 0, "Zk_max": 26},
 ]
 
 
@@ -53,9 +53,28 @@ def _copy_if_exists(src_path, dst_dir, dst_name=None):
     src = Path(src_path)
     if src.exists():
         dst = dst_dir / (dst_name if dst_name is not None else src.name)
-        shutil.copy2(src, dst)
+        if src.resolve() != dst.resolve():
+            import shutil
+            shutil.copy2(src, dst)
         return str(dst)
     return None
+
+
+def compute_dustbin_phi_bounds(bin_info, max_Zk, hnu_max_ev=13.6):
+    from models.dust_gas_collisions.dust_sputtering import _compute_phi_bounds
+    bin_id = bin_info["id"]
+    comp = bin_info["composition"]
+    params = get_lognormal_parameters(bin_id, model_name="basic")
+    grain_size_micron = float(params["a0"])
+    a_dust = grain_size_micron * 1e-4  # [cm]
+    grain_type = comp
+
+    phi_min, phi_max, _, _ = _compute_phi_bounds(
+        Tmin=0, Tmax=0, a_dust=a_dust, 
+        Zk_min=0, Zk_max=max_Zk, 
+        grain_type=grain_type, hnu_max_ev=hnu_max_ev
+    )
+    return phi_min, phi_max
 
 
 def main(config_path=None):
@@ -112,15 +131,20 @@ def main(config_path=None):
             params = get_lognormal_parameters(bin_id, model_name="basic")
             grain_size_micron = float(params["a0"])
 
+            # Compute phi bounds for this specific DustBin using max_Zk over all elements (26 for Fe)
+            max_Zk = int(np.max([sp["Zk_max"] for sp in ION_SPECIES]))
+            p_min, p_max = compute_dustbin_phi_bounds(bin_info, max_Zk, hnu_max_ev=hnu_max_ev)
+
             print(
                 f"\n[bin={bin_id}] composition={comp}, rank={rank}, "
                 f"grain_size={grain_size_micron:.4e} micron"
             )
+            print(f"  Shared DustBin phi bounds: [{p_min:.3e}, {p_max:.3e}] eV")
 
             for sp in ION_SPECIES:
                 label = f"-{sp['name']}-Zk{sp['Zk_min']}to{sp['Zk_max']}"
                 print(
-                    f"  -> {sp['name']}: m={sp['mass']:.6f}, Z={sp['Z']}, "
+                    f"    -> {sp['name']}: m={sp['mass']:.6f}, Z={sp['Z']}, "
                     f"Zk=[{sp['Zk_min']},{sp['Zk_max']}]"
                 )
 
@@ -142,6 +166,8 @@ def main(config_path=None):
                     do_size_correction=True,
                     label=label,
                     executor=executor,
+                    phi_min=p_min,
+                    phi_max=p_max,
                 )
 
                 for src in result["output_files"]:

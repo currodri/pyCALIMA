@@ -305,7 +305,17 @@ def plot_acetylene_dissociation_rate(G0min,G0max,nHmin,nHmax,pah_bin_id=None,pah
     # 4. Rescale by the value of f_dehydro and G0
     diss_rate = R * f_dehydro
     
+    from models.grain_size_config import get_header_lines
+    headers = get_header_lines(
+        title="PAH Acetylene dissociation rate table",
+        script_name="models/PAH_photophysics/PAH_photophysics.py",
+        bin_info=f"PAH Bin: {pah_bin_id} (Nc={dist.Nc}, a0={dist.a0:.4e} micron)",
+        val_desc="Values: log10(diss_rate [s^-1])",
+        num_lines=6
+    )
     with open('acetylene_dissociation_table_%s.dat'%(dist.a0),'w') as f:
+        for line in headers:
+            f.write(f"{line}\n")
         f.write(f"{len(G0)} {len(nH)}\n")
         # Write the X array
         for x in G0:

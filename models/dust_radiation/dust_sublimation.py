@@ -1372,15 +1372,18 @@ def write_sublimation_rate_tables(config_path=None,
         T_filtered = T_grid[mask]
         epsilon_filtered = (dadt / a0_cm)[mask]
 
+        from models.grain_size_config import get_header_lines
+        headers = get_header_lines(
+            title="CALIMA dust sublimation rate table",
+            script_name="models/dust_radiation/dust_sublimation.py",
+            bin_info=f"Dust bin: {bin_id}, Material: {material}, Grain radius (representative): {a0_cm:.6e} cm ({a0_cm * 1e4:.6e} micron)",
+            val_desc="Columns: T_d [K] (dust temperature) | log10(epsilon/[s^-1]) (fractional sublimation rate)"
+        )
         fname = os.path.join(output_dir, f'sublimation_rate_{bin_id}.dat')
         with open(fname, 'w') as fh:
+            for line in headers:
+                fh.write(f"{line}\n")
             fh.write(
-                f'# CALIMA dust sublimation rate table\n'
-                f'# Generated : {date_str}\n'
-                f'# Dust bin  : {bin_id}\n'
-                f'# Material  : {material}\n'
-                f'# Grain radius (representative) : {a0_cm:.6e} cm'
-                f'  ({a0_cm * 1e4:.6e} micron)\n'
                 f'# Method    : GD89 thermal sublimation (Guhathakurta & Draine\n'
                 f'#             1989, ApJ 345, 230) with microcanonical correction\n'
                 f'#             factor (eq. 3.11 + Gamma-function ratio, eq. 3.16).\n'
@@ -1394,9 +1397,6 @@ def write_sublimation_rate_tables(config_path=None,
                 f'# less than or equal to 10x the age of the Universe are saved\n'
                 f'# (preventing tiny value interpolations / micro-level noise).\n'
                 f'# N rows : {len(T_filtered)}\n'
-                f'# Columns:\n'
-                f'#   col 1  T_d   [K]    dust temperature\n'
-                f'#   col 2  log10(epsilon/[s^-1])  fractional sublimation rate\n'
                 f'#\n'
             )
             # Two fixed-width columns: temperature (E14.6) and rate (E14.6).
