@@ -10,6 +10,7 @@ By: Curro Rodriguez (currodri@gmail.com)
 """
 
 # Import some libraries
+from models.dust_radiation import dust_oppacity
 import os
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import numpy as np
@@ -32,9 +33,13 @@ from models.PAH_radiation.pah_oppacity import pah_efficiencies
 from models.grain_size_config import get_optical_props_path, get_repo_root, load_grain_size_config
 from models.tools.radiation_fields import Draine_1978_isrf
 from joblib import Parallel, delayed
+from pathlib import Path
 
 PATH_OPTICS = str(get_optical_props_path())
-
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+PATH_TABLES = str(_REPO_ROOT / 'model_data' / 'optical_properties')
+PATH_MODEL_OPTICAL_OUTPUT = _REPO_ROOT / 'model_data' / 'optical_properties'
+PATH_EXTERNAL_DATA = _REPO_ROOT / 'external_data'
 # Global flag to enable/disable Li & Draine (2001) carbonaceous grain optical properties modification
 USE_LI_DRAINE_2001_CARBONACEOUS = False
 
@@ -2226,3 +2231,225 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
         'near_equilibrium_mask': near_equilibrium_mask,
         'output_path': output_path,
     }
+
+def load_svo_filter(filepath):
+    """Loads an SVO ASCII file, skips comments, and converts Angstroms to cm."""
+    data = np.loadtxt(filepath, comments=['#', '!'])
+    wav_angstrom = data[:, 0]
+    transmission = data[:, 1]
+    
+    # SVO always distributes wavelengths in Angstroms
+    wav_cm = wav_angstrom * 1e-8  
+    return wav_cm, transmission
+
+def compute_energy_band_luminosity_from_table(bin_id, T_dust, filter_file, dust_wav_micron, C_abs):
+
+    # CRITICAL: Convert table wavelengths from micron to cm for planck_function
+    dust_wav_cm = dust_wav_micron * 1e-4
+    
+    # 2. Load the SVO filter profile (wavelengths returned in cm)
+    filter_wav_cm, filter_R = load_svo_filter(filter_file)
+    
+    # 3. Align grids: ensure coordinate array is strictly increasing for np.interp
+    if dust_wav_cm[0] > dust_wav_cm[-1]:
+        dust_wav_cm = dust_wav_cm[::-1]
+        C_abs = C_abs[::-1]
+        
+    # Interpolate the dust table's absorption cross-section onto the precise filter wavelength grid.
+    # Specify left=0.0, right=0.0 to prevent non-physical constant extrapolation at boundaries.
+    C_abs_interp = np.interp(filter_wav_cm, dust_wav_cm, C_abs, left=0.0, right=0.0)
+    
+    # 4. Compute specific luminosity spectrum (L_lambda = 4 * pi * C_abs * B_lambda)
+    L_lambda = 4.0 * np.pi * C_abs_interp * planck_function(filter_wav_cm, T_dust)
+    
+    # 5. Energy-integrating detector convolution (all SVO filters converted to energy counters)
+    num = np.trapezoid(L_lambda * filter_R, x=filter_wav_cm)
+    den = np.trapezoid(filter_R, x=filter_wav_cm)
+    L_band = num / den if den > 0.0 else 0.0
+    return L_band
+
+def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
+    from models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
+    from models.grain_size_config import get_lognormal_parameters
+
+    # normalize inputs to lists
+    if optical_dir is None:
+        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+
+    if isinstance(dust_types, str):
+        dust_types = [dust_types]
+
+    # 1. Define the Spitzer filters
+    filter_dir = os.path.join(PATH_EXTERNAL_DATA, 'Spitzer_filters')
+    filters = {
+        'MIPS 24 micron': os.path.join(filter_dir, 'Spitzer_MIPS.24mu.dat'),
+        'MIPS 70 micron': os.path.join(filter_dir, 'Spitzer_MIPS.70mu.dat'),
+        'MIPS 160 micron': os.path.join(filter_dir, 'Spitzer_MIPS.160mu.dat'),
+    }
+    filter_linecolors = {'MIPS 24 micron': '#cd8b76', 'MIPS 70 micron': '#ffc425', 'MIPS 160 micron': '#7d387d'}
+
+    # 2. Set the grid of temperatures to plot
+    T_grid = np.linspace(5,300,1000)
+
+    # 3. Set the figure properties
+    fig,ax = plt.subplots(1,1,figsize=(7,5), dpi=300, facecolor='w', edgecolor='k')
+    ax.set_xlabel(r'$T_{\rm dust}$ [K]', fontsize=16)
+    ax.set_ylabel(r'$L_{\rm band}/m_{\rm dust}$ [erg/s/g]', fontsize=16)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.set_ylim([1e-3,1e8])
+    ax.tick_params(which='both', axis='both', direction='in')
+
+    # linestyles
+    linestyles = ['-', '--', '-.', ':']
+
+    # 4. Loop over the dust_types
+    for i, dust_type in enumerate(dust_types):
+        # Read the precomputed optical tables
+        wavs, C_abs, C_sca, C_rp = _read_precomputed_cross_section_table(dust_type, optical_dir=optical_dir)
+
+        # Compute the grain mass
+        cfg = get_lognormal_parameters(dust_type)
+        m_grain = 4. / 3. * np.pi * (cfg['a0'] * 1e-4)**3. * cfg['s']
+        print(f'Grain mass for {dust_type}: {m_grain} g')
+
+        # Setup the arrays
+        Lum_filter = {
+            'MIPS 24 micron': np.zeros(len(T_grid), dtype=float),
+            'MIPS 70 micron': np.zeros(len(T_grid), dtype=float),
+            'MIPS 160 micron': np.zeros(len(T_grid), dtype=float),
+        }
+
+        # Loop over the temperatures
+        for k, T_dust in enumerate(T_grid):
+            for filter_name, filter_file in filters.items():
+                Lum_filter[filter_name][k] = compute_energy_band_luminosity_from_table(dust_type, T_dust, filter_file, wavs, C_abs)
+        # Plot the results for this dust_type
+        for j, filter_name in enumerate(filters.keys()):
+            if i == 0:
+                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, label=filter_name, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+            else:
+                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+        
+    # 5. Final setup of the figure
+    band_legend = ax.legend(frameon=False, loc='lower right', fontsize=14)
+    ax.add_artist(band_legend)
+    ax.set_title(f'Spitzer band luminosity per dust mass', fontsize=14)
+
+    dummy_lines = []
+    for i, dust_type in enumerate(dust_types):
+        dummy_lines.append(ax.plot([], [], color='k', linestyle=linestyles[i], label=dust_type)[0])
+    
+    ax.legend(handles=dummy_lines, loc='upper left', frameon=False, fontsize=14)
+
+    # Save the figure
+    if output_dir is None:
+        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    output_filename = f'energy_Spitzer_luminosity.pdf'
+    output_path = os.path.join(output_dir, output_filename)
+    fig.tight_layout()
+    fig.savefig(output_path, format='pdf', dpi=300)
+    
+    print(f'Saved {output_filename}')
+    
+def plot_energy_Herschel_luminosity(dust_types,optical_dir=None,output_dir=None):
+    from models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
+    from models.grain_size_config import get_lognormal_parameters
+
+    # normalize inputs to lists
+    if optical_dir is None:
+        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+
+    if isinstance(dust_types, str):
+        dust_types = [dust_types]
+
+    # 1. Define the Spitzer filters
+    filter_dir = os.path.join(PATH_EXTERNAL_DATA, 'Herschel_filters')
+    filters = {
+        'Pacs 70 micron': os.path.join(filter_dir, 'Herschel_Pacs.blue.dat'),
+        'Pacs 100 micron': os.path.join(filter_dir, 'Herschel_Pacs.green.dat'),
+        'Pacs 160 micron': os.path.join(filter_dir, 'Herschel_Pacs.red.dat'),
+        'SPIRE 250 micron': os.path.join(filter_dir, 'Herschel_SPIRE.PSW_ext.dat'),
+        'SPIRE 350 micron': os.path.join(filter_dir, 'Herschel_SPIRE.PMW_ext.dat'),
+        'SPIRE 500 micron': os.path.join(filter_dir, 'Herschel_SPIRE.PLW_ext.dat'),
+    }
+    filter_linecolors = {'Pacs 70 micron': '#cd8b76', 'Pacs 100 micron': '#ffc425', 'Pacs 160 micron': '#7d387d',
+    'SPIRE 250 micron': '#125f27', 'SPIRE 350 micron': '#2f9e39', 'SPIRE 500 micron': '#5eec6d'}
+
+    # 2. Set the grid of temperatures to plot
+    T_grid = np.linspace(5,300,1000)
+
+    # 3. Set the figure properties
+    fig,ax = plt.subplots(1,1,figsize=(7,5), dpi=300, facecolor='w', edgecolor='k')
+    ax.set_xlabel(r'$T_{\rm dust}$ [K]', fontsize=16)
+    ax.set_ylabel(r'$L_{\rm band}/m_{\rm dust}$ [erg/s/g]', fontsize=16)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.xaxis.set_ticks_position('both')
+    ax.yaxis.set_ticks_position('both')
+    ax.minorticks_on()
+    ax.set_ylim([1e-3,1e8])
+    ax.tick_params(which='both', axis='both', direction='in')
+
+    # linestyles
+    linestyles = ['-', '--', '-.', ':']
+
+    # 4. Loop over the dust_types
+    for i, dust_type in enumerate(dust_types):
+        # Read the precomputed optical tables
+        wavs, C_abs, C_sca, C_rp = _read_precomputed_cross_section_table(dust_type, optical_dir=optical_dir)
+
+        # Compute the grain mass
+        cfg = get_lognormal_parameters(dust_type)
+        m_grain = 4. / 3. * np.pi * (cfg['a0'] * 1e-4)**3. * cfg['s']
+        print(f'Grain mass for {dust_type}: {m_grain} g')
+
+        # Setup the arrays
+        Lum_filter = {
+            'Pacs 70 micron': np.zeros(len(T_grid), dtype=float),
+            'Pacs 100 micron': np.zeros(len(T_grid), dtype=float),
+            'Pacs 160 micron': np.zeros(len(T_grid), dtype=float),
+            'SPIRE 250 micron': np.zeros(len(T_grid), dtype=float),
+            'SPIRE 350 micron': np.zeros(len(T_grid), dtype=float),
+            'SPIRE 500 micron': np.zeros(len(T_grid), dtype=float),
+        }
+
+        # Loop over the temperatures
+        for k, T_dust in enumerate(T_grid):
+            for filter_name, filter_file in filters.items():
+                Lum_filter[filter_name][k] = compute_energy_band_luminosity_from_table(dust_type, T_dust, filter_file, wavs, C_abs)
+        # Plot the results for this dust_type
+        for j, filter_name in enumerate(filters.keys()):
+            if i == 0:
+                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, label=filter_name, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+            else:
+                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+        
+    # 5. Final setup of the figure
+    band_legend = ax.legend(frameon=False, loc='lower right', fontsize=14)
+    ax.add_artist(band_legend)
+    ax.set_title(f'Spitzer band luminosity per dust mass', fontsize=14)
+
+    dummy_lines = []
+    for i, dust_type in enumerate(dust_types):
+        dummy_lines.append(ax.plot([], [], color='k', linestyle=linestyles[i], label=dust_type)[0])
+    
+    ax.legend(handles=dummy_lines, loc='upper left', frameon=False, fontsize=14)
+
+    # Save the figure
+    if output_dir is None:
+        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    output_filename = f'energy_Herschel_luminosity.pdf'
+    output_path = os.path.join(output_dir, output_filename)
+    fig.tight_layout()
+    fig.savefig(output_path, format='pdf', dpi=300)
+    
+    print(f'Saved {output_filename}')
+    

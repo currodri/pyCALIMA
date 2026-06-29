@@ -27,6 +27,9 @@ from typing import Dict, Iterable, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from models.dust_charge.dust_charging import (
     equilibrium_charge_for_grain,

@@ -166,7 +166,7 @@ def plot_distributions(save_path):
     sizes_micron = np.logspace(-4.0, 1.0, 500)  # size range 0.1 nm to 10 micron
     sizes_cm = sizes_micron * 1e-4
     
-    dn_da_gra_vals = np.array([graphite_dn_da(a) for a in sizes_cm])
+    dn_da_gra_vals = np.array([0.8*graphite_dn_da(a) for a in sizes_cm])
     dn_da_sil_vals = np.array([silicate_dn_da(a) for a in sizes_cm])
     
     # Extract components of Graphite for diagnostic plotting
@@ -452,7 +452,7 @@ def compare_recomb_rates_over_phi_range(T=100.0, save_plot_path=None, use_li_dra
             
     # Grid of grain sizes for integration (40 bins is a good speed/accuracy balance)
     sizes_cm = np.logspace(np.log10(A_MIN), np.log10(A_MAX), 50)
-    dn_da_gra = np.array([graphite_dn_da(a) for a in sizes_cm])
+    dn_da_gra = np.array([0.8*graphite_dn_da(a) for a in sizes_cm])
     dn_da_sil = np.array([silicate_dn_da(a) for a in sizes_cm])
     
     masses = {

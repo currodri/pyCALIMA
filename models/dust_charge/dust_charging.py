@@ -632,27 +632,35 @@ def find_Zref_and_bounds_optimized(a, n_e, T_e, ion_species, nu, J_nu, C_abs_nu,
         # fallback to symmetric small window around Z_start if formulas disagree
         Zmin_allowed = max(Zmin_allowed, int(Z_start - initial_halfwidth))
         Zmax_allowed = min(Zmax_allowed, int(Z_start + initial_halfwidth))
-    # find coarse Zref by scanning small range using collisional-only ratio
-    Z0 = int(Z_start)
-    Zref = Z0
-    r0 = ratio_collisional_only(Z0)
-    if np.isfinite(r0) and r0 > 1.0:
-        for Z in range(Z0, Z0 + max_search):
-            if ratio_collisional_only(Z) < 1.0:
-                Zref = max(Z0, Z - 1)
-                break
-    elif np.isfinite(r0) and r0 < 1.0:
-        for Z in range(Z0, Z0 - max_search, -1):
-            if ratio_collisional_only(Z) > 1.0:
-                Zref = min(Z0, Z + 1)
-                break
-    # else keep Zref = Z0
+    # find coarse Zref using bisection search on the full allowed range (including Rpe)
+    # We want to find where ratio crosses 1.0. 
+    # Ratio is monotonically decreasing with Z.
+    def get_full_ratio(Z):
+        # Rpe
+        Rpe_val = rpc.get_Rpe_single(Z)
+        # J_e
+        J_e_val = collisional_rates_electrons_scalar(a, Z, n_e, T_e, s_e_func)
+        # J_ion
+        J_ion_val = collisional_rates_ions_scalar(a, Z, ion_species) if ion_species else 0.0
+        num = J_ion_val + Rpe_val
+        denom = J_e_val
+        if denom <= 0:
+            return _INF_RATIO if num > 0 else 0.0
+        return num / denom
 
-    # Enforce that the coarse Zref lies within the physically allowed bounds
-    if Zref < Zmin_allowed:
-        Zref = Zmin_allowed
-    if Zref > Zmax_allowed:
-        Zref = Zmax_allowed
+    low = Zmin_allowed
+    high = Zmax_allowed
+    while low <= high:
+        mid = (low + high) // 2
+        ratio = get_full_ratio(mid)
+        if ratio > 1.0:
+            # too low Z, increase it
+            low = mid + 1
+        else:
+            # too high Z, decrease it
+            high = mid - 1
+            
+    Zref = int(np.clip(low, Zmin_allowed, Zmax_allowed))
 
     # Now refine Zref by including R_pe evaluated on a narrow window around Zref:
     halfw = initial_halfwidth
@@ -1145,10 +1153,11 @@ def compute_equilibrium_charge_distribution_vectorized(
             n_i = float(ion.get("n", 0.0))
             T_i = float(ion.get("T", 1.0))
             m_g = float(ion.get("m", 1.0))
+            m_g_cgs = m_g * 1e3 if m_g < 1e-25 else m_g
             z_i = float(ion.get("z", 1.0))
             s_i = float(ion.get("s_i", 1.0))  # Default sticking coefficient is 1.0 (WD01)
 
-            vth_i = np.sqrt(8.0 * kb_cgs * T_i / (np.pi * m_g))
+            vth_i = np.sqrt(8.0 * kb_cgs * T_i / (np.pi * m_g_cgs))
             Jtilde_i = DS87_J_function_vec(Zs, np.array([z_i]), a, T_i)
 
             mode = recomb_mode
@@ -1180,7 +1189,17 @@ def compute_equilibrium_charge_distribution_vectorized(
                 r0 = float(ion.get('r0', ATOMIC_RADII.get(el_key, 0.77) if el_key else 0.77))
                 IP_X_im1 = float(ion.get('IP_X_im1', ion.get('IP_ion', ion.get('ionization_potential', IONIZATION_POTENTIALS.get(el_key, 13.6) if el_key else 13.6))))
 
-                IP_a_Z = ionisation_potential_valence_vec(W, Zs, a)
+                # Calculate grain ionization potential IP(a,Z) in eV (piecewise: valence IP for Z >= 0, EA of Z+1 for Z < 0)
+                is_graphite = grain_type.lower().startswith('gra') or grain_type.lower().startswith('car')
+                IP_a_Z = np.zeros_like(Zs)
+                for idx, Z in enumerate(Zs):
+                    if Z >= 0:
+                        IP_a_Z[idx] = ionisation_potential_valence_vec(W, Z, a)
+                    else:
+                        if is_graphite:
+                            IP_a_Z[idx] = electron_affinity_graphite_vec(Z + 1, a)
+                        else:
+                            IP_a_Z[idx] = electron_affinity_silicate_vec(Z + 1, a)
 
                 if mode == 'case_a':
                     y = IP_X_im1 - IP_a_Z

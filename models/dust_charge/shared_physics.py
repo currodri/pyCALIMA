@@ -414,9 +414,10 @@ def collisional_rates_ions_vector(a, Zs, ion_species):
         n_i = float(ion.get("n", 0.0))
         T_i = float(ion.get("T", 1.0))
         m_g = float(ion.get("m", 1.0))
+        m_g_cgs = m_g * 1e3 if m_g < 1e-25 else m_g
         z_i = float(ion.get("z", 1.0))
 
-        vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g))
+        vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g_cgs))
         Jtilde_i = DS87_J_function_vec(Zs, np.array([z_i]), a, T_i)
         J_total = J_total + cross * n_i * vth_i * Jtilde_i
 
@@ -433,9 +434,10 @@ def collisional_rates_ions_scalar(a, Z, ion_species):
         n_i = float(ion.get("n", 0.0))
         T_i = float(ion.get("T", 1.0))
         m_g = float(ion.get("m", 1.0))
+        m_g_cgs = m_g * 1e3 if m_g < 1e-25 else m_g
         z_i = float(ion.get("z", 1.0))
 
-        vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g))
+        vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g_cgs))
         total += cross * n_i * vth_i * DS87_J_function_scalar(Z, z_i, a, T_i)
 
     return float(total)

@@ -3173,3 +3173,128 @@ def fit_massfractions_to_zubko2004(
         'converged':           de_result.success,
         'plot_result':         plot_result,
     }
+
+
+def compute_bb_averaged_cross_sections(bin_edges_ev, temperature_k, config_path=None, optical_dir=None, pah_state='neutral', nE=1000):
+    """
+    Compute the photon number weighted average cross section for different radiation bins
+    assuming a BlackBody spectrum, for each dust/PAH bin.
+
+    Parameters
+    ----------
+    bin_edges_ev : array-like of float
+        Energy edges of different radiation bins in eV (length N+1 for N bins).
+    temperature_k : float
+        Temperature of the BlackBody radiation field in Kelvin.
+    config_path : str or Path, optional
+        Path to the grain-size configuration JSON file. If None, uses the active config.
+    optical_dir : str or Path, optional
+        Directory containing the precomputed cross-section files (e.g. `averaged_cross_section_<BinID>.txt`).
+        If None, defaults to `PATH_MODEL_OPTICAL_OUTPUT`.
+    pah_state : str, optional
+        The state of PAH, either 'neutral' or 'ionised'. Default is 'neutral'.
+    nE : int, optional
+        Number of integration points within each radiation bin. Default is 1000.
+
+    Returns
+    -------
+    dict
+        A dictionary containing:
+        - 'C_abs': 2D numpy array of shape (n_dust_pah_bins, n_radiation_bins)
+        - 'C_sca': 2D numpy array of shape (n_dust_pah_bins, n_radiation_bins)
+        - 'C_rp':  2D numpy array of shape (n_dust_pah_bins, n_radiation_bins)
+        - 'dust_pah_bins': list of str, the dust/PAH bin IDs
+        - 'radiation_bins': list of tuples (E_low, E_high) representing the radiation bins
+    """
+    # 1. Load grain-size configuration to get the list of dust and PAH bins
+    cfg = load_grain_size_config(config_path=config_path)
+    bin_ids = [b['id'] for b in cfg['bins']]
+    n_bins = len(bin_ids)
+
+    # 2. Parse radiation bin edges
+    edges = np.asarray(bin_edges_ev, dtype=float)
+    if edges.ndim != 1 or len(edges) < 2:
+        raise ValueError("bin_edges_ev must be a 1D array-like with at least 2 elements.")
+    
+    n_rad_bins = len(edges) - 1
+    rad_bins = [(float(edges[j]), float(edges[j+1])) for j in range(n_rad_bins)]
+
+    # 3. Initialize output arrays
+    C_abs_avg = np.zeros((n_bins, n_rad_bins))
+    C_sca_avg = np.zeros((n_bins, n_rad_bins))
+    C_rp_avg  = np.zeros((n_bins, n_rad_bins))
+
+    # Constants
+    conv_eum = 1.239841984  # E[eV] * lambda[um]
+    kB = 8.617333262145e-5  # Boltzmann constant in eV/K
+
+    # 4. Load cross sections for each bin
+    # We do this once to avoid repeated file reads
+    bin_cross_sections = {}
+    for bin_id in bin_ids:
+        wav_um, cabs, csca, crp = _read_precomputed_cross_section_table(
+            bin_id, optical_dir=optical_dir, pah_state=pah_state
+        )
+        # Convert wavelength to energy in eV
+        E_table = conv_eum / np.maximum(wav_um, 1e-30)
+        # Sort in ascending order of energy for np.interp
+        order = np.argsort(E_table)
+        bin_cross_sections[bin_id] = {
+            'E': E_table[order],
+            'C_abs': cabs[order],
+            'C_sca': csca[order],
+            'C_rp': crp[order]
+        }
+
+    # 5. Compute the photon-weighted average for each dust/PAH bin and each radiation bin
+    for j, (E_low, E_high) in enumerate(rad_bins):
+        if E_low >= E_high:
+            raise ValueError(f"Invalid radiation bin edges: {E_low} to {E_high}. Edges must be strictly increasing.")
+
+        # Create integration grid
+        E_grid = np.linspace(E_low, E_high, num=nE)
+
+        # Compute BlackBody photon spectrum weights: n_gamma(E) dE \propto E^2 / (exp(E / kBT) - 1)
+        if temperature_k <= 0.0:
+            # At T=0, blackbody photon density is 0.
+            weights = np.zeros_like(E_grid)
+        else:
+            kBT = kB * temperature_k
+            x = E_grid / kBT
+            x0 = x[0]
+            if x0 > 700.0:
+                # All x in the bin are > 700. Use scaled weights to avoid overflow/underflow.
+                weights = E_grid**2 * np.exp(-(x - x0))
+            else:
+                # Standard calculation using expm1 for stability.
+                safe_x = np.minimum(x, 700.0)
+                weights = np.where(x > 700.0, E_grid**2 * np.exp(-x), E_grid**2 / np.expm1(safe_x))
+
+        denom = np.trapezoid(weights, E_grid)
+
+        # Loop over dust/PAH bins
+        for i, bin_id in enumerate(bin_ids):
+            data = bin_cross_sections[bin_id]
+            # Interpolate cross sections onto the integration grid
+            cabs_grid = np.interp(E_grid, data['E'], data['C_abs'])
+            csca_grid = np.interp(E_grid, data['E'], data['C_sca'])
+            crp_grid  = np.interp(E_grid, data['E'], data['C_rp'])
+
+            if denom > 0.0:
+                C_abs_avg[i, j] = np.trapezoid(cabs_grid * weights, E_grid) / denom
+                C_sca_avg[i, j] = np.trapezoid(csca_grid * weights, E_grid) / denom
+                C_rp_avg[i, j]  = np.trapezoid(crp_grid * weights, E_grid) / denom
+            else:
+                # If denom is 0, default to unweighted (flat) average over the bin
+                C_abs_avg[i, j] = np.trapezoid(cabs_grid, E_grid) / (E_high - E_low)
+                C_sca_avg[i, j] = np.trapezoid(csca_grid, E_grid) / (E_high - E_low)
+                C_rp_avg[i, j]  = np.trapezoid(crp_grid, E_grid) / (E_high - E_low)
+
+    return {
+        'C_abs': C_abs_avg,
+        'C_sca': C_sca_avg,
+        'C_rp': C_rp_avg,
+        'dust_pah_bins': bin_ids,
+        'radiation_bins': rad_bins
+    }
+

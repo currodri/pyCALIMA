@@ -27,6 +27,8 @@ from models.dust_charge.shared_physics import (
     KB_CGS, 
     DS87_J_function_vec, 
     ionisation_potential_valence_vec,
+    electron_affinity_graphite_vec,
+    electron_affinity_silicate_vec,
     E_STATC,
     EV2ERG
 )
@@ -146,8 +148,17 @@ def compute_ion_recombination_coefficients(Zs, P, a_cm, ion_species, grain_type=
             r0 = float(ion.get('r0', ATOMIC_RADII.get(el_key, 0.77) if el_key else 0.77))
             IP_X_im1 = float(ion.get('IP_X_im1', ion.get('IP_ion', ion.get('ionization_potential', IONIZATION_POTENTIALS.get(el_key, 13.6) if el_key else 13.6))))
             
-            # Calculate grain ionization potential IP(a,Z) in eV
-            IP_a_Z = ionisation_potential_valence_vec(W, Zs, a_cm)
+            # Calculate grain ionization potential IP(a,Z) in eV (piecewise: valence IP for Z >= 0, EA of Z+1 for Z < 0)
+            is_graphite = grain_type.lower().startswith('gra') or grain_type.lower().startswith('car')
+            IP_a_Z = np.zeros_like(Zs)
+            for idx, Z in enumerate(Zs):
+                if Z >= 0:
+                    IP_a_Z[idx] = ionisation_potential_valence_vec(W, Z, a_cm)
+                else:
+                    if is_graphite:
+                        IP_a_Z[idx] = electron_affinity_graphite_vec(Z + 1, a_cm)
+                    else:
+                        IP_a_Z[idx] = electron_affinity_silicate_vec(Z + 1, a_cm)
             
             if recomb_mode == 'case_a':
                 y = IP_X_im1 - IP_a_Z
@@ -158,7 +169,7 @@ def compute_ion_recombination_coefficients(Zs, P, a_cm, ion_species, grain_type=
                 term1 = (z_i - Zs - 1.0) * (E_STATC**2) / (a_cm + r0_cm)
                 term2 = (1.0 - 2.0 * z_i) * (E_STATC**2) * (a_cm**3) / (2.0 * r0_cm * ((a_cm + r0_cm)**2) * (2.0 * a_cm + r0_cm))
                 dU = (term1 + term2) / EV2ERG
-                y = IP_X_im1 - IP_a_Z + dU   # WD01 Eq.6: IP(a,Z) - IP(X^i-1) + dU < 0
+                y = IP_X_im1 - IP_a_Z + dU   # WD01 Eq.6: IP(a,Z) - IP(X^i-1) + dU < 0 (This actually has a typo in the paper)
                 theta = np.where(y >= 0.0, 1.0, 0.0)
                 # if (any(theta>0)): print('case B: ',theta, dU, IP_a_Z,P)
             

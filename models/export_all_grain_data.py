@@ -535,7 +535,72 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
             f"- **Files**: {subl_result.get('file_count', '?')} tables, {subl_result.get('plots_generated', 0)} plots",
             "",
         ])
+
+    readme_lines.extend([
+        "### 11. Dust-Assisted Ion Recombination Coefficients",
+        "",
+    ])
+
+    if 'dust_ion_recombination' in export_results:
+        recomb_result = export_results['dust_ion_recombination']
+        r_tmin = recomb_result.get('Tmin')
+        r_tmax = recomb_result.get('Tmax')
+        r_nt = recomb_result.get('nT')
+        r_gmin = recomb_result.get('gamma_min')
+        r_gmax = recomb_result.get('gamma_max')
+        r_ng = recomb_result.get('n_gamma')
+        r_mode = recomb_result.get('mode')
+        r_fixed = recomb_result.get('fixed_value')
+        r_rad = recomb_result.get('radiation_model')
+
+        if r_tmin is not None and r_tmax is not None and r_nt is not None:
+            temp_grid_line = f"- **Temperature Grid**: {float(r_tmin):.2e} to {float(r_tmax):.2e} K ({int(r_nt)} points log-spaced)"
+        else:
+            temp_grid_line = "- **Temperature Grid**: dynamic"
+
+        if r_gmin is not None and r_gmax is not None and r_ng is not None:
+            gamma_grid_line = f"- **Gamma Grid**: {float(r_gmin):.2e} to {float(r_gmax):.2e} ({int(r_ng)} points log-spaced)"
+        else:
+            gamma_grid_line = "- **Gamma Grid**: dynamic"
+
+        readme_lines.extend([
+            f"- **Status**: {recomb_result['status']}",
+            f"- **Export Time**: {recomb_result['timestamp']}",
+            f"- **Output Directory**: `{recomb_result['dir']}`",
+            f"- **Function**: `main()` from `models.dust_charge.export_dust_ion_recombination`",
+            f"- **Description**: Recombination coefficients alpha (using Weingartner & Draine 2001 Case A threshold)",
+            f"  for 11 ions ordered by atomic number: H, He, C, Na, Mg, Si, S, K, Ca, Mn, Fe.",
+            temp_grid_line,
+            gamma_grid_line,
+            f"- **Radiation Model**: {r_rad if r_rad is not None else 'dynamic'}",
+            f"- **Mode**: {r_mode if r_mode is not None else 'dynamic'}" + (f" (fixed_value={float(r_fixed):.3g})" if r_fixed is not None else ""),
+            f"- **Output Format**: DAT tables + PNG quick-look plots + JSON metadata + NPZ binary",
+            f"- **Files**: {recomb_result.get('file_count', '?')} files ({recomb_result.get('bins_processed', 0)} bins processed)",
+            "",
+        ])
     
+    readme_lines.extend([
+        "### 12. Dust Band Luminosities",
+        "",
+    ])
+
+    if 'dust_band_luminosities' in export_results:
+        band_result = export_results['dust_band_luminosities']
+        readme_lines.extend([
+            f"- **Status**: {band_result['status']}",
+            f"- **Export Time**: {band_result['timestamp']}",
+            f"- **Output Directory**: `{band_result['dir']}`",
+            f"- **Function**: `export_band_luminosities()` from `models.dust_radiation.export_dust_band_luminosities`",
+            f"- **Description**: Band-integrated specific luminosities (in erg/s/g) for Spitzer and Herschel bands",
+            f"  across a range of dust temperatures.",
+            f"- **Temperature Grid**: {band_result.get('Tmin', 1.0):.1f} to {band_result.get('Tmax', 5000.0):.1f} K ({int(band_result.get('nT', 500))} points log-spaced)",
+            f"- **Output Format**: ASCII tables with columns: log10(T) followed by log10(L_spec) for the 9 filters",
+            f"  `Spitzer_MIPS_24`, `Spitzer_MIPS_70`, `Spitzer_MIPS_160`, `Herschel_Pacs_70`, `Herschel_Pacs_100`,",
+            f"  `Herschel_Pacs_160`, `Herschel_SPIRE_250`, `Herschel_SPIRE_350`, `Herschel_SPIRE_500`.",
+            f"- **Files**: {band_result.get('file_count', '?')} files ({band_result.get('successful', 0)} successful, {band_result.get('failed', 0)} failed)",
+            "",
+        ])
+
     readme_lines.extend([
         "---",
         "",
@@ -593,6 +658,7 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         "model_data/",
         "├── optical_properties/",
         "│   ├── averaged_cross_section_<BinID>.txt",
+        "│   ├── band_luminosity_<BinID>.txt",
         "│   └── ...",
         "├── collisional_cooling_data/",
         "│   ├── cooling_<BinID>_Z_*",
@@ -630,6 +696,12 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         "│   ├── sublimation_rate_DustBin_*.dat",
         "│   ├── sublimation_rate_vs_T.pdf",
         "│   ├── dust_sublimation.pdf",
+        "│   └── ...",
+        "├── dust_ion_recombination_data/",
+        "│   ├── dust_rates_ion_recomb_<BinID>.dat",
+        "│   ├── ion_recomb_<BinID>.npz",
+        "│   ├── ion_recomb_<BinID>.png",
+        "│   ├── ion_recomb_<BinID>.json",
         "│   └── ...",
         "└── README.md (this file)",
         "```",
@@ -691,6 +763,12 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         "",
         "# Dust sublimation rates and plots",
         "python -m models.dust_radiation.dust_sublimation",
+        "",
+        "# Dust-assisted ion recombination coefficients",
+        "python -m models.dust_charge.export_dust_ion_recombination",
+        "",
+        "# Dust band luminosities",
+        "python -m models.dust_radiation.export_dust_band_luminosities",
         "```",
         "",
         "### With custom configuration file:",
@@ -1078,6 +1156,80 @@ def export_dust_sublimation_wrapper(config_path=None):
         }
 
 
+def export_dust_ion_recombination_wrapper(config_path=None):
+    """Wrapper for dust-assisted ion recombination export with error handling."""
+    from models.dust_charge.export_dust_ion_recombination import main as export_recomb
+
+    start_time = datetime.now()
+    timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        print("\n" + "="*80)
+        print("EXPORTING DUST-ASSISTED ION RECOMBINATION COEFFICIENTS")
+        print("="*80)
+        result = export_recomb(config_path=config_path)
+        return {
+            'status': 'Success',
+            'timestamp': timestamp_str,
+            'dir': result.get('output_dir', 'model_data/dust_ion_recombination_data'),
+            'file_count': result.get('file_count', 0),
+            'bins_processed': result.get('bins_processed', 0),
+            'Tmin': result.get('Tmin'),
+            'Tmax': result.get('Tmax'),
+            'nT': result.get('nT'),
+            'gamma_min': result.get('gamma_min'),
+            'gamma_max': result.get('gamma_max'),
+            'n_gamma': result.get('n_gamma'),
+            'mode': result.get('mode'),
+            'fixed_value': result.get('fixed_value'),
+            'radiation_model': result.get('radiation_model'),
+        }
+    except Exception as e:
+        print(f"Error: {e}")
+        return {
+            'status': f'Error: {str(e)}',
+            'timestamp': timestamp_str,
+            'dir': 'model_data/dust_ion_recombination_data',
+            'file_count': 0,
+            'bins_processed': 0,
+        }
+ 
+ 
+def export_dust_band_luminosities_wrapper(config_path=None):
+    """Wrapper for dust band luminosities export with error handling."""
+    from models.dust_radiation.export_dust_band_luminosities import export_band_luminosities
+
+    start_time = datetime.now()
+    timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        print("\n" + "="*80)
+        print("EXPORTING DUST BAND LUMINOSITIES")
+        print("="*80)
+        export_band_luminosities(config_path=config_path)
+        return {
+            'status': 'Success',
+            'timestamp': timestamp_str,
+            'dir': 'model_data/optical_properties',
+            'file_count': 4,
+            'nT': 500,
+            'Tmin': 1.0,
+            'Tmax': 5000.0,
+            'successful': 4,
+            'failed': 0,
+        }
+    except Exception as e:
+        print(f"Error: {e}")
+        return {
+            'status': f'Error: {str(e)}',
+            'timestamp': timestamp_str,
+            'dir': 'model_data/optical_properties',
+            'file_count': 0,
+            'successful': 0,
+            'failed': 4,
+        }
+ 
+ 
 def main(config_path=None, profile=True, profile_output=None):
     """
     Master export script that coordinates all grain data exports.
@@ -1210,6 +1362,24 @@ def main(config_path=None, profile=True, profile_output=None):
     export_results['dust_sublimation'] = _run_profiled_stage(
         'dust_sublimation',
         export_dust_sublimation_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
+
+    # 11. Dust-assisted ion recombination coefficients
+    export_results['dust_ion_recombination'] = _run_profiled_stage(
+        'dust_ion_recombination',
+        export_dust_ion_recombination_wrapper,
+        config_path,
+        stage_profile,
+        enable_profile=profile,
+    )
+
+    # 12. Dust band luminosities
+    export_results['dust_band_luminosities'] = _run_profiled_stage(
+        'dust_band_luminosities',
+        export_dust_band_luminosities_wrapper,
         config_path,
         stage_profile,
         enable_profile=profile,

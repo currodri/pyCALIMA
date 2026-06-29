@@ -148,7 +148,7 @@ def _compute_single_grain(args):
     Compute (Gamma - Lambda) / G0 [erg/s] for a single grain of given size,
     type, and environment (G0, ne, T).
 
-    Returns (gamma_idx, size_idx, grain_type_str, peh_minus_rec_over_G0).
+    Returns (gamma_idx, size_idx, grain_type_str, peh_minus_rec_over_G0, peh_norm, rec_norm, zmean, zsigma).
     """
     gamma_idx, size_idx, grain_type, a_cm, G0, ne, T, use_li_draine = args
 
@@ -165,14 +165,22 @@ def _compute_single_grain(args):
         )
         # Gamma - Lambda per grain [erg/s], normalised by G0
         result = (peh - rec) / max(1.13, 1e-30)
+        peh_norm = peh / max(1.13, 1e-30)
+        rec_norm = rec / max(1.13, 1e-30)
+        zmean = _Zm
+        zsigma = _Zs
     except Exception as exc:
         # Return 0 on failure so that the integration simply ignores this point
         import warnings
         warnings.warn(f"[PEH worker] grain_type={grain_type}, a={a_cm:.3e}, "
                       f"G0={G0:.2e}, ne={ne:.2e}, T={T:.1f}: {exc}")
         result = 0.0
+        peh_norm = 0.0
+        rec_norm = 0.0
+        zmean = 0.0
+        zsigma = 0.0
 
-    return gamma_idx, size_idx, grain_type, result
+    return gamma_idx, size_idx, grain_type, result, peh_norm, rec_norm, zmean, zsigma
 
 
 # ── Main computation ──────────────────────────────────────────────────────────
@@ -186,6 +194,8 @@ def compute_total_peh(T=100.0, n_gamma=20, n_sizes=30, use_li_draine=False,
     -------
     gamma_range : ndarray  [K^0.5 cm^3]
     Gamma_tot_per_G0nH : ndarray  [erg/s cm^3]
+    debug_data : dict
+        Detailed arrays for diagnostic plots and debugging.
     """
     gamma_range = np.logspace(2, 6, n_gamma)   # gamma = G0*sqrt(T)/ne
 
@@ -214,16 +224,32 @@ def compute_total_peh(T=100.0, n_gamma=20, n_sizes=30, use_li_draine=False,
     # Result storage: (Gamma - Lambda)/G0 for each [gamma, size]
     peh_gra = np.zeros((n_gamma, n_sizes))
     peh_sil = np.zeros((n_gamma, n_sizes))
+    peh_val_gra = np.zeros((n_gamma, n_sizes))
+    peh_val_sil = np.zeros((n_gamma, n_sizes))
+    rec_val_gra = np.zeros((n_gamma, n_sizes))
+    rec_val_sil = np.zeros((n_gamma, n_sizes))
+    zmean_gra = np.zeros((n_gamma, n_sizes))
+    zmean_sil = np.zeros((n_gamma, n_sizes))
+    zsigma_gra = np.zeros((n_gamma, n_sizes))
+    zsigma_sil = np.zeros((n_gamma, n_sizes))
 
     n_done = 0
     with ProcessPoolExecutor(max_workers=n_workers) as exe:
         future_map = {exe.submit(_compute_single_grain, t): t for t in tasks}
         for fut in as_completed(future_map):
-            gi, si, gtype, val = fut.result()
+            gi, si, gtype, val, peh_val, rec_val, zmean, zsigma = fut.result()
             if gtype == 'graphite':
                 peh_gra[gi, si] = val
+                peh_val_gra[gi, si] = peh_val
+                rec_val_gra[gi, si] = rec_val
+                zmean_gra[gi, si] = zmean
+                zsigma_gra[gi, si] = zsigma
             else:
                 peh_sil[gi, si] = val
+                peh_val_sil[gi, si] = peh_val
+                rec_val_sil[gi, si] = rec_val
+                zmean_sil[gi, si] = zmean
+                zsigma_sil[gi, si] = zsigma
             n_done += 1
             if n_done % max(1, len(tasks) // 20) == 0 or n_done == len(tasks):
                 print(f"    [{n_done}/{len(tasks)}] completed", flush=True)
@@ -237,7 +263,24 @@ def compute_total_peh(T=100.0, n_gamma=20, n_sizes=30, use_li_draine=False,
         Gamma_tot[gi] = (np.trapezoid(gra_integrand, sizes_gra) +
                          np.trapezoid(sil_integrand, sizes_sil))
 
-    return gamma_range, Gamma_tot
+    debug_data = {
+        'sizes_gra': sizes_gra,
+        'sizes_sil': sizes_sil,
+        'dn_da_gra': dn_da_gra,
+        'dn_da_sil': dn_da_sil,
+        'peh_gra': peh_gra,
+        'peh_sil': peh_sil,
+        'peh_val_gra': peh_val_gra,
+        'peh_val_sil': peh_val_sil,
+        'rec_val_gra': rec_val_gra,
+        'rec_val_sil': rec_val_sil,
+        'zmean_gra': zmean_gra,
+        'zmean_sil': zmean_sil,
+        'zsigma_gra': zsigma_gra,
+        'zsigma_sil': zsigma_sil,
+    }
+
+    return gamma_range, Gamma_tot, debug_data
 
 
 # ── Plotting ─────────────────────────────────────────────────────────────────
@@ -296,6 +339,218 @@ def plot_total_peh(gamma_range, Gamma_tot, T, save_path, use_li_draine=False):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def generate_peh_debug_diagnostics(gamma_range, sizes_gra, sizes_sil, dn_da_gra, dn_da_sil,
+                                  peh_gra, peh_sil, peh_val_gra, peh_val_sil,
+                                  rec_val_gra, rec_val_sil, zmean_gra, zmean_sil,
+                                  zsigma_gra, zsigma_sil, T, save_dir, use_li_draine=False, G0=1.0):
+    """
+    Generate detailed debugging reports and plots to understand the uptick at high gamma.
+    """
+    import os
+    import numpy as np
+    import matplotlib.pyplot as plt
+    
+    # 1. Create debug directory if it doesn't exist
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+    else:
+        save_dir = os.path.dirname(os.path.abspath(__file__))
+
+    suffix = '_li_draine' if use_li_draine else ''
+    
+    # Selected gamma indices for integrand plotting
+    # We want a few points spanning the range from low to high gamma.
+    n_gamma = len(gamma_range)
+    sel_gamma_indices = [0, n_gamma//4, n_gamma//2, 3*n_gamma//4, n_gamma-1]
+    # Ensure they are unique and within bounds
+    sel_gamma_indices = sorted(list(set(np.clip(sel_gamma_indices, 0, n_gamma-1))))
+    
+    # Selected grain sizes for charge and rate plotting
+    # We want a range from small to large
+    target_sizes = [3.5e-8, 1e-7, 3e-7, 1e-6, 1e-5]  # in cm
+    sel_gra_indices = []
+    sel_sil_indices = []
+    for ts in target_sizes:
+        idx_gra = np.argmin(np.abs(sizes_gra - ts))
+        idx_sil = np.argmin(np.abs(sizes_sil - ts))
+        sel_gra_indices.append(idx_gra)
+        sel_sil_indices.append(idx_sil)
+    # Deduplicate while preserving order
+    sel_gra_indices = sorted(list(set(sel_gra_indices)))
+    sel_sil_indices = sorted(list(set(sel_sil_indices)))
+    
+    # Plot 1: Integrand a * dn/da * (peh - rec)/G0 vs a (log-x, linear-y or log-y)
+    # Since it can be positive or negative, let's plot a * integrand on log-x and linear-y,
+    # because that shows the relative contribution of each ln(a) bin to the total integral.
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=False, dpi=150)
+    for idx in sel_gamma_indices:
+        g = gamma_range[idx]
+        # graphite
+        y_gra = sizes_gra * dn_da_gra * peh_gra[idx, :]
+        axes[0].plot(sizes_gra, y_gra, label=f'gamma={g:.1e}')
+        # silicate
+        y_sil = sizes_sil * dn_da_sil * peh_sil[idx, :]
+        axes[1].plot(sizes_sil, y_sil, label=f'gamma={g:.1e}')
+        
+    axes[0].set_xscale('log')
+    axes[0].set_xlabel('Grain size a [cm]')
+    axes[0].set_ylabel(r'$a (dn/da) (\Gamma - \Lambda)/G_0$ [cm$^{-3}$ s$^{-1}$]')
+    axes[0].set_title('Graphite Integrand Contribution')
+    axes[0].grid(True, which='both', linestyle=':', alpha=0.5)
+    axes[0].legend(fontsize=8)
+    
+    axes[1].set_xscale('log')
+    axes[1].set_xlabel('Grain size a [cm]')
+    axes[1].set_ylabel(r'$a (dn/da) (\Gamma - \Lambda)/G_0$ [cm$^{-3}$ s$^{-1}$]')
+    axes[1].set_title('Silicate Integrand Contribution')
+    axes[1].grid(True, which='both', linestyle=':', alpha=0.5)
+    axes[1].legend(fontsize=8)
+    
+    fig.suptitle(f'Integrand Contribution to Heating (T = {T:.0f} K)')
+    fig.tight_layout()
+    integrand_plot_path = os.path.join(save_dir, f'peh_total_debug_integrand{suffix}.png')
+    fig.savefig(integrand_plot_path, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved debug integrand plot → {integrand_plot_path}")
+    
+    # Plot 2: Zmean vs Gamma for selected grain sizes
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True, dpi=150)
+    for idx in sel_gra_indices:
+        a_nm = sizes_gra[idx] * 1e7
+        axes[0].plot(gamma_range, zmean_gra[:, idx], '-o', ms=4, label=f'a={a_nm:.1f} nm')
+    for idx in sel_sil_indices:
+        a_nm = sizes_sil[idx] * 1e7
+        axes[1].plot(gamma_range, zmean_sil[:, idx], '-o', ms=4, label=f'a={a_nm:.1f} nm')
+        
+    axes[0].set_xscale('log')
+    axes[0].set_xlabel(r'$\gamma$ [K$^{1/2}$ cm$^3$]')
+    axes[0].set_ylabel('Mean Charge Zmean')
+    axes[0].set_title('Graphite Mean Charge')
+    axes[0].grid(True, which='both', linestyle=':', alpha=0.5)
+    axes[0].legend(fontsize=8)
+    
+    axes[1].set_xscale('log')
+    axes[1].set_xlabel(r'$\gamma$ [K$^{1/2}$ cm$^3$]')
+    axes[1].set_title('Silicate Mean Charge')
+    axes[1].grid(True, which='both', linestyle=':', alpha=0.5)
+    axes[1].legend(fontsize=8)
+    
+    fig.suptitle(f'Mean Grain Charge vs Gamma (T = {T:.0f} K)')
+    fig.tight_layout()
+    charge_plot_path = os.path.join(save_dir, f'peh_total_debug_charge{suffix}.png')
+    fig.savefig(charge_plot_path, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved debug charge plot → {charge_plot_path}")
+
+    # Plot 3: Individual peh & rec rates vs Gamma for representative sizes
+    # We'll plot for: minimum size (index 0) and a medium size (10 nm)
+    sizes_to_plot = [0, np.argmin(np.abs(sizes_gra - 1e-6))] # smallest & ~10nm
+    fig, axes = plt.subplots(len(sizes_to_plot), 2, figsize=(14, 4 * len(sizes_to_plot)), sharex=True, dpi=150)
+    if len(sizes_to_plot) == 1:
+        axes = np.expand_dims(axes, axis=0)
+        
+    for row_idx, size_idx in enumerate(sizes_to_plot):
+        a_nm_gra = sizes_gra[size_idx] * 1e7
+        a_nm_sil = sizes_sil[size_idx] * 1e7
+        
+        # Graphite row
+        axes[row_idx, 0].loglog(gamma_range, peh_val_gra[:, size_idx], 'r-o', ms=4, label='Photoelectric (peh)')
+        axes[row_idx, 0].loglog(gamma_range, rec_val_gra[:, size_idx], 'b-x', ms=4, label='Recombination (rec)')
+        # net absolute
+        net_gra = peh_val_gra[:, size_idx] - rec_val_gra[:, size_idx]
+        axes[row_idx, 0].loglog(gamma_range, np.abs(net_gra), 'g--', label='|net|')
+        axes[row_idx, 0].set_ylabel(f'Rate / G0 [erg/s]\na={a_nm_gra:.1f} nm')
+        axes[row_idx, 0].grid(True, which='both', linestyle=':', alpha=0.5)
+        axes[row_idx, 0].legend(fontsize=8)
+        if row_idx == 0:
+            axes[row_idx, 0].set_title('Graphite Rates')
+            
+        # Silicate row
+        axes[row_idx, 1].loglog(gamma_range, peh_val_sil[:, size_idx], 'r-o', ms=4, label='Photoelectric (peh)')
+        axes[row_idx, 1].loglog(gamma_range, rec_val_sil[:, size_idx], 'b-x', ms=4, label='Recombination (rec)')
+        net_sil = peh_val_sil[:, size_idx] - rec_val_sil[:, size_idx]
+        axes[row_idx, 1].loglog(gamma_range, np.abs(net_sil), 'g--', label='|net|')
+        axes[row_idx, 1].grid(True, which='both', linestyle=':', alpha=0.5)
+        axes[row_idx, 1].legend(fontsize=8)
+        if row_idx == 0:
+            axes[row_idx, 1].set_title('Silicate Rates')
+            
+    for col in [0, 1]:
+        axes[-1, col].set_xscale('log')
+        axes[-1, col].set_xlabel(r'$\gamma$ [K$^{1/2}$ cm$^3$]')
+        
+    fig.suptitle(f'Photoelectric Heating and Recombination Cooling Rates (T = {T:.0f} K)')
+    fig.tight_layout()
+    rates_plot_path = os.path.join(save_dir, f'peh_total_debug_rates{suffix}.png')
+    fig.savefig(rates_plot_path, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved debug rates plot → {rates_plot_path}")
+
+    # 2. Write Markdown Debugging Report
+    report_path = os.path.join(save_dir, f'peh_total_debug_report{suffix}.md')
+    with open(report_path, 'w') as f:
+        f.write(f"# Photoelectric Heating Debugging Report (T = {T:.0f} K)\n\n")
+        f.write("This report provides detailed diagnostics for the total photoelectric heating efficiency calculation, ")
+        f.write("specifically investigating why the results show a deviation/uptick at high gamma ($\\gamma \\ge 10^5$).\n\n")
+        
+        f.write("## Integrand Contributions by Grain Size Bins\n\n")
+        f.write("To see which sizes dominate the total heating rate at each gamma, we split the integration into size bins:\n")
+        f.write("- **Very Small Grains** ($a < 1$ nm = $10$ Å)\n")
+        f.write("- **Medium Grains** ($1 \\le a < 10$ nm = $10 - 100$ Å)\n")
+        f.write("- **Large Grains** ($a \\ge 10$ nm = $100$ Å)\n\n")
+        
+        f.write("| gamma | ne [cm-3] | Total [1e-26] | Graphite [1e-26] | Silicate [1e-26] | Gra (<1nm) | Gra (1-10nm) | Gra (>=10nm) | Sil (<1nm) | Sil (1-10nm) | Sil (>=10nm) |\n")
+        f.write("|---|---|---|---|---|---|---|---|---|---|---|\n")
+        
+        for gi in range(n_gamma):
+            g = gamma_range[gi]
+            ne = G0 * np.sqrt(T) / g
+            
+            # Full integrals
+            tot_gra = np.trapezoid(peh_gra[gi, :] * dn_da_gra, sizes_gra) * 1e26
+            tot_sil = np.trapezoid(peh_sil[gi, :] * dn_da_sil, sizes_sil) * 1e26
+            total = tot_gra + tot_sil
+            
+            # Slices
+            # Graphite
+            m_gra_s = sizes_gra < 1e-7
+            m_gra_m = (sizes_gra >= 1e-7) & (sizes_gra < 1e-6)
+            m_gra_l = sizes_gra >= 1e-6
+            
+            # Silicate
+            m_sil_s = sizes_sil < 1e-7
+            m_sil_m = (sizes_sil >= 1e-7) & (sizes_sil < 1e-6)
+            m_sil_l = sizes_sil >= 1e-6
+            
+            # Integrate slices
+            def int_slice(y, x, mask):
+                if np.sum(mask) >= 2:
+                    return np.trapezoid(y[mask], x[mask]) * 1e26
+                return 0.0
+                
+            gra_s = int_slice(peh_gra[gi, :] * dn_da_gra, sizes_gra, m_gra_s)
+            gra_m = int_slice(peh_gra[gi, :] * dn_da_gra, sizes_gra, m_gra_m)
+            gra_l = int_slice(peh_gra[gi, :] * dn_da_gra, sizes_gra, m_gra_l)
+            
+            sil_s = int_slice(peh_sil[gi, :] * dn_da_sil, sizes_sil, m_sil_s)
+            sil_m = int_slice(peh_sil[gi, :] * dn_da_sil, sizes_sil, m_sil_m)
+            sil_l = int_slice(peh_sil[gi, :] * dn_da_sil, sizes_sil, m_sil_l)
+            
+            f.write(f"| {g:.2e} | {ne:.2e} | {total:.4f} | {tot_gra:.4f} | {tot_sil:.4f} | {gra_s:.4f} | {gra_m:.4f} | {gra_l:.4f} | {sil_s:.4f} | {sil_m:.4f} | {sil_l:.4f} |\n")
+            
+        f.write("\n## Diagnostic Plots\n\n")
+        f.write("### 1. Integrand Contribution vs. Size\n")
+        f.write(f"![Integrand Contribution](peh_total_debug_integrand{suffix}.png)\n\n")
+        f.write("### 2. Mean Grain Charge vs. Gamma\n")
+        f.write(f"![Mean Grain Charge](peh_total_debug_charge{suffix}.png)\n\n")
+        f.write("### 3. Individual Rates vs. Gamma\n")
+        f.write(f"![Individual Rates](peh_total_debug_rates{suffix}.png)\n\n")
+        
+    print(f"  Saved debug report → {report_path}")
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 def main():
     parser = argparse.ArgumentParser(
         description='Compute total photoelectric heating efficiency and compare to WD01.')
@@ -311,6 +566,8 @@ def main():
                         help='Number of parallel workers (default: all CPUs)')
     parser.add_argument('--use-li-draine', action='store_true',
                         help='Use Li & Draine (2001) carbonaceous cross-section blend')
+    parser.add_argument('--debug-dir', type=str, default=None,
+                        help='Directory to save debugging plots/reports (e.g. artifact folder)')
     args = parser.parse_args()
 
     # Apply Li & Draine flag in the main process (workers set it themselves)
@@ -327,7 +584,7 @@ def main():
     print(f"  GSD:  WD01 Rv=3.1, bc=6e-5")
     print(f"  Volume scaling:  SCALE_G = {SCALE_G:.5f},  SCALE_S = {SCALE_S:.5f}")
 
-    gamma_range, Gamma_tot = compute_total_peh(
+    gamma_range, Gamma_tot, debug_data = compute_total_peh(
         T=args.T,
         n_gamma=args.n_gamma,
         n_sizes=args.n_sizes,
@@ -349,6 +606,30 @@ def main():
     plot_path = os.path.join(script_dir, f'peh_total_comparison{suffix}.png')
     plot_total_peh(gamma_range, Gamma_tot, T=args.T, save_path=plot_path,
                    use_li_draine=args.use_li_draine)
+
+    # Save debugging diagnostics
+    debug_dir = args.debug_dir if args.debug_dir else script_dir
+    generate_peh_debug_diagnostics(
+        gamma_range=gamma_range,
+        sizes_gra=debug_data['sizes_gra'],
+        sizes_sil=debug_data['sizes_sil'],
+        dn_da_gra=debug_data['dn_da_gra'],
+        dn_da_sil=debug_data['dn_da_sil'],
+        peh_gra=debug_data['peh_gra'],
+        peh_sil=debug_data['peh_sil'],
+        peh_val_gra=debug_data['peh_val_gra'],
+        peh_val_sil=debug_data['peh_val_sil'],
+        rec_val_gra=debug_data['rec_val_gra'],
+        rec_val_sil=debug_data['rec_val_sil'],
+        zmean_gra=debug_data['zmean_gra'],
+        zmean_sil=debug_data['zmean_sil'],
+        zsigma_gra=debug_data['zsigma_gra'],
+        zsigma_sil=debug_data['zsigma_sil'],
+        T=args.T,
+        save_dir=debug_dir,
+        use_li_draine=args.use_li_draine,
+        G0=args.G0
+    )
 
     print("\nDone.")
 

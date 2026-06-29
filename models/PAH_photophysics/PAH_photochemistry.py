@@ -1,7 +1,12 @@
+import sys
+from pathlib import Path
+import os
+# Add models path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 import numpy as np
 import re
 import importlib_resources
-import os
 from amespahdbpythonsuite.amespahdb import AmesPAHdb
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -12,11 +17,7 @@ from scipy.linalg import null_space
 from scipy import linalg
 from models.tools.radiation_fields import Mathis83_radiation_field
 from models.PAH_radiation.pah_oppacity import pah_efficiencies
-import sys
-from pathlib import Path
 
-# Add models path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Force Matplotlib to use Dejavu Sans for math rendering (supports all superscripts natively)
 plt.rcParams['mathtext.fontset'] = 'dejavusans'
@@ -533,14 +534,11 @@ def compute_thermal_energy_from_file(file_path, t_min=1e2, t_max=1e4, nt=100):
     # 5. Compute the canonical internal energy U(T)
     # U(T) = sum( h*nu / (exp(h*nu / k_B*T) - 1) )
     for idx, T in enumerate(temperatures):
-        # Prevent division by zero at absolute zero bounds
-        thermal_denominator = np.exp(frequencies_ev / (kb_ev * T)) - 1.0
-        
-        # Calculate the energy of each individual harmonic oscillator
-        mode_energies = frequencies_ev / thermal_denominator
-        
-        # Total internal energy E at this specific temperature T
-        total_energy_ev[idx] = np.sum(mode_energies)
+        x = frequencies_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        total_energy_ev[idx] = np.sum(frequencies_ev * thermal_occ)
         
     # 6. Normalize by the number of modes to get the energy per mode
     energy_per_mode_eV = total_energy_ev / num_modes
@@ -619,9 +617,11 @@ def compute_thermal_ir_rate(file_path, internal_energy_ev):
     def internal_energy_objective(T):
         if T <= 0:
             return -internal_energy_ev
-        # Canonical expected thermal energy distribution per mode
-        thermal_denominator = np.exp(freq_ev / (kb_ev * T)) - 1.0
-        U_T = np.sum(freq_ev / thermal_denominator)
+        x = freq_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        U_T = np.sum(freq_ev * thermal_occ)
         return U_T - internal_energy_ev
 
     # 5. Numerically invert E -> T
@@ -637,11 +637,14 @@ def compute_thermal_ir_rate(file_path, internal_energy_ev):
 
     # 6. Compute Total IR Emission Rate Constant K_thermal(T)
     # Sum of spontaneous emission rates weighted by thermal occupation numbers
-    thermal_denominator = np.exp(freq_ev / (kb_ev * canonical_T)) - 1.0
-    mode_emission_rates = einstein_A / thermal_denominator
+    x = freq_ev / (kb_ev * canonical_T)
+    with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+        thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+        thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+    mode_emission_rates = einstein_A * thermal_occ
     
-    # Sum over all active vibrational modes to find total rate
-    K_thermal = np.sum(mode_emission_rates) / internal_energy_ev
+    # Sum over all active vibrational modes to find total photon emission rate (s^-1)
+    K_thermal = np.sum(mode_emission_rates)
     
     return canonical_T,internal_energy_ev,K_thermal
     
@@ -701,8 +704,11 @@ def compute_rrkm_dissociation_rate(file_path, internal_energy_ev, E_act_ev, dS_c
     def energy_objective(T):
         if T <= 0:
             return -internal_energy_ev
-        thermal_denominator = np.exp(freq_ev / (kb_ev * T)) - 1.0
-        return np.sum(freq_ev / thermal_denominator) - internal_energy_ev
+        x = freq_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        return np.sum(freq_ev * thermal_occ) - internal_energy_ev
 
     # 4. Invert E -> T(E) using root-finding
     try:
@@ -768,7 +774,7 @@ def compute_gd89_temperature_distribution(file_path, radiation_field_func,
     hc_ev = 1.23984193e-4      # h * c in eV * cm
     kb_ev = 8.61733326e-5      # k_B in eV / K
     c_cm_s = 2.99792458e10     # c in cm / s
-    h_j_s = 6.62607015e-34     # h in Joules * s
+    h_cgs = 6.62607015e-27     # h in erg * s
     gamma = 1.2512e-7          # Database Intensity-to-A conversion factor
     
     raw_frequencies = []
@@ -814,8 +820,11 @@ def compute_gd89_temperature_distribution(file_path, radiation_field_func,
     # 3. DYNAMIC CEILING T_MAX RESOLUTION (U(T_max) = 13.6 eV)
     # =========================================================================
     def energy_ceiling_objective(T):
-        thermal_denominator = np.exp(freq_ev / (kb_ev * T)) - 1.0
-        U_T = np.sum(freq_ev / thermal_denominator)
+        x = freq_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        U_T = np.sum(freq_ev * thermal_occ)
         return U_T - 13.6  # Find root where total internal energy is exactly 13.6 eV
 
     try:
@@ -836,8 +845,11 @@ def compute_gd89_temperature_distribution(file_path, radiation_field_func,
     delta_t = np.diff(t_edges)
     
     def calculate_internal_energy(T):
-        thermal_denominator = np.exp(freq_ev / (kb_ev * T)) - 1.0
-        return np.sum(freq_ev / thermal_denominator)
+        x = freq_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        return np.sum(freq_ev * thermal_occ)
 
     u_edges = np.array([calculate_internal_energy(t) for t in t_edges])
     u_centers = np.array([calculate_internal_energy(t) for t in t_centers])
@@ -854,10 +866,13 @@ def compute_gd89_temperature_distribution(file_path, radiation_field_func,
         
         # --- A. Continuous Total Emitted IR Power Downward Flux ---
         if j > 0:
-            thermal_occ = 1.0 / (np.exp(cooling_freq_ev / (kb_ev * T_j)) - 1.0)
+            x = cooling_freq_ev / (kb_ev * T_j)
+            with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+                thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+                thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
             mode_rates = cooling_A * thermal_occ
             P_IR_ev_per_s = np.sum(cooling_freq_ev * mode_rates)
-            bin_width_ev = u_edges[j+1] - u_edges[j]
+            bin_width_ev = u_centers[j] - u_centers[j-1]
             
             # Apply a safe cooling limit anchor floor to protect boundaries
             W_down_adjacent[j] = (P_IR_ev_per_s / bin_width_ev) + 1e-30
@@ -870,7 +885,7 @@ def compute_gd89_temperature_distribution(file_path, radiation_field_func,
             # Midpoint required photon energy for this state-to-state excitation step
             e_photon_mid = 0.5 * (u_req_min + u_req_max)
             
-            if e_photon_mid > 13.6:
+            if e_photon_mid > 13.6 or e_photon_mid <= 0:
                 continue
                 
             nu_min = (u_req_min / hc_ev) * c_cm_s
@@ -886,7 +901,7 @@ def compute_gd89_temperature_distribution(file_path, radiation_field_func,
                 continue
                 
             flux_density = radiation_field_func(nu_mid)
-            absorption_rate = 4.0 * np.pi * (flux_density / (h_j_s * nu_mid)) * sigma_uv_dynamic * delta_nu
+            absorption_rate = 4.0 * np.pi * (flux_density / (h_cgs * nu_mid)) * sigma_uv_dynamic * delta_nu
             W_up[j, k] = max(0.0, absorption_rate)
 
     # =========================================================================
@@ -1044,19 +1059,19 @@ def mathis83_to_gd89_interface(nu, target_G0=1.0, base_G0=1.0):
 
 def get_absorption_cross_section(Z,a0):
     """
-    Get the absorption cross-section for a given number of carbon atoms and size parameter.
+    Get the absorption cross-section for a given charge and size parameter (a0 in cm).
 
     Parameters
     ----------
     Z : int
-        The number of carbon atoms.
+        The charge of the PAH molecule (0 for neutral, otherwise ionized).
     a0 : float
-        The size parameter.
+        The size parameter in cm.
 
     Returns
     -------
     tuple(np.ndarray, np.ndarray)
-        The absorption cross-section [cm^2] and the wavelengths [cm].
+        Wavelengths in cm and absorption cross-section in cm^2.
     """
     
     if Z == 0:
@@ -1064,15 +1079,23 @@ def get_absorption_cross_section(Z,a0):
     else:
         nwav,data,columns,name = pah_efficiencies(pahion_filepath)
 
-    C_abs = np.zeros(len(data[list(data.keys())[0]][:,columns.index('Q_abs')]))
-    for i in range(len(C_abs)):
-        a = np.array([float(r) for r in data.keys()])
-        Q_abs = np.array([d[i,columns.index('Q_abs')] for d in data.values()])
-        C_abs[i] = 10.**np.interp(np.log10(a0),np.log10(a),np.log10(Q_abs)) * np.pi * a0**2
-    w = data[list(data.keys())[0]][:,columns.index('w(micron)')]
-    C_abs_eff = C_abs
+    # Convert a0 from cm to microns for table interpolation (table keys are in microns)
+    a0_micron = a0 * 1e4
+    
+    # Sort keys of data and map float values back to string keys stably
+    float_to_str_key = {float(k): k for k in data.keys()}
+    keys_sorted = sorted(float_to_str_key.keys())
+    a = np.array(keys_sorted)
+    
+    C_abs = np.zeros(nwav)
+    for i in range(nwav):
+        Q_abs = np.array([data[float_to_str_key[k]][i, columns.index('Q_abs')] for k in keys_sorted])
+        Q_abs_interp = 10.**np.interp(np.log10(a0_micron), np.log10(a), np.log10(Q_abs))
+        C_abs[i] = Q_abs_interp * np.pi * a0**2
 
-    return w*1e-4, C_abs_eff * 1e-8
+    w = data[list(data.keys())[0]][:,columns.index('w(micron)')]
+
+    return w*1e-4, C_abs
 
 def compute_base_g0(radiation_field_func):
     """
@@ -1155,13 +1178,20 @@ def compute_adaptive_temperature_distribution(file_path, radiation_field_func, c
 
     # Core Thermodynamics: Internal Energy U(T) and Heat Capacity Cv(T)
     def calculate_internal_energy(T):
-        thermal_denominator = np.exp(freq_ev / (kb_ev * T)) - 1.0
-        return np.sum(freq_ev / thermal_denominator)
+        x = freq_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        return np.sum(freq_ev * thermal_occ)
 
     def calculate_heat_capacity_ev_k(T):
         x = freq_ev / (kb_ev * T)
-        # dU/dT relation for harmonic oscillators
-        return np.sum(kb_ev * (x ** 2) * np.exp(x) / ((np.exp(x) - 1.0) ** 2))
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            val = np.where(x > 50.0,
+                           (x ** 2) * np.exp(-x) / (1.0 - np.exp(-x))**2,
+                           (x / np.expm1(x))**2 * np.exp(x))
+            val = np.where(np.isnan(val) | np.isinf(val), 0.0, val)
+        return np.sum(kb_ev * val)
 
     # =========================================================================
     # 2. RIGOROUS INTEGRATED HEATING POWER & PHOTON RATES
@@ -1197,15 +1227,22 @@ def compute_adaptive_temperature_distribution(file_path, radiation_field_func, c
     sol_1st = root_scalar(lambda T: calculate_internal_energy(T) - 13.6, bracket=[15.0, 5000.0], method='brentq')
     T_max_1st = sol_1st.root
     
-    # Numerical quadrature integration of Cv(T) / P_cooling(T) from t_min to T_max_1st
-    t_fine_mesh = np.linspace(t_min, T_max_1st, 200)
+    # Solve for the lower temperature limit representing 99% of energy loss (0.136 eV)
+    sol_min_cool = root_scalar(lambda T: calculate_internal_energy(T) - 0.136, bracket=[1.0, T_max_1st], method='brentq')
+    T_min_cool = sol_min_cool.root
+    
+    # Numerical quadrature integration of Cv(T) / P_cooling(T) from T_min_cool to T_max_1st
+    t_fine_mesh = np.linspace(T_min_cool, T_max_1st, 200)
     dT_mesh = t_fine_mesh[1] - t_fine_mesh[0]
     integrated_tau_cool = 0.0
     
     for T in t_fine_mesh:
         Cv = calculate_heat_capacity_ev_k(T)
-        # Compute cooling power at this temperature step
-        thermal_occ = 1.0 / (np.exp(cooling_freq_ev / (kb_ev * T)) - 1.0)
+        # Compute cooling power at this temperature step stably
+        x = cooling_freq_ev / (kb_ev * T)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
         P_cooling_ev_s = np.sum(cooling_freq_ev * cooling_A * thermal_occ)
         
         if P_cooling_ev_s > 0:
@@ -1218,14 +1255,17 @@ def compute_adaptive_temperature_distribution(file_path, radiation_field_func, c
     # 4. REGIME BALANCING & DYNAMIC CEILING EXPANSION
     # =========================================================================
     if stacking_index < threshold:
-        print(f"Regime: SINGLE-PHOTON STOCHASTIC (Stacking Index = {stacking_index:.4e})")
+        print(f"Regime: SINGLE-PHOTON STOCHASTIC (Stacking Index = {stacking_index:.4e}, tau_cool = {integrated_tau_cool:.2f} s)")
         t_max = 3. * T_max_1st
         use_multi_photon = False
     else:
-        print(f"Regime: MULTI-PHOTON STACKING / CONTINUOUS (Stacking Index = {stacking_index:.4e})")
+        print(f"Regime: MULTI-PHOTON STACKING / CONTINUOUS (Stacking Index = {stacking_index:.4e}, tau_cool = {integrated_tau_cool:.2f} s)")
         
         def equilibrium_objective(T):
-            thermal_occ = 1.0 / (np.exp(cooling_freq_ev / (kb_ev * T)) - 1.0)
+            x = cooling_freq_ev / (kb_ev * T)
+            with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+                thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+                thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
             P_cooling_ev_s = np.sum(cooling_freq_ev * cooling_A * thermal_occ)
             return P_cooling_ev_s - P_heating_ev_s
             
@@ -1260,10 +1300,13 @@ def compute_adaptive_temperature_distribution(file_path, radiation_field_func, c
         U_j = u_centers[j]
         
         if j > 0:
-            thermal_occ = 1.0 / (np.exp(cooling_freq_ev / (kb_ev * T_j)) - 1.0)
+            x = cooling_freq_ev / (kb_ev * T_j)
+            with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+                thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+                thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
             mode_rates = cooling_A * thermal_occ
             P_IR_ev_per_s = np.sum(cooling_freq_ev * mode_rates)
-            bin_width_ev = u_edges[j+1] - u_edges[j]
+            bin_width_ev = u_centers[j] - u_centers[j-1]
             W_down_adjacent[j] = (P_IR_ev_per_s / bin_width_ev) + 1e-30
 
         for k in range(j + 1, num_bins):
@@ -1284,8 +1327,8 @@ def compute_adaptive_temperature_distribution(file_path, radiation_field_func, c
                 continue
                 
             flux_density = radiation_field_func(nu_mid)  
-            # Scale absorption rate back using the proper SI Planck constant for grid compliance
-            absorption_rate = 4.0 * np.pi * (flux_density / (h_SI * nu_mid)) * sigma_uv_dynamic * delta_nu
+            # Scale absorption rate back using the proper CGS Planck constant
+            absorption_rate = 4.0 * np.pi * (flux_density / (h_cgs * nu_mid)) * sigma_uv_dynamic * delta_nu
             W_up[j, k] = max(0.0, absorption_rate)
 
     # =========================================================================
@@ -1427,18 +1470,18 @@ def compute_total_time_averaged_ir_rate(file_path, t_centers, f_T, t_min=15.0):
             K_thermal_array[j] = 0.0
             continue
             
-        # A. Evaluate total internal energy U(T_j) at this step
-        thermal_denominator = np.exp(freq_ev / (kb_ev * T_j)) - 1.0
-        U_Tj = np.sum(freq_ev / thermal_denominator)
+        # A. Evaluate total internal energy U(T_j) stably
+        x = freq_ev / (kb_ev * T_j)
+        with np.errstate(over='ignore', under='ignore', invalid='ignore'):
+            thermal_occ = np.where(x > 50.0, np.exp(-x) / (1.0 - np.exp(-x)), 1.0 / np.expm1(x))
+            thermal_occ = np.where(np.isnan(thermal_occ) | np.isinf(thermal_occ), 0.0, thermal_occ)
+        U_Tj = np.sum(freq_ev * thermal_occ)
         
-        # B. Evaluate spontaneous emission channel rates at this step
-        mode_emission_rates = einstein_A / thermal_denominator
+        # B. Evaluate spontaneous emission channel rates stably
+        mode_emission_rates = einstein_A * thermal_occ
         
-        # C. Store K_thermal constant = Total emission rate / Internal Energy
-        if U_Tj > 0:
-            K_thermal_array[j] = np.sum(mode_emission_rates) / U_Tj
-        else:
-            K_thermal_array[j] = 0.0
+        # C. Store K_thermal constant = Total photon emission rate (in s^-1)
+        K_thermal_array[j] = np.sum(mode_emission_rates)
 
     # =========================================================================
     # 4. TIME-AVERAGED SUM INTEGRATION
@@ -1523,7 +1566,101 @@ def compute_total_photon_absorption_rate(radiation_field_func, cross_section_tab
     return R_abs
 
 
+def load_kurucz_u_E(teff: int):
+    """
+    Loads the Kurucz stellar atmosphere spectrum for a given effective temperature Teff,
+    and returns a function u_E_func(E) that gives the undiluted surface energy density
+    u_E in erg cm^-3 eV^-1.
+    
+    Parameters
+    ----------
+    teff : int
+        Effective temperature in Kelvin (must be one of 10000, 11000, 12500, 15000, 20000, 25000, 30000, 40000).
+        
+    Returns
+    -------
+    callable
+        Function taking photon energy E (eV) and returning u_E.
+    """
+    valid_teffs = [10000, 11000, 12500, 15000, 20000, 25000, 30000, 40000]
+    if teff not in valid_teffs:
+        raise ValueError(f"Teff must be one of {valid_teffs}")
+        
+    file_path = os.path.join(_EXTERNAL_DATA_DIR, f"kp00_{teff}")
+    data = np.loadtxt(file_path, skiprows=3)
+    
+    wav_nm = data[:, 0]
+    I_lam = data[:, 1]
+    
+    # E (eV) = 1239.84193 / wav_nm (nm)
+    E = 1239.84193 / wav_nm
+    
+    # u_E = (4*pi/c) * I_lam * (d_lambda/d_E) = (4*pi/c) * I_lam * (1239.84193 / E^2)
+    c_cgs = 2.99792458e10
+    u_E = (4.0 * np.pi / c_cgs) * I_lam * (1239.84193 / E**2)
+    
+    # Sort by E
+    idx = np.argsort(E)
+    E_sorted = E[idx]
+    u_E_sorted = u_E[idx]
+    
+    def u_E_func(E_val):
+        if E_val <= 0.0 or E_val > 13.6:
+            return 0.0
+        return float(np.interp(E_val, E_sorted, u_E_sorted, left=0.0, right=0.0))
+        
+    return u_E_func
+
+
+def load_kurucz_I_nu(teff: int):
+    """
+    Loads the Kurucz stellar atmosphere spectrum for a given effective temperature Teff,
+    and returns a function I_nu_func(nu) that gives the undiluted surface specific intensity
+    I_nu in erg cm^-2 s^-1 Hz^-1 sr^-1.
+    
+    Parameters
+    ----------
+    teff : int
+        Effective temperature in Kelvin (must be one of 10000, 11000, 12500, 15000, 20000, 25000, 30000, 40000).
+        
+    Returns
+    -------
+    callable
+        Function taking frequency nu (Hz) and returning I_nu.
+    """
+    valid_teffs = [10000, 11000, 12500, 15000, 20000, 25000, 30000, 40000]
+    if teff not in valid_teffs:
+        raise ValueError(f"Teff must be one of {valid_teffs}")
+        
+    file_path = os.path.join(_EXTERNAL_DATA_DIR, f"kp00_{teff}")
+    data = np.loadtxt(file_path, skiprows=3)
+    
+    wav_nm = data[:, 0]
+    I_lam = data[:, 1]
+    
+    c_cgs = 2.99792458e10
+    nu = c_cgs / (wav_nm * 1e-7)
+    
+    # I_nu = I_lam * (lambda_nm^2 * 1e-7 / c_cgs)
+    I_nu = I_lam * (wav_nm**2 * 1e-7) / c_cgs
+    
+    idx = np.argsort(nu)
+    nu_sorted = nu[idx]
+    I_nu_sorted = I_nu[idx]
+    
+    def I_nu_func(nu_val):
+        h_SI = 6.62607015e-34
+        eV2J = 1.602176634e-19
+        E = (h_SI * nu_val) / eV2J
+        if E > 13.6 or nu_val <= 0.0:
+            return 0.0
+        return float(np.interp(nu_val, nu_sorted, I_nu_sorted, left=0.0, right=0.0))
+        
+    return I_nu_func
+
+
 if __name__ == "__main__":
+
 
     # file_path = importlib_resources.files("amespahdbpythonsuite")
     # xml = file_path / "/Users/currodri/Documents/GitHub/CALIMA/external_data/pahdb-complete-theoretical-v4.00.xml"
@@ -1626,12 +1763,12 @@ if __name__ == "__main__":
             num_bins=150
         )
         
-        # 2. Integrate the total time-averaged dissociation rate
+        # 2. Integrate the total time-averaged dissociation rate (using Andrews/LePage parameters for H-loss)
         rate = compute_total_dissociation_rate(
             t_centers=T_grid,
             f_T=f_profile,
-            E_act_ev=4.6,
-            dS_cl_jk=44.8,
+            E_act_ev=4.8,
+            dS_cl_jk=20.92,
             t_min=1.0
         )
         computed_H_rates[i] = rate
@@ -1659,10 +1796,8 @@ if __name__ == "__main__":
         )
         computed_abs_rates[i] = rate
 
-    P = computed_H_rates + computed_H2_rates + computed_IR_rates
-
-    H_rate = computed_abs_rates * computed_H_rates / P
-    H2_rate = computed_abs_rates * computed_H2_rates / P
+    H_rate = computed_H_rates
+    H2_rate = computed_H2_rates
 
     plt.loglog(g0_grid, H_rate, 'r-',label='H-loss')
     plt.loglog(g0_grid, H2_rate, 'b-',label='H2-loss')
