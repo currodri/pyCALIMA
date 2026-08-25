@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 from models.PAH_gas_collisions.PAH_sputtering import export_rates_simple
 
 
@@ -70,8 +70,7 @@ def main(config_path=None):
     nbins_v = int(params_cfg['nbins_v'])
     nbins_theta = int(params_cfg['nbins_theta'])
 
-    repo_root = _repo_root()
-    output_dir = repo_root / 'model_data' / 'pah_sputtering_data'
+    output_dir = get_model_data_dir() / 'pah_sputtering_data'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bins = sorted(

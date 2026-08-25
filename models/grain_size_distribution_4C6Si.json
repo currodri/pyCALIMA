@@ -1,0 +1,496 @@
+{
+  "model_name": "5PAH10C10Sil",
+  "bins": [
+    {
+      "id": "PAHBin_01",
+      "composition": "graphite",
+      "is_pah": true,
+      "bin_rank": 0
+    },
+    {
+      "id": "PAHBin_02",
+      "composition": "graphite",
+      "is_pah": true,
+      "bin_rank": 1
+    },
+    {
+      "id": "PAHBin_03",
+      "composition": "graphite",
+      "is_pah": true,
+      "bin_rank": 2
+    },
+    {
+      "id": "PAHBin_04",
+      "composition": "graphite",
+      "is_pah": true,
+      "bin_rank": 3
+    },
+    {
+      "id": "PAHBin_05",
+      "composition": "graphite",
+      "is_pah": true,
+      "bin_rank": 4
+    },
+    {
+      "id": "DustBin_01",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 0
+    },
+    {
+      "id": "DustBin_02",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 1
+    },
+    {
+      "id": "DustBin_03",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 2
+    },
+    {
+      "id": "DustBin_04",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 3
+    },
+    {
+      "id": "DustBin_05",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 4
+    },
+    {
+      "id": "DustBin_06",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 5
+    },
+    {
+      "id": "DustBin_07",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 6
+    },
+    {
+      "id": "DustBin_08",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 7
+    },
+    {
+      "id": "DustBin_09",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 8
+    },
+    {
+      "id": "DustBin_10",
+      "composition": "graphite",
+      "is_pah": false,
+      "bin_rank": 9
+    },
+    {
+      "id": "DustBin_11",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 0
+    },
+    {
+      "id": "DustBin_12",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 1
+    },
+    {
+      "id": "DustBin_13",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 2
+    },
+    {
+      "id": "DustBin_14",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 3
+    },
+    {
+      "id": "DustBin_15",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 4
+    },
+    {
+      "id": "DustBin_16",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 5
+    },
+    {
+      "id": "DustBin_17",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 6
+    },
+    {
+      "id": "DustBin_18",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 7
+    },
+    {
+      "id": "DustBin_19",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 8
+    },
+    {
+      "id": "DustBin_20",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 9
+    }
+  ],
+  "basic": {
+    "a0": [
+      0.000398,
+      0.000698,
+      0.001225,
+      0.002151,
+      0.003776,
+      0.000493,
+      0.000978,
+      0.001939,
+      0.003847,
+      0.007631,
+      0.015136,
+      0.030023,
+      0.059553,
+      0.118126,
+      0.23431,
+      0.000496,
+      0.000995,
+      0.001996,
+      0.004004,
+      0.008034,
+      0.016119,
+      0.032341,
+      0.064889,
+      0.130191,
+      0.261213
+    ],
+    "amin": [
+      0.0003,
+      0.000527,
+      0.000924,
+      0.001623,
+      0.002851,
+      0.00035,
+      0.000694,
+      0.001377,
+      0.002732,
+      0.005418,
+      0.010747,
+      0.021317,
+      0.042284,
+      0.083873,
+      0.166368,
+      0.00035,
+      0.000702,
+      0.001409,
+      0.002827,
+      0.005672,
+      0.01138,
+      0.022832,
+      0.04581,
+      0.091913,
+      0.184412
+    ],
+    "amax": [
+      0.000527,
+      0.000924,
+      0.001623,
+      0.002851,
+      0.005,
+      0.000694,
+      0.001377,
+      0.002732,
+      0.005418,
+      0.010747,
+      0.021317,
+      0.042284,
+      0.083873,
+      0.166368,
+      0.33,
+      0.000702,
+      0.001409,
+      0.002827,
+      0.005672,
+      0.01138,
+      0.022832,
+      0.04581,
+      0.091913,
+      0.184412,
+      0.37
+    ],
+    "sigma": [
+      3.585552,
+      3.714663,
+      4.015448,
+      4.895946,
+      0.000353,
+      3.619518,
+      3.983414,
+      4.175685,
+      4.165001,
+      3.894943,
+      3.325445,
+      2.638939,
+      2.728714,
+      4.501047,
+      0.018007,
+      3.634115,
+      3.664437,
+      3.64295,
+      3.602746,
+      3.533696,
+      3.434852,
+      3.350278,
+      3.398592,
+      3.68096,
+      0.022179
+    ],
+    "s": [
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3
+    ]
+  },
+  "shattering": {
+    "a0": [
+      0.000398,
+      0.000698,
+      0.001225,
+      0.002151,
+      0.003776,
+      0.000493,
+      0.000978,
+      0.001939,
+      0.003847,
+      0.007631,
+      0.015136,
+      0.030023,
+      0.059553,
+      0.118126,
+      0.23431,
+      0.000496,
+      0.000995,
+      0.001996,
+      0.004004,
+      0.008034,
+      0.016119,
+      0.032341,
+      0.064889,
+      0.130191,
+      0.261213
+    ],
+    "amin": [
+      0.0003,
+      0.000527,
+      0.000924,
+      0.001623,
+      0.002851,
+      0.00035,
+      0.000694,
+      0.001377,
+      0.002732,
+      0.005418,
+      0.010747,
+      0.021317,
+      0.042284,
+      0.083873,
+      0.166368,
+      0.00035,
+      0.000702,
+      0.001409,
+      0.002827,
+      0.005672,
+      0.01138,
+      0.022832,
+      0.04581,
+      0.091913,
+      0.184412
+    ],
+    "amax": [
+      0.000527,
+      0.000924,
+      0.001623,
+      0.002851,
+      0.005,
+      0.000694,
+      0.001377,
+      0.002732,
+      0.005418,
+      0.010747,
+      0.021317,
+      0.042284,
+      0.083873,
+      0.166368,
+      0.33,
+      0.000702,
+      0.001409,
+      0.002827,
+      0.005672,
+      0.01138,
+      0.022832,
+      0.04581,
+      0.091913,
+      0.184412,
+      0.37
+    ],
+    "sigma": [
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5,
+      3.5
+    ],
+    "s": [
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      2.2,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3,
+      3.3
+    ]
+  },
+  "export_parameters": {
+    "collisional_cooling": {
+      "Tmin": 10.0,
+      "Tmax": 1000000000.0,
+      "nT": 200,
+      "nv": 200,
+      "nphi": 200,
+      "delta_max": 0.1
+    },
+    "dust_sputtering": {
+      "Tmin": 1000.0,
+      "Tmax": 1000000000.0,
+      "nT": 200,
+      "nphi": 200,
+      "nbins_v": 200,
+      "hnu_max_ev": 13.6
+    },
+    "pah_sputtering": {
+      "Tmin": 1000.0,
+      "Tmax": 1000000000.0,
+      "nT": 200,
+      "nbins_v": 300,
+      "nbins_theta": 30
+    },
+    "dust_charging": {
+      "gamma_min": 0.0001,
+      "gamma_max": 1000000.0,
+      "n_gamma": 100,
+      "combos_per_gamma": 20,
+      "seed": 42
+    },
+    "dust_photoelectric_heating": {
+      "Tmin": 10.0,
+      "Tmax": 100000.0,
+      "nT": 100,
+      "gamma_min": 1e-06,
+      "gamma_max": 1000000.0,
+      "n_gamma": 100,
+      "radiation_model": "Mathis",
+      "mode": "fix_G0",
+      "fixed_value": 1.0,
+      "n_workers": 8
+    },
+    "pah_photoelectric_heating": {
+      "temperature": 1000.0,
+      "G0": 1.0,
+      "ne_min": 1e-05,
+      "ne_max": 100000.0,
+      "n_ne": 100,
+      "radiation_models": [
+        "Mathis"
+      ],
+      "optical_models": [
+        "Draine"
+      ],
+      "attachment_models": [
+        "Berne",
+        "Tielens"
+      ]
+    },
+    "pah_dissociation": {
+      "g0_min": 0.01,
+      "g0_max": 1000000.0,
+      "nh_min": 0.01,
+      "nh_max": 1000000.0
+    }
+  }
+}

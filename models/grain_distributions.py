@@ -113,8 +113,326 @@ class Classical_LogNormal_Distribution(object):
         avg = y / norm     
         return avg
 
+class Flat_Distribution(object):
+    """Uniform (flat) grain size distribution: dn/da = const within [amin, amax].
+
+    Accepts the same 5-parameter signature as LogNormal_Distribution so it can
+    be passed as a drop-in distribution_class override; a0 and sigma are ignored.
+    """
+
+    def __init__(self, a0, amin, amax, sigma, grain_density):
+        self.amin = amin
+        self.amax = amax
+        self.grain_density = grain_density
+        self.sintegral = self._init_integral()
+        a_mid = np.sqrt(amin * amax)
+        self.grain_mass = 4./3. * np.pi * grain_density * a_mid**3.
+
+    def _init_integral(self):
+        # ∫ m(a) * (dn/da) * da for dn/da = const, m(a) = (4π/3)*ρ*a³
+        return (4.*np.pi * self.grain_density / 3.) * (self.amax**4 - self.amin**4) / 4.
+
+    def n_density(self, mass_density, sizes):
+        C = mass_density / self.sintegral
+        return np.where((sizes >= self.amin) & (sizes <= self.amax), C, 0.0)
+
+    def averaged_over(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        return np.trapezoid(X[mask], sizes[mask]) / (self.amax - self.amin)
+
+    def averaged_over_mass(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**3
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_column(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**2
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_number(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        return np.trapezoid(X[mask], sizes[mask]) / (self.amax - self.amin)
+
+
+class PowerLaw_Distribution(object):
+    """Pure power-law grain size distribution: dn/da ∝ a^{-alpha} within [amin, amax].
+
+    Uses the same 5-parameter signature as LogNormal_Distribution so it can
+    be passed as a drop-in distribution_class override.  a0 is ignored;
+    sigma is reinterpreted as the power-law index alpha (dn/da ∝ a^{-alpha}).
+    """
+
+    def __init__(self, a0, amin, amax, powlaw_index, grain_density):
+        self.amin = amin
+        self.amax = amax
+        self.powlaw_index = powlaw_index
+        self.grain_density = grain_density
+        self.sintegral = self._init_integral()
+        # representative grain mass at geometric-mean size
+        a_mid = np.sqrt(amin * amax)
+        self.grain_mass = 4. / 3. * np.pi * grain_density * a_mid**3.
+
+    def _init_integral(self):
+        # sintegral = ∫ m(a) * dn/da * da  with  dn/da = C * a^(-alpha)
+        # = C * (4π/3)*ρ * ∫ a^(3-alpha) da
+        alpha = self.powlaw_index
+        prefac = 4. * np.pi * self.grain_density / 3.
+        if abs(alpha - 4.) < 1e-10:
+            return prefac * np.log(self.amax / self.amin)
+        exp = 4. - alpha
+        # For very steep distributions (alpha >> 4) the integral is dominated
+        # by amin; evaluate each term separately to avoid overflow.
+        try:
+            val = (self.amax**exp - self.amin**exp) / exp
+        except OverflowError:
+            # amin term dominates when alpha >> 4 (exp << 0)
+            val = (-self.amin**exp) / exp
+        return prefac * val
+
+    def n_density(self, mass_density, sizes):
+        C = mass_density / self.sintegral
+        dist = C * sizes**(-self.powlaw_index)
+        return np.where((sizes >= self.amin) & (sizes <= self.amax), dist, 0.0)
+
+    def averaged_over(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**(-self.powlaw_index)
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_mass(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**(3. - self.powlaw_index)
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_column(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**(2. - self.powlaw_index)
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_number(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**(-self.powlaw_index)
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+
+class PowerLaw_DualCutoff_Distribution(object):
+    """Power law with exponential cutoffs at both ends.
+
+    dn/da = C · a^{-alpha} · exp(-amin/a) · exp(-a/amax)
+
+    Uses the same 5-parameter signature as LogNormal_Distribution so it can
+    be passed as a drop-in distribution_class override; a0 is ignored and
+    sigma is reinterpreted as the power-law index alpha.
+    """
+
+    def __init__(self, a0, amin, amax, powlaw_index, grain_density):
+        self.amin = amin
+        self.amax = amax
+        self.powlaw_index = powlaw_index
+        self.grain_density = grain_density
+        self._a_grid = np.logspace(np.log10(amin), np.log10(amax), 600)
+        self.sintegral = self._init_integral()
+        self.grain_mass = 4. / 3. * np.pi * grain_density * np.sqrt(amin * amax)**3.
+
+    def _shape(self, a):
+        return a**(-self.powlaw_index) * np.exp(-self.amin / a) * np.exp(-a / self.amax)
+
+    def _init_integral(self):
+        # ∫ m(a) · dn/da · da = C · (4π/3)·ρ · ∫ a³ · shape(a) da
+        prefac = 4. * np.pi * self.grain_density / 3.
+        return prefac * np.trapezoid(self._a_grid**3 * self._shape(self._a_grid),
+                                     self._a_grid)
+
+    def n_density(self, mass_density, sizes):
+        C = mass_density / self.sintegral
+        return C * self._shape(sizes)
+
+    def averaged_over(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_mass(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**3 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_column(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**2 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_number(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+
+class PowerLaw_LowerCutoff_Distribution(object):
+    """Power law with an exponential cutoff only at the lower end.
+
+    dn/da = C · a^{-alpha} · exp(-amin/a)   for a <= amax, else 0
+
+    Use for the first (smallest-a) bin of a composition: the distribution
+    tapers smoothly to zero as a → 0, while the upper boundary is a hard
+    truncation at amax. a0 is ignored; sigma is the power-law index alpha.
+    """
+
+    def __init__(self, a0, amin, amax, powlaw_index, grain_density):
+        self.amin = amin
+        self.amax = amax
+        self.powlaw_index = powlaw_index
+        self.grain_density = grain_density
+        # Integrate from amin/100 so the lower exponential tail is captured
+        self._a_grid = np.logspace(np.log10(amin * 0.01), np.log10(amax), 800)
+        self.sintegral = self._init_integral()
+        self.grain_mass = 4. / 3. * np.pi * grain_density * np.sqrt(amin * amax)**3.
+
+    def _shape(self, a):
+        return a**(-self.powlaw_index) * np.exp(-self.amin / a)
+
+    def _init_integral(self):
+        prefac = 4. * np.pi * self.grain_density / 3.
+        return prefac * np.trapezoid(self._a_grid**3 * self._shape(self._a_grid),
+                                     self._a_grid)
+
+    def n_density(self, mass_density, sizes):
+        C = mass_density / self.sintegral
+        result = C * self._shape(sizes)
+        result[sizes > self.amax] = 0.0
+        return result
+
+    def averaged_over(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_mass(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**3 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_column(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**2 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_number(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+
+class PowerLaw_UpperCutoff_Distribution(object):
+    """Power law with an exponential cutoff only at the upper end.
+
+    dn/da = C · a^{-alpha} · exp(-a/amax)   for a >= amin, else 0
+
+    Use for the last (largest-a) bin of a composition: the distribution
+    tapers smoothly to zero as a → ∞, while the lower boundary is a hard
+    truncation at amin. a0 is ignored; sigma is the power-law index alpha.
+    """
+
+    def __init__(self, a0, amin, amax, powlaw_index, grain_density):
+        self.amin = amin
+        self.amax = amax
+        self.powlaw_index = powlaw_index
+        self.grain_density = grain_density
+        # Integrate out to amax*20 so the upper exponential tail is captured
+        self._a_grid = np.logspace(np.log10(amin), np.log10(amax * 20.), 800)
+        self.sintegral = self._init_integral()
+        self.grain_mass = 4. / 3. * np.pi * grain_density * np.sqrt(amin * amax)**3.
+
+    def _shape(self, a):
+        return a**(-self.powlaw_index) * np.exp(-a / self.amax)
+
+    def _init_integral(self):
+        prefac = 4. * np.pi * self.grain_density / 3.
+        return prefac * np.trapezoid(self._a_grid**3 * self._shape(self._a_grid),
+                                     self._a_grid)
+
+    def n_density(self, mass_density, sizes):
+        C = mass_density / self.sintegral
+        result = C * self._shape(sizes)
+        result[sizes < self.amin] = 0.0
+        return result
+
+    def averaged_over(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_mass(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**3 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_column(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**2 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_number(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+
+class Exponential_Distribution(object):
+    """Pure exponential: dn/da = C * exp(-a/a_c), hard lower cutoff at amin.
+
+    5-arg signature: a0 ignored; sigma is the exponential scale a_c in µm
+    (converted to cm internally). Use for the last bin of each composition
+    where the Zubko distribution is in its exponential rolloff regime.
+    """
+
+    def __init__(self, a0, amin, amax, sigma, grain_density):
+        self.amin = amin            # cm
+        self.amax = amax            # cm
+        self.a_c  = sigma * 1e-4   # convert µm → cm
+        self.grain_density = grain_density
+        self._a_grid = np.logspace(np.log10(amin), np.log10(amax * 20.), 800)
+        self.sintegral = self._init_integral()
+        self.grain_mass = 4. / 3. * np.pi * grain_density * np.sqrt(amin * amax)**3.
+
+    def _shape(self, a):
+        return np.exp(-a / self.a_c)
+
+    def _init_integral(self):
+        prefac = 4. * np.pi * self.grain_density / 3.
+        return prefac * np.trapezoid(self._a_grid**3 * self._shape(self._a_grid),
+                                     self._a_grid)
+
+    def n_density(self, mass_density, sizes):
+        C = mass_density / self.sintegral
+        result = C * self._shape(sizes)
+        result[sizes < self.amin] = 0.0
+        return result
+
+    def averaged_over(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_mass(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**3 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_column(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = sizes[mask]**2 * self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+    def averaged_over_number(self, X, sizes):
+        mask = (sizes >= self.amin) & (sizes <= self.amax)
+        w = self._shape(sizes[mask])
+        return np.trapezoid(X[mask] * w, sizes[mask]) / np.trapezoid(w, sizes[mask])
+
+
 class PowerLaw_ExpCutoff_Distribution(object):
-    
+
     def __init__(self,amin,amax,a_cutoff,powlaw_index,grain_density):
         self.Nc = None
         self.amin = amin

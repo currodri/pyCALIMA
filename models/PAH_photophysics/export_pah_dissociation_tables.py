@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 
-from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_export_parameters
+from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_export_parameters, get_model_data_dir
 from models.PAH_photophysics.PAH_photophysics import plot_acetylene_dissociation_rate
 
 
@@ -62,7 +62,7 @@ def main(
     overwrite: bool = True,
 ):
     """Export acetylene dissociation products for all configured PAH bins."""
-    out_dir = Path(output_dir) if output_dir else (_repo_root() / 'model_data' / 'PAH_dissociation_data')
+    out_dir = Path(output_dir) if output_dir else (get_model_data_dir() / 'PAH_dissociation_data')
     out_dir.mkdir(parents=True, exist_ok=True)
 
     export_cfg = get_export_parameters('pah_dissociation', defaults=DEFAULT_EXPORT_PARAMS)

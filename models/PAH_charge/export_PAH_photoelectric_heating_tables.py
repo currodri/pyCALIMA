@@ -25,7 +25,7 @@ import seaborn as sns
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from models.PAH_charge.PAH_photoelectric_heating import compute_tables_ISRF
-from models.grain_size_config import load_grain_size_config, set_config_path, get_bins, get_lognormal_parameters, get_export_parameters
+from models.grain_size_config import load_grain_size_config, set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 from models.tools.utils import Nc_from_size
 
 
@@ -138,7 +138,7 @@ def main(output_root=None, radiation_models=None, optical_models=None,
     repo_root = _repo_root()
     
     if output_root is None:
-        output_root = repo_root / 'model_data' / 'PAH_photoelectric_heating_data'
+        output_root = get_model_data_dir() / 'PAH_photoelectric_heating_data'
     else:
         output_root = Path(output_root)
     

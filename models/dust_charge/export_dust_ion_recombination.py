@@ -19,7 +19,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 from models.dust_charge.dust_ion_recombination import compute_ion_recombination_coefficients
 
 DEFAULT_EXPORT_PARAMS = {
@@ -412,8 +412,7 @@ def main(config_path=None):
     n_workers_cfg = params_cfg.get('n_workers')
     n_workers = None if n_workers_cfg is None else int(n_workers_cfg)
 
-    repo_root = _repo_root()
-    output_dir = repo_root / 'model_data' / 'dust_ion_recombination_data'
+    output_dir = get_model_data_dir() / 'dust_ion_recombination_data'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Remove pre-existing files to keep folder clean

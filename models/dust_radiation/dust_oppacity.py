@@ -1748,7 +1748,8 @@ def _integrate_q_table_2d(native_sizes, Q_abs_2d, Q_sca_2d, g_2d,
 
 def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
                                              nsize_per_bin=30,
-                                             pah_state='neutral', verbose=False):
+                                             pah_state='neutral', verbose=False,
+                                             distribution_class=None):
     """Compute bin cross sections by integrating raw tables over JSON size distributions.
 
     Returns per-component cross sections normalized per gram of dust (cm^2 / g_dust),
@@ -1786,10 +1787,12 @@ def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
         # Pre-build the 2D Q table at the target wavelength grid
         q_table_cache[material] = _build_q_table_2d(optical_cache[material], target_wavelengths)
 
+    _dist_cls = distribution_class if distribution_class is not None else LogNormal_Distribution
+
     def _process_bin(args):
         i, bin_id, material = args
         p = get_lognormal_parameters(bin_id)
-        dist = LogNormal_Distribution(
+        dist = _dist_cls(
             p['a0'] * 1e-4,
             p['amin'] * 1e-4,
             p['amax'] * 1e-4,
@@ -1826,10 +1829,16 @@ def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
 
 def compute_component_cross_sections_mie(component_bins, target_wavelengths,
                                          nsize_per_bin=30,
-                                         pah_state='neutral', verbose=False):
+                                         pah_state='neutral', verbose=False,
+                                         distribution_class=None,
+                                         distribution_class_map=None):
     """Compute bin cross sections by integrating Mie theory calculations over JSON size distributions.
 
     Returns per-component cross sections normalized per gram of dust (cm^2 / g_dust).
+
+    distribution_class_map : dict {bin_id: class}, optional
+        Per-bin override of distribution_class. Takes precedence over distribution_class
+        for any bin_id key present in the map.
     """
     import sys
     tools_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tools')
@@ -1869,10 +1878,13 @@ def compute_component_cross_sections_mie(component_bins, target_wavelengths,
                 optical_cache[material] = pah_efficiencies(filename)
             q_table_cache[material] = _build_q_table_2d(optical_cache[material], target_wavelengths)
 
+    _dist_cls_default = distribution_class if distribution_class is not None else LogNormal_Distribution
+
     def _process_bin(args):
         i, bin_id, material = args
+        _dist_cls = (distribution_class_map or {}).get(bin_id, _dist_cls_default)
         p = get_lognormal_parameters(bin_id)
-        dist = LogNormal_Distribution(
+        dist = _dist_cls(
             p['a0'] * 1e-4,
             p['amin'] * 1e-4,
             p['amax'] * 1e-4,
@@ -2418,7 +2430,9 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
                                       pah_state='neutral', verbose=False,
                                       optical_dir=None, mdust_per_H=1e-26,
                                       cabs_method='precomputed',
-                                      nsize_per_bin=30):
+                                      nsize_per_bin=30,
+                                      distribution_class=None,
+                                      distribution_class_map=None):
     """
     Read precomputed DustBin/PAHBin optical tables, combine them with the
     supplied mass fractions, and plot the resulting extinction curve
@@ -2547,6 +2561,8 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
             nsize_per_bin=nsize_per_bin,
             pah_state=pah_state,
             verbose=verbose,
+            distribution_class=distribution_class,
+            distribution_class_map=distribution_class_map,
         )
     elif cabs_method_token in ('legacy', 'old', 'raw', 'integration'):
         wav = np.logspace(-1.5, 1.0, 100)
@@ -2556,6 +2572,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
             nsize_per_bin=nsize_per_bin,
             pah_state=pah_state,
             verbose=verbose,
+            distribution_class=distribution_class,
         )
     else:
         raise ValueError(
@@ -2571,6 +2588,21 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
 
     total_y = 1.086 * cext_total
     comps_y = 1.086 * cext_comps
+
+    # Group bin indices by composition for per-composition curves
+    _bin_comp = {b['id']: b['composition'] for b in load_grain_size_config()['bins']}
+    _comp_idx = {'pah': [], 'graphite': [], 'silicate': []}
+    for _i, _bid in enumerate(component_bins):
+        if _bid in pah_bins:
+            _comp_idx['pah'].append(_i)
+        else:
+            _cp = _bin_comp.get(_bid, 'graphite')
+            _comp_idx[_cp].append(_i)
+    cext_by_comp = {
+        _c: sum(component_mf[_i] * cext_comps[_i] for _i in _idxs) if _idxs
+            else np.zeros(len(wav))
+        for _c, _idxs in _comp_idx.items()
+    }
 
     # find V band (0.55 micron) index for normalization
     lambda_V = 0.55
@@ -2612,10 +2644,12 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     colour = sns.color_palette('tab10', n_colors=max(ncomp, 3))
 
     # plot each component's size distribution scaled by its mass fraction
+    _dist_cls_default = distribution_class if distribution_class is not None else LogNormal_Distribution
     distributions = []
-    for p in params:
+    for _bid, p in zip(component_bins, params):
+        _dist_cls_bin = (distribution_class_map or {}).get(_bid, _dist_cls_default)
         distributions.append(
-            LogNormal_Distribution(
+            _dist_cls_bin(
                 p['a0'] * 1e-4,
                 p['amin'] * 1e-4,
                 p['amax'] * 1e-4,
@@ -2624,19 +2658,23 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
             )
         )
 
-    for i, bin_id in enumerate(component_bins):
-        try:
-            n_vs_a = distributions[i].n_density(1.0, a_cm)
-        except Exception:
-            n_vs_a = np.zeros_like(a_cm)
-        ydist = a_cm**4 * n_vs_a * component_mf[i] * mdust_per_H
-        ax_top.plot(a_micron, ydist, color=colour[i], lw=2, label=bin_id)
-
-    # combined distribution
-    total_dist = np.zeros_like(a_micron)
-    for i in range(ncomp):
-        total_dist += a_cm**4 * distributions[i].n_density(component_mf[i]*mdust_per_H, a_cm)
-    ax_top.plot(a_micron, total_dist, color='k', lw=2)
+    # One solid line per composition (PAH / graphite / silicate); no per-bin lines, no total
+    _comp_plot = [
+        ('pah',      'navy',      'PAH'),
+        ('graphite', 'darkgreen', 'Graphite'),
+        ('silicate', 'darkred',   'Silicate'),
+    ]
+    for _c, _col, _lbl in _comp_plot:
+        _idxs = _comp_idx[_c]
+        if not _idxs:
+            continue
+        comp_dist = np.zeros_like(a_cm)
+        for _i in _idxs:
+            try:
+                comp_dist += a_cm**4 * distributions[_i].n_density(component_mf[_i] * mdust_per_H, a_cm)
+            except Exception:
+                pass
+        ax_top.plot(a_micron, comp_dist, color=_col, lw=2, ls='-', label=_lbl)
 
     # Zubko et al. (2004) BARE-GR-S grain size distributions for comparison
     # a^4 * dn/da converted to cm^3/H: (a_um*1e-4)^4 * (dnda_per_um * 1e4)
@@ -2660,7 +2698,7 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     ax_top.set_yscale('log')
     ax_top.set_ylabel(r'$a^4 n(a)$ (scaled by mass fraction)', fontsize=12)
     ax_top.set_xlabel(r'$a$ [$\mu$m]', fontsize=12)
-    ax_top.set_ylim([5e-30,1e-27])
+    ax_top.set_ylim([5e-30, 1e-27])
     ax_top.set_xlim([amin_cm * 1e4, amax_cm * 1e4])
     ax_top.tick_params(labelsize=10)
     ax_top.grid(alpha=0.2, which='both')
@@ -2670,13 +2708,13 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     # --- Middle panel: mass-fraction weighted Cext per H ---
     x = 1.0 / wav
     order = np.argsort(x)
-    ax_mid.plot(x[order], cext_total[order] * mdust_per_H, color='k', lw=2)
-
-    # # plot per-component normalized contributions (if present)
-    # for i, bin_id in enumerate(component_bins):
-    #     comp_curve = component_mf[i] * cabs_comps[i, :] * mdust_per_H
-    #     if np.any(np.isfinite(comp_curve)):
-    #         ax_mid.plot(x[order], comp_curve[order], lw=2, color=colour[i])
+    _comp_styles = {'pah': ('navy', '-', 'PAH'), 'graphite': ('darkgreen', '-', 'Graphite'),
+                    'silicate': ('darkred', '-', 'Silicate')}
+    for _c, (_col, _ls, _lbl) in _comp_styles.items():
+        _curve = cext_by_comp[_c] * mdust_per_H
+        if np.any(_curve > 0):
+            ax_mid.plot(x[order], _curve[order], color=_col, ls=_ls, lw=1.5, label=_lbl)
+    ax_mid.plot(x[order], cext_total[order] * mdust_per_H, color='k', lw=2, label='Total')
 
     # Load the CLOUDY cross-sections for comparison
     data_cloudy = np.loadtxt(PATH_EXTERNAL_DATA / 'grains_CLOUDY.dat')
@@ -2734,13 +2772,11 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
     # --- Bottom panel: extinction curve normalized at V ---
     x = 1.0 / wav
     order = np.argsort(x)
+    for _c, (_col, _ls, _lbl) in _comp_styles.items():
+        _curve = cext_by_comp[_c]
+        if np.any(_curve > 0):
+            ax_bot.plot(x[order], (_curve / yV)[order], color=_col, ls=_ls, lw=1.5, label=_lbl)
     ax_bot.plot(x[order], y_norm[order], color='k', lw=2, label='Total')
-
-    # # plot per-component normalized contributions (if present)
-    # for i, bin_id in enumerate(component_bins):
-    #     comp_curve = comp_norm[i, :]
-    #     if np.any(np.isfinite(comp_curve)):
-    #         ax_bot.plot(x[order], comp_curve[order], label=bin_id, lw=2, color=colour[i])
 
     ax_bot.set_xlabel(r'$\lambda^{-1} [\mu {\rm m}^{-1}]$', fontsize=12)
     ylabel = r'$A_\lambda / A_V$'
@@ -2808,6 +2844,7 @@ def fit_massfractions_to_zubko2004(
     wav_fit_range=(0.1, 10.0),
     composition_penalty_weight=10.0,
     zubko_mf_ref=None,
+    distribution_class=None,
 ):
     """Fit bin mass fractions to best reproduce the Zubko et al. (2004) BARE-GR-S
     extinction cross section.
@@ -2991,6 +3028,7 @@ def fit_massfractions_to_zubko2004(
             nsize_per_bin=nsize_per_bin,
             pah_state=pah_state,
             verbose=verbose,
+            distribution_class=distribution_class,
         )
         cext_comps = cabs_c + csca_c
     elif cabs_method_token in ('legacy', 'old', 'raw', 'integration'):
@@ -3001,6 +3039,7 @@ def fit_massfractions_to_zubko2004(
             nsize_per_bin=nsize_per_bin,
             pah_state=pah_state,
             verbose=verbose,
+            distribution_class=distribution_class,
         )
         cext_comps = cabs_c + csca_c
     else:
@@ -3163,6 +3202,7 @@ def fit_massfractions_to_zubko2004(
         mdust_per_H=mdust_per_H,
         cabs_method=cabs_method,
         nsize_per_bin=nsize_per_bin,
+        distribution_class=distribution_class,
     )
 
     return {

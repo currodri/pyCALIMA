@@ -16,7 +16,7 @@ import shutil
 import numpy as np
 
 import models.dust_gas_collisions.dust_sputtering as dust_sputtering
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 
 
 DEFAULT_EXPORT_PARAMS = {
@@ -89,8 +89,7 @@ def main(config_path=None):
     nbins_v = int(params_cfg['nbins_v'])
     hnu_max_ev = float(params_cfg['hnu_max_ev'])
     
-    repo_root = _repo_root()
-    output_dir = repo_root / "model_data" / "thermal_sputtering_data"
+    output_dir = get_model_data_dir() / "thermal_sputtering_data"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Remove legacy composition-based names to avoid mixed naming after reruns.

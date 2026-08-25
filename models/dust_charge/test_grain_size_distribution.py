@@ -315,7 +315,7 @@ def run_numerical_comparison_if_available():
         ]
         
         # Integrate numerically over 60 size bins
-        sizes_cm = np.logspace(np.log10(A_MIN), np.log10(A_MAX), 60)
+        sizes_cm = np.logspace(np.log10(A_MIN), np.log10(A_MAX), 300)
         
         alpha_gra = []
         alpha_sil = []
@@ -541,6 +541,152 @@ def compare_recomb_rates_over_phi_range(T=100.0, save_plot_path=None, use_li_dra
         plt.close(fig)
         print(f"✓ Saved comparison plot to {save_plot_path}")
 
+def compute_single_gamma_contribution(args):
+    """
+    Worker function to calculate recombination contribution of each grain size
+    at a single gamma value. Defined at top-level for pickling in multiprocessing.
+    """
+    gamma_idx, gamma, T, sizes_cm, dn_da_gra, dn_da_sil, A_MIN, A_MAX, use_li_draine = args
+    import models.dust_radiation.dust_emission as de
+    de.USE_LI_DRAINE_2001_CARBONACEOUS = use_li_draine
+    
+    from models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
+    
+    G0 = 1.0
+    ne = G0 * np.sqrt(T) / gamma
+    
+    # Construct list of ion species (H+ only)
+    ion_species = [
+        {'name': 'H+', 'n': ne, 'T': T, 'm': 1.6726219e-27, 'z': 1.0, 's_i': 1.0}
+    ]
+    
+    contrib_gra = np.zeros(len(sizes_cm))
+    contrib_sil = np.zeros(len(sizes_cm))
+    
+    for j, a in enumerate(sizes_cm):
+        res_gra = compute_grain_assisted_ion_recombination(G0, ne, T, 'graphite', a, ion_species=ion_species, recomb_mode='case_b')
+        res_sil = compute_grain_assisted_ion_recombination(G0, ne, T, 'silicate', a, ion_species=ion_species, recomb_mode='case_b')
+        
+        # Rate coefficient (cm^3 s^-1 per grain)
+        alpha_gra_val = res_gra['ion_recomb_rate_coefficients'][0]
+        alpha_sil_val = res_sil['ion_recomb_rate_coefficients'][0]
+        
+        # Contribution (per H atom per cm of grain size)
+        contrib_gra[j] = alpha_gra_val * dn_da_gra[j]
+        contrib_sil[j] = alpha_sil_val * dn_da_sil[j]
+        
+    return gamma_idx, contrib_gra, contrib_sil
+
+
+def plot_grain_size_contribution(T=100.0, save_plot_path=None, use_li_draine=False):
+    """
+    Computes and plots the grain-assisted ion recombination rate contribution of each grain size
+    for 10 different gamma values. Parallelized using ProcessPoolExecutor.
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    plt.rcParams["text.usetex"] = False
+    print(f"\nComputing grain size recombination contribution over gamma range (10^2 to 10^6) at T = {T} K...")
+    
+    gammas = np.logspace(2.0, 6.0, 10)  # 10 points
+    
+    # Grid of grain sizes for integration (300 bins is a good balance)
+    sizes_micron = np.logspace(-4.0, 1.0, 300)
+    sizes_cm = sizes_micron * 1e-4
+    
+    # Get scaled GSD values
+    dn_da_gra = np.array([0.8 * graphite_dn_da(a) for a in sizes_cm])
+    dn_da_sil = np.array([silicate_dn_da(a) for a in sizes_cm])
+    
+    # Arrays to store results
+    contribs_gra = np.zeros((len(gammas), len(sizes_cm)))
+    contribs_sil = np.zeros((len(gammas), len(sizes_cm)))
+    
+    # Prepare tasks
+    tasks = [
+        (i, gamma, T, sizes_cm, dn_da_gra, dn_da_sil, A_MIN, A_MAX, use_li_draine)
+        for i, gamma in enumerate(gammas)
+    ]
+    
+    print(f"  Scanning {len(gammas)} environments for grain size contributions...")
+    
+    try:
+        from tqdm import tqdm
+        HAS_TQDM = True
+    except ImportError:
+        HAS_TQDM = False
+        
+    with ProcessPoolExecutor() as executor:
+        futures = [executor.submit(compute_single_gamma_contribution, t) for t in tasks]
+        
+        if HAS_TQDM:
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Scanning contributions"):
+                gamma_idx, c_gra, c_sil = future.result()
+                contribs_gra[gamma_idx, :] = c_gra
+                contribs_sil[gamma_idx, :] = c_sil
+        else:
+            for future in as_completed(futures):
+                gamma_idx, c_gra, c_sil = future.result()
+                print(f"    ✓ Completed gamma index {gamma_idx+1}/{len(gammas)} (gamma = {gammas[gamma_idx]:.2e})")
+                contribs_gra[gamma_idx, :] = c_gra
+                contribs_sil[gamma_idx, :] = c_sil
+                
+    # Plotting
+    if save_plot_path:
+        import matplotlib.colors as mcolors
+        
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), dpi=150)
+        
+        # Use a nice modern colormap
+        cmap = plt.get_cmap('plasma')
+        norm = mcolors.LogNorm(vmin=gammas.min(), vmax=gammas.max())
+        
+        for i, gamma in enumerate(gammas):
+            color = cmap(norm(gamma))
+            
+            # dalpha/da (converted to per micron)
+            total_da = contribs_gra[i, :] + contribs_sil[i, :]
+            total_da_micron = total_da * 1e-4  # cm^-1 to micron^-1
+            
+            # dalpha/dln a
+            total_dln = total_da * sizes_cm
+            
+            # Plot
+            ax1.loglog(sizes_micron, total_da_micron, color=color, lw=2.5)
+            ax2.loglog(sizes_micron, total_dln, color=color, lw=2.5)
+            
+        # Left Panel styling
+        ax1.set_xlabel(r'Grain radius $a$ [$\mu$m]', fontsize=12)
+        ax1.set_ylabel(r'$d\alpha / da_{\mu\mathrm{m}} \quad [\mathrm{cm}^3\,\mathrm{s}^{-1}\,\mathrm{H}^{-1}\,\mu\mathrm{m}^{-1}]$', fontsize=12)
+        ax1.set_title(r'Contribution per linear grain radius bin', fontsize=13)
+        ax1.grid(True, which='both', linestyle=':', alpha=0.5)
+        ax1.set_xlim(1e-4, 5.0)
+        ax1.set_ylim(1e-30,1e-10)
+        
+        # Right Panel styling
+        ax2.set_xlabel(r'Grain radius $a$ [$\mu$m]', fontsize=12)
+        ax2.set_ylabel(r'$d\alpha / d\ln a \quad [\mathrm{cm}^3\,\mathrm{s}^{-1}\,\mathrm{H}^{-1}]$', fontsize=12)
+        ax2.set_title(r'Contribution per logarithmic grain radius bin', fontsize=13)
+        ax2.grid(True, which='both', linestyle=':', alpha=0.5)
+        ax2.set_xlim(1e-4, 5.0)
+        ax2.set_ylim(1e-30,1e-10)
+        
+        # Adjust layout to make space for the colorbar
+        fig.subplots_adjust(right=0.85)
+        
+        # Create colorbar axis
+        cbar_ax = fig.add_axes([0.88, 0.15, 0.03, 0.7])
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, cax=cbar_ax)
+        cbar.set_label(r'$\gamma = G_0 T^{1/2} / n_e \quad [\mathrm{K}^{1/2}\,\mathrm{cm}^3]$', fontsize=12)
+        
+        plt.suptitle(f'WD01 Grain Size Contribution to H+ Recombination (T = {T} K, Case B)', y=0.97, fontsize=14)
+        
+        fig.savefig(save_plot_path, bbox_inches='tight')
+        plt.close(fig)
+        print(f"✓ Saved grain size contribution plot to {save_plot_path}")
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Weingartner & Draine (2001) Size Distribution & Recombination Fitting Test")
@@ -579,6 +725,11 @@ def main():
     comparison_plot_path = os.path.join(script_dir, "recombination_rate_comparison.png")
     compare_recomb_rates_over_phi_range(T=100.0, save_plot_path=comparison_plot_path, use_li_draine=use_ld)
 
+    # Grain size contribution plot over 10 gamma values
+    contribution_plot_path = os.path.join(script_dir, "recombination_grain_size_contribution.png")
+    plot_grain_size_contribution(T=100.0, save_plot_path=contribution_plot_path, use_li_draine=use_ld)
+
 
 if __name__ == "__main__":
     main()
+

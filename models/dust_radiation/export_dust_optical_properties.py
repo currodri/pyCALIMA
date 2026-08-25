@@ -24,7 +24,7 @@ if __package__ in (None, ''):
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path, get_header_lines
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path, get_header_lines, get_model_data_dir
 from models.dust_radiation.dust_oppacity import (
     dust_efficiencies,
     _compute_component_cross_sections_legacy,
@@ -57,7 +57,7 @@ def _save_optical_quicklook_plot(plot_path, wavelengths_cm, C_abs, C_sca, title)
     plt.close(fig)
 
 
-def export_dust_optical_properties(output_dir='model_data/optical_properties', config_path=None, cabs_method='precomputed'):
+def export_dust_optical_properties(output_dir=None, config_path=None, cabs_method='precomputed', distribution_class=None, distribution_class_map=None):
     """
     Batch export optical properties for all dust grain bins.
     
@@ -83,6 +83,8 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
     # Set config path if provided
     if config_path:
         set_config_path(config_path)
+    if output_dir is None:
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     # Create output directory if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -126,31 +128,33 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
             # to ensure constant bin separation in log space for downstream interpolation.
             target_wav_micron = np.logspace(-3, 3, 241)
             
-            # Construct the distribution to get central grain mass
+            # Construct the distribution to get representative grain mass
             p = get_lognormal_parameters(bin_id)
             from models.grain_distributions import LogNormal_Distribution
-            dist = LogNormal_Distribution(
+            _bin_dist_cls = (distribution_class_map or {}).get(bin_id, distribution_class)
+            _dist_cls = _bin_dist_cls if _bin_dist_cls is not None else LogNormal_Distribution
+            dist = _dist_cls(
                 p['a0'] * 1e-4,
                 p['amin'] * 1e-4,
                 p['amax'] * 1e-4,
                 p['sigma'],
                 p['s'],
             )
-            m_a0 = dist.grain_mass  # in grams
-
             if cabs_method == 'mie':
                 cabs_comps, csca_comps, crp_comps = compute_component_cross_sections_mie(
-                    [bin_id], target_wavelengths=target_wav_micron, nsize_per_bin=30, verbose=False
+                    [bin_id], target_wavelengths=target_wav_micron, nsize_per_bin=30, verbose=False,
+                    distribution_class=_bin_dist_cls,
                 )
             else:
                 cabs_comps, csca_comps, crp_comps = _compute_component_cross_sections_legacy(
-                    [bin_id], target_wavelengths=target_wav_micron, nsize_per_bin=30, verbose=False
+                    [bin_id], target_wavelengths=target_wav_micron, nsize_per_bin=30, verbose=False,
+                    distribution_class=_bin_dist_cls,
                 )
 
             wavelengths_cm = target_wav_micron * 1e-4
-            C_abs = m_a0 * cabs_comps[0]
-            C_sca = m_a0 * csca_comps[0]
-            C_rp  = m_a0 * crp_comps[0]
+            C_abs = cabs_comps[0]   # [cm^2/g_dust]
+            C_sca = csca_comps[0]
+            C_rp  = crp_comps[0]
             
         except Exception as e:
             print(f"  ✗ Error computing optical properties for bin {bin_id}: {e}")
@@ -177,7 +181,7 @@ def export_dust_optical_properties(output_dir='model_data/optical_properties', c
                 title="Dust optical properties",
                 script_name="models/dust_radiation/export_dust_optical_properties.py",
                 bin_info=f"Bin ID: {bin_id}, Composition: {composition}, Bin rank: {bin_rank}, Grain size a0: {a0} micron",
-                val_desc="Columns: lambda[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]"
+                val_desc="Columns: lambda[Angstrom] C_abs[cm^2/g_dust] C_sca[cm^2/g_dust] C_rp[cm^2/g_dust]"
             )
 
             with open(output_path, 'w') as f:

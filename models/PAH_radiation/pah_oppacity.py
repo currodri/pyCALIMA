@@ -22,29 +22,41 @@ plt.rcParams.update({
     "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
 })
 
-from models.grain_size_config import get_bins, get_lognormal_parameters, build_lognormal_distribution, get_optical_props_path
+from models.grain_size_config import get_bins, get_lognormal_parameters, build_lognormal_distribution, get_optical_props_path, get_model_data_dir
 from models.dust_model import LogNormal_Distribution
 from models.dust_radiation.dust_oppacity import compute_isrf_averaged_cross_sections
 
 PATH_OPTICS = str(get_optical_props_path())
 
 
-def _save_optical_quicklook_plot(plot_path, wavelengths_cm, C_abs, C_sca, title):
-    """Save a quick-look log-log plot of absorption, scattering and extinction."""
+def _save_optical_quicklook_plot(plot_path, wavelengths_cm, C_abs_neu, C_sca_neu, C_rp_neu, C_abs_ion, C_sca_ion, C_rp_ion, title):
+    """Save a quick-look log-log plot of absorption, scattering and radiation pressure, comparing neutral and ionised."""
     wavelengths_micron = np.asarray(wavelengths_cm) * 1e4
-    C_abs = np.asarray(C_abs)
-    C_sca = np.asarray(C_sca)
-    C_ext = C_abs + C_sca
+    C_abs_neu = np.asarray(C_abs_neu)
+    C_sca_neu = np.asarray(C_sca_neu)
+    C_rp_neu = np.asarray(C_rp_neu)
+
+    C_abs_ion = np.asarray(C_abs_ion)
+    C_sca_ion = np.asarray(C_sca_ion)
+    C_rp_ion = np.asarray(C_rp_ion)
 
     fig, ax = plt.subplots(figsize=(7, 5), dpi=180)
-    ax.loglog(wavelengths_micron, C_abs, label='C_abs', linewidth=2)
-    ax.loglog(wavelengths_micron, C_sca, label='C_sca', linewidth=2)
-    ax.loglog(wavelengths_micron, C_ext, label='C_ext', linewidth=2)
+    
+    # Neutral (blue palette)
+    ax.loglog(wavelengths_micron, C_abs_neu, color='tab:blue', linestyle='-', label=r'$C_{\rm abs}$ (neutral)', linewidth=2)
+    ax.loglog(wavelengths_micron, C_sca_neu, color='tab:blue', linestyle='--', label=r'$C_{\rm sca}$ (neutral)', linewidth=1.5)
+    ax.loglog(wavelengths_micron, C_rp_neu, color='tab:blue', linestyle=':', label=r'$C_{\rm rp}$ (neutral)', linewidth=2)
+    
+    # Ionised (orange palette)
+    ax.loglog(wavelengths_micron, C_abs_ion, color='tab:orange', linestyle='-', label=r'$C_{\rm abs}$ (ionised)', linewidth=2)
+    ax.loglog(wavelengths_micron, C_sca_ion, color='tab:orange', linestyle='--', label=r'$C_{\rm sca}$ (ionised)', linewidth=1.5)
+    ax.loglog(wavelengths_micron, C_rp_ion, color='tab:orange', linestyle=':', label=r'$C_{\rm rp}$ (ionised)', linewidth=2)
+
     ax.set_xlabel(r'$\lambda$ [$\mu$m]')
     ax.set_ylabel(r'$C$ [cm$^2$]')
     ax.set_title(title)
     ax.grid(True, which='both', alpha=0.25)
-    ax.legend(frameon=False)
+    ax.legend(frameon=False, ncol=2)
     fig.tight_layout()
     fig.savefig(plot_path)
     plt.close(fig)
@@ -285,7 +297,7 @@ def interpolate_pah_cross_sections_2d(pah_type, grain_size, target_wavelengths=N
     return grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp
 
 
-def export_pah_optical_properties(output_dir='model_data/optical_properties', config_path=None):
+def export_pah_optical_properties(output_dir=None, config_path=None):
     """
     Batch export optical properties for all PAH bins defined in grain configuration.
     
@@ -305,6 +317,8 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
     if config_path:
         from models.grain_size_config import set_config_path
         set_config_path(config_path)
+    if output_dir is None:
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     # Create output directory if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -420,6 +434,10 @@ def export_pah_optical_properties(output_dir='model_data/optical_properties', co
                 wavelengths_cm,
                 C_abs_neu,
                 C_sca_neu,
+                C_rp_neu,
+                C_abs_ion,
+                C_sca_ion,
+                C_rp_ion,
                 title=f"PAH {composition} bin {bin_rank}, a0={a0:.4g} micron"
             )
             

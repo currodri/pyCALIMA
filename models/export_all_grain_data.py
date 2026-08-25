@@ -21,7 +21,7 @@ from datetime import datetime
 import json
 import time
 
-from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_bin_by_rank
+from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_bin_by_rank, get_model_data_dir
 
 
 def get_git_info():
@@ -825,10 +825,11 @@ def export_dust_optical_properties_wrapper(config_path=None):
         print("EXPORTING DUST OPTICAL PROPERTIES")
         print("="*80)
         export_dust_optical_properties(config_path=config_path)
+        _odir = str(get_model_data_dir() / 'optical_properties')
         return {
             'status': 'Success',
             'timestamp': timestamp_str,
-            'dir': 'model_data/optical_properties',
+            'dir': _odir,
             'successful': 4,
             'failed': 0,
             'file_count': 4,
@@ -838,7 +839,7 @@ def export_dust_optical_properties_wrapper(config_path=None):
         return {
             'status': f'Error: {str(e)}',
             'timestamp': timestamp_str,
-            'dir': 'model_data/optical_properties',
+            'dir': str(get_model_data_dir() / 'optical_properties'),
             'successful': 0,
             'failed': 4,
             'file_count': 0,
@@ -857,10 +858,11 @@ def export_pah_optical_properties_wrapper(config_path=None):
         print("EXPORTING PAH OPTICAL PROPERTIES")
         print("="*80)
         export_pah_optical_properties(config_path=config_path)
+        _odir = str(get_model_data_dir() / 'optical_properties')
         return {
             'status': 'Success',
             'timestamp': timestamp_str,
-            'dir': 'model_data/optical_properties',
+            'dir': _odir,
             'successful': 3,
             'failed': 0,
             'file_count': 3,
@@ -870,7 +872,7 @@ def export_pah_optical_properties_wrapper(config_path=None):
         return {
             'status': f'Error: {str(e)}',
             'timestamp': timestamp_str,
-            'dir': 'model_data/optical_properties',
+            'dir': str(get_model_data_dir() / 'optical_properties'),
             'successful': 0,
             'failed': 3,
             'file_count': 0,
@@ -1207,10 +1209,11 @@ def export_dust_band_luminosities_wrapper(config_path=None):
         print("EXPORTING DUST BAND LUMINOSITIES")
         print("="*80)
         export_band_luminosities(config_path=config_path)
+        _odir = str(get_model_data_dir() / 'optical_properties')
         return {
             'status': 'Success',
             'timestamp': timestamp_str,
-            'dir': 'model_data/optical_properties',
+            'dir': _odir,
             'file_count': 4,
             'nT': 500,
             'Tmin': 1.0,
@@ -1223,7 +1226,7 @@ def export_dust_band_luminosities_wrapper(config_path=None):
         return {
             'status': f'Error: {str(e)}',
             'timestamp': timestamp_str,
-            'dir': 'model_data/optical_properties',
+            'dir': str(get_model_data_dir() / 'optical_properties'),
             'file_count': 0,
             'successful': 0,
             'failed': 4,
@@ -1393,7 +1396,8 @@ def main(config_path=None, profile=True, profile_output=None):
     print("GENERATING README")
     print("="*80)
     try:
-        readme_path = generate_readme(export_results, config, git_info)
+        _model_data_rel = str(get_model_data_dir().relative_to(get_repo_root()))
+        readme_path = generate_readme(export_results, config, git_info, output_base=_model_data_rel)
         print(f"  ✓ README generated: {readme_path}")
     except Exception as e:
         print(f"  ✗ Error generating README: {e}")

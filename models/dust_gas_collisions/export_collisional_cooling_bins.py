@@ -14,7 +14,7 @@ import re
 import numpy as np
 
 from models.dust_gas_collisions.dust_collisional_cooling import export_collisional_cooling
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 
 
 DEFAULT_EXPORT_PARAMS = {
@@ -74,8 +74,7 @@ def main(config_path=None):
     nphi = int(params_cfg['nphi'])
     delta_max = float(params_cfg['delta_max'])
     
-    repo_root = _repo_root()
-    table_dir = repo_root / "model_data" / "collisional_cooling_data"
+    table_dir = get_model_data_dir() / "collisional_cooling_data"
     table_dir.mkdir(parents=True, exist_ok=True)
 
     # Remove legacy composition-based filenames to keep output naming consistent.

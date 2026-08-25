@@ -31,13 +31,22 @@ def get_repo_root():
 def get_optical_props_path():
     """
     Get the path to the optical_props directory.
-    
+
     Returns
     -------
     Path
         Path to optical_props folder in the repo root.
     """
     return get_repo_root() / "optical_props"
+
+
+def get_model_data_dir():
+    """Return model_data/<model_name>/ for the current config, or model_data/ if no model_name set."""
+    cfg_path = Path(get_config_path())
+    raw = json.loads(cfg_path.read_text())
+    model_name = raw.get('model_name')
+    base = get_repo_root() / 'model_data'
+    return base / model_name if model_name else base
 
 
 def set_config_path(config_path):

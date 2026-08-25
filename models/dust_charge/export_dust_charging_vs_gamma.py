@@ -19,7 +19,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters
+from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 from models.dust_charge.dust_charging import compute_charge_vs_gamma
 
 
@@ -315,8 +315,7 @@ def main(config_path=None, reuse_heating_data=False):
     combos_per_gamma = int(params_cfg['combos_per_gamma'])
     seed = int(params_cfg['seed'])
 
-    repo_root = _repo_root()
-    output_dir = repo_root / 'model_data' / 'dust_charging_data'
+    output_dir = get_model_data_dir() / 'dust_charging_data'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     removed_legacy = _cleanup_legacy_charging_tables(output_dir)
@@ -331,7 +330,7 @@ def main(config_path=None, reuse_heating_data=False):
         raise RuntimeError('No dust bins found in grain-size configuration.')
 
     gamma_values = np.logspace(np.log10(gamma_min), np.log10(gamma_max), n_gamma)
-    heating_dir = repo_root / 'model_data' / 'dust_photoelectric_heating_data'
+    heating_dir = get_model_data_dir() / 'dust_photoelectric_heating_data'
 
     print('=' * 80)
     print('Exporting dust grain charge (Zmean) vs gamma for all dust bins')

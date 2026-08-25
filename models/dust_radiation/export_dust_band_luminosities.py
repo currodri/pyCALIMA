@@ -27,13 +27,14 @@ from models.grain_size_config import (
     get_optical_props_path,
     get_header_lines,
     get_repo_root,
+    get_model_data_dir,
 )
 from models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
 from models.dust_radiation.dust_emission import compute_energy_band_luminosity_from_table
 
 
 def export_band_luminosities(
-    output_dir='model_data/optical_properties',
+    output_dir=None,
     config_path=None,
     num_temperatures=500,
     T_min=1.0,
@@ -46,8 +47,11 @@ def export_band_luminosities(
     if config_path:
         set_config_path(config_path)
 
-    repo_root = get_repo_root()
-    output_dir = repo_root / output_dir
+    if output_dir is None:
+        output_dir = get_model_data_dir() / 'optical_properties'
+    else:
+        output_dir = get_repo_root() / output_dir
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Load non-PAH grain bins from configuration
