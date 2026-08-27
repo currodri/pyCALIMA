@@ -1,0 +1,156 @@
+{
+    "_comment": "CALIMA equilibrium config for post-processing RAMSES G8 0.1Zsun simulations (Dubois+ 2024 convention). Grain sizes and densities match the RAMSES CALIMA namelist exactly: asize=0.005,0.1,0.005,0.1 um; sgrain=2.2,2.2,3.3,3.3. Silicate dust stored in RAMSES as Si mass fraction; actual silicate mass = stored / SioverSil (0.163). Elemental abundances are 0.1 Zsun (Asplund+ 2009 solar scaled). G0 fixed at 1.0 Habing (not stored in RAMSES output). Turbulence taken from scalar_14 field (sigma_turb) — update local_sigma_km_s before running the equilibrium grid.",
+
+    "model_data_dir": "model_data",
+
+    "environment": {
+        "gas_temperature_K":             100.0,
+        "hydrogen_number_density_cm3":   1.0,
+        "electron_number_density_cm3":   1e-4,
+        "radiation_field_G0":            1.0,
+        "radiation_field_model":         "habing",
+        "mean_molecular_weight":         1.4
+    },
+
+    "_comment_abundances": "0.1 Zsun: Asplund+ 2009 solar, metal mass fractions scaled by 0.1, H+He renormalised",
+    "elemental_abundances": {
+        "H":  {"mass_fraction": 7.472e-01},
+        "He": {"mass_fraction": 2.514e-01},
+        "C":  {"mass_fraction": 2.369e-04},
+        "N":  {"mass_fraction": 8.320e-05},
+        "O":  {"mass_fraction": 5.735e-04},
+        "Mg": {"mass_fraction": 6.440e-05},
+        "Si": {"mass_fraction": 6.710e-05},
+        "S":  {"mass_fraction": 3.410e-05},
+        "Fe": {"mass_fraction": 1.258e-04}
+    },
+
+    "dust_bins": [
+        {
+            "_comment":                  "Small carbonaceous — matches RAMSES dust_bin01 (asize=0.005 um, sgrain=2.2)",
+            "id":                        "DustBin_01",
+            "composition":               "graphite",
+            "grain_size_micron":         0.005,
+            "grain_density_gcm3":        2.24,
+            "elements": [
+                {"name": "C", "mass_fraction": 1.0}
+            ],
+            "initial_mass_density_gcm3": 1.0e-31,
+            "sticking_coefficient":      1.0,
+            "nhmax_acc":                 1e4,
+            "nh_coa":                    0.1,
+            "coagulation_partner":       "DustBin_02",
+            "amin_micron":               0.001,
+            "amax_micron":               0.03,
+            "catastrophic_specific_energy_erg_g": 1.0e7,
+            "interact_pah":              false,
+            "vthresh_coag_cm_s":         1.0e4
+        },
+        {
+            "_comment":                  "Large carbonaceous — matches RAMSES dust_bin02 (asize=0.1 um, sgrain=2.2)",
+            "id":                        "DustBin_02",
+            "composition":               "graphite",
+            "grain_size_micron":         0.1,
+            "grain_density_gcm3":        2.24,
+            "elements": [
+                {"name": "C", "mass_fraction": 1.0}
+            ],
+            "initial_mass_density_gcm3": 1.0e-30,
+            "sticking_coefficient":      1.0,
+            "nhmax_acc":                 1e4,
+            "nh_coa":                    0.1,
+            "amin_micron":               0.03,
+            "amax_micron":               0.3,
+            "catastrophic_specific_energy_erg_g": 1.0e7,
+            "interact_pah":              false,
+            "vthresh_coag_cm_s":         1.0e4
+        },
+        {
+            "_comment":                  "Small silicate — matches RAMSES dust_bin03 (asize=0.005 um, sgrain=3.3). SioverSil=0.163 (Si mass fraction in grain). Silicate stored in RAMSES as Si-fraction; actual silicate mass = stored/0.163.",
+            "id":                        "DustBin_03",
+            "composition":               "silicate",
+            "grain_size_micron":         0.005,
+            "grain_density_gcm3":        3.3,
+            "elements": [
+                {"name": "Mg", "mass_fraction": 0.142},
+                {"name": "Si", "mass_fraction": 0.163},
+                {"name": "O",  "mass_fraction": 0.574},
+                {"name": "Fe", "mass_fraction": 0.121}
+            ],
+            "initial_mass_density_gcm3": 1.0e-31,
+            "sticking_coefficient":      1.0,
+            "nhmax_acc":                 1e4,
+            "nh_coa":                    0.1,
+            "coagulation_partner":       "DustBin_04",
+            "amin_micron":               0.002,
+            "amax_micron":               0.015,
+            "catastrophic_specific_energy_erg_g": 1.0e7,
+            "interact_pah":              false,
+            "vthresh_coag_cm_s":         1.0e4
+        },
+        {
+            "_comment":                  "Large silicate — matches RAMSES dust_bin04 (asize=0.1 um, sgrain=3.3). Same SioverSil=0.163 correction applies.",
+            "id":                        "DustBin_04",
+            "composition":               "silicate",
+            "grain_size_micron":         0.1,
+            "grain_density_gcm3":        3.3,
+            "elements": [
+                {"name": "Mg", "mass_fraction": 0.142},
+                {"name": "Si", "mass_fraction": 0.163},
+                {"name": "O",  "mass_fraction": 0.574},
+                {"name": "Fe", "mass_fraction": 0.121}
+            ],
+            "initial_mass_density_gcm3": 1.0e-30,
+            "sticking_coefficient":      1.0,
+            "nhmax_acc":                 1e4,
+            "nh_coa":                    0.1,
+            "amin_micron":               0.015,
+            "amax_micron":               0.3,
+            "catastrophic_specific_energy_erg_g": 1.0e7,
+            "interact_pah":              false,
+            "vthresh_coag_cm_s":         1.0e4
+        }
+    ],
+
+    "pah_bins": [],
+
+    "physics": {
+        "_comment":                  "Enable the same processes as the RAMSES simulation: accretion, sputtering, turbulent coagulation and shattering. PAH processes off (no PAH bins in RAMSES output).",
+        "dust_accretion":           true,
+        "dust_sputtering":          true,
+        "dust_coagulation":         true,
+        "dust_shattering":          true,
+        "pah_accretion":            false,
+        "pah_photolysis":           false,
+        "pah_sputtering":           false,
+        "pah_coalescence":          false,
+        "pah_cluster_evaporation":  false,
+        "pah_freezing":             false
+    },
+
+    "models": {
+        "_comment":                 "Turbulent coagulation/shattering — sigma comes from scalar_14 (set in turbulence block before running the grid)",
+        "coagulation_model":        "turbulent_all",
+        "shattering_model":         "turbulent_all",
+        "dust_velocity_model":      "Ormel2007",
+        "coalescence_model":        "Totton2012",
+        "photolysis_model":         "RM2026",
+        "pah_sputtering_model":     "RM2026",
+        "cluster_evaporation_model":"Montillaud2014",
+        "slope_frag_func":          0.4333
+    },
+
+    "turbulence": {
+        "_comment":                 "Updated by the notebook from the mass-weighted median of scalar_14 in the RAMSES output. Default: sigma=5 km/s, dx=18 pc (finest AMR cell at level 13 in 150 kpc box).",
+        "local_sigma_km_s":         5.0,
+        "local_dx_pc":              18.0
+    },
+
+    "solver": {
+        "type":           "newton_krylov",
+        "f_tol":          1e-40,
+        "f_rtol":         1e-6,
+        "maxiter":        500,
+        "inner_maxiter":  300
+    }
+}
