@@ -131,12 +131,17 @@ def accretion_rate(
     .. math::
 
         \\text{rate} \\; [\\text{s}^{-1}] =
-            k_0^\\text{acc} \\,
+            E \\cdot k_0^\\text{acc} \\,
             \\frac{\\sqrt{T_k}}{1 + 10^{-4}\\, T_k^{1.5}}
             \\, \\frac{y_\\text{gas}[e]}{f_e \\sqrt{m_e}}
 
     where the rate is limited by the element with the smallest
-    pseudo-density ratio.
+    pseudo-density ratio, and *E* is the Coulomb enhancement factor
+    (Dubois et al. 2024 simplified prescription):
+
+    * E = 1   everywhere (default)
+    * E = 0   large carbonaceous in CNM (T < 10⁴ K, nH > 10 cm⁻³) — suppressed
+    * E = 10  small silicate   in CNM (T < 10⁴ K, nH > 10 cm⁻³) — enhanced
 
     Modified variables
     ------------------
@@ -173,11 +178,23 @@ def accretion_rate(
         if limit_rate <= 0.0 or not math.isfinite(limit_rate):
             continue
 
-        # Coulomb enhancement factor D (Weingartner & Draine 1999).
-        # Zi = +1 assumes accreting metals are singly ionized (dominant in WNM/WIM).
-        # For neutral atoms (CNM), D → 1 automatically through Z_grain → 0.
-        coulomb_D = _get_coulomb_D(db, Tk, state.local_G0, state.local_ne, Zi=1.0)
-        rate = db.k0_acc * prefactor * limit_rate * coulomb_D  # [s⁻¹]
+        # Coulomb enhancement factor E (Dubois et al. 2024 simplified prescription).
+        # E=1 everywhere, except in the CNM (T<1e4 K, nH>10 cm⁻³):
+        #   large carbonaceous → E=0  (accretion suppressed)
+        #   small silicate     → E=10 (positive-ion attraction to negatively charged grain)
+        cnm = (Tk < 1.0e4) and (state.local_nH > 10.0)
+        if cnm:
+            is_large_carb = (db.composition == 'graphite') and (db.asize_micron > 0.05)
+            is_small_sil  = (db.composition == 'silicate') and (db.asize_micron < 0.05)
+            if is_large_carb:
+                continue        # E=0: no accretion
+            elif is_small_sil:
+                coulomb_E = 10.0
+            else:
+                coulomb_E = 1.0
+        else:
+            coulomb_E = 1.0
+        rate = db.k0_acc * prefactor * limit_rate * coulomb_E  # [s⁻¹]
 
         if rate <= 0.0:
             continue
