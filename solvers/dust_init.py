@@ -87,6 +87,7 @@ from .table_io import (
     build_sputtering_interpolator,
     build_pah_photolysis_interpolator,
     build_pah_sputtering_interpolator,
+    build_charge_interpolator,
 )
 
 # ---------------------------------------------------------------------------
@@ -338,6 +339,19 @@ def load_initial_conditions(
         sput_interps = _load_sputtering_tables(bin_id, sputtering_dir)
         erosion_interp = _load_erosion_rate_table(bin_id, sublimation_dir)
 
+        # Grain charge tables (for Coulomb enhancement in accretion/sputtering)
+        charge_Z_interp = None
+        charge_sigma_interp = None
+        charge_dir = model_data_dir / "dust_charging_data"
+        _fZ = charge_dir / f"dust_charge_Z_vs_T_{bin_id}"
+        _fS = charge_dir / f"dust_charge_sigma_vs_T_{bin_id}"
+        if _fZ.exists() and _fS.exists():
+            try:
+                charge_Z_interp = build_charge_interpolator(_fZ, clamp_range=(-60.0, 60.0))
+                charge_sigma_interp = build_charge_interpolator(_fS, clamp_range=(0.0, 20.0))
+            except Exception:
+                pass  # table unreadable — disable Coulomb enhancement for this bin
+
         # Grain mass range for fragment distribution (shattering)
         amin_um = float(bd.get("amin_micron", asize_um * 0.5))
         amax_um = float(bd.get("amax_micron", asize_um * 2.0))
@@ -361,6 +375,8 @@ def load_initial_conditions(
             k0_coa=k0_coa,
             sputtering_interps=sput_interps,
             erosion_rate_interp=erosion_interp,
+            charge_Z_interp=charge_Z_interp,
+            charge_sigma_interp=charge_sigma_interp,
             nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
             nh_coa=float(bd.get("nh_coa", 0.1)),
             catastrophic_spec_energy=float(

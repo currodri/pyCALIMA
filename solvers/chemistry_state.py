@@ -122,6 +122,16 @@ class DustBinParams:
     interact_pah: bool = False
     """Whether shattering fragments of this bin can populate PAH bins."""
 
+    # --- Grain charge state (for Coulomb enhancement) ---
+    charge_Z_interp: Optional[Any] = None
+    """Callable ``(T [K], gamma) → mean grain charge Z_avg [dimensionless]``.
+    gamma = G0 × √T / ne  (Weingartner & Draine 2001 convention).
+    Built at initialisation from ``model_data/dust_charging_data/dust_charge_Z_vs_T_<bin_id>``.
+    ``None`` when the table is absent or coulomb enhancement is disabled."""
+    charge_sigma_interp: Optional[Any] = None
+    """Callable ``(T [K], gamma) → charge width Z_sigma [dimensionless]``.
+    Built at initialisation from ``model_data/dust_charging_data/dust_charge_sigma_vs_T_<bin_id>``."""
+
     # --- Turbulent coagulation ---
     vthresh_coag: float = 1.0e4
     """Coagulation threshold velocity [cm s⁻¹] for self-collisions."""

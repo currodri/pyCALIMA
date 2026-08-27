@@ -286,3 +286,82 @@ def build_pah_sputtering_interpolator(
 
     info = {"log_T": log_T, "log_J": log_J}
     return evaluate, info
+
+
+# ---------------------------------------------------------------------------
+# Grain charge tables (2-D T × gamma)
+# ---------------------------------------------------------------------------
+
+def build_charge_interpolator(
+    table_file: str | Path,
+    clamp_range: tuple = (-60.0, 60.0),
+) -> Callable:
+    """Build a bilinear interpolator for a grain charge Z_avg or Z_sigma table.
+
+    File format (produced by ``models/dust_charge/export_dust_charging_vs_gamma.py``)
+    ---------------------------------------------------------------------------------
+    Lines starting with ``#`` : comments (skipped)
+    Line 1 : ``nT  nGamma``
+    Line 2 : log₁₀(T [K]) axis, ``nT`` values
+    Line 3 : log₁₀(gamma) axis, ``nGamma`` values
+    Lines 4…nT+3 : Z or sigma values, ``nGamma`` values per row
+
+    Parameters
+    ----------
+    table_file :
+        Path to ``dust_charge_Z_vs_T_<bin_id>`` or
+        ``dust_charge_sigma_vs_T_<bin_id>`` file.
+    clamp_range :
+        ``(lo, hi)`` — values outside this range are replaced by the nearest
+        valid neighbour to suppress erroneous table entries.
+
+    Returns
+    -------
+    evaluate : callable
+        ``evaluate(T, gamma)`` → Z (or sigma), float or ndarray.
+        Out-of-bounds queries are extrapolated by clamping to the table edge.
+    """
+    path = Path(table_file)
+    with path.open("r", encoding="utf-8") as fh:
+        lines = [ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith("#")]
+
+    if len(lines) < 4:
+        raise ValueError(f"Charge table too short: {path}")
+
+    nT, nG = (int(x) for x in lines[0].split())
+    log_T_ax = np.array(lines[1].split(), dtype=np.float64)
+    log_g_ax = np.array(lines[2].split(), dtype=np.float64)
+
+    if log_T_ax.size != nT or log_g_ax.size != nG:
+        raise ValueError(f"{path}: axis size mismatch (expected {nT}×{nG})")
+
+    values = np.empty((nT, nG), dtype=np.float64)
+    for i in range(nT):
+        values[i] = np.array(lines[3 + i].split(), dtype=np.float64)
+
+    # Clamp obviously bad values (isolated numerical failures)
+    lo, hi = clamp_range
+    bad = (values < lo) | (values > hi)
+    if bad.any():
+        # Fill bad cells using the valid boundary values
+        values = np.clip(values, lo, hi)
+
+    interp = RegularGridInterpolator(
+        (log_T_ax, log_g_ax),
+        values,
+        method="linear",
+        bounds_error=False,
+        fill_value=None,  # extrapolate by nearest edge
+    )
+
+    def evaluate(T_query, gamma_query: float):
+        scalar = np.ndim(T_query) == 0 and np.ndim(gamma_query) == 0
+        T_arr = np.atleast_1d(np.asarray(T_query, dtype=np.float64))
+        g_arr = np.atleast_1d(np.asarray(gamma_query, dtype=np.float64))
+        T_arr = np.clip(T_arr, 1.0, 1.0e10)
+        g_arr = np.clip(g_arr, 1.0e-20, 1.0e20)
+        pts = np.column_stack((np.log10(T_arr), np.log10(g_arr)))
+        result = interp(pts)
+        return float(result[0]) if scalar else result
+
+    return evaluate
