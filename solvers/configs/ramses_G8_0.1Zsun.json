@@ -1,7 +1,7 @@
 {
     "_comment": "CALIMA equilibrium config for post-processing RAMSES G8 0.1Zsun simulations (Dubois+ 2024 convention). Grain sizes and densities match the RAMSES CALIMA namelist exactly: asize=0.005,0.1,0.005,0.1 um; sgrain=2.2,2.2,3.3,3.3. Silicate dust stored in RAMSES as Si mass fraction; actual silicate mass = stored / SioverSil (0.163). Elemental abundances are 0.1 Zsun (Asplund+ 2009 solar scaled). G0 fixed at 1.0 Habing (not stored in RAMSES output). Turbulence taken from scalar_14 field (sigma_turb) — update local_sigma_km_s before running the equilibrium grid.",
 
-    "model_data_dir": "model_data",
+    "model_data_dir": "model_data/ramses4bin",
 
     "environment": {
         "gas_temperature_K":             100.0,
