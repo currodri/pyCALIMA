@@ -32,6 +32,85 @@ from .grain_dynamics import grain_relative_velocity, sticking_probability_from_v
 KB_CGS: float = 1.3806488e-16   # Boltzmann constant [erg K⁻¹]
 YR2SEC: float = 3.1536e7         # s yr⁻¹ (same as RAMSES yr2sec)
 MYR2SEC: float = 3.1536e13       # s Myr⁻¹
+_E_ESU: float = 4.8032047e-10   # elementary charge [statC = esu]
+
+
+# ---------------------------------------------------------------------------
+# Coulomb enhancement factor (Weingartner & Draine 1999, RAMSES convention)
+# ---------------------------------------------------------------------------
+
+def _coulomb_factor_WD99(
+    Z_grain: float,
+    Zi: float,
+    T: float,
+    a_cm: float,
+) -> float:
+    """Coulomb enhancement (or suppression) factor D for an ion–grain collision.
+
+    Uses the point-charge (mean-Z) approximation:
+
+    * Zi × Z_grain < 0  (attractive): D = 1 - Zi × Z_grain × e²/(a kT)
+    * Zi × Z_grain > 0  (repulsive):  D = exp(-Zi × Z_grain × e²/(a kT))
+    * Z_grain = 0, Zi ≠ 0 (neutral grain):
+                          D = 1 + √(π Zi² e²/(2 kT a))
+
+    Parameters
+    ----------
+    Z_grain : float
+        Mean grain charge in units of electron charges (e).
+    Zi : float
+        Ion charge (1 for singly ionized, 0 for neutral atoms).
+    T : float
+        Gas temperature [K].
+    a_cm : float
+        Grain radius [cm].
+
+    Returns
+    -------
+    D : float ≥ 1e-10
+    """
+    if Zi == 0.0:
+        return 1.0
+    alpha = (Zi * _E_ESU ** 2) / (a_cm * KB_CGS * T)  # dimensionless
+    product = Z_grain * Zi
+    if product < 0.0:      # attractive
+        D = 1.0 - Z_grain * alpha
+    elif product > 0.0:    # repulsive
+        D = math.exp(-Z_grain * alpha)
+    else:                  # neutral grain, charged ion
+        D = 1.0 + math.sqrt(math.pi * Zi ** 2 * _E_ESU ** 2 / (2.0 * KB_CGS * T * a_cm))
+    return max(D, 1.0e-10)
+
+
+def _get_coulomb_D(
+    db: "DustBinParams",
+    Tk: float,
+    G0: float,
+    ne: float,
+    Zi: float = 1.0,
+) -> float:
+    """Return the Coulomb enhancement factor D for a grain bin given the environment.
+
+    Uses the pre-computed (T, gamma) charge tables if available; otherwise D = 1.
+
+    Parameters
+    ----------
+    db : DustBinParams
+    Tk : float
+        Gas temperature [K].
+    G0 : float
+        FUV field strength [Habing units].
+    ne : float
+        Electron number density [cm⁻³].
+    Zi : float
+        Charge of the accreting/sputtering ion (default +1).
+    """
+    if db.charge_Z_interp is None or ne <= 0.0:
+        return 1.0
+    # Charging parameter: gamma = G0 × √T / ne  (WD01 convention)
+    gamma = G0 * math.sqrt(max(Tk, 1.0)) / ne
+    Z_avg = db.charge_Z_interp(Tk, gamma)
+    return _coulomb_factor_WD99(Z_avg, Zi, Tk, db.asize_cm)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +153,10 @@ def accretion_rate(
         if not db.el_indices:
             continue
 
+        # nhmax_acc: RAMSES suppresses accretion above this density threshold
+        if state.local_nH > db.nhmax_acc:
+            continue
+
         # Find the limiting element (smallest pseudo-rate)
         limit_rate = math.inf
         for loc, el_idx in enumerate(db.el_indices):
@@ -90,7 +173,11 @@ def accretion_rate(
         if limit_rate <= 0.0 or not math.isfinite(limit_rate):
             continue
 
-        rate = db.k0_acc * prefactor * limit_rate  # [s⁻¹]
+        # Coulomb enhancement factor D (Weingartner & Draine 1999).
+        # Zi = +1 assumes accreting metals are singly ionized (dominant in WNM/WIM).
+        # For neutral atoms (CNM), D → 1 automatically through Z_grain → 0.
+        coulomb_D = _get_coulomb_D(db, Tk, state.local_G0, state.local_ne, Zi=1.0)
+        rate = db.k0_acc * prefactor * limit_rate * coulomb_D  # [s⁻¹]
 
         if rate <= 0.0:
             continue
@@ -1167,9 +1254,9 @@ def turbulent_all_coagulation_rate(
     """Turbulent coagulation: all bin pairs within each composition group.
 
     For each ordered pair (ii, kk) with kk ≥ ii in the same group:
-        σ_coll = √(8/(3π)) π (a_ii + a_kk)² / m_ii
-        rate1   = σ_coll × v_rel × ρ_kk × p_stick   [s⁻¹]  (loss from ii)
-        rate2   = rate1 × ρ_ii   [g cm⁻³ s⁻¹]
+        coll_factor = √(8/(3π)) π (a_ii + a_kk)² × v_rel
+        rate_from_ii = sym × coll_factor × (ρ_kk / m_kk) × ρ_ii × p_stick  [g cm⁻³ s⁻¹]
+        rate_from_kk = sym × coll_factor × (ρ_ii / m_ii) × ρ_kk × p_stick  [g cm⁻³ s⁻¹]
 
     The destination bin is the one whose mass is closest to m_ii + m_kk,
     capped at the largest bin in the group.
@@ -1217,18 +1304,22 @@ def turbulent_all_coagulation_rate(
                 v_coag = min(db_ii.vthresh_coag, db_kk.vthresh_coag)
                 p_stick = sticking_probability_from_velocity(v_rel, v_coag)
 
-                sigma_coll = (
+                coll_factor = (
                     math.sqrt(8.0 / (3.0 * math.pi))
                     * math.pi * (db_ii.asize_cm + db_kk.asize_cm) ** 2
-                    / db_ii.mgrain
+                    * v_rel
                 )
                 sym = 0.5 if ii == kk else 1.0
-                rate1 = sym * sigma_coll * v_rel * rho_kk * p_stick  # [s⁻¹]
-                if rate1 <= 0.0:
+
+                # Loss from ii: number density of kk = rho_kk / m_kk
+                rate_from_ii = sym * coll_factor / db_kk.mgrain * rho_kk * rho_ii * p_stick
+                # Loss from kk: number density of ii = rho_ii / m_ii
+                rate_from_kk = sym * coll_factor / db_ii.mgrain * rho_ii * rho_kk * p_stick
+
+                if rate_from_ii <= 0.0:
                     continue
 
-                kmax = max(kmax, rate1)
-                rate2 = rate1 * rho_ii  # [g cm⁻³ s⁻¹]
+                kmax = max(kmax, sym * coll_factor / db_kk.mgrain * rho_kk * p_stick)
 
                 # Destination: bin whose mass is closest to m_ii + m_kk
                 m_target = db_ii.mgrain + db_kk.mgrain
@@ -1240,9 +1331,11 @@ def turbulent_all_coagulation_rate(
                         best_diff = diff
                         best_dest = gg
 
-                dydt_dust[idx_ii] -= rate2
+                dydt_dust[idx_ii] -= rate_from_ii
                 if ii != kk:
-                    dydt_dust[idx_kk] -= rate2  # symmetric loss
-                dydt_dust[best_dest + state.npah] += (2.0 * rate2 if ii != kk else rate2)
+                    dydt_dust[idx_kk] -= rate_from_kk
+                    dydt_dust[best_dest + state.npah] += rate_from_ii + rate_from_kk
+                else:
+                    dydt_dust[best_dest + state.npah] += rate_from_ii
 
     return kmax

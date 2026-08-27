@@ -66,16 +66,16 @@
             "vthresh_coag_cm_s":         1.0e4
         },
         {
-            "_comment":                  "Small silicate — matches RAMSES dust_bin03 (asize=0.005 um, sgrain=3.3). SioverSil=0.163 (Si mass fraction in grain). Silicate stored in RAMSES as Si-fraction; actual silicate mass = stored/0.163.",
+            "_comment":                  "Small silicate — matches RAMSES dust_bin03 (asize=0.005 um, sgrain=3.3). Silicate is MgFeSiO4: Mg=24.305, Fe=55.845, Si=28.086, O4=63.996, total=172.232 g/mol. SioverSil=Si/total=0.1631 → used as 0.163 in RAMSES.",
             "id":                        "DustBin_03",
             "composition":               "silicate",
             "grain_size_micron":         0.005,
             "grain_density_gcm3":        3.3,
             "elements": [
-                {"name": "Mg", "mass_fraction": 0.142},
-                {"name": "Si", "mass_fraction": 0.163},
-                {"name": "O",  "mass_fraction": 0.574},
-                {"name": "Fe", "mass_fraction": 0.121}
+                {"name": "Mg", "mass_fraction": 0.1411},
+                {"name": "Si", "mass_fraction": 0.1631},
+                {"name": "O",  "mass_fraction": 0.3716},
+                {"name": "Fe", "mass_fraction": 0.3242}
             ],
             "initial_mass_density_gcm3": 1.0e-31,
             "sticking_coefficient":      1.0,
@@ -89,16 +89,16 @@
             "vthresh_coag_cm_s":         1.0e4
         },
         {
-            "_comment":                  "Large silicate — matches RAMSES dust_bin04 (asize=0.1 um, sgrain=3.3). Same SioverSil=0.163 correction applies.",
+            "_comment":                  "Large silicate — matches RAMSES dust_bin04 (asize=0.1 um, sgrain=3.3). Same MgFeSiO4 composition as DustBin_03.",
             "id":                        "DustBin_04",
             "composition":               "silicate",
             "grain_size_micron":         0.1,
             "grain_density_gcm3":        3.3,
             "elements": [
-                {"name": "Mg", "mass_fraction": 0.142},
-                {"name": "Si", "mass_fraction": 0.163},
-                {"name": "O",  "mass_fraction": 0.574},
-                {"name": "Fe", "mass_fraction": 0.121}
+                {"name": "Mg", "mass_fraction": 0.1411},
+                {"name": "Si", "mass_fraction": 0.1631},
+                {"name": "O",  "mass_fraction": 0.3716},
+                {"name": "Fe", "mass_fraction": 0.3242}
             ],
             "initial_mass_density_gcm3": 1.0e-30,
             "sticking_coefficient":      1.0,
