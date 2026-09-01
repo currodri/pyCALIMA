@@ -96,9 +96,31 @@ from .table_io import (
 
 KB_CGS: float = 1.3806488e-16   # Boltzmann constant [erg K⁻¹]
 MH_CGS: float = 1.6726219e-24   # Proton mass [g]
+GNEWT: float  = 6.6743e-8        # Gravitational constant [cm³ g⁻¹ s⁻²]
 PI: float = math.pi
 SEC2YR: float = 3.1536e7         # seconds per year [s yr⁻¹]
 SEC2MYR: float = 3.1536e13       # seconds per Myr  [s Myr⁻¹]
+
+
+def freefall_time_s(nH: float, mu: float = 1.4) -> float:
+    """Local free-fall time in seconds.
+
+    ``t_ff = sqrt(3π / (32 G ρ))``
+
+    Parameters
+    ----------
+    nH : float
+        Hydrogen number density [cm⁻³].
+    mu : float
+        Mean molecular weight (default 1.4 for neutral gas).
+
+    Returns
+    -------
+    float
+        Free-fall time [s].
+    """
+    rho = max(nH, 1e-300) * MH_CGS * mu
+    return math.sqrt(3.0 * PI / (32.0 * GNEWT * rho))
 
 # Sputtering tables exist for these ion species (atomic-number-keyed)
 # Must match the naming used in CALIMA's export_sputtering_rates_bins.py
@@ -132,12 +154,13 @@ _PAH_SPUTTERING_SPECIES = [
 def _k0_accretion(asize_cm: float, sgrain: float, sticking: float = 1.0) -> float:
     """Accretion rate constant k₀_acc [cm³ g⁻⁰·⁵ K⁻⁰·⁵ s⁻¹].
 
-    From LeBourlot et al. (2012) the grain-growth rate per unit dust density is
+    The grain-growth rate per unit dust density (Dubois et al. 2024 / CALIMA):
 
-        rate [s⁻¹] = k0_acc × √T / (1 + 10⁻⁴ T^1.5)
-                     × y_gas[e] / (el_mfrac × √m_e_g)
+        rate [s⁻¹] = k0_acc × √T × y_gas[e] / (el_mfrac × √m_e_g)
 
     where  k0_acc = π a² S √(8 k_B / π) / m_grain .
+    The sticking coefficient S is included here; no further T-dependent
+    suppression is applied in accretion_rate().
     """
     m_grain = (4.0 / 3.0) * PI * asize_cm ** 3 * sgrain
     cross_section = PI * asize_cm ** 2
@@ -453,6 +476,28 @@ def load_initial_conditions(
         y_dust[i] = float(pb.get("initial_mass_density_gcm3", 0.0))
 
     # ------------------------------------------------------------------
+    # Subtract initial dust metals from gas-phase budget.
+    #
+    # elemental_abundances in the config represents the *total* metal budget
+    # (gas + dust) at the reference state.  The metals already locked in the
+    # initial dust must be removed from y_gas so that the conserved quantity
+    #   y_gas[el] + Σ_bins( y_dust[b] × el_mfrac[b] )
+    # equals the true gas-phase metal supply at t = 0.
+    # Without this correction, y_gas over-counts by the initial dust content,
+    # allowing accretion to produce more dust than the total metal budget.
+    # ------------------------------------------------------------------
+    for i, bd in enumerate(dust_cfgs):
+        rho_dust_i = y_dust[npah + i]
+        if rho_dust_i <= 0.0:
+            continue
+        for ec in bd.get("elements", []):
+            ename = ec.get("name", "")
+            if ename in ELEMENT_NAMES:
+                el_idx = ELEMENT_NAMES.index(ename)
+                el_mfrac = float(ec.get("mass_fraction", 0.0))
+                y_gas[el_idx] = max(0.0, y_gas[el_idx] - rho_dust_i * el_mfrac)
+
+    # ------------------------------------------------------------------
     # Physics flags and solver settings
     # ------------------------------------------------------------------
     phys = cfg.get("physics", {})
@@ -497,6 +542,7 @@ def load_initial_conditions(
         shattering_model=str(models_cfg.get("shattering_model", "turbulent")),
         dust_velocity_model=str(models_cfg.get("dust_velocity_model", "Ormel2007")),
         coalescence_model=str(models_cfg.get("coalescence_model", "Totton2012")),
+        dust_sputtering_model=str(models_cfg.get("dust_sputtering_model", "kirchschlager")),
         photolysis_model=str(models_cfg.get("photolysis_model", "RM2026")),
         pah_sputtering_model=str(models_cfg.get("pah_sputtering_model", "RM2026")),
         cluster_evaporation_model=str(
