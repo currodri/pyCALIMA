@@ -66,9 +66,27 @@ plots = ["cmasher>=1.6"]
 # psutil is lazy and guarded (memory reporting in the profiler).
 profile = ["psutil>=5.9"]
 all = ["pycalima[accel,sim,pahdb,plots,profile]"]
+# Documentation toolchain. Depends on [all] rather than the bare package:
+# autodoc imports the real modules, so models/tools/eq_analysis.py needs yt
+# present to document its actual signatures instead of mocked ones.
+docs = [
+    "pycalima[all]",
+    "sphinx>=7.3",
+    "furo>=2024.8",
+    # myst-nb pulls in myst-parser; do not also list myst_parser as an
+    # extension, or the .md parser is registered twice and the build errors.
+    "myst-nb>=1.1",
+    "jupyter-cache>=1.0",
+    "ipykernel>=6.29",
+    "sphinx-argparse>=0.5",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.6",
+    "sphinxcontrib-bibtex>=2.6",
+    "sphinxcontrib-mermaid>=0.9",
+]
 # Tooling for running the test suite and building distributions.
 dev = [
-    "pycalima[all]",
+    "pycalima[all,docs]",
     "pytest>=8.0",
     "build>=1.2",
 ]

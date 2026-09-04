@@ -29,6 +29,12 @@ MANIFEST
 # Get rid of plots
 *.png
 !assets/CALIMA_logo1.png
+# Documentation figures are deliberate, reviewed content rather than the
+# throwaway quicklooks the rule above targets, so allowlist docs/_static.
+# Only file patterns are excluded above, never a parent directory, which is
+# what makes these negations effective.
+!docs/_static/**/*.png
+!docs/_static/**/*.svg
 *.pdf
 *.eps
 
