@@ -34,6 +34,52 @@ YR2SEC: float = 3.1536e7         # s yr⁻¹ (same as RAMSES yr2sec)
 MYR2SEC: float = 3.1536e13       # s Myr⁻¹
 _E_ESU: float = 4.8032047e-10   # elementary charge [statC = esu]
 
+# ---------------------------------------------------------------------------
+# Nozawa+2006 / Hu+2019 polynomial thermal sputtering yield
+# (Dubois et al. 2024 RAMSES-CALIMA implementation)
+# ---------------------------------------------------------------------------
+# 5th-degree polynomial coefficients for log10(Y_th) as a function of
+# lT = log10(T * 0.60), where 0.60 is the mean molecular weight of a fully
+# ionized solar-composition gas.  Coefficient order: c0 + c1*lT + ... + c5*lT^5.
+# Source: Hu et al. (2019) fits to Nozawa et al. (2006) yields.
+_NOZAWA_C_COEFFS: tuple = (
+    -2.34333937e2, 1.38485732e2, -3.39021615e1,
+     4.17705353e0, -2.58281473e-1, 6.38827523e-3,
+)
+_NOZAWA_SIL_COEFFS: tuple = (
+    -2.34790500e2, 1.33208637e2, -3.13027448e1,
+     3.71345730e0, -2.21823668e-1, 5.31746427e-3,
+)
+_NOZAWA_MU_ION: float = 0.60  # mean molecular weight for fully ionized gas
+
+
+def _nozawa_yield(Tk: float, is_carbonaceous: bool) -> float:
+    """Hu+2019 polynomial fit to Nozawa+2006 thermal sputtering yield.
+
+    Parameters
+    ----------
+    Tk : float
+        Gas temperature [K].
+    is_carbonaceous : bool
+        True for graphite/carbonaceous grains; False for silicate.
+
+    Returns
+    -------
+    Y_th : float
+        Sputtering rate coefficient [µm yr⁻¹ cm³].  The destruction
+        timescale (for a grain of radius ``a`` [µm] in gas of density
+        ``nH`` [cm⁻³]) is
+
+            t_spu [yr] = a / (3 · nH · Y_th)
+
+        matching the RAMSES-CALIMA Fortran convention where ``asize``
+        is kept in µm throughout.
+    """
+    lT = math.log10(max(Tk * _NOZAWA_MU_ION, 1e-30))
+    c = _NOZAWA_C_COEFFS if is_carbonaceous else _NOZAWA_SIL_COEFFS
+    log_Y = c[0] + c[1]*lT + c[2]*lT**2 + c[3]*lT**3 + c[4]*lT**4 + c[5]*lT**5
+    return 10.0**log_Y   # [µm yr⁻¹ cm³]
+
 
 # ---------------------------------------------------------------------------
 # Coulomb enhancement factor (Weingartner & Draine 1999, RAMSES convention)
@@ -124,24 +170,26 @@ def accretion_rate(
     dydt_gas: np.ndarray,
     dydt_dust: np.ndarray,
 ) -> float:
-    """Grain growth by accretion of gas-phase metals.
+    """Grain growth by accretion of gas-phase metals (Dubois et al. 2024).
 
-    Implements the LeBourlot et al. (2012) prescription used in RAMSES:
+    Two regimes follow the RAMSES-CALIMA implementation:
 
-    .. math::
+    **Sub-grid cells** (nH > 0.1 cm⁻³ AND T < 10⁴ K, proxy for Jeans unresolved):
+      - Constant sticking α_eff = 1/3.
+      - Thermal velocity evaluated at fixed T_eff = 100 K.
+      - Turbulence clumping boost C_turb = exp(σ_s²), with Mach number
+        computed at T_eff = 100 K: σ_s² = ln(1 + b²M²), b = 0.4.
+      - C is fully molecular (CO) for nH > 10³ cm⁻³ → no carbonaceous accretion.
 
-        \\text{rate} \\; [\\text{s}^{-1}] =
-            E \\cdot k_0^\\text{acc} \\,
-            \\frac{\\sqrt{T_k}}{1 + 10^{-4}\\, T_k^{1.5}}
-            \\, \\frac{y_\\text{gas}[e]}{f_e \\sqrt{m_e}}
+    **Resolved cells** (all others):
+      - LeBourlot et al. (2012) sticking: S(T) = 1/(1 + 10⁻⁴ T^{1.5}).
+      - No clumping boost (C_turb = 1).
 
-    where the rate is limited by the element with the smallest
-    pseudo-density ratio, and *E* is the Coulomb enhancement factor
-    (Dubois et al. 2024 simplified prescription):
-
-    * E = 1   everywhere (default)
-    * E = 0   large carbonaceous in CNM (T < 10⁴ K, nH > 10 cm⁻³) — suppressed
-    * E = 10  small silicate   in CNM (T < 10⁴ K, nH > 10 cm⁻³) — enhanced
+    **Coulomb enhancement** E (Dubois et al. 2024):
+      - E = 1 everywhere (default).
+      - CNM defined as T < 2×10⁴ K AND nH > 10 cm⁻³:
+          large carbonaceous → E = 0 (suppressed, grains negatively charged)
+          small silicate     → E = 10 (enhanced, positive-ion attraction)
 
     Modified variables
     ------------------
@@ -149,7 +197,63 @@ def accretion_rate(
     dydt_gas[el_idx] -= rate × y_dust[idx] × el_mfrac[e]
     """
     Tk = state.local_Tk
-    prefactor = math.sqrt(Tk) / (1.0 + 1.0e-4 * Tk ** 1.5)
+    nH = state.local_nH
+    _MH_CGS = 1.6726219e-24    # proton mass [g]
+    _G_CGS  = 6.674e-8         # gravitational constant [cm³ g⁻¹ s⁻²]
+
+    # Accretion requires neutral gas.  Above ~1.8×10⁵ K the gas is fully
+    # ionised and there are no neutral species to condense onto grains.
+    # This temperature corresponds to the collisional ionisation threshold
+    # of hydrogen (kT ~ 15 eV).  Disable accretion above this limit.
+    T_ACC_MAX = 1.8e5   # K
+    if Tk > T_ACC_MAX:
+        return 0.0
+
+    # ── Regime selection (Dubois et al. 2024 Fortran) ─────────────────────────
+    # Use LeBourlot2012 (resolved) if ANY of:
+    #   1. T > 10^4 K
+    #   2. nH < 0.1 cm^{-3}
+    #   3. Jeans length > 4 × cell size  (λ_J = sqrt(π kB T / G mH² nH))
+    # Otherwise use the subgrid model with turbulent clumping boost.
+    _dx = state.local_dx    # cell size [cm]; 0 if unknown
+    if _dx > 0.0:
+        _lambda_jeans = math.sqrt(math.pi * KB_CGS * Tk / (_G_CGS * _MH_CGS**2 * nH))
+        _jeans_resolved = (_lambda_jeans > 4.0 * _dx)
+    else:
+        _jeans_resolved = False   # cell size unknown: conservative (use subgrid if other criteria met)
+
+    subgrid = (nH >= 0.1) and (Tk <= 1.0e4) and (not _jeans_resolved)
+
+    if subgrid:
+        # Fixed T_acc = 100 K for the thermal velocity (accretion sticking prefactor).
+        # The Mach number for the lognormal boost uses the LOCAL T (Dubois Fortran T2(i)),
+        # not T_acc — only the prefactor sqrt(T_acc) is fixed.
+        T_acc = 100.0
+        alpha_eff = 1.0 / 3.0
+        prefactor = alpha_eff * math.sqrt(T_acc)   # [K^{1/2}]
+        # Sound speed at local T with γ=5/3, no µ (Dubois Fortran: sqrt(5/3 kB T / mH))
+        c_s_boost = math.sqrt(max((5.0 / 3.0) * KB_CGS * Tk / _MH_CGS, 1.0))
+        sigma1d = state.local_sigma
+        # Lognormal PDF variance: σ_s² = ln(1 + b²M²),  b = 0.4
+        if sigma1d > 0.0:
+            Mach2  = (sigma1d / c_s_boost) ** 2
+            _sigs2 = math.log1p(0.16 * Mach2)   # σ_s²
+            _sigs  = math.sqrt(_sigs2)            # σ_s
+        else:
+            _sigs2 = 0.0
+            _sigs  = 0.0
+        # boost is evaluated per-bin because nhmax_acc differs between bins
+        _subgrid_params = (_sigs2, _sigs)
+    else:
+        # Resolved: LeBourlot et al. (2012) sticking, no clumping boost
+        prefactor = math.sqrt(Tk) / (1.0 + 1.0e-4 * Tk ** 1.5)
+        _subgrid_params = None
+
+    # Coulomb enhancement criterion (Dubois+2024 Fortran):
+    # apply when T < 2e4 K  OR  nH > 10 cm^{-3}
+    # (Fortran: if(tau.lt.2d4 .or. nh.gt.10.0d0))
+    apply_coulomb = (Tk < 2.0e4) or (nH > 10.0)
+
     kmax = 0.0
 
     for db in state.dust_bins:
@@ -158,9 +262,26 @@ def accretion_rate(
         if not db.el_indices:
             continue
 
-        # nhmax_acc: RAMSES suppresses accretion above this density threshold
-        if state.local_nH > db.nhmax_acc:
+        # Global density ceiling: accretion suppressed above nhmax_acc
+        # (per-bin: nhmax_acc = 1e3 for C grains, 1e4 for Si grains in Dubois+2024)
+        if nH > db.nhmax_acc:
             continue
+
+        # ── Turbulence clumping boost (Dubois+2024 Eq. per bin) ───────────────
+        # Integral of the lognormal density PDF up to nhmax_acc (density ceiling).
+        # boost = 0.5 × exp(σ_s²) × erfc[(1.5 σ_s² − smaxacc) / (√2 σ_s)]
+        # Reference: Dubois+2024 Fortran boost_acc with smaxacc = ln(nhmax/nH).
+        if _subgrid_params is not None:
+            _sigs2, _sigs = _subgrid_params
+            if _sigs > 0.0:
+                smaxacc = math.log(db.nhmax_acc / max(nH, 1.0e-30))
+                _arg = (1.5 * _sigs2 - smaxacc) / (math.sqrt(2.0) * _sigs)
+                C_turb = 0.5 * math.exp(_sigs2) * math.erfc(_arg)
+                C_turb = max(C_turb, 0.0)
+            else:
+                C_turb = 1.0
+        else:
+            C_turb = 1.0
 
         # Find the limiting element (smallest pseudo-rate)
         limit_rate = math.inf
@@ -178,29 +299,27 @@ def accretion_rate(
         if limit_rate <= 0.0 or not math.isfinite(limit_rate):
             continue
 
-        # Coulomb enhancement factor E (Dubois et al. 2024 simplified prescription).
-        # E=1 everywhere, except in the CNM (T<1e4 K, nH>10 cm⁻³):
-        #   large carbonaceous → E=0  (accretion suppressed)
-        #   small silicate     → E=10 (positive-ion attraction to negatively charged grain)
-        cnm = (Tk < 1.0e4) and (state.local_nH > 10.0)
-        if cnm:
+        # Coulomb enhancement factor (Dubois+2024 Fortran Coulomb_enhance per bin):
+        #   SmC = 1.0, LgC = 1e-5 (strongly suppressed), SmSi = 10.0, LgSi = 1.0
+        if apply_coulomb:
             is_large_carb = (db.composition == 'graphite') and (db.asize_micron > 0.05)
             is_small_sil  = (db.composition == 'silicate') and (db.asize_micron < 0.05)
             if is_large_carb:
-                continue        # E=0: no accretion
+                coulomb_E = 1.0e-5   # strongly suppressed (Fortran Coulomb_enhance(LgC)=1e-5)
             elif is_small_sil:
-                coulomb_E = 10.0
+                coulomb_E = 10.0     # enhanced (Fortran Coulomb_enhance(SmSi)=10)
             else:
                 coulomb_E = 1.0
         else:
             coulomb_E = 1.0
-        rate = db.k0_acc * prefactor * limit_rate * coulomb_E  # [s⁻¹]
+
+        rate = db.k0_acc * prefactor * limit_rate * coulomb_E * C_turb  # [s⁻¹]
 
         if rate <= 0.0:
             continue
 
         kmax = max(kmax, rate)
-        rate_rho = rate * y_dust[idx]  # [g cm⁻³ s⁻¹]
+        rate_rho = rate * y_dust[idx]   # [g cm⁻³ s⁻¹]
 
         dydt_dust[idx] += rate_rho
         for loc, el_idx in enumerate(db.el_indices):
@@ -276,6 +395,140 @@ def thermal_sputtering_rate(
         kmax = max(kmax, rate1)
 
         rate_rho = rate1 * y_dust[idx]  # [g cm⁻³ s⁻¹]
+
+        dydt_dust[idx] -= rate_rho
+        for loc, el_idx in enumerate(db.el_indices):
+            dydt_gas[el_idx] += rate_rho * db.el_mfractions[loc]
+
+    return kmax
+
+
+def thermal_sputtering_rate_nozawa(
+    state: DustChemistryState,
+    y_gas: np.ndarray,
+    y_dust: np.ndarray,
+    dydt_gas: np.ndarray,
+    dydt_dust: np.ndarray,
+) -> float:
+    """Thermal sputtering using the Nozawa+2006/Hu+2019 polynomial yield.
+
+    Matches the ``nozawa2006`` case of Dubois et al. (2024) RAMSES-CALIMA.
+    No ion-by-ion table lookup is performed; instead the combined yield for
+    all gas species is given by a 5th-degree polynomial in log10(T × 0.60).
+
+    Timescale formula (identical to RAMSES Fortran):
+
+    .. math::
+
+        t_{\\rm spu} = \\frac{a}{3 \\, n_{\\rm H} \\, Y_{\\rm th}(T)}
+
+    where :math:`Y_{\\rm th}` [cm⁴ yr⁻¹] is the Hu+2019 polynomial yield
+    and the fractional mass-loss rate is
+    :math:`(1/\\rho) \\, d\\rho/dt = 1/t_{\\rm spu}`.
+
+    Composition is determined from ``db.el_mfractions``: a grain whose
+    dominant element (by mass fraction) is C is treated as carbonaceous;
+    all others use the silicate coefficients.
+
+    Modified variables
+    ------------------
+    dydt_dust[idx]   -= rate × y_dust[idx]
+    dydt_gas[el_idx] += rate × y_dust[idx] × el_mfrac[e]   (return to gas)
+    """
+    Tk = state.local_Tk
+    nH = state.local_nH
+    kmax = 0.0
+
+    for db in state.dust_bins:
+        idx = db.bin_index + state.npah
+
+        # Identify carbonaceous vs silicate by the grain's lead element
+        is_carb = False
+        if db.el_indices:
+            # el_mfractions[0] corresponds to el_indices[0]; check whether
+            # that element is carbon.  We look for the element with the
+            # highest mass fraction and check if it is 'C'.
+            lead_loc = int(np.argmax(db.el_mfractions))
+            lead_el = state.el_names[db.el_indices[lead_loc]]
+            is_carb = (lead_el == 'C')
+
+        Y_th = _nozawa_yield(Tk, is_carb)   # [µm yr⁻¹ cm³]
+
+        # rate [s⁻¹] = 3 nH [cm⁻³] × Y_th [µm yr⁻¹ cm³] / (a [µm] × YR2SEC [s yr⁻¹])
+        # Identical formula to the table-based kernel; the polynomial replaces
+        # the per-ion table lookup.  asize_micron is already in µm.
+        denom = 3.0 * nH * Y_th
+        if denom <= 0.0:
+            continue
+        rate1 = denom / (db.asize_micron * YR2SEC)   # [s⁻¹]
+        kmax = max(kmax, rate1)
+
+        rate_rho = rate1 * y_dust[idx]   # [g cm⁻³ s⁻¹]
+
+        dydt_dust[idx] -= rate_rho
+        for loc, el_idx in enumerate(db.el_indices):
+            dydt_gas[el_idx] += rate_rho * db.el_mfractions[loc]
+
+    return kmax
+
+
+def thermal_sputtering_rate_nozawa_ramses(
+    state: DustChemistryState,
+    y_gas: np.ndarray,
+    y_dust: np.ndarray,
+    dydt_gas: np.ndarray,
+    dydt_dust: np.ndarray,
+) -> float:
+    """Thermal sputtering with the RAMSES-CALIMA Fortran yield assignment.
+
+    Identical physics to :func:`thermal_sputtering_rate_nozawa` but reproduces
+    the bin-index-based yield dispatch in ``cooling_module.f90`` (case ``'hu'``,
+    ndust=4):
+
+    .. code-block:: fortran
+
+        t_des(1:2) = asize(1:2)/nH / ySi / 3 * year   ! bins 1,2: silicate yield
+        t_des(3:4) = asize(3:4)/nH / yC  / 3 * year   ! bins 3,4: carbon yield
+
+    The Fortran bin ordering is SmSi(1), LgSi(2), SmC(3), LgC(4), so bins 1-2
+    (silicate) correctly receive ySi and bins 3-4 (carbon) correctly receive yC.
+    pyCALIMA uses the reverse ordering SmC(1), LgC(2), SmSi(3), LgSi(4), so to
+    match the Fortran the yield must be **swapped relative to composition**:
+    carbon grains receive ySi and silicate grains receive yC.
+
+    Use this model (``"nozawa2006_ramses"``) when comparing against Dubois+2024
+    RAMSES-CALIMA simulations.  Use ``"nozawa2006"`` for physically correct
+    (composition-matched) yields.
+
+    At T > ~7×10⁵ K the silicate yield exceeds the carbon yield (Ys > Yc), so
+    this swap accelerates carbon-grain sputtering and reduces f_carb in hot gas,
+    matching the simulation.
+    """
+    Tk = state.local_Tk
+    nH = state.local_nH
+    kmax = 0.0
+
+    for db in state.dust_bins:
+        idx = db.bin_index + state.npah
+
+        # Identify carbonaceous vs silicate by the grain's lead element
+        is_carb = False
+        if db.el_indices:
+            lead_loc = int(np.argmax(db.el_mfractions))
+            lead_el = state.el_names[db.el_indices[lead_loc]]
+            is_carb = (lead_el == 'C')
+
+        # Swap: carbonaceous grains use silicate yield, silicate grains use
+        # carbon yield — reproducing the RAMSES Fortran bin-index assignment.
+        Y_th = _nozawa_yield(Tk, not is_carb)   # [µm yr⁻¹ cm³]
+
+        denom = 3.0 * nH * Y_th
+        if denom <= 0.0:
+            continue
+        rate1 = denom / (db.asize_micron * YR2SEC)   # [s⁻¹]
+        kmax = max(kmax, rate1)
+
+        rate_rho = rate1 * y_dust[idx]   # [g cm⁻³ s⁻¹]
 
         dydt_dust[idx] -= rate_rho
         for loc, el_idx in enumerate(db.el_indices):
@@ -390,6 +643,168 @@ def coagulation_rate(
 
         dydt_dust[idx] -= rate_rho
         dydt_dust[partner_idx] += rate_rho
+
+    return kmax
+
+
+# ---------------------------------------------------------------------------
+# 4b.  Dubois et al. (2024) simplified shattering
+# ---------------------------------------------------------------------------
+
+def dubois_shattering_rate(
+    state: DustChemistryState,
+    y_gas: np.ndarray,
+    y_dust: np.ndarray,
+    dydt_gas: np.ndarray,
+    dydt_dust: np.ndarray,
+) -> float:
+    """Dubois et al. (2024) simplified shattering: large grains → small grains.
+
+    Uses the Aoyama et al. (2017) timescale with a density-dependent velocity:
+
+    .. math::
+
+        t_\\mathrm{sha} = 54 \\,
+            \\frac{a_L}{0.1\\,\\mu\\mathrm{m}} \\,
+            \\frac{s_i}{3\\,\\mathrm{g\\,cm^{-3}}} \\,
+            \\left(\\frac{D_L}{0.01}\\right)^{-1}
+            \\left(\\frac{n}{1\\,\\mathrm{cm}^{-3}}\\right)^{-p_\\mathrm{sh}}
+            \\mathrm{Myr}
+
+    where :math:`p_\\mathrm{sh} = 1` for :math:`n < 1\\,\\mathrm{cm}^{-3}` and
+    :math:`p_\\mathrm{sh} = 1/3` for :math:`1 < n < 10^3\\,\\mathrm{cm}^{-3}`.
+    Shattering is inactive for :math:`n \\geq 10^3\\,\\mathrm{cm}^{-3}`.
+
+    Mass is transferred from the **last** (largest) bin to the **first** (smallest)
+    bin within each composition group, conserving total dust mass.
+    """
+    nH = state.local_nH
+    rho_gas = state.local_rho
+
+    if nH >= 1.0e3:
+        return 0.0   # shattering inactive in dense molecular gas
+
+    p_sh = 1.0 if nH < 1.0 else 1.0 / 3.0
+    n_factor = nH ** p_sh
+
+    kmax = 0.0
+
+    for ii1, ii2 in _composition_groups(state.dust_bins):
+        if ii2 <= ii1:
+            continue   # need ≥ 2 bins per composition group
+
+        db_large = state.dust_bins[ii2]
+        db_small = state.dust_bins[ii1]
+        idx_large = db_large.bin_index + state.npah
+        idx_small = db_small.bin_index + state.npah
+
+        rho_L = y_dust[idx_large]
+        if rho_L <= db_large.smallr_dust:
+            continue
+
+        D_L = rho_L / rho_gas                   # large-bin dust-to-gas ratio
+        # 1/t_sha = D_L × n^{p_sh} / (t_sha_ref × (a_L/0.1µm) × s_3 × 0.01) yr^{-1}
+        # Dubois+2024: t_sha = 54 × a_{0.1} × s_3 × (D_L/0.01)^{-1} × n^{-p_sh} Myr
+        # s_3 = s_grain / 3 (normalised grain density); factor /3 was missing before.
+        # denom [s] = 5.41e5 × (a_L/0.1) × (s_i/3) yr × YR2SEC
+        denom = 5.41e5 * (db_large.asize_micron / 0.1) * (db_large.sgrain / 3.0) * YR2SEC
+        rate_sha = D_L * n_factor / denom        # [s^{-1}]
+
+        if rate_sha <= 0.0:
+            continue
+
+        kmax = max(kmax, rate_sha)
+        rate_mass = rate_sha * rho_L             # [g cm^{-3} s^{-1}]
+
+        dydt_dust[idx_large] -= rate_mass
+        dydt_dust[idx_small] += rate_mass
+
+    return kmax
+
+
+# ---------------------------------------------------------------------------
+# 4c.  Dubois et al. (2024) simplified coagulation
+# ---------------------------------------------------------------------------
+
+def dubois_coagulation_rate(
+    state: DustChemistryState,
+    y_gas: np.ndarray,
+    y_dust: np.ndarray,
+    dydt_gas: np.ndarray,
+    dydt_dust: np.ndarray,
+) -> float:
+    """Dubois et al. (2024) simplified coagulation: small grains → large grains.
+
+    Matches the ``coagulation_dispersion='unstable_mc'`` case of the Dubois+2024
+    RAMSES Fortran with ``power_coa=0`` and ``power_boost_coa=0`` (no density or
+    boost power-law correction):
+
+    .. math::
+
+        t_\\mathrm{coa} = t_\\mathrm{coa,ref} \\,
+            \\frac{a_S}{0.005\\,\\mu\\mathrm{m}} \\,
+            s_i \\,
+            \\left(\\frac{D_S}{0.01}\\right)^{-1}
+
+    where :math:`t_\\mathrm{coa,ref} = 5.42 \\times 10^3\\,\\mathrm{yr}`
+    (from the Dubois+2024 namelist ``t_coa_ref = 5.42e5\\,\\mathrm{yr}`` × 0.01).
+
+    Active only when :math:`T < 10^4\\,\\mathrm{K}`, :math:`n_H \\geq 0.1\\,\\mathrm{cm}^{-3}`,
+    **and** the Jeans length does not exceed :math:`4\\Delta x` (the
+    ``coagulation_dispersion='unstable_mc'`` criterion in Dubois et al. 2024 Fortran).
+
+    Mass is transferred from the **first** (smallest) bin to the **last** (largest)
+    bin within each composition group, conserving total dust mass.
+    """
+    _MH_CGS = 1.6726219e-24
+    _G_CGS  = 6.674e-8
+
+    Tk = state.local_Tk
+    nH = state.local_nH
+    rho_gas = state.local_rho
+
+    if Tk > 1.0e4 or nH < 0.1:
+        return 0.0
+
+    # Jeans length criterion (Dubois+2024 Fortran, unstable_mc case):
+    # suppress coagulation when gas is not self-gravitating (λ_J > 4Δx)
+    _dx = state.local_dx
+    if _dx > 0.0:
+        _lambda_jeans = math.sqrt(math.pi * KB_CGS * Tk / (_G_CGS * _MH_CGS**2 * nH))
+        if _lambda_jeans > 4.0 * _dx:
+            return 0.0
+
+    kmax = 0.0
+
+    for ii1, ii2 in _composition_groups(state.dust_bins):
+        if ii2 <= ii1:
+            continue   # need ≥ 2 bins per composition group
+
+        db_small = state.dust_bins[ii1]
+        db_large = state.dust_bins[ii2]
+        idx_small = db_small.bin_index + state.npah
+        idx_large = db_large.bin_index + state.npah
+
+        rho_S = y_dust[idx_small]
+        if rho_S <= db_small.smallr_dust:
+            continue
+
+        D_S = rho_S / rho_gas                   # small-bin dust-to-gas ratio
+        # 1/t_coa = D_S / (t_coa_ref × (a_S/0.005µm) × s_3 × 0.01) yr^{-1}
+        # Dubois+2024: t_coa = 0.27/F × a_{0.005} × s_3 × (D_S/0.01)^{-1} Myr
+        # s_3 = s_grain / 3 (normalised grain density); factor /3 was missing before.
+        # denom [s] = 5.42e3 × (a_S/0.005) × (s_i/3) yr × YR2SEC
+        denom = 5.42e3 * (db_small.asize_micron / 0.005) * (db_small.sgrain / 3.0) * YR2SEC
+        rate_coa = D_S / denom                   # [s^{-1}]
+
+        if rate_coa <= 0.0:
+            continue
+
+        kmax = max(kmax, rate_coa)
+        rate_mass = rate_coa * rho_S             # [g cm^{-3} s^{-1}]
+
+        dydt_dust[idx_small] -= rate_mass
+        dydt_dust[idx_large] += rate_mass
 
     return kmax
 

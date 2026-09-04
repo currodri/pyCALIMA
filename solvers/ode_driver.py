@@ -197,6 +197,7 @@ def integrate_dust_ode(
         "naccepted":   naccepted,
         "nrejected":   nrejected,
         "icount":      icount,
+        "converged":   icount < state.countmax,   # False when countmax was hit
         "nincreased":  nincreased,
         "nreduced":    nreduced,
         "h_min_used":  float(h_arr.min()),
@@ -223,6 +224,7 @@ def _empty_diagnostics(collect_history: bool) -> Dict:
     """Return a zeroed diagnostics dict for the break-flag (no-process) case."""
     d: Dict = {
         "tau": 0.0, "naccepted": 0, "nrejected": 0, "icount": 0,
+        "converged": True,   # break-flag path: no iteration → vacuously converged
         "nincreased": 0, "nreduced": 0,
         "h_min_used": 0.0, "h_max_used": 0.0, "h_mean_used": 0.0,
         "err_min": 0.0, "err_max": 0.0, "err_mean": 0.0,

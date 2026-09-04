@@ -276,13 +276,23 @@ class DustChemistryState:
 
     # ---- Model selection strings (match RAMSES physics flags) ----
     coagulation_model: str = "Aoyama2017"
-    """Choices: ``'Aoyama2017'`` | ``'turbulent'`` | ``'turbulent_all'``."""
+    """Choices: ``'Dubois2024'`` | ``'Aoyama2017'`` | ``'turbulent'`` | ``'turbulent_all'``."""
     shattering_model: str = "turbulent"
-    """Choices: ``'turbulent'`` (self-only) | ``'turbulent_all'`` (all pairs)."""
+    """Choices: ``'Dubois2024'`` | ``'turbulent'`` (self-only) | ``'turbulent_all'`` (all pairs)."""
     dust_velocity_model: str = "Ormel2007"
     """Choices: ``'Ormel2007'`` | ``'Hirashita2019'``."""
     coalescence_model: str = "Totton2012"
     """Choices: ``'Totton2012'`` | ``'Tielens2021'``."""
+    dust_sputtering_model: str = "kirchschlager"
+    """Thermal sputtering yield model.
+
+    ``'kirchschlager'`` (default): full Maxwell-Boltzmann-averaged Kirchschlager
+    yield integrated over ion species from pre-computed T-phi tables.
+
+    ``'nozawa2006'``: Hu+2019 polynomial fit to Nozawa+2006 results, matching
+    the implementation in Dubois et al. 2024 RAMSES-CALIMA.  Timescale:
+    t_spu = a / (3 nH Y_th(T)), Y_th = 10^poly(log10(T * 0.60)).
+    """
     photolysis_model: str = "RM2026"
     pah_sputtering_model: str = "RM2026"
     cluster_evaporation_model: str = "Montillaud2014"

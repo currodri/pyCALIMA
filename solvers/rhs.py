@@ -59,9 +59,13 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     from .dust_rates import (
         accretion_rate,
         coagulation_rate,
+        dubois_shattering_rate,
+        dubois_coagulation_rate,
         pah_accretion_rate,
         sublimation_rate,
         thermal_sputtering_rate,
+        thermal_sputtering_rate_nozawa,
+        thermal_sputtering_rate_nozawa_ramses,
         # PAH rates
         pah_photolysis_rate,
         pah_sputtering_rate,
@@ -86,8 +90,14 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
 
     # ---- Grain destruction (thermal sputtering) ----
     if state.dust_sputtering and state.ndust > 0:
+        if state.dust_sputtering_model == "nozawa2006":
+            _spu_fn = thermal_sputtering_rate_nozawa
+        elif state.dust_sputtering_model == "nozawa2006_ramses":
+            _spu_fn = thermal_sputtering_rate_nozawa_ramses
+        else:
+            _spu_fn = thermal_sputtering_rate  # Kirchschlager MB-integrated tables
         processes.append(
-            DustProcess("sputtering", thermal_sputtering_rate, source=False, sink=True)
+            DustProcess("sputtering", _spu_fn, source=False, sink=True)
         )
 
     # ---- Grain destruction (thermal sublimation, GD89) ----
@@ -98,7 +108,14 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
 
     # ---- Grain coagulation (model-selected) ----
     if state.dust_coagulation and state.ndust > 1:
-        if state.coagulation_model == "Aoyama2017":
+        if state.coagulation_model == "Dubois2024":
+            processes.append(
+                DustProcess(
+                    "coagulation_dubois", dubois_coagulation_rate,
+                    source=True, sink=True,
+                )
+            )
+        elif state.coagulation_model == "Aoyama2017":
             processes.append(
                 DustProcess("coagulation", coagulation_rate, source=True, sink=True)
             )
@@ -122,9 +139,16 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
                 DustProcess("coagulation", coagulation_rate, source=True, sink=True)
             )
 
-    # ---- Grain shattering (turbulent, model-selected) ----
+    # ---- Grain shattering (model-selected) ----
     if state.dust_shattering and state.ndust > 1:
-        if state.shattering_model == "turbulent_all":
+        if state.shattering_model == "Dubois2024":
+            processes.append(
+                DustProcess(
+                    "shattering_dubois", dubois_shattering_rate,
+                    source=True, sink=True,
+                )
+            )
+        elif state.shattering_model == "turbulent_all":
             processes.append(
                 DustProcess(
                     "shattering_all", turbulent_all_shattering_rate,

@@ -223,7 +223,7 @@ def _run_point(
             h_init=h_init, h_min=h_min, h_max=h_max,
             collect_history=False, verbose=False,
         )
-        converged = True
+        converged = bool(diag.get("converged", True))
 
     elapsed = time.perf_counter() - t0
 
