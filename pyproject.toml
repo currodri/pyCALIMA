@@ -44,6 +44,10 @@ dependencies = [
     "unyt>=2.9",
     "miepython>=2.5",
     "platformdirs>=3.0",
+    # astropy.constants is imported at module scope by
+    # models/dust_collisions/dust_dynamics.py and is load-bearing in its
+    # physics, so it cannot be an extra.
+    "astropy>=6.0",
     # tomllib is stdlib only from 3.11; needed to read data/registry.toml.
     "tomli>=2.0; python_version < '3.11'",
 ]
@@ -51,18 +55,17 @@ dependencies = [
 [project.optional-dependencies]
 # numba is already guarded at all 3 import sites; this only makes it easy to get.
 accel = ["numba>=0.59"]
-# astropy: 3 files, 9 of 10 import sites already function-local.
-astro = ["astropy>=6.0"]
 # yt: 3 peripheral RAMSES-reader modules.
 sim = ["yt>=4.3"]
 # amespahdbpythonsuite is referenced only in a TYPE_CHECKING annotation, so it
 # is needed only by code that actually constructs an AmesPAHdb object.
 pahdb = ["amespahdbpythonsuite>=0.5"]
-# Colormaps only. cmasher is already lazy; swiftascmaps has one import site.
-plots = ["cmasher>=1.6", "swiftascmaps>=0.1"]
+# Colormaps only; cmasher is imported lazily with a matplotlib fallback.
+# (swiftascmaps was dropped: its single import was never actually used.)
+plots = ["cmasher>=1.6"]
 # psutil is lazy and guarded (memory reporting in the profiler).
 profile = ["psutil>=5.9"]
-all = ["pycalima[accel,astro,sim,pahdb,plots,profile]"]
+all = ["pycalima[accel,sim,pahdb,plots,profile]"]
 
 [project.urls]
 Homepage = "https://github.com/currodri/pyCALIMA"

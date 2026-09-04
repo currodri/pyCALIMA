@@ -10,7 +10,16 @@ By: F. Rodriguez Montero (currodri@gmail.com)
 
 # Import required libraries
 import numpy as np
-import yt
+
+try:
+    import yt
+except ModuleNotFoundError as _exc:  # pragma: no cover - depends on the install
+    raise ModuleNotFoundError(
+        "pycalima.models.tools.eq_analysis reads RAMSES outputs and requires yt, "
+        "which is an optional dependency:\n"
+        "    pip install 'pycalima[sim]'"
+    ) from _exc
+
 import argparse
 import os
 import matplotlib.pyplot as plt

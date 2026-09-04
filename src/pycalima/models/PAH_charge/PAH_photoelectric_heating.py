@@ -16,7 +16,6 @@ import numpy as np
 from tqdm import tqdm
 import concurrent.futures
 import matplotlib.pyplot as plt
-import swiftascmaps
 import matplotlib.pylab as pl
 import matplotlib as mpl
 import seaborn as sns
