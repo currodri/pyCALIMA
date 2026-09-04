@@ -51,7 +51,8 @@ def compute_D_analytical(mu, sigma, Zi, T, a):
     Computes the Coulomb enhancement factor D analytically 
     assuming a Gaussian charge distribution.
     
-    Parameters:
+    Parameters
+    ----------
     mu    : Mean grain charge <Zg>
     sigma : Standard deviation of grain charge Zg
     Zi    : Charge of the incident particle (e.g., -1 for electrons)

@@ -160,11 +160,11 @@ def check_mass_conservation(
       ``el_names``    : list of element names
       ``M_init``      : initial total mass per element [g cm⁻³]
       ``M_final``     : final total mass per element [g cm⁻³]
-      ``rel_err``     : |ΔM|/M₀ per element (fractional)
+      ``rel_err``     : ``|ΔM|/M₀`` per element (fractional)
       ``total_init``  : sum of all element totals initially
       ``total_final`` : sum of all element totals finally
-      ``total_rel_err``: |ΔM_total|/M_total_0 (fractional)
-      ``max_el_err``  : maximum |ΔM|/M₀ over all elements
+      ``total_rel_err``: ``|ΔM_total|/M_total_0`` (fractional)
+      ``max_el_err``  : maximum ``|ΔM|/M₀`` over all elements
     """
     el_0 = compute_element_totals(state, y_gas_0, y_dust_0)
     el_f = compute_element_totals(state, y_gas_f, y_dust_f)
@@ -292,9 +292,9 @@ def run_chemistry(
     ``y_dust_init``, ``y_dust_final``
         Dust/PAH densities before and after [g cm⁻³].
     ``state``
-        The :class:`~solvers.chemistry_state.DustChemistryState` object.
+        The :class:`~pycalima.solvers.chemistry_state.DustChemistryState` object.
     ``diagnostics``
-        Dict from :func:`~solvers.ode_driver.integrate_dust_ode`, including
+        Dict from :func:`~pycalima.solvers.ode_driver.integrate_dust_ode`, including
         the full ``'history'`` sub-dict for plotting and text export.
     ``t_end_s``
         Total integration time [s].
@@ -475,7 +475,12 @@ def run_chemistry(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-def main(argv=None) -> int:
+def _build_parser():
+    """Argument parser for ``calima-run``.
+
+    Split out from :func:`main` so that the documentation can render it; see
+    ``docs/cli/calima-run.md``.
+    """
     parser = argparse.ArgumentParser(
         prog="calima-run",
         description="CALIMA dust and PAH chemistry evolution solver.",
@@ -521,7 +526,11 @@ def main(argv=None) -> int:
         action="store_true",
         help="Suppress progress output.",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = _build_parser().parse_args(argv)
 
     from pycalima._paths import resolve_solver_config_path
 

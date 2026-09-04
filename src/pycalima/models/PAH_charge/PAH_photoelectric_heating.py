@@ -1235,7 +1235,8 @@ def blackbody_radiation(T, lambda_min, lambda_max, num_points=1000):
     Computes the blackbody radiation intensity in erg cm⁻² s⁻¹ nm⁻¹ sr⁻¹ 
     for a given temperature over a range of wavelengths.
 
-    Parameters:
+    Parameters
+    ----------
         T (float or unyt_quantity): Temperature in Kelvin.
         lambda_min (float or unyt_quantity): Minimum wavelength in nm.
         lambda_max (float or unyt_quantity): Maximum wavelength in nm.

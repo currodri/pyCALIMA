@@ -3,7 +3,7 @@
 Translated from the Fortran ``ode_driver_mod::integrate_dust_ode``
 (``dust_solver.f90``).
 
-The driver iterates the solver's :meth:`~solvers.solver_base.DustSolverBase.step`
+The driver iterates the solver's :meth:`~pycalima.solvers.solver_base.DustSolverBase.step`
 method, advancing ``τ`` towards the target ``dt``.  Rejected steps reduce ``h``
 without advancing time; accepted steps advance ``τ += h``.  The loop aborts
 after ``state.countmax`` total iterations.
@@ -52,7 +52,7 @@ def integrate_dust_ode(
     processes : list of DustProcess
         Active physics processes.
     solver : DustSolverBase
-        Step-integrator instance (e.g. :class:`~solvers.rk4.RK4Solver`).
+        Step-integrator instance (e.g. :class:`~pycalima.solvers.rk4.RK4Solver`).
     h_init : float
         Initial step-size guess [s] (default 10¹⁰ s ≈ 0.3 kyr).
     h_min : float

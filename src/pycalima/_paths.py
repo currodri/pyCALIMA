@@ -555,8 +555,12 @@ def paths_report() -> dict[str, str]:
     }
 
 
-def main(argv: Iterable[str] | None = None) -> int:
-    """``calima-paths`` -- print the resolved data locations and exit."""
+def _build_parser():
+    """Argument parser for ``calima-paths``.
+
+    Split out from :func:`main` so that the documentation can render it
+    directly; see ``docs/cli/calima-paths.md``.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -564,7 +568,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         description="Show where pyCALIMA reads and writes data.",
     )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    return parser
+
+
+def main(argv: Iterable[str] | None = None) -> int:
+    """``calima-paths`` -- print the resolved data locations and exit."""
+    args = _build_parser().parse_args(list(argv) if argv is not None else None)
 
     report = paths_report()
     try:

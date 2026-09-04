@@ -13,7 +13,8 @@ def read_sed_tables(sed_dir):
     """
     Reads the SED tables from the given directory using the same Fortran-style loop.
 
-    Parameters:
+    Parameters
+    ----------
         sed_dir (str): Path to the directory containing SED files.
 
     Returns:
@@ -56,7 +57,8 @@ def plot_seds_by_metallicity(sed_dir, fixed_age=1.0, save_path="seds_by_metallic
     """
     Plots the SEDs color-coded by metallicity for a fixed age and saves the plot.
 
-    Parameters:
+    Parameters
+    ----------
         sed_dir (str): Path to the directory containing SED files.
         fixed_age (float): Age in Gyr to filter the SEDs.
         save_path (str): Path to save the figure.
@@ -100,7 +102,8 @@ def plot_seds_by_age(sed_dir, fixed_metallicity=0.02, save_path="seds_by_age.png
     """
     Plots the SEDs color-coded by age for a fixed metallicity and saves the plot.
 
-    Parameters:
+    Parameters
+    ----------
         sed_dir (str): Path to the directory containing SED files.
         fixed_metallicity (float): Metallicity value to filter the SEDs.
         save_path (str): Path to save the figure.

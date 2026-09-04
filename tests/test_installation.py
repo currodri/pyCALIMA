@@ -459,11 +459,18 @@ def test_notebooks_use_the_pycalima_import_root():
 
 
 @needs_notebooks
-def test_readme_documents_the_ramses_post_processing_workflow():
-    readme = Path(__file__).resolve().parents[1] / "README.md"
-    if not readme.is_file():
-        pytest.skip("README.md not present")
-    text = readme.read_text(encoding="utf-8")
+def test_the_docs_document_the_ramses_post_processing_workflow():
+    """These notebooks need data the project cannot ship, so that has to be
+    stated somewhere a reader will find it. That page is now
+    docs/guide/post-processing.md rather than the README."""
+    page = Path(__file__).resolve().parents[1] / "docs" / "guide" / "post-processing.md"
+    if not page.is_file():
+        pytest.skip("documentation sources are not part of the wheel")
+    # Collapse whitespace: the prose is wrapped, and inside a blockquote the
+    # phrase spans two lines with a "> " continuation.
+    text = " ".join(
+        page.read_text(encoding="utf-8").replace("\n>", " ").split()
+    )
     for needle in ("CALIMA_model_explorer", "CALIMA_SIM_DIR",
                    "not distributed with pyCALIMA"):
-        assert needle in text, f"README does not mention {needle!r}"
+        assert needle in text, f"docs/guide/post-processing.md omits {needle!r}"

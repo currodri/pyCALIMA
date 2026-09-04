@@ -188,4 +188,7 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "PTH", "RUF"]
 ignore = ["E501"]
 
 [tool.check-manifest]
-ignore = [".claude/**", "notebooks/**", "simulation_curves/**", "*.ipynb", "CLAUDE.md"]
+ignore = [
+    ".claude/**", "notebooks/**", "simulation_curves/**", "*.ipynb",
+    "CLAUDE.md", "docs/**", ".github/**",
+]

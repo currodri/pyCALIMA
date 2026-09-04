@@ -46,7 +46,7 @@ def save_chemistry_txt(
     Parameters
     ----------
     results :
-        Dict returned by :func:`~solvers.run_chemistry.run_chemistry`
+        Dict returned by :func:`~pycalima.solvers.run_chemistry.run_chemistry`
         (must have been run with ``collect_history=True``).
     output_path : str or Path
         Destination file.  Created (or overwritten) by this function.

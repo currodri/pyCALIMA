@@ -436,8 +436,12 @@ def verify_dataset(ds: Dataset | str, *, strict: bool = True) -> bool:
 # CLI
 # ---------------------------------------------------------------------------
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """``calima-fetch-data`` entry point."""
+def _build_parser():
+    """Argument parser for ``calima-fetch-data``.
+
+    Split out from :func:`main` so that the documentation can render it, with
+    its five subcommands; see ``docs/cli/calima-fetch-data.md``.
+    """
     import argparse
 
     p = argparse.ArgumentParser(
@@ -466,7 +470,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     pi.add_argument("source")
     pi.add_argument("--link", action="store_true", help="symlink instead of copy")
 
-    a = p.parse_args(list(argv) if argv is not None else None)
+    return p
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """``calima-fetch-data`` entry point."""
+    a = _build_parser().parse_args(list(argv) if argv is not None else None)
 
     if a.cmd == "list":
         rows = []

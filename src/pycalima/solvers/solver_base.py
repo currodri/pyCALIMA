@@ -19,7 +19,7 @@ class DustSolverBase(ABC):
     and break flags.
 
     New solver types can be added by subclassing this class and registering
-    them in :data:`solvers.run_chemistry.SOLVER_REGISTRY`.
+    them in :data:`pycalima.solvers.run_chemistry.SOLVER_REGISTRY`.
     """
 
     @property
@@ -51,7 +51,7 @@ class DustSolverBase(ABC):
         h : float
             Proposed step size [s].
         processes : list of DustProcess
-            Active physics processes (built by :func:`~solvers.rhs.build_process_list`).
+            Active physics processes (built by :func:`~pycalima.solvers.rhs.build_process_list`).
         first_call : bool
             ``True`` on the very first step of a new integration interval.
             Some solvers use this to compute an initial step-size estimate

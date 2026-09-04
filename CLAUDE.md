@@ -90,10 +90,10 @@ pip install -e ".[dev]"
 pytest
 ```
 
-505 tests in `tests/`. Expect `502 passed, 1 skipped, 2 xfailed` with generated
-tables available, or `469 passed, 34 skipped, 2 xfailed` without — the 34 read
-`model_data/` and skip when it is absent (`conftest.py` checks
-`$CALIMA_MODEL_DATA` then the checkout).
+Some tests read `model_data/` and skip when it is absent (`conftest.py` checks
+`$CALIMA_MODEL_DATA`, then the checkout). Do not record a test count here: it
+was previously stated in four places and had already drifted apart. Run
+`pytest --collect-only -q | tail -1` instead.
 
 The 2 xfails are **strict** and record known physics bugs
 (`PowerLaw_ExpCutoff_Distribution.averaged_over_number` weighting;

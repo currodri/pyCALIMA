@@ -480,7 +480,12 @@ def load_grid_npz(path: Union[str, Path]) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
-def _parse_args(argv=None):
+def _build_parser():
+    """Argument parser for ``calima-grid``.
+
+    Returns the parser rather than parsed arguments so that the documentation
+    can render it directly; see ``docs/cli/calima-grid.md``.
+    """
     p = argparse.ArgumentParser(
         prog="calima-grid",
         description="Run CALIMA chemistry on a 2-D parameter grid.",
@@ -513,11 +518,11 @@ def _parse_args(argv=None):
                    help="Parallel workers (requires joblib).")
     p.add_argument("--quiet",      action="store_true",
                    help="Suppress progress output.")
-    return p.parse_args(argv)
+    return p
 
 
 def main(argv=None):
-    args = _parse_args(argv)
+    args = _build_parser().parse_args(argv)
     grid = run_grid(
         config_path  = resolve_solver_config_path(args.config),
         x_param      = args.x_param,

@@ -500,19 +500,23 @@ def test_run_chemistry_rejects_an_unknown_solver_override(model_data):
         )
 
 
-def test_readme_documents_every_solver():
-    """The gap this section exists to prevent: the README's solver table listed
-    only rk4, newton_krylov and sparse_newton."""
+def test_the_docs_document_every_solver():
+    """The gap this guards: the solver table once listed only rk4,
+    newton_krylov and sparse_newton, omitting rk54 and anninos entirely.
+
+    The table now lives in docs/guide/solvers.md rather than the README, so
+    that is what gets checked.
+    """
     from pathlib import Path
 
-    readme = Path(__file__).resolve().parents[1] / "README.md"
-    if not readme.is_file():
-        pytest.skip("README.md not present (installed copy)")
-    text = readme.read_text(encoding="utf-8")
+    page = Path(__file__).resolve().parents[1] / "docs" / "guide" / "solvers.md"
+    if not page.is_file():
+        pytest.skip("documentation sources are not part of the wheel")
+    text = page.read_text(encoding="utf-8")
     missing = [k for k in EXPECTED_SOLVERS if f"`{k}`" not in text]
-    assert not missing, f"README does not document solver types: {missing}"
+    assert not missing, f"docs/guide/solvers.md omits solver types: {missing}"
     missing_cls = [c for c in EXPECTED_SOLVERS.values() if c not in text]
-    assert not missing_cls, f"README does not name solver classes: {missing_cls}"
+    assert not missing_cls, f"docs/guide/solvers.md omits solver classes: {missing_cls}"
 
 
 # ---------------------------------------------------------------------------
