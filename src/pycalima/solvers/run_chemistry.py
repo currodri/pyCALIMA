@@ -249,6 +249,7 @@ def run_chemistry(
     output_plot: Optional[str | Path] = None,
     save_txt: bool = False,
     save_plot: bool = False,
+    solver_type: Optional[str] = None,
 ) -> dict:
     """Run the dust/PAH chemistry evolution and optionally save outputs.
 
@@ -320,6 +321,16 @@ def run_chemistry(
     with config_path.open("r", encoding="utf-8") as fh:
         cfg = json.load(fh)
     solver_cfg = cfg.get("solver", {})
+
+    # An explicit solver_type overrides the config's "solver.type", which is
+    # what --solver does. Copied so the caller's cfg dict is left alone.
+    if solver_type is not None:
+        if solver_type.lower() not in SOLVER_REGISTRY:
+            raise ValueError(
+                f"Unknown solver type '{solver_type}'. "
+                f"Available: {sorted(SOLVER_REGISTRY)}"
+            )
+        solver_cfg = {**solver_cfg, "type": solver_type.lower()}
 
     if t_end_Myr is None:
         t_end_Myr = float(solver_cfg.get("t_end_Myr", 100.0))
@@ -500,6 +511,12 @@ def main(argv=None) -> int:
         help="Override path for the evolution figure (e.g. run.png).",
     )
     parser.add_argument(
+        "--solver",
+        default=None,
+        choices=sorted(SOLVER_REGISTRY),
+        help="Override the config's 'solver.type'. Default: use the config.",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress progress output.",
@@ -517,6 +534,7 @@ def main(argv=None) -> int:
         output_plot=args.output_plot,
         save_txt=True,
         save_plot=True,
+        solver_type=args.solver,
     )
     return 0
 

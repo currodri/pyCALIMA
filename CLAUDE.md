@@ -167,8 +167,14 @@ NOT BUNDLED, registered in data/registry.toml
 
 - `chemistry_state.py` — `DustChemistryState`, `DustBinParams`, `PAHBinParams` dataclasses
 - `rhs.py` / `dust_rates.py` — assembles and evaluates rate kernels per physics flag
-- `rk4.py` — adaptive Cash–Karp RK4 integrator
+- `rk4.py` / `rk54.py` — adaptive Cash–Karp RK4 and RK5(4) integrators
+- `anninos.py` — quasi-implicit per-bin integrator (Anninos+1997), stable for
+  destruction-dominated bins where explicit steps would be prohibitive
 - `equilibrium.py` — Newton–Krylov and sparse-Newton steady-state solvers
+
+All five are registered in `SOLVER_REGISTRY` in `solvers/run_chemistry.py`;
+adding a solver means adding it there and subclassing `DustSolverBase`.
+Select one with `solver.type` in a config, or `--solver` on either CLI.
 - `dust_init.py` — parses JSON config, builds initial state and density arrays
 - `table_io.py` — reads sputtering/rate tables from `model_data/`
 

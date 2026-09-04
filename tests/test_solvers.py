@@ -399,3 +399,117 @@ def test_grid_npz_round_trip(model_data, tmp_path):
     out = save_grid_npz(grid, str(tmp_path / "grid.npz"))
     reloaded = load_grid_npz(out)
     assert np.allclose(np.asarray(reloaded["DTM"]), np.asarray(grid["DTM"]))
+
+
+# ---------------------------------------------------------------------------
+# solver registry: every solver reachable, and documented
+# ---------------------------------------------------------------------------
+
+EXPECTED_SOLVERS = {
+    "rk4": "RK4Solver",
+    "rk54": "RK54Solver",
+    "anninos": "AnninosSolver",
+    "newton_krylov": "NewtonKrylovEquilibriumSolver",
+    "sparse_newton": "SparseNewtonEquilibriumSolver",
+}
+
+
+def test_registry_contains_every_solver():
+    from pycalima.solvers.run_chemistry import SOLVER_REGISTRY
+
+    assert set(SOLVER_REGISTRY) == set(EXPECTED_SOLVERS), (
+        f"registry is {sorted(SOLVER_REGISTRY)}, expected {sorted(EXPECTED_SOLVERS)}"
+    )
+    for key, cls_name in EXPECTED_SOLVERS.items():
+        assert SOLVER_REGISTRY[key].__name__ == cls_name
+
+
+@pytest.mark.parametrize("key", sorted(EXPECTED_SOLVERS))
+def test_every_registered_solver_instantiates(key):
+    from pycalima.solvers.run_chemistry import _make_solver
+
+    solver = _make_solver({"type": key})
+    assert solver is not None
+
+
+def test_make_solver_rejects_an_unknown_type():
+    from pycalima.solvers.run_chemistry import _make_solver
+
+    with pytest.raises(ValueError, match="Unknown solver type"):
+        _make_solver({"type": "not_a_solver"})
+
+
+def test_both_clis_offer_the_same_solver_choices():
+    """calima-run used to have no --solver flag at all, while calima-grid did,
+    so a documented `calima-run ... --solver newton_krylov` failed with
+    'unrecognized arguments'."""
+    import contextlib
+    import importlib
+    import io
+
+    # NB: `from pycalima.solvers import run_chemistry` binds the re-exported
+    # *function*, not the module, because solvers/__init__.py shadows the name.
+    rc = importlib.import_module("pycalima.solvers.run_chemistry")
+    rg = importlib.import_module("pycalima.solvers.run_grid")
+
+    # Both build their parser inside the entry point, so compare the --help
+    # output, which is also what a user actually sees.
+    found = {}
+    for name, fn in (("calima-run", rc.main), ("calima-grid", rg.cli)):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), pytest.raises(SystemExit):
+            fn(["--help"])
+        text = buf.getvalue()
+        assert "--solver" in text, f"{name} does not expose --solver"
+        found[name] = {s for s in EXPECTED_SOLVERS if s in text}
+
+    for name, solvers in found.items():
+        assert solvers == set(EXPECTED_SOLVERS), (
+            f"{name} --help advertises {sorted(solvers)}, "
+            f"expected {sorted(EXPECTED_SOLVERS)}"
+        )
+
+
+@pytest.mark.parametrize("key", sorted(EXPECTED_SOLVERS))
+def test_solver_type_override_reaches_the_run(key, model_data, tmp_path):
+    """--solver must override the config's solver.type."""
+    from pycalima.solvers.run_chemistry import run_chemistry
+
+    results = run_chemistry(
+        resolve_solver_config_path("example_ic"),
+        t_end_Myr=1e-4,
+        verbose=False,
+        output_dir=str(tmp_path),
+        save_txt=False,
+        solver_type=key,
+    )
+    assert results is not None
+    for field in ("y_gas_final", "y_dust_final"):
+        arr = np.asarray(results[field])
+        assert np.all(np.isfinite(arr)) and np.all(arr >= 0), f"{key}: bad {field}"
+
+
+def test_run_chemistry_rejects_an_unknown_solver_override(model_data):
+    from pycalima.solvers.run_chemistry import run_chemistry
+
+    with pytest.raises(ValueError, match="Unknown solver type"):
+        run_chemistry(
+            resolve_solver_config_path("example_ic"),
+            verbose=False,
+            solver_type="not_a_solver",
+        )
+
+
+def test_readme_documents_every_solver():
+    """The gap this section exists to prevent: the README's solver table listed
+    only rk4, newton_krylov and sparse_newton."""
+    from pathlib import Path
+
+    readme = Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.is_file():
+        pytest.skip("README.md not present (installed copy)")
+    text = readme.read_text(encoding="utf-8")
+    missing = [k for k in EXPECTED_SOLVERS if f"`{k}`" not in text]
+    assert not missing, f"README does not document solver types: {missing}"
+    missing_cls = [c for c in EXPECTED_SOLVERS.values() if c not in text]
+    assert not missing_cls, f"README does not name solver classes: {missing_cls}"
