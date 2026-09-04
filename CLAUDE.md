@@ -80,7 +80,30 @@ calima-grid \
 
 **Run the test suite:**
 ```bash
+pip install -e ".[dev]"
 pytest
+```
+
+505 tests in `tests/`. Expect `502 passed, 1 skipped, 2 xfailed` with generated
+tables available, or `469 passed, 34 skipped, 2 xfailed` without — the 34 read
+`model_data/` and skip when it is absent (`conftest.py` checks
+`$CALIMA_MODEL_DATA` then the checkout).
+
+The 2 xfails are **strict** and record known physics bugs
+(`PowerLaw_ExpCutoff_Distribution.averaged_over_number` weighting;
+`ionisation_yield_Jochims1996` unclamped below threshold). If you fix either,
+the xfail turns into a failure — that is the signal to remove the marker, not
+to loosen the test.
+
+When adding a test, prefer an invariant (round-trip, normalisation,
+monotonicity, bounds, conservation) over a recorded numerical value, and use
+the `isolated_env` / `pristine_env` fixtures rather than inheriting the ambient
+`$CALIMA_*` environment.
+
+**Verify an installation** (no clone needed):
+```bash
+calima-paths              # bundled data inside the package, model_data outside it
+calima-fetch-data verify  # every bundled dataset present; PAHdb missing by design
 ```
 
 **Run script-style physics checks** (these are scripts, not pytest):

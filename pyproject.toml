@@ -66,6 +66,12 @@ plots = ["cmasher>=1.6"]
 # psutil is lazy and guarded (memory reporting in the profiler).
 profile = ["psutil>=5.9"]
 all = ["pycalima[accel,sim,pahdb,plots,profile]"]
+# Tooling for running the test suite and building distributions.
+dev = [
+    "pycalima[all]",
+    "pytest>=8.0",
+    "build>=1.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/currodri/pyCALIMA"

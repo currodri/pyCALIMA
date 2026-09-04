@@ -35,7 +35,7 @@ CORE_DEPENDENCIES = {
     "joblib", "unyt", "miepython", "platformdirs", "astropy",
 }
 
-EXPECTED_EXTRAS = {"accel", "sim", "pahdb", "plots", "profile", "all"}
+EXPECTED_EXTRAS = {"accel", "sim", "pahdb", "plots", "profile", "all", "dev"}
 
 
 # ---------------------------------------------------------------------------

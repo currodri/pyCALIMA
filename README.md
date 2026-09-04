@@ -95,21 +95,36 @@ the active configuration's `model_name` — see [Data locations](#data-locations
 	- Supports time integration (adaptive RK4) and direct steady-state (Newton–Krylov, sparse Newton).
 	- Can run single-point or a parallelised 2-D parameter grid.
 
-### Tests and setup utilities
+### Tests, diagnostics and setup utilities
 
-- `test_config_check.py`
+Paths in this subsection are relative to the repository root, not the package.
+
+- `tests/`
+	- The pytest suite: 505 tests covering installation, data locations and each
+	  source section. See [Testing and Validation](#testing-and-validation).
+
+- `diagnostics/check_config.py`
 	- Quick sanity check for reading an alternative grain-size configuration.
 
-- `tests/stromgren_test/`
+- `diagnostics/stromgren_test/`
 	- Stromgren test utilities and setup files for simulation experiments.
+
+- `diagnostics/<subpackage>/check_*.py`
+	- Script-style physics checks that produce figures.
 
 ### Tutorials
 
-- `calima_tutorial.ipynb`
+All notebooks live in `notebooks/`, with outputs cleared.
+
+- `notebooks/calima_tutorial.ipynb`
 	- End-to-end walkthrough of the solver workflow (single-point RK4 and equilibrium runs, T–nH grids, plotting).
 
-- `calima_dust_pah_processes.ipynb`
+- `notebooks/calima_dust_pah_processes.ipynb`
 	- Deep dive into individual dust and PAH physical processes, rate-table inspection, and isolated-process runs.
+
+- `notebooks/ramses_equilibrium_tutorial.ipynb`, `notebooks/CALIMA_model_explorer.ipynb`
+	- RAMSES post-processing and parameter-space exploration. Both need the `sim`
+	  extra (`yt`).
 
 ## Package Guide: What Each Section Does
 
@@ -298,6 +313,105 @@ references are rejected in distribution metadata. Both are optional:
 
 See `requirements-dev.txt`.
 
+To also get the test suite and build tooling:
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Verifying the installation
+
+Three levels, cheapest first.
+
+### 1. Is it installed, and where does its data live?
+
+```bash
+python -c "import pycalima; print(pycalima.__version__)"
+calima-paths
+```
+
+`calima-paths` prints every resolved location. Read-only reference data should
+sit **inside** the installed package, and `model_data` / `results` **outside**
+it:
+
+```
+pycalima package     .../site-packages/pycalima
+  external_data      .../site-packages/pycalima/data/external_data
+  optical_props      .../site-packages/pycalima/data/optical_props
+model_data           ~/Library/Application Support/calima/model_data
+results              ~/Library/Application Support/calima/results
+```
+
+If `model_data` points anywhere inside `site-packages`, something is wrong.
+Run it from a directory that is *not* the repository to check that nothing
+depends on the current working directory.
+
+### 2. Did the reference data ship?
+
+```bash
+calima-fetch-data list
+calima-fetch-data verify
+```
+
+Every `bundled` dataset must report `present`. The two PAHdb archives report
+`MISSING` by design — they are ~575 MB and are obtained separately, so
+`calima-fetch-data verify` exits non-zero until they are registered:
+
+```bash
+calima-fetch-data import pahdb-theoretical-v4-00 /path/to/pahdb-...v4.00.xml
+```
+
+All five console scripts should respond:
+
+```bash
+for c in calima-paths calima-fetch-data calima-export calima-run calima-grid; do
+    $c --help > /dev/null && echo "ok $c"
+done
+```
+
+### 3. Run the test suite
+
+Requires a clone, since tests are not shipped inside the wheel:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Expected results, depending on whether generated tables are available:
+
+| Situation | Result |
+|---|---|
+| `model_data/` present (or `$CALIMA_MODEL_DATA` set) | `502 passed, 1 skipped, 2 xfailed` |
+| no generated tables at all | `469 passed, 34 skipped, 2 xfailed` |
+
+The 34 skips are the tests that read generated tables. They skip rather than
+fail, since `model_data/` is gitignored and produced by `calima-export`. To
+include them, either run `calima-export` first or point at an existing tree:
+
+```bash
+CALIMA_MODEL_DATA=/path/to/model_data pytest
+```
+
+The remaining single skip is `cagliari-pah`, whose fetch test is skipped
+because a bundled copy already satisfies it.
+
+The two xfails are known physics bugs recorded deliberately — see
+[Testing and Validation](#testing-and-validation).
+
+### End-to-end smoke test
+
+The shortest real calculation, from any directory:
+
+```bash
+calima-run example_ic --t_end_Myr 0.01 --output-dir /tmp/calima-check
+```
+
+It resolves the bundled config by name, reads tables from the resolved
+`model_data`, prints an element-by-element mass-conservation table ending in
+`✓ OK`, and writes `example_ic_evolution.{txt,png}`. This needs generated
+tables; if they are missing you get an error naming `calima-export`.
+
 ## Data locations
 
 Reference data ships inside the package and is read-only. Generated tables and
@@ -444,12 +558,50 @@ grid = run_grid(
 
 ## Testing and Validation
 
-- Test suite: `pytest` (import-hygiene and data-location regression tests).
+```bash
+pip install -e ".[dev]"
+pytest                              # 502 passed, 1 skipped, 2 xfailed
+pytest tests/test_installation.py   # packaging and metadata only
+pytest -q --durations=10            # find the slow tests
+```
+
+`tests/` holds 505 tests in nine modules. Assertions are invariants —
+round-trips, normalisation, monotonicity, bounds, mass conservation — rather
+than recorded output, so they catch a broken data path or a sign error without
+pinning numerical results.
+
+| Module | Tests | Covers |
+|---|---|---|
+| `test_installation.py` | 54 | distribution metadata, dependencies, extras, console scripts, package data, wheel/sdist audit |
+| `test_no_import_side_effects.py` | 135 | every module imports from an empty CWD writing nothing; no import-time `mkdir`; no global LaTeX poisoning |
+| `test_datasets.py` | 86 | registry shape, bundled/fetch/manual semantics, `calima-fetch-data` |
+| `test_models_physics.py` | 72 | one section per `models/` subpackage: shielding, charging, radiation, collisions, chemistry, tools, yields |
+| `test_models_core.py` | 50 | unit conversions, radiation fields, all nine size-distribution classes |
+| `test_solvers.py` | 31 | the `models/`↔`solvers/` boundary, all eight configs, RHS mass conservation, table I/O, end-to-end runs |
+| `test_models_config.py` | 30 | configuration parsing, bin metadata, caching, `model_name` handling |
+| `test_galaxysam.py` | 28 | IMF slopes, abundance tables, bundled yield tables |
+| `test_paths.py` | 19 | bundled data inside the package, writable paths outside it |
+
+Two tests are **strict xfails**, recording known physics bugs rather than
+silently changing scientific output. They will fail if someone fixes the
+underlying issue, which is the signal to remove the marker:
+
+- `PowerLaw_ExpCutoff_Distribution.averaged_over_number` divides by the
+  power-law weight where every sibling class multiplies, so averaging a
+  constant returns ~1e13 instead of that constant. This is live: the class is
+  instantiated four times in `models/dust_radiation/dust_oppacity.py` for the
+  Gao (2020) and Nozawa (2007) distributions.
+- `ionisation_yield_Jochims1996` returns `(E-IP)/9.2` unclamped, so a
+  sub-threshold photon energy yields a negative probability.
+
+Other validation entry points:
+
 - Quick configuration check: `python diagnostics/check_config.py`
 - Stromgren setup utility: `python diagnostics/stromgren_test/stromgren_setup.py --help`
-- `diagnostics/` holds script-style physics checks (`check_*.py`) that can be
-  run directly. They were previously named `test_*.py` and lived inside the
-  package, despite containing no pytest tests.
+- `diagnostics/` holds script-style physics checks (`check_*.py`) that produce
+  figures and are run directly. They were previously named `test_*.py` and
+  lived inside the package, despite containing no pytest tests — so
+  `pytest --pyargs pycalima` deliberately collects nothing.
 
 ## Current Status and Scope
 
