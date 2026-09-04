@@ -28,6 +28,12 @@ Requires Python >= 3.10. Optional extras: `sim` (yt), `accel` (numba),
 - Resolution order for writable paths: `$CALIMA_DATA` (a root) -> `./model_data`
   if present -> source checkout -> per-user data dir. Run `calima-paths` to see
   what resolves where.
+- Four external data sources are **not** bundled or downloadable and are
+  reached only through an env var, each raising with its own name when needed
+  and unset: `$CALIMA_SED_DIR` (BPASS SEDs), `$CALIMA_DUSTEM_FILE` (DustEM heat
+  capacity), `$CALIMA_YIELD_DIR` (stellar yields), `$CALIMA_SIM_DIR` (RAMSES
+  snapshots, for the post-processing notebooks). Never hardcode a path to any
+  of them.
 - `models.grain_size_config.get_model_data_dir()` appends the config's
   `model_name`; `_paths.get_model_data_dir()` does not. Physics modules almost
   always want the former.

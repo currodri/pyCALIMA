@@ -368,3 +368,102 @@ def test_sdist_excludes_the_duplicate_worktrees():
 def test_wheel_size_is_reasonable():
     size = _wheels()[-1].stat().st_size
     assert size < 40e6, f"wheel is {size/1e6:.1f} MB; something large slipped in"
+
+
+# ---------------------------------------------------------------------------
+# notebooks: no machine-specific paths, external data requested not assumed
+# ---------------------------------------------------------------------------
+
+NOTEBOOK_DIR = Path(__file__).resolve().parents[1] / "notebooks"
+
+needs_notebooks = pytest.mark.skipif(
+    not NOTEBOOK_DIR.is_dir(),
+    reason="notebooks/ not present (installed copy)",
+)
+
+
+def _notebook_code(path: Path) -> str:
+    """Concatenated source of every code cell."""
+    import json
+
+    nb = json.loads(path.read_text(encoding="utf-8"))
+    out = []
+    for cell in nb.get("cells", []):
+        if cell.get("cell_type") != "code":
+            continue
+        src = cell.get("source", [])
+        out.append(src if isinstance(src, str) else "".join(src))
+    return "\n".join(out)
+
+
+@needs_notebooks
+@pytest.mark.parametrize(
+    "name", sorted(p.name for p in NOTEBOOK_DIR.glob("*.ipynb"))
+    if NOTEBOOK_DIR.is_dir() else []
+)
+def test_notebook_has_no_machine_specific_paths(name):
+    """A hardcoded ~/Documents/... path makes a notebook run only on its
+    author's machine. External data must be requested via an env var."""
+    import re
+
+    code = _notebook_code(NOTEBOOK_DIR / name)
+    bad = re.findall(r"""['"]~?/(?:Users|home|Documents)/[^'"]*['"]""", code)
+    assert not bad, f"{name} hardcodes machine-specific paths: {bad[:4]}"
+
+
+@needs_notebooks
+@pytest.mark.parametrize("name", ["CALIMA_model_explorer.ipynb"])
+def test_ramses_notebook_requests_simulation_outputs(name):
+    """RAMSES snapshots are not shipped, so the notebook must ask for them by
+    env var and fail loudly rather than silently using a wrong path."""
+    path = NOTEBOOK_DIR / name
+    if not path.is_file():
+        pytest.skip(f"{name} not present")
+    code = _notebook_code(path)
+    assert "CALIMA_SIM_DIR" in code, f"{name} does not request $CALIMA_SIM_DIR"
+    assert "SIM_SUBDIRS" in code, f"{name} has no editable per-run sub-paths"
+    # and it must raise, not warn, when unset
+    assert "raise RuntimeError" in code or "raise FileNotFoundError" in code, (
+        f"{name} does not fail loudly when the outputs are unavailable"
+    )
+
+
+@needs_notebooks
+def test_no_notebook_ships_stored_outputs():
+    """Outputs are cleared on commit; 13 MB of stored figures otherwise."""
+    import json
+
+    offenders = []
+    for path in sorted(NOTEBOOK_DIR.glob("*.ipynb")):
+        nb = json.loads(path.read_text(encoding="utf-8"))
+        for cell in nb.get("cells", []):
+            if cell.get("cell_type") == "code" and cell.get("outputs"):
+                offenders.append(path.name)
+                break
+    assert not offenders, f"notebooks committed with outputs: {offenders}"
+
+
+@needs_notebooks
+def test_notebooks_use_the_pycalima_import_root():
+    """No notebook may import the pre-packaging top-level roots."""
+    import re
+
+    offenders = {}
+    for path in sorted(NOTEBOOK_DIR.glob("*.ipynb")):
+        code = _notebook_code(path)
+        hits = re.findall(r"^\s*(?:from|import)\s+(models|solvers|galaxySAM)[.\s]",
+                          code, re.M)
+        if hits:
+            offenders[path.name] = sorted(set(hits))
+    assert not offenders, f"notebooks using old import roots: {offenders}"
+
+
+@needs_notebooks
+def test_readme_documents_the_ramses_post_processing_workflow():
+    readme = Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.is_file():
+        pytest.skip("README.md not present")
+    text = readme.read_text(encoding="utf-8")
+    for needle in ("CALIMA_model_explorer", "CALIMA_SIM_DIR",
+                   "not distributed with pyCALIMA"):
+        assert needle in text, f"README does not mention {needle!r}"
