@@ -32,7 +32,13 @@ SCRIPT_RE = re.compile(
 # placeholder; optical_props/semenov_2003/Readme.txt carries a third party's
 # personal email address. Neither may be published.
 FORBIDDEN_SUBSTRINGS = ["[Your name]"]
-EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.(?:ch|edu|org|net|de|fr)\b")
+# Deliberately general: the address actually at risk here is
+# dima@astro.uni-jena.de, which a hyphen-free domain pattern misses.
+EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-zA-Z]{2,}")
+# Addresses that may legitimately appear (the maintainer's own, and
+# obvious placeholders in examples).
+EMAIL_ALLOWED = ("currodri@uchicago.edu", "you@example.com",
+                 "user@example.com", "noreply@")
 
 
 def _library_modules() -> set[str]:
@@ -90,7 +96,10 @@ def test_docs_sources_carry_no_forbidden_content():
             if needle in text:
                 offenders.append(f"{path.relative_to(REPO)}: {needle!r}")
         for match in EMAIL_RE.finditer(text):
-            offenders.append(f"{path.relative_to(REPO)}: email {match.group(0)!r}")
+            address = match.group(0)
+            if any(ok in address for ok in EMAIL_ALLOWED):
+                continue
+            offenders.append(f"{path.relative_to(REPO)}: email {address!r}")
     assert not offenders, "; ".join(offenders)
 
 

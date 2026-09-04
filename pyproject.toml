@@ -191,4 +191,14 @@ ignore = ["E501"]
 ignore = [
     ".claude/**", "notebooks/**", "simulation_curves/**", "*.ipynb",
     "CLAUDE.md", "docs/**", ".github/**",
+    # Development utility, not part of the distribution.
+    "scripts/**",
+    # galaxysam's internal notes. SUMMARY.md in particular carries an
+    # unfilled "- Python conversion: [Your name]" placeholder and must not be
+    # published; the others are migration records of no use to an installer.
+    "src/pycalima/galaxysam/*.md",
+    # Committed symlinks pointing at absolute paths on a specific compute
+    # cluster (/data80/...), so they dangle in every other checkout.
+    "diagnostics/stromgren_test/dust_full_turbulent",
+    "diagnostics/stromgren_test/no_dust",
 ]

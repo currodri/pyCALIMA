@@ -300,10 +300,21 @@ jobs:
             echo "::error::the galaxysam SUMMARY placeholder reached the build"
             exit 1
           fi
-          if grep -rIlE "[a-z.]+@[a-z]+\.(unibe\.ch|edu|org)" docs/_build/html \
-               --include='*.html' | grep -v genindex; then
-            echo "::error::a third-party email address reached the build"
-            exit 1
+          # The address actually at risk is dima@astro.uni-jena.de, in
+          # optical_props/semenov_2003/Readme.txt, so the pattern has to allow
+          # hyphenated domains and any TLD. The maintainer's own address is
+          # allowed.
+          # The trailing [a-zA-Z]{2,} keeps npm-style version strings such as
+          # "mermaid@11.12.1" (from the CDN script tag) out of the results.
+          if grep -rIhoE "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}" \
+               docs/_build/html --include='*.html' \
+               | grep -vE "currodri@uchicago\.edu|example\.(com|org)|noreply@" \
+               | sort -u > /tmp/emails.txt; then
+            if [ -s /tmp/emails.txt ]; then
+              echo "::error::third-party email address(es) reached the build:"
+              cat /tmp/emails.txt
+              exit 1
+            fi
           fi
 
       - name: Upload for review

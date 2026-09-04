@@ -40,7 +40,9 @@ quotes without a trailing blank line. Fixing them all is a separate job.
 
 Instead, `docs/warning-budget.txt` holds a single number and CI fails if the
 count exceeds it. The budget can only ratchet down: when you fix a batch, lower
-the file. Measure with a *clean* build, because Sphinx does not re-emit
+the file. It currently sits a couple above the measured count (65), because
+intersphinx fetches ten inventories over the network and a failure adds a
+warning that has nothing to do with the change under test. Measure with a *clean* build, because Sphinx does not re-emit
 warnings for pages it takes from the doctree cache:
 
 ```bash
