@@ -446,8 +446,10 @@ def resolve_grain_config_path(config: str | os.PathLike[str] | None = None) -> P
     if bundled.is_file():
         return bundled.resolve()
 
+    # As in resolve_solver_config_path: test the literal suffix rather than
+    # Path.suffix, which mis-parses names containing dots.
     name = str(config)
-    if os.sep not in name and candidate.suffix != ".json":
+    if os.sep not in name and not name.endswith(".json"):
         stem = (
             "grain_size_distribution"
             if name == "default"
@@ -487,7 +489,12 @@ def resolve_solver_config_path(config: str | os.PathLike[str]) -> Path:
     if candidate.is_file():
         return candidate.resolve()
 
-    for trial in (candidate.name, f"{candidate.stem}.json"):
+    # Note: do not use Path.stem/.suffix to derive the name. Several config
+    # names contain dots ("ramses_G8_0.03Zsun"), for which .suffix returns
+    # ".03Zsun" and .stem truncates to "ramses_G8_0".
+    name = candidate.name
+    trials = [name] if name.endswith(".json") else [f"{name}.json", name]
+    for trial in trials:
         bundled = get_solver_config_dir() / trial
         if bundled.is_file():
             return bundled.resolve()

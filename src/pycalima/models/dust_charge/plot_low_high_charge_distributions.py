@@ -74,7 +74,7 @@ def compute_and_plot(grain_type='silicate', a_micron=0.005, gamma_target=1e4, ne
             np.concatenate([[0.0], np.repeat(P_high_u, 2), [0.0]]), where='pre', label=f'high-T (T={T_high} K), <Z>={Zmean_high:.2f}')
     ax.set_xlabel('Z')
     ax.set_ylabel('P(Z)')
-    ax.set_title(f'Equilibrium charge distributions — {grain_type}, a={a_micron} um, same $\gamma$={gamma_target:.3g}')
+    ax.set_title(rf'Equilibrium charge distributions — {grain_type}, a={a_micron} um, same $\gamma$={gamma_target:.3g}')
     ax.legend()
     ax.grid(True, linestyle=':', alpha=0.5)
     fig.tight_layout()
