@@ -176,3 +176,6 @@ cython_debug/
 /model_data/*
 /results/*
 pahdb*
+.DS_Store
+
+reference_data/

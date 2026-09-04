@@ -1,0 +1,56 @@
+# Governs the sdist. Independent of [tool.setuptools.exclude-package-data],
+# which governs the wheel -- both are needed.
+#
+# setuptools_scm seeds the sdist with every git-tracked file, so the prune and
+# global-exclude directives below are what actually keep it small.
+
+# ---------------------------------------------------------------- include ---
+include LICENSE
+include README.md
+include pyproject.toml
+include requirements-dev.txt
+
+include src/pycalima/data/registry.toml
+recursive-include src/pycalima/data *
+recursive-include src/pycalima/models *.json
+recursive-include src/pycalima/solvers *.json
+recursive-include src/pycalima/solvers/ramses_source *.f90 *.md
+recursive-include src/pycalima/galaxysam/yield_files *
+recursive-include src/pycalima/galaxysam/external_yields *
+recursive-include tests *.py *.json
+
+# ------------------------------------------------------------------ prune ---
+# .claude/worktrees/ holds TWO FULL COPIES of this repository (~226 MB, as git
+# worktrees). Without this prune, `python -m build` produces a ~250 MB sdist.
+prune .claude
+prune .venv
+prune .git
+prune .pytest_cache
+prune .vscode
+prune notebooks
+prune diagnostics
+prune simulation_curves
+prune model_data
+prune results
+prune assets
+prune reference_data
+prune src/pycalima/galaxysam/yohan_routines
+
+# --------------------------------------------------------------- exclude ---
+# Basename-matched, so these apply everywhere including inside src/.
+global-exclude pahdb*
+global-exclude *.ipynb
+global-exclude *.pdf
+global-exclude *.eps
+global-exclude *.png
+global-exclude *~
+global-exclude *.orig
+global-exclude *.rej
+global-exclude *.bak
+global-exclude .DS_Store
+global-exclude *.py[cod]
+global-exclude *.mod *.smod *.o *.so *.obj
+global-exclude .ipynb_checkpoints
+
+exclude .python-version
+exclude CLAUDE.md

@@ -1,0 +1,173 @@
+# ==========================================================================
+# pyCALIMA - dust and PAH microphysics for the interstellar medium
+# ==========================================================================
+[build-system]
+# setuptools >= 77 is required for the PEP 639 `license = "MIT"` SPDX string.
+requires = ["setuptools>=77", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "pycalima"
+dynamic = ["version"]
+description = "Dust and PAH microphysics, chemistry and lifecycle models for the ISM"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    { name = "Curro Rodriguez Montero", email = "currodri@uchicago.edu" },
+]
+keywords = ["astronomy", "astrophysics", "interstellar-medium", "dust", "PAH", "chemistry"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Operating System :: OS Independent",
+]
+
+# Core: imported unguarded at module scope somewhere in the package.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.0",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "tqdm>=4.66",
+    "joblib>=1.3",
+    "unyt>=2.9",
+    "miepython>=2.5",
+    "platformdirs>=3.0",
+    # astropy.constants is imported at module scope by
+    # models/dust_collisions/dust_dynamics.py and is load-bearing in its
+    # physics, so it cannot be an extra.
+    "astropy>=6.0",
+    # tomllib is stdlib only from 3.11; needed to read data/registry.toml.
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+# numba is already guarded at all 3 import sites; this only makes it easy to get.
+accel = ["numba>=0.59"]
+# yt: 3 peripheral RAMSES-reader modules.
+sim = ["yt>=4.3"]
+# amespahdbpythonsuite is referenced only in a TYPE_CHECKING annotation, so it
+# is needed only by code that actually constructs an AmesPAHdb object.
+pahdb = ["amespahdbpythonsuite>=0.5"]
+# Colormaps only; cmasher is imported lazily with a matplotlib fallback.
+# (swiftascmaps was dropped: its single import was never actually used.)
+plots = ["cmasher>=1.6"]
+# psutil is lazy and guarded (memory reporting in the profiler).
+profile = ["psutil>=5.9"]
+all = ["pycalima[accel,sim,pahdb,plots,profile]"]
+# Tooling for running the test suite and building distributions.
+dev = [
+    "pycalima[all]",
+    "pytest>=8.0",
+    "build>=1.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/currodri/pyCALIMA"
+Repository = "https://github.com/currodri/pyCALIMA"
+Issues = "https://github.com/currodri/pyCALIMA/issues"
+
+[project.scripts]
+calima-paths      = "pycalima._paths:main"
+calima-fetch-data = "pycalima._datasets:main"
+calima-export     = "pycalima.models.export_all_grain_data:cli"
+calima-run        = "pycalima.solvers.run_chemistry:main"
+calima-grid       = "pycalima.solvers.run_grid:cli"
+
+
+# ==========================================================================
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+# node-and-date bakes the git commit into the distribution version, which is
+# how provenance stamping survives installation with no .git present.
+# See pycalima._provenance.
+local_scheme = "node-and-date"
+fallback_version = "0.1.0"
+
+
+[tool.setuptools]
+# Explicit. With `true`, setuptools would copy everything MANIFEST.in includes
+# into the wheel, dragging in tests/ and requirements-dev.txt.
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pycalima*"]
+
+# --------------------------------------------------------------------------
+# Package data.
+#
+# Extension globs are NOT usable here. Many reference files have no suffix at
+# all: optical_props/draine_lee_1984/{Gra_21,Sil_81,eps_Sil,planck_Gra,...},
+# optical_props/li_draine_2001/{PAHneu_30,PAHion_30},
+# optical_props/semenov_2003/opacity, and all 8 external_data/kp00_*.
+# So enumerate depths instead. Measured maxima: data/optical_props bottoms out
+# at */*/* (berne_2022/<charge>/<file>) and galaxysam/yield_files at */*/*
+# (yield_files/ObservationnalData/<file>).
+# --------------------------------------------------------------------------
+[tool.setuptools.package-data]
+pycalima = [
+    "data/registry.toml",
+    "data/external_data/*",
+    "data/external_data/*/*",
+    "data/optical_props/*",
+    "data/optical_props/*/*",
+    "data/optical_props/*/*/*",
+    "models/*.json",
+    "solvers/configs/*.json",
+    "solvers/ramses_source/*.f90",
+    "solvers/ramses_source/*.md",
+    "galaxysam/yield_files/*",
+    "galaxysam/yield_files/*/*",
+    "galaxysam/yield_files/*/*/*",
+    "galaxysam/external_yields/*",
+]
+
+# Applied after package-data; excludes win. Note galaxysam/yohan_routines/ is
+# simply never included above (33 IDL .pro files referenced only in a
+# docstring), so it needs no exclude.
+[tool.setuptools.exclude-package-data]
+pycalima = [
+    "data/external_data/pahdb*",
+    "data/**/.DS_Store",
+    "data/**/*~",
+    "galaxysam/**/*~",
+    "galaxysam/**/*.dec~",
+    "**/*.ipynb",
+    "**/*.pdf",
+    "**/*.eps",
+    "**/__pycache__/*",
+    "**/*.py[cod]",
+    "**/.DS_Store",
+]
+
+
+# ==========================================================================
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+norecursedirs = [".claude", ".venv", "diagnostics", "model_data", "results", "notebooks"]
+
+[tool.ruff]
+src = ["src"]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "PTH", "RUF"]
+ignore = ["E501"]
+
+[tool.check-manifest]
+ignore = [".claude/**", "notebooks/**", "simulation_curves/**", "*.ipynb", "CLAUDE.md"]

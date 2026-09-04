@@ -1,0 +1,215 @@
+{
+  "_comment": "CALIMA dust chemistry initial conditions \u2014 cold neutral medium (CNM) example",
+  "environment": {
+    "gas_temperature_K": 100.0,
+    "hydrogen_number_density_cm3": 100.0,
+    "electron_number_density_cm3": 0.001,
+    "radiation_field_G0": 1.0,
+    "radiation_field_model": "habing",
+    "mean_molecular_weight": 1.4
+  },
+  "elemental_abundances": {
+    "H": {
+      "mass_fraction": 0.706
+    },
+    "He": {
+      "mass_fraction": 0.275
+    },
+    "C": {
+      "mass_fraction": 0.002369
+    },
+    "N": {
+      "mass_fraction": 0.000832
+    },
+    "O": {
+      "mass_fraction": 0.005735
+    },
+    "Mg": {
+      "mass_fraction": 0.000644
+    },
+    "Si": {
+      "mass_fraction": 0.000671
+    },
+    "S": {
+      "mass_fraction": 0.000341
+    },
+    "Fe": {
+      "mass_fraction": 0.001258
+    }
+  },
+  "dust_bins": [
+    {
+      "id": "DustBin_01",
+      "composition": "graphite",
+      "grain_size_micron": 0.01,
+      "grain_density_gcm3": 2.2,
+      "elements": [
+        {
+          "name": "C",
+          "mass_fraction": 1.0
+        }
+      ],
+      "initial_mass_density_gcm3": 8e-28,
+      "sticking_coefficient": 1.0,
+      "nhmax_acc": 10000.0,
+      "nh_coa": 0.1,
+      "coagulation_partner": "DustBin_02",
+      "amin_micron": 0.005,
+      "amax_micron": 0.03,
+      "catastrophic_specific_energy_erg_g": 10000000.0,
+      "interact_pah": true,
+      "vthresh_coag_cm_s": 10000.0
+    },
+    {
+      "id": "DustBin_02",
+      "composition": "graphite",
+      "grain_size_micron": 0.1,
+      "grain_density_gcm3": 2.2,
+      "elements": [
+        {
+          "name": "C",
+          "mass_fraction": 1.0
+        }
+      ],
+      "initial_mass_density_gcm3": 8e-27,
+      "sticking_coefficient": 1.0,
+      "nhmax_acc": 10000.0,
+      "nh_coa": 0.1,
+      "amin_micron": 0.03,
+      "amax_micron": 0.3,
+      "catastrophic_specific_energy_erg_g": 10000000.0,
+      "interact_pah": true,
+      "vthresh_coag_cm_s": 10000.0
+    },
+    {
+      "id": "DustBin_03",
+      "composition": "silicate",
+      "grain_size_micron": 0.005,
+      "grain_density_gcm3": 3.3,
+      "elements": [
+        {
+          "name": "Mg",
+          "mass_fraction": 0.142
+        },
+        {
+          "name": "Si",
+          "mass_fraction": 0.163
+        },
+        {
+          "name": "O",
+          "mass_fraction": 0.574
+        },
+        {
+          "name": "Fe",
+          "mass_fraction": 0.121
+        }
+      ],
+      "initial_mass_density_gcm3": 6e-28,
+      "sticking_coefficient": 1.0,
+      "nhmax_acc": 10000.0,
+      "nh_coa": 0.1,
+      "coagulation_partner": "DustBin_04",
+      "amin_micron": 0.002,
+      "amax_micron": 0.015,
+      "catastrophic_specific_energy_erg_g": 10000000.0,
+      "interact_pah": false,
+      "vthresh_coag_cm_s": 10000.0
+    },
+    {
+      "id": "DustBin_04",
+      "composition": "silicate",
+      "grain_size_micron": 0.1,
+      "grain_density_gcm3": 3.3,
+      "elements": [
+        {
+          "name": "Mg",
+          "mass_fraction": 0.142
+        },
+        {
+          "name": "Si",
+          "mass_fraction": 0.163
+        },
+        {
+          "name": "O",
+          "mass_fraction": 0.574
+        },
+        {
+          "name": "Fe",
+          "mass_fraction": 0.121
+        }
+      ],
+      "initial_mass_density_gcm3": 6e-27,
+      "sticking_coefficient": 1.0,
+      "nhmax_acc": 10000.0,
+      "nh_coa": 0.1,
+      "amin_micron": 0.015,
+      "amax_micron": 0.3,
+      "catastrophic_specific_energy_erg_g": 10000000.0,
+      "interact_pah": false,
+      "vthresh_coag_cm_s": 10000.0
+    }
+  ],
+  "pah_bins": [
+    {
+      "id": "PAHbin_01",
+      "nc": 54,
+      "nc_min": 24,
+      "nc_max": 96,
+      "grain_density_gcm3": 2.24,
+      "fpah": 0.1,
+      "is_cluster": false,
+      "dust_index_interact": 0,
+      "nd_bins_interact": 2,
+      "initial_mass_density_gcm3": 1e-29
+    },
+    {
+      "id": "PAHbin_02",
+      "nc": 96,
+      "nc_min": 54,
+      "nc_max": 200,
+      "grain_density_gcm3": 2.24,
+      "fpah": 0.1,
+      "is_cluster": true,
+      "dust_index_interact": 0,
+      "nd_bins_interact": 2,
+      "initial_mass_density_gcm3": 5e-30
+    }
+  ],
+  "physics": {
+    "dust_accretion": true,
+    "dust_sputtering": true,
+    "dust_coagulation": true,
+    "dust_shattering": false,
+    "pah_accretion": false,
+    "pah_photolysis": false,
+    "pah_sputtering": false,
+    "pah_coalescence": false,
+    "pah_cluster_evaporation": false,
+    "pah_freezing": false
+  },
+  "models": {
+    "_comment": "Model selection strings \u2014 choose physics variant for each process",
+    "coagulation_model": "Aoyama2017",
+    "shattering_model": "turbulent",
+    "dust_velocity_model": "Ormel2007",
+    "coalescence_model": "Totton2012",
+    "photolysis_model": "RM2026",
+    "pah_sputtering_model": "RM2026",
+    "cluster_evaporation_model": "Montillaud2014",
+    "slope_frag_func": 0.4333
+  },
+  "turbulence": {
+    "_comment": "Turbulent environment for velocity-dependent processes",
+    "local_sigma_km_s": 0.567,
+    "local_dx_pc": 10.0
+  },
+  "solver": {
+    "type": "rk4",
+    "t_end_Myr": 100.0,
+    "h_init_s": 10000000000.0,
+    "h_min_s": 1.0,
+    "h_max_Myr": 1.0,
+    "errmax": 0.1,
+    "countmax": 10000
+  }
+}
