@@ -8,6 +8,7 @@ and the original Weingartner & Draine 2001 (WD01) results.
 """
 # LIBRARIES
 import numpy as np
+from pycalima import _paths
 
 
 # FUNCTIONS
@@ -244,7 +245,7 @@ def compare_charge_dist_mathis(grain_type, grain_size_cm, ne, nH, T, plot=False)
     from pycalima.models.dust_charge.IM19_charging import grain_charge_dist
     from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
     # 1. Load Mathis ISRF (file included in repo as mathis1983.dat)
-    data = np.loadtxt('mathis1983.dat')
+    data = np.loadtxt(str(_paths.get_external_data_path('mathis1983.dat')))
     # file has columns: wavelength (nm), intensity (photons s-1 cm-2 nm-1)
     wav_nm = data[:,0]
     intensity_phot = data[:,1]

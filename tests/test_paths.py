@@ -56,14 +56,16 @@ def test_external_data_files_ship_and_are_in_package(parts):
 
 def test_model_data_is_outside_the_package(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CALIMA_DATA", raising=False)
-    monkeypatch.delenv("CALIMA_MODEL_DATA", raising=False)
+    for var in ("CALIMA_DATA", "CALIMA_MODEL_DATA"):
+        monkeypatch.delenv(var, raising=False)
     md = _paths.get_model_data_dir()
     assert _paths.PKG_DIR not in md.parents and md != _paths.PKG_DIR
 
 
 def test_calima_data_is_a_writable_root(tmp_path, monkeypatch):
     """$CALIMA_DATA is a root: model_data/, results/ and datasets/ hang off it."""
+    for var in ("CALIMA_MODEL_DATA", "CALIMA_RESULTS", "CALIMA_DATASETS"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("CALIMA_DATA", str(tmp_path))
     assert _paths.get_model_data_dir() == tmp_path / "model_data"
     assert _paths.get_results_dir(create=False) == tmp_path / "results"
@@ -85,6 +87,7 @@ def test_writable_guard_refuses_paths_inside_the_package():
 
 
 def test_get_model_data_dir_does_not_create_by_default(tmp_path, monkeypatch):
+    monkeypatch.delenv("CALIMA_MODEL_DATA", raising=False)
     monkeypatch.setenv("CALIMA_DATA", str(tmp_path))
     md = _paths.get_model_data_dir()
     assert not md.exists(), "resolving a path must not create it"

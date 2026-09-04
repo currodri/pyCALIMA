@@ -479,11 +479,11 @@ def plot_ionisation_potential(W):
     plt.tick_params(labelsize=14, which='both',direction="in")
     plt.plot(Nc,IPV0,label='IPV(0)')
     plt.plot(Nc,IPV1,label='IPV(1)')
-    data = np.loadtxt('IPV_graphite0_Draine.csv', delimiter=',')
+    data = np.loadtxt(str(_paths.get_external_data_path('IPV_graphite0_Draine.csv')), delimiter=',')
     Nc_Draine = data[:, 0]
     IPV0_Draine = data[:, 1]
     plt.plot(Nc_Draine, IPV0_Draine, label='Draine IPV(0)', color='k', linestyle=':', linewidth=2)
-    data = np.loadtxt('IPV_graphite1_Draine.csv', delimiter=',')
+    data = np.loadtxt(str(_paths.get_external_data_path('IPV_graphite1_Draine.csv')), delimiter=',')
     Nc_Draine = data[:, 0]
     IPV1_Draine = data[:, 1]
     plt.plot(Nc_Draine, IPV1_Draine, label='Draine IPV(1)', color='k', linestyle=':', linewidth=2)
@@ -2832,10 +2832,10 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     # plot the results from Draine_potential_graphite.csv and Draine_potential_silicate.csv
     for mat_idx, mat in enumerate(materials):
         if mat == 'graphite':
-            data = np.loadtxt('Draine_potential_graphite_CNM.csv', delimiter=',', skiprows=1)
+            data = np.loadtxt(str(_paths.get_external_data_path('Draine_potential_graphite_CNM.csv')), delimiter=',', skiprows=1)
             linestyle=':'
         elif mat == 'silicate':
-            data = np.loadtxt('Draine_potential_silicate_CNM.csv', delimiter=',', skiprows=1)
+            data = np.loadtxt(str(_paths.get_external_data_path('Draine_potential_silicate_CNM.csv')), delimiter=',', skiprows=1)
             linestyle='-.'
         sizes_draine = data[:, 0]  # in Angstroms
         potentials_draine = data[:, 1]  # in eV
@@ -2981,10 +2981,10 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     # Plot the data in Draine_Qabs_graphite.csv and Draine_Qabs_silicate.csv
     for mat in ['graphite', 'silicate']:
         if mat == 'graphite':
-            data = np.loadtxt('Draine_Qabs_graphite.csv', delimiter=',', skiprows=1)
+            data = np.loadtxt(str(_paths.get_external_data_path('Draine_Qabs_graphite.csv')), delimiter=',', skiprows=1)
             linestyle=':'
         elif mat == 'silicate':
-            data = np.loadtxt('Draine_Qabs_silicate.csv', delimiter=',', skiprows=1)
+            data = np.loadtxt(str(_paths.get_external_data_path('Draine_Qabs_silicate.csv')), delimiter=',', skiprows=1)
             linestyle='-.'
         sizes_draine = data[:, 0]  # in Angstroms
         Qabs_draine = data[:, 1]

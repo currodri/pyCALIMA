@@ -63,7 +63,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import root_scalar
 from scipy import special
 
-from pycalima.models.grain_size_config import get_repo_root, load_grain_size_config
+from pycalima.models.grain_size_config import load_grain_size_config
 from pycalima.models.dust_radiation.dust_emission import (
     compute_cross_sections,
     interpolate_cross_sections,

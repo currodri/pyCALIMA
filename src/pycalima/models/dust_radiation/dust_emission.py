@@ -27,7 +27,7 @@ from scipy.optimize import root_scalar
 from pycalima.models.dust_model import basic_s, build_distribution
 from pycalima.models.dust_radiation.dust_oppacity import dust_efficiencies
 from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
-from pycalima.models.grain_size_config import get_optical_props_path, get_repo_root, load_grain_size_config
+from pycalima.models.grain_size_config import get_optical_props_path, load_grain_size_config
 from pycalima.models.tools.radiation_fields import Draine_1978_isrf
 from joblib import Parallel, delayed
 from pathlib import Path

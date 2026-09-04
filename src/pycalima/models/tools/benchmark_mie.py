@@ -3,10 +3,11 @@ import os
 import numpy as np
 import pandas as pd
 from pycalima.models.tools.mie_theory import MieTheory, read_draine_q_table
+from pycalima import _paths
 
 def run_benchmark():
     mie = MieTheory()
-    base_path = 'optical_props/draine_lee_1984'
+    base_path = str(_paths.get_optical_props_path('draine_lee_1984'))
     test_rad = 0.1
     test_wavs = [0.1, 0.5, 1.0, 10.0, 100.0]
 

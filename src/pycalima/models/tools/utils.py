@@ -1,5 +1,13 @@
 import numpy as np
 
+# Atomic masses in amu. mC matches the carbon target mass already used by
+# models/PAH_gas_collisions/PAH_sputtering.py, so PAH masses are consistent
+# between the sputtering and coalescence paths.
+mC_amu = 12.0107
+mH_amu = 1.00794
+AMU_TO_G = 1.66053906660e-24
+
+
 def as_si(x, ndp):
     s = '{x:0.{ndp:d}e}'.format(x=x, ndp=ndp)
     m, e = s.split('e')
@@ -47,8 +55,8 @@ def mass_from_Nc(Nc):
     
     # Calculate the mass of the PAH molecule
     mass = mC_amu * float(Nc) + mH_amu * num_hydrogen_atoms
-    mass = mass * 1.66053906660e-24 # Convert to grams
-    
+    mass = mass * AMU_TO_G # Convert to grams
+
     return mass
 
 def has_uniform_bins(array: np.ndarray, tolerance: float = 1e-6) -> bool:

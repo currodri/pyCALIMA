@@ -19,7 +19,6 @@ from pycalima.models.grain_size_config import (
     get_lognormal_parameters,
     get_optical_props_path,
     get_header_lines,
-    get_repo_root,
     get_model_data_dir,
 )
 from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
@@ -167,7 +166,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='model_data/optical_properties',
+        default=None,
         help='Output directory. Default: model_data/optical_properties'
     )
     parser.add_argument(

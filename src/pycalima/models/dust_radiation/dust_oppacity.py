@@ -592,7 +592,7 @@ def plot_efficiencies(filename,dust_type='grains',
                 f.close()
 
     # Load the zubko et al. 2004 cross-sections for comparison
-    data_zubko = np.loadtxt('zubko_2004_bare_gr_s.dat')
+    data_zubko = np.loadtxt(str(_paths.get_external_data_path('zubko_2004_bare_gr_s.dat')))
     axes[0].plot(data_zubko[:,0],data_zubko[:,1],'k--',label='Zubko et al. 2004')
 
     # Load the CLOUDY cross-sections for comparison
@@ -2356,7 +2356,7 @@ def export_zubko2004_cross_sections(
     # that normalises per H atom (N_H / cm^2 proportionality constant).
     # ------------------------------------------------------------------
     _NH_FACTOR = 1784268.76   # cm^2/H normalisation for Zubko 2004 BARE-GR-S
-    _ref_path = PATH_EXTERNAL_DATA / 'zubko_2004_bare_gr_s.dat'
+    _ref_path = PATH_EXTERNAL_DATA / str(_paths.get_external_data_path('zubko_2004_bare_gr_s.dat'))
     _ref_data = np.loadtxt(str(_ref_path), comments='#')
     _ref_wav_um  = _ref_data[:, 0]                    # micron
     _ref_cabs_H  = _ref_data[:, 1] / _NH_FACTOR       # cm^2/H

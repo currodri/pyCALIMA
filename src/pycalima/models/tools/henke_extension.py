@@ -20,12 +20,30 @@ ATOMIC_WEIGHTS = {
 }
 
 class HenkeExtension:
-    def __init__(self, dat_path='external_data/henke/f1f2_Henke.dat'):
+    def __init__(self, dat_path=None):
+        """Henke/CXRO anomalous scattering factors.
+
+        Parameters
+        ----------
+        dat_path : str or Path, optional
+            Override the bundled ``external_data/henke/f1f2_Henke.dat``.
+
+        Notes
+        -----
+        The default used to be the CWD-relative string
+        ``'external_data/henke/f1f2_Henke.dat'``, so away from the repository
+        root this printed a warning and left ``atomic_factors`` empty -- a
+        silent degradation rather than an error.
+        """
+        from pycalima._paths import get_external_data_path
+
         self.atomic_factors = {}
-        if os.path.exists(dat_path):
-            self.parse_henke_file(dat_path)
-        else:
-            print(f"Warning: Henke data file not found at {dat_path}")
+        if dat_path is None:
+            dat_path = get_external_data_path('henke', 'f1f2_Henke.dat')
+        dat_path = os.fspath(dat_path)
+        if not os.path.exists(dat_path):
+            raise FileNotFoundError(f"Henke data file not found: {dat_path}")
+        self.parse_henke_file(dat_path)
 
     def parse_henke_file(self, path):
         """Parse the consolidated f1f2_Henke.dat file."""

@@ -162,7 +162,13 @@ url = "https://www.astrochemistry.org/pahdb/"
 url_status = "unconfirmed"
 instructions = """An older ASCII export of the PAHdb theoretical library. No
 code in pyCALIMA reads it; it is registered only for provenance. It used to be
-committed to this repository (68 MB) and now lives in reference_data/."""
+committed to this repository (68 MB) and now lives in reference_data/.
+
+If you need it, download the v3.20 theoretical library from
+https://www.astrochemistry.org/pahdb/ and register your copy with:
+
+    calima-fetch-data import pahdb-theoretical-v3-20 /path/to/pahdb-complete-theoretical-v3.20_pIN3f5.ascii
+"""
 
 # ----------------------------------------------------------------- fetch ---
 

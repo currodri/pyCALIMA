@@ -15,6 +15,7 @@ import concurrent.futures
 import time
 from scipy.integrate import trapezoid
 from pycalima.models.grain_size_config import get_model_data_dir
+from pycalima import _paths
 
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
@@ -1444,7 +1445,7 @@ def fit_e_stopping_silicate():
     E = np.array([15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 600, 800, 1000, 2000, 4000, 6000, 8000, 10000])
     S_prime = np.array([2.40, 6.64, 26.2, 55.1, 105, 128, 137, 141, 137, 127, 117, 99.6, 87.5, 78.1, 52.8, 33.5, 25.1, 20.4, 17.4])
 
-    data_carbon = pd.read_csv('Carbon_electron_stopping_power_Joy1995.csv',header=None,names=['E','S'])
+    data_carbon = pd.read_csv(str(_paths.get_external_data_path('Carbon_electron_stopping_power_Joy1995.csv')),header=None,names=['E','S'])
     
     # Convert S_prime [MeV cm^2 /g] to S in [eV/A]
     rho_Si02 = 2.65 * g /cm**3
@@ -1557,7 +1558,7 @@ def plot_collisional_cooling(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
     E = np.array([15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 600, 800, 1000, 2000, 4000, 6000, 8000, 10000])
     S_prime = np.array([2.40, 6.64, 26.2, 55.1, 105, 128, 137, 141, 137, 127, 117, 99.6, 87.5, 78.1, 52.8, 33.5, 25.1, 20.4, 17.4])
 
-    data_carbon = pd.read_csv('Carbon_electron_stopping_power_Joy1995.csv',header=None,names=['E','S'])
+    data_carbon = pd.read_csv(str(_paths.get_external_data_path('Carbon_electron_stopping_power_Joy1995.csv')),header=None,names=['E','S'])
     
     # Convert S_prime [MeV cm^2 /g] to S in [eV/A]
     rho_Si02 = 2.65 * g /cm**3
@@ -2111,7 +2112,7 @@ def export_collisional_cooling(Tmin,Tmax,
         S_prime = np.array([2.40, 6.64, 26.2, 55.1, 105, 128, 137, 141, 137, 127, 117, 99.6, 87.5, 78.1, 52.8, 33.5, 25.1, 20.4, 17.4])
         
         try:
-            data_carbon = pd.read_csv('Carbon_electron_stopping_power_Joy1995.csv',header=None,names=['E','S'])
+            data_carbon = pd.read_csv(str(_paths.get_external_data_path('Carbon_electron_stopping_power_Joy1995.csv')),header=None,names=['E','S'])
         except FileNotFoundError:
             print("    Warning: Carbon_electron_stopping_power_Joy1995.csv not found. Using silicate data.")
             data_carbon = None

@@ -5,15 +5,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pycalima.models.tools.mie_theory import MieTheory
 from pycalima.models.tools.henke_extension import HenkeExtension
+from pycalima import _paths
 
 def compare_draine_henke():
     mie = MieTheory()
     henke = HenkeExtension()
     
     # Paths to Draine's data
-    gra_pa_path = 'optical_props/draine_lee_1984/callindex.out_CpaD03_0.01'
-    gra_pe_path = 'optical_props/draine_lee_1984/callindex.out_CpeD03_0.01'
-    sil_path = 'optical_props/draine_lee_1984/eps_suvSil'
+    gra_pa_path = str(_paths.get_optical_props_path('draine_lee_1984', 'callindex.out_CpaD03_0.01'))
+    gra_pe_path = str(_paths.get_optical_props_path('draine_lee_1984', 'callindex.out_CpeD03_0.01'))
+    sil_path = str(_paths.get_optical_props_path('draine_lee_1984', 'eps_suvSil'))
     
     mie.load_dielectric_constants(gra_pa_path, 'gra_pa')
     mie.load_dielectric_constants(gra_pe_path, 'gra_pe')
@@ -89,7 +90,7 @@ def compare_draine_henke():
             axes[i, 1].set_xlabel('Wavelength (um)')
 
     plt.tight_layout()
-    out_path = 'results/henke_vs_draine_comparison.png'
+    out_path = str(_paths.get_plots_dir('tools') / 'henke_vs_draine_comparison.png')
     plt.savefig(out_path, dpi=300)
     print(f"Plot saved to {out_path}")
 
