@@ -49,7 +49,7 @@ from html import unescape
 
 BASE_URL    = "https://www.dsf.unica.it/~gmalloci/pahs"
 INDEX_URL   = f"{BASE_URL}/frames/framepahs.html"
-OUTPUT_PATH = Path(__file__).parent / "cagliari_pah_database.csv"
+OUTPUT_NAME = "cagliari_pah_database.csv"
 DELAY_S     = 0.3   # polite delay between requests
 
 # Ignore self-signed certificate (the server has an outdated cert)
@@ -249,7 +249,7 @@ def parse_gen_page(text: str) -> dict:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def main() -> None:
+def main(output_dir=None):
     print(f"Fetching index from {INDEX_URL} …")
     index_html = fetch(INDEX_URL)
     molecules  = parse_index(index_html)
@@ -297,14 +297,22 @@ def main() -> None:
     all_cols = base_cols + prop_cols
 
     # ── write CSV ─────────────────────────────────────────────────────────────
-    with OUTPUT_PATH.open("w", newline="", encoding="utf-8") as f:
+    if output_dir is None:
+        from pycalima._paths import get_dataset_cache_dir
+        output_dir = get_dataset_cache_dir(create=True) / "external_data"
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / OUTPUT_NAME
+
+    with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=all_cols, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow({k: ("" if row.get(k) is None else row[k]) for k in all_cols})
 
     print(f"\nSaved {len(rows)} rows × {len(all_cols)} columns")
-    print(f"→ {OUTPUT_PATH}")
+    print(f"→ {output_path}")
+    return output_path
 
 
 if __name__ == "__main__":

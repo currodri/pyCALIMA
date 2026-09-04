@@ -44,6 +44,8 @@ dependencies = [
     "unyt>=2.9",
     "miepython>=2.5",
     "platformdirs>=3.0",
+    # tomllib is stdlib only from 3.11; needed to read data/registry.toml.
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

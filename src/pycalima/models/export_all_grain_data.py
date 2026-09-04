@@ -1420,15 +1420,18 @@ def main(config_path=None, profile=True, profile_output=None):
             out_path = _write_profile_json(stage_profile, total_seconds, profile_output)
             print(f"Profile JSON written to: {out_path}")
 
-if __name__ == '__main__':
+def _build_parser():
     parser = argparse.ArgumentParser(
+        prog='calima-export',
         description='Master export script for grain and PAH optical properties and collision data.'
     )
     parser.add_argument(
         '--config',
         type=str,
         default=None,
-        help='Path to JSON grain size configuration file. If not provided, uses default (grain_size_distribution.json).'
+        help='JSON grain size configuration: a path, or a bundled short name '
+             '("default", "ramses4bin", "4C6Si", "test"). Run calima-paths to '
+             'see what is available.'
     )
     parser.add_argument(
         '--no-profile',
@@ -1441,6 +1444,24 @@ if __name__ == '__main__':
         default=None,
         help='Optional JSON path to write stage profile metrics.'
     )
-    args = parser.parse_args()
-    
-    main(config_path=args.config, profile=(not args.no_profile), profile_output=args.profile_output)
+    return parser
+
+
+def cli(argv=None) -> int:
+    """Console-script wrapper: ``calima-export``.
+
+    The argparse setup lives here rather than under ``if __name__``, because a
+    console_scripts entry point calls its target with no arguments and would
+    otherwise never see sys.argv. main()'s signature is deliberately
+    unchanged: it is the de-facto plugin interface that this module uses to
+    call the nine sibling exporters, all of which expose main(config_path=None).
+    """
+    args = _build_parser().parse_args(argv)
+    main(config_path=args.config,
+         profile=(not args.no_profile),
+         profile_output=args.profile_output)
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(cli())

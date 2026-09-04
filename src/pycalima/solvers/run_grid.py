@@ -68,6 +68,8 @@ from .rhs import build_process_list
 from .anninos import AnninosSolver
 from .rk4 import RK4Solver
 from .rk54 import RK54Solver
+from pycalima._paths import resolve_solver_config_path
+
 from .run_chemistry import _make_solver, compute_element_totals
 
 # ---------------------------------------------------------------------------
@@ -480,7 +482,7 @@ def load_grid_npz(path: Union[str, Path]) -> dict:
 
 def _parse_args(argv=None):
     p = argparse.ArgumentParser(
-        prog="python -m solvers.run_grid",
+        prog="calima-grid",
         description="Run CALIMA chemistry on a 2-D parameter grid.",
     )
     p.add_argument("--config",      required=True,
@@ -517,7 +519,7 @@ def _parse_args(argv=None):
 def main(argv=None):
     args = _parse_args(argv)
     grid = run_grid(
-        config_path  = args.config,
+        config_path  = resolve_solver_config_path(args.config),
         x_param      = args.x_param,
         x_values     = args.x_values,
         y_param      = args.y_param,
@@ -534,5 +536,17 @@ def main(argv=None):
     return grid
 
 
+def cli(argv=None) -> int:
+    """Console-script wrapper: ``calima-grid``.
+
+    main() returns the grid dict, which is the useful thing for a Python
+    caller. A console_scripts entry point is invoked as sys.exit(func()), so
+    pointing it at main() would print the entire grid to stderr and exit with
+    status 1 on every successful run.
+    """
+    main(argv)
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(cli())

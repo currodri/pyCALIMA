@@ -466,11 +466,15 @@ def run_chemistry(
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m solvers.run_chemistry",
+        prog="calima-run",
         description="CALIMA dust and PAH chemistry evolution solver.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("config", help="Path to the initial conditions JSON file.")
+    parser.add_argument(
+        "config",
+        help="Initial-conditions JSON: a path, or the name of a bundled "
+             "config such as 'example_ic' (see calima-paths).",
+    )
     parser.add_argument(
         "--t_end_Myr",
         type=float,
@@ -502,8 +506,10 @@ def main(argv=None) -> int:
     )
     args = parser.parse_args(argv)
 
+    from pycalima._paths import resolve_solver_config_path
+
     run_chemistry(
-        args.config,
+        resolve_solver_config_path(args.config),
         t_end_Myr=args.t_end_Myr,
         verbose=not args.quiet,
         output_dir=args.output_dir,
