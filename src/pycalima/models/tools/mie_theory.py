@@ -5,7 +5,7 @@ from scipy.interpolate import interp1d
 import pandas as pd
 import os
 
-from henke_extension import HenkeExtension, DUST_METADATA
+from pycalima.models.tools.henke_extension import HenkeExtension, DUST_METADATA
 
 class MieTheory:
     """

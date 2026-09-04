@@ -58,22 +58,20 @@ Public functions
   print_method_comparison                — tabular printout vs Andrews data
 """
 
-import sys
 from pathlib import Path
 import os
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np
 
-from models.PAH_photophysics.pah_mol_data import (
+from pycalima.models.PAH_photophysics.pah_mol_data import (
     load_pah_modes,
     compute_thermal_ir_rate,
     compute_rrkm_dissociation_rate,
     compute_dissociation_rate_from_table,
 )
-from models.PAH_photophysics.pah_temperature import compute_adaptive_temperature_distribution
-from models.PAH_photophysics.pah_charge_utils import ionisation_yield_Jochims1996
+from pycalima.models.PAH_photophysics.pah_temperature import compute_adaptive_temperature_distribution
+from pycalima.models.PAH_photophysics.pah_charge_utils import ionisation_yield_Jochims1996
 
 _HC_EV  = 1.23984193e-4
 _KB_EV  = 8.61733326e-5
@@ -586,7 +584,7 @@ def compare_dissociation_methods(
                                                   E_act_H, dS_H, t_min=t_min)
         k_H2_A = compute_total_dissociation_rate(pah_file, T_grid, f_prof,
                                                   E_act_H2, dS_H2, t_min=t_min)
-        from models.PAH_photophysics.pah_temperature import compute_total_time_averaged_ir_rate
+        from pycalima.models.PAH_photophysics.pah_temperature import compute_total_time_averaged_ir_rate
         k_IR_A = compute_total_time_averaged_ir_rate(pah_file, T_grid, f_prof, t_min=t_min)
         denom_A = k_H_A + k_H2_A + k_IR_A
         if denom_A > 0:

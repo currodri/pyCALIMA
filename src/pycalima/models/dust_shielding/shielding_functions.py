@@ -325,9 +325,7 @@ def compute_kappa_LW_draine(grain_sizes_um, composition='graphite',
     kappa_LW : ndarray, shape same as ``grain_sizes_um``
         Mass opacity [cm²/g_dust] in the [E_min, E_max] band.
     """
-    import sys
-    sys.path.insert(0, str(_CALIMA_ROOT))
-    from models.dust_radiation.dust_oppacity import dust_efficiencies
+    from pycalima.models.dust_radiation.dust_oppacity import dust_efficiencies
 
     grain_sizes_um = np.atleast_1d(np.asarray(grain_sizes_um, dtype=float))
 

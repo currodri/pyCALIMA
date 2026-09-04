@@ -11,12 +11,12 @@ By: Curro Rodriguez (currodri@gmail.com)
 import numpy as np
 import re
 
-from models.grain_distributions import (
+from pycalima.models.grain_distributions import (
     Classical_LogNormal_Distribution,
     LogNormal_Distribution,
     PowerLaw_ExpCutoff_Distribution,
 )
-from models.grain_size_config import (
+from pycalima.models.grain_size_config import (
     build_lognormal_distribution,
     get_bin_by_rank,
     get_parameter_array,

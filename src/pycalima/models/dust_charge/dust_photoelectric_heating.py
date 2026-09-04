@@ -21,10 +21,10 @@ plt.rcParams.update({
     "font.serif": "Computer Modern Roman",
 })
 
-from models.dust_charge.IM19_charging import grain_charge_dist,grain_mean_charge,grain_charge_probability
-from models.grain_size_config import get_optical_props_path
-from models.tools.radiation_fields import Draine_1978_isrf, Mathis83_radiation_field
-from models.dust_charge.shared_physics import (
+from pycalima.models.dust_charge.IM19_charging import grain_charge_dist,grain_mean_charge,grain_charge_probability
+from pycalima.models.grain_size_config import get_optical_props_path
+from pycalima.models.tools.radiation_fields import Draine_1978_isrf, Mathis83_radiation_field
+from pycalima.models.dust_charge.shared_physics import (
     ionisation_potential_valence_vec as _ip_valence_vec,
     electron_affinity_graphite_vec as _ea_graphite_vec,
     electron_affinity_silicate_vec as _ea_silicate_vec,
@@ -51,7 +51,7 @@ from models.dust_charge.shared_physics import (
     DS87_J_function_vec as _ds87_j_vec,
     _coulomb_energy_over_a as _coulomb_e_over_a,
 )
-from models.dust_radiation.dust_oppacity import read_dielectric_file, save_imn_file
+from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file, save_imn_file
 
 try:
     from numba import njit
@@ -128,7 +128,7 @@ def _write_photoelectric_legacy_tables(out_dir, mode, size_tag, T_vals, gamma_va
     log_T = np.log10(T_vals)
     log_gamma = np.log10(gamma_vals)
 
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
     header_lines = get_header_lines(
         title=f"Photoelectric heating/cooling rate table metadata (mode={mode})",
         script_name="models/dust_charge/dust_photoelectric_heating.py",
@@ -757,7 +757,7 @@ def compare_yield_functions(size_cm=4e-8, Z=0, E_min=4.0, E_max=30.0, nE=300, sa
     savefile : str or None
         If provided, save the figure to this path. Otherwise default filename is used.
     """
-    from models.dust_charge.dust_charging import photoelectric_yield_graphite_vec, photoelectric_yield_silicate_vec
+    from pycalima.models.dust_charge.dust_charging import photoelectric_yield_graphite_vec, photoelectric_yield_silicate_vec
 
     # energy grid
     E = np.linspace(E_min, E_max, nE)  # eV
@@ -973,7 +973,7 @@ def compute_photoelectric_heating_rate_single_bin(Z, a_cm, E_eV, I_E_surface,
 
     # If C_abs not provided, attempt to interpolate from cross-section tables
     if C_abs_cm2 is None:
-        from dust_emission import interpolate_cross_sections
+        from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
         _, wav_cs, _, C_abs_cs, _ = interpolate_cross_sections(grain_type, a_micron)
         # wav_cs is an array of wavelengths (cm) per interpolate_cross_sections contract
         # convert to microns for the optical_E relation used elsewhere
@@ -1242,8 +1242,8 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
         Radiation model to use ('Draine' or 'Mathis') (default is 'Draine').
     """
     from astropy.table import Table
-    from models.PAH_charge.PAH_photoelectric_heating import blackbody_radiation
-    from models.dust_radiation.dust_emission import compute_cross_sections
+    from pycalima.models.PAH_charge.PAH_photoelectric_heating import blackbody_radiation
+    from pycalima.models.dust_radiation.dust_emission import compute_cross_sections
     from unyt import nm,m,cm,eV,J,s,h,c,erg,K,kb
     import concurrent.futures
     from tqdm import tqdm
@@ -1388,7 +1388,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
         rad_color = '#533A71'
         linestyle= '-.'
     elif radiation_model == 'BPASS_veryyoung_lowz':
-        from read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 0.01 # 10 Myr
@@ -1403,7 +1403,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
         rad_color = '#258EA6'
         linestyle= '-'
     elif radiation_model == 'BPASS_young_midz':
-        from read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 0.1 # 0.1 Gyr
@@ -1418,7 +1418,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
         rad_color = '#F75590'
         linestyle= '-'
     elif radiation_model == 'BPASS_old_highz':
-        from read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 1 # 1 Gyr
@@ -1494,7 +1494,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
             # 7. Compute the equilibrium grain charge distribution
             if use_equilibrium:
                 # lazily import to avoid circular imports
-                from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+                from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
                 a_cm_eq = a[i] * 1e-4
                 Zs, P, rates, Zmean, Zsigma = equilibrium_charge_for_grain(G0, ne, temperatures[j],
                                                                           grain_types[i], a_cm_eq,
@@ -1600,8 +1600,8 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
         Radiation field as a 2D array with columns [energy (eV), wavelength (nm), intensity (erg/s/cm^2/eV)].
     """
     from astropy.table import Table
-    from models.PAH_charge.PAH_photoelectric_heating import blackbody_radiation
-    from models.tools.radiation_fields import Draine_1978_isrf
+    from pycalima.models.PAH_charge.PAH_photoelectric_heating import blackbody_radiation
+    from pycalima.models.tools.radiation_fields import Draine_1978_isrf
     if radiation_model == 'Draine':
         draine_data = np.loadtxt(_external_data_path('draine1978.dat'))
         wavelength_nm = np.asarray(draine_data[:, 0], dtype=float)
@@ -1717,7 +1717,7 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
         rad_field[:,1] = rad_field[:,1]*(r/d_0)**2 
         rad_label = 'A0'
     elif radiation_model == 'BPASS_veryyoung_lowz':
-        from read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
         fixed_age = 0.01 # 10 Myr
@@ -1730,7 +1730,7 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
         rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
         rad_label = r'BPASS ($t=10$ Myr, $Z=0.01Z_{\odot}$)'
     elif radiation_model == 'BPASS_young_midz':
-        from read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
         fixed_age = 0.1 # 0.1 Gyr
@@ -1743,7 +1743,7 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
         rad_field = np.column_stack([wavelengths.to('nm').d,bpass])
         rad_label = r'BPASS ($t=0.1$ Gyr, $Z=0.5Z_{\odot}$)'
     elif radiation_model == 'BPASS_old_highz':
-        from read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
         fixed_age = 1 # 1 Gyr
@@ -1815,7 +1815,7 @@ def compute_peh_model(grain_type, radiation_model, a_cm, ne, T, n_gamma=10, swee
     rec_rate : ndarray
         Recombination rate in erg s^-1.
     """
-    from dust_emission import compute_cross_sections,interpolate_cross_sections
+    from pycalima.models.dust_radiation.dust_emission import compute_cross_sections,interpolate_cross_sections
     from unyt import nm,m,cm,eV,J,s,h,c,erg,K,kb
     import concurrent.futures
     from tqdm import tqdm
@@ -1832,7 +1832,7 @@ def compute_peh_model(grain_type, radiation_model, a_cm, ne, T, n_gamma=10, swee
     T_used_arr = np.full(n_gamma, np.nan)
 
     # 2. Pre-import equilibrium solver (always used)
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain, compute_G0_from_rad_field
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain, compute_G0_from_rad_field
 
     # 3. compute G0 for the asked radiation field
     rad0, _ = get_radiation_field(radiation_model)
@@ -2010,7 +2010,7 @@ def plot_efficiency(T,ne,radiation_model='Draine',G0factor=1.0,nsizes=50):
     ax_pot.set_ylim([-2,8])
 
     grain_types = ['graphite','silicate']
-    from models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
+    from pycalima.models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
     min_size_angstrom = 3 if USE_LI_DRAINE_2001_CARBONACEOUS else 10.0
     grain_sizes = np.logspace(np.log10(min_size_angstrom * angstrom_to_cm), np.log10(10000 * angstrom_to_cm), nsizes)  # in cm
 
@@ -2044,7 +2044,7 @@ def plot_efficiency(T,ne,radiation_model='Draine',G0factor=1.0,nsizes=50):
         for j in range(0, len(grain_sizes)):
 
             # full equilibrium (from dust_charging) — lazy import and tolerant to failures
-            from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+            from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
             Zs_eq, P_eq, rates_eq, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
                 G0factor, ne, T, grain_types[i], grain_sizes[j],
                 radiation_model=radiation_model, rad_field=None, yield_params=None,
@@ -2087,7 +2087,7 @@ def _compute_efficiency_for_field(task):
     for grain_type in grain_types:
         eff = np.zeros(len(grain_sizes))
         for j, a_cm in enumerate(grain_sizes):
-            from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+            from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
             Zs_eq, P_eq, rates_eq, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
                 G0factor, ne, T, grain_type, a_cm,
                 radiation_model=rad, rad_field=None, yield_params=None,
@@ -2159,7 +2159,7 @@ def plot_efficiency_all_fields(T, ne, G0factor=1.0, nsizes=50,
     fig_sed.subplots_adjust(top=0.95, bottom=0.12, left=0.12, right=0.97)
     fig_sed.savefig(_photoelectric_output_path(f'radiation_fields_comparison_T{int(T)}_ne{ne:.1e}.pdf'), format='pdf', dpi=300)
 
-    from models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
+    from pycalima.models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
     min_size_angstrom = 4.0 if USE_LI_DRAINE_2001_CARBONACEOUS else 10.0
     grain_sizes = np.logspace(np.log10(min_size_angstrom * angstrom_to_cm), np.log10(10000 * angstrom_to_cm), nsizes)  # cm
 
@@ -2272,7 +2272,7 @@ def _compute_rates_point(task):
     G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task[:6]
     ion_species = task[6] if len(task) > 6 else []
 
-    from models.dust_charge import dust_charging as _dc
+    from pycalima.models.dust_charge import dust_charging as _dc
 
     # Per-process cache to avoid rebuilding radiation/optical/yield setup for
     # every grid point. This is the same invariant context used in gamma scans.
@@ -2610,7 +2610,7 @@ def plot_heating_cooling_surfaces(grain_type, a_cm, radiation_model='Mathis', co
         prefix for output filenames
     """
     import time
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain, compute_G0_from_rad_field
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain, compute_G0_from_rad_field
 
     # compute G0_base if needed
     if base_G0 is None:
@@ -2725,7 +2725,7 @@ def _compute_Zmean_for_size(task):
     G0factor, ne, T, mat, aA, radiation_model, ion_species = task
     a_cm = float(aA) * 1e-8
     # import here so child processes import the module lazily
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
     Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
         G0factor, ne, T, mat, a_cm, ion_species=ion_species,
         radiation_model=radiation_model, rad_field=None, yield_params=None,
@@ -2767,7 +2767,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
 
     # get G0 from the radiation model
     rad, rad_label = get_radiation_field(radiation_model)
-    from models.dust_charge.dust_charging import compute_G0_from_rad_field
+    from pycalima.models.dust_charge.dust_charging import compute_G0_from_rad_field
     G0_base, _ = compute_G0_from_rad_field(rad)
 
     # prepare plot
@@ -2863,7 +2863,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
             for aA in sizes_A:
                 a_cm = aA * 1e-8
                 a_m = aA * 1e-10
-                from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+                from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
                 Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
                     G0factor, ne, T, mat, a_cm, ion_species=ion_species,
                     radiation_model=radiation_model, rad_field=None, yield_params=None,
@@ -2900,7 +2900,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     fig.savefig(out, dpi=200)
     plt.close(fig)
     # --- additional plot: flux-weighted C_abs normalized by geometric cross-section ---
-    from dust_emission import interpolate_cross_sections
+    from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
     # rad may be returned in different formats (wavelength_nm, I_lambda) or (E_eV, I_E)
     rad_arr = np.asarray(rad)
     if rad_arr.ndim != 2:
@@ -2977,7 +2977,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     plt.close(fig2)
 
 def plot_csa_IM19():
-    from dust_emission import interpolate_cross_sections
+    from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
     # 1. Setup the figure
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
@@ -3311,7 +3311,7 @@ def plot_heating_cooling_3d(grain_type, a_cm, radiation_model='Mathis', pair='G0
         tqdm = None
 
     # lazy import of equilibrium solver to avoid startup cost when module imported
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
 
     # Enforce T_groups mode only (no gamma sweeps)
     if T_groups is None:

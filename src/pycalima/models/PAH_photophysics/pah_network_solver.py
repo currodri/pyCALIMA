@@ -41,7 +41,7 @@ Two solver modes
 
 Quick-start
 -----------
-    from models.PAH_photophysics.pah_network_solver import make_c54_solver
+    from pycalima.models.PAH_photophysics.pah_network_solver import make_c54_solver
     import numpy as np
 
     solver = make_c54_solver()
@@ -554,11 +554,9 @@ def make_c96_solver(n_superh_max: int = N_SUPERH_MAX) -> PAHNetworkSolver:
 # ------------------------------------------------------------------ #
 
 if __name__ == "__main__":
-    import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-    from models.PAH_photophysics.pah_charge_utils import (
+    from pycalima.models.PAH_photophysics.pah_charge_utils import (
         afromNc,
         recombination_rate_Tielens21,
         attachment_rate_Carelli13,

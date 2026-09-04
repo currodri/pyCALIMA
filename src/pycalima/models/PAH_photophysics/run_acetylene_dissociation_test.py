@@ -10,7 +10,7 @@ import argparse
 from contextlib import contextmanager
 from pathlib import Path
 
-from models.PAH_photophysics.PAH_photophysics import plot_acetylene_dissociation_rate
+from pycalima.models.PAH_photophysics.PAH_photophysics import plot_acetylene_dissociation_rate
 
 
 @contextmanager

@@ -143,10 +143,8 @@ def h2_abstraction_rate(T, n_H):
 # Quick diagnostic
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-    from models.PAH_photophysics.pah_charge_utils import afromNc
+    from pycalima.models.PAH_photophysics.pah_charge_utils import afromNc
 
     Nc = 54
     a_cm = afromNc(Nc)

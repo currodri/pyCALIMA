@@ -11,20 +11,18 @@ Provides:
                       mathis83_to_gd89_interface
 """
 
-import sys
 from pathlib import Path
 import os
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np
 from scipy.optimize import root_scalar
 from scipy.linalg import null_space
 from scipy.integrate import quad
 
-from models.tools.radiation_fields import Mathis83_radiation_field
-from models.PAH_radiation.pah_oppacity import pah_efficiencies
-from models.PAH_photophysics.pah_mol_data import load_pah_modes
+from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
+from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
+from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
 
 _THIS_DIR       = os.path.dirname(os.path.abspath(__file__))
 _CALIMA_ROOT    = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))

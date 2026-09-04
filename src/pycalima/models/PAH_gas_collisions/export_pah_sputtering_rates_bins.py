@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
-from models.PAH_gas_collisions.PAH_sputtering import export_rates_simple
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+from pycalima.models.PAH_gas_collisions.PAH_sputtering import export_rates_simple
 
 
 DEFAULT_EXPORT_PARAMS = {

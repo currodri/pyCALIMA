@@ -13,8 +13,8 @@ import re
 
 import numpy as np
 
-from models.dust_gas_collisions.dust_collisional_cooling import export_collisional_cooling
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+from pycalima.models.dust_gas_collisions.dust_collisional_cooling import export_collisional_cooling
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 
 
 DEFAULT_EXPORT_PARAMS = {

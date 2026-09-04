@@ -23,8 +23,8 @@ plt.rcParams.update({
     "font.family": "serif",
     "font.serif": "Computer Modern Roman",
 })
-from models.grain_size_config import get_optical_props_path
-from models.dust_charge.shared_physics import (
+from pycalima.models.grain_size_config import get_optical_props_path
+from pycalima.models.dust_charge.shared_physics import (
     GRAPHITE_WORK_FUNCTION,
     SILICATE_WORK_FUNCTION,
     SILICATE_BAND_GAP,
@@ -932,7 +932,7 @@ def compute_equilibrium_charge_distribution_vectorized(
         ax.plot(E_eV, Y_test[:, 0], label='This code Z=0', color='gray', linestyle='-')
         print(f'[debug] overplotting this code yield for Z=0',Y_test[:,0])
         print(yield_params)
-        from models.dust_charge.dust_photoelectric_heating import photoelectric_yield_graphite, photoelectric_yield_silicate
+        from pycalima.models.dust_charge.dust_photoelectric_heating import photoelectric_yield_graphite, photoelectric_yield_silicate
         if material == 'graphite':
             wav = c_cgs / np.asarray(nu)
             Y_ref = np.zeros_like(E_eV)
@@ -1044,7 +1044,7 @@ def compute_equilibrium_charge_distribution_vectorized(
     # Compute photoelectric heating and recombination cooling for the
     # equilibrium distribution P(Z). Use local nu/J_nu/C_abs_nu arrays and
     # the helpers in `dust_photoelectric_heating` when available.
-    from models.dust_charge.dust_photoelectric_heating import compute_photoelectric_heating_rate,\
+    from pycalima.models.dust_charge.dust_photoelectric_heating import compute_photoelectric_heating_rate,\
                                                                 compute_recombination_cooling_rate,\
                                                                 compute_autoionisation_cooling_rate
 
@@ -1353,8 +1353,8 @@ def equilibrium_charge_for_grain(G0, ne, T, grain_type, a_cm,
     electrons only per your request.
     """
     # lazy imports from other modules in the repo to avoid top-level dependency issues
-    from models.dust_charge.dust_photoelectric_heating import get_radiation_field, read_dielectric_file
-    from models.dust_radiation.dust_emission import interpolate_cross_sections
+    from pycalima.models.dust_charge.dust_photoelectric_heating import get_radiation_field, read_dielectric_file
+    from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
     # sensible defaults
     if yield_params is None:
@@ -1627,7 +1627,7 @@ def compute_G0_from_rad_field(rad_field, E_min=6.0, E_max=13.6):
 
 def compute_G0_from_model(radiation_model='Draine', E_min=6.0, E_max=13.6):
     """Helper that obtains the radiation field via get_radiation_field and computes G0."""
-    from models.dust_charge.dust_photoelectric_heating import get_radiation_field
+    from pycalima.models.dust_charge.dust_photoelectric_heating import get_radiation_field
     rad, _ = get_radiation_field(radiation_model)
     # earlier get_radiation_field returns [wavelength_nm, intensity erg/cm2/s/nm/sr]
     return compute_G0_from_rad_field(rad, E_min=E_min, E_max=E_max)
@@ -1635,8 +1635,8 @@ def compute_G0_from_model(radiation_model='Draine', E_min=6.0, E_max=13.6):
 
 def _prepare_gamma_scan_context(grain_type, a_cm, radiation_model='Mathis', yield_params=None):
     """Prepare invariant radiation/optical inputs once for a gamma scan."""
-    from models.dust_charge.dust_photoelectric_heating import get_radiation_field, read_dielectric_file
-    from models.dust_radiation.dust_emission import interpolate_cross_sections
+    from pycalima.models.dust_charge.dust_photoelectric_heating import get_radiation_field, read_dielectric_file
+    from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
     if yield_params is None:
         yield_params = {}

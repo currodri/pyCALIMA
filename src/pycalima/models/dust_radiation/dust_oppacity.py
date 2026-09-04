@@ -24,11 +24,11 @@ plt.rcParams.update({
 })
 import re
 from pathlib import Path
-from models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,\
+from pycalima.models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,\
                         LogNormal_Distribution,PowerLaw_ExpCutoff_Distribution, \
                         Classical_LogNormal_Distribution
-from models.grain_size_config import get_optical_props_path, get_lognormal_parameters, load_grain_size_config
-from models.tools.radiation_fields import Mathis83_radiation_field
+from pycalima.models.grain_size_config import get_optical_props_path, get_lognormal_parameters, load_grain_size_config
+from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
 
 PATH_OPTICS = str(get_optical_props_path())
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -119,7 +119,7 @@ def save_imn_file(metadata, outfile):
 
 
 def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
-    from models.grain_size_config import get_bins, get_lognormal_parameters
+    from pycalima.models.grain_size_config import get_bins, get_lognormal_parameters
     """
     Export the dielectric Im_n tables for a dust bin.
 
@@ -183,7 +183,7 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
         # and to match the Fortran code's expected input (which takes log10 itself).
         data_arr = np.column_stack([10**target_log10_wav_A, 10**target_log10_Im_n])
         
-        from models.grain_size_config import get_header_lines
+        from pycalima.models.grain_size_config import get_header_lines
         headers = get_header_lines(
             title="Dust dielectric properties (Im_n)",
             script_name="models/dust_radiation/dust_oppacity.py",
@@ -492,7 +492,7 @@ def plot_efficiencies(filename,dust_type='grains',
         nwav,data,columns,name = dust_efficiencies(filename)
     else:
         # Import PAH reader for non-grain dust types
-        from models.PAH_radiation.pah_oppacity import pah_efficiencies
+        from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
         nwav,data,columns,name = pah_efficiencies(filename)
     
     if 'PAH' in name:
@@ -673,7 +673,7 @@ def interpolate_cross_sections_2d(dust_type, grain_size, target_wavelengths=None
     Returns (grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp)
     Similar units/shape as interpolate_cross_sections.
     """
-    from models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
+    from pycalima.models.dust_radiation.dust_emission import USE_LI_DRAINE_2001_CARBONACEOUS
     if use_li_draine is None:
         use_li_draine = USE_LI_DRAINE_2001_CARBONACEOUS
 
@@ -715,7 +715,7 @@ def interpolate_cross_sections_2d(dust_type, grain_size, target_wavelengths=None
             nwav, data, columns, name = dust_efficiencies(filename)
         elif dust_type == 'iPAH' or dust_type == 'nPAH' or dust_type == 'PAH':
             # Import PAH-specific function
-            from models.PAH_radiation.pah_oppacity import pah_efficiencies, interpolate_pah_cross_sections_2d
+            from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies, interpolate_pah_cross_sections_2d
             # Use PAH-specific interpolator instead
             return interpolate_pah_cross_sections_2d(dust_type, grain_size, target_wavelengths, efficiency, data_table)
         else:
@@ -838,12 +838,8 @@ def compute_cross_sections_mie(composition, grain_size_micron, target_wavelength
 
     Returns (grain_size_cm, wavelengths_cm, C_sca, C_abs, C_rp)
     """
-    import sys
-    tools_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tools')
-    if tools_path not in sys.path:
-        sys.path.insert(0, tools_path)
     
-    from mie_theory import MieTheory
+    from pycalima.models.tools.mie_theory import MieTheory
     mie = MieTheory()
 
     # Load dielectrics
@@ -1471,7 +1467,7 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
             nwav, data, columns, name = dust_efficiencies(filename)
         elif material == 'iPAH' or material == 'nPAH' or material == 'PAH':
             # Import PAH-specific reader
-            from models.PAH_radiation.pah_oppacity import pah_efficiencies
+            from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
             if material == 'iPAH':
                 filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
             else:
@@ -1775,11 +1771,11 @@ def _compute_component_cross_sections_legacy(component_bins, target_wavelengths,
             filename = os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81')
             optical_cache[material] = dust_efficiencies(filename)
         elif material == 'iPAH':
-            from models.PAH_radiation.pah_oppacity import pah_efficiencies
+            from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
             filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
             optical_cache[material] = pah_efficiencies(filename)
         elif material == 'nPAH':
-            from models.PAH_radiation.pah_oppacity import pah_efficiencies
+            from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
             filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
             optical_cache[material] = pah_efficiencies(filename)
         else:
@@ -1840,12 +1836,8 @@ def compute_component_cross_sections_mie(component_bins, target_wavelengths,
         Per-bin override of distribution_class. Takes precedence over distribution_class
         for any bin_id key present in the map.
     """
-    import sys
-    tools_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tools')
-    if tools_path not in sys.path:
-        sys.path.insert(0, tools_path)
     
-    from mie_theory import MieTheory
+    from pycalima.models.tools.mie_theory import MieTheory
 
     mie = MieTheory()
 
@@ -1869,11 +1861,11 @@ def compute_component_cross_sections_mie(component_bins, target_wavelengths,
     for material in set(materials):
         if material in ('iPAH', 'nPAH'):
             if material == 'iPAH':
-                from models.PAH_radiation.pah_oppacity import pah_efficiencies
+                from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
                 filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHion_30')
                 optical_cache[material] = pah_efficiencies(filename)
             elif material == 'nPAH':
-                from models.PAH_radiation.pah_oppacity import pah_efficiencies
+                from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
                 filename = os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30')
                 optical_cache[material] = pah_efficiencies(filename)
             q_table_cache[material] = _build_q_table_2d(optical_cache[material], target_wavelengths)
@@ -2073,7 +2065,7 @@ def compute_zubko2004_bare_gr_s_cross_sections(
 
     nwav = len(wav)
 
-    from models.PAH_radiation.pah_oppacity import pah_efficiencies
+    from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
     gra_table     = dust_efficiencies(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Gra_81'))
     sil_table     = dust_efficiencies(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'suvSil_81'))
     pah_neu_table = pah_efficiencies(os.path.join(PATH_OPTICS, 'li_draine_2001', 'PAHneu_30'))

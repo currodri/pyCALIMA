@@ -21,25 +21,23 @@ Usage
 
 from __future__ import annotations
 
-import sys
 import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
 from math import lgamma
 
-from models.PAH_photophysics.pah_charge_utils import (
+from pycalima.models.PAH_photophysics.pah_charge_utils import (
     afromNc,
     alpha_neutral_Cagliari,
     se_neutral_Andrews2016,
     se_neutral_Allamandola1989_full,
     ME_CGS, H_CGS, C_CGS, KB_CGS, EV2ERG, E_STATC, TINY,
 )
-from models.PAH_photophysics.pah_temperature import get_absorption_cross_section
+from pycalima.models.PAH_photophysics.pah_temperature import get_absorption_cross_section
 from scipy.optimize import brentq
 
 # ── PAH definitions ──────────────────────────────────────────────────────────

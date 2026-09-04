@@ -20,18 +20,16 @@ or directly:
     python models/dust_shielding/plot_shielding_comparison.py
 """
 
-import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 _CALIMA_ROOT = _HERE.parents[1]
-sys.path.insert(0, str(_CALIMA_ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from models.dust_shielding.shielding_functions import (
+from pycalima.models.dust_shielding.shielding_functions import (
     comp_SH2,
     comp_Sd_old,
     comp_Sd_new,

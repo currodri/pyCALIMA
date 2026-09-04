@@ -13,16 +13,16 @@ By: F. Rodriguez Montero (currodri@gmail.com)
 
 # Import libraries
 import numpy as np
-from models.tools.radiation_fields import Draine_1978_isrf
+from pycalima.models.tools.radiation_fields import Draine_1978_isrf
 import pandas as pd
 import os
 from tqdm import tqdm
 import concurrent.futures
 import time
-from models.PAH_radiation.pah_oppacity import pah_efficiencies
-from models.dust_model import LogNormal_Distribution
-from models.grain_size_config import get_bins, get_lognormal_parameters
-from models.tools.utils import Nc_from_size
+from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
+from pycalima.models.dust_model import LogNormal_Distribution
+from pycalima.models.grain_size_config import get_bins, get_lognormal_parameters
+from pycalima.models.tools.utils import Nc_from_size
 
 from unyt import nm,m,cm,eV,J,s,h,c
 
@@ -305,7 +305,7 @@ def plot_acetylene_dissociation_rate(G0min,G0max,nHmin,nHmax,pah_bin_id=None,pah
     # 4. Rescale by the value of f_dehydro and G0
     diss_rate = R * f_dehydro
     
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
     headers = get_header_lines(
         title="PAH Acetylene dissociation rate table",
         script_name="models/PAH_photophysics/PAH_photophysics.py",
@@ -678,7 +678,7 @@ def plot_integrated_dissociation_rate():
     plt.close(fig)
 
 def compute_h2_dissociation_rate(args):
-    from models.PAH_charge.PAH_photoelectric_heating import ionisation_potential,ionisation_yield
+    from pycalima.models.PAH_charge.PAH_photoelectric_heating import ionisation_potential,ionisation_yield
     
     wav,sigma,G0,E0,S,dist,Z = args
 
@@ -834,7 +834,7 @@ def plot_h2_dissociation_rate(G0min,G0max,n_G0=100,pah_bin_id=None,pah_bin_rank=
     fig.savefig('H2_photodissociation_rate.png',format='png',dpi=300)
 
 def plot_h2_efficiency(G0,ntmin,ntmax,Xe,T,f,n_nt=100,pah_bin_id=None,pah_bin_rank=0):
-    from models.PAH_charge.PAH_photoelectric_heating import read_data,interpolate_linear
+    from pycalima.models.PAH_charge.PAH_photoelectric_heating import read_data,interpolate_linear
     from scipy.optimize import curve_fit
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -955,7 +955,7 @@ def plot_h2_efficiency(G0,ntmin,ntmax,Xe,T,f,n_nt=100,pah_bin_id=None,pah_bin_ra
     fig.savefig(f'H2_pah_efficiency_{pah_bin["id"]}.pdf',format='pdf',dpi=300)
 
 def plot_h2_formation(model,G0,ntmin,ntmax,Xe,T,f,xPAH=3.3e-5,n_nt=100,pah_bin_id=None,pah_bin_rank=0):
-    from models.PAH_charge.PAH_photoelectric_heating import read_data,interpolate_linear,recombination_rate_Spitzer,recombination_rate_Tielens21
+    from pycalima.models.PAH_charge.PAH_photoelectric_heating import read_data,interpolate_linear,recombination_rate_Spitzer,recombination_rate_Tielens21
     from scipy.optimize import curve_fit
     import matplotlib.pyplot as plt
     import seaborn as sns

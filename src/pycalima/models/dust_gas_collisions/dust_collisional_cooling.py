@@ -6,7 +6,7 @@ DUST COLLISIONAL COOLING
 
 # Import libraries
 import numpy as np
-import models.dust_model as dust_model
+import pycalima.models.dust_model as dust_model
 import pandas as pd
 import os
 from pathlib import Path
@@ -2055,7 +2055,7 @@ def export_collisional_cooling(Tmin,Tmax,
 
     # Build a single phi grid following the same idea used in dust_sputtering:
     # combine ion charge range with physically allowed grain charges from dust_charging.
-    from models.dust_charge.dust_charging import (
+    from pycalima.models.dust_charge.dust_charging import (
         graphite_work_function,
         silicate_work_function,
         most_negative_allowed_charge_graphite,
@@ -2176,7 +2176,7 @@ def export_collisional_cooling(Tmin,Tmax,
     H_electron_2d = np.maximum(H_electron_2d, 1e-30)
 
     # Write 2D table file (Fortran-friendly format) with 6-line header
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
     headers = get_header_lines(
         title="Collisional cooling table (electrons)",
         script_name="models/dust_gas_collisions/dust_collisional_cooling.py",

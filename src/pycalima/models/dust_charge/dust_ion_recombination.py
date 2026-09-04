@@ -15,15 +15,13 @@ By: Curro Rodriguez Montero (currodri@gmail.com)
 """
 
 import os
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Ensure parent directories are on path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from models.dust_charge.shared_physics import (
+from pycalima.models.dust_charge.shared_physics import (
     KB_CGS, 
     DS87_J_function_vec, 
     ionisation_potential_valence_vec,
@@ -32,7 +30,7 @@ from models.dust_charge.shared_physics import (
     E_STATC,
     EV2ERG
 )
-from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
 
 # Atomic radii in Angstroms from Weingartner & Draine (2001) Table 1
 ATOMIC_RADII = {

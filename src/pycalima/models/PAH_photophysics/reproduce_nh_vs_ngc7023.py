@@ -20,36 +20,34 @@ Usage
 
 from __future__ import annotations
 
-import sys
 import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 from multiprocessing import Pool, cpu_count
 
-from models.PAH_photophysics.pah_charge_utils import (
+from pycalima.models.PAH_photophysics.pah_charge_utils import (
     afromNc,
     recombination_rate_Bakes1994,
     attachment_rate_Bakes1994,
     se_neutral_Andrews2016,
 )
-from models.PAH_photophysics.pah_dissociation import compute_total_photoionisation_rate
-from models.PAH_photophysics.pah_network_solver import PAHNetworkSolver
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_dissociation import compute_total_photoionisation_rate
+from pycalima.models.PAH_photophysics.pah_network_solver import PAHNetworkSolver
+from pycalima.models.PAH_photophysics.pah_temperature import (
     compute_base_g0,
     get_absorption_cross_section,
 )
-from models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
-from models.PAH_photophysics.reproduce_andrews16_fig9 import (
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
+from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     PAH_DEFS as _PAH_DEFS_BASE, _STATES_DIR, _HV_EV,
     _build_kdis, _worker,
 )
-from models.PAH_photophysics.reproduce_charge_vs_ngc7023 import (
+from pycalima.models.PAH_photophysics.reproduce_charge_vs_ngc7023 import (
     load_pdr_profiles,
 )
 

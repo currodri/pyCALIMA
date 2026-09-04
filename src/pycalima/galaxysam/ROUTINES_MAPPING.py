@@ -18,7 +18,7 @@ ROUTINE_MAPPING = {
             "outflow_rate()",
         ],
         "example": """
-from galaxySAM.galaxy_sam import GalaxySAM
+from pycalima.galaxysam.galaxy_sam import GalaxySAM
 sam = GalaxySAM(
     yield_model='kobayashi',
     tscale_infall=7.0,
@@ -39,7 +39,7 @@ results = sam.evolve()
             "CombinedYieldModel",
         ],
         "example": """
-from galaxySAM.yield_models import KobayashiYields
+from pycalima.galaxysam.yield_models import KobayashiYields
 yields = KobayashiYields(metallicity=0.02)
 yields.load_from_file('yield_ck13_z0.02.txt')
 fe_yield = yields.get_yield(mass=20.0, element='Fe')
@@ -55,7 +55,7 @@ fe_yield = yields.get_yield(mass=20.0, element='Fe')
             "interpolate_yield()",
         ],
         "example": """
-from galaxySAM.yield_models import KobayashiYields
+from pycalima.galaxysam.yield_models import KobayashiYields
 kb = KobayashiYields(metallicity=0.02)
 kb.load_from_file('yield_ck13_z0.02.txt')
 """
@@ -69,7 +69,7 @@ kb.load_from_file('yield_ck13_z0.02.txt')
             "interpolate_yield()",
         ],
         "example": """
-from galaxySAM.yield_models import LC18Yields
+from pycalima.galaxysam.yield_models import LC18Yields
 lc18 = LC18Yields(metallicity_log=-0.3, velocity=150)
 lc18.load_from_file('lc18_yields.txt')
 """
@@ -83,7 +83,7 @@ lc18.load_from_file('lc18_yields.txt')
             "get_yield()",
         ],
         "example": """
-from galaxySAM.yield_models import KarakasYields
+from pycalima.galaxysam.yield_models import KarakasYields
 kar = KarakasYields(metallicity=0.02)
 kar.load_from_file('karakas_z0.02_simplified.txt')
 """
@@ -110,7 +110,7 @@ kar.load_from_file('karakas_z0.02_simplified.txt')
             "inverse_mass_sampler()",
         ],
         "example": """
-from galaxySAM.sn1a import SNIaModel
+from pycalima.galaxysam.sn1a import SNIaModel
 snia = SNIaModel(asnia=0.05)
 age_years = 1e9
 rate = snia.snia_rate_delay_time(age_years)
@@ -132,11 +132,11 @@ yields = snia.yields_snia(model='nomoto84')
             "imf_weighted_quantity()",
         ],
         "example": """
-from galaxySAM.imf import create_imf
+from pycalima.galaxysam.imf import create_imf
 imf = create_imf('chabrier')
 phi = imf(15.0)  # IMF at 15 Msun
 
-from galaxySAM.imf import SalpeterIMF
+from pycalima.galaxysam.imf import SalpeterIMF
 sal = SalpeterIMF(alpha=-2.35)
 """
     },
@@ -146,7 +146,7 @@ sal = SalpeterIMF(alpha=-2.35)
         "description": "Plot stellar yields vs mass",
         "maps_to": "galaxySAM.plotting.YieldPlotter.plot_yields_vs_mass()",
         "example": """
-from galaxySAM.plotting import YieldPlotter
+from pycalima.galaxysam.plotting import YieldPlotter
 plotter = YieldPlotter()
 fig = plotter.plot_yields_vs_mass(masses, yields_dict)
 """
@@ -156,7 +156,7 @@ fig = plotter.plot_yields_vs_mass(masses, yields_dict)
         "description": "Compare yield models",
         "maps_to": "galaxySAM.plotting.YieldPlotter.plot_yields_comparison()",
         "example": """
-from galaxySAM.plotting import YieldPlotter
+from pycalima.galaxysam.plotting import YieldPlotter
 plotter = YieldPlotter()
 fig = plotter.plot_yields_comparison(
     [masses1, masses2],
@@ -177,7 +177,7 @@ fig = plotter.plot_yields_comparison(
         "description": "Plot galaxy evolution quantities",
         "maps_to": "galaxySAM.plotting.EvolutionPlotter.plot_evolution()",
         "example": """
-from galaxySAM.plotting import EvolutionPlotter
+from pycalima.galaxysam.plotting import EvolutionPlotter
 plotter = EvolutionPlotter()
 fig = plotter.plot_evolution(results)
 """
@@ -187,7 +187,7 @@ fig = plotter.plot_evolution(results)
         "description": "Compare IMF models",
         "maps_to": "galaxySAM.imf module functions",
         "example": """
-from galaxySAM.imf import create_imf
+from pycalima.galaxysam.imf import create_imf
 import numpy as np
 masses = np.logspace(-1, 2, 100)
 
@@ -209,8 +209,8 @@ for imf_type in ['salpeter', 'chabrier']:
         "description": "Compare Type Ia yields",
         "maps_to": "galaxySAM.plotting + galaxySAM.sn1a",
         "example": """
-from galaxySAM.sn1a import SNIaModel
-from galaxySAM.plotting import YieldPlotter
+from pycalima.galaxysam.sn1a import SNIaModel
+from pycalima.galaxysam.plotting import YieldPlotter
 snia = SNIaModel()
 yields1 = snia.yields_snia('nomoto84')
 yields2 = snia.yields_snia('iwamoto99')
@@ -222,7 +222,7 @@ yields2 = snia.yields_snia('iwamoto99')
         "description": "Example yield comparison script",
         "maps_to": "galaxySAM.examples module",
         "example": """
-from galaxySAM.examples import example_multiple_models
+from pycalima.galaxysam.examples import example_multiple_models
 results = example_multiple_models()
 """
     },
@@ -238,7 +238,7 @@ results = example_multiple_models()
         "description": "Batch yield calculations",
         "maps_to": "Custom loop over yield_models classes",
         "example": """
-from galaxySAM.yield_models import create_yield_model
+from pycalima.galaxysam.yield_models import create_yield_model
 models = ['kobayashi', 'lc18', 'karakas']
 for model in models:
     y = create_yield_model(model, metallicity=0.02)
@@ -250,7 +250,7 @@ for model in models:
         "description": "Process all Karakas files",
         "maps_to": "galaxySAM.yield_models.KarakasYields + loop",
         "example": """
-from galaxySAM.yield_models import KarakasYields
+from pycalima.galaxysam.yield_models import KarakasYields
 metallicities = [0.001, 0.004, 0.008, 0.02]
 for z in metallicities:
     kar = KarakasYields(metallicity=z)
@@ -262,7 +262,7 @@ for z in metallicities:
         "description": "Process all LC18 files",
         "maps_to": "galaxySAM.yield_models.LC18Yields + loop",
         "example": """
-from galaxySAM.yield_models import LC18Yields
+from pycalima.galaxysam.yield_models import LC18Yields
 for z_log in [-3.0, -2.0, -1.0, -0.6, -0.3, 0.0, 0.3]:
     for vel in [0, 150, 300]:
         lc18 = LC18Yields(metallicity_log=z_log, velocity=vel)
@@ -303,7 +303,7 @@ for z_log in [-3.0, -2.0, -1.0, -0.6, -0.3, 0.0, 0.3]:
         "example": """
 python -m galaxySAM.examples
 # or
-from galaxySAM.examples import *
+from pycalima.galaxysam.examples import *
 example_basic_evolution()
 """
     },

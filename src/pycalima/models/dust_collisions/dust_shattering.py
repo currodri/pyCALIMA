@@ -4,7 +4,7 @@ DUST SHATTERING
 """
 # LIBRARIES
 import numpy as np
-from models.constants import *
+from pycalima.models.constants import *
 from unyt import mh,kb
 
 
@@ -33,8 +33,8 @@ def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition
         "font.serif": "Computer Modern Roman",
     })
 
-    from models.tools.utils import as_si
-    from models.dust_collisions.dust_dynamics import relative_velocity
+    from pycalima.models.tools.utils import as_si
+    from pycalima.models.dust_collisions.dust_dynamics import relative_velocity
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(7,6), dpi=300, facecolor='w', edgecolor='k')
     
     a = np.logspace(-4,1,1000)
@@ -249,7 +249,7 @@ def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
         "font.serif": "Computer Modern Roman",
     })
 
-    from models.tools.utils import as_si
+    from pycalima.models.tools.utils import as_si
     fig, axes = plt.subplots(2,3, figsize=(13,8),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     fig2, axes2 = plt.subplots(2,3, figsize=(13,8),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     
@@ -564,8 +564,8 @@ def plot_shattering_frag_simple(nMach=100):
         "font.serif": "Computer Modern Roman",
     })
 
-    from models.tools.utils import as_si
-    from models.dust_collisions.dust_dynamics import relative_velocity
+    from pycalima.models.tools.utils import as_si
+    from pycalima.models.dust_collisions.dust_dynamics import relative_velocity
     fig, axes = plt.subplots(1,2, figsize=(10,4),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     
     # Shattering model quantities (Kobayashi & Tanaka 2010)

@@ -7,7 +7,7 @@ ion-charge interval used to estimate phi bounds.
 
 import numpy as np
 
-import models.dust_gas_collisions.dust_sputtering as dust_sputtering
+import pycalima.models.dust_gas_collisions.dust_sputtering as dust_sputtering
 
 
 def main():

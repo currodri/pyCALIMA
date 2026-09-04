@@ -8,12 +8,10 @@ python examples/make_rate_tables.py --grain graphite --a 0.01 --outdir examples/
 """
 import argparse
 import os
-import sys
 
 # Ensure the repository root is on sys.path so examples can import top-level modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from models.dust_charge.dust_photoelectric_heating import make_rate_gamma_T_tables
+from pycalima.models.dust_charge.dust_photoelectric_heating import make_rate_gamma_T_tables
 
 
 def parse_args():

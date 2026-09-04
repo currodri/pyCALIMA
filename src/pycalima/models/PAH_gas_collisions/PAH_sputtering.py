@@ -27,7 +27,7 @@ from types import SimpleNamespace
 # the ~30 `PAHs_model.Nc_from_size(...)` call sites below need no change, but the
 # lookup is now explicit -- a stray PAHs_model.py on sys.path can no longer
 # silently substitute different physics.
-from models.tools.utils import Nc_from_size, size_from_Nc
+from pycalima.models.tools.utils import Nc_from_size, size_from_Nc
 
 PAHs_model = SimpleNamespace(Nc_from_size=Nc_from_size, size_from_Nc=size_from_Nc)
 
@@ -1483,7 +1483,7 @@ def export_rates_simple(RPAH, Tmin, Tmax, threshold_energy=7.5,
         'O': 8
     }
     
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
 
     # Save electron rates (Z=0)
     Z_electron = atomic_number_map['e']

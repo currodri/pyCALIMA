@@ -15,18 +15,16 @@ Uses generalized PAH bin definitions from grain_size_distribution.json.
 import argparse
 from pathlib import Path
 import json
-import sys
 
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Add models path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from models.PAH_charge.PAH_photoelectric_heating import compute_tables_ISRF
-from models.grain_size_config import load_grain_size_config, set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
-from models.tools.utils import Nc_from_size
+from pycalima.models.PAH_charge.PAH_photoelectric_heating import compute_tables_ISRF
+from pycalima.models.grain_size_config import load_grain_size_config, set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+from pycalima.models.tools.utils import Nc_from_size
 
 
 DEFAULT_EXPORT_PARAMS = {
@@ -135,7 +133,6 @@ def main(output_root=None, radiation_models=None, optical_models=None,
     
     if pah_bins is None:
         pah_bins = _get_pah_bins(config_path=config_path)
-    repo_root = _repo_root()
     
     if output_root is None:
         output_root = get_model_data_dir() / 'PAH_photoelectric_heating_data'

@@ -5,17 +5,11 @@ re-generated from the command line.
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-if __package__ is None or __package__ == '':
-    repo_root = Path(__file__).resolve().parents[2]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-
-from models.dust_radiation.dust_emission import plot_eqtemp_tgas_density_grid
+from pycalima.models.dust_radiation.dust_emission import plot_eqtemp_tgas_density_grid
 
 
 def build_parser():

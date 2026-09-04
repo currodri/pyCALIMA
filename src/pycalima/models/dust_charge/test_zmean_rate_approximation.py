@@ -27,16 +27,14 @@ from typing import Dict, Iterable, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from models.dust_charge.dust_charging import (
+from pycalima.models.dust_charge.dust_charging import (
     equilibrium_charge_for_grain,
     get_process_rss_bytes,
     get_system_memory_bytes,
 )
-from models.dust_charge.dust_photoelectric_heating import (
+from pycalima.models.dust_charge.dust_photoelectric_heating import (
     PATH_OPTICS,
     c_cgs,
     compute_photoelectric_heating_rate,
@@ -46,7 +44,7 @@ from models.dust_charge.dust_photoelectric_heating import (
     most_negative_allowed_charge_silicate,
     read_dielectric_file,
 )
-from models.dust_radiation.dust_emission import interpolate_cross_sections
+from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
 
 def _repo_root() -> Path:

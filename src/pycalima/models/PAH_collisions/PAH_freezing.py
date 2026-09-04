@@ -4,7 +4,7 @@ PAH FREEZING
 """
 # LIBRARIES
 import numpy as np
-from models.constants import *
+from pycalima.models.constants import *
 
 
 # FUNCTIONS
@@ -17,7 +17,7 @@ def pah_freezing(GDR_PAHs,GDR_small,GDR_large,nMach=100):
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
-    from models.tools.utils import as_si,sigmoid_function
+    from pycalima.models.tools.utils import as_si,sigmoid_function
     from scipy.special import erfc
     
     fig2, axes2 = plt.subplots(1,3, figsize=(10,5),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)

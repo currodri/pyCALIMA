@@ -11,10 +11,8 @@ By: Curro Rodriguez Montero (currodri@gmail.com)
 """
 
 import os
-import sys
 
 # Ensure parent directories are on path so 'models' package can be imported
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -301,7 +299,7 @@ def run_environment_checks():
 # 7. Optional comparison with full numerical charging solver in CALIMA
 def run_numerical_comparison_if_available():
     try:
-        from models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
+        from pycalima.models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
         plt.rcParams["text.usetex"] = False
         print("\nCALIMA charging module loaded successfully! Performing numerical comparison...")
         
@@ -358,10 +356,10 @@ def compute_single_phi(args):
     at a single phi value. Defined at top-level for pickling in multiprocessing.
     """
     phi_idx, phi, T, species_list, masses, sizes_cm, dn_da_gra, dn_da_sil, A_MIN, A_MAX, use_li_draine = args
-    import models.dust_radiation.dust_emission as de
+    import pycalima.models.dust_radiation.dust_emission as de
     de.USE_LI_DRAINE_2001_CARBONACEOUS = use_li_draine
     
-    from models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
+    from pycalima.models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
     
     G0 = 1.0
     ne = G0 * np.sqrt(T) / phi
@@ -547,10 +545,10 @@ def compute_single_gamma_contribution(args):
     at a single gamma value. Defined at top-level for pickling in multiprocessing.
     """
     gamma_idx, gamma, T, sizes_cm, dn_da_gra, dn_da_sil, A_MIN, A_MAX, use_li_draine = args
-    import models.dust_radiation.dust_emission as de
+    import pycalima.models.dust_radiation.dust_emission as de
     de.USE_LI_DRAINE_2001_CARBONACEOUS = use_li_draine
     
-    from models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
+    from pycalima.models.dust_charge.dust_ion_recombination import compute_grain_assisted_ion_recombination
     
     G0 = 1.0
     ne = G0 * np.sqrt(T) / gamma
@@ -695,7 +693,7 @@ def main():
     
     use_ld = args.use_li_draine
     if use_ld:
-        import models.dust_radiation.dust_emission as de
+        import pycalima.models.dust_radiation.dust_emission as de
         de.USE_LI_DRAINE_2001_CARBONACEOUS = True
         print("Using Li & Draine (2001) carbonaceous cross sections for graphite...")
         

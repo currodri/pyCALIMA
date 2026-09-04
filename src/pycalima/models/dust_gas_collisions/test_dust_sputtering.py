@@ -1,4 +1,4 @@
-from models.dust_gas_collisions.dust_sputtering import *
+from pycalima.models.dust_gas_collisions.dust_sputtering import *
 import numpy as np
 if __name__ == '__main__':
     

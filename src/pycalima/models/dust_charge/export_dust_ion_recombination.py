@@ -19,8 +19,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
-from models.dust_charge.dust_ion_recombination import compute_ion_recombination_coefficients
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+from pycalima.models.dust_charge.dust_ion_recombination import compute_ion_recombination_coefficients
 
 DEFAULT_EXPORT_PARAMS = {
     'Tmin': 10.0,
@@ -69,7 +69,7 @@ def _compute_recomb_point(task):
     """
     G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task[:6]
     
-    from models.dust_charge import dust_charging as _dc
+    from pycalima.models.dust_charge import dust_charging as _dc
     
     global _DIR_WORKER_PREPARED_CONTEXTS
     ctx_key = (str(grain_type), float(a_cm), str(radiation_model))
@@ -145,7 +145,7 @@ def _write_ion_recomb_tables(out_dir, size_tag, T_vals, gamma_vals, recomb_coeff
     log_gamma = np.log10(gamma_vals)
     columns_str = ' '.join(ION_ELEMENTS)
     
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
     header_lines = get_header_lines(
         title=f"Ion recombination rate coefficient (alpha, Case A) table metadata (mode={mode})",
         script_name="models/dust_charge/export_dust_ion_recombination.py",

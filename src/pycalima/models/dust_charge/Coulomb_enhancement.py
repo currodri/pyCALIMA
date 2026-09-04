@@ -6,7 +6,7 @@ of the Coulomb enhancement factor for ion-grain collisions.
 
 """
 # LIBRARIES
-from models import grain_size_config
+from pycalima.models import grain_size_config
 import os
 import numpy as np
 import pandas as pd
@@ -306,7 +306,7 @@ def _compute_D_phi_for_size(args):
     """
     try:
         Gtot, ne_val, T_val, material, a_micron, a_cm, Zi = args
-        from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+        from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
         Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
             Gtot, ne_val, T_val, material, a_cm,
             radiation_model='Mathis', rad_field=None, yield_params=None, debug=False)
@@ -339,7 +339,7 @@ def _compute_error_analytic_for_size(args):
     import matplotlib.pyplot as plt
     try:
         Gtot, ne_val, T_val, material, a_micron, a_cm, Zi = args
-        from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+        from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
         Zs, P, rates, Zmean_eq, Zsigma_eq = equilibrium_charge_for_grain(
             Gtot, ne_val, T_val, material, a_cm,
             radiation_model='Mathis', rad_field=None, yield_params=None, debug=False)
@@ -356,7 +356,7 @@ def plot_coulomb_enhancement(Gtot,Zi,nsizes=10):
     import concurrent.futures
     import os
     from tqdm import tqdm
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
     from scipy.interpolate import interp1d
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -577,7 +577,7 @@ def plot_analytic_coulomb(Gtot,Zi,nsizes=10):
     import concurrent.futures
     import os
     from tqdm import tqdm
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
     from scipy.interpolate import interp1d
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -696,7 +696,7 @@ def plot_single_size_dist(Gtot,Tgas,ne,Zi,asize_micron,material='graphite'):
     import concurrent.futures
     import os
     from tqdm import tqdm
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
     from scipy.interpolate import interp1d
     import matplotlib.pyplot as plt
     import seaborn as sns

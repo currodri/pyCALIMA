@@ -7,7 +7,6 @@ small defaults so it is practical for quick validation runs.
 
 import argparse
 import os
-import sys
 
 
 def parse_args():
@@ -21,18 +20,16 @@ def parse_args():
 
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    if repo_root not in sys.path:
-        sys.path.insert(0, repo_root)
 
     args = parse_args()
 
     if args.use_li_draine:
-        import models.dust_radiation.dust_emission as de
+        import pycalima.models.dust_radiation.dust_emission as de
         de.USE_LI_DRAINE_2001_CARBONACEOUS = True
         print("[test_plot_efficiency] Enabling Li & Draine (2001) carbonaceous cross sections...")
 
     # Import after sys.path setup.
-    from models.dust_charge import dust_photoelectric_heating as dph
+    from pycalima.models.dust_charge import dust_photoelectric_heating as dph
 
     # WNM reference conditions used for the Weingartner & Draine 2001 comparison.
     T = 6000.0

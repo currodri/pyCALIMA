@@ -13,7 +13,6 @@ model_data/nozawa_dust_yields/, and makes a diagnostic plot.
 """
 
 import os
-import sys
 import json
 import argparse
 import numpy as np
@@ -25,10 +24,8 @@ from scipy.integrate import quad
 
 # Resolve the repository root and add to path
 repo_root = Path(__file__).parents[2].resolve()
-if str(repo_root) not in sys.path:
-    sys.path.insert(0, str(repo_root))
 
-from galaxySAM.yield_models import load_nozawa2003_dust_yields, load_nozawa2003_dust_dist
+from pycalima.galaxysam.yield_models import load_nozawa2003_dust_yields, load_nozawa2003_dust_dist
 
 # Standard mapping of user composition labels to Nozawa et al. (2003) species
 COMPOSITION_MAP = {

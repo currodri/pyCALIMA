@@ -12,8 +12,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
 
-from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_export_parameters, get_model_data_dir
-from models.PAH_photophysics.PAH_photophysics import plot_acetylene_dissociation_rate
+from pycalima.models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_export_parameters, get_model_data_dir
+from pycalima.models.PAH_photophysics.PAH_photophysics import plot_acetylene_dissociation_rate
 
 
 DEFAULT_EXPORT_PARAMS = {

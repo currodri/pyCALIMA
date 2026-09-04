@@ -33,18 +33,16 @@ Usage
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from scipy.optimize import brentq
 
-from models.PAH_photophysics.pah_mol_data import load_pah_modes
+from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
 
 _EXT    = ROOT / 'external_data'
 _STATES = ROOT / 'model_data' / 'PAH_states'

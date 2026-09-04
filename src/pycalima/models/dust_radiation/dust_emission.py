@@ -10,7 +10,7 @@ By: Curro Rodriguez (currodri@gmail.com)
 """
 
 # Import some libraries
-from models.dust_radiation import dust_oppacity
+from pycalima.models.dust_radiation import dust_oppacity
 import os
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import numpy as np
@@ -27,11 +27,11 @@ import re
 import time
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
-from models.dust_model import basic_s, build_distribution
-from models.dust_radiation.dust_oppacity import dust_efficiencies
-from models.PAH_radiation.pah_oppacity import pah_efficiencies
-from models.grain_size_config import get_optical_props_path, get_repo_root, load_grain_size_config
-from models.tools.radiation_fields import Draine_1978_isrf
+from pycalima.models.dust_model import basic_s, build_distribution
+from pycalima.models.dust_radiation.dust_oppacity import dust_efficiencies
+from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
+from pycalima.models.grain_size_config import get_optical_props_path, get_repo_root, load_grain_size_config
+from pycalima.models.tools.radiation_fields import Draine_1978_isrf
 from joblib import Parallel, delayed
 from pathlib import Path
 
@@ -714,7 +714,7 @@ def compute_eqT_withcollisions(wavelengths,wavelengths_em,radiation_field,C_abs,
     Returns:
         np.float: The equilibrium temperature in K
     """    
-    from models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
     
     # 1. Define the function to be solved
     func = lambda T: absorbed_power(wavelengths,radiation_field,C_abs) \
@@ -751,7 +751,7 @@ def compute_eqT_withcollisions_newton(dust_type,a,wavelengths,wavelengths_em,
     Returns:
         np.float: The equilibrium temperature in K
     """    
-    from models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
 
     def f(wavelengths,wavelengths_em,radiation_field,C_abs,C_abs_em,
                                ne,nH,nHe,nC,Tgas,T,T_dust_collisional,
@@ -825,7 +825,7 @@ def compute_eqT_withcollisions_newton_linearized(dust_type,a,wavelengths,wavelen
     Hcoll(T) ≈ H0 + dH_dT * (T - T0),
     while the dust emission and radiative absorption are still evaluated exactly.
     """
-    from models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import compute_dust_coll_heating
 
     if T0 is None:
         T0 = compute_equilibrium_temperature_cheap(dust_type, a, wavelengths, radiation_field, C_abs)
@@ -925,7 +925,7 @@ def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
             'collisional_coupling_erg_per_s_per_K': coupling coefficient K_coll [erg/s/K],
         }
     """
-    from models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
 
     if Tgas <= 0 or Tdust0 <= 0:
         raise ValueError('Tgas and Tdust0 must be positive.')
@@ -1902,7 +1902,7 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
         collisional_dust_bin (str, optional): Collisional table bin label or index,
             e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
     """
-    from models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
     
     # 1. Define the radiation field
     G0 = np.logspace(np.log10(G0min),np.log10(G0max),nG0)
@@ -2092,7 +2092,7 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
         }
     """
     import matplotlib as mpl
-    from models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
 
     if Tgas_min <= 0 or Tgas_max <= 0 or Tgas_max <= Tgas_min:
         raise ValueError('Require 0 < Tgas_min < Tgas_max.')
@@ -2269,8 +2269,8 @@ def compute_energy_band_luminosity_from_table(bin_id, T_dust, filter_file, dust_
     return L_band
 
 def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
-    from models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
-    from models.grain_size_config import get_lognormal_parameters
+    from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
+    from pycalima.models.grain_size_config import get_lognormal_parameters
 
     # normalize inputs to lists
     if optical_dir is None:
@@ -2358,8 +2358,8 @@ def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
     print(f'Saved {output_filename}')
     
 def plot_energy_Herschel_luminosity(dust_types,optical_dir=None,output_dir=None):
-    from models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
-    from models.grain_size_config import get_lognormal_parameters
+    from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
+    from pycalima.models.grain_size_config import get_lognormal_parameters
 
     # normalize inputs to lists
     if optical_dir is None:

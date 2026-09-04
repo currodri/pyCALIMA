@@ -15,8 +15,8 @@ import shutil
 
 import numpy as np
 
-import models.dust_gas_collisions.dust_sputtering as dust_sputtering
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+import pycalima.models.dust_gas_collisions.dust_sputtering as dust_sputtering
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
 
 
 DEFAULT_EXPORT_PARAMS = {
@@ -61,7 +61,7 @@ def _copy_if_exists(src_path, dst_dir, dst_name=None):
 
 
 def compute_dustbin_phi_bounds(bin_info, max_Zk, hnu_max_ev=13.6):
-    from models.dust_gas_collisions.dust_sputtering import _compute_phi_bounds
+    from pycalima.models.dust_gas_collisions.dust_sputtering import _compute_phi_bounds
     bin_id = bin_info["id"]
     comp = bin_info["composition"]
     params = get_lognormal_parameters(bin_id, model_name="basic")

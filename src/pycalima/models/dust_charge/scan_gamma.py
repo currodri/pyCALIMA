@@ -2,11 +2,9 @@
 Example script to scan grain charge vs gamma = G0 * sqrt(T) / ne
 """
 import numpy as np
-import sys
 import os
 # ensure repository root is on sys.path so imports from project modules work
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from models.dust_charge.dust_charging import compute_charge_vs_gamma
+from pycalima.models.dust_charge.dust_charging import compute_charge_vs_gamma
 
 if __name__ == '__main__':
     grain_type = 'silicate'

@@ -24,11 +24,9 @@ Low-level helpers
 import json
 import os
 import re
-import sys
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # ---------------------------------------------------------------------------
 # Regex helpers for XML parsing

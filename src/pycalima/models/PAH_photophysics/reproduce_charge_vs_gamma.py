@@ -19,29 +19,27 @@ Usage
 
 from __future__ import annotations
 
-import sys
 import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-from models.PAH_photophysics.pah_charge_utils import (
+from pycalima.models.PAH_photophysics.pah_charge_utils import (
     afromNc,
     recombination_rate_Bakes1994,
     attachment_rate_Bakes1994,
     se_neutral_Andrews2016,
     se_neutral_WR,
 )
-from models.PAH_photophysics.pah_dissociation import compute_total_photoionisation_rate
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_dissociation import compute_total_photoionisation_rate
+from pycalima.models.PAH_photophysics.pah_temperature import (
     compute_base_g0,
     get_absorption_cross_section,
 )
-from models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
 
 # ─── PAH definitions ──────────────────────────────────────────────────────────
 PAH_DEFS = {

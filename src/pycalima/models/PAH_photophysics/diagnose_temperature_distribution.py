@@ -17,11 +17,9 @@ Usage
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import matplotlib
@@ -29,8 +27,8 @@ matplotlib.rcParams['text.usetex'] = False
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-from models.PAH_photophysics.pah_mol_data import load_pah_modes
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
+from pycalima.models.PAH_photophysics.pah_temperature import (
     _qho_energy, _qho_cv,
     compute_base_g0,
     get_absorption_cross_section,
@@ -40,15 +38,15 @@ from models.PAH_photophysics.pah_temperature import (
     compute_spectral_gd89_distribution,
     compute_dustem_poweriter_distribution,
 )
-from models.PAH_photophysics.pah_dissociation import (
+from pycalima.models.PAH_photophysics.pah_dissociation import (
     compare_dissociation_methods,
     compute_andrews_direct_branching,
     compute_branching_integrated_rates,
     print_method_comparison,
 )
-from models.PAH_photophysics.pah_mol_data import compute_thermal_ir_rate
-from models.PAH_photophysics.pah_charge_utils import afromNc
-from models.PAH_photophysics.pah_radiation import load_kurucz_I_nu, load_kurucz_u_E
+from pycalima.models.PAH_photophysics.pah_mol_data import compute_thermal_ir_rate
+from pycalima.models.PAH_photophysics.pah_charge_utils import afromNc
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_I_nu, load_kurucz_u_E
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -343,7 +341,7 @@ def _build_kir_table(pah_file: str, tmp_path: str, n_E: int = 200) -> str:
     Energies sampled from 0.5 eV to 13.6 eV (log-spaced).
     Returns the path to the written CSV.
     """
-    from models.PAH_photophysics.pah_mol_data import load_pah_modes
+    from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
     from scipy.optimize import root_scalar
 
     freq_ev, einstein_A = load_pah_modes(pah_file)

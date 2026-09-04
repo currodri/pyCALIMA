@@ -19,23 +19,21 @@ Output: compare_c24_G0_rates.png
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
 from multiprocessing import Pool, cpu_count
 
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_temperature import (
     compute_base_g0,
     get_absorption_cross_section,
 )
-from models.PAH_photophysics.pah_radiation import load_kurucz_u_E
-from models.PAH_photophysics.pah_charge_utils import afromNc
-from models.PAH_photophysics.reproduce_andrews16_fig9 import (
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E
+from pycalima.models.PAH_photophysics.pah_charge_utils import afromNc
+from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     _STATES_DIR, _HV_EV, _worker,
 )
 

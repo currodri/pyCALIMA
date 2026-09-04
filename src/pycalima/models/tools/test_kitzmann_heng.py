@@ -2,7 +2,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from mie_theory import MieTheory
+from pycalima.models.tools.mie_theory import MieTheory
 from pathlib import Path
 
 def run_kitzmann_heng_test():

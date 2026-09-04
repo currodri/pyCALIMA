@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from models.PAH_gas_collisions.PAH_sputtering import export_rates_simple
+from pycalima.models.PAH_gas_collisions.PAH_sputtering import export_rates_simple
 
 
 def main():

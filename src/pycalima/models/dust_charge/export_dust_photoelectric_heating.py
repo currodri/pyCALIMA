@@ -18,8 +18,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
-from models.dust_charge.dust_photoelectric_heating import make_rate_gamma_T_tables
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+from pycalima.models.dust_charge.dust_photoelectric_heating import make_rate_gamma_T_tables
 
 
 DEFAULT_EXPORT_PARAMS = {

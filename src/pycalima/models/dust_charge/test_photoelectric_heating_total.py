@@ -27,7 +27,6 @@ By: Curro Rodriguez Montero (currodri@gmail.com)
 """
 
 import os
-import sys
 import argparse
 import numpy as np
 import matplotlib
@@ -39,7 +38,6 @@ from scipy.special import erf
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ── path setup ───────────────────────────────────────────────────────────────
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # ── matplotlib style ─────────────────────────────────────────────────────────
 sns.set_theme(style="white")
@@ -153,11 +151,11 @@ def _compute_single_grain(args):
     gamma_idx, size_idx, grain_type, a_cm, G0, ne, T, use_li_draine = args
 
     # Set Li & Draine flag inside worker process
-    import models.dust_radiation.dust_emission as de
+    import pycalima.models.dust_radiation.dust_emission as de
     de.USE_LI_DRAINE_2001_CARBONACEOUS = use_li_draine
 
-    from models.dust_charge import dust_charging as _dc
-    from models.dust_charge.dust_photoelectric_heating import _compute_rates_point
+    from pycalima.models.dust_charge import dust_charging as _dc
+    from pycalima.models.dust_charge.dust_photoelectric_heating import _compute_rates_point
 
     try:
         peh, rec, _Zm, _Zs, _ir, _ic = _compute_rates_point(
@@ -572,7 +570,7 @@ def main():
 
     # Apply Li & Draine flag in the main process (workers set it themselves)
     if args.use_li_draine:
-        import models.dust_radiation.dust_emission as de
+        import pycalima.models.dust_radiation.dust_emission as de
         de.USE_LI_DRAINE_2001_CARBONACEOUS = True
         print("Using Li & Draine (2001) carbonaceous cross sections for graphite.")
 

@@ -19,7 +19,7 @@ Modification history:
 
 # Import libraries
 import numpy as np
-import models.dust_model as dust_model
+import pycalima.models.dust_model as dust_model
 import pandas as pd
 import os
 from pathlib import Path
@@ -838,7 +838,7 @@ def _build_sputtering_yield_lookup(dust_radius, surface_energy, Kparam, rho_dust
 def _grain_allowed_charge_bounds(grain_type, a_dust_cm, hnu_max_ev=13.6):
     """Get physically allowed grain-charge bounds (Zmin, Zmax) from dust_charging."""
 
-    from models.dust_charge.dust_charging import (
+    from pycalima.models.dust_charge.dust_charging import (
         graphite_work_function,
         silicate_work_function,
         most_negative_allowed_charge_graphite,
@@ -1056,7 +1056,7 @@ def export_rates_T_phi(Tmin, Tmax, dust_type,
         )
         ion_name_dict = {1: 'H', 2: 'He', 6: 'C', 7: 'N', 8: 'O', 10: 'Ne', 12: 'Mg', 14: 'Si', 16: 'S', 26: 'Fe'}
         ion_name_resolved = ion_name_dict.get(int(Zi), f'Z{int(Zi)}')
-        from models.grain_size_config import get_header_lines
+        from pycalima.models.grain_size_config import get_header_lines
         headers = get_header_lines(
             title="Thermal sputtering rate table",
             script_name="models/dust_gas_collisions/dust_sputtering.py",
@@ -1823,7 +1823,7 @@ def erosion_rate_with_charge_grid(Tmin, Tmax, G0, ne, nT=50, nZ_ion=11,
     rates_baseline = (am_dust * au2cgs_m) / (2. * rho_dust) * rates_baseline * (1e4 * sec2yr)
 
     # 5. Compute mean grain charge from dust_charging (WD01 solver), once per temperature.
-    from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
     Z_dust_vs_T = np.zeros(nT)
     print("\nComputing mean grain charges with dust_charging...")
     for ti, Ti in enumerate(Tgas):

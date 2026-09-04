@@ -3,9 +3,9 @@ DUST COAGULATION
 """
 # LIBRARIES
 import numpy as np
-from models.constants import *
+from pycalima.models.constants import *
 from unyt import mh,kb
-from models.dust_collisions.dust_dynamics import relative_velocity
+from pycalima.models.dust_collisions.dust_dynamics import relative_velocity
 
 def t_coagulation(Dsmall,Mach,nH,T,L,a,s,boost=True):
     
@@ -37,7 +37,7 @@ def plot_coagulation(target_a,projectile_a,target_s,projectile_s,composition,nH,
     import matplotlib.pyplot as plt
     import seaborn as sns
     sns.set_theme(style="white")
-    from models.tools.utils import as_si,sigmoid_function
+    from pycalima.models.tools.utils import as_si,sigmoid_function
     from scipy.special import erfc
     
     # Coagulation model quantities (Hirashita & Yan 2009)
@@ -141,7 +141,7 @@ def plot_coagulation_full(GDR_small,GDR_big,nMach=100):
         "font.serif": "Computer Modern Roman",
     })
 
-    from models.tools.utils import as_si,sigmoid_function
+    from pycalima.models.tools.utils import as_si,sigmoid_function
     from scipy.special import erfc
     fig2, axes2 = plt.subplots(2,3, figsize=(13,8),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     
@@ -310,7 +310,7 @@ def plot_coagulation_single(nH,ne,T,Lmax,phase_name,GDR_small,GDR_big,nMach=100)
         "font.serif": "Computer Modern Roman",
     })
 
-    from models.tools.utils import as_si,sigmoid_function
+    from pycalima.models.tools.utils import as_si,sigmoid_function
     from scipy.special import erfc
     fig2, axes2 = plt.subplots(2,1, figsize=(5,7),dpi=300,facecolor='w',edgecolor='k',sharex=True,sharey=True)
     

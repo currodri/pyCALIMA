@@ -19,8 +19,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
-from models.dust_charge.dust_charging import compute_charge_vs_gamma
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_export_parameters, get_model_data_dir
+from pycalima.models.dust_charge.dust_charging import compute_charge_vs_gamma
 
 
 DEFAULT_EXPORT_PARAMS = {
@@ -249,7 +249,7 @@ def _write_legacy_fortran_tables(output_dir, dust_label, gamma_grid, temp_grid, 
     gamma_log = _safe_log10(gamma_grid)
     temp_log = _safe_log10(temp_grid)
 
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
     header_lines = get_header_lines(
         title="Dust charging table metadata",
         script_name="models/dust_charge/export_dust_charging_vs_gamma.py",

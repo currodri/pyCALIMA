@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
 
 
 def compute_and_plot(grain_type='silicate', a_micron=0.005, gamma_target=1e4, ne_cm3=1e-2):

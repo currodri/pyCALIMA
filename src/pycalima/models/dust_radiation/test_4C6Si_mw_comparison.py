@@ -27,17 +27,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
-from models.grain_size_config import set_config_path, get_lognormal_parameters, get_model_data_dir
-from models.grain_distributions import PowerLaw_Distribution, Exponential_Distribution
+from pycalima.models.grain_size_config import set_config_path, get_lognormal_parameters, get_model_data_dir
+from pycalima.models.grain_distributions import PowerLaw_Distribution, Exponential_Distribution
 
 CONFIG_PATH = str(_REPO_ROOT / 'models' / 'grain_size_distribution_4C6Si.json')
 set_config_path(CONFIG_PATH)
@@ -72,7 +69,7 @@ def fit_zubko_powlaw_distributions() -> dict:
     The 'alpha' key in the return dict holds alpha for power-law bins and a_c (µm)
     for exponential bins.
     """
-    from models.dust_radiation.dust_oppacity import (
+    from pycalima.models.dust_radiation.dust_oppacity import (
         _zubko_dnda_graphite, _zubko_dnda_silicate, _zubko_dnda_pah,
     )
 
@@ -189,8 +186,8 @@ def stage1_fit() -> dict:
 
 
 def stage2_export() -> None:
-    from models.dust_radiation.export_dust_optical_properties import export_dust_optical_properties
-    from models.PAH_radiation.pah_oppacity import export_pah_optical_properties
+    from pycalima.models.dust_radiation.export_dust_optical_properties import export_dust_optical_properties
+    from pycalima.models.PAH_radiation.pah_oppacity import export_pah_optical_properties
 
     set_config_path(CONFIG_PATH)
     print("\n=== Stage 2: Exporting per-bin optical properties ===")
@@ -210,7 +207,7 @@ def stage2_export() -> None:
 
 
 def stage3_compare(fit_results: dict, out_png: str | None = None) -> dict:
-    from models.dust_radiation.dust_oppacity import plot_extinction_from_massfractions
+    from pycalima.models.dust_radiation.dust_oppacity import plot_extinction_from_massfractions
 
     set_config_path(CONFIG_PATH)
     if out_png is None:
@@ -235,7 +232,7 @@ def stage3_compare(fit_results: dict, out_png: str | None = None) -> dict:
 def stage4_distribution_panels(fit_results: dict, out_png: str | None = None) -> None:
     import matplotlib.pyplot as plt
     import seaborn as sns
-    from models.dust_radiation.dust_oppacity import (
+    from pycalima.models.dust_radiation.dust_oppacity import (
         _zubko_dnda_graphite, _zubko_dnda_silicate, _zubko_dnda_pah,
     )
 

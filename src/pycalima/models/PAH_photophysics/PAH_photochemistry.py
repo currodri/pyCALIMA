@@ -9,13 +9,11 @@ Physics implementations live in:
   pah_radiation.py    — Kurucz radiation field loaders
 """
 
-import sys
 import os
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # Re-export public API
-from models.PAH_photophysics.pah_mol_data import (
+from pycalima.models.PAH_photophysics.pah_mol_data import (
     load_pah_modes,
     compute_thermal_energy_from_file,
     compute_thermal_ir_rate,
@@ -23,7 +21,7 @@ from models.PAH_photophysics.pah_mol_data import (
     compute_dissociation_rate_from_table,
     extract_transitions,
 )
-from models.PAH_photophysics.pah_charge_utils import (
+from pycalima.models.PAH_photophysics.pah_charge_utils import (
     afromNc,
     ionisation_potential_energy,
     electron_affinity_energy,
@@ -41,7 +39,7 @@ from models.PAH_photophysics.pah_charge_utils import (
     IONISATION_POTENTIAL,
     ELECTRON_AFFINITY,
 )
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_temperature import (
     get_absorption_cross_section,
     compute_base_g0,
     compute_gd89_temperature_distribution,
@@ -49,7 +47,7 @@ from models.PAH_photophysics.pah_temperature import (
     compute_bakes_temperature_distribution,
     compute_total_time_averaged_ir_rate,
 )
-from models.PAH_photophysics.pah_dissociation import (
+from pycalima.models.PAH_photophysics.pah_dissociation import (
     compute_total_photon_absorption_rate,
     compute_total_photoionisation_rate,
     compute_total_dissociation_rate,
@@ -60,8 +58,8 @@ from models.PAH_photophysics.pah_dissociation import (
     compare_dissociation_methods,
     print_method_comparison,
 )
-from models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
-from models.PAH_photophysics.pah_h_state import (
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
+from pycalima.models.PAH_photophysics.pah_h_state import (
     DissociationChannel,
     compute_solo_duo_counts,
     get_dissociation_channels,
@@ -74,7 +72,7 @@ from models.PAH_photophysics.pah_h_state import (
     C54H18_NH0, C54H18_SOLO, C54H18_DUO,
     C96H24_NH0, C96H24_SOLO, C96H24_DUO,
 )
-from models.PAH_photophysics.pah_hydrogen_chemistry import (
+from pycalima.models.PAH_photophysics.pah_hydrogen_chemistry import (
     h_addition_rate,
     collisional_rate,
     reaction_efficiency_neutral,

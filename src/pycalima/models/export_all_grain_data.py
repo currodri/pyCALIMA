@@ -13,7 +13,6 @@ By: Curro Rodriguez (currodri@gmail.com)
 """
 
 import os
-import sys
 import subprocess
 import argparse
 from pathlib import Path
@@ -21,7 +20,7 @@ from datetime import datetime
 import json
 import time
 
-from models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_bin_by_rank, get_model_data_dir
+from pycalima.models.grain_size_config import set_config_path, load_grain_size_config, get_bins, get_bin_by_rank, get_model_data_dir
 
 
 def get_git_info():
@@ -815,7 +814,7 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
 
 def export_dust_optical_properties_wrapper(config_path=None):
     """Wrapper for dust optical properties export with error handling."""
-    from models.dust_radiation.export_dust_optical_properties import export_dust_optical_properties
+    from pycalima.models.dust_radiation.export_dust_optical_properties import export_dust_optical_properties
     
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -848,7 +847,7 @@ def export_dust_optical_properties_wrapper(config_path=None):
 
 def export_pah_optical_properties_wrapper(config_path=None):
     """Wrapper for PAH optical properties export with error handling."""
-    from models.PAH_radiation.pah_oppacity import export_pah_optical_properties
+    from pycalima.models.PAH_radiation.pah_oppacity import export_pah_optical_properties
     
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -881,7 +880,7 @@ def export_pah_optical_properties_wrapper(config_path=None):
 
 def export_collisional_cooling_wrapper(config_path=None):
     """Wrapper for collisional cooling export with error handling."""
-    from models.dust_gas_collisions.export_collisional_cooling_bins import main as export_cooling
+    from pycalima.models.dust_gas_collisions.export_collisional_cooling_bins import main as export_cooling
     
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -910,7 +909,7 @@ def export_collisional_cooling_wrapper(config_path=None):
 
 def export_sputtering_rates_wrapper(config_path=None):
     """Wrapper for sputtering rates export with error handling."""
-    from models.dust_gas_collisions.export_sputtering_rates_bins import main as export_sputtering
+    from pycalima.models.dust_gas_collisions.export_sputtering_rates_bins import main as export_sputtering
     
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -941,7 +940,7 @@ def export_sputtering_rates_wrapper(config_path=None):
 
 def export_pah_sputtering_rates_wrapper(config_path=None):
     """Wrapper for PAH sputtering export (phi=0) with error handling."""
-    from models.PAH_gas_collisions.export_pah_sputtering_rates_bins import main as export_pah_sputtering
+    from pycalima.models.PAH_gas_collisions.export_pah_sputtering_rates_bins import main as export_pah_sputtering
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -972,7 +971,7 @@ def export_pah_sputtering_rates_wrapper(config_path=None):
 
 def export_dust_charging_wrapper(config_path=None, reuse_heating_data=False):
     """Wrapper for dust charging vs gamma export with error handling."""
-    from models.dust_charge.export_dust_charging_vs_gamma import main as export_charging
+    from pycalima.models.dust_charge.export_dust_charging_vs_gamma import main as export_charging
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1015,7 +1014,7 @@ def export_dust_charging_wrapper(config_path=None, reuse_heating_data=False):
 
 def export_dust_photoelectric_heating_wrapper(config_path=None):
     """Wrapper for dust photoelectric heating export with error handling."""
-    from models.dust_charge.export_dust_photoelectric_heating import main as export_heating
+    from pycalima.models.dust_charge.export_dust_photoelectric_heating import main as export_heating
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1054,7 +1053,7 @@ def export_dust_photoelectric_heating_wrapper(config_path=None):
 
 def export_pah_photoelectric_heating_tables_wrapper(config_path=None):
     """Wrapper for PAH photoelectric heating tables export with error handling."""
-    from models.PAH_charge.export_PAH_photoelectric_heating_tables import main as export_pah_tables
+    from pycalima.models.PAH_charge.export_PAH_photoelectric_heating_tables import main as export_pah_tables
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1092,7 +1091,7 @@ def export_pah_photoelectric_heating_tables_wrapper(config_path=None):
 
 def export_pah_dissociation_tables_wrapper(config_path=None):
     """Wrapper for PAH dissociation tables export with error handling."""
-    from models.PAH_photophysics.export_pah_dissociation_tables import main as export_pah_dissociation
+    from pycalima.models.PAH_photophysics.export_pah_dissociation_tables import main as export_pah_dissociation
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1126,7 +1125,7 @@ def export_pah_dissociation_tables_wrapper(config_path=None):
 
 def export_dust_sublimation_wrapper(config_path=None):
     """Wrapper for dust sublimation rate tables and plots export with error handling."""
-    from models.dust_radiation.dust_sublimation import export_dust_sublimation
+    from pycalima.models.dust_radiation.dust_sublimation import export_dust_sublimation
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1160,7 +1159,7 @@ def export_dust_sublimation_wrapper(config_path=None):
 
 def export_dust_ion_recombination_wrapper(config_path=None):
     """Wrapper for dust-assisted ion recombination export with error handling."""
-    from models.dust_charge.export_dust_ion_recombination import main as export_recomb
+    from pycalima.models.dust_charge.export_dust_ion_recombination import main as export_recomb
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -1199,7 +1198,7 @@ def export_dust_ion_recombination_wrapper(config_path=None):
  
 def export_dust_band_luminosities_wrapper(config_path=None):
     """Wrapper for dust band luminosities export with error handling."""
-    from models.dust_radiation.export_dust_band_luminosities import export_band_luminosities
+    from pycalima.models.dust_radiation.export_dust_band_luminosities import export_band_luminosities
 
     start_time = datetime.now()
     timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')

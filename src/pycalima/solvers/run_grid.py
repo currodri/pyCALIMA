@@ -28,7 +28,7 @@ Python API
 ----------
 ::
 
-    from solvers.run_grid import run_grid
+    from pycalima.solvers.run_grid import run_grid
     grid = run_grid(
         config_path = "solvers/configs/example_ic.json",
         x_param  = "T",    x_values = [50, 100, 500, 2000, 8000],
@@ -50,7 +50,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import sys
 import time
 from pathlib import Path
 from typing import List, Optional, Sequence, Union

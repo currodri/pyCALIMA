@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Quick test of test configuration."""
 
-from models.grain_size_config import (
+from pycalima.models.grain_size_config import (
     get_bins,
     get_lognormal_parameters,
     load_grain_size_config,

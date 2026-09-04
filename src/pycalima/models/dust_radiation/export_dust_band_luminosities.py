@@ -9,7 +9,6 @@ By: Antigravity / Pair Programming
 """
 
 import os
-import sys
 import argparse
 from pathlib import Path
 import numpy as np
@@ -17,10 +16,8 @@ import numpy as np
 # Inject repo root into sys.path to allow imports when run as script
 if __package__ in (None, ''):
     repo_root = Path(__file__).resolve().parents[2]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
 
-from models.grain_size_config import (
+from pycalima.models.grain_size_config import (
     set_config_path,
     get_bins,
     get_lognormal_parameters,
@@ -29,8 +26,8 @@ from models.grain_size_config import (
     get_repo_root,
     get_model_data_dir,
 )
-from models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
-from models.dust_radiation.dust_emission import compute_energy_band_luminosity_from_table
+from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
+from pycalima.models.dust_radiation.dust_emission import compute_energy_band_luminosity_from_table
 
 
 def export_band_luminosities(

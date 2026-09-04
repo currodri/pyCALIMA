@@ -2,7 +2,7 @@
 import os
 import numpy as np
 import pandas as pd
-from mie_theory import MieTheory, read_draine_q_table
+from pycalima.models.tools.mie_theory import MieTheory, read_draine_q_table
 
 def run_benchmark():
     mie = MieTheory()

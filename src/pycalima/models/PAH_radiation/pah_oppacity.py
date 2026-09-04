@@ -9,7 +9,6 @@ By: Curro Rodriguez (currodri@gmail.com)
 """
 
 import os
-import sys
 import argparse
 import re
 import numpy as np
@@ -22,9 +21,9 @@ plt.rcParams.update({
     "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
 })
 
-from models.grain_size_config import get_bins, get_lognormal_parameters, build_lognormal_distribution, get_optical_props_path, get_model_data_dir
-from models.dust_model import LogNormal_Distribution
-from models.dust_radiation.dust_oppacity import compute_isrf_averaged_cross_sections
+from pycalima.models.grain_size_config import get_bins, get_lognormal_parameters, build_lognormal_distribution, get_optical_props_path, get_model_data_dir
+from pycalima.models.dust_model import LogNormal_Distribution
+from pycalima.models.dust_radiation.dust_oppacity import compute_isrf_averaged_cross_sections
 
 PATH_OPTICS = str(get_optical_props_path())
 
@@ -315,7 +314,7 @@ def export_pah_optical_properties(output_dir=None, config_path=None):
     """
     # Set config path if provided
     if config_path:
-        from models.grain_size_config import set_config_path
+        from pycalima.models.grain_size_config import set_config_path
         set_config_path(config_path)
     if output_dir is None:
         output_dir = str(get_model_data_dir() / 'optical_properties')
@@ -398,7 +397,7 @@ def export_pah_optical_properties(output_dir=None, config_path=None):
                 C_rp=C_rp_ion,
             )
 
-            from models.grain_size_config import get_header_lines
+            from pycalima.models.grain_size_config import get_header_lines
             headers = get_header_lines(
                 title="PAH optical properties (neutral and ionised)",
                 script_name="models/PAH_radiation/pah_oppacity.py",
@@ -501,7 +500,7 @@ def test_pah_ionised_neutral_ratio(grain_size_micron=5e-4, Emin_eV=None, Emax_eV
             (r'$C_{\rm sca}^{\rm ion}/C_{\rm sca}^{\rm neu}$', _safe_ratio(C_sca_i, C_sca_n)),
         ]
     elif optical_model == 'malloci':
-        from models.PAH_charge.PAH_photoelectric_heating import absorption_cross_section_Berne
+        from pycalima.models.PAH_charge.PAH_photoelectric_heating import absorption_cross_section_Berne
 
         if Nc is None:
             a_nm = float(grain_size_micron) * 1e3

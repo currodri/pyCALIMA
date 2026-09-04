@@ -297,7 +297,7 @@ def se_neutral_Allamandola1989_full(Nc: int, Nh: int, EA_eV: float,
     from math import lgamma
     from scipy.optimize import brentq
     # lazy import to avoid circular dependency
-    from models.PAH_photophysics.pah_temperature import get_absorption_cross_section
+    from pycalima.models.PAH_photophysics.pah_temperature import get_absorption_cross_section
 
     HBAR_CGS = H_CGS / (2.0 * np.pi)
 
@@ -413,7 +413,7 @@ def se_neutral_WR_full(Nc: int, EA_eV: float, T_K: float = 500.0) -> float:
     """
     from math import lgamma, log, sqrt, exp
     from scipy.optimize import brentq
-    from models.PAH_photophysics.pah_temperature import get_absorption_cross_section
+    from pycalima.models.PAH_photophysics.pah_temperature import get_absorption_cross_section
 
     HBAR = H_CGS / (2.0 * np.pi)
     HNU0 = H_CGS * C_CGS * 1000.0

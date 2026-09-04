@@ -11,7 +11,6 @@ By: F. Rodriguez Montero (currodri@gmail.com)
 # LIBRARIES
 import os
 import re
-import sys
 import csv
 import numpy as np
 from tqdm import tqdm
@@ -22,9 +21,9 @@ import matplotlib.pylab as pl
 import matplotlib as mpl
 import seaborn as sns
 from unyt import nm,m,cm,eV,J,s,h,c,erg,K,kb
-from models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
-from models.PAH_radiation.pah_oppacity import pah_efficiencies
-from models.tools.radiation_fields import Draine_1978_isrf
+from pycalima.models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
+from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
+from pycalima.models.tools.radiation_fields import Draine_1978_isrf
 
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
@@ -1385,7 +1384,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#533A71'
         linestyle= '-.'
     elif radiation_model == 'BPASS_veryyoung_lowz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
         fixed_age = 0.01 # 10 Myr
@@ -1400,7 +1399,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#258EA6'
         linestyle= '-'
     elif radiation_model == 'BPASS_young_midz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
         fixed_age = 0.1 # 0.1 Gyr
@@ -1415,7 +1414,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
         rad_color = '#F75590'
         linestyle= '-'
     elif radiation_model == 'BPASS_old_highz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
         fixed_age = 1 # 1 Gyr
@@ -1576,7 +1575,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#533A71'
         linestyle= '-.'
     elif radiation_model == 'BPASS_veryyoung_lowz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 0.01 # 10 Myr
@@ -1591,7 +1590,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#258EA6'
         linestyle= '-'
     elif radiation_model == 'BPASS_young_midz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 0.1 # 0.1 Gyr
@@ -1606,7 +1605,7 @@ def compute_peh_model(Nc, a0, amin, amax, sigma, s, attach_model, radiation_mode
         rad_color = '#F75590'
         linestyle= '-'
     elif radiation_model == 'BPASS_old_highz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 1 # 1 Gyr
@@ -1888,7 +1887,7 @@ def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=10
     f_1 = np.array(f_1)[sort_index]
     f_2 = np.array(f_2)[sort_index]
     
-    from models.grain_size_config import get_header_lines
+    from pycalima.models.grain_size_config import get_header_lines
     headers = get_header_lines(
         title=f"PAH Photoelectric heating efficiency (radiation_model={radiation_model}, op_model={op_model}, attach_model={attach_model})",
         script_name="models/PAH_charge/PAH_photoelectric_heating.py",
@@ -2031,7 +2030,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#533A71'
         linestyle= '-.'
     elif radiation_model == 'BPASS_veryyoung_lowz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 0.01 # 10 Myr
@@ -2046,7 +2045,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#258EA6'
         linestyle= '-'
     elif radiation_model == 'BPASS_young_midz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 0.1 # 0.1 Gyr
@@ -2061,7 +2060,7 @@ def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
         rad_color = '#F75590'
         linestyle= '-'
     elif radiation_model == 'BPASS_old_highz':
-        from models.tools.read_ramses_sed import read_sed_tables
+        from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
         metallicities, ages, wavelengths, SEDs = read_sed_tables("/data80/currodri/test_crmhd_dust/G8/lib/bpass_v221_cha300")
         fixed_age = 1 # 1 Gyr

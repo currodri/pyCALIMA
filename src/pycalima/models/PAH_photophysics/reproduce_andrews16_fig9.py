@@ -25,29 +25,27 @@ Usage
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from multiprocessing import Pool, cpu_count
 
-from models.PAH_photophysics.pah_charge_utils import (
+from pycalima.models.PAH_photophysics.pah_charge_utils import (
     afromNc,
     recombination_rate_Tielens21,
     attachment_rate_Carelli13,
 )
-from models.PAH_photophysics.pah_h_state import compute_solo_duo_counts
-from models.PAH_photophysics.pah_network_solver import PAHNetworkSolver
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_h_state import compute_solo_duo_counts
+from pycalima.models.PAH_photophysics.pah_network_solver import PAHNetworkSolver
+from pycalima.models.PAH_photophysics.pah_temperature import (
     compute_base_g0,
     get_absorption_cross_section,
 )
-from models.PAH_photophysics.pah_radiation import load_kurucz_u_E
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E
 
 # ─── PAH definitions ──────────────────────────────────────────────────────────
 # Topology from NASA Ames PAHdb (catalogued uid, D6h/Ag symmetry isomers).
@@ -153,11 +151,11 @@ def _worker(task: tuple) -> tuple:
     """
     pah_name, modes_path, xsect, G0, G0_base, IP1, IP2 = task
 
-    from models.PAH_photophysics.pah_radiation import load_kurucz_I_nu
-    from models.PAH_photophysics.pah_temperature import (
+    from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_I_nu
+    from pycalima.models.PAH_photophysics.pah_temperature import (
         compute_adaptive_temperature_distribution,
     )
-    from models.PAH_photophysics.pah_dissociation import (
+    from pycalima.models.PAH_photophysics.pah_dissociation import (
         compute_branching_integrated_rates,
         compute_total_photoionisation_rate,
     )

@@ -29,7 +29,7 @@ Python API
 ----------
 ::
 
-    from solvers.run_chemistry import run_chemistry
+    from pycalima.solvers.run_chemistry import run_chemistry
     results = run_chemistry("solvers/configs/example_ic.json", t_end_Myr=100)
     # Both outputs are saved automatically; paths are in results["output_txt"]
     # and results["output_plot"].

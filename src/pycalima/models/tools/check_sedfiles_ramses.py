@@ -2,7 +2,6 @@ import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
 
 def read_sed_file(filename,ndust):
     with open(filename, 'r') as f:

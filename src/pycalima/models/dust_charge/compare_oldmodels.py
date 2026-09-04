@@ -121,7 +121,7 @@ def grain_charge_equilibrium_WD01(grain_type, a_cm, radiation_field, C_abs, Im, 
     `radiation_field` consistent with `dust_photoelectric_heating.compute_photoelectric_heating_rate`.
     """
     # Lazy import to avoid circular import at module load
-    from models.dust_charge.dust_photoelectric_heating import (
+    from pycalima.models.dust_charge.dust_photoelectric_heating import (
         escape_fraction_attempting_electrons,
         photoelectric_yield_graphite,
         photoelectric_yield_silicate,
@@ -141,7 +141,7 @@ def grain_charge_equilibrium_WD01(grain_type, a_cm, radiation_field, C_abs, Im, 
     # Estimate mean charge if Zmin/Zmax not provided
     if Zmin is None or Zmax is None:
         try:
-            from models.dust_charge.IM19_charging import grain_mean_charge
+            from pycalima.models.dust_charge.IM19_charging import grain_mean_charge
             Zmean = int(round(grain_mean_charge(1.0, T, ne, 'silicate' if grain_type=='silicate' else 'graphite', f'{int(a_nm)}A')))
         except Exception:
             Zmean = 0
@@ -169,7 +169,7 @@ def grain_charge_equilibrium_WD01(grain_type, a_cm, radiation_field, C_abs, Im, 
         # If a full radiation & Im & C_abs are available, call compute_photoemission_rate
         if radiation_field is not None and C_abs is not None:
             try:
-                from models.dust_charge.dust_photoelectric_heating import compute_photoemission_rate
+                from pycalima.models.dust_charge.dust_photoelectric_heating import compute_photoemission_rate
                 args = (Z, a_nm, radiation_field, grain_type, Im, C_abs)
                 return compute_photoemission_rate(args)
             except Exception:
@@ -240,9 +240,9 @@ def compare_charge_dist_mathis(grain_type, grain_size_cm, ne, nH, T, plot=False)
         Contains keys 'Z', 'f_WD', 'f_fit' where f_WD is the distribution from
         `grain_charge_equilibrium_WD01` and f_fit is from `grain_charge_dist`.
     """
-    from models.dust_charge.dust_photoelectric_heating import read_dielectric_file
-    from models.dust_charge.IM19_charging import grain_charge_dist
-    from models.dust_radiation.dust_emission import interpolate_cross_sections
+    from pycalima.models.dust_charge.dust_photoelectric_heating import read_dielectric_file
+    from pycalima.models.dust_charge.IM19_charging import grain_charge_dist
+    from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
     # 1. Load Mathis ISRF (file included in repo as mathis1983.dat)
     data = np.loadtxt('mathis1983.dat')
     # file has columns: wavelength (nm), intensity (photons s-1 cm-2 nm-1)

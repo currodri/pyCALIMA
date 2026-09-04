@@ -27,11 +27,9 @@ Usage
     python -m models.PAH_photophysics.reproduce_allamandola89_fig25
 """
 from __future__ import annotations
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 from math import lgamma, log, floor, sqrt, exp

@@ -10,9 +10,9 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # Import galaxySAM modules
-from galaxySAM import galaxy_sam
-from galaxySAM import plotting
-from galaxySAM import constants
+from pycalima.galaxysam import galaxy_sam
+from pycalima.galaxysam import plotting
+from pycalima.galaxysam import constants
 
 
 def example_basic_evolution():

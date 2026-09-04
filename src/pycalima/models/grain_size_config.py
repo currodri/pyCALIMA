@@ -237,7 +237,7 @@ def get_lognormal_parameters(species, model_name="basic"):
 
 def build_lognormal_distribution(species, model_name="basic", distribution_class=None):
     if distribution_class is None:
-        from models.grain_distributions import LogNormal_Distribution
+        from pycalima.models.grain_distributions import LogNormal_Distribution
 
         distribution_class = LogNormal_Distribution
 

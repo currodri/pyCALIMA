@@ -9,7 +9,7 @@ phi=0 and the expected number of discrete phi values.
 import os
 import numpy as np
 
-import models.PAH_gas_collisions.PAH_sputtering as PAH_sputtering
+import pycalima.models.PAH_gas_collisions.PAH_sputtering as PAH_sputtering
 
 
 def read_tphi_header(path):

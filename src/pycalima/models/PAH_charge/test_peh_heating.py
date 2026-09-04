@@ -2,13 +2,11 @@ import argparse
 import logging
 import multiprocessing as mp
 import os
-import sys
 import traceback
 
 # Ensure the repository root is on sys.path.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from models.PAH_charge.PAH_photoelectric_heating import compute_tables_ISRF
+from pycalima.models.PAH_charge.PAH_photoelectric_heating import compute_tables_ISRF
 
 
 def parse_args():

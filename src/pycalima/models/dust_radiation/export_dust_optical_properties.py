@@ -13,19 +13,13 @@ By: Curro Rodriguez (currodri@gmail.com)
 """
 
 import os
-import sys
 import argparse
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-if __package__ in (None, ''):
-    repo_root = Path(__file__).resolve().parents[2]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-
-from models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path, get_header_lines, get_model_data_dir
-from models.dust_radiation.dust_oppacity import (
+from pycalima.models.grain_size_config import set_config_path, get_bins, get_lognormal_parameters, get_optical_props_path, get_header_lines, get_model_data_dir
+from pycalima.models.dust_radiation.dust_oppacity import (
     dust_efficiencies,
     _compute_component_cross_sections_legacy,
     compute_component_cross_sections_mie,
@@ -130,7 +124,7 @@ def export_dust_optical_properties(output_dir=None, config_path=None, cabs_metho
             
             # Construct the distribution to get representative grain mass
             p = get_lognormal_parameters(bin_id)
-            from models.grain_distributions import LogNormal_Distribution
+            from pycalima.models.grain_distributions import LogNormal_Distribution
             _bin_dist_cls = (distribution_class_map or {}).get(bin_id, distribution_class)
             _dist_cls = _bin_dist_cls if _bin_dist_cls is not None else LogNormal_Distribution
             dist = _dist_cls(

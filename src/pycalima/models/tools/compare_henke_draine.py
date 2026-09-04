@@ -3,8 +3,8 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from mie_theory import MieTheory
-from henke_extension import HenkeExtension
+from pycalima.models.tools.mie_theory import MieTheory
+from pycalima.models.tools.henke_extension import HenkeExtension
 
 def compare_draine_henke():
     mie = MieTheory()

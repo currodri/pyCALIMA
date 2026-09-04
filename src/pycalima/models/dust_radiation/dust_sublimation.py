@@ -63,8 +63,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import root_scalar
 from scipy import special
 
-from models.grain_size_config import get_repo_root, load_grain_size_config
-from models.dust_radiation.dust_emission import (
+from pycalima.models.grain_size_config import get_repo_root, load_grain_size_config
+from pycalima.models.dust_radiation.dust_emission import (
     compute_cross_sections,
     interpolate_cross_sections,
     absorbed_power,
@@ -1372,7 +1372,7 @@ def write_sublimation_rate_tables(config_path=None,
         T_filtered = T_grid[mask]
         epsilon_filtered = (dadt / a0_cm)[mask]
 
-        from models.grain_size_config import get_header_lines
+        from pycalima.models.grain_size_config import get_header_lines
         headers = get_header_lines(
             title="CALIMA dust sublimation rate table",
             script_name="models/dust_radiation/dust_sublimation.py",
@@ -1654,15 +1654,15 @@ def plot_grain_lifetime_vs_N(
         # Pre-load the Draine table once for this material so every
         # interpolate_cross_sections call can reuse it.
         if material == 'graphite':
-            from models.dust_radiation.dust_emission import dust_efficiencies
+            from pycalima.models.dust_radiation.dust_emission import dust_efficiencies
             import os as _os
-            from models.grain_size_config import get_repo_root as _get_repo
+            from pycalima.models.grain_size_config import get_repo_root as _get_repo
             _PATH_OPTICS = _os.path.join(str(_get_repo()), 'optical_props')
             _fname = _os.path.join(_PATH_OPTICS, 'draine_lee_1984', 'Gra_81')
         else:
-            from models.dust_radiation.dust_emission import dust_efficiencies
+            from pycalima.models.dust_radiation.dust_emission import dust_efficiencies
             import os as _os
-            from models.grain_size_config import get_repo_root as _get_repo
+            from pycalima.models.grain_size_config import get_repo_root as _get_repo
             _PATH_OPTICS = _os.path.join(str(_get_repo()), 'optical_props')
             _fname = _os.path.join(_PATH_OPTICS, 'draine_lee_1984', 'suvSil_81')
         _data_table = dust_efficiencies(_fname)

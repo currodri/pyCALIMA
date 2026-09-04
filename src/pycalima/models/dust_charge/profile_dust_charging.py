@@ -19,7 +19,7 @@ import pstats
 import time
 from pathlib import Path
 
-from models.dust_charge.dust_charging import equilibrium_charge_for_grain
+from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
 
 
 def _repo_root() -> Path:

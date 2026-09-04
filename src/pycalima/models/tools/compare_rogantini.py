@@ -1,5 +1,4 @@
 import os
-import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -9,13 +8,9 @@ from scipy.interpolate import interp1d
 script_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(script_dir, '../..'))
 
-if script_dir not in sys.path:
-    sys.path.insert(0, script_dir)
-if repo_root not in sys.path:
-    sys.path.insert(0, repo_root)
 
-from mie_theory import MieTheory
-from henke_extension import HenkeExtension
+from pycalima.models.tools.mie_theory import MieTheory
+from pycalima.models.tools.henke_extension import HenkeExtension
 
 def load_lab_data(filepath, is_mg=True):
     """

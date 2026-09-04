@@ -3,14 +3,12 @@
 Example script to test equilibrium charge computation and plotting.
 """
 import os
-import sys
 import numpy as np
 
 # ensure repository root is on sys.path so imports from project modules work
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.dust_charge.dust_charging import equilibrium_charge_for_grain, plot_charge_distribution
-from models.dust_charge.IM19_charging import grain_charge_dist
+from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain, plot_charge_distribution
+from pycalima.models.dust_charge.IM19_charging import grain_charge_dist
 
 
 def main():

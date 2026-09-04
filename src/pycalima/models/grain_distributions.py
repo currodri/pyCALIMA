@@ -6,7 +6,7 @@ This module contains the classes that help define different grain size distribut
 # LIBRARIES
 import numpy as np
 
-from models.grain_size_config import build_lognormal_distribution, get_bin_by_rank
+from pycalima.models.grain_size_config import build_lognormal_distribution, get_bin_by_rank
 
 
 def _build_distribution_for(composition, bin_rank=0, is_pah=False):

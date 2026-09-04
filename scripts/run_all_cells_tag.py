@@ -32,7 +32,7 @@ os.chdir(PYCALIMA)
 
 import yt
 yt.set_log_level('critical')
-from solvers.run_grid import run_grid
+from pycalima.solvers.run_grid import run_grid
 
 # ── Physical constants ─────────────────────────────────────────────────────────
 MH         = 1.6726e-24    # Hydrogen atom mass [g]

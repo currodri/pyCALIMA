@@ -5,17 +5,25 @@ All functions that need vibrational modes call load_pah_modes() once; results
 are cached so subsequent calls for the same file are free.
 """
 
-import sys
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 import os
 import re
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np
-import importlib_resources
 from scipy.optimize import root_scalar
-from amespahdbpythonsuite.amespahdb import AmesPAHdb
+
+if TYPE_CHECKING:
+    # amespahdbpythonsuite is an optional dependency from an external repo
+    # (https://github.com/PAHdb/AmesPAHdbPythonSuite). It is referenced here
+    # only to annotate extract_transitions()'s caller-supplied `pahdb`
+    # argument -- nothing in pyCALIMA ever constructs an AmesPAHdb -- so
+    # importing it under TYPE_CHECKING keeps it out of the runtime graph.
+    # Install with:  pip install 'pycalima[pahdb]'
+    from amespahdbpythonsuite.amespahdb import AmesPAHdb
 
 # ---------------------------------------------------------------------------
 # Module-level caches

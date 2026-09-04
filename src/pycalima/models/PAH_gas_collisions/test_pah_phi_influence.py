@@ -9,7 +9,7 @@ import os
 
 import matplotlib.pyplot as plt
 
-import models.PAH_gas_collisions.PAH_sputtering as PAH_sputtering
+import pycalima.models.PAH_gas_collisions.PAH_sputtering as PAH_sputtering
 
 
 def main():

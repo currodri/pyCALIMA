@@ -5,10 +5,8 @@ Uses the same ion species as test_export_rates_t_phi.py
 """
 
 import numpy as np
-import sys
-sys.path.insert(0, '/Users/currodri/Documents/GitHub/DustRAMSES')
 
-from models.dust_gas_collisions.dust_collisional_cooling import export_collisional_cooling
+from pycalima.models.dust_gas_collisions.dust_collisional_cooling import export_collisional_cooling
 
 
 # ============================================================================

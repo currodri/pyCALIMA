@@ -55,12 +55,10 @@ Usage
 
 from __future__ import annotations
 
-import sys
 import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 import numpy as np
 import pandas as pd
@@ -68,13 +66,13 @@ import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 from multiprocessing import Pool, cpu_count
 
-from models.PAH_photophysics.pah_temperature import (
+from pycalima.models.PAH_photophysics.pah_temperature import (
     compute_base_g0,
     get_absorption_cross_section,
 )
-from models.PAH_photophysics.pah_radiation import load_kurucz_u_E
-from models.PAH_photophysics.pah_h_state import compute_solo_duo_counts
-from models.PAH_photophysics.reproduce_andrews16_fig9 import (
+from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E
+from pycalima.models.PAH_photophysics.pah_h_state import compute_solo_duo_counts
+from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     _STATES_DIR, _HV_EV, _worker,
 )
 
@@ -189,7 +187,7 @@ def main() -> None:
 
         # ── Build cross-section table ──
         a0 = get_absorption_cross_section.__module__   # dummy import check
-        from models.PAH_photophysics.pah_charge_utils import afromNc
+        from pycalima.models.PAH_photophysics.pah_charge_utils import afromNc
         a0_cm = afromNc(cfg['Nc'])
         w, C_abs = get_absorption_cross_section(0, a0_cm)
         E_cs = _HV_EV / w
