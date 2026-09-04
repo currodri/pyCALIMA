@@ -170,7 +170,10 @@ def read_pah_photolysis_table(
     """
     path = Path(table_file)
     with path.open("r", encoding="utf-8") as fh:
-        lines = [ln.strip() for ln in fh if ln.strip()]
+        lines = [
+            ln.strip() for ln in fh
+            if ln.strip() and not ln.strip().startswith('#')
+        ]
 
     nG0, nNH = map(int, lines[0].split())
     if len(lines) < 1 + nG0 + nNH + nG0 * nNH:
@@ -242,7 +245,10 @@ def read_pah_sputtering_table(
     """
     path = Path(table_file)
     with path.open("r", encoding="utf-8") as fh:
-        lines = [ln.strip() for ln in fh if ln.strip()]
+        lines = [
+            ln.strip() for ln in fh
+            if ln.strip() and not ln.strip().startswith('#')
+        ]
 
     nT = int(lines[0])
     if len(lines) < 1 + 2 * nT:

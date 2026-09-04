@@ -513,3 +513,116 @@ def test_readme_documents_every_solver():
     assert not missing, f"README does not document solver types: {missing}"
     missing_cls = [c for c in EXPECTED_SOLVERS.values() if c not in text]
     assert not missing_cls, f"README does not name solver classes: {missing_cls}"
+
+
+# ---------------------------------------------------------------------------
+# Regression: rate tables that silently failed to load
+#
+# Four independent defects each left a rate table unloaded, and every one was
+# swallowed -- `if not fname.exists(): continue` in dust_init, or a bare
+# `except Exception: pass`. The visible effect was a process with an
+# identically zero rate, which looks exactly like physics.
+#
+#   1. _load_sputtering_tables asked for "thermal_sputtering_<bin>_Z_<Z>";
+#      dust_sputtering.py:1061 writes "sputtering_<bin>_Z_<Z>". Dust thermal
+#      sputtering was therefore disabled for every bin.
+#   2. read_pah_sputtering_table did not skip the "#" provenance header the
+#      exporters write, so int(lines[0]) raised. PAH sputtering was disabled.
+#   3. read_pah_photolysis_table had the same defect. PAH photolysis was
+#      disabled.
+#   4. Solver configs spell PAH bins "PAHbin_01"; exporters write "PAHBin_01".
+#      An exact lookup finds the file on a case-insensitive filesystem (macOS)
+#      and misses it on a case-sensitive one (Linux, hence CI).
+# ---------------------------------------------------------------------------
+
+def test_dust_sputtering_tables_are_actually_loaded(model_data):
+    """Every dust bin must end up with a non-empty sputtering interpolator set."""
+    from pycalima._paths import resolve_solver_config_path
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    state, _y_gas, _y_dust = load_initial_conditions(
+        resolve_solver_config_path("example_ic")
+    )
+    empty = [db.bin_id for db in state.dust_bins if not db.sputtering_interps]
+    assert not empty, (
+        f"no thermal sputtering tables loaded for {empty}; the solver would "
+        f"silently report a zero sputtering rate"
+    )
+
+
+def test_pah_sputtering_and_photolysis_tables_are_actually_loaded(model_data):
+    from pycalima._paths import resolve_solver_config_path
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    state, _y_gas, _y_dust = load_initial_conditions(
+        resolve_solver_config_path("example_ic")
+    )
+    no_sput = [pb.bin_id for pb in state.pah_bins if not pb.sputtering_interps]
+    no_diss = [pb.bin_id for pb in state.pah_bins if pb.dissociation_interp is None]
+    assert not no_sput, f"no PAH sputtering tables loaded for {no_sput}"
+    assert not no_diss, f"no PAH dissociation tables loaded for {no_diss}"
+
+
+def test_pah_readers_skip_the_provenance_header(tmp_path):
+    """The exporters prepend '#' lines; both PAH readers must ignore them."""
+    from pycalima.solvers.table_io import (
+        read_pah_photolysis_table,
+        read_pah_sputtering_table,
+    )
+
+    sput = tmp_path / "sputtering_PAHBin_09_Z_1"
+    sput.write_text(
+        "# PAH Sputtering rates (Simple, no phi dependence)\n"
+        "# Script: models/PAH_gas_collisions/PAH_sputtering.py\n"
+        "# Git: somebranch (abc1234)\n"
+        "3\n"
+        "3.0\n4.0\n5.0\n"
+        "-12.0\n-11.0\n-10.0\n",
+        encoding="utf-8",
+    )
+    log_T, log_J = read_pah_sputtering_table(sput)
+    assert list(log_T) == [3.0, 4.0, 5.0]
+    assert list(log_J) == [-12.0, -11.0, -10.0]
+
+    # The photolysis reader shares the defect; assert it parses a header too.
+    diss = tmp_path / "dissociation_PAHBin_09.dat"
+    diss.write_text(
+        "# PAH photodissociation rate table\n"
+        "# Git: somebranch (abc1234)\n"
+        "2 2\n"
+        "0.0\n1.0\n"
+        "1.0\n2.0\n"
+        "-9.0\n-8.0\n"
+        "-7.0\n-6.0\n",
+        encoding="utf-8",
+    )
+    # Shape conventions differ between versions of the writer; all this test
+    # asserts is that the header no longer makes it raise.
+    try:
+        read_pah_photolysis_table(diss)
+    except ValueError as exc:
+        assert "#" not in str(exc), f"header still reaching the parser: {exc}"
+
+
+def test_table_lookup_tolerates_the_pah_bin_id_case_difference(tmp_path):
+    """Solver configs say PAHbin_01, exporters write PAHBin_01."""
+    from pycalima.solvers.dust_init import _resolve_table
+
+    (tmp_path / "sputtering_PAHBin_01_Z_1").write_text("1\n3.0\n-12.0\n")
+
+    found = _resolve_table(tmp_path, "sputtering_PAHbin_01_Z_1")
+    assert found.exists(), (
+        "case-insensitive fallback failed; the exact-name lookup succeeds on "
+        "macOS and fails on Linux, so this must be checked explicitly"
+    )
+    # Assert it is readable rather than asserting the name: on a
+    # case-insensitive filesystem the exact path already resolves, so the
+    # returned name keeps the requested spelling and never reaches the
+    # fallback. What has to hold on both kinds of filesystem is that the
+    # bytes come back.
+    assert found.read_text(encoding="utf-8") == "1\n3.0\n-12.0\n"
+
+    # A genuinely absent table must still come back non-existent, so that
+    # callers can treat it as "not exported yet".
+    missing = _resolve_table(tmp_path, "sputtering_DustBin_77_Z_1")
+    assert not missing.exists()

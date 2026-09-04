@@ -5,64 +5,66 @@ Public API
 ``load_initial_conditions(config_path)``
     Parse the JSON file and return ``(DustChemistryState, y_gas_0, y_dust_0)``.
 
-JSON schema (see ``configs/example_ic.json`` for a complete example)
----------------------------------------------------------------------
-{
-    "model_data_dir": "model_data",          // optional, default auto-detected
-    "environment": {
-        "gas_temperature_K": 100.0,
-        "hydrogen_number_density_cm3": 100.0,
-        "electron_number_density_cm3": 1e-3,
-        "radiation_field_G0": 1.0,
-        "radiation_field_model": "habing",   // informational
-        "mean_molecular_weight": 1.4
-    },
-    "elemental_abundances": {
-        "H":  {"mass_fraction": 0.706},
-        ...
-    },
-    "dust_bins": [
-        {
-            "id": "DustBin_01",
-            "composition": "graphite",
-            "grain_size_micron": 0.01,
-            "grain_density_gcm3": 2.24,
-            "elements": [{"name": "C", "mass_fraction": 1.0}],
-            "initial_mass_density_gcm3": 8e-28,
-            "sticking_coefficient": 1.0,
-            "nhmax_acc": 1e4,
-            "nh_coa": 0.1,
-            "coagulation_partner": "DustBin_02"   // optional bin id
+JSON schema
+-----------
+See ``configs/example_ic.json`` for a complete example::
+
+    {
+        "model_data_dir": "model_data",          // optional, default auto-detected
+        "environment": {
+            "gas_temperature_K": 100.0,
+            "hydrogen_number_density_cm3": 100.0,
+            "electron_number_density_cm3": 1e-3,
+            "radiation_field_G0": 1.0,
+            "radiation_field_model": "habing",   // informational
+            "mean_molecular_weight": 1.4
         },
-        ...
-    ],
-    "pah_bins": [
-        {
-            "id": "PAHbin_01",
-            "nc": 54,
-            "nc_min": 24,
-            "initial_mass_density_gcm3": 1e-29
+        "elemental_abundances": {
+            "H":  {"mass_fraction": 0.706},
+            ...
         },
-        ...
-    ],
-    "physics": {
-        "dust_accretion": true,
-        "dust_sputtering": true,
-        "dust_sublimation": true,
-        "dust_coagulation": true,
-        "pah_accretion": false,
-        "pah_photolysis": false
-    },
-    "solver": {
-        "type": "rk4",
-        "t_end_Myr": 100.0,
-        "h_init_s": 1e10,
-        "h_min_s": 1.0,
-        "h_max_Myr": 1.0,
-        "errmax": 0.1,
-        "countmax": 10000
+        "dust_bins": [
+            {
+                "id": "DustBin_01",
+                "composition": "graphite",
+                "grain_size_micron": 0.01,
+                "grain_density_gcm3": 2.24,
+                "elements": [{"name": "C", "mass_fraction": 1.0}],
+                "initial_mass_density_gcm3": 8e-28,
+                "sticking_coefficient": 1.0,
+                "nhmax_acc": 1e4,
+                "nh_coa": 0.1,
+                "coagulation_partner": "DustBin_02"   // optional bin id
+            },
+            ...
+        ],
+        "pah_bins": [
+            {
+                "id": "PAHbin_01",
+                "nc": 54,
+                "nc_min": 24,
+                "initial_mass_density_gcm3": 1e-29
+            },
+            ...
+        ],
+        "physics": {
+            "dust_accretion": true,
+            "dust_sputtering": true,
+            "dust_sublimation": true,
+            "dust_coagulation": true,
+            "pah_accretion": false,
+            "pah_photolysis": false
+        },
+        "solver": {
+            "type": "rk4",
+            "t_end_Myr": 100.0,
+            "h_init_s": 1e10,
+            "h_min_s": 1.0,
+            "h_max_Myr": 1.0,
+            "errmax": 0.1,
+            "countmax": 10000
+        }
     }
-}
 """
 
 from __future__ import annotations
@@ -188,6 +190,31 @@ def _k0_coagulation(asize_cm: float, sgrain: float) -> float:
     return math.sqrt(8.0 / (3.0 * PI)) * PI * (2.0 * asize_cm) ** 2 / m_grain
 
 
+def _resolve_table(data_dir: Path, name: str) -> Path:
+    """Resolve *name* inside *data_dir*, tolerating a bin-id case difference.
+
+    The solver configurations spell PAH bins ``PAHbin_01`` while the exporters
+    write ``PAHBin_01``, so an exact lookup finds the table on a
+    case-insensitive filesystem (macOS) and misses it on a case-sensitive one
+    (Linux, and therefore CI). Rather than depend on that, match
+    case-insensitively when the exact name is absent.
+
+    Returns the exact path when nothing matches, so that callers can still
+    test ``.exists()`` and treat a genuinely absent table as "not exported
+    yet".
+    """
+    exact = data_dir / name
+    if exact.exists():
+        return exact
+    if not data_dir.is_dir():
+        return exact
+    lowered = name.lower()
+    for candidate in data_dir.iterdir():
+        if candidate.name.lower() == lowered:
+            return candidate
+    return exact
+
+
 def _load_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
     """Load thermal sputtering tables for all ion species for *bin_id*.
 
@@ -197,7 +224,7 @@ def _load_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
     """
     interps: dict = {}
     for el_name, Z in _ION_SPECIES:
-        fname = data_dir / f"thermal_sputtering_{bin_id}_Z_{Z}"
+        fname = _resolve_table(data_dir, f"sputtering_{bin_id}_Z_{Z}")
         if not fname.exists():
             continue
         try:
@@ -214,7 +241,7 @@ def _load_pah_photolysis_table(bin_id: str, data_dir: Path):
     Returns a callable ``(log10_G0, log10_nH) → log10(rate [s⁻¹])`` or
     ``None`` if the file does not exist.
     """
-    fname = data_dir / f"dissociation_{bin_id}.dat"
+    fname = _resolve_table(data_dir, f"dissociation_{bin_id}.dat")
     if not fname.exists():
         return None
     try:
@@ -233,7 +260,7 @@ def _load_pah_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
     """
     interps: dict = {}
     for species_name, Z in _PAH_SPUTTERING_SPECIES:
-        fname = data_dir / f"sputtering_{bin_id}_Z_{Z}"
+        fname = _resolve_table(data_dir, f"sputtering_{bin_id}_Z_{Z}")
         if not fname.exists():
             continue
         try:
@@ -256,9 +283,9 @@ def _load_erosion_rate_table(bin_id: str, data_dir: Path):
     ``erosion_rate_{bin_id}.dat``), with two columns (temperature [K], rate [s⁻¹]).
     Lines starting with ``#`` are treated as comments and skipped.
     """
-    fname = data_dir / f"sublimation_rate_{bin_id}.dat"
+    fname = _resolve_table(data_dir, f"sublimation_rate_{bin_id}.dat")
     if not fname.exists():
-        fname = data_dir / f"erosion_rate_{bin_id}.dat"
+        fname = _resolve_table(data_dir, f"erosion_rate_{bin_id}.dat")
     if not fname.exists():
         return None
     try:
