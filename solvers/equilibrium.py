@@ -287,17 +287,27 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
 
     def __init__(
         self,
-        f_tol:         float       = 1e-40,
+        f_tol:         float        = 1e-40,
         f_rtol:        float | None = 1e-8,
         maxiter:       int          = 200,
         inner_maxiter: int          = 300,
         eps_fd:        float        = 1e-7,
+        eps_phys:      float        = 0.15,
     ) -> None:
         self.f_tol         = f_tol
         self.f_rtol        = f_rtol
         self.maxiter       = maxiter
         self.inner_maxiter = inner_maxiter
         self.eps_fd        = eps_fd
+        # eps_phys: per-bin fractional-change-over-t_eq threshold for the
+        # physical significance early exit (see find_equilibrium).  If for
+        # EVERY dust/PAH bin b the net rate |F[b]| × t_eq / y_dust[b] is less
+        # than eps_phys, the IC is already at per-bin equilibrium and NK is
+        # skipped.  Using per-bin (not the L2 norm) is critical: coagulation
+        # and shattering transfer mass between bins without changing the total,
+        # hiding redistribution in the L2 norm while individual bins still
+        # evolve significantly.
+        self.eps_phys      = eps_phys
 
     @property
     def name(self) -> str:
@@ -326,11 +336,20 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
         F_norm_0  = float(np.linalg.norm(F0))
         nfev      = [1]
 
-        # --- Early exit: already at equilibrium ---
-        if F_norm_0 <= self.f_tol:
+        # Scale-invariant norm: prevents tiny IC densities (low metallicity) from
+        # falsely triggering exit 1.  ||y_d0|| is also used by exit 2 below.
+        y_dust_norm = max(float(np.linalg.norm(y_d0)), 1e-200)
+
+        # --- Early exit 1: already at (relative) equilibrium ---
+        # Criterion: ||F0|| / ||y_d0|| <= f_tol  (units of s⁻¹ when f_tol~1e-40).
+        # Using a relative test avoids false positives when IC dust density is
+        # small (low-Z cells): a fast sputtering process has |F| ∝ ρ_d, so the
+        # absolute ||F0|| is tiny even though the fractional rate is large.
+        if F_norm_0 <= self.f_tol * y_dust_norm:
             y_dust_eq = np.maximum(y_d0, 0.0)
             y_gas_eq  = np.maximum(M0_el - A @ y_dust_eq, 0.0)
-            msg = f"already at equilibrium (||F0|| = {F_norm_0:.3e} <= f_tol = {self.f_tol:.3e})"
+            msg = (f"already at equilibrium (||F0||/||y0|| = "
+                   f"{F_norm_0/y_dust_norm:.3e} <= f_tol = {self.f_tol:.3e})")
             diag = dict(
                 solver_type   = "equilibrium",
                 solver_name   = self.name,
@@ -355,6 +374,69 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
                 ),
             )
             return y_gas_eq, y_dust_eq, diag
+
+        # --- Early exit 2: physical significance check (per-bin) ---
+        # The IC is the best available equilibrium when, for EVERY dust/PAH bin,
+        # the net rate |F[b]| is so small that bin b would change by less than
+        # eps_phys × y_dust[b] over t_eq_s.
+        #
+        # Why per-bin and not the L2 norm:
+        #   Coagulation and shattering transfer mass between bins while leaving
+        #   the total dust mass nearly unchanged.  Using ||F|| / ||y_dust||
+        #   (the L2 criterion) hides this redistribution — the two processes
+        #   partially cancel in the norm but leave large individual-bin rates.
+        #   A per-bin check correctly identifies when all bins are truly at
+        #   near-equilibrium (no significant accretion, sputtering, coagulation
+        #   or shattering occurring for any individual bin).
+        #
+        # Why this is needed for NK:
+        #   - y_dust = 0 is always an exact root of F_dust (no dust → all rates 0).
+        #   - When F[b] is at or near floating-point noise for ALL bins, the NK
+        #     tolerance is unachievable at the PHYSICAL root; NK wanders in
+        #     numerical noise and the large preconditioner M = diag(|J_diag|)⁻¹
+        #     amplifies tiny F values into huge steps that push y_dust negative.
+        #     The internal np.maximum(0) clip then makes F = 0 exactly and NK
+        #     declares "convergence" at the trivial zero.
+        #   - The per-bin early exit only fires when every bin is genuinely at
+        #     rest — when there is coagulation/shattering redistribution happening
+        #     in some bin, that bin's frac_rate exceeds eps_phys and NK is allowed
+        #     to run (with the trivial-zero guard below as a safety net).
+        if (self.eps_phys is not None
+                and self.eps_phys > 0.0
+                and t_eq_s > 0.0
+                and t_eq_s < 1e40):
+            # Per-bin fractional rate: |F[b]| * t_eq / y_dust[b]
+            y_d0_clipped = np.maximum(y_d0, 1e-200)
+            per_bin_frac = np.abs(F0) * t_eq_s / y_d0_clipped
+            if float(per_bin_frac.max()) < self.eps_phys:
+                y_dust_eq = np.maximum(y_d0, 0.0)
+                y_gas_eq  = np.maximum(M0_el - A @ y_dust_eq, 0.0)
+                msg = (f"IC at physical equilibrium (per-bin): max fractional rate "
+                       f"{per_bin_frac.max():.3f} < eps_phys={self.eps_phys:.2f}")
+                diag = dict(
+                    solver_type   = "equilibrium",
+                    solver_name   = self.name,
+                    converged     = True,
+                    message       = msg,
+                    F_norm_init   = F_norm_0,
+                    F_norm_final  = F_norm_0,
+                    nfev          = nfev[0],
+                    naccepted     = 0,
+                    nrejected     = 0,
+                    icount        = 0,
+                    nincreased    = 0,
+                    nreduced      = 0,
+                    h_min_used    = float("nan"),
+                    h_max_used    = float("nan"),
+                    h_mean_used   = float("nan"),
+                    err_min       = float("nan"),
+                    err_max       = float("nan"),
+                    err_mean      = float("nan"),
+                    history       = _synthetic_history(
+                        y_gas_0, y_dust_0, y_gas_eq, y_dust_eq, t_eq_s
+                    ),
+                )
+                return y_gas_eq, y_dust_eq, diag
 
         def F_counted(y):
             nfev[0] += 1
@@ -403,6 +485,46 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
         # F_dust internally scales y_dust down (flat plateau in F outside the
         # budget boundary).  Projecting gives the canonical physical state.
         y_dust_eq = _project_to_feasible(y_sol, M0_el, A)
+
+        # --- Trivial-zero guard ---
+        # y_dust=0 is always an exact root of F_dust (no dust → all rates 0).
+        # If NK returned near-zero dust we must decide:
+        #
+        #   (a) Physical zero: sputtering dominates at every bin and is fast
+        #       relative to t_eq.  This IS the correct equilibrium — all dust
+        #       destroyed.  Accept y_dust=0 and mark converged.
+        #
+        #   (b) Spurious zero: NK wandered in via numerical overshoot (the
+        #       preconditioner amplifies tiny F into large steps that push
+        #       y_dust negative; the internal clip then makes F=0 and NK
+        #       declares convergence).  Fall back to the IC.
+        #
+        # We distinguish the two by checking F0 (the rate at the IC):
+        #   physical zero  → all bins are net sinks (F0 < 0) AND the
+        #                     fractional rate is large (|F0|*t_eq/y_d0 >> 1)
+        #   spurious zero  → any bin has a net source (F0[b] > 0), or the
+        #                     fractional rate is small
+        if y_dust_norm > 1e-200 and float(y_dust_eq.sum()) < 1e-6 * y_dust_norm:
+            y_d0_clipped  = np.maximum(y_d0, 1e-200)
+            per_bin_frac0 = np.abs(F0) * t_eq_s / y_d0_clipped
+            # Net-sink criterion: total mass is being removed (F0.sum() < 0) AND
+            # the fastest individual-bin rate is large.  We use the TOTAL rather
+            # than requiring every bin to be a sink because coagulation / shattering
+            # can make small-grain bins appear as sources (mass redistribution from
+            # large to small) even in hot gas where sputtering destroys all dust.
+            net_sink     = float(F0.sum()) < 0.0
+            fast_process = float(per_bin_frac0.max()) > 1.0
+            if net_sink and fast_process:
+                # Correct physical equilibrium: sputtering destroyed all dust
+                y_dust_eq = np.zeros_like(y_d0)
+                msg = msg + " [physical zero: sputtering destroyed all dust]"
+                conv = True
+            else:
+                # Spurious root: NK numerically overshot — return IC
+                y_dust_eq = np.maximum(y_d0, 0.0)
+                msg = msg + " [trivial-zero guard: fell back to IC]"
+                conv = False
+
         y_gas_eq  = np.maximum(M0_el - A @ y_dust_eq, 0.0)
         F_final   = F_dust(y_dust_eq)
         nfev[0]  += 1

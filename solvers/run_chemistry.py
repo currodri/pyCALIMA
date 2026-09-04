@@ -55,7 +55,9 @@ from .equilibrium import (
 )
 from .ode_driver import integrate_dust_ode
 from .rhs import build_process_list
+from .anninos import AnninosSolver
 from .rk4 import RK4Solver
+from .rk54 import RK54Solver
 from .solver_base import DustSolverBase
 
 # ---------------------------------------------------------------------------
@@ -63,6 +65,8 @@ from .solver_base import DustSolverBase
 # ---------------------------------------------------------------------------
 SOLVER_REGISTRY: Dict[str, type] = {
     "rk4":           RK4Solver,
+    "rk54":          RK54Solver,
+    "anninos":       AnninosSolver,
     "newton_krylov": NewtonKrylovEquilibriumSolver,
     "sparse_newton": SparseNewtonEquilibriumSolver,
 }
@@ -80,6 +84,12 @@ def _make_solver(solver_cfg: dict):
 
     if solver_type == "rk4":
         return cls(errmax=float(solver_cfg.get("errmax", 0.1)))
+
+    if solver_type in ("rk54", "anninos"):
+        return cls(
+            errmax=float(solver_cfg.get("errmax", 0.1)),
+            y_min =float(solver_cfg.get("y_min",  1e-40)),
+        )
 
     if solver_type == "newton_krylov":
         f_rtol_raw = solver_cfg.get("f_rtol", 1e-8)

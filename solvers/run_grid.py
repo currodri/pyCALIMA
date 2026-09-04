@@ -66,7 +66,9 @@ from .equilibrium import (
 )
 from .ode_driver import integrate_dust_ode
 from .rhs import build_process_list
+from .anninos import AnninosSolver
 from .rk4 import RK4Solver
+from .rk54 import RK54Solver
 from .run_chemistry import _make_solver, compute_element_totals
 
 # ---------------------------------------------------------------------------
@@ -153,6 +155,7 @@ def _run_point(
     t_end_s: float,
     solver_type: str,
     solver_kwargs: dict,
+    t_end_mode: str = "fixed",
 ) -> dict:
     """Run chemistry at a single (x_val, y_val) environment point."""
     state, y_gas_0, y_dust_0 = load_initial_conditions(config_path)
@@ -177,13 +180,25 @@ def _run_point(
         y_dust_0        = y_dust_0 * rho_scale
         state.local_rho = state.local_rho * rho_scale
 
+    # Override t_end_s with a physical timescale if requested
+    if t_end_mode == "freefall":
+        from .dust_init import freefall_time_s
+        t_end_s = freefall_time_s(state.local_nH, state.local_mu)
+
     processes = build_process_list(state)
 
     # Build solver — re-use kwargs from config but allow override
     solver: object
+    _ode_keys = ("errmax", "y_min")
     if solver_type == "rk4":
         solver = RK4Solver(**{k: v for k, v in solver_kwargs.items()
                               if k in ("errmax",)})
+    elif solver_type == "rk54":
+        solver = RK54Solver(**{k: v for k, v in solver_kwargs.items()
+                               if k in _ode_keys})
+    elif solver_type == "anninos":
+        solver = AnninosSolver(**{k: v for k, v in solver_kwargs.items()
+                                  if k in _ode_keys})
     elif solver_type == "newton_krylov":
         solver = NewtonKrylovEquilibriumSolver(**solver_kwargs)
     elif solver_type == "sparse_newton":
@@ -208,7 +223,7 @@ def _run_point(
             h_init=h_init, h_min=h_min, h_max=h_max,
             collect_history=False, verbose=False,
         )
-        converged = True
+        converged = bool(diag.get("converged", True))
 
     elapsed = time.perf_counter() - t0
 
@@ -240,6 +255,7 @@ def run_grid(
     y_param: str,
     y_values: Sequence[float],
     t_end_Myr: float = 5.0,
+    t_end_mode: str = "fixed",
     solver_type: Optional[str] = None,
     solver_kwargs: Optional[dict] = None,
     verbose: bool = True,
@@ -298,7 +314,7 @@ def run_grid(
 
     # Default solver kwargs from config
     sc = cfg.get("solver", {})
-    if _stype == "rk4" and "errmax" not in _skw:
+    if _stype in ("rk4", "rk54", "anninos") and "errmax" not in _skw:
         _skw.setdefault("errmax",       float(sc.get("errmax",        0.1)))
         _skw.setdefault("h_init_s",     float(sc.get("h_init_s",      1e10)))
         _skw.setdefault("h_min_s",      float(sc.get("h_min_s",       1.0)))
@@ -344,8 +360,11 @@ def run_grid(
         print(f"  {x_param} [{xu}]: {xs.tolist()}")
         print(f"  {y_param} [{yu}]: {ys.tolist()}")
         print(f"  Grid size  : {nx} × {ny} = {nx*ny} points")
-        if _stype == "rk4":
-            print(f"  t_end      : {t_end_Myr} Myr")
+        if _stype in ("rk4", "rk54", "anninos"):
+            if t_end_mode == "freefall":
+                print(f"  t_end      : free-fall time per cell (t_end_Myr={t_end_Myr} Myr fallback)")
+            else:
+                print(f"  t_end      : {t_end_Myr} Myr")
         print()
         hdr = (f"  {'i':>3} {'j':>3}  "
                f"{x_param:>8}  {y_param:>8}  "
@@ -356,7 +375,7 @@ def run_grid(
     def _do_parallel(i, j):
         return (i, j, _run_point(
             config_path, x_param, xs[i], y_param, ys[j],
-            t_end_s, _stype, _skw,
+            t_end_s, _stype, _skw, t_end_mode,
         ))
 
     if n_jobs > 1 or n_jobs == -1:
@@ -479,8 +498,13 @@ def _parse_args(argv=None):
                    help="Values for the y axis.")
     p.add_argument("--t-end-Myr",  type=float, default=5.0,
                    help="Integration time in Myr [default: 5].")
+    p.add_argument("--t-end-mode", default="fixed",
+                   choices=["fixed", "freefall"],
+                   help="How to determine integration time per cell: "
+                        "'fixed' uses --t-end-Myr; "
+                        "'freefall' uses the local free-fall time sqrt(3π/(32Gρ)) [default: fixed].")
     p.add_argument("--solver",     default=None,
-                   choices=["rk4", "newton_krylov", "sparse_newton"],
+                   choices=["rk4", "rk54", "anninos", "newton_krylov", "sparse_newton"],
                    help="Override solver type from config.")
     p.add_argument("--output-npz", default=None,
                    help="Save grid results to this .npz file.")
@@ -500,6 +524,7 @@ def main(argv=None):
         y_param      = args.y_param,
         y_values     = args.y_values,
         t_end_Myr    = args.t_end_Myr,
+        t_end_mode   = args.t_end_mode,
         solver_type  = args.solver,
         verbose      = not args.quiet,
         n_jobs       = args.n_jobs,

@@ -1,0 +1,104 @@
+{
+  "_comment": "4-bin RAMSES-CALIMA grain size distribution for Dubois+2024 dust model. Matches the RAMSES namelist exactly: asize=0.005,0.1 um for both compositions, sgrain=2.24 (graphite) and 3.3 (silicate). All bins use lognormal distributions with sigma=0.75. No PAH bins — PAH evolution is not tracked in the RAMSES simulation post-processed here. Tables are written to model_data/ramses4bin/ so they do not conflict with the default 6-bin config.",
+
+  "model_name": "ramses4bin",
+
+  "bins": [
+    {
+      "id":         "DustBin_01",
+      "composition":"graphite",
+      "is_pah":     false,
+      "bin_rank":   0
+    },
+    {
+      "id":         "DustBin_02",
+      "composition":"graphite",
+      "is_pah":     false,
+      "bin_rank":   1
+    },
+    {
+      "id":         "DustBin_03",
+      "composition":"silicate",
+      "is_pah":     false,
+      "bin_rank":   0
+    },
+    {
+      "id":         "DustBin_04",
+      "composition":"silicate",
+      "is_pah":     false,
+      "bin_rank":   1
+    }
+  ],
+
+  "basic": {
+    "_comment": "Lognormal distributions centred on the RAMSES bin sizes. amin/amax delimit the integration range for optical-property averaging. s = grain material density [g/cm3].",
+    "a0":    [0.005, 0.100, 0.005, 0.100],
+    "amin":  [0.001, 0.030, 0.002, 0.015],
+    "amax":  [0.030, 0.300, 0.015, 0.300],
+    "sigma": [0.750, 0.750, 0.750, 0.750],
+    "s":     [2.240, 2.240, 3.300, 3.300]
+  },
+
+  "shattering": {
+    "_comment": "Shattering fragment distribution parameters. amin/amax define the range into which shattering redistributes mass from each bin.",
+    "a0":    [0.005, 0.100, 0.005, 0.100],
+    "amin":  [0.001, 0.030, 0.002, 0.015],
+    "amax":  [0.030, 0.300, 0.015, 0.300],
+    "sigma": [0.750, 0.750, 0.750, 0.750],
+    "s":     [2.240, 2.240, 3.300, 3.300]
+  },
+
+  "export_parameters": {
+    "collisional_cooling": {
+      "Tmin": 10.0,
+      "Tmax": 1e9,
+      "nT": 200,
+      "nv": 200,
+      "nphi": 200,
+      "delta_max": 0.1
+    },
+    "dust_sputtering": {
+      "Tmin": 1000.0,
+      "Tmax": 1e9,
+      "nT": 200,
+      "nphi": 200,
+      "nbins_v": 200,
+      "hnu_max_ev": 13.6
+    },
+    "dust_charging": {
+      "gamma_min": 1e-4,
+      "gamma_max": 1e6,
+      "n_gamma": 100,
+      "combos_per_gamma": 20,
+      "seed": 42
+    },
+    "dust_photoelectric_heating": {
+      "Tmin": 10.0,
+      "Tmax": 100000.0,
+      "nT": 100,
+      "gamma_min": 1e-6,
+      "gamma_max": 1e6,
+      "n_gamma": 100,
+      "radiation_model": "Mathis",
+      "mode": "fix_G0",
+      "fixed_value": 1.0,
+      "n_workers": 8
+    },
+    "pah_photoelectric_heating": {
+      "temperature": 1000.0,
+      "G0": 1.0,
+      "ne_min": 1e-5,
+      "ne_max": 1e5,
+      "n_ne": 100,
+      "radiation_models": ["Mathis"],
+      "optical_models": ["Draine"],
+      "attachment_models": ["Berne", "Tielens"]
+    },
+    "pah_dissociation": {
+      "g0_min": 0.01,
+      "g0_max": 1e6,
+      "nh_min": 0.01,
+      "nh_max": 1e6
+    }
+  }
+}
