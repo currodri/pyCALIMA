@@ -132,7 +132,7 @@ def _save_rate_plot(output_path, T, gamma, rates, radiation_model, rate_type='he
             idx = min(idx, len(gamma)-1)
         if idx < len(peh_rate):
             ax.loglog(T, np.abs(peh_rate[idx, :]), marker='o', markersize=3, 
-                      label=f'{r"$\gamma$"} = {gval:.2e}', linewidth=1.5, alpha=0.8)
+                      label=rf'$\gamma$ = {gval:.2e}', linewidth=1.5, alpha=0.8)
     ax.set_xlabel(r'$T$ [K]', fontsize=12)
     ax.set_ylabel(r'$\Lambda_{\rm PEH}$ [erg cm$^3$ s$^{-1}$]', fontsize=12)
     ax.set_title('Photoelectric Heating Rate', fontsize=12, fontweight='bold')
@@ -149,7 +149,7 @@ def _save_rate_plot(output_path, T, gamma, rates, radiation_model, rate_type='he
             idx = min(idx, len(gamma)-1)
         if idx < len(rec_rate):
             ax.loglog(T, np.abs(rec_rate[idx, :]), marker='s', markersize=3,
-                      label=f'{r"$\gamma$"} = {gval:.2e}', linewidth=1.5, alpha=0.8)
+                      label=rf'$\gamma$ = {gval:.2e}', linewidth=1.5, alpha=0.8)
     ax.set_xlabel(r'$T$ [K]', fontsize=12)
     ax.set_ylabel(r'$\Lambda_{\rm rec}$ [erg cm$^3$ s$^{-1}$]', fontsize=12)
     ax.set_title('Recombination Cooling Rate', fontsize=12, fontweight='bold')

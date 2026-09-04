@@ -381,4 +381,4 @@ if __name__ == '__main__':
         else:
             print(f"Routine '{routine}' not found in mapping")
     else:
-        print_mapping())
+        print_mapping()

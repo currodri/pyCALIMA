@@ -22,14 +22,14 @@ import concurrent.futures
 import time
 from types import SimpleNamespace
 
-try:
-    from . import PAHs_model
-except ImportError:
-    try:
-        import PAHs_model
-    except ImportError:
-        from models.tools.utils import Nc_from_size, size_from_Nc
-        PAHs_model = SimpleNamespace(Nc_from_size=Nc_from_size, size_from_Nc=size_from_Nc)
+# `PAHs_model` no longer exists anywhere in the tree; the try/except chain that
+# used to look for it always fell through to this branch. Kept as a namespace so
+# the ~30 `PAHs_model.Nc_from_size(...)` call sites below need no change, but the
+# lookup is now explicit -- a stray PAHs_model.py on sys.path can no longer
+# silently substitute different physics.
+from models.tools.utils import Nc_from_size, size_from_Nc
+
+PAHs_model = SimpleNamespace(Nc_from_size=Nc_from_size, size_from_Nc=size_from_Nc)
 
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads

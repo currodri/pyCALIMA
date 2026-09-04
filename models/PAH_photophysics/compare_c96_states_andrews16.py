@@ -186,8 +186,13 @@ def main():
     for key, cfg in STATES.items():
         t = tables[key]
         freq_ev, einstein_A = modes[key]
+        # Strip TeX markup for plain-text output. Hoisted out of the f-string:
+        # a backslash inside a replacement field requires Python >= 3.12.
+        label_plain = cfg['label']
+        for _ch in ('$', '\\', '{', '}'):
+            label_plain = label_plain.replace(_ch, '')
         print(f"{'─'*65}")
-        print(f"  {cfg['label'].replace('$','').replace('\\','').replace('{','').replace('}','')}")
+        print(f"  {label_plain}")
         print(f"{'─'*65}")
 
         kir_pts = compute_kir_curve(freq_ev, einstein_A, t['kir'][:, 0])

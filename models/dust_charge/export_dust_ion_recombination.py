@@ -205,7 +205,7 @@ def _save_rate_plot(output_path, T, gamma, recomb_coeffs, radiation_model, grain
             idx = np.searchsorted(gamma, gval)
             idx = min(idx, len(gamma)-1)
         ax.loglog(T, np.abs(recomb_coeffs[:, idx, h_idx]), marker='o', markersize=3,
-                  label=f'{r"$\gamma$"} = {gval:.2e}', linewidth=1.5, alpha=0.8)
+                  label=rf'$\gamma$ = {gval:.2e}', linewidth=1.5, alpha=0.8)
     ax.set_xlabel(r'$T$ [K]', fontsize=12)
     ax.set_ylabel(r'$\alpha(H^+)$ [cm$^3$ s$^{-1}$ per grain]', fontsize=12)
     ax.set_title(r'H$^+$ Recombination Coefficient (Case A)', fontsize=12, fontweight='bold')
@@ -221,7 +221,7 @@ def _save_rate_plot(output_path, T, gamma, recomb_coeffs, radiation_model, grain
             idx = np.searchsorted(gamma, gval)
             idx = min(idx, len(gamma)-1)
         ax.loglog(T, np.abs(recomb_coeffs[:, idx, c_idx]), marker='s', markersize=3,
-                  label=f'{r"$\gamma$"} = {gval:.2e}', linewidth=1.5, alpha=0.8)
+                  label=rf'$\gamma$ = {gval:.2e}', linewidth=1.5, alpha=0.8)
     ax.set_xlabel(r'$T$ [K]', fontsize=12)
     ax.set_ylabel(r'$\alpha(C^+)$ [cm$^3$ s$^{-1}$ per grain]', fontsize=12)
     ax.set_title(r'C$^+$ Recombination Coefficient (Case A)', fontsize=12, fontweight='bold')
@@ -237,7 +237,7 @@ def _save_rate_plot(output_path, T, gamma, recomb_coeffs, radiation_model, grain
             idx = np.searchsorted(gamma, gval)
             idx = min(idx, len(gamma)-1)
         ax.loglog(T, np.abs(recomb_coeffs[:, idx, fe_idx]), marker='^', markersize=3,
-                  label=f'{r"$\gamma$"} = {gval:.2e}', linewidth=1.5, alpha=0.8)
+                  label=rf'$\gamma$ = {gval:.2e}', linewidth=1.5, alpha=0.8)
     ax.set_xlabel(r'$T$ [K]', fontsize=12)
     ax.set_ylabel(r'$\alpha(Fe^+)$ [cm$^3$ s$^{-1}$ per grain]', fontsize=12)
     ax.set_title(r'Fe$^+$ Recombination Coefficient (Case A)', fontsize=12, fontweight='bold')
