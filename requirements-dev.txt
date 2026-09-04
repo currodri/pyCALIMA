@@ -1,0 +1,34 @@
+# Development environment for pyCALIMA.
+#
+#     pip install -r requirements-dev.txt
+#
+# This file exists because PEP 508 *direct references* (`pkg @ git+https://...`)
+# are rejected by PyPI's metadata validation -- including inside
+# [project.optional-dependencies] -- so VCS pins can never live in
+# pyproject.toml for a distribution intended for upload. They go here instead.
+
+-e .[all]
+
+pytest>=8.0
+pytest-cov>=5.0
+ruff>=0.5
+build>=1.2
+twine>=5.0
+check-manifest>=0.49
+
+# --- VCS-only dependencies -------------------------------------------------
+# amespahdbpythonsuite: the development build used to generate the shipped PAH
+# tables. Note that pycalima itself does NOT import this at run time -- the
+# only reference is a TYPE_CHECKING annotation in
+# pycalima/models/PAH_photophysics/pah_mol_data.py -- so it is needed only if
+# you add code that actually constructs an AmesPAHdb object.
+amespahdbpythonsuite @ git+https://github.com/PAHdb/AmesPAHdbPythonSuite@114ad6d
+
+# uclchem: Fortran-backed astrochemistry code, used ONLY by the ice-formation
+# notebooks (notebooks/ice_formation_study.ipynb,
+# notebooks/simple_ice_model.ipynb, notebooks/uclchem_multiice_parallel_notebook.ipynb).
+# No PyPI wheel exists; it must be built from source following the upstream
+# instructions at https://github.com/uclchem/UCLCHEM. Left commented out so
+# that `pip install -r requirements-dev.txt` succeeds without a Fortran
+# toolchain.
+# uclchem @ git+https://github.com/uclchem/UCLCHEM
