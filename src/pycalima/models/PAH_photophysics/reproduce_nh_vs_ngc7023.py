@@ -23,7 +23,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -50,6 +49,7 @@ from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
 from pycalima.models.PAH_photophysics.reproduce_charge_vs_ngc7023 import (
     load_pdr_profiles,
 )
+from pycalima import _paths
 
 # ── PAH: circumcoronene only ──────────────────────────────────────────────────
 _EA = {'C54': 1.44}
@@ -63,7 +63,7 @@ N_AV = 25
 NH_COMPARE = [14, 15, 16, 17, 18]
 
 # ── Load digitised Andrews+16 Fig. 7 data ────────────────────────────────────
-_PDR_DIR = ROOT / 'external_data' / 'NWPDR_NGC7023'
+_PDR_DIR = _paths.get_external_data_path('NWPDR_NGC7023')
 
 
 def load_andrews_fig7() -> dict[int, np.ndarray]:
@@ -234,7 +234,7 @@ def _plot(av_grid, fNh, solver) -> None:
         fontsize=9.5,
     )
 
-    out = ROOT / 'nh_distribution_vs_ngc7023_pdr.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'nh_distribution_vs_ngc7023_pdr.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nFigure saved → {out}")
     plt.show()

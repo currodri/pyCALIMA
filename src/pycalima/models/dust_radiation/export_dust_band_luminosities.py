@@ -13,10 +13,6 @@ import argparse
 from pathlib import Path
 import numpy as np
 
-# Inject repo root into sys.path to allow imports when run as script
-if __package__ in (None, ''):
-    repo_root = Path(__file__).resolve().parents[2]
-
 from pycalima.models.grain_size_config import (
     set_config_path,
     get_bins,
@@ -28,6 +24,7 @@ from pycalima.models.grain_size_config import (
 )
 from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
 from pycalima.models.dust_radiation.dust_emission import compute_energy_band_luminosity_from_table
+from pycalima import _paths
 
 
 def export_band_luminosities(
@@ -47,7 +44,7 @@ def export_band_luminosities(
     if output_dir is None:
         output_dir = get_model_data_dir() / 'optical_properties'
     else:
-        output_dir = get_repo_root() / output_dir
+        output_dir = get_model_data_dir() / output_dir
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -60,8 +57,8 @@ def export_band_luminosities(
     print(f"\nExporting band luminosities for {len(non_pah_bins)} non-PAH dust bins...")
 
     # Define the band filters
-    filter_dir_spitzer = repo_root / 'external_data' / 'Spitzer_filters'
-    filter_dir_herschel = repo_root / 'external_data' / 'Herschel_filters'
+    filter_dir_spitzer = _paths.get_external_data_path('Spitzer_filters')
+    filter_dir_herschel = _paths.get_external_data_path('Herschel_filters')
 
     filters = {
         'Spitzer_MIPS_24': filter_dir_spitzer / 'Spitzer_MIPS.24mu.dat',

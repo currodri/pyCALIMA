@@ -26,6 +26,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from pycalima.models.grain_size_config import get_model_data_dir
 
 
 # ---------------------------------------------------------------------------
@@ -403,15 +404,32 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Build PAHdb species catalog")
-    parser.add_argument("--xml",  default="external_data/pahdb-complete-theoretical-v4.00.xml")
-    parser.add_argument("--out",  default="model_data/PAH_states/pahdb_catalog.json")
+    parser.add_argument(
+        "--xml", default=None,
+        help="PAHdb XML library. Default: the registered pahdb-theoretical-v4-00 "
+             "dataset -- run `calima-fetch-data list` to see where that resolves.",
+    )
+    parser.add_argument(
+        "--out", default=None,
+        help="Output catalog JSON. Default: <model_data>/PAH_states/pahdb_catalog.json",
+    )
     parser.add_argument("--nc",   nargs="+", type=int, default=None,
                         help="Nc values to include (default: all)")
     args = parser.parse_args()
 
-    root = Path(__file__).resolve().parent.parent.parent
-    xml_abs = root / args.xml
-    out_abs = root / args.out
+    if args.xml:
+        xml_abs = Path(args.xml).expanduser().resolve()
+    else:
+        from pycalima._datasets import ensure_dataset
+        xml_abs = ensure_dataset("pahdb-theoretical-v4-00") / \
+            "pahdb-complete-theoretical-v4.00.xml"
+
+    out_abs = (
+        Path(args.out).expanduser().resolve()
+        if args.out
+        else get_model_data_dir(create=True) / "PAH_states" / "pahdb_catalog.json"
+    )
+    out_abs.parent.mkdir(parents=True, exist_ok=True)
 
     catalog = build_pahdb_catalog(str(xml_abs), str(out_abs), args.nc)
 

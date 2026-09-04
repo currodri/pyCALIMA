@@ -14,6 +14,7 @@ from tqdm import tqdm
 import concurrent.futures
 import time
 from scipy.integrate import trapezoid
+from pycalima.models.grain_size_config import get_model_data_dir
 
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
@@ -2345,7 +2346,7 @@ def load_cooling_tables(table_dir=None):
         }
     """
     if table_dir is None:
-        table_dir = Path(__file__).resolve().parents[2] / 'model_data' / 'collisional_cooling_data'
+        table_dir = get_model_data_dir() / 'collisional_cooling_data'
 
     cooling_tables = {}
 

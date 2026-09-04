@@ -4,65 +4,121 @@ This module centralizes grain size parameters used across `models/`.
 """
 
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
+
+from pycalima import _paths
+
+# get_git_info is re-exported: the exporters import it from this module. The
+# implementation lives in pycalima._provenance, which queries git against the
+# package's own tree rather than the caller's CWD, and falls back to the
+# setuptools_scm-stamped distribution version when there is no .git.
+from pycalima._provenance import get_git_info, provenance_string  # noqa: F401
 
 _CONFIG_CACHE = None
 _CURRENT_CONFIG_PATH = None
 
 
 def _default_config_path():
-    return Path(__file__).with_name("grain_size_distribution.json")
+    """Bundled default grain-size configuration."""
+    return _paths.resolve_grain_config_path(None)
 
 
 def get_repo_root():
+    """Deprecated. Use :mod:`pycalima._paths` instead.
+
+    This used to return the repository root, from which callers built
+    ``external_data/``, ``optical_props/`` and ``model_data/`` paths. Once
+    installed there is no single such root: read-only reference data lives
+    inside the package while generated data lives in a writable user
+    directory. A single retarget therefore cannot be correct for all callers,
+    so this shim returns the *read-only* reference-data root -- right for
+    ``external_data`` and ``optical_props``, and deliberately wrong for
+    ``model_data``, where ``_paths._assert_writable_target`` will then raise
+    rather than let anything write into site-packages.
+
+    Replace with::
+
+        get_repo_root() / "external_data"  ->  _paths.get_external_data_path()
+        get_repo_root() / "optical_props"  ->  _paths.get_optical_props_path()
+        get_repo_root() / "model_data"     ->  get_model_data_dir()
+
+    .. deprecated:: 0.1
     """
-    Get the root directory of the CALIMA repository.
-    
-    Returns
-    -------
-    Path
-        Path to the repository root (parent of the 'models' directory).
+    warnings.warn(
+        "grain_size_config.get_repo_root() is deprecated; use "
+        "pycalima._paths.get_external_data_path() / get_optical_props_path() / "
+        "grain_size_config.get_model_data_dir() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _paths.get_data_root()
+
+
+def get_optical_props_path(*parts):
+    """Path inside the bundled ``optical_props/`` tree.
+
+    ``get_optical_props_path()`` still returns the directory itself, which is
+    what the existing callers expect.
     """
-    return Path(__file__).parent.parent
+    return _paths.get_optical_props_path(*parts)
 
 
-def get_optical_props_path():
+def get_external_data_path(*parts):
+    """Path inside the bundled ``external_data/`` tree."""
+    return _paths.get_external_data_path(*parts)
+
+
+def get_model_data_dir(model_name=None, *, base=None, create=False):
+    """Return ``model_data/<model_name>/`` for the active configuration.
+
+    Parameters
+    ----------
+    model_name : str, optional
+        Override the ``model_name`` key of the active configuration.
+    base : str or Path, optional
+        Explicit ``model_data`` directory; bypasses environment and CWD
+        resolution.
+    create : bool, default False
+        Create the directory if missing. False by default so that importing a
+        module never writes to disk.
+
+    Notes
+    -----
+    Reads ``model_name`` from the cached parsed configuration. The
+    pre-packaging implementation re-read and re-parsed the JSON file on every
+    call -- bypassing ``_CONFIG_CACHE`` entirely -- inside export loops.
     """
-    Get the path to the optical_props directory.
-
-    Returns
-    -------
-    Path
-        Path to optical_props folder in the repo root.
-    """
-    return get_repo_root() / "optical_props"
-
-
-def get_model_data_dir():
-    """Return model_data/<model_name>/ for the current config, or model_data/ if no model_name set."""
-    cfg_path = Path(get_config_path())
-    raw = json.loads(cfg_path.read_text())
-    model_name = raw.get('model_name')
-    base = get_repo_root() / 'model_data'
-    return base / model_name if model_name else base
+    if model_name is None:
+        model_name = load_grain_size_config().get("model_name")
+    return _paths.get_model_data_dir(model_name, base=base, create=create)
 
 
 def set_config_path(config_path):
-    """
-    Set the configuration file path globally.
-    
+    """Set the configuration file path globally.
+
     Call this at the start of a script to use a specific JSON configuration.
     All subsequent calls to load_grain_size_config() will use this path.
-    
+
     Parameters
     ----------
-    config_path : str or Path
-        Path to the JSON configuration file.
+    config_path : str or Path or None
+        A path to a JSON configuration file, or a bundled short name such as
+        ``"ramses4bin"``, ``"4C6Si"``, ``"test"`` or ``"default"``. None
+        restores the bundled default.
+
+    Notes
+    -----
+    The path is resolved to an absolute file immediately, so a later
+    ``os.chdir`` cannot invalidate it and two spellings of the same file no
+    longer produce two cache entries.
     """
     global _CURRENT_CONFIG_PATH, _CONFIG_CACHE
-    _CURRENT_CONFIG_PATH = Path(config_path) if config_path else None
+    _CURRENT_CONFIG_PATH = (
+        _paths.resolve_grain_config_path(config_path) if config_path else None
+    )
     _CONFIG_CACHE = None  # Clear cache to force reload
     return _CURRENT_CONFIG_PATH
 
@@ -86,9 +142,11 @@ def _as_float_array(values, key, expected_len):
 def load_grain_size_config(config_path=None, reload=False):
     global _CONFIG_CACHE
 
-    # Use provided path, or current global path, or default
+    # Use provided path, or current global path, or default. Resolving here
+    # normalises the cache key, so "models/x.json" and "/abs/models/x.json" no
+    # longer produce two entries for one file.
     if config_path is not None:
-        path = Path(config_path)
+        path = _paths.resolve_grain_config_path(config_path)
     else:
         path = get_config_path()
 
@@ -141,6 +199,8 @@ def load_grain_size_config(config_path=None, reload=False):
         "bin_ids": tuple(ids),
         "bin_to_index": {name: i for i, name in enumerate(ids)},
         "export_parameters": dict(export_parameters),
+        # Cached so get_model_data_dir() need not re-read the JSON per call.
+        "model_name": raw.get("model_name"),
         "__path__": str(path),
     }
 
@@ -285,36 +345,17 @@ def get_export_parameters(section=None, defaults=None):
     return merged
 
 
-def get_git_info():
-    """Retrieve git branch and short commit hash."""
-    import subprocess
-    try:
-        branch = subprocess.check_output(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            stderr=subprocess.DEVNULL,
-            text=True
-        ).strip()
-        commit_short = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            stderr=subprocess.DEVNULL,
-            text=True
-        ).strip()
-        return branch, commit_short
-    except Exception:
-        return 'unknown', 'unknown'
-
-
 def get_header_lines(title, script_name, bin_info=None, val_desc=None, num_lines=None):
     """Generate standardized comment header lines for rate tables."""
     from datetime import datetime
-    branch, commit = get_git_info()
+
     date_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     headers = [
         f"# {title}",
         f"# Script: {script_name}",
         f"# Date: {date_str}",
-        f"# Git: {branch} ({commit})",
+        f"# Code: {provenance_string()}",
     ]
     if bin_info:
         headers.append(f"# {bin_info}")

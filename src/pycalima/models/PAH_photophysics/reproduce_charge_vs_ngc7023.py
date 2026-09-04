@@ -26,7 +26,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 from scipy.interpolate import interp1d
@@ -51,13 +50,14 @@ from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     PAH_DEFS as _PAH_DEFS_BASE, _PAH_ORDER, _STATES_DIR, _HV_EV,
     _build_kdis, _worker,
 )
+from pycalima import _paths
 
 # ── Add electron affinities ───────────────────────────────────────────────────
 _EA = {'C24': 0.47, 'C54': 1.44, 'C96': 3.11}
 PAH_DEFS = {k: dict(**v, EA=_EA[k]) for k, v in _PAH_DEFS_BASE.items()}
 
 # ── PDR data directory ────────────────────────────────────────────────────────
-_PDR_DIR = ROOT / 'external_data' / 'NWPDR_NGC7023'
+_PDR_DIR = _paths.get_external_data_path('NWPDR_NGC7023')
 
 N_AV = 25   # number of Av evaluation points
 
@@ -270,7 +270,7 @@ def main() -> None:
 # ── Plotting ──────────────────────────────────────────────────────────────────
 
 def _load_andrews(pah_key: str) -> dict:
-    ext = ROOT / 'external_data'
+    ext = _paths.get_external_data_path()
     data = {}
     for Z, tag in [(-1, 'anion'), (0, 'neutral'), (1, 'cation'), (2, 'dication')]:
         f = ext / f'{pah_key}HN_{tag}_andrews16.csv'
@@ -334,7 +334,7 @@ def _plot(av_grid, gamma_grid, fZ_calib, fZ_wr, G0_grid, T_grid, ne_grid) -> Non
         fontsize=9.5,
     )
 
-    out = ROOT / 'pah_charge_vs_ngc7023_pdr.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'pah_charge_vs_ngc7023_pdr.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nFigure saved → {out}")
     plt.show()

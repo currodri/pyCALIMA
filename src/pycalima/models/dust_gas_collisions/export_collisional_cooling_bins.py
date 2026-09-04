@@ -57,9 +57,6 @@ COMPOSITION_PROPERTIES = {
 }
 
 
-def _repo_root():
-    # models/dust_gas_collisions/<this_file>.py -> repo root at parents[2]
-    return Path(__file__).resolve().parents[2]
 
 
 def main(config_path=None):

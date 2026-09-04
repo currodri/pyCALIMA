@@ -17,12 +17,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from scipy.optimize import curve_fit
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
-})
 from pycalima.models.grain_size_config import get_optical_props_path
 from pycalima.models.dust_charge.shared_physics import (
     GRAPHITE_WORK_FUNCTION,
@@ -69,16 +63,27 @@ from pycalima.models.dust_charge.shared_physics import (
     collisional_rates_electrons_vector,
     collisional_rates_ions_vector,
 )
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
+from pycalima.plotting_style import use_calima_style
 
 PATH_OPTICS = str(get_optical_props_path())
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-DUST_CHARGING_OUTPUT_DIR = os.path.join(_REPO_ROOT, 'model_data', 'dust_charging_data')
-os.makedirs(DUST_CHARGING_OUTPUT_DIR, exist_ok=True)
-_EXTERNAL_DATA_DIR = os.path.join(_REPO_ROOT, 'external_data')
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
+
+
+def dust_charging_output_dir(*subdirs):
+    """Directory for generated dust-charging tables.
+
+    Resolved on every call, not at import: it depends on $CALIMA_DATA and on
+    the active configuration's model_name. The previous module-level
+    ``os.makedirs`` ran at *import* time and raised PermissionError on a
+    read-only install prefix, taking down the whole dust_charge subpackage.
+    """
+    return get_model_data_dir().joinpath('dust_charging_data', *subdirs)
 
 
 def _dust_charging_output_path(filename, *subdirs):
-    out_dir = os.path.join(DUST_CHARGING_OUTPUT_DIR, *subdirs)
+    out_dir = str(dust_charging_output_dir(*subdirs))
     os.makedirs(out_dir, exist_ok=True)
     return os.path.join(out_dir, filename)
 
@@ -911,6 +916,7 @@ def compute_equilibrium_charge_distribution_vectorized(
         Y = yield_func(np.asarray(nu), diag_Zs, a, yield_params)
         # Y shape expected (N_nu, N_Z)
         import matplotlib.pyplot as _plt
+        use_calima_style()
         fig, ax = _plt.subplots(figsize=(8, 5), dpi=150)
         max_lines = 25
         for i, Zv in enumerate(diag_Zs):
@@ -1253,6 +1259,7 @@ def plot_charge_distribution(Zs, P, ax=None, title=None, xlabel='Z', ylabel='P(Z
         Matplotlib figure and axis.
     """
     import matplotlib.pyplot as _plt
+    use_calima_style()
 
     Zs = np.asarray(Zs)
     P = np.asarray(P)
@@ -1840,6 +1847,7 @@ def compute_charge_vs_gamma(
         The generated figure (mean and width panels)
     """
     import matplotlib.pyplot as _plt
+    use_calima_style()
     import seaborn as sns
     sns.set_theme(style="white")
     # preserve previous usetex setting and apply local rc updates
@@ -2150,7 +2158,7 @@ def compute_charge_vs_gamma(
                             medianZ_mat[ig, jt] = float(np.median(Zsel))
                             medianSig_mat[ig, jt] = float(np.median(Zsigsel))
 
-                save_dir = DUST_CHARGING_OUTPUT_DIR
+                save_dir = str(dust_charging_output_dir())
                 os.makedirs(save_dir, exist_ok=True)
                 mat = 'Gra' if 'graphite' in grain_type.lower() else 'suvSil'
 
@@ -2343,7 +2351,7 @@ def compute_charge_vs_gamma(
                         axes[1].plot(centers_h, med_high_sig, color='firebrick', lw=2.5, ls='-.', label=r'median $\\sigma_Z$ ($T>10^4$ K)', zorder=55)
                         axes[1].legend(loc='best', fontsize=12, frameon=False)
                     # Save median arrays to disk under dust_charge_distributions/
-                    save_dir = DUST_CHARGING_OUTPUT_DIR
+                    save_dir = str(dust_charging_output_dir())
                     os.makedirs(save_dir, exist_ok=True)
                     # low-T saves: combine mean and sigma in one file
                     if n_low >= 10 and 'centers_out' in locals() and len(centers_out) > 0:

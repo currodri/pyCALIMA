@@ -40,7 +40,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -48,9 +47,11 @@ import matplotlib.gridspec as gridspec
 from scipy.optimize import brentq
 
 from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
-_EXT       = ROOT / 'external_data'
-_MODES     = ROOT / 'model_data' / 'PAH_states' / 'C96H24_0.dat'
+_EXT       = _paths.get_external_data_path()
+_MODES     = get_model_data_dir() / 'PAH_states' / 'C96H24_0.dat'
 
 # ── Physical constants ──────────────────────────────────────────────────────
 KB_EV  = 8.61733326e-5   # eV/K
@@ -271,7 +272,7 @@ def main() -> None:
         fontsize=10,
     )
 
-    out = ROOT / 'c96h24_kir_kh_vs_andrews16.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'c96h24_kir_kh_vs_andrews16.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"Figure saved → {out}")
     plt.close(fig)

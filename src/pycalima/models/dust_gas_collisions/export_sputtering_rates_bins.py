@@ -44,9 +44,6 @@ ION_SPECIES = [
 ]
 
 
-def _repo_root():
-    # models/dust_gas_collisions/<this_file>.py -> repo root at parents[2]
-    return Path(__file__).resolve().parents[2]
 
 
 def _copy_if_exists(src_path, dst_dir, dst_name=None):

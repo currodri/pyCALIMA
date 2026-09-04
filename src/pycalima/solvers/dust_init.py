@@ -74,6 +74,14 @@ from typing import Tuple
 
 import numpy as np
 
+# pycalima._paths is a leaf module that imports nothing from models/ or
+# solvers/, so this preserves the property that solvers/ does not depend on
+# models/. Note this is the model-agnostic model_data root: unlike
+# models.grain_size_config.get_model_data_dir() it does not append a
+# `model_name` subdirectory, matching the behaviour the solver configs have
+# always had.
+from pycalima._paths import get_model_data_dir
+
 from .chemistry_state import (
     AU2G,
     ELEMENT_ATOMIC_MASSES_G,
@@ -301,8 +309,27 @@ def load_initial_conditions(
     # ------------------------------------------------------------------
     # Resolve paths
     # ------------------------------------------------------------------
-    default_data = Path(__file__).parents[1] / "model_data"
-    model_data_dir = Path(cfg.get("model_data_dir", str(default_data)))
+    # "model_data_dir" is optional. Missing, null or "auto" means "resolve via
+    # pycalima._paths" ($CALIMA_MODEL_DATA -> $CALIMA_DATA/model_data ->
+    # ./model_data -> the per-user data directory). A *relative* value is
+    # resolved against the config file rather than the process CWD, so a
+    # config and its tables can be moved together.
+    raw_mdd = cfg.get("model_data_dir")
+    if raw_mdd in (None, "", "auto"):
+        model_data_dir = get_model_data_dir()
+    else:
+        model_data_dir = Path(raw_mdd).expanduser()
+        if not model_data_dir.is_absolute():
+            model_data_dir = (config_path.parent / model_data_dir).resolve()
+
+    if not model_data_dir.is_dir():
+        raise FileNotFoundError(
+            f"model_data directory not found: {model_data_dir}\n"
+            f"Generate the rate tables first:  calima-export\n"
+            f"Or point at an existing set:      export CALIMA_MODEL_DATA=/path/to/model_data\n"
+            f'Or set "model_data_dir" in {config_path}.'
+        )
+
     sputtering_dir = model_data_dir / "thermal_sputtering_data"
     pah_photolysis_dir = model_data_dir / "PAH_dissociation_data"
     pah_sputtering_dir = model_data_dir / "pah_sputtering_data"

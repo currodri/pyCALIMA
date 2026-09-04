@@ -16,6 +16,8 @@ By: Curro Rodriguez (currodri@gmail.com)
 
 # Importing libraries
 import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -23,9 +25,39 @@ import matplotlib.pyplot as plt
 # Constants
 Zsun_old = 0.02
 Zsun_asplund = 0.01345
-yield_dir = '/home/dubois/StellarYields'
-yield_files = os.listdir(yield_dir)
 ELEMENTS = np.array(['p','He','C','N','O','F','Ne','Mg','Si','S','Fe'])
+
+
+def get_yield_dir():
+    """Directory holding the raw stellar-yield tables.
+
+    These are third-party tables (Karakas, Limongi & Chieffi, Kobayashi) that
+    are not redistributed with pyCALIMA. Point $CALIMA_YIELD_DIR at your own
+    copy.
+
+    The pre-packaging version hardcoded ``/home/dubois/StellarYields`` and
+    called ``os.listdir`` on it at *module scope*, so merely importing this
+    module raised FileNotFoundError for everyone but its author.
+    """
+    raw = os.environ.get('CALIMA_YIELD_DIR')
+    if not raw:
+        raise RuntimeError(
+            "This module needs the raw stellar-yield tables, which are not "
+            "bundled with pyCALIMA. Set $CALIMA_YIELD_DIR to the directory "
+            "containing them, e.g.\n"
+            "    export CALIMA_YIELD_DIR=/path/to/StellarYields"
+        )
+    path = Path(raw).expanduser()
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"$CALIMA_YIELD_DIR points at {path}, which is not a directory."
+        )
+    return path
+
+
+def get_yield_files():
+    """Names of the files in :func:`get_yield_dir`."""
+    return os.listdir(get_yield_dir())
 
 def get_agbdata():
 
@@ -57,7 +89,7 @@ def get_agbdata():
     
     # Just load one file to check how many masses do we have for the grid
     karakas_filename = 'karakas_z%s_simplified.txt'%(str(Zkarakas[0]))
-    filepath = os.path.join(yield_dir,karakas_filename)
+    filepath = os.path.join(get_yield_dir(), karakas_filename)
     ka1 = pd.read_csv(filepath, header=13, delim_whitespace=True,names=column_names)
     M0 = np.unique(ka1["M0"].to_numpy())
 
@@ -73,7 +105,7 @@ def get_agbdata():
 
     for i in range(0, len(Zkarakas)):
         karakas_filename = 'karakas_z%s_simplified.txt'%(str(Zkarakas[i]))
-        filepath = os.path.join(yield_dir,karakas_filename)
+        filepath = os.path.join(get_yield_dir(), karakas_filename)
         ka = pd.read_csv(filepath, header=header_length-1, delim_whitespace=True,names=column_names)
         zka = Zkarakas[i]
         for j in range(0, len(ELEMENTS)):
@@ -118,7 +150,7 @@ def get_snIIdata():
 
     # Just load one file to check how many masses do we have for the grid
     filename = "limongichieffi_z%s_vel%i_simplified.txt"%(ZZASlabel[0],VZAS[0])
-    filepath = os.path.join(yield_dir,filename)
+    filepath = os.path.join(get_yield_dir(), filename)
     lc18 = pd.read_csv(filepath, header=header_length-1, delim_whitespace=True,names=column_names)
     M0 = np.unique(lc18["M0"].to_numpy())
     # We can now build the data dictionary and fill it up!
@@ -132,7 +164,7 @@ def get_snIIdata():
     for i in range(0, len(ZZAS)):
         filename = "limongichieffi_z%s_vel%i_simplified.txt"%(ZZASlabel[i],VZAS[i])
         print(filename)
-        filepath = os.path.join(yield_dir,filename)
+        filepath = os.path.join(get_yield_dir(), filename)
         ka = pd.read_csv(filepath, header=header_length-1, delim_whitespace=True,names=column_names)
         zka = ZZAS[i]
         for j in range(0, len(ELEMENTS)):
@@ -158,7 +190,7 @@ def get_Ca_snII():
     column_names = ['vel',"Fe/H","Iso","13M","15M","20M","25M","30M","40M","60M","80M","120M"]
     M0 = np.array([13, 15, 20, 25, 30, 40, 60, 80, 120])
 
-    filepath = os.path.join(yield_dir, "limongichieffi18.txt")
+    filepath = os.path.join(get_yield_dir(), "limongichieffi18.txt")
     lc18 = pd.read_csv(filepath, header=60, delim_whitespace=True, names=column_names)
 
     nmet = len(ZZAS)

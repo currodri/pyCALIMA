@@ -1,6 +1,5 @@
 {
   "_comment": "Equilibrium test \u2014 Newton-Krylov solver, all physics enabled",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 100.0,
     "hydrogen_number_density_cm3": 100.0,

@@ -1,6 +1,5 @@
 {
   "_comment": "CALIMA RK4 config for post-processing RAMSES G10 (~MW-mass, ~0.7 Zsun) simulation. Grain sizes and densities match the RAMSES CALIMA namelist: asize=0.005,0.1,0.005,0.1 um; sgrain=2.2,2.2,3.3,3.3. Silicate stored as Si mass fraction; silicate mass = stored / SioverSil (0.163). Elemental abundances set to 0.7 Zsun (Asplund+2009 solar scaled).",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 100.0,
     "hydrogen_number_density_cm3": 1.0,

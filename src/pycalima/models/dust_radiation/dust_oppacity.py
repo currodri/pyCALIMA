@@ -16,12 +16,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
-})
 import re
 from pathlib import Path
 from pycalima.models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,\
@@ -29,12 +23,25 @@ from pycalima.models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigm
                         Classical_LogNormal_Distribution
 from pycalima.models.grain_size_config import get_optical_props_path, get_lognormal_parameters, load_grain_size_config
 from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
+from pycalima.plotting_style import use_calima_style
 
+# Read-only reference data: fixed at install time, safe as module constants.
 PATH_OPTICS = str(get_optical_props_path())
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-PATH_TABLES = str(_REPO_ROOT / 'model_data' / 'optical_properties')
-PATH_MODEL_OPTICAL_OUTPUT = _REPO_ROOT / 'model_data' / 'optical_properties'
-PATH_EXTERNAL_DATA = _REPO_ROOT / 'external_data'
+PATH_EXTERNAL_DATA = _paths.get_external_data_path()
+
+
+# Generated data: depends on $CALIMA_DATA and the active config's model_name,
+# so it must be resolved per call and never frozen at import.
+def _path_model_optical_output():
+    """Directory holding generated optical-property tables."""
+    return get_model_data_dir() / 'optical_properties'
+
+
+def _path_tables():
+    """String form of :func:`_path_model_optical_output`, for os.path.join callers."""
+    return str(_path_model_optical_output())
 # Note: PAH-specific functions are now in models.PAH_radiation.pah_oppacity
 # Functions
 
@@ -43,7 +50,7 @@ def _table_output_path(path):
     if os.path.isabs(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         return path
-    out_path = os.path.join(PATH_TABLES, path)
+    out_path = os.path.join(_path_tables(), path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     return out_path
 
@@ -128,7 +135,7 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
     """
     composition_key = str(composition).lower()
     if output_dir is None:
-        output_dir = PATH_MODEL_OPTICAL_OUTPUT
+        output_dir = _path_model_optical_output()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -156,7 +163,7 @@ def export_dielectric_tables_for_bin(bin_id, composition, output_dir=None):
     for src_path, out_stem in sources:
         metadata = read_dielectric_file(str(src_path))
         # Write directly to output_dir without routing through _table_output_path
-        # (which prepends PATH_TABLES and would double the directory on paths
+        # (which prepends _path_tables() and would double the directory on paths
         # that already include model_data/optical_properties).
         df = metadata['table'].copy()
         df['wavelength_A'] = df['wavelength_um'].astype(float) * 1e4
@@ -223,7 +230,7 @@ def compute_isrf_averaged_absorption_efficiency_all_sizes(E_min=0.1, E_max=13.6,
     save : bool
         If True, save the output table to disk.
     outfile : str
-        Output file path. Relative paths are written under ``PATH_TABLES``.
+        Output file path. Relative paths are written under ``_path_tables()``.
     print_integrated_uE : bool
         If True, print the integrated ISRF energy density over the selected
         energy range in erg cm^-3.
@@ -295,8 +302,8 @@ def compute_isrf_averaged_absorption_efficiency_all_sizes(E_min=0.1, E_max=13.6,
         if os.path.isabs(outfile):
             out = outfile
         else:
-            os.makedirs(PATH_TABLES, exist_ok=True)
-            out = os.path.join(PATH_TABLES, outfile)
+            os.makedirs(_path_tables(), exist_ok=True)
+            out = os.path.join(_path_tables(), outfile)
         df.to_csv(out, index=False)
         print('Saved ISRF-averaged Q_abs table to', out)
 
@@ -375,6 +382,7 @@ def plot_isrf_averaged_qabs_vs_size(E_min=0.1, E_max=13.6, nE=2000,
 
     The figure is saved into ``model_data/optical_properties`` by default.
     """
+    use_calima_style()
     df = compute_isrf_averaged_absorption_efficiency_all_sizes(
         E_min=E_min,
         E_max=E_max,
@@ -433,7 +441,7 @@ def plot_isrf_averaged_qabs_vs_size(E_min=0.1, E_max=13.6, nE=2000,
     ax.legend(loc='best', frameon=False, fontsize=12)
     fig.subplots_adjust(top=0.97, bottom=0.14, left=0.15, right=0.98)
 
-    out_dir = PATH_MODEL_OPTICAL_OUTPUT
+    out_dir = _path_model_optical_output()
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / savefile
     fig.savefig(out_path, format='pdf', dpi=300)
@@ -486,6 +494,7 @@ def plot_efficiencies(filename,dust_type='grains',
                       do_average=True,
                       output_average=True):
 
+    use_calima_style()
     fig, axes = plt.subplots(3,1, figsize=(6,9),dpi=300,facecolor='w',edgecolor='k',sharey=True, sharex=True)
 
     if dust_type == 'grains':
@@ -568,9 +577,9 @@ def plot_efficiencies(filename,dust_type='grains',
                 Q_abs_eff = Q_abs_eff[::-1] * 1e-8
                 Q_sca_eff = Q_sca_eff[::-1] * 1e-8 
                 Q_rp_eff = Q_rp_eff[::-1] * 1e-8
-                if not os.path.exists(PATH_TABLES):
-                    os.makedirs(PATH_TABLES)
-                f = open(os.path.join(PATH_TABLES, 'averaged_cross_section_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1])), 'w', encoding="utf-8")
+                if not os.path.exists(_path_tables()):
+                    os.makedirs(_path_tables())
+                f = open(os.path.join(_path_tables(), 'averaged_cross_section_%.4f_micron_%s'%(dist[i].a0,filename.split('/')[-1])), 'w', encoding="utf-8")
                 f.write("{:8d}".format(nwav)+'\n')
                 for j in range(0,nwav):
                     f.write("{:14.6e}".format(w[j])+'\n')
@@ -612,6 +621,7 @@ def plot_efficiencies(filename,dust_type='grains',
 
 def plot_sil_comp():
 
+    use_calima_style()
     fig, axes = plt.subplots(3,1, figsize=(6,9),dpi=300,facecolor='w',edgecolor='k',sharey=True, sharex=True)
 
     nwav,data,columns,name = dust_efficiencies(os.path.join(PATH_OPTICS, 'draine_lee_1984', 'Sil_21'))
@@ -889,6 +899,7 @@ def compute_cross_sections_mie(composition, grain_size_micron, target_wavelength
 def plot_cs_sne(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallSil,D_largeSil,export=False):
 
     # 1. Set up the figure
+    use_calima_style()
     fig, axes = plt.subplots(2,2, figsize=(10,6),dpi=300,facecolor='w',edgecolor='k',sharey=False,sharex=False)
     axes[0,0].set_ylabel(r'$a^4n(a)$', fontsize=16)
     axes[0,1].set_ylabel(r'$C_{\rm abs}$, $C_{\rm sca}$ [cm$^2$] \& $g$', fontsize=16)
@@ -1386,7 +1397,7 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
     """
     # normalize inputs to lists
     if optical_dir is None:
-        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+        optical_dir = _path_model_optical_output()
 
     if isinstance(dust_types, str):
         dust_types = [dust_types]
@@ -1563,7 +1574,7 @@ def _read_precomputed_cross_section_table(bin_id, optical_dir=None, pah_state='n
         wavelength_micron, C_abs, C_sca, C_rp
     """
     if optical_dir is None:
-        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+        optical_dir = _path_model_optical_output()
 
     file_path = Path(optical_dir) / f'averaged_cross_section_{bin_id}.txt'
     if not file_path.exists():
@@ -2235,6 +2246,7 @@ def export_zubko2004_cross_sections(
         C_sca_rp_ref- reference (1-g)*C_sca per H [cm^2/H], interpolated to output grid
         plot_path   - absolute path to the comparison plot, or None
     """
+    use_calima_style()
     import datetime
 
     if wavelengths_micron is None:
@@ -2471,8 +2483,9 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
         Dictionary with wavelength grid, per-component curves, total cross
         sections, and the normalized extinction curve.
     """
+    use_calima_style()
     if optical_dir is None:
-        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+        optical_dir = _path_model_optical_output()
 
     if isinstance(dust_bins, str):
         dust_bins = [dust_bins]
@@ -2922,7 +2935,7 @@ def fit_massfractions_to_zubko2004(
     from scipy.optimize import differential_evolution
 
     if optical_dir is None:
-        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+        optical_dir = _path_model_optical_output()
 
     # ------------------------------------------------------------------ #
     # 1. Assemble bin lists and initial fractions                         #
@@ -3222,7 +3235,7 @@ def compute_bb_averaged_cross_sections(bin_edges_ev, temperature_k, config_path=
         Path to the grain-size configuration JSON file. If None, uses the active config.
     optical_dir : str or Path, optional
         Directory containing the precomputed cross-section files (e.g. `averaged_cross_section_<BinID>.txt`).
-        If None, defaults to `PATH_MODEL_OPTICAL_OUTPUT`.
+        If None, defaults to `_path_model_optical_output()`.
     pah_state : str, optional
         The state of PAH, either 'neutral' or 'ionised'. Default is 'neutral'.
     nE : int, optional

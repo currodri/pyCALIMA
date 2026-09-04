@@ -78,9 +78,9 @@ def get_git_info():
         }
 
 
-def get_repo_root():
-    """Get repository root directory."""
-    return Path(__file__).resolve().parents[1]
+def get_output_base():
+    """Root of the generated-data tree this run writes into."""
+    return get_model_data_dir()
 
 
 def _run_profiled_stage(stage_name, stage_func, config_path, stage_profile, enable_profile=True, **stage_kwargs):
@@ -138,7 +138,7 @@ def _write_profile_json(stage_profile, total_seconds, output_path):
     return str(out)
 
 
-def generate_readme(export_results, config_data, git_info, output_base='model_data'):
+def generate_readme(export_results, config_data, git_info, output_base=None):
     """
     Generate comprehensive README documenting all exports.
     
@@ -154,11 +154,13 @@ def generate_readme(export_results, config_data, git_info, output_base='model_da
         Grain configuration data from JSON
     git_info : dict
         Git repository information
-    output_base : str
-        Base output directory path
+    output_base : str or Path, optional
+        Directory the README is written into. Defaults to the generated-data
+        directory for the active configuration.
     """
-    repo_root = get_repo_root()
-    readme_path = Path(repo_root) / output_base / 'README.md'
+    output_base = Path(output_base) if output_base else get_output_base()
+    output_base.mkdir(parents=True, exist_ok=True)
+    readme_path = output_base / 'README.md'
     
     timestamp = datetime.now()
     timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
@@ -1395,8 +1397,7 @@ def main(config_path=None, profile=True, profile_output=None):
     print("GENERATING README")
     print("="*80)
     try:
-        _model_data_rel = str(get_model_data_dir().relative_to(get_repo_root()))
-        readme_path = generate_readme(export_results, config, git_info, output_base=_model_data_rel)
+        readme_path = generate_readme(export_results, config, git_info)
         print(f"  ✓ README generated: {readme_path}")
     except Exception as e:
         print(f"  ✗ Error generating README: {e}")

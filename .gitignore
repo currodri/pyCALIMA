@@ -178,3 +178,4 @@ cython_debug/
 pahdb*
 .DS_Store
 
+reference_data/

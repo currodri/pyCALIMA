@@ -29,6 +29,8 @@ import os
 import numpy as np
 from pathlib import Path
 from scipy.interpolate import interp1d
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
 # ─────────────────────────────── constants ────────────────────────────────────
 m_H   = 1.6726e-24   # proton mass [g]
@@ -57,9 +59,8 @@ E_LW_MAX = 13.6   # eV  (H ionisation threshold)
 
 # ──────────────────────────────── paths ───────────────────────────────────────
 _THIS_DIR    = Path(__file__).resolve().parent
-_CALIMA_ROOT = _THIS_DIR.parents[1]
-_OPTICS_DIR  = _CALIMA_ROOT / "optical_props" / "draine_lee_1984"
-_MODEL_DIR   = _CALIMA_ROOT / "model_data" / "optical_properties"
+_OPTICS_DIR  = _paths.get_optical_props_path("draine_lee_1984")
+_MODEL_DIR   = get_model_data_dir() / "optical_properties"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #   H2 self-shielding

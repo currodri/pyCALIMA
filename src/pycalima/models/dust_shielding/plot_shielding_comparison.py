@@ -23,7 +23,6 @@ or directly:
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-_CALIMA_ROOT = _HERE.parents[1]
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -44,17 +43,9 @@ from pycalima.models.dust_shielding.shielding_functions import (
     KAPPA_LW_MW_EFF,
     m_H,
 )
+from pycalima.plotting_style import use_calima_style
 
 # ── Aesthetics ──────────────────────────────────────────────────────────────
-sns.set_theme(style="ticks")
-plt.rcParams.update({
-    "text.usetex": False,
-    "font.family": "serif",
-    "font.size": 11,
-    "axes.labelsize": 12,
-    "legend.fontsize": 9,
-    "figure.dpi": 150,
-})
 
 _OUT = _HERE   # save PDFs alongside this script
 
@@ -70,6 +61,7 @@ C_OLD = "#555555"   # grey  — old RAMSES formula
 
 def fig1_kappa_LW():
     """Plot LW-band mass opacity kappa_LW [cm^2/g] vs grain radius."""
+    use_calima_style()
     print("Figure 1: computing kappa_LW from Draine tables...")
 
     a_um   = np.logspace(-3, 1, 60)   # 0.001 to 10 um
@@ -128,6 +120,7 @@ def fig1_kappa_LW():
 
 def fig2_dust_shielding():
     """Compare old and new dust shielding factor vs total H column density."""
+    use_calima_style()
     print("Figure 2: dust shielding factor vs N_H...")
 
     N_H = np.logspace(18, 24, 300)   # cm^-2
@@ -191,6 +184,7 @@ def fig2_dust_shielding():
 
 def fig3_h2_shielding():
     """Combined H2 self-shielding + dust shielding, old vs new."""
+    use_calima_style()
     print("Figure 3: combined H2 shielding factor...")
 
     # Mixed gas: x_H2 = 0.5 (half the H in H2)
@@ -246,6 +240,7 @@ def fig3_h2_shielding():
 
 def fig4_co_shielding():
     """CO self-shielding factor as a function of N_CO for several N_H2."""
+    use_calima_style()
     print("Figure 4: CO self-shielding...")
 
     N_CO_arr  = np.logspace(12, 20, 400)
@@ -292,6 +287,7 @@ def fig4_co_shielding():
 
 def fig5_g0_selfshield():
     """Dust self-shielding of G0 vs dust surface density."""
+    use_calima_style()
     print("Figure 5: G0 self-shielding by dust...")
 
     Sigma_dust = np.logspace(-4, 2, 400)   # g/cm^2

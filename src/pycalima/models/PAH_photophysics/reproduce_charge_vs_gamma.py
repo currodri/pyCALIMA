@@ -22,7 +22,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,6 +39,7 @@ from pycalima.models.PAH_photophysics.pah_temperature import (
     get_absorption_cross_section,
 )
 from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E, load_kurucz_I_nu
+from pycalima import _paths
 
 # ─── PAH definitions ──────────────────────────────────────────────────────────
 PAH_DEFS = {
@@ -156,7 +156,7 @@ def main() -> None:
               f"k_att_calib={k_att_calib:.2e}  k_att_WR={k_att_wr:.2e}", flush=True)
 
     # ── Load digitised Andrews 2016 data for all PAHs ─────────────────────────
-    _ext = ROOT / 'external_data'
+    _ext = _paths.get_external_data_path()
     _andrews_data: dict[str, dict] = {}
     for pah_key in _PAH_ORDER:
         _andrews_data[pah_key] = {}
@@ -231,7 +231,7 @@ def main() -> None:
         fontsize=10,
     )
 
-    out = ROOT / 'pah_charge_vs_gamma.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'pah_charge_vs_gamma.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nFigure saved → {out}")
     plt.show()

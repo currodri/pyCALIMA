@@ -58,7 +58,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import pandas as pd
@@ -75,8 +74,9 @@ from pycalima.models.PAH_photophysics.pah_h_state import compute_solo_duo_counts
 from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     _STATES_DIR, _HV_EV, _worker,
 )
+from pycalima import _paths
 
-_EXT = ROOT / 'external_data'
+_EXT = _paths.get_external_data_path()
 
 # ── PAH configuration ─────────────────────────────────────────────────────────
 PAH_CFG = {
@@ -372,7 +372,7 @@ def _plot_pah(pah_key: str, cfg: dict, results: list, G0_grid: np.ndarray) -> No
         fontsize=10,
     )
 
-    out = ROOT / f'rrkm_vs_andrews16_{pah_key}.png'
+    out = _paths.get_plots_dir('pah_photophysics') / f'rrkm_vs_andrews16_{pah_key}.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"  Figure saved → {out}", flush=True)
     plt.close(fig)

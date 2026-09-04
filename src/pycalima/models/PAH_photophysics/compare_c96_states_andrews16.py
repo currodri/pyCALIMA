@@ -35,7 +35,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -43,9 +42,11 @@ import matplotlib.patches as mpatches
 from scipy.optimize import brentq
 
 from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
-_EXT    = ROOT / 'external_data'
-_STATES = ROOT / 'model_data' / 'PAH_states'
+_EXT    = _paths.get_external_data_path()
+_STATES = get_model_data_dir() / 'PAH_states'
 
 # ── Physical constants ──────────────────────────────────────────────────────
 KB_EV  = 8.61733326e-5
@@ -355,7 +356,7 @@ def main():
         fontsize=10,
     )
 
-    out = ROOT / 'c96_states_kir_kh_vs_andrews16.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'c96_states_kir_kh_vs_andrews16.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"Figure saved → {out}")
     plt.close(fig)

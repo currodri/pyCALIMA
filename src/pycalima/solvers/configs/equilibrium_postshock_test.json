@@ -1,6 +1,5 @@
 {
   "_comment": "Equilibrium test \u2014 post-shock warm environment (T=20000K). At these conditions PAHbin_01 is sputtered while dust and PAHbin_02 grow. Solver must iterate far from initial ISM conditions to find the true equilibrium.",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 20000.0,
     "hydrogen_number_density_cm3": 100.0,

@@ -46,9 +46,6 @@ ATOMIC_WEIGHTS = {
 _DIR_WORKER_PREPARED_CONTEXTS = {}
 
 
-def _repo_root():
-    """Get repository root."""
-    return Path(__file__).resolve().parents[2]
 
 
 def _setup_plotting():

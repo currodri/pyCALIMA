@@ -26,9 +26,6 @@ DEFAULT_EXPORT_PARAMS = {
 }
 
 
-def _repo_root():
-    # models/PAH_gas_collisions/<this_file>.py -> repo root at parents[2]
-    return Path(__file__).resolve().parents[2]
 
 
 def _save_quicklook_plot(output_path, T, J_e, J_electronic, J_ion, title):

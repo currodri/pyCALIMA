@@ -20,14 +20,13 @@ import time
 from pathlib import Path
 
 from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
+from pycalima.models.grain_size_config import get_model_data_dir
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def _output_path() -> Path:
-    out_dir = _repo_root() / "model_data" / "dust_charging_data" / "profiles"
+    out_dir = get_model_data_dir() / "dust_charging_data" / "profiles"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir / "dust_charging_profile_report.json"
 

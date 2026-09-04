@@ -36,15 +36,11 @@ import seaborn as sns
 from scipy.integrate import quad
 from scipy.special import erf
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pycalima.plotting_style import use_calima_style
 
 # ── path setup ───────────────────────────────────────────────────────────────
 
 # ── matplotlib style ─────────────────────────────────────────────────────────
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": False,        # avoid LaTeX dependency
-    "font.family": "sans-serif",
-})
 
 # ── WD01 (Rv=3.1, bc=6e-5) grain size distribution parameters ────────────────
 # (identical to test_grain_size_distribution.py)
@@ -285,6 +281,7 @@ def compute_total_peh(T=100.0, n_gamma=20, n_sizes=30, use_li_draine=False,
 
 def plot_total_peh(gamma_range, Gamma_tot, T, save_path, use_li_draine=False):
     """Plot Gamma_tot/(G0*nH) vs gamma and overlay WD01 digitised data."""
+    use_calima_style()
     plt.rcParams["text.usetex"] = False
 
     # Load WD01 digitised comparison
@@ -344,6 +341,7 @@ def generate_peh_debug_diagnostics(gamma_range, sizes_gra, sizes_sil, dn_da_gra,
     """
     Generate detailed debugging reports and plots to understand the uptick at high gamma.
     """
+    use_calima_style()
     import os
     import numpy as np
     import matplotlib.pyplot as plt

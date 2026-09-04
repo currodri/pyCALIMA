@@ -24,7 +24,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -39,6 +38,7 @@ from pycalima.models.PAH_photophysics.pah_charge_utils import (
 )
 from pycalima.models.PAH_photophysics.pah_temperature import get_absorption_cross_section
 from scipy.optimize import brentq
+from pycalima import _paths
 
 # ── PAH definitions ──────────────────────────────────────────────────────────
 PAH_DEFS = [
@@ -167,7 +167,7 @@ def main():
         fontsize=10,
     )
 
-    out = ROOT / 'allamandola_se_comparison.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'allamandola_se_comparison.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f'\nFigure saved → {out}')
     plt.show()

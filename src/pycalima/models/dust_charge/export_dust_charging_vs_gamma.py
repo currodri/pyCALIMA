@@ -32,9 +32,6 @@ DEFAULT_EXPORT_PARAMS = {
 }
 
 
-def _repo_root():
-    """Get repository root."""
-    return Path(__file__).resolve().parents[2]
 
 
 def _setup_plotting():

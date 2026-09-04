@@ -83,18 +83,19 @@ from pycalima.models.PAH_photophysics.pah_hydrogen_chemistry import (
     EFF_DEHYDROGENATED,
     K_ER_COEFF_CM3S,
 )
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
 
 _THIS_DIR          = os.path.dirname(os.path.abspath(__file__))
-_CALIMA_ROOT       = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))
-_EXTERNAL_DATA_DIR = os.path.join(_CALIMA_ROOT, 'external_data')
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 
 if __name__ == "__main__":
     import numpy as np
     import matplotlib.pyplot as plt
 
-    PAH_FILE = os.path.join(_CALIMA_ROOT, 'model_data', 'PAH_states', 'C54H18_0.dat')
+    PAH_FILE = str(get_model_data_dir() / 'PAH_states' / 'C54H18_0.dat')
 
     # Radiation field: Kurucz 15000 K only (per Andrews 2016)
     kurucz_I_nu  = load_kurucz_I_nu(15000)

@@ -17,15 +17,10 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.collections import LineCollection
 import seaborn as sns
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
-})
 
 yt.set_log_level("critical")
 from unyt import mh,g
+from pycalima.plotting_style import use_calima_style
 
 amu_to_g = 1.66054e-24    # atomic mass units in grams
 mO_NIST_amu = 15.9994     # oxygen molecular weight [amu]
@@ -159,6 +154,7 @@ def plot_single_var(my_fields,varname='temperature'):
         my_fields (list): List of str containing the field names
         varname (str): Variable name to be plotted
     """
+    use_calima_style()
     
     # 1. Get the outputs in the directory
     outputs = sorted(list(filter(lambda file: file.startswith('output'), os.listdir())),key=lambda x: int(x.split('_')[-1]))
@@ -221,6 +217,7 @@ def plot_n_eq_value(my_fields,dust,simname,conv_crit=0.1):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     from unyt import mh
     if dust:
         varnames = ['nH','nH2','nCO','nCI','nCII',
@@ -289,6 +286,7 @@ def plot_n_init_value(my_fields,dust,simname):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     from unyt import mh
     if dust:
         varnames = ['nH','nH2','nCO','nCI','nCII',
@@ -348,6 +346,7 @@ def plot_T(my_fields,dust,simname,conv_crit=0.1):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     from unyt import mh
     nolist = False
     if not isinstance(simname,list):
@@ -452,6 +451,7 @@ def plot_lambda_tot_value(my_fields,dust,simname,conv_crit=0.1):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     from unyt import mh
     varnames_cooling = ['cooling_rate','heating_rate']
 
@@ -524,6 +524,7 @@ def plot_lambda_eq_value(my_fields,dust,simname,conv_crit=0.1):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     from unyt import mh
     varnames_cooling = ['cooling_rate',
                         'cooling_primordial','cooling_fine_structure','cooling_CII',
@@ -623,6 +624,7 @@ def plot_T_for_proposal(my_fields,dust,simname,conv_crit=0.1):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     from unyt import mh
     nolist = False
     if not isinstance(simname,list):
@@ -723,6 +725,7 @@ def plot_for_thesis(my_fields,dust,simname,conv_crit=0.1):
     Args:
         my_fields (list): List of str containing the fields to load
     """
+    use_calima_style()
     import matplotlib.gridspec as gridspec
     from unyt import mh
     nolist = False

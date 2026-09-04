@@ -71,6 +71,8 @@ from pycalima.models.dust_radiation.dust_emission import (
     emitted_power,
     modified_mmp83_radiation_field
 )
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
 # Physical constants (cgs)
 _AMU     = 1.66053906660e-24      # [g] atomic mass unit
@@ -102,7 +104,7 @@ GD89_PARAMS = {
     }
 }
 
-_EXTERNAL_DATA_DIR = os.path.join(str(get_repo_root()), 'external_data')
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 def _number_of_atoms(a_cm, material):
     """Return the total number of atoms in a cluster of radius a_cm.
@@ -1344,7 +1346,7 @@ def write_sublimation_rate_tables(config_path=None,
 
     if output_dir is None:
         output_dir = os.path.join(
-            str(get_repo_root()), 'model_data', 'dust_sublimation')
+            str(get_model_data_dir()), 'dust_sublimation')
     os.makedirs(output_dir, exist_ok=True)
 
     T_grid = np.logspace(np.log10(T_min), np.log10(T_max), n_T)  # [K]
@@ -1433,7 +1435,7 @@ def export_dust_sublimation(config_path=None, output_dir=None):
     """
     if output_dir is None:
         output_dir = os.path.join(
-            str(get_repo_root()), 'model_data', 'dust_sublimation')
+            str(get_model_data_dir()), 'dust_sublimation')
     os.makedirs(output_dir, exist_ok=True)
 
     tables = write_sublimation_rate_tables(
@@ -1815,7 +1817,7 @@ def plot_graphite_lifetime_gd89_variants_comparison(
         ``{'plot_path': str, 'summary_path': str, 'ranking': list}``.
     """
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'results')
+        output_dir = str(_paths.get_results_dir())
     os.makedirs(output_dir, exist_ok=True)
 
     datasets = {
@@ -1977,7 +1979,7 @@ def plot_silicate_lifetime_gd89_comparison(
         ``{'plot_path': str, 'summary_path': str, 'metrics': dict}``.
     """
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'results')
+        output_dir = str(_paths.get_results_dir())
     os.makedirs(output_dir, exist_ok=True)
 
     gd89 = np.loadtxt(
@@ -2241,7 +2243,7 @@ def plot_gd89_temperature_distributions(
 
     material = result['material']
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'results')
+        output_dir = str(_paths.get_results_dir())
     os.makedirs(output_dir, exist_ok=True)
     if filename is None:
         filename = f'{material}_gd89_temperature_distributions.png'
@@ -2384,7 +2386,7 @@ def compare_large_grain_timescales_wd00(
         If ``True``, call ``plt.show()`` after drawing.
     """
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'results')
+        output_dir = str(_paths.get_results_dir())
     os.makedirs(output_dir, exist_ok=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(13.0, 6.0), dpi=180,

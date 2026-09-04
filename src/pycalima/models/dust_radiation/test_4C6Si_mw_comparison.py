@@ -31,15 +31,15 @@ from pathlib import Path
 
 import numpy as np
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from pycalima.models.grain_size_config import set_config_path, get_lognormal_parameters, get_model_data_dir
 from pycalima.models.grain_distributions import PowerLaw_Distribution, Exponential_Distribution
+from pycalima import _paths
 
-CONFIG_PATH = str(_REPO_ROOT / 'models' / 'grain_size_distribution_4C6Si.json')
+CONFIG_PATH = str(_paths.resolve_grain_config_path('4C6Si'))
 set_config_path(CONFIG_PATH)
 OUTPUT_DIR  = str(get_model_data_dir() / 'optical_properties')
-RESULTS_DIR = str(_REPO_ROOT / 'results')
+RESULTS_DIR = str(_paths.get_results_dir('4C6Si_mw_comparison'))
 
 GRAPHITE_BINS = [f'DustBin_{i:02d}' for i in range(1, 11)]   # DustBin_01 … DustBin_10
 SILICATE_BINS = [f'DustBin_{i:02d}' for i in range(11, 21)]  # DustBin_11 … DustBin_20

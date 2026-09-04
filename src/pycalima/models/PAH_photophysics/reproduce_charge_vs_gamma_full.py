@@ -27,7 +27,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,6 +53,7 @@ from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     _build_kdis, _worker,
     F_H2, X_E, T_GAS,
 )
+from pycalima import _paths
 
 # Add electron affinities (used for correct photodetachment threshold)
 _EA = {'C24': 0.47, 'C54': 1.44, 'C96': 3.11}   # eV  (C96 corrected: BT94 EA(1)=4.4-0.5×25.1/√96)
@@ -204,7 +204,7 @@ def _load_andrews(pah_key: str) -> dict:
     pah_key: 'C24', 'C54', or 'C96'.
     Returns {Z: ndarray(N,2)} with columns [gamma, fraction].
     """
-    ext = ROOT / 'external_data'
+    ext = _paths.get_external_data_path()
     data = {}
     for Z, tag in [(-1, 'anion'), (0, 'neutral'), (1, 'cation'), (2, 'dication')]:
         f = ext / f'{pah_key}HN_{tag}_andrews16.csv'
@@ -264,7 +264,7 @@ def _plot(gamma_grid: np.ndarray, fZ_calib: dict, fZ_wr: dict, nH_ref: float) ->
         fontsize=10,
     )
 
-    out = ROOT / 'pah_charge_vs_gamma_full.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'pah_charge_vs_gamma_full.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nFigure saved → {out}")
     plt.show()

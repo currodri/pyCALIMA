@@ -1,6 +1,5 @@
 {
   "_comment": "Equilibrium test starting from gas-dominant ICs \u2014 almost zero dust/PAH so the solver must iterate to find the accretion/destruction balance",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 100.0,
     "hydrogen_number_density_cm3": 100.0,

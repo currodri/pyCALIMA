@@ -12,17 +12,14 @@ By: Curro Rodriguez (currodri@gmail.com)
 # Import some libraries
 from pycalima.models.dust_radiation import dust_oppacity
 import os
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
+from pycalima.plotting_style import use_calima_style
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": False,
-    "font.family": "serif",
-    "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
-})
 import re
 import time
 from scipy.integrate import quad
@@ -35,11 +32,21 @@ from pycalima.models.tools.radiation_fields import Draine_1978_isrf
 from joblib import Parallel, delayed
 from pathlib import Path
 
+# Read-only reference data: fixed at install time, safe as module constants.
 PATH_OPTICS = str(get_optical_props_path())
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-PATH_TABLES = str(_REPO_ROOT / 'model_data' / 'optical_properties')
-PATH_MODEL_OPTICAL_OUTPUT = _REPO_ROOT / 'model_data' / 'optical_properties'
-PATH_EXTERNAL_DATA = _REPO_ROOT / 'external_data'
+PATH_EXTERNAL_DATA = _paths.get_external_data_path()
+
+
+# Generated data: depends on $CALIMA_DATA and the active config's model_name,
+# so it must be resolved per call and never frozen at import.
+def _path_model_optical_output():
+    """Directory holding generated optical-property tables."""
+    return get_model_data_dir() / 'optical_properties'
+
+
+def _path_tables():
+    """String form of :func:`_path_model_optical_output`, for os.path.join callers."""
+    return str(_path_model_optical_output())
 # Global flag to enable/disable Li & Draine (2001) carbonaceous grain optical properties modification
 USE_LI_DRAINE_2001_CARBONACEOUS = False
 
@@ -106,7 +113,7 @@ def _resolve_distribution_species(dust_type):
 def _read_precomputed_optical_properties(bin_id, optical_dir=None):
     """Read exported optical properties for one bin from model_data/optical_properties."""
     if optical_dir is None:
-        optical_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+        optical_dir = str(get_model_data_dir() / 'optical_properties')
 
     file_path = os.path.join(optical_dir, f'averaged_cross_section_{bin_id}.txt')
     if not os.path.exists(file_path):
@@ -954,7 +961,7 @@ def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
     # 2) Collisional coupling coefficient K_coll so that Hcoll = K_coll * (Tgas - Tdust)
     dust_label = _resolve_collisional_dust_label(dust_type, collisional_dust_bin=collisional_dust_bin)
     if table_dir is None:
-        table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
+        table_dir = str(get_model_data_dir() / 'collisional_cooling_data')
 
     coll_tables = load_cooling_tables(table_dir=table_dir)
     electron_entry = coll_tables[f'cooling_{dust_label}_Z_0']
@@ -1059,6 +1066,7 @@ def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
             - results is a list of dictionaries with one entry per curve.
             - output_path is the saved figure path.
     """
+    use_calima_style()
 
     Tgas_values = np.asarray(Tgas_values, dtype=float)
     density_scalings = np.asarray(density_scalings, dtype=float)
@@ -1150,7 +1158,7 @@ def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
     fig.subplots_adjust(top=0.98, bottom=0.13, left=0.12, right=0.98, hspace=0, wspace=0)
 
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     os.makedirs(output_dir, exist_ok=True)
 
     if filename is None:
@@ -1243,6 +1251,7 @@ def modified_mmp83_radiation_field(wavelength):
 
 def plot_compare_radiation_fields():
     # This function compares the radiation fields from Mathis 1983, the modified MMP83 radiation field and the Draine 2011 radiation field
+    use_calima_style()
     wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
     
     # 1. Draine ISRF is given in photons per cm^2/s/nm
@@ -1282,6 +1291,7 @@ def plot_compare_radiation_fields():
 def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
     
     # 1. Define the radiation field
+    use_calima_style()
     G0 = np.logspace(np.log10(G0min),np.log10(G0max),nG0)
     # wav = np.linspace(91.2,240,1000) #in nm
     # radiation_field = np.zeros((len(wav),2))
@@ -1403,6 +1413,7 @@ def plot_equilibrium_temperature(dust_types,nG0=100,G0min=1e-1,G0max=1e7):
 def plot_emission_spectra(dust_types,G0=[1.]):
     
     # 1. Define the radiation field
+    use_calima_style()
     wav = np.logspace(np.log10(0.0912*1e-4),np.log10(1000*1e-4),100) # in cm
     radiation_field = np.zeros((len(wav),2))
     radiation_field[:,0] = wav
@@ -1493,6 +1504,7 @@ def plot_emission_spectra(dust_types,G0=[1.]):
 
 def plot_emission_PRIMA_bands(dust_types,G0=[1.]):
 
+    use_calima_style()
     from itertools import cycle
     
     # 1. Define the radiation field
@@ -1811,6 +1823,7 @@ def read_Semenov2003_mean_oppacity(file_path):
 def plot_Rosseland_oppacity(dust_types):
 
     # 1. Setup the figure
+    use_calima_style()
     fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
     ax.set_xlabel(r'$T_{\rm D}$ [K]',fontsize=20)
     ax.set_ylabel(r'$\kappa_{\rm R}$ [cm$^2$/g]',fontsize=20)
@@ -1902,6 +1915,7 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
         collisional_dust_bin (str, optional): Collisional table bin label or index,
             e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
     """
+    use_calima_style()
     from pycalima.models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
     
     # 1. Define the radiation field
@@ -1925,7 +1939,7 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
     print('Given by',C_abs_avg)
 
     dust_label = _resolve_collisional_dust_label(dust_type, collisional_dust_bin=collisional_dust_bin)
-    table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
+    table_dir = str(get_model_data_dir() / 'collisional_cooling_data')
 
     # 4. Create the figure
     fig, ax = plt.subplots(1,1,figsize=(6,4),dpi=300,facecolor='w',edgecolor='k')
@@ -2051,7 +2065,7 @@ def plot_eqtemp_withcollision(dust_type,ne,nH,nHe,nC,Tmin,Tmax,nG0=100,nT=10,G0m
     # 10. Save figure
     fig.subplots_adjust(top=0.99, bottom=0.13, left=0.13, right=0.99, hspace=0, wspace=0)
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     os.makedirs(output_dir, exist_ok=True)
     fig.savefig(os.path.join(output_dir, f'eqtemp_withcollisions_{dust_type}.pdf'), format='pdf', dpi=300)
 
@@ -2091,6 +2105,7 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
             'output_path': figure path
         }
     """
+    use_calima_style()
     import matplotlib as mpl
     from pycalima.models.dust_gas_collisions.dust_collisional_cooling import load_cooling_tables
 
@@ -2124,7 +2139,7 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
 
     # 3. Load precomputed collisional tables.
     dust_label = _resolve_collisional_dust_label(dust_bin)
-    table_dir = os.path.join(str(get_repo_root()), 'model_data', 'collisional_cooling_data')
+    table_dir = str(get_model_data_dir() / 'collisional_cooling_data')
     coll_tables = load_cooling_tables(table_dir=table_dir)
     z_to_table = _collect_collisional_tables_for_dustbin(coll_tables, dust_label)
     available_Z = sorted(z_to_table.keys())
@@ -2210,7 +2225,7 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
     fig.subplots_adjust(top=0.94, bottom=0.13, left=0.13, right=0.98, hspace=0, wspace=0)
 
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     os.makedirs(output_dir, exist_ok=True)
 
     if filename is None:
@@ -2269,12 +2284,13 @@ def compute_energy_band_luminosity_from_table(bin_id, T_dust, filter_file, dust_
     return L_band
 
 def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
+    use_calima_style()
     from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
     from pycalima.models.grain_size_config import get_lognormal_parameters
 
     # normalize inputs to lists
     if optical_dir is None:
-        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+        optical_dir = _path_model_optical_output()
 
     if isinstance(dust_types, str):
         dust_types = [dust_types]
@@ -2347,7 +2363,7 @@ def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
 
     # Save the figure
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     os.makedirs(output_dir, exist_ok=True)
     
     output_filename = f'energy_Spitzer_luminosity.pdf'
@@ -2358,12 +2374,13 @@ def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
     print(f'Saved {output_filename}')
     
 def plot_energy_Herschel_luminosity(dust_types,optical_dir=None,output_dir=None):
+    use_calima_style()
     from pycalima.models.dust_radiation.dust_oppacity import _read_precomputed_cross_section_table
     from pycalima.models.grain_size_config import get_lognormal_parameters
 
     # normalize inputs to lists
     if optical_dir is None:
-        optical_dir = PATH_MODEL_OPTICAL_OUTPUT
+        optical_dir = _path_model_optical_output()
 
     if isinstance(dust_types, str):
         dust_types = [dust_types]
@@ -2443,7 +2460,7 @@ def plot_energy_Herschel_luminosity(dust_types,optical_dir=None,output_dir=None)
 
     # Save the figure
     if output_dir is None:
-        output_dir = os.path.join(str(get_repo_root()), 'model_data', 'optical_properties')
+        output_dir = str(get_model_data_dir() / 'optical_properties')
     os.makedirs(output_dir, exist_ok=True)
     
     output_filename = f'energy_Herschel_luminosity.pdf'

@@ -29,11 +29,11 @@ Usage
 from __future__ import annotations
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 from math import lgamma, log, floor, sqrt, exp
 import matplotlib.pyplot as plt
+from pycalima import _paths
 
 # ── Physical constants (CGS) ──────────────────────────────────────────────────
 ME    = 9.1093837015e-28
@@ -158,7 +158,7 @@ def S_WR_stdapprox(Nc: int, EA: float = 0.7, T: float = 10.0,
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    data = np.loadtxt(ROOT / 'external_data' / 'sticking_coefficient_Allamandola1989.csv',
+    data = np.loadtxt(_paths.get_external_data_path('sticking_coefficient_Allamandola1989.csv'),
                       delimiter=',')
     N_data, S_data = data[:, 0], data[:, 1]
 
@@ -204,7 +204,7 @@ def main() -> None:
     ax.legend(fontsize=9)
     ax.grid(True, which='both', alpha=0.3, lw=0.5)
 
-    out = ROOT / 'allamandola89_fig25_comparison.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'allamandola89_fig25_comparison.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f'\nFigure saved → {out}')
     plt.show()

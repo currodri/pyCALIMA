@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,8 +35,9 @@ from pycalima.models.PAH_photophysics.pah_charge_utils import afromNc
 from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
     _STATES_DIR, _HV_EV, _worker,
 )
+from pycalima import _paths
 
-_EXT = ROOT / 'external_data'
+_EXT = _paths.get_external_data_path()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 Nc   = 24
@@ -268,7 +268,7 @@ def main() -> None:
     )
 
     plt.tight_layout(rect=[0, 0.03, 1, 1])
-    out = ROOT / 'compare_c24_G0_rates.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'compare_c24_G0_rates.png'
     plt.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nSaved → {out}")
 

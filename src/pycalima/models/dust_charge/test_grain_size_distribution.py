@@ -21,12 +21,7 @@ from scipy.special import erf
 
 # Set up matplotlib style for professional publications
 import seaborn as sns
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
-})
+from pycalima.plotting_style import use_calima_style
 
 # 1. Physics and Material Parameters
 M_C = 12 * 1.66053892e-24   # mass of C atom in g
@@ -160,6 +155,7 @@ def silicate_dn_da(a):
 
 # 4. Plot Size Distributions
 def plot_distributions(save_path):
+    use_calima_style()
     print("Generating grain size distribution plots...")
     sizes_micron = np.logspace(-4.0, 1.0, 500)  # size range 0.1 nm to 10 micron
     sizes_cm = sizes_micron * 1e-4
@@ -411,6 +407,7 @@ def compare_recomb_rates_over_phi_range(T=100.0, save_plot_path=None, use_li_dra
     for fixed temperature T, comparing numerical and analytical fits,
     and plotting the result. Parallelized using ProcessPoolExecutor.
     """
+    use_calima_style()
     from concurrent.futures import ProcessPoolExecutor
     plt.rcParams["text.usetex"] = False
     print(f"\nComputing recombination coefficients over phi range (10^2 to 10^6) at fixed T = {T} K...")
@@ -581,6 +578,7 @@ def plot_grain_size_contribution(T=100.0, save_plot_path=None, use_li_draine=Fal
     Computes and plots the grain-assisted ion recombination rate contribution of each grain size
     for 10 different gamma values. Parallelized using ProcessPoolExecutor.
     """
+    use_calima_style()
     from concurrent.futures import ProcessPoolExecutor, as_completed
     plt.rcParams["text.usetex"] = False
     print(f"\nComputing grain size recombination contribution over gamma range (10^2 to 10^6) at T = {T} K...")

@@ -1,6 +1,5 @@
 {
   "_comment": "All-processes test \u2014 all dust/PAH physics enabled, 5 Myr run",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 100.0,
     "hydrogen_number_density_cm3": 100.0,

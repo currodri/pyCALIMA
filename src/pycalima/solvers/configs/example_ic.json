@@ -1,6 +1,5 @@
 {
   "_comment": "CALIMA dust chemistry initial conditions \u2014 cold neutral medium (CNM) example",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 100.0,
     "hydrogen_number_density_cm3": 100.0,

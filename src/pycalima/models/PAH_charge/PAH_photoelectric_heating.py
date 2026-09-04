@@ -24,23 +24,44 @@ from unyt import nm,m,cm,eV,J,s,h,c,erg,K,kb
 from pycalima.models.dust_model import basic_a0,basic_amin,basic_amax,basic_sigma,basic_s,LogNormal_Distribution
 from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
 from pycalima.models.tools.radiation_fields import Draine_1978_isrf
+from pycalima import _paths
+from pycalima.plotting_style import use_calima_style
+
+
+def _bpass_sed_dir():
+    """Directory holding the BPASS v2.2.1 SED tables.
+
+    These are ~GB of stellar-population spectra from a separate project
+    (Dusty-PRISM) and are not redistributed with pyCALIMA. Point
+    $CALIMA_SED_DIR at your own copy.
+    """
+    import os
+    from pathlib import Path
+
+    raw = os.environ.get("CALIMA_SED_DIR")
+    if not raw:
+        raise RuntimeError(
+            "This routine needs the BPASS v2.2.1 SED tables, which are not "
+            "bundled with pyCALIMA (they come from the Dusty-PRISM project and "
+            "are far too large to ship). Set $CALIMA_SED_DIR to the directory "
+            "containing them, e.g.\n"
+            "    export CALIMA_SED_DIR=/path/to/bpass_v221_cha300"
+        )
+    path = Path(raw).expanduser()
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"$CALIMA_SED_DIR points at {path}, which is not a directory."
+        )
+    return str(path)
 
 os.environ["OMP_NUM_THREADS"] = "1"  # Set it to the desired number of threads
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
-    "text.latex.preamble": r"\usepackage{xcolor}"
-})
 
 # Resolve paths relative to the repository root, independent of cwd.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_CALIMA_ROOT = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))
-_EXTERNAL_DATA_DIR = os.path.join(_CALIMA_ROOT, 'external_data')
-_BERNE_2022_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'berne_2022')
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
+_BERNE_2022_DIR = str(_paths.get_optical_props_path('berne_2022'))
 
 # BERNEPATH points to the Berne 2022 PAH cross-section dataset.
 # It defaults to optical_props/berne_2022/ inside this repository.
@@ -53,7 +74,7 @@ _BERNE_2022_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'berne_2022')
 BERNEPATH = os.environ.get('BERNEPATH', _BERNE_2022_DIR)
 
 # CONSTANTS
-PAH_OPTICALS_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'li_draine_2001')
+PAH_OPTICALS_DIR = str(_paths.get_optical_props_path('li_draine_2001'))
 pahneu_filepath = os.path.join(PAH_OPTICALS_DIR, 'PAHneu_30')
 pahion_filepath = os.path.join(PAH_OPTICALS_DIR, 'PAHion_30')
 epsilon_0 =  8.8541878188e-21 # Vacuum permittivity [F/nm]
@@ -482,6 +503,7 @@ def compare_cross_sections(Nc):
     Args:
         Nc (int): Number of carbon atoms in PAH molecule
     """
+    use_calima_style()
     # Compute cross sections using the two methods
     if Nc < 100:
         dist = LogNormal_Distribution(basic_a0[0], basic_amin[0], basic_amax[0], basic_sigma[0], basic_s[0])
@@ -598,6 +620,7 @@ def compute_integrated_absorbed_power_G0(a0, amin, amax, sigma, s, Nc, compositi
 
 
 def plot_radiation_fields():
+    use_calima_style()
     from astropy.table import Table
 
     # Read the radiation field in erg s-1 cm-2 nm-1 sr-1
@@ -1136,6 +1159,7 @@ def multiline(xs, ys, c, ax=None, **kwargs):
     return lc
 
 def my_efficiency(pahtype,attach_model,G0min,G0max,ne_min,ne_max,T,ax,fig,do_colorbar=False):
+    use_calima_style()
     n_ne = 100
     n_G0 = 100
     G0_list = np.logspace(np.log10(G0min),np.log10(G0max),n_G0)
@@ -1386,7 +1410,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
     elif radiation_model == 'BPASS_veryyoung_lowz':
         from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
-        metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
+        metallicities, ages, wavelengths, SEDs = read_sed_tables(_bpass_sed_dir())
         fixed_age = 0.01 # 10 Myr
         fixed_metallicity = 0.0002 # 0.01 Zsun
         # Find the index of the closest age to the desired fixed age
@@ -1401,7 +1425,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
     elif radiation_model == 'BPASS_young_midz':
         from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
-        metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
+        metallicities, ages, wavelengths, SEDs = read_sed_tables(_bpass_sed_dir())
         fixed_age = 0.1 # 0.1 Gyr
         fixed_metallicity = 0.01 # 0.5 Zsun
         # Find the index of the closest age to the desired fixed age
@@ -1416,7 +1440,7 @@ def my_efficiency2(pahtype,attach_model,radiation_model,optical_model,ne_min,ne_
     elif radiation_model == 'BPASS_old_highz':
         from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
-        metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
+        metallicities, ages, wavelengths, SEDs = read_sed_tables(_bpass_sed_dir())
         fixed_age = 1 # 1 Gyr
         fixed_metallicity = 0.02 # 1 Zsun
         # Find the index of the closest age to the desired fixed age
@@ -1649,6 +1673,7 @@ def Wolfire2003_efficiency(T,ax):
 
 def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
     
+    use_calima_style()
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
 
     ax.set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
@@ -1685,6 +1710,7 @@ def compare_eff_curves(G0min,G0max,T,ne_min,ne_max):
 
 def compare_eff_curves_all(T,ne_min,ne_max,n_ne=100):
     
+    use_calima_style()
     fig, axes = plt.subplots(2, 2, sharex=True, figsize=(10,8), dpi=300, facecolor='w', edgecolor='k')
 
     axes[0,0].set_ylabel(r'$\epsilon_{\Gamma},\epsilon_{\rm PAH}$', fontsize=16)
@@ -1746,6 +1772,7 @@ def compare_eff_curves_all(T,ne_min,ne_max,n_ne=100):
 
 def compare_eff_curves_ISRF(T,ne_min,ne_max,n_ne=100,op_model='Malloci'):
     
+    use_calima_style()
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
 
     ax.set_ylabel(r'$\epsilon_{\rm PAH}$', fontsize=16)
@@ -1816,6 +1843,7 @@ def _load_isrf_data(model_name):
 def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=100, radiation_model='Draine',
                         op_model='Malloci', attach_model='Berne', output_dir=None, file_prefix=''):
 
+    use_calima_style()
     fig, axes = plt.subplots(1, 2, sharex=True, figsize=(10,4), dpi=300, facecolor='w', edgecolor='k')
     axes[0].text(-0.16, 0.30, r"$P_{\rm inj}$", color='r',
         transform=axes[0].transAxes, rotation=90,
@@ -1931,6 +1959,7 @@ def compute_tables_ISRF(Nc, a0, amin, amax, sigma, s, T, ne_min, ne_max, n_ne=10
 def peh_vs_recombination_ISRF(G0,ne,Tmin,Tmax,nT=100,radiation_model='Draine',
                               optical_model='Malloci',attach_model='Berne'):
     
+    use_calima_style()
     from astropy.table import Table
     T_list = np.logspace(np.log10(Tmin*K),np.log10(Tmax*K),nT)
     

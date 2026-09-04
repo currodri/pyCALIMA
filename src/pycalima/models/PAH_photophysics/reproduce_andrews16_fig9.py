@@ -27,7 +27,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -46,6 +45,8 @@ from pycalima.models.PAH_photophysics.pah_temperature import (
     get_absorption_cross_section,
 )
 from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_u_E
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
 # ─── PAH definitions ──────────────────────────────────────────────────────────
 # Topology from NASA Ames PAHdb (catalogued uid, D6h/Ag symmetry isomers).
@@ -98,7 +99,7 @@ T_GAS  = 500.0   # K  (fixed gas temperature)
 F_H2   = 0.5     # molecular hydrogen fraction → n_H_atomic = (1 - F_H2) * nH
 X_E    = 1.6e-4  # electron fraction (C+ ionisation) → n_e = X_E * nH
 
-_STATES_DIR = ROOT / 'model_data' / 'PAH_states'
+_STATES_DIR = get_model_data_dir() / 'PAH_states'
 _HV_EV      = 1.23984193e-4   # h·c in eV·cm
 
 
@@ -421,7 +422,7 @@ def _plot(fracs: dict) -> None:
         fontsize=12,
     )
 
-    out = ROOT / 'andrews16_fig9_reproduction.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'andrews16_fig9_reproduction.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nFigure saved → {out}")
     plt.show()

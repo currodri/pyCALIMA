@@ -37,8 +37,6 @@ def pushd(path: Path):
         os.chdir(old_cwd)
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def _select_pah_bins(config_path: str | None = None):

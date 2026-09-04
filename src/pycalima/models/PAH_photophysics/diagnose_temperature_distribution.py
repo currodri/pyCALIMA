@@ -19,11 +19,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
 
 import numpy as np
 import matplotlib
-matplotlib.rcParams['text.usetex'] = False
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
@@ -47,13 +45,28 @@ from pycalima.models.PAH_photophysics.pah_dissociation import (
 from pycalima.models.PAH_photophysics.pah_mol_data import compute_thermal_ir_rate
 from pycalima.models.PAH_photophysics.pah_charge_utils import afromNc
 from pycalima.models.PAH_photophysics.pah_radiation import load_kurucz_I_nu, load_kurucz_u_E
+from pycalima.plotting_style import use_calima_style
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-_EXT       = ROOT / 'external_data'
-_STATES    = ROOT / 'model_data' / 'PAH_states'
-_DUSTEM    = Path('/Users/currodri/Library/CloudStorage/OneDrive-TheUniversityofChicago/Project/Dust/dustem4.3_web/hcap/C_PAH0_DL07.DAT')
+_EXT       = _paths.get_external_data_path()
+_STATES    = get_model_data_dir() / 'PAH_states'
+
+def _dustem_file():
+    """The DustEM heat-capacity table used for the f(T) cross-check.
+
+    Ships with DustEM (https://www.ias.u-psud.fr/DUSTEM/), not with pyCALIMA.
+    Point $CALIMA_DUSTEM_FILE at your own copy of ``hcap/C_PAH0_DL07.DAT``.
+    Returns None when unset, which the caller reports as a skipped comparison.
+    """
+    import os
+
+    raw = os.environ.get('CALIMA_DUSTEM_FILE')
+    return Path(raw).expanduser() if raw else None
+
 
 PAH_FILE   = str(_STATES / 'C54H18_0.dat')
 ET_TABLE   = str(_EXT / 'E-Trelation_neutral_circumcoronene_Tielens2005.csv')
@@ -121,13 +134,19 @@ def _load_dl07_u():
 
     C is in erg/K/cm³; U per molecule = ∫ C dT × V_grain → eV.
     """
-    if not _DUSTEM.exists():
-        print(f"  Warning: DustEM file not found: {_DUSTEM}")
+    dustem = _dustem_file()
+    if dustem is None:
+        print("  Warning: DustEM heat-capacity table not configured; "
+              "set $CALIMA_DUSTEM_FILE to hcap/C_PAH0_DL07.DAT from a DustEM "
+              "install to enable this comparison.")
+        return None, None
+    if not dustem.exists():
+        print(f"  Warning: DustEM file not found: {dustem}")
         return None, None
 
     # Collect all numeric tokens from non-comment lines
     tokens = []
-    with open(_DUSTEM) as fh:
+    with open(dustem) as fh:
         for line in fh:
             if line.strip().startswith('#') or not line.strip():
                 continue
@@ -165,6 +184,7 @@ def _load_dl07_u():
 
 
 def plot_u_of_t():
+    use_calima_style()
     print("\n=== Panel 1: U(T) comparison ===")
     freq_ev, _ = load_pah_modes(PAH_FILE)
 
@@ -231,6 +251,7 @@ def _pir_spectral(T, wav_cm, C_abs):
 
 
 def plot_pir():
+    use_calima_style()
     print("\n=== Panel 2: P_IR(T) comparison ===")
     freq_ev, einstein_A = load_pah_modes(PAH_FILE)
     active = einstein_A > 0
@@ -276,6 +297,7 @@ def plot_pir():
 # ===========================================================================
 
 def plot_ft():
+    use_calima_style()
     print("\n=== Panel 3: f(T) comparison for GD89, Adaptive, Bakes ===")
 
     G0_vals  = [1.0, 100.0, 1000.0]
@@ -383,6 +405,7 @@ def _build_kir_table(pah_file: str, tmp_path: str, n_E: int = 200) -> str:
 
 
 def plot_rates_vs_g0():
+    use_calima_style()
     print("\n=== Panel 4: Dissociation rates vs G0 ===")
 
     G0_GRID = np.logspace(0, 5, 20)
@@ -399,8 +422,9 @@ def plot_rates_vs_g0():
     dS_H2    = -53.1  # J/K/mol
 
     # Build our PAHdb-based k_IR(E) table to enable Methods C/D/E
-    import tempfile, os
-    tmp_dir  = '/Users/currodri/.claude/jobs/7e1cee54/tmp'
+    import os
+    import tempfile
+    tmp_dir  = tempfile.mkdtemp(prefix='calima_kir_')
     kir_path = os.path.join(tmp_dir, 'C54H18_kIR_PAHdb.csv')
     print("  Building k_IR(E) table from PAHdb modes...")
     _build_kir_table(PAH_FILE, kir_path)
@@ -493,6 +517,7 @@ def plot_ft_dustem_comparison():
 
     Four subplots: G0 = 1, 100, 1000, 10000 (covers single- and multi-photon).
     """
+    use_calima_style()
     print("\n=== Panel 5: f(T) convergence — QHO-GD89 vs Spectral-GD89 vs DustEM-iter ===")
 
     # Use the Tielens (2005) E-T table, which is specific to circumcoronene

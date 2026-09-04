@@ -9,10 +9,10 @@ caller is responsible for using the right temperature.
 import os
 import numpy as np
 from pathlib import Path
+from pycalima import _paths
 
 _THIS_DIR        = os.path.dirname(os.path.abspath(__file__))
-_CALIMA_ROOT     = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))
-_EXTERNAL_DATA_DIR = os.path.join(_CALIMA_ROOT, 'external_data')
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 _VALID_TEFFS = [10000, 11000, 12500, 15000, 20000, 25000, 30000, 40000]
 

@@ -45,14 +45,11 @@ from pycalima.models.dust_charge.dust_photoelectric_heating import (
     read_dielectric_file,
 )
 from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+from pycalima.models.grain_size_config import get_model_data_dir
 
 
 def _dust_charging_output_dir() -> Path:
-    return _repo_root() / "model_data" / "dust_charging_data"
+    return get_model_data_dir() / "dust_charging_data"
 
 
 def _safe_float(v, default=np.nan) -> float:
@@ -1532,9 +1529,8 @@ def _build_grid_rows(
 
 
 def parse_args() -> argparse.Namespace:
-    repo = _repo_root()
-    default_pattern = str(repo / "model_data" / "dust_charging_data" / "charging_vs_gamma_*.json")
-    default_base = str(repo / "model_data" / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison")
+    default_pattern = str(get_model_data_dir() / "dust_charging_data" / "charging_vs_gamma_*.json")
+    default_base = str(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison")
 
     p = argparse.ArgumentParser(
         description="Compare full charge-distribution rates against a Zmean-only approximation"
@@ -1676,7 +1672,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    repo = _repo_root()
 
     in_paths: List[Path] = []
     if args.run_mode == "from-json":
@@ -1913,7 +1908,7 @@ def main() -> None:
     out_summary = (
         Path(args.output_summary)
         if args.output_summary
-        else Path(repo / "model_data" / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.summary.json")
+        else Path(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.summary.json")
     )
     out_summary.parent.mkdir(parents=True, exist_ok=True)
     with open(out_summary, "w", encoding="utf-8") as fh:
@@ -1922,7 +1917,7 @@ def main() -> None:
     out_plot = (
         Path(args.output_plot)
         if args.output_plot
-        else Path(repo / "model_data" / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.ratio_map.png")
+        else Path(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.ratio_map.png")
     )
     try:
         plot_meta = _plot_ratio_maps(

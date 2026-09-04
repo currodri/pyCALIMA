@@ -1,6 +1,5 @@
 {
   "_comment": "CALIMA equilibrium config for post-processing RAMSES G8 0.03Zsun simulations. Derived from ramses_G8_0.1Zsun.json by scaling metal abundances to 0.03 Zsun.",
-  "model_data_dir": "model_data",
   "environment": {
     "gas_temperature_K": 100.0,
     "hydrogen_number_density_cm3": 1.0,

@@ -14,22 +14,18 @@ import re
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": ["DejaVu Serif", "Times New Roman", "Times", "serif"],
-})
 
 from pycalima.models.grain_size_config import get_bins, get_lognormal_parameters, build_lognormal_distribution, get_optical_props_path, get_model_data_dir
 from pycalima.models.dust_model import LogNormal_Distribution
 from pycalima.models.dust_radiation.dust_oppacity import compute_isrf_averaged_cross_sections
+from pycalima.plotting_style import use_calima_style
 
 PATH_OPTICS = str(get_optical_props_path())
 
 
 def _save_optical_quicklook_plot(plot_path, wavelengths_cm, C_abs_neu, C_sca_neu, C_rp_neu, C_abs_ion, C_sca_ion, C_rp_ion, title):
     """Save a quick-look log-log plot of absorption, scattering and radiation pressure, comparing neutral and ionised."""
+    use_calima_style()
     wavelengths_micron = np.asarray(wavelengths_cm) * 1e4
     C_abs_neu = np.asarray(C_abs_neu)
     C_sca_neu = np.asarray(C_sca_neu)
@@ -474,6 +470,7 @@ def test_pah_ionised_neutral_ratio(grain_size_micron=5e-4, Emin_eV=None, Emax_eV
         Number of carbon atoms for Malloci mode. If None, inferred from
         grain_size_micron using Nc ~= 468 * (a[nm])^3.
     """
+    use_calima_style()
     optical_model = str(optical_model).strip().lower()
 
     def _safe_ratio(num, den):

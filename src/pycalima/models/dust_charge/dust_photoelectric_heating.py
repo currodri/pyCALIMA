@@ -4,22 +4,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 import math
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
-})
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
-sns.set_theme(style="white")
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "serif",
-    "font.serif": "Computer Modern Roman",
-})
 
 from pycalima.models.dust_charge.IM19_charging import grain_charge_dist,grain_mean_charge,grain_charge_probability
 from pycalima.models.grain_size_config import get_optical_props_path
@@ -52,6 +40,36 @@ from pycalima.models.dust_charge.shared_physics import (
     _coulomb_energy_over_a as _coulomb_e_over_a,
 )
 from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file, save_imn_file
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
+from pycalima.plotting_style import use_calima_style
+
+
+def _bpass_sed_dir():
+    """Directory holding the BPASS v2.2.1 SED tables.
+
+    These are ~GB of stellar-population spectra from a separate project
+    (Dusty-PRISM) and are not redistributed with pyCALIMA. Point
+    $CALIMA_SED_DIR at your own copy.
+    """
+    import os
+    from pathlib import Path
+
+    raw = os.environ.get("CALIMA_SED_DIR")
+    if not raw:
+        raise RuntimeError(
+            "This routine needs the BPASS v2.2.1 SED tables, which are not "
+            "bundled with pyCALIMA (they come from the Dusty-PRISM project and "
+            "are far too large to ship). Set $CALIMA_SED_DIR to the directory "
+            "containing them, e.g.\n"
+            "    export CALIMA_SED_DIR=/path/to/bpass_v221_cha300"
+        )
+    path = Path(raw).expanduser()
+    if not path.is_dir():
+        raise FileNotFoundError(
+            f"$CALIMA_SED_DIR points at {path}, which is not a directory."
+        )
+    return str(path)
 
 try:
     from numba import njit
@@ -80,17 +98,25 @@ DS87_nu = np.array([0.5,1,2,3,4,5,10,20])
 
 PATH_OPTICS = str(get_optical_props_path())
 _RADIATION_FIELD_LOGGED_ONCE = False
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-_EXTERNAL_DATA_DIR = os.path.join(_REPO_ROOT, 'external_data')
-DUST_PHOTOELECTRIC_OUTPUT_DIR = os.path.join(_REPO_ROOT, 'model_data', 'dust_photoelectric_heating_data')
-os.makedirs(DUST_PHOTOELECTRIC_OUTPUT_DIR, exist_ok=True)
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
+
+
+def dust_photoelectric_output_dir(*subdirs):
+    """Directory for generated photoelectric-heating tables.
+
+    Resolved on every call, not at import: it depends on $CALIMA_DATA and on
+    the active configuration's model_name. The previous module-level
+    ``os.makedirs`` ran at *import* time and raised PermissionError on a
+    read-only install prefix.
+    """
+    return get_model_data_dir().joinpath('dust_photoelectric_heating_data', *subdirs)
 
 
 def _photoelectric_output_path(path):
     if os.path.isabs(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         return path
-    out_path = os.path.join(DUST_PHOTOELECTRIC_OUTPUT_DIR, path)
+    out_path = os.path.join(str(dust_photoelectric_output_dir()), path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     return out_path
 
@@ -440,6 +466,7 @@ def ionisation_potential_valence(W,Z,a):
     return float(np.asarray(_ip_valence_vec(W, Z, a), dtype=float))
 
 def plot_ionisation_potential(W):
+    use_calima_style()
     Nc = np.linspace(10,80,20)
     a = (Nc/468.)**(1./3.) * 10 # [A]
     a = a / 10. # [nm]
@@ -465,6 +492,7 @@ def plot_ionisation_potential(W):
     plt.savefig(_photoelectric_output_path('ionisation_potential.pdf'),format='pdf',dpi=300)
 
 def plot_ionpot_vs_charge():
+    use_calima_style()
     a = np.array([10,100]) # [nm]
     Z = np.arange(0,8000,100)
 
@@ -493,6 +521,7 @@ def electron_affinity_silicate(W, Z, a):
 
 def plot_electron_affinity():
 
+    use_calima_style()
     Nc = np.linspace(5,60,100)
     a = (Nc/468.)**(1./3.) * 1e-7 # [cm]
     Z = 0
@@ -593,6 +622,7 @@ def plot_dielectric_data(filename):
     filename : str
         Path to the input file.
     """
+    use_calima_style()
     data = read_dielectric_file(filename)
     df = data['table']
 
@@ -669,6 +699,7 @@ def photoelectric_yield_silicate(W,Z,a,le,E,wav,Im):
 def plot_photoelectric_yields(grain_types,a,Z,nE=100):
 
     # 1. Setup the figure
+    use_calima_style()
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
     ax.set_ylabel(r'$Y$', fontsize=16)
     ax.set_xlabel(r'$E$ [eV]',fontsize=16)
@@ -757,6 +788,7 @@ def compare_yield_functions(size_cm=4e-8, Z=0, E_min=4.0, E_max=30.0, nE=300, sa
     savefile : str or None
         If provided, save the figure to this path. Otherwise default filename is used.
     """
+    use_calima_style()
     from pycalima.models.dust_charge.dust_charging import photoelectric_yield_graphite_vec, photoelectric_yield_silicate_vec
 
     # energy grid
@@ -1164,6 +1196,7 @@ def plot_DS87_lambda(Z,q,a,Tmin,Tmax,nT=100):
     nT : int, optional
         Number of temperature points to compute (default is 100).
     """
+    use_calima_style()
     import matplotlib.pyplot as plt
 
     temperatures = np.logspace(np.log10(Tmin),np.log10(Tmax),nT)
@@ -1241,6 +1274,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
     radiation_model : str, optional
         Radiation model to use ('Draine' or 'Mathis') (default is 'Draine').
     """
+    use_calima_style()
     from astropy.table import Table
     from pycalima.models.PAH_charge.PAH_photoelectric_heating import blackbody_radiation
     from pycalima.models.dust_radiation.dust_emission import compute_cross_sections
@@ -1567,6 +1601,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
     fig.savefig(_photoelectric_output_path(f'dust_photoelectric_heating_vs_recombination_{radiation_model}.pdf'), format='pdf', dpi=300)
 
 def plot_DS87_thetanu():
+    use_calima_style()
     fig, ax = plt.subplots(1, 1, sharex=True, figsize=(6,5), dpi=300, facecolor='w', edgecolor='k')
     ax.set_ylabel(r'$\theta_{\nu}/\nu$', fontsize=16)
     ax.set_xlabel(r'$\nu$', fontsize=16)
@@ -1719,7 +1754,7 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
     elif radiation_model == 'BPASS_veryyoung_lowz':
         from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
-        metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
+        metallicities, ages, wavelengths, SEDs = read_sed_tables(_bpass_sed_dir())
         fixed_age = 0.01 # 10 Myr
         fixed_metallicity = 0.0002 # 0.01 Zsun
         # Find the index of the closest age to the desired fixed age
@@ -1732,7 +1767,7 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
     elif radiation_model == 'BPASS_young_midz':
         from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
-        metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
+        metallicities, ages, wavelengths, SEDs = read_sed_tables(_bpass_sed_dir())
         fixed_age = 0.1 # 0.1 Gyr
         fixed_metallicity = 0.01 # 0.5 Zsun
         # Find the index of the closest age to the desired fixed age
@@ -1745,7 +1780,7 @@ def get_radiation_field(radiation_model, E_min=0.1, E_max=13.6):
     elif radiation_model == 'BPASS_old_highz':
         from pycalima.models.tools.read_ramses_sed import read_sed_tables
         from unyt import Gyr
-        metallicities, ages, wavelengths, SEDs = read_sed_tables("/Users/currodri/Documents/Dusty-PRISM/tests/lib/bpass_v221_cha300")
+        metallicities, ages, wavelengths, SEDs = read_sed_tables(_bpass_sed_dir())
         fixed_age = 1 # 1 Gyr
         fixed_metallicity = 0.02 # 1 Zsun
         # Find the index of the closest age to the desired fixed age
@@ -1916,6 +1951,7 @@ def compute_tables_ISRF(ne, T, n_gamma=10, radiation_model='Mathis', sweep_varia
         For blackbody, use 'BB{T_star}' where {T_star} is the temperature in K (e.g., 'BB30000' for 30000 K).
 
     """
+    use_calima_style()
     import os
     # 1. Define grain types and sizes
     grain_types = [('graphite',1e-6,'steelblue','Gra'),('graphite',1e-5,'cornflowerblue','Gra'),
@@ -1981,6 +2017,7 @@ def compute_tables_ISRF(ne, T, n_gamma=10, radiation_model='Mathis', sweep_varia
     fig.savefig(_photoelectric_output_path(f'dust_photoelectric_heating_vs_recombination_{radiation_model}.pdf'), format='pdf', dpi=300)
 
 def plot_efficiency(T,ne,radiation_model='Draine',G0factor=1.0,nsizes=50):
+    use_calima_style()
     import concurrent.futures
     from tqdm import tqdm
 
@@ -2104,6 +2141,7 @@ def plot_efficiency_all_fields(T, ne, G0factor=1.0, nsizes=50,
     fields used in compare_eff_curves_ISRF, using colors for radiation fields
     and linestyles for grain types so both are visually distinguished.
     """
+    use_calima_style()
 
     if grain_types is None:
         grain_types = ['graphite', 'silicate']
@@ -2349,6 +2387,7 @@ def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
 
     Returns a dict with arrays and the out_dir path.
     """
+    use_calima_style()
     import os
     out_dir = _photoelectric_output_path(out_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -2759,6 +2798,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
         If provided, save the figure to this path. Otherwise saves to
         `avg_potential_{radiation_model}.pdf` in the working directory.
     """
+    use_calima_style()
     # build sizes array
     if sizes_A is None:
         sizes_A = np.logspace(np.log10(10), np.log10(1e4), n_sizes)
@@ -2977,6 +3017,7 @@ def plot_average_potential(radiation_model='Mathis', G0factor=1.0, ne=1.0, T=100
     plt.close(fig2)
 
 def plot_csa_IM19():
+    use_calima_style()
     from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
     # 1. Setup the figure
@@ -3020,6 +3061,7 @@ def compare_Mathis_WD01(savefile=None, E_min=0.1, E_max=13.6, nE=1000, norm_band
 
     Returns the output filename.
     """
+    use_calima_style()
     E = np.linspace(E_min, E_max, int(nE))
     # Evaluate WD01 Mathis function on the same E grid via get_radiation_field
     rad_WD = get_radiation_field('Mathis')
@@ -3455,6 +3497,7 @@ def plot_heating_cooling_cartesian(grain_type, a_cm, radiation_model='Mathis',
     results : dict with keys 'G0','ne','sqrtT','heating','cooling'
     Arrays are flattened in the same order.
     """
+    use_calima_style()
     import concurrent.futures
     try:
         from tqdm import tqdm
@@ -3685,6 +3728,7 @@ def plot_gamma_combo_projections(grain_type, a_cm, radiation_model='Mathis',
 
     Returns the results dict used for plotting.
     """
+    use_calima_style()
     import concurrent.futures
     try:
         from tqdm import tqdm
@@ -3801,6 +3845,7 @@ def plot_gamma_surfaces(grain_type, a_cm, radiation_model='Mathis',
     Produces three 3D panels where the x-axis is the variable (G0, ne or T), the y-axis
     is gamma, and the z-axis is the log10(rate) (heating or cooling).
     """
+    use_calima_style()
     import concurrent.futures
     try:
         from tqdm import tqdm
@@ -3945,6 +3990,7 @@ def plot_rate_vs_gamma_for_T(grain_type, a_cm, radiation_model='Mathis',
     -------
     results: dict with keys for each T -> dict(gamma, rate)
     """
+    use_calima_style()
     import concurrent.futures
     try:
         from tqdm import tqdm

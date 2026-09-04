@@ -23,10 +23,10 @@ from scipy.integrate import quad
 from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
 from pycalima.models.PAH_radiation.pah_oppacity import pah_efficiencies
 from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
+from pycalima import _paths
 
 _THIS_DIR       = os.path.dirname(os.path.abspath(__file__))
-_CALIMA_ROOT    = os.path.abspath(os.path.join(_THIS_DIR, '..', '..'))
-PAH_OPTICALS_DIR = os.path.join(_CALIMA_ROOT, 'optical_props', 'li_draine_2001')
+PAH_OPTICALS_DIR = str(_paths.get_optical_props_path('li_draine_2001'))
 pahneu_filepath  = os.path.join(PAH_OPTICALS_DIR, 'PAHneu_30')
 pahion_filepath   = os.path.join(PAH_OPTICALS_DIR, 'PAHion_30')
 

@@ -225,7 +225,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path(__file__).resolve().parents[2] / "model_data",
+        default=None,
         help="Path to model_data (default: repo model_data directory)",
     )
     return parser

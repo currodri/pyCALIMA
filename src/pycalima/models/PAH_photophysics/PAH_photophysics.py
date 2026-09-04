@@ -25,6 +25,7 @@ from pycalima.models.grain_size_config import get_bins, get_lognormal_parameters
 from pycalima.models.tools.utils import Nc_from_size
 
 from unyt import nm,m,cm,eV,J,s,h,c
+from pycalima import _paths
 
 
 # Set OMP_NUM_THREADS to limit the number of threads used by OpenBLAS
@@ -33,8 +34,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
 # Constants
 current_dir = os.path.dirname(os.path.abspath(__file__))
-_CALIMA_ROOT = os.path.abspath(os.path.join(current_dir, '..', '..'))
-EXTERNAL_DATA_DIR = os.path.join(_CALIMA_ROOT, 'external_data')
+EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 
 def _external_data_path(filename):
@@ -72,8 +72,8 @@ def _build_pah_distribution(pah_bin_id=None, pah_bin_rank=0):
     return dist, pah_bin
 
 
-pahneu_filepath = os.path.join(_CALIMA_ROOT, 'optical_props', 'li_draine_2001', 'PAHneu_30')
-pahion_filepath = os.path.join(_CALIMA_ROOT, 'optical_props', 'li_draine_2001', 'PAHion_30')
+pahneu_filepath = str(_paths.get_optical_props_path('li_draine_2001', 'PAHneu_30'))
+pahion_filepath = str(_paths.get_optical_props_path('li_draine_2001', 'PAHion_30'))
 Delta_epsilon = 0.145 # [eV] - change in internal energy of PAH due to IR photon emission of a typical C-C mode
 kb = 1.3806488e-16 # [erg/K] - Boltzmann constant
 mh = 1.6735575e-24 # [g] - mass of Hydrogen atom

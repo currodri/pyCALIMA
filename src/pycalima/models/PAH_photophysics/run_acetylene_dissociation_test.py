@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from pycalima.models.PAH_photophysics.PAH_photophysics import plot_acetylene_dissociation_rate
+from pycalima.models.grain_size_config import get_model_data_dir
 
 
 @contextmanager
@@ -52,8 +53,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    repo_root = Path(__file__).resolve().parents[2]
-    output_dir = repo_root / "model_data" / "PAH_dissociation_data"
+    output_dir = get_model_data_dir() / "PAH_dissociation_data"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with pushd(output_dir):

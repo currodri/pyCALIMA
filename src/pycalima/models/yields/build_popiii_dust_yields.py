@@ -23,9 +23,10 @@ from scipy.interpolate import interp1d
 from scipy.integrate import quad
 
 # Resolve the repository root and add to path
-repo_root = Path(__file__).parents[2].resolve()
 
 from pycalima.galaxysam.yield_models import load_nozawa2003_dust_yields, load_nozawa2003_dust_dist
+from pycalima import _paths
+from pycalima.models.grain_size_config import get_model_data_dir
 
 # Standard mapping of user composition labels to Nozawa et al. (2003) species
 COMPOSITION_MAP = {
@@ -381,9 +382,9 @@ def plot_popiii_yields(results, dust_bins, output_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Build Pop III binned dust yields from Nozawa et al. 2003.")
-    parser.add_argument('--config', type=str, default=str(repo_root / 'solvers' / 'configs' / 'example_ic.json'),
+    parser.add_argument('--config', type=str, default=str(_paths.resolve_solver_config_path('example_ic')),
                         help="Path to initial conditions JSON config file")
-    parser.add_argument('--output', type=str, default=str(repo_root / 'model_data' / 'nozawa_dust_yields'),
+    parser.add_argument('--output', type=str, default=str(get_model_data_dir() / 'nozawa_dust_yields'),
                         help="Directory to save generated tables and plots")
     parser.add_argument('--mode', type=str, default='mass', choices=['mass', 'number'],
                         help="Integration weighting mode: 'mass'-weighted (default) or 'number'-weighted")

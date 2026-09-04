@@ -20,7 +20,6 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,8 +44,9 @@ from pycalima.models.PAH_photophysics.reproduce_andrews16_fig9 import (
 )
 from pycalima.models.PAH_photophysics.reproduce_charge_vs_ngc7023 import load_pdr_profiles
 from pycalima.models.PAH_photophysics.reproduce_nh_vs_ngc7023 import load_andrews_fig7
+from pycalima import _paths
 
-_EXT = ROOT / 'external_data'
+_EXT = _paths.get_external_data_path()
 
 # ── C54H18 definition ─────────────────────────────────────────────────────────
 Nc54, Nh0_54, solo_54, duo_54 = 54, 18, 6, 12
@@ -271,7 +271,7 @@ def _plot(av_grid, fNh_rrkm, fNh_poly, solver) -> None:
         fontsize=10,
     )
 
-    out = ROOT / 'nh_rrkm_vs_andrews_poly_ngc7023.png'
+    out = _paths.get_plots_dir('pah_photophysics') / 'nh_rrkm_vs_andrews_poly_ngc7023.png'
     fig.savefig(out, dpi=150, bbox_inches='tight')
     print(f"\nFigure saved → {out}")
     plt.show()

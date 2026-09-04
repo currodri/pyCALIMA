@@ -11,10 +11,10 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+from pycalima import _paths
 
 
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-_EXTERNAL_DATA_DIR = os.path.join(_REPO_ROOT, 'external_data')
+_EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 e = 4.8032047e-10 # statC
 kB = 1.380649e-16   # erg/K
