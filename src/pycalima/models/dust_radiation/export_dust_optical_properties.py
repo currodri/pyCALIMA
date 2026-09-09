@@ -146,9 +146,12 @@ def export_dust_optical_properties(output_dir=None, config_path=None, cabs_metho
                 )
 
             wavelengths_cm = target_wav_micron * 1e-4
-            C_abs = cabs_comps[0]   # [cm^2/g_dust]
-            C_sca = csca_comps[0]
-            C_rp  = crp_comps[0]
+            # Component cross sections come back per gram of dust; convert to
+            # per grain with the representative grain mass m(a0).
+            m_a0 = dist.grain_mass  # in grams
+            C_abs = m_a0 * cabs_comps[0]   # [cm^2] per grain
+            C_sca = m_a0 * csca_comps[0]
+            C_rp  = m_a0 * crp_comps[0]
             
         except Exception as e:
             print(f"  ✗ Error computing optical properties for bin {bin_id}: {e}")
@@ -175,12 +178,13 @@ def export_dust_optical_properties(output_dir=None, config_path=None, cabs_metho
                 title="Dust optical properties",
                 script_name="models/dust_radiation/export_dust_optical_properties.py",
                 bin_info=f"Bin ID: {bin_id}, Composition: {composition}, Bin rank: {bin_rank}, Grain size a0: {a0} micron",
-                val_desc="Columns: lambda[Angstrom] C_abs[cm^2/g_dust] C_sca[cm^2/g_dust] C_rp[cm^2/g_dust]"
+                val_desc="Columns: lambda[Angstrom] C_abs[cm^2] C_sca[cm^2] C_rp[cm^2]"
             )
 
             with open(output_path, 'w') as f:
                 for line in headers:
                     f.write(f"{line}\n")
+                f.write("# Normalization: per grain, C = m(a0) * kappa, m(a0) = (4/3) pi rho a0^3\n")
                 f.write(f"# NWAV\n")
                 f.write(f"{len(wavelengths_cm):d}\n")
                 f.write(f"# ISRF-average: Mathis83, energy range [0.1, 13.6] eV\n")

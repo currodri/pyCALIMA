@@ -404,6 +404,7 @@ def export_pah_optical_properties(output_dir=None, config_path=None):
             with open(output_path, 'w') as f:
                 for line in headers:
                     f.write(f"{line}\n")
+                f.write("# Normalization: per PAH molecule, C = pi a0^2 Q(a0)\n")
                 f.write(f"# NWAV\n")
                 f.write(f"{len(wavelengths_cm):d}\n")
                 f.write(f"# ISRF-average: Mathis83, energy range [0.1, 13.6] eV\n")

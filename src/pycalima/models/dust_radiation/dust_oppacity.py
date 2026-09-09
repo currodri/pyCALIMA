@@ -1432,7 +1432,9 @@ def compute_extinction_curve(dust_types, dists, mass_fractions,
             )
             order_i = np.argsort(wav_i)
             wav_i = wav_i[order_i]
-            cext_i = (cabs_i + csca_i)[order_i]
+            # Tables store cross sections per grain; divide by m(a0) to get a
+            # mass opacity, so components combine by dust mass fraction.
+            cext_i = (cabs_i + csca_i)[order_i] / _representative_grain_mass(comp)
             component_tables.append((comp, wav_i, cext_i))
             wavelength_sets.append(wav_i)
 
@@ -1563,6 +1565,16 @@ def getCrosssection_BARE_GR_S_DUST(lambda_angstrom):
     Cabs = 10.0 ** logC
 
     return Cabs
+
+
+def _representative_grain_mass(bin_id):
+    """Mass of a bin's representative grain [g]: m(a0) = (4/3) pi rho a0^3.
+
+    This is the normalization the optical-property exporters apply, so dividing
+    a stored cross section by it recovers a mass opacity [cm^2/g_dust].
+    """
+    p = get_lognormal_parameters(bin_id)
+    return (4.0 / 3.0) * np.pi * p['s'] * (p['a0'] * 1e-4) ** 3
 
 
 def _read_precomputed_cross_section_table(bin_id, optical_dir=None, pah_state='neutral'):
@@ -2543,9 +2555,12 @@ def plot_extinction_from_massfractions(dust_bins, dust_mass_fractions,
             )
             order_i = np.argsort(wav_i)
             wav_i = wav_i[order_i]
-            cabs_i = cabs_i[order_i]
-            csca_i = csca_i[order_i]
-            crp_i = crp_i[order_i]
+            # Tables store cross sections per grain; divide by m(a0) so this
+            # branch returns the same mass opacities as 'mie'/'legacy'.
+            m_a0 = _representative_grain_mass(bin_id)
+            cabs_i = cabs_i[order_i] / m_a0
+            csca_i = csca_i[order_i] / m_a0
+            crp_i = crp_i[order_i] / m_a0
             component_tables.append((bin_id, wav_i, cabs_i, csca_i, crp_i))
             wavelength_sets.append(wav_i)
 
