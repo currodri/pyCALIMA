@@ -396,11 +396,28 @@ html_static_path = ["_static"]
 html_show_sourcelink = True
 html_copy_source = False
 html_baseurl = "https://currodri.github.io/pyCALIMA/"
+# Furo does not pick up _static/custom.css by itself; without this line the
+# stylesheet was copied into the build but never loaded.
+html_css_files = ["custom.css"]
+# Brand colours. The logo is pale cream-gold on transparent (sampled: #f0e0b0,
+# #f0d0a0), drawn for a dark background: custom.css gives it a night-sky
+# panel. Links use a deeper amber in light mode, where the logo's own cream
+# would be unreadable on white, and the logo's gold in dark mode.
 html_theme_options = {
     "source_repository": "https://github.com/currodri/pyCALIMA/",
     "source_branch": "main",
     "source_directory": "docs/",
     "navigation_with_keys": True,
+    "light_css_variables": {
+        "color-brand-primary": "#8a5a00",
+        "color-brand-content": "#8a5a00",
+        "color-brand-visited": "#6e4a0a",
+    },
+    "dark_css_variables": {
+        "color-brand-primary": "#f0cf86",
+        "color-brand-content": "#f0cf86",
+        "color-brand-visited": "#d9b56a",
+    },
 }
 
 # ---------------------------------------------------------------------------

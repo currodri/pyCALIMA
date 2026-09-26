@@ -7,3 +7,72 @@ div.highlight pre, pre { overflow-x: auto; }
 
 /* autodoc parameter lists read better a little tighter than furo's default. */
 dl.py.field-list > dd { margin-bottom: 0.4rem; }
+
+/* ------------------------------------------------------------------------
+   CALIMA branding.
+
+   The logo is pale cream-gold on a transparent background, drawn for a dark
+   sky; on furo's white sidebar it all but disappears. Give it a night-sky
+   panel in the sidebar and on the landing page. Both panels are dark in light
+   and dark mode alike, so the logo reads the same in either.
+   ------------------------------------------------------------------------ */
+:root {
+  --calima-night: #0b1022;
+  --calima-dusk: #1c2447;
+  --calima-gold: #f0d49a;
+  --calima-cream: #f5ecd4;
+}
+
+.sidebar-brand {
+  background: radial-gradient(ellipse at 50% 30%, var(--calima-dusk) 0%, var(--calima-night) 75%);
+  border-radius: 0.6rem;
+  margin: 0.6rem 0.6rem 0.2rem;
+  padding: 0.9rem 0.6rem 0.7rem;
+}
+.sidebar-brand-text {
+  color: var(--calima-cream);
+  letter-spacing: 0.02em;
+}
+
+/* Landing-page banner: the logo beside the tagline. `.calima-hero` is a MyST
+   {container}; the image is the logo Sphinx already copies to _static/ as
+   html_logo, so no second copy is committed. The [role=main] prefix matches
+   furo-extensions.css, which zeroes the side padding of every .container. */
+[role=main] .calima-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 1.2rem 0 1.8rem;
+  padding: 1.6rem 1.8rem 1.6rem calc(1.8rem + 9rem);
+  min-height: 9.5rem;
+  border-radius: 0.9rem;
+  color: var(--calima-cream);
+  background:
+    url("CALIMA_logo1.png") no-repeat left 1.4rem center / auto 80%,
+    radial-gradient(ellipse at 20% 40%, var(--calima-dusk) 0%, var(--calima-night) 70%);
+}
+[role=main] .calima-hero p { margin: 0.25rem 0; }
+.calima-hero strong { color: var(--calima-gold); font-size: 1.15em; }
+.calima-hero a { color: var(--calima-gold); }
+@media (max-width: 40em) {
+  [role=main] .calima-hero {
+    background: radial-gradient(ellipse at 20% 40%, var(--calima-dusk) 0%, var(--calima-night) 70%);
+    padding-left: 1.4rem;
+  }
+}
+
+/* Landing-page cards: a gold edge on hover, and icons in the brand colour. */
+.sd-card {
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.sd-card:hover {
+  border-color: var(--color-brand-primary) !important;
+  transform: translateY(-2px);
+}
+.sd-card-title .sd-octicon { color: var(--color-brand-primary); }
+
+/* Code identifiers in tables are the widest thing on the physics pages. */
+table.docutils code.literal {
+  font-size: 0.74em;
+  white-space: nowrap;   /* never split an identifier; cells wrap between them */
+}

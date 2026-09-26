@@ -18,7 +18,8 @@ The work is split in two, mirroring the RAMSES-CALIMA Fortran:
   and the bins. {doc}`/guide/solvers` describes how the network is integrated.
 
 ```{mermaid}
-flowchart LR
+%%{init: {"themeVariables": {"fontSize": "18px"}, "flowchart": {"nodeSpacing": 40, "rankSpacing": 55}}}%%
+flowchart TB
     gas["Gas-phase metals<br/>C, O, Mg, Si, Fe, ..."]
     small["Small grains<br/>(per composition)"]
     large["Large grains<br/>(per composition)"]
@@ -40,19 +41,19 @@ Each process is switched on by a flag in the `physics` block of a solver
 configuration, and some have variants selected in the `models` block. The
 variant used when the key is absent is marked *(default)*.
 
-| Process | `physics` flag | `models` key: variants | Solver kernel | Page |
-|---|---|---|---|---|
-| Grain growth by accretion | `dust_accretion` | — | `accretion_rate` | {doc}`dust-growth-destruction` |
-| Thermal sputtering | `dust_sputtering` | `dust_sputtering_model`: `kirchschlager` *(default, tables)*, `nozawa2006`, `nozawa2006_ramses` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` | {doc}`dust-growth-destruction` |
-| Thermal sublimation | `dust_sublimation` | — | `sublimation_rate` | {doc}`dust-growth-destruction` |
-| Coagulation | `dust_coagulation` | `coagulation_model`: `Aoyama2017` *(default)*, `Dubois2024`, `turbulent`, `turbulent_all` | `coagulation_rate`, `dubois_coagulation_rate`, `turbulent_coagulation_rate`, `turbulent_all_coagulation_rate` | {doc}`grain-collisions` |
-| Shattering | `dust_shattering` | `shattering_model`: `turbulent` *(default)*, `Dubois2024`, `turbulent_all` | `turbulent_shattering_rate`, `dubois_shattering_rate`, `turbulent_all_shattering_rate` | {doc}`grain-collisions` |
-| PAH accretion | `pah_accretion` | — | `pah_accretion_rate` | {doc}`pah` |
-| PAH photolysis | `pah_photolysis` | `photolysis_model` | `pah_photolysis_rate` | {doc}`pah` |
-| PAH sputtering | `pah_sputtering` | `pah_sputtering_model` | `pah_sputtering_rate` | {doc}`pah` |
-| PAH coalescence | `pah_coalescence` | `coalescence_model`: `Totton2012` *(default)*, `Tielens2021` | `totton2012_pah_coalescence_rate`, `tielens2021_pah_coalescence_rate` | {doc}`pah` |
-| PAH cluster evaporation | `pah_cluster_evaporation` | `cluster_evaporation_model` | `pah_cluster_evaporation_rate` | {doc}`pah` |
-| PAH freezing onto grains | `pah_freezing` | — | `pah_freezing_rate` | {doc}`pah` |
+| Process | `physics` flag | `models` key: variants | Solver kernel |
+|---|---|---|---|
+| {doc}`Grain growth by accretion <dust-growth-destruction>` | `dust_accretion` | — | `accretion_rate` |
+| {doc}`Thermal sputtering <dust-growth-destruction>` | `dust_sputtering` | `dust_sputtering_model`: `kirchschlager` *(default, tables)*, `nozawa2006`, `nozawa2006_ramses` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` |
+| {doc}`Thermal sublimation <dust-growth-destruction>` | `dust_sublimation` | — | `sublimation_rate` |
+| {doc}`Coagulation <grain-collisions>` | `dust_coagulation` | `coagulation_model`: `Aoyama2017` *(default)*, `Dubois2024`, `turbulent`, `turbulent_all` | `coagulation_rate`, `dubois_coagulation_rate`, `turbulent_coagulation_rate`, `turbulent_all_coagulation_rate` |
+| {doc}`Shattering <grain-collisions>` | `dust_shattering` | `shattering_model`: `turbulent` *(default)*, `Dubois2024`, `turbulent_all` | `turbulent_shattering_rate`, `dubois_shattering_rate`, `turbulent_all_shattering_rate` |
+| {doc}`PAH accretion <pah>` | `pah_accretion` | — | `pah_accretion_rate` |
+| {doc}`PAH photolysis <pah>` | `pah_photolysis` | `photolysis_model` | `pah_photolysis_rate` |
+| {doc}`PAH sputtering <pah>` | `pah_sputtering` | `pah_sputtering_model` | `pah_sputtering_rate` |
+| {doc}`PAH coalescence <pah>` | `pah_coalescence` | `coalescence_model`: `Totton2012` *(default)*, `Tielens2021` | `totton2012_pah_coalescence_rate`, `tielens2021_pah_coalescence_rate` |
+| {doc}`PAH cluster evaporation <pah>` | `pah_cluster_evaporation` | `cluster_evaporation_model` | `pah_cluster_evaporation_rate` |
+| {doc}`PAH freezing onto grains <pah>` | `pah_freezing` | — | `pah_freezing_rate` |
 
 The kernels live in {mod}`pycalima.solvers.dust_rates`; the list is assembled
 by `build_process_list` in {mod}`pycalima.solvers.rhs`. Collisional processes
