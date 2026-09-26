@@ -233,7 +233,11 @@ def _fd_jacobian_full(
 def _diag_preconditioner(J_diag: np.ndarray) -> LinearOperator:
     """M⁻¹ as LinearOperator: M = diag(|J_diag|), capped for stability."""
     n     = len(J_diag)
-    scale = np.where(np.abs(J_diag) > 1e-200, 1.0 / np.abs(J_diag), 1.0)
+    # Divide only where the entry is nonzero (np.where would evaluate 1/0 too;
+    # zero entries are common from the continuation start: depleted bins).
+    nz = np.abs(J_diag) > 1e-200
+    scale = np.ones(n)
+    scale[nz] = 1.0 / np.abs(J_diag[nz])
     # Cap to avoid astronomically large corrections
     scale = np.clip(scale, 0.0, 1.0 / max(1e-200, np.max(np.abs(J_diag)) * 1e-20))
     return LinearOperator((n, n), matvec=lambda v: scale * v)
