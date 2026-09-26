@@ -5,7 +5,7 @@
 ## 1. Run a quick configuration sanity check
 
 ```bash
-python test_config_check.py
+python diagnostics/check_config.py
 ```
 
 ## 2. Regenerate all model tables
