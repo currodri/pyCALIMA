@@ -14,6 +14,7 @@ By: F. Rodriguez Montero (currodri@gmail.com)
 """
 
 # Import libraries
+from pycalima.plotting_style import latex_available
 import numpy as np
 import pandas as pd
 import os
@@ -1245,7 +1246,7 @@ def export_rates(RPAH,Tmin,Tmax,threshold_energy=7.5,
         sns.set_theme(style="white")
         sns.color_palette("Paired")
         plt.rcParams.update({
-            "text.usetex": True,
+            "text.usetex": latex_available(),
             "font.family": "serif",
             "font.serif": "Computer Modern Roman",
         })

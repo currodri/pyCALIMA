@@ -8,6 +8,7 @@ Outputs are 2D rate tables (gamma × temperature grid) suitable for interpolatio
 in simulations, plus quick-look plots showing how rates vary with ISM conditions.
 """
 
+from pycalima.plotting_style import latex_available
 import argparse
 from pathlib import Path
 import json
@@ -42,7 +43,7 @@ def _setup_plotting():
     """Configure matplotlib for publication-quality plots."""
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

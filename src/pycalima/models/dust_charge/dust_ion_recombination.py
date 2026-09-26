@@ -14,6 +14,7 @@ b) IP(X^(i-1)) - IP(a,Z) + dU(Z,i) >= 0
 By: Curro Rodriguez Montero (currodri@gmail.com)
 """
 
+from pycalima.plotting_style import latex_available
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -284,7 +285,7 @@ def run_and_plot(G0, ne, T, suffix, env_name):
     # Plotting
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

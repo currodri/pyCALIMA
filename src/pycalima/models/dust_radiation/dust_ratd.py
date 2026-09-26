@@ -12,6 +12,7 @@ induced by RATs.
 By: Curro Rodriguez (currodri@gmail.com)
 """
 # Importing libraries
+from pycalima.plotting_style import latex_available
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -162,7 +163,7 @@ def plot_disruption(G0min,G0max,chimin,chimax,wav,gamma,mu):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -252,7 +253,7 @@ def plot_disruption_timescale(G0min,G0max,chimin,chimax,wav,gamma,mu):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

@@ -15,8 +15,10 @@ pip install -e ".[all]"     # or just `pip install -e .` for the core
 ```
 
 Requires Python >= 3.10. Optional extras: `sim` (yt), `accel` (numba),
-`pahdb`, `plots`, `profile`. UCLCHEM (notebooks only) and the pinned
-`amespahdbpythonsuite` dev build cannot be extras — see `requirements-dev.txt`.
+`plots`, `profile`. UCLCHEM (notebooks only) and `amespahdbpythonsuite` are not
+on PyPI, so they cannot be extras (an extra naming one breaks `.[all]` and
+`.[dev]` on clean machines — `tests/test_installation.py` guards this); see
+`requirements-dev.txt`.
 
 **Where data lives** — never compute paths by hand; use `pycalima._paths`:
 
@@ -34,6 +36,10 @@ Requires Python >= 3.10. Optional extras: `sim` (yt), `accel` (numba),
   capacity), `$CALIMA_YIELD_DIR` (stellar yields), `$CALIMA_SIM_DIR` (RAMSES
   snapshots, for the post-processing notebooks). Never hardcode a path to any
   of them.
+- The PAHdb data (`$CALIMA_PAHDB_DIR`, or `calima-fetch-data import`) needs a
+  registration at astrochemistry.org/pahdb, so it is `kind = "manual"` in
+  `data/registry.toml` and optional: only `PAH_photophysics.pah_db_lookup`
+  uses it. Never bundle it and never make the install or `verify` fail without it.
 - `models.grain_size_config.get_model_data_dir()` appends the config's
   `model_name`; `_paths.get_model_data_dir()` does not. Physics modules almost
   always want the former.
@@ -109,7 +115,7 @@ the `isolated_env` / `pristine_env` fixtures rather than inheriting the ambient
 **Verify an installation** (no clone needed):
 ```bash
 calima-paths              # bundled data inside the package, model_data outside it
-calima-fetch-data verify  # every bundled dataset present; PAHdb missing by design
+calima-fetch-data verify  # exit 0; PAHdb reported as optional, with instructions
 ```
 
 **Run script-style physics checks** (these are scripts, not pytest):

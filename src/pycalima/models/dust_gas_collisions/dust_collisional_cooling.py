@@ -5,6 +5,7 @@ DUST COLLISIONAL COOLING
 """
 
 # Import libraries
+from pycalima.plotting_style import latex_available
 import numpy as np
 import pycalima.models.dust_model as dust_model
 import pandas as pd
@@ -180,7 +181,7 @@ def plot_deposited_energy(E_min,E_max,z_ion,m_ion,nE=100,delta_max=0.01,nmax=100
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -308,7 +309,7 @@ def plot_cooling(Tmin,Tmax,nT=100):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -539,7 +540,7 @@ def test_deposited_energy(a_dust,s_dust,Zi,Zd,Md,Mi,E,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -578,7 +579,7 @@ def test_deposited_energy(a_dust,s_dust,Zi,Zd,Md,Mi,Emin,Emax,nE=100,delta_max=0
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -638,7 +639,7 @@ def compute_ion_range(Zi,Mi,Emin,Emax,nE=100,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -849,7 +850,7 @@ def test_rate(a_dust,s_dust,Zi,Zd,Md,Mi,Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1271,7 +1272,7 @@ def test_efficiency(Zi,Mi,Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1382,7 +1383,7 @@ def test_efficiency_electron(Tmin,Tmax,nT=100,nv=300,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1458,7 +1459,7 @@ def fit_e_stopping_silicate():
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1528,7 +1529,7 @@ def plot_collisional_cooling(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1867,7 +1868,7 @@ def plot_collisional_cooling_simple(Tmin,Tmax,Td,nT=100,nv=300,delta_max=0.1):
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -2269,7 +2270,7 @@ def export_collisional_cooling(Tmin,Tmax,
         sns.color_palette("Paired")
         sns.set_theme(style="white")
         plt.rcParams.update({
-            "text.usetex": True,
+            "text.usetex": latex_available(),
             "font.family": "serif",
             "font.serif": "Computer Modern Roman",
         })

@@ -2,6 +2,7 @@
 DUST COAGULATION
 """
 # LIBRARIES
+from pycalima.plotting_style import latex_available
 import numpy as np
 from pycalima.models.constants import *
 from unyt import mh,kb
@@ -136,7 +137,7 @@ def plot_coagulation_full(GDR_small,GDR_big,nMach=100):
     import seaborn as sns
     sns.set(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -305,7 +306,7 @@ def plot_coagulation_single(nH,ne,T,Lmax,phase_name,GDR_small,GDR_big,nMach=100)
     import seaborn as sns
     sns.set(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

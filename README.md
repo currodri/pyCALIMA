@@ -313,7 +313,6 @@ Optional extras:
 |---|---|---|
 | `sim` | `yt` | reading RAMSES outputs (`models.tools.eq_analysis`) |
 | `accel` | `numba` | JIT acceleration of the charging/sputtering kernels |
-| `pahdb` | `amespahdbpythonsuite` | constructing `AmesPAHdb` objects yourself |
 | `plots` | `cmasher` | extra colormaps |
 | `profile` | `psutil` | memory reporting in the profiler |
 | `all` | all of the above | |
@@ -328,10 +327,13 @@ references are rejected in distribution metadata. Both are optional:
 - **UCLCHEM** (`notebooks/ice_formation_study.ipynb`,
   `notebooks/uclchem_multiice_parallel_notebook.ipynb`) — Fortran-backed, build
   from source.
-- A pinned development build of `amespahdbpythonsuite`, if you need to
-  reproduce the shipped PAH tables exactly.
+- `amespahdbpythonsuite` (not on PyPI), only if you construct `AmesPAHdb`
+  objects yourself: `pip install "git+https://github.com/PAHdb/AmesPAHdbPythonSuite"`.
+  `requirements-dev.txt` pins the development build used for the shipped PAH
+  tables.
 
-See `requirements-dev.txt`.
+See `requirements-dev.txt`. The PAHdb *data* is separate again — see
+[The NASA Ames PAHdb (optional)](#the-nasa-ames-pahdb-optional).
 
 To also get the test suite and build tooling:
 
@@ -373,13 +375,10 @@ calima-fetch-data list
 calima-fetch-data verify
 ```
 
-Every `bundled` dataset must report `present`. The two PAHdb archives report
-`MISSING` by design — they are ~575 MB and are obtained separately, so
-`calima-fetch-data verify` exits non-zero until they are registered:
-
-```bash
-calima-fetch-data import pahdb-theoretical-v4-00 /path/to/pahdb-...v4.00.xml
-```
+Every `bundled` dataset must report `present`, and `verify` must exit 0. The
+two PAHdb archives report `not installed (optional)` along with download
+instructions. They are not needed for a working installation — see
+[The NASA Ames PAHdb (optional)](#the-nasa-ames-pahdb-optional).
 
 All five console scripts should respond:
 
@@ -467,13 +466,35 @@ here; set the corresponding variable if you need the routines that read them:
 None of these are bundled or downloadable; each accessor raises with the
 variable's name if it is needed and unset.
 
-The large PAHdb archives are registered but not bundled:
+### The NASA Ames PAHdb (optional)
 
-```bash
-calima-fetch-data list                  # what is available and where
-calima-fetch-data list --missing
-calima-fetch-data import pahdb-theoretical-v4-00 /path/to/pahdb-...xml
-```
+The [NASA Ames PAH IR Spectroscopic Database](https://www.astrochemistry.org/pahdb/)
+is not shipped with pyCALIMA and cannot be downloaded automatically, because
+downloading it requires a (free) registration. **You only need it to build a
+new PAH species catalog** with `pycalima.models.PAH_photophysics.pah_db_lookup`.
+The solvers, `calima-export`, and the shipped `PAH_states` tables all work
+without it.
+
+To get it:
+
+1. Register and log in at <https://www.astrochemistry.org/pahdb/>.
+2. Under *Downloads*, get the **complete theoretical library, v4.00, XML**
+   (~500 MB). The downloaded file name may carry a per-download token.
+3. Tell pyCALIMA where it is, in one of two ways:
+
+   ```bash
+   # a) an environment variable pointing at the directory that holds it,
+   #    with the file renamed to pahdb-complete-theoretical-v4.00.xml
+   export CALIMA_PAHDB_DIR=/path/to/dir
+
+   # b) or copy it (or --link it) into the dataset cache; it is renamed for you
+   calima-fetch-data import pahdb-theoretical-v4-00 /path/to/downloaded.xml --link
+   ```
+
+4. Check: `calima-fetch-data path pahdb-theoretical-v4-00` prints its location.
+
+If code that needs it runs without it, it stops with these same instructions.
+`calima-fetch-data list --missing` shows everything not yet installed.
 
 ## Usage
 

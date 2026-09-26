@@ -2,6 +2,7 @@
 PAH COALESCENCE
 """
 # LIBRARIES
+from pycalima.plotting_style import latex_available
 import numpy as np
 from pycalima.models.constants import *
 
@@ -12,7 +13,7 @@ def pah_coalescence(GDR_PAHs,nMach=100):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -174,7 +175,7 @@ def plot_coalescence_timescale(rho_pah,Tmin,Tmax,nT=100):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -238,7 +239,7 @@ def plot_pah_coalescence(Tmin,Tmax,nT):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

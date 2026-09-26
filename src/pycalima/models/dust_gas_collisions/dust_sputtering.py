@@ -18,6 +18,7 @@ Modification history:
 """
 
 # Import libraries
+from pycalima.plotting_style import latex_available
 import numpy as np
 import pycalima.models.dust_model as dust_model
 import pandas as pd
@@ -1360,7 +1361,7 @@ def compare_sputtering_rates(Tmin,Tmax,ion_atomic_masses,
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1601,7 +1602,7 @@ def plot_penetration_depth(E_min,E_max,z_ion,m_ion,nE=100,delta_max=0.01,nmax=10
     sns.color_palette("Paired")
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1940,7 +1941,7 @@ def plot_erosion_rate_charge_influence(Tmin, Tmax, G0, ne,
     
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

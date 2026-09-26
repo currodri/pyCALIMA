@@ -6,6 +6,7 @@ of the Coulomb enhancement factor for ion-grain collisions.
 
 """
 # LIBRARIES
+from pycalima.plotting_style import latex_available
 from pycalima.models import grain_size_config
 import os
 import numpy as np
@@ -362,7 +363,7 @@ def plot_coulomb_enhancement(Gtot,Zi,nsizes=10):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-            "text.usetex": True,
+            "text.usetex": latex_available(),
             "font.family": "serif",
             "font.serif": "Computer Modern Roman",
         })
@@ -583,7 +584,7 @@ def plot_analytic_coulomb(Gtot,Zi,nsizes=10):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-            "text.usetex": True,
+            "text.usetex": latex_available(),
             "font.family": "serif",
             "font.serif": "Computer Modern Roman",
         })
@@ -702,7 +703,7 @@ def plot_single_size_dist(Gtot,Tgas,ne,Zi,asize_micron,material='graphite'):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-            "text.usetex": True,
+            "text.usetex": latex_available(),
             "font.family": "serif",
             "font.serif": "Computer Modern Roman",
         })

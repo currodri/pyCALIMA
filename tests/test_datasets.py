@@ -221,13 +221,39 @@ def test_list_can_filter_by_kind(kind, capsys):
     assert main(["list", "--kind", kind]) == 0
 
 
-def test_verify_subcommand_reports_missing_datasets(tmp_path, monkeypatch):
+def test_verify_passes_without_optional_manual_datasets(tmp_path, monkeypatch, capsys):
+    """PAHdb needs a registration to download; its absence is not a failure."""
     from pycalima._datasets import main
 
     monkeypatch.setenv("CALIMA_DATASETS", str(tmp_path / "empty"))
+    monkeypatch.delenv("CALIMA_PAHDB_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
-    # the PAHdb entries will be missing, so the overall result is non-zero
-    assert main(["verify"]) == 1
+    assert main(["verify"]) == 0
+    out = capsys.readouterr().out
+    assert "not installed (optional)" in out
+    assert "https://www.astrochemistry.org/pahdb/" in out
+
+
+def test_verify_named_manual_dataset_fails_when_missing(tmp_path, monkeypatch):
+    from pycalima._datasets import main
+
+    monkeypatch.setenv("CALIMA_DATASETS", str(tmp_path / "empty"))
+    monkeypatch.delenv("CALIMA_PAHDB_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    manual = next(d for d in iter_datasets() if d.kind == "manual")
+    assert main(["verify", manual.name]) == 1
+
+
+def test_pahdb_is_found_through_its_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv("CALIMA_DATASETS", str(tmp_path / "empty"))
+    monkeypatch.chdir(tmp_path)
+    ds = get_dataset("pahdb-theoretical-v4-00")
+    assert ds.env_override == "CALIMA_PAHDB_DIR"
+    (tmp_path / "pahdb").mkdir()
+    for f in ds.files:
+        (tmp_path / "pahdb" / f).write_text("stub\n", encoding="utf-8")
+    monkeypatch.setenv("CALIMA_PAHDB_DIR", str(tmp_path / "pahdb"))
+    assert ensure_dataset(ds.name) == tmp_path / "pahdb"
 
 
 def test_path_subcommand_prints_a_bundled_location(capsys):

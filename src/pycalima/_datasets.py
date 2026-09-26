@@ -137,7 +137,7 @@ class Dataset:
     # -- errors ------------------------------------------------------------
 
     def unavailable_message(self) -> str:
-        lines = [f"Required dataset {self.name!r} is not available locally."]
+        lines = [f"Dataset {self.name!r} is not available locally."]
         if self.size_bytes:
             lines.append(f"  size:     {self.size_bytes / 1e6:.1f} MB")
         if self.citation:
@@ -512,8 +512,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return rc
 
     if a.cmd == "verify":
-        targets = [get_dataset(a.name)] if a.name else list(iter_datasets())
-        return 0 if all(verify_dataset(d, strict=False) for d in targets) else 1
+        if a.name:
+            return 0 if verify_dataset(a.name, strict=False) else 1
+        # A bare `verify` checks the installation. `manual` datasets (PAHdb)
+        # are optional extras the user downloads themselves, so their absence
+        # is reported with instructions but does not fail the check.
+        ok, optional_missing = True, []
+        for ds in iter_datasets():
+            if ds.kind == "manual" and ds.locate() is None:
+                print(f"{ds.name}: not installed (optional)")
+                optional_missing.append(ds)
+            elif not verify_dataset(ds, strict=False):
+                ok = False
+        for ds in optional_missing:
+            print(f"\n--- {ds.name} ---\n{ds.unavailable_message()}")
+        return 0 if ok else 1
 
     if a.cmd == "import":
         import_dataset(a.name, a.source, link=a.link)
