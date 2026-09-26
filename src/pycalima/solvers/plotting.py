@@ -3,7 +3,7 @@
 Main entry point
 ----------------
 ``plot_chemistry_evolution(results, ...)``
-    Accepts the dict returned by :func:`~solvers.run_chemistry.run_chemistry`
+    Accepts the dict returned by :func:`~pycalima.solvers.run_chemistry.run_chemistry`
     (run with ``collect_history=True``) and produces a multi-panel figure.
 
 Panels produced
@@ -56,7 +56,7 @@ def plot_chemistry_evolution(
     Parameters
     ----------
     results :
-        Dict returned by :func:`~solvers.run_chemistry.run_chemistry`
+        Dict returned by :func:`~pycalima.solvers.run_chemistry.run_chemistry`
         (must include a ``'history'`` sub-dict in ``diagnostics``).
     save_path : str or Path, optional
         Save the figure to this path (PNG/PDF/SVG auto-detected from the

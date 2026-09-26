@@ -51,7 +51,7 @@ grain radius shrinks at
 
 and the sublimation timescale of a grain of radius ``a`` is
 
-    tau_sub = a / |da/dt|.
+    tau_sub = a / ``|da/dt|``.
 
 By: Curro Rodriguez (currodri@gmail.com)
 """
@@ -261,7 +261,7 @@ def sublimation_rate(material, a_cm, Td):
 
 
 def radius_loss_rate(material, a_cm, Td):
-    """Grain radius shrink rate |da/dt| in cm s^-1.
+    """Grain radius shrink rate ``|da/dt|`` in cm s^-1.
 
     Each evaporated monomer removes a volume ``V_mon = m_mon / rho``, so
     ``da/dt = V_mon * (dN/dt) / (4*pi*a^2)``.
@@ -275,11 +275,11 @@ def radius_loss_rate(material, a_cm, Td):
 
 
 def mass_loss_rate(material, a_cm, Td):
-    """Grain mass loss rate |dm/dt| in g s^-1.
+    """Grain mass loss rate ``|dm/dt|`` in g s^-1.
 
     Derived from the radius loss rate via
 
-        |dm/dt| = 4 pi a^2 rho |da/dt|
+        ``|dm/dt|`` = 4 pi a^2 rho ``|da/dt|``
 
     where ``rho`` is the bulk grain density [g cm^-3]. This is the rate at
     which the grain mass decreases due to thermal sublimation.
@@ -291,10 +291,10 @@ def mass_loss_rate(material, a_cm, Td):
 
 
 def sublimation_timescale(material, a_cm, Td):
-    """GD89 sublimation timescale tau_sub = a / |da/dt| in seconds.
+    """GD89 sublimation timescale tau_sub = a / ``|da/dt|`` in seconds.
 
     Following GD89 (Section 3.4), the lifetime of a grain of radius a against
-    sublimation is defined as tau_sub = a / |da/dt|, where |da/dt| is the
+    sublimation is defined as tau_sub = a / ``|da/dt|``, where ``|da/dt|`` is the
     grain radius contraction/shrink rate.
 
     Returns ``np.inf`` where the sublimation rate underflows to zero
@@ -786,7 +786,7 @@ def effective_radius_loss_rate(material, a_cm, T_grid, P):
     Computes the expectation value of ``radius_loss_rate`` over the
     temperature probability distribution ``P(T)``:
 
-        <|da/dt|> = sum_i  P_i * |da/dt|(T_i)
+        <``|da/dt|``> = sum_i  P_i * ``|da/dt|``(T_i)
 
     Because sublimation is exponentially sensitive to temperature, the
     stochastic average can exceed the single-equilibrium-temperature value
@@ -808,14 +808,14 @@ def effective_radius_loss_rate(material, a_cm, T_grid, P):
     Returns
     -------
     float
-        Probability-weighted radius loss rate ``<|da/dt|>`` in cm s^-1.
+        Probability-weighted radius loss rate ``<``|da/dt|``>`` in cm s^-1.
     """
     rates = np.array([radius_loss_rate(material, a_cm, float(Ti)) for Ti in T_grid])
     return float(np.dot(P, rates))
 
 
 def effective_sublimation_timescale(material, a_cm, T_grid, P):
-    """Stochastic sublimation timescale tau = a / <|da/dt|> in seconds.
+    """Stochastic sublimation timescale tau = a / <``|da/dt|``> in seconds.
 
     Following GD89, the lifetime against sublimation is tau = a / <da/dt>,
     where <da/dt> is the expectation value of the radius contraction rate
@@ -1060,7 +1060,7 @@ def plot_sublimation(config_path=None,
         Output file name.
     quantity : str
         'timescale' to plot tau_sub [yr] (default) or 'rate' to plot the
-        radius loss rate |da/dt| [cm s^-1].
+        radius loss rate ``|da/dt|`` [cm s^-1].
     """
     quantity = str(quantity).lower()
     if quantity not in ('timescale', 'rate'):
@@ -1314,7 +1314,7 @@ def write_sublimation_rate_tables(config_path=None,
     ``model_data/dust_sublimation/``).  Each file contains two columns:
 
         column 1 : dust temperature  T_d  [K]
-        column 2 : fractional sublimation rate  epsilon = |da/dt| / a  [s^-1]
+        column 2 : fractional sublimation rate  epsilon = ``|da/dt|`` / a  [s^-1]
 
     The temperature grid is log-spaced between ``T_min`` and ``T_max``.
     To avoid interpolating very small / negligible values of the sublimation rate,
@@ -1477,7 +1477,7 @@ def plot_sublimation_rate_vs_temperature(config_path=None,
                                          show=False):
     """Grain erosion rate as a function of dust temperature.
 
-    Single panel: erosion rate ``epsilon = |da/dt| / a`` [s^-1] vs ``T`` [K]
+    Single panel: erosion rate ``epsilon = ``|da/dt|`` / a`` [s^-1] vs ``T`` [K]
     for every non-PAH DustBin in the JSON configuration.
 
     ``epsilon`` is the fractional radius loss rate (equivalently
@@ -2362,7 +2362,7 @@ def compare_large_grain_timescales_wd00(
         show=False):
     """Compare large-grain sublimation timescales to Waxman & Draine (2000).
 
-    Computes CALIMA's full sublimation timescale t_sub = a / |da/dt| (which
+    Computes CALIMA's full sublimation timescale t_sub = a / ``|da/dt|`` (which
     includes microcanonical/finite-system and surface tension/free-energy
     corrections) as a function of dust temperature T_dust and compares it
     to the bulk analytical approximation formulas used in Waxman & Draine

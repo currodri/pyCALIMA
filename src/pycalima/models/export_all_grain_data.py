@@ -1234,7 +1234,82 @@ def export_dust_band_luminosities_wrapper(config_path=None):
         }
  
  
-def main(config_path=None, profile=True, profile_output=None):
+# ---------------------------------------------------------------------------
+# Export stages
+# ---------------------------------------------------------------------------
+# Ordered stage table driving main(). The name is the key used by --stages,
+# --skip-stages, the profile JSON and the generated README.
+#
+# Order is significant: 'dust_charging' is passed reuse_heating_data=True so
+# that it reuses the equilibrium charge solves already performed by
+# 'dust_photoelectric_heating' instead of repeating them (22.6s vs several
+# minutes at 20 dust bins). _select_stages() therefore refuses a selection
+# that keeps 'dust_charging' but drops the stage it reuses.
+_STAGES = (
+    ('dust_optical_properties',          export_dust_optical_properties_wrapper,          {}),
+    ('pah_optical_properties',           export_pah_optical_properties_wrapper,           {}),
+    ('collisional_cooling',              export_collisional_cooling_wrapper,              {}),
+    ('sputtering_rates',                 export_sputtering_rates_wrapper,                 {}),
+    ('pah_sputtering_rates',             export_pah_sputtering_rates_wrapper,             {}),
+    ('dust_photoelectric_heating',       export_dust_photoelectric_heating_wrapper,       {}),
+    ('dust_charging',                    export_dust_charging_wrapper,                    {'reuse_heating_data': True}),
+    ('pah_photoelectric_heating_tables', export_pah_photoelectric_heating_tables_wrapper, {}),
+    ('pah_dissociation_tables',          export_pah_dissociation_tables_wrapper,          {}),
+    ('dust_sublimation',                 export_dust_sublimation_wrapper,                 {}),
+    ('dust_ion_recombination',           export_dust_ion_recombination_wrapper,           {}),
+    ('dust_band_luminosities',           export_dust_band_luminosities_wrapper,           {}),
+)
+
+STAGE_NAMES = tuple(name for name, _func, _kwargs in _STAGES)
+
+# stage -> stages whose output it reuses within the same invocation
+_STAGE_REUSES = {'dust_charging': ('dust_photoelectric_heating',)}
+
+
+def _parse_stage_list(spec):
+    """Parse a comma-separated stage list, rejecting unknown names."""
+    names = [item.strip() for item in spec.split(',') if item.strip()]
+    unknown = [n for n in names if n not in STAGE_NAMES]
+    if unknown:
+        raise ValueError(
+            f"Unknown export stage(s): {', '.join(unknown)}. "
+            f"Available stages: {', '.join(STAGE_NAMES)}."
+        )
+    return names
+
+
+def _select_stages(stages=None, skip_stages=None):
+    """Resolve the --stages / --skip-stages selection to an ordered tuple.
+
+    Returns the entries of :data:`_STAGES` to run, in table order, so a
+    partial selection cannot reorder a reuse dependency.
+    """
+    if stages and skip_stages:
+        raise ValueError('--stages and --skip-stages are mutually exclusive.')
+
+    if stages:
+        chosen = set(_parse_stage_list(stages))
+    elif skip_stages:
+        chosen = set(STAGE_NAMES) - set(_parse_stage_list(skip_stages))
+    else:
+        chosen = set(STAGE_NAMES)
+
+    for stage, reused in _STAGE_REUSES.items():
+        if stage not in chosen:
+            continue
+        missing = [r for r in reused if r not in chosen]
+        if missing:
+            raise ValueError(
+                f"Stage '{stage}' reuses results from "
+                f"{', '.join(missing)}, which would not run. Either include "
+                f"that stage, or skip '{stage}' as well."
+            )
+
+    return tuple(entry for entry in _STAGES if entry[0] in chosen)
+
+
+def main(config_path=None, profile=True, profile_output=None,
+         stages=None, skip_stages=None):
     """
     Master export script that coordinates all grain data exports.
     
@@ -1243,12 +1318,43 @@ def main(config_path=None, profile=True, profile_output=None):
     config_path : str, optional
         Path to JSON grain size configuration file.
         If not provided, uses default grain_size_distribution.json
+    profile : bool, optional
+        Collect and print per-stage wall-clock timings. Default True.
+    profile_output : str, optional
+        Path to write the stage profile as JSON.
+    stages : str, optional
+        Comma-separated subset of :data:`STAGE_NAMES` to run. Default: all.
+    skip_stages : str, optional
+        Comma-separated stages to omit. Mutually exclusive with *stages*.
+        Skipping ``dust_ion_recombination`` alone removes roughly 45% of a
+        full export's wall-clock time.
+
+    Returns
+    -------
+    None
+        Prints progress and writes tables under the generated-data directory.
+        Returns early without exporting if the configuration cannot be loaded
+        or the stage selection is invalid.
     """
     print("\n" + "="*80)
     print("CALIMA MASTER GRAIN DATA EXPORT SCRIPT")
     print("="*80)
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*80)
+
+    # Resolve the stage selection first, so a bad name fails before any of the
+    # expensive imports and solves below.
+    try:
+        selected_stages = _select_stages(stages, skip_stages)
+    except ValueError as exc:
+        print(f"\n  ✗ {exc}")
+        return
+    if not selected_stages:
+        print("\n  ✗ The stage selection is empty; nothing to export.")
+        return
+    if len(selected_stages) != len(_STAGES):
+        names = ', '.join(name for name, _f, _k in selected_stages)
+        print(f"\nRunning {len(selected_stages)} of {len(_STAGES)} stages: {names}")
     
     # Set config path if provided
     if config_path:
@@ -1275,119 +1381,20 @@ def main(config_path=None, profile=True, profile_output=None):
         print(f"  ✗ Error loading configuration: {e}")
         return
     
-    # Run all exports
+    # Run the selected exports
     export_results = {}
     stage_profile = {}
     t_full_start = time.perf_counter()
-    
-    # 1. Dust optical properties
-    export_results['dust_optical_properties'] = _run_profiled_stage(
-        'dust_optical_properties',
-        export_dust_optical_properties_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-    
-    # 2. PAH optical properties
-    export_results['pah_optical_properties'] = _run_profiled_stage(
-        'pah_optical_properties',
-        export_pah_optical_properties_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-    
-    # 3. Collisional cooling
-    export_results['collisional_cooling'] = _run_profiled_stage(
-        'collisional_cooling',
-        export_collisional_cooling_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-    
-    # 4. Sputtering rates
-    export_results['sputtering_rates'] = _run_profiled_stage(
-        'sputtering_rates',
-        export_sputtering_rates_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
 
-    # 5. PAH sputtering rates (phi=0)
-    export_results['pah_sputtering_rates'] = _run_profiled_stage(
-        'pah_sputtering_rates',
-        export_pah_sputtering_rates_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-
-    # 6. Dust photoelectric heating rates
-    export_results['dust_photoelectric_heating'] = _run_profiled_stage(
-        'dust_photoelectric_heating',
-        export_dust_photoelectric_heating_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-
-    # 7. Dust charging vs gamma (reused from heating-stage equilibrium solves)
-    export_results['dust_charging'] = _run_profiled_stage(
-        'dust_charging',
-        export_dust_charging_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-        reuse_heating_data=True,
-    )
-
-    # 8. PAH photoelectric heating tables
-    export_results['pah_photoelectric_heating_tables'] = _run_profiled_stage(
-        'pah_photoelectric_heating_tables',
-        export_pah_photoelectric_heating_tables_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-
-    # 9. PAH dissociation tables
-    export_results['pah_dissociation_tables'] = _run_profiled_stage(
-        'pah_dissociation_tables',
-        export_pah_dissociation_tables_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-
-    # 10. Dust sublimation rate tables and plots
-    export_results['dust_sublimation'] = _run_profiled_stage(
-        'dust_sublimation',
-        export_dust_sublimation_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-
-    # 11. Dust-assisted ion recombination coefficients
-    export_results['dust_ion_recombination'] = _run_profiled_stage(
-        'dust_ion_recombination',
-        export_dust_ion_recombination_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
-
-    # 12. Dust band luminosities
-    export_results['dust_band_luminosities'] = _run_profiled_stage(
-        'dust_band_luminosities',
-        export_dust_band_luminosities_wrapper,
-        config_path,
-        stage_profile,
-        enable_profile=profile,
-    )
+    for stage_name, stage_func, stage_kwargs in selected_stages:
+        export_results[stage_name] = _run_profiled_stage(
+            stage_name,
+            stage_func,
+            config_path,
+            stage_profile,
+            enable_profile=profile,
+            **stage_kwargs,
+        )
 
     t_full_end = time.perf_counter()
     total_seconds = float(t_full_end - t_full_start)
@@ -1444,6 +1451,26 @@ def _build_parser():
         default=None,
         help='Optional JSON path to write stage profile metrics.'
     )
+    parser.add_argument(
+        '--stages',
+        type=str,
+        default=None,
+        help='Comma-separated subset of stages to run (default: all). '
+             'Stages: ' + ', '.join(STAGE_NAMES) + '.'
+    )
+    parser.add_argument(
+        '--skip-stages',
+        type=str,
+        default=None,
+        help='Comma-separated stages to omit. Mutually exclusive with '
+             '--stages. Skipping dust_ion_recombination alone removes '
+             'roughly 45%% of the total wall-clock time.'
+    )
+    parser.add_argument(
+        '--list-stages',
+        action='store_true',
+        help='Print the export stage names in run order and exit.'
+    )
     return parser
 
 
@@ -1457,9 +1484,15 @@ def cli(argv=None) -> int:
     call the nine sibling exporters, all of which expose main(config_path=None).
     """
     args = _build_parser().parse_args(argv)
+    if args.list_stages:
+        for name in STAGE_NAMES:
+            print(name)
+        return 0
     main(config_path=args.config,
          profile=(not args.no_profile),
-         profile_output=args.profile_output)
+         profile_output=args.profile_output,
+         stages=args.stages,
+         skip_stages=args.skip_stages)
     return 0
 
 

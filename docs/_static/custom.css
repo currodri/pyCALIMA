@@ -1,0 +1,9 @@
+/* Physics signatures and generated tables are wide; let them scroll rather
+   than forcing the page body to. */
+.wy-table-responsive table td,
+.wy-table-responsive table th { white-space: normal; }
+
+div.highlight pre, pre { overflow-x: auto; }
+
+/* autodoc parameter lists read better a little tighter than furo's default. */
+dl.py.field-list > dd { margin-bottom: 0.4rem; }

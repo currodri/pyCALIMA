@@ -69,9 +69,27 @@ plots = ["cmasher>=1.6"]
 # psutil is lazy and guarded (memory reporting in the profiler).
 profile = ["psutil>=5.9"]
 all = ["pycalima[accel,sim,plots,profile]"]
+# Documentation toolchain. Depends on [all] rather than the bare package:
+# autodoc imports the real modules, so models/tools/eq_analysis.py needs yt
+# present to document its actual signatures instead of mocked ones.
+docs = [
+    "pycalima[all]",
+    "sphinx>=7.3",
+    "furo>=2024.8",
+    # myst-nb pulls in myst-parser; do not also list myst_parser as an
+    # extension, or the .md parser is registered twice and the build errors.
+    "myst-nb>=1.1",
+    "jupyter-cache>=1.0",
+    "ipykernel>=6.29",
+    "sphinx-argparse>=0.5",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.6",
+    "sphinxcontrib-bibtex>=2.6",
+    "sphinxcontrib-mermaid>=0.9",
+]
 # Tooling for running the test suite and building distributions.
 dev = [
-    "pycalima[all]",
+    "pycalima[all,docs]",
     "pytest>=8.0",
     "build>=1.2",
 ]
@@ -173,4 +191,17 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "PTH", "RUF"]
 ignore = ["E501"]
 
 [tool.check-manifest]
-ignore = [".claude/**", "notebooks/**", "simulation_curves/**", "*.ipynb", "CLAUDE.md"]
+ignore = [
+    ".claude/**", "notebooks/**", "simulation_curves/**", "*.ipynb",
+    "CLAUDE.md", "docs/**", ".github/**",
+    # Development utility, not part of the distribution.
+    "scripts/**",
+    # galaxysam's internal notes. SUMMARY.md in particular carries an
+    # unfilled "- Python conversion: [Your name]" placeholder and must not be
+    # published; the others are migration records of no use to an installer.
+    "src/pycalima/galaxysam/*.md",
+    # Committed symlinks pointing at absolute paths on a specific compute
+    # cluster (/data80/...), so they dangle in every other checkout.
+    "diagnostics/stromgren_test/dust_full_turbulent",
+    "diagnostics/stromgren_test/no_dust",
+]
