@@ -21,8 +21,10 @@ Two algorithms are provided:
 ``NewtonKrylovEquilibriumSolver``
     Newton outer loop with LGMRES as the inner Krylov solver.
     A diagonal (Jacobi) preconditioner M = diag(|∂F_d/∂y_d|⁻¹) is built
-    at the initial point by forward finite differences and held fixed for
-    all inner iterations.
+    at the starting point by forward finite differences and held fixed for
+    all inner iterations. The starting point comes from a pseudo-transient
+    continuation (a long implicit integration), because Newton started from
+    the IC can return spurious roots with emptied bins.
 
 ``SparseNewtonEquilibriumSolver``
     Classic Newton iterations with a finite-difference full Jacobian
@@ -237,6 +239,29 @@ def _diag_preconditioner(J_diag: np.ndarray) -> LinearOperator:
     return LinearOperator((n, n), matvec=lambda v: scale * v)
 
 
+def _integrate_to_steady_state(
+    state: "DustChemistryState",
+    y_gas_0: np.ndarray,
+    y_dust_0: np.ndarray,
+    processes: List[DustProcess],
+    t_long_s: float,
+) -> np.ndarray:
+    """Pseudo-transient continuation: integrate implicitly towards steady state.
+
+    Runs the quasi-implicit Anninos integrator for ``t_long_s`` and returns the
+    end y_dust. Whether that state is steady is judged by the caller from the
+    residual there, not from whether the integrator reached ``t_long_s``: at a
+    fixed point its step controller can chatter (accepted ~ rejected) until it
+    hits ``countmax`` although the state no longer moves.
+    """
+    from .anninos import AnninosSolver
+    from .ode_driver import integrate_dust_ode
+
+    _, y_dust, _ = integrate_dust_ode(state, t_long_s, y_gas_0, y_dust_0,
+                                      processes, AnninosSolver(), h_max=t_long_s)
+    return y_dust
+
+
 def _synthetic_history(
     y_gas_0:  np.ndarray,
     y_dust_0: np.ndarray,
@@ -283,22 +308,59 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
         Maximum LGMRES iterations per Newton step.
     eps_fd :
         Relative step for finite-difference Jacobian diagonal.
+    t_continuation_s :
+        Length of the pseudo-transient continuation run [s] that supplies the
+        Newton starting point (default 10⁶ Myr, i.e. the infinite-time limit).
+        ``None`` or 0 disables it and starts Newton from the IC, which can
+        return spurious roots -- see below.
+    stationary_rtol, t_stationary_s :
+        Continuation end state counts as steady if, at the rates there, no bin
+        would move by more than ``stationary_rtol`` of the dust mass within
+        ``t_stationary_s`` (default: a Hubble time):
+        ``max|F| · t_stationary_s / M_dust < stationary_rtol``, with M_dust the
+        larger of the initial and final totals so a destroyed population counts
+        as settled once it has gone. The horizon is physical rather than the
+        continuation length because coagulation/shattering drain the large bins
+        algebraically: a residual through-flux in a bin holding ~10⁻⁴ of the
+        dust persists for petayears without changing anything observable.
+    polish_max_change :
+        A Newton polish is accepted only if it moves the continuation state by
+        less than this fraction of its total mass (L1).
+
+    Why the continuation
+    --------------------
+    Starting Newton from the IC was unreliable. The residual clips y_dust at
+    0, and every rate into a bin scales with that bin's own mass, so a bin the
+    preconditioner overshoots below 0 contributes F_b = 0 and stays there: an
+    exact but unphysical root. In cool dense gas this returned e.g. all dust
+    in small carbonaceous grains with both silicate bins empty, and whether a
+    point hit such a root flipped under floating-point noise. The implicit
+    integration lands in the basin of the physical attractor; Newton then only
+    refines it, and is rejected if it empties a bin or wanders off.
     """
 
     def __init__(
         self,
-        f_tol:         float        = 1e-40,
-        f_rtol:        float | None = 1e-8,
-        maxiter:       int          = 200,
-        inner_maxiter: int          = 300,
-        eps_fd:        float        = 1e-7,
-        eps_phys:      float        = 0.15,
+        f_tol:             float        = 1e-40,
+        f_rtol:            float | None = 1e-8,
+        maxiter:           int          = 200,
+        inner_maxiter:     int          = 300,
+        eps_fd:            float        = 1e-7,
+        eps_phys:          float        = 0.15,
+        t_continuation_s:  float | None = 1.0e6 * 3.15576e13,
+        stationary_rtol:   float        = 0.05,
+        t_stationary_s:    float        = 13.8e3 * 3.15576e13,
+        polish_max_change: float        = 0.1,
     ) -> None:
         self.f_tol         = f_tol
         self.f_rtol        = f_rtol
         self.maxiter       = maxiter
         self.inner_maxiter = inner_maxiter
         self.eps_fd        = eps_fd
+        self.t_continuation_s  = t_continuation_s
+        self.stationary_rtol   = stationary_rtol
+        self.t_stationary_s    = t_stationary_s
+        self.polish_max_change = polish_max_change
         # eps_phys: per-bin fractional-change-over-t_eq threshold for the
         # physical significance early exit (see find_equilibrium).  If for
         # EVERY dust/PAH bin b the net rate |F[b]| × t_eq / y_dust[b] is less
@@ -442,29 +504,43 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
             nfev[0] += 1
             return F_dust(y)
 
-        # --- Diagonal preconditioner at y_d0 ---
-        J_diag = _fd_jacobian_diag(F_dust, y_d0, F0, eps_rel=self.eps_fd)
+        # --- Pseudo-transient continuation (see class docstring) ---
+        use_pt = bool(self.t_continuation_s)
+        if use_pt:
+            y_pt = _integrate_to_steady_state(
+                state, y_gas_0, y_d0, processes, self.t_continuation_s)
+            y_start = _project_to_feasible(y_pt, M0_el, A)
+            F_start = F_counted(y_start)
+            pt_drift = (float(np.max(np.abs(F_start))) * self.t_stationary_s
+                        / max(float(y_d0.sum()), float(y_start.sum()), 1e-300))
+            pt_stationary = pt_drift < self.stationary_rtol
+        else:
+            y_start, F_start = y_d0, F0
+        F_norm_start = float(np.linalg.norm(F_start))
+
+        # --- Diagonal preconditioner at the starting point ---
+        J_diag = _fd_jacobian_diag(F_dust, y_start, F_start, eps_rel=self.eps_fd)
         nfev[0] += n_dust
         M = _diag_preconditioner(J_diag)
 
         # --- Effective absolute tolerance ---
-        # Use max(f_tol, f_rtol * F_norm_0): the OR-combination means the
+        # Use max(f_tol, f_rtol * ||F_start||): the OR-combination means the
         # solver stops as soon as the easier criterion is satisfied.
         # (Using min would demand *both*, making the tolerance impossibly
-        # tight when F_norm_0 is already small.)
-        if self.f_rtol is not None and F_norm_0 > 0.0:
-            f_tol_eff = max(self.f_tol, self.f_rtol * F_norm_0)
+        # tight when ||F_start|| is already small.)
+        if self.f_rtol is not None and F_norm_start > 0.0:
+            f_tol_eff = max(self.f_tol, self.f_rtol * F_norm_start)
         else:
             f_tol_eff = self.f_tol
 
         conv  = False
         msg   = "did not converge"
-        y_sol = y_d0.copy()
+        y_sol = y_start.copy()
 
         try:
             y_sol = _scipy_nk(
                 F_counted,
-                y_d0,
+                y_start,
                 f_tol=f_tol_eff,
                 maxiter=self.maxiter,
                 method="lgmres",
@@ -486,7 +562,27 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
         # budget boundary).  Projecting gives the canonical physical state.
         y_dust_eq = _project_to_feasible(y_sol, M0_el, A)
 
-        # --- Trivial-zero guard ---
+        # --- Polish guard (continuation only) ---
+        # Keep the Newton result only if it refined the continuation state:
+        # converged, emptied no populated bin, and stayed close. Otherwise the
+        # continuation state is the answer, converged iff it was stationary.
+        if use_pt:
+            tot_pt = max(float(y_start.sum()), 1e-300)
+            lost   = (y_start > 1e-6 * tot_pt) & (y_dust_eq < 1e-12 * tot_pt)
+            moved  = float(np.abs(y_dust_eq - y_start).sum()) / tot_pt
+            if conv and not lost.any() and moved < self.polish_max_change:
+                msg += f" (Newton polish of continuation state, moved {moved:.1e})"
+            else:
+                why = ("Newton did not converge" if not conv
+                       else "polish emptied a populated bin" if lost.any()
+                       else f"polish moved the state by {moved:.2f}")
+                y_dust_eq = y_start
+                conv = pt_stationary
+                msg = (f"continuation state kept ({why}); "
+                       f"{'stationary' if pt_stationary else 'NOT stationary'}, "
+                       f"max|F|·t/M = {pt_drift:.1e}")
+
+        # --- Trivial-zero guard (no continuation) ---
         # y_dust=0 is always an exact root of F_dust (no dust → all rates 0).
         # If NK returned near-zero dust we must decide:
         #
@@ -504,7 +600,7 @@ class NewtonKrylovEquilibriumSolver(EquilibriumSolverBase):
         #                     fractional rate is large (|F0|*t_eq/y_d0 >> 1)
         #   spurious zero  → any bin has a net source (F0[b] > 0), or the
         #                     fractional rate is small
-        if y_dust_norm > 1e-200 and float(y_dust_eq.sum()) < 1e-6 * y_dust_norm:
+        elif y_dust_norm > 1e-200 and float(y_dust_eq.sum()) < 1e-6 * y_dust_norm:
             y_d0_clipped  = np.maximum(y_d0, 1e-200)
             per_bin_frac0 = np.abs(F0) * t_eq_s / y_d0_clipped
             # Net-sink criterion: total mass is being removed (F0.sum() < 0) AND
