@@ -4,7 +4,7 @@ A comprehensive Python implementation of a Semi-Analytic Model (SAM) for galacti
 
 ## Overview
 
-The `galaxySAM` module provides tools for:
+The `pycalima.galaxysam` module (formerly `galaxySAM`) provides tools for:
 
 - **Stellar Yield Models**: Multiple nucleosynthesis yield models (Kobayashi, Limongi & Chieffi, Karakas)
 - **Galaxy Evolution**: Semi-analytic simulation of star formation, gas accretion, chemical enrichment, and feedback
@@ -35,12 +35,11 @@ pip install numpy scipy pandas matplotlib
 
 ### Python Environment
 
-The module is already integrated into the pyCALIMA repository:
+The module ships with pyCALIMA; once it is installed, from any directory:
 
 ```bash
-cd /Users/currodri/Documents/GitHub/CALIMA
-python -m galaxySAM.examples  # Run examples
-python -m galaxySAM.run_sam --help  # See command-line options
+python -m pycalima.galaxysam.examples       # Run examples
+python -m pycalima.galaxysam.run_sam --help # See command-line options
 ```
 
 ## Quick Start
@@ -48,7 +47,7 @@ python -m galaxySAM.run_sam --help  # See command-line options
 ### Basic Galaxy Evolution
 
 ```python
-from galaxySAM import galaxy_sam
+from pycalima.galaxysam import galaxy_sam
 
 # Create a galaxy SAM
 sam = galaxy_sam.GalaxySAM(
@@ -70,7 +69,7 @@ print(f"Final metallicity: {results['metallicity'][-1]:.4f}")
 ### Plot Results
 
 ```python
-from galaxySAM import plotting
+from pycalima.galaxysam import plotting
 
 plotter = plotting.EvolutionPlotter()
 fig = plotter.plot_evolution(results, output_file='evolution.png')
@@ -80,10 +79,10 @@ fig = plotter.plot_evolution(results, output_file='evolution.png')
 
 ```bash
 # Basic run
-python -m galaxySAM.run_sam --yield-model kobayashi --plot -o ./output
+python -m pycalima.galaxysam.run_sam --yield-model kobayashi --plot -o ./output
 
 # With custom parameters
-python -m galaxySAM.run_sam \
+python -m pycalima.galaxysam.run_sam \
     --yield-model lc18 \
     --metallicity 0.01 \
     --tscale-infall 5.0 \
@@ -105,7 +104,7 @@ python -m galaxySAM.run_sam \
 ### Loading Yield Data
 
 ```python
-from galaxySAM import yield_models
+from pycalima.galaxysam import yield_models
 
 # Create Kobayashi model
 yields = yield_models.KobayashiYields(metallicity=0.02)
@@ -122,7 +121,7 @@ yield_fe = yields.get_yield(mass=20.0, element='Fe')
 ### Available IMF Types
 
 ```python
-from galaxySAM import imf
+from pycalima.galaxysam import imf
 
 # Salpeter (power-law)
 imf_sal = imf.create_imf('salpeter', alpha=-2.35, mmin=0.1, mmax=100.0)
@@ -225,7 +224,7 @@ for w in wind_loads:
 ### Evolution Plots
 
 ```python
-from galaxySAM import plotting
+from pycalima.galaxysam import plotting
 
 # Main evolution quantities
 plotter = plotting.EvolutionPlotter()
@@ -262,30 +261,30 @@ yield_plotter.plot_yields_comparison(
 Run the built-in examples:
 
 ```bash
-python -m galaxySAM.examples
+python -m pycalima.galaxysam.examples
 ```
 
 ### Example 1: Basic Evolution
 ```python
-from galaxySAM.examples import example_basic_evolution
+from pycalima.galaxysam.examples import example_basic_evolution
 results = example_basic_evolution()
 ```
 
 ### Example 2: Model Comparison
 ```python
-from galaxySAM.examples import example_multiple_models
+from pycalima.galaxysam.examples import example_multiple_models
 results = example_multiple_models()
 ```
 
 ### Example 3: Parameter Study
 ```python
-from galaxySAM.examples import example_parameter_study
+from pycalima.galaxysam.examples import example_parameter_study
 results = example_parameter_study()
 ```
 
 ### Example 4: Multi-Metallicity
 ```python
-from galaxySAM.examples import example_multi_metallicity
+from pycalima.galaxysam.examples import example_multi_metallicity
 results = example_multi_metallicity()
 ```
 
@@ -326,7 +325,7 @@ sam = galaxy_sam.GalaxySAM(
 ### Solar Abundances
 
 ```python
-from galaxySAM import constants
+from pycalima.galaxysam import constants
 
 # Asplund et al. 2009
 print(constants.ASPLUND_ABUNDANCES['Fe'])  # 3.1e-4

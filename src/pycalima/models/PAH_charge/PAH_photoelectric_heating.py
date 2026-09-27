@@ -87,12 +87,12 @@ W2ergs = 1e7  # Conversion factor from W to erg/s
 # FUNCTIONS
 class PAHDataset:
     def __init__(self, file_path):
-        file_path = file_path
-        entries = []
-        _parse_file()
+        self.file_path = file_path
+        self.entries = []
+        self._parse_file()
 
     def _parse_file(self):
-        with open(file_path, 'r') as file:
+        with open(self.file_path, 'r') as file:
             content = file.read()
 
         # Split the content into individual entries using the UID field as delimiter
@@ -159,16 +159,16 @@ class PAHDataset:
                     }
                     data['TRANSITIONS'].append(transition_data)
 
-            entries.append(data)
+            self.entries.append(data)
 
     def get_entry_by_uid(self, uid):
-        for entry in entries:
+        for entry in self.entries:
             if entry['UID'] == uid:
                 return entry
         return None
 
     def get_all_entries(self):
-        return entries
+        return self.entries
 
 def ionisation_potential(Z,a):
     """Ionisation potential following the empirical formalism of Weingartner
@@ -1235,7 +1235,8 @@ def blackbody_radiation(T, lambda_min, lambda_max, num_points=1000):
     Computes the blackbody radiation intensity in erg cm⁻² s⁻¹ nm⁻¹ sr⁻¹ 
     for a given temperature over a range of wavelengths.
 
-    Parameters:
+    Parameters
+    ----------
         T (float or unyt_quantity): Temperature in Kelvin.
         lambda_min (float or unyt_quantity): Minimum wavelength in nm.
         lambda_max (float or unyt_quantity): Maximum wavelength in nm.

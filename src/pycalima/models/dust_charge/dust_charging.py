@@ -9,6 +9,7 @@ By: Curro Rodriguez Montero (currodri@gmail.com)
 """
 
 # IMPORT LIBRARIES
+from pycalima.plotting_style import latex_available
 import os
 import numpy as np
 import gc
@@ -1196,8 +1197,12 @@ def compute_equilibrium_charge_distribution_vectorized(
                 IP_X_im1 = float(ion.get('IP_X_im1', ion.get('IP_ion', ion.get('ionization_potential', IONIZATION_POTENTIALS.get(el_key, 13.6) if el_key else 13.6))))
 
                 # Calculate grain ionization potential IP(a,Z) in eV (piecewise: valence IP for Z >= 0, EA of Z+1 for Z < 0)
+                # Grain material from yield_params, as the photoemission code in
+                # this module reads it; graphite if unspecified.
+                grain_type = (yield_params.get('material', 'graphite')
+                              if isinstance(yield_params, dict) else 'graphite')
                 is_graphite = grain_type.lower().startswith('gra') or grain_type.lower().startswith('car')
-                IP_a_Z = np.zeros_like(Zs)
+                IP_a_Z = np.zeros(len(Zs), dtype=float)
                 for idx, Z in enumerate(Zs):
                     if Z >= 0:
                         IP_a_Z[idx] = ionisation_potential_valence_vec(W, Z, a)
@@ -1853,7 +1858,7 @@ def compute_charge_vs_gamma(
     # preserve previous usetex setting and apply local rc updates
     prev_usetex = _plt.rcParams.get('text.usetex', False)
     _plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

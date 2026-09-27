@@ -19,7 +19,7 @@ set an initial step estimate ``h_local = min(1/kmax, h)``.
 The adaptive wrapper computes a step-quality metric as the maximum
 relative change across all ODE variables:
 
-    max_error = max(|y_new - y| / max(|y|, ε))
+    max_error = max(``|y_new - y|`` / max(``|y|``, ε))
 
 If ``max_error ≤ errmax`` the step is accepted; otherwise it is
 rejected.  Either way a new step size is proposed via a standard

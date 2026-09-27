@@ -26,7 +26,7 @@ amespahdbpythonsuite @ git+https://github.com/PAHdb/AmesPAHdbPythonSuite@114ad6d
 
 # uclchem: Fortran-backed astrochemistry code, used ONLY by the ice-formation
 # notebooks (notebooks/ice_formation_study.ipynb,
-# notebooks/simple_ice_model.ipynb, notebooks/uclchem_multiice_parallel_notebook.ipynb).
+# notebooks/uclchem_multiice_parallel_notebook.ipynb).
 # No PyPI wheel exists; it must be built from source following the upstream
 # instructions at https://github.com/uclchem/UCLCHEM. Left commented out so
 # that `pip install -r requirements-dev.txt` succeeds without a Fortran

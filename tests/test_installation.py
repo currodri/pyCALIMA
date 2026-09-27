@@ -35,7 +35,11 @@ CORE_DEPENDENCIES = {
     "joblib", "unyt", "miepython", "platformdirs", "astropy",
 }
 
-EXPECTED_EXTRAS = {"accel", "sim", "pahdb", "plots", "profile", "all", "dev"}
+EXPECTED_EXTRAS = {"accel", "sim", "plots", "profile", "docs", "all", "dev"}
+
+# Not on PyPI, so no extra may name it: one that did made `pip install
+# ".[all]"` and ".[dev]" fail on every clean machine.
+NOT_ON_PYPI = {"amespahdbpythonsuite", "uclchem"}
 
 
 # ---------------------------------------------------------------------------
@@ -107,9 +111,47 @@ def test_extras_are_declared():
     assert EXPECTED_EXTRAS <= provided, f"missing extras: {EXPECTED_EXTRAS - provided}"
 
 
+def test_no_dependency_requires_a_package_missing_from_pypi():
+    md = _metadata()
+    named = set()
+    for spec in md.get_all("Requires-Dist") or []:
+        name = spec.split(";")[0].strip()
+        for sep in (">=", "==", "<", ">", "!", "~", "[", " ", "@"):
+            name = name.split(sep)[0]
+        named.add(name.strip().lower())
+    assert not named & NOT_ON_PYPI, f"not installable from PyPI: {sorted(named & NOT_ON_PYPI)}"
+
+
 # ---------------------------------------------------------------------------
 # import-path hygiene
 # ---------------------------------------------------------------------------
+
+def test_no_module_hardcodes_latex_rendering():
+    """Plots must fall back to mathtext without LaTeX: a hard-coded
+    text.usetex=True made `calima-export` produce no tables for several
+    physics modules on a machine without a TeX installation."""
+    import ast
+
+    root = Path(pycalima.__path__[0])
+    hard, unimported = [], []
+    for path in sorted(root.rglob("*.py")):
+        if path.name == "plotting_style.py":
+            continue
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for k, v in zip(node.keys, node.values):
+                    if (isinstance(k, ast.Constant) and k.value == "text.usetex"
+                            and isinstance(v, ast.Constant) and v.value is True):
+                        hard.append(f"{path.relative_to(root)}:{node.lineno}")
+        if "latex_available()" in src and not any(
+                isinstance(n, ast.ImportFrom) and n.module == "pycalima.plotting_style"
+                for n in tree.body):
+            unimported.append(str(path.relative_to(root)))
+    assert not hard, f"hard-coded text.usetex=True (use latex_available()): {hard}"
+    assert not unimported, f"latex_available() used without a module-level import: {unimported}"
+
 
 def test_only_pycalima_is_claimed_on_the_import_path():
     """The pre-packaging layout would have installed top-level `models`,
@@ -459,11 +501,18 @@ def test_notebooks_use_the_pycalima_import_root():
 
 
 @needs_notebooks
-def test_readme_documents_the_ramses_post_processing_workflow():
-    readme = Path(__file__).resolve().parents[1] / "README.md"
-    if not readme.is_file():
-        pytest.skip("README.md not present")
-    text = readme.read_text(encoding="utf-8")
+def test_the_docs_document_the_ramses_post_processing_workflow():
+    """These notebooks need data the project cannot ship, so that has to be
+    stated somewhere a reader will find it. That page is now
+    docs/guide/post-processing.md rather than the README."""
+    page = Path(__file__).resolve().parents[1] / "docs" / "guide" / "post-processing.md"
+    if not page.is_file():
+        pytest.skip("documentation sources are not part of the wheel")
+    # Collapse whitespace: the prose is wrapped, and inside a blockquote the
+    # phrase spans two lines with a "> " continuation.
+    text = " ".join(
+        page.read_text(encoding="utf-8").replace("\n>", " ").split()
+    )
     for needle in ("CALIMA_model_explorer", "CALIMA_SIM_DIR",
                    "not distributed with pyCALIMA"):
-        assert needle in text, f"README does not mention {needle!r}"
+        assert needle in text, f"docs/guide/post-processing.md omits {needle!r}"

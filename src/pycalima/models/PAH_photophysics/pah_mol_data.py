@@ -22,7 +22,8 @@ if TYPE_CHECKING:
     # only to annotate extract_transitions()'s caller-supplied `pahdb`
     # argument -- nothing in pyCALIMA ever constructs an AmesPAHdb -- so
     # importing it under TYPE_CHECKING keeps it out of the runtime graph.
-    # Install with:  pip install 'pycalima[pahdb]'
+    # Not on PyPI; install with:
+    #   pip install "git+https://github.com/PAHdb/AmesPAHdbPythonSuite"
     from amespahdbpythonsuite.amespahdb import AmesPAHdb
 
 # ---------------------------------------------------------------------------

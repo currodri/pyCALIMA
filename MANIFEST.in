@@ -35,6 +35,10 @@ prune results
 prune assets
 prune reference_data
 prune src/pycalima/galaxysam/yohan_routines
+# The documentation sources are not part of the distribution. Without
+# these, setuptools_scm seeds the sdist from git and drags docs/ in.
+prune docs
+prune .github
 
 # --------------------------------------------------------------- exclude ---
 # Basename-matched, so these apply everywhere including inside src/.

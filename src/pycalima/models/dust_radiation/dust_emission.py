@@ -907,7 +907,7 @@ def compute_collision_only_thermal_equilibration(dust_type, Tgas, Tdust0,
         Tgas (float): Gas temperature [K], assumed constant.
         Tdust0 (float): Initial dust temperature [K].
         ne, nH, nHe, nC (float): Number densities [cm^-3].
-        tolerance (float, optional): |Tdust - Tgas| threshold [K] used to define "equilibrium".
+        tolerance (float, optional): ``|Tdust - Tgas|`` threshold [K] used to define "equilibrium".
         specific_heat (float, optional): Grain specific heat [erg g^-1 K^-1]. Defaults to 1e7.
         collisional_dust_bin (str, optional): Collisional table bin label or index,
             e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
@@ -1050,7 +1050,7 @@ def plot_collision_only_thermal_equilibration(dust_type, Tdust0,
         density_scalings (array-like): Multiplicative factors applied to
             (ne_ref, nH_ref, nHe_ref, nC_ref).
         ne_ref, nH_ref, nHe_ref, nC_ref (float): Reference number densities [cm^-3].
-        tolerance (float, optional): Equilibrium threshold in |Tdust-Tgas| [K].
+        tolerance (float, optional): Equilibrium threshold in ``|Tdust-Tgas|`` [K].
         specific_heat (float, optional): Grain specific heat [erg g^-1 K^-1].
         collisional_dust_bin (str, optional): Collisional table bin label or index,
             e.g. 'DustBin_00' or '00'. If None, inferred from `dust_type`.
@@ -1205,7 +1205,8 @@ def modified_mmp83_radiation_field(wavelength):
     """
     Calculate the modified MMP83 radiation field (Draine 2011) in units of erg/cm^3.
 
-    Parameters:
+    Parameters
+    ----------
     wavelength : float or numpy array
         Wavelength in cm.
 
@@ -2090,7 +2091,7 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
         Tgas_min, Tgas_max (float, optional): Gas-temperature range [K].
         nH_min, nH_max (float, optional): Hydrogen-number-density range [cm^-3].
         near_equilibrium_tol (float, optional): Region criterion for near thermal coupling,
-            using |Tdust/Tgas - 1| <= near_equilibrium_tol.
+            using ``|Tdust/Tgas - 1|`` <= near_equilibrium_tol.
         method (str, optional): 'linearized' (default) or 'newton'.
         output_dir (str, optional): Output directory for the plot.
         filename (str, optional): Output filename. Auto-generated if None.

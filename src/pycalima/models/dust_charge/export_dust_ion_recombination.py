@@ -9,6 +9,7 @@ Outputs are 2D ASCII tables (T × gamma grid) suitable for interpolation,
 plus quick-look plots showing how coefficients vary with ISM conditions.
 """
 
+from pycalima.plotting_style import latex_available
 import argparse
 import json
 import concurrent.futures
@@ -52,7 +53,7 @@ def _setup_plotting():
     """Configure matplotlib for publication-quality plots."""
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

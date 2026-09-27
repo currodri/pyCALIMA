@@ -3,6 +3,7 @@ PAH FREEZING
 
 """
 # LIBRARIES
+from pycalima.plotting_style import latex_available
 import numpy as np
 from pycalima.models.constants import *
 
@@ -13,7 +14,7 @@ def pah_freezing(GDR_PAHs,GDR_small,GDR_large,nMach=100):
     import seaborn as sns
     sns.set(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
