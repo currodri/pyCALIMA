@@ -13,6 +13,7 @@ By: F. Rodriguez Montero (currodri@gmail.com)
 
 # Import libraries
 import numpy as np
+from pycalima.plotting_style import latex_available
 from pycalima.models.tools.radiation_fields import Draine_1978_isrf
 import pandas as pd
 import os
@@ -334,7 +335,7 @@ def plot_acetylene_dissociation_rate(G0min,G0max,nHmin,nHmax,pah_bin_id=None,pah
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -371,7 +372,7 @@ def plot_evaporation_rate():
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -415,7 +416,7 @@ def plot_destruction_timescale_ratio(G0min,G0max,nHmin,nHmax,pah_bin_id=None,pah
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -527,7 +528,7 @@ def plot_dissociation_rates():
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -616,7 +617,7 @@ def plot_integrated_dissociation_rate():
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -746,7 +747,7 @@ def plot_h2_dissociation_rate(G0min,G0max,n_G0=100,pah_bin_id=None,pah_bin_rank=
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -840,7 +841,7 @@ def plot_h2_efficiency(G0,ntmin,ntmax,Xe,T,f,n_nt=100,pah_bin_id=None,pah_bin_ra
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -961,7 +962,7 @@ def plot_h2_formation(model,G0,ntmin,ntmax,Xe,T,f,xPAH=3.3e-5,n_nt=100,pah_bin_i
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -1058,7 +1059,7 @@ def plot_superhydrogenation(width):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

@@ -12,6 +12,7 @@ Tables are saved in model_data/PAH_photoelectric_heating_data/ subdirectory.
 Uses generalized PAH bin definitions from grain_size_distribution.json.
 """
 
+from pycalima.plotting_style import latex_available
 import argparse
 from pathlib import Path
 import json
@@ -81,7 +82,7 @@ def _setup_plotting():
     """Configure matplotlib for publication-quality plots."""
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

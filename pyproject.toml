@@ -57,15 +57,18 @@ dependencies = [
 accel = ["numba>=0.59"]
 # yt: 3 peripheral RAMSES-reader modules.
 sim = ["yt>=4.3"]
-# amespahdbpythonsuite is referenced only in a TYPE_CHECKING annotation, so it
-# is needed only by code that actually constructs an AmesPAHdb object.
-pahdb = ["amespahdbpythonsuite>=0.5"]
+# There is deliberately no `pahdb` extra: amespahdbpythonsuite is not on PyPI,
+# so an extra naming it made `pip install ".[all]"` (and ".[dev]") fail on any
+# clean machine. It is referenced only in a TYPE_CHECKING annotation; install
+# it from GitHub if you need it -- see requirements-dev.txt. The PAHdb data
+# archives themselves need a registration to download and are never bundled;
+# see the pahdb-* entries in data/registry.toml.
 # Colormaps only; cmasher is imported lazily with a matplotlib fallback.
 # (swiftascmaps was dropped: its single import was never actually used.)
 plots = ["cmasher>=1.6"]
 # psutil is lazy and guarded (memory reporting in the profiler).
 profile = ["psutil>=5.9"]
-all = ["pycalima[accel,sim,pahdb,plots,profile]"]
+all = ["pycalima[accel,sim,plots,profile]"]
 # Documentation toolchain. Depends on [all] rather than the bare package:
 # autodoc imports the real modules, so models/tools/eq_analysis.py needs yt
 # present to document its actual signatures instead of mocked ones.

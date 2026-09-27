@@ -36,13 +36,10 @@ calima-fetch-data list
 calima-fetch-data verify
 ```
 
-Every `bundled` dataset must report `present`. The two PAHdb archives report
-`MISSING` by design — they are ~575 MB and are obtained separately, so
-`calima-fetch-data verify` exits non-zero until they are registered:
-
-```bash
-calima-fetch-data import pahdb-theoretical-v4-00 /path/to/pahdb-...v4.00.xml
-```
+Every `bundled` dataset must report `present`, and `verify` must exit 0. The
+two PAHdb archives report `not installed (optional)` along with download
+instructions. They are not needed for a working installation — see
+{ref}`pahdb-data`.
 
 All five console scripts should respond:
 

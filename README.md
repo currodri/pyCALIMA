@@ -43,11 +43,15 @@ pip install "git+https://github.com/currodri/pyCALIMA.git"
 pip install -e ".[all]"
 ```
 
-Optional extras: `accel` (numba), `sim` (yt, for the RAMSES readers), `pahdb`
-(the Ames PAH database suite), `plots` (extra colormaps), `profile` (memory
-reporting), `docs`, and `dev`. See the
+Optional extras: `accel` (numba), `sim` (yt, for the RAMSES readers), `plots`
+(extra colormaps), `profile` (memory reporting), `docs`, and `dev`. See the
 [installation guide](https://currodri.github.io/pyCALIMA/getting-started/install.html)
 for what each one unlocks.
+
+The NASA Ames PAHdb is **optional** and not shipped: downloading it needs a
+(free) registration. Only building a new PAH species catalog uses it; see
+[Data locations](https://currodri.github.io/pyCALIMA/getting-started/data-locations.html#the-nasa-ames-pahdb-optional)
+for how to get it and point pyCALIMA at it (`$CALIMA_PAHDB_DIR`).
 
 ## Quickstart
 

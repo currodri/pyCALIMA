@@ -3,6 +3,7 @@ DUST SHATTERING
 
 """
 # LIBRARIES
+from pycalima.plotting_style import latex_available
 import numpy as np
 from pycalima.models.constants import *
 from unyt import mh,kb
@@ -28,7 +29,7 @@ def plot_shattering_frag(target_a,projectile_a,target_s,projectile_s,composition
     import seaborn as sns
     sns.set(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -244,7 +245,7 @@ def plot_shattering_frag_full(GDR_small,GDR_big,nMach=100):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })
@@ -559,7 +560,7 @@ def plot_shattering_frag_simple(nMach=100):
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

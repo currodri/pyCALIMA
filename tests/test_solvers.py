@@ -315,6 +315,87 @@ def test_equilibrium_solvers_construct(name):
     assert isinstance(solver, EquilibriumSolverBase)
 
 
+def _cool_dense_g10_state(T=454.0, nH=6.16):
+    """ramses_G10_MWZsun moved to cool dense gas, densities rescaled with nH."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        resolve_solver_config_path("ramses_G10_MWZsun")
+    )
+    r = nH / state.local_nH
+    state.local_Tk, state.local_nH = T, nH
+    state.local_rho *= r
+    return state, y_gas * r, y_dust * r, build_process_list(state)
+
+
+def test_nk_equilibrium_is_the_long_time_limit(model_data):
+    """A steady state is where the time evolution ends up. Newton from the IC
+    used to return a spurious root here (all dust in one bin, the carbonaceous
+    bins emptied by the zero-clip in the residual)."""
+    from pycalima.solvers.anninos import AnninosSolver
+    from pycalima.solvers.equilibrium import NewtonKrylovEquilibriumSolver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+
+    state, y_gas, y_dust, procs = _cool_dense_g10_state()
+    _, y_nk, diag = NewtonKrylovEquilibriumSolver(f_tol=1e-300, f_rtol=1e-6).find_equilibrium(
+        state, y_gas, y_dust, procs, t_eq_s=400 * 3.156e13)
+    _, y_long, _ = integrate_dust_ode(state, 1e6 * 3.156e13, y_gas, y_dust, procs,
+                                      AnninosSolver())
+    assert diag["converged"], diag["message"]
+    frac_nk, frac_long = y_nk / y_nk.sum(), y_long / y_long.sum()
+    np.testing.assert_allclose(frac_nk, frac_long, atol=0.02)
+    assert np.all(frac_nk[frac_long > 0.05] > 0.05), "a populated bin was emptied"
+
+
+def test_subgrid_clumping_boost_matches_ramses_yomp(model_data):
+    """The accretion boost must be the one in ramses-yomp cooling_module.f90,
+    written out here independently of dust_rates."""
+    import math
+
+    from pycalima.solvers.dust_rates import accretion_rate
+
+    def fortran_boost(sigma_cm_s, T, nH, nhmax):
+        mach  = max(1e-5, sigma_cm_s / math.sqrt(1.666667 * 1.380649e-16 * T / 1.6726219e-24))
+        sigs  = math.log(1 + (0.4 * mach) ** 2)
+        sigs2 = sigs * sigs
+        smax  = math.log(nhmax / min(nH, nhmax))
+        return 0.5 * math.exp(sigs2) * math.erfc((1.5 * sigs2 - smax) / (math.sqrt(2) * sigs))
+
+    state, y_gas, y_dust, _ = _cool_dense_g10_state(T=50.0, nH=50.0)   # Jeans-unresolved
+    y_dust = np.maximum(y_dust, 1e-30)
+
+    def bin_rates(sigma_km_s):
+        state.local_sigma = sigma_km_s * 1e5
+        dg, dd = np.zeros_like(y_gas), np.zeros_like(y_dust)
+        accretion_rate(state, y_gas, y_dust, dg, dd)
+        return dd
+
+    base = bin_rates(0.0)
+    for sigma in (0.5, 2.0, 5.0):
+        ratio = bin_rates(sigma) / base
+        for db in state.dust_bins:
+            k = db.bin_index + state.npah
+            if base[k] > 0:
+                expected = (fortran_boost(sigma * 1e5, 50.0, 50.0, db.nhmax_acc)
+                            / fortran_boost(0.0, 50.0, 50.0, db.nhmax_acc))
+                assert ratio[k] == pytest.approx(expected, rel=1e-6), (db.bin_id, sigma)  # constants differ in the 7th digit
+
+
+def test_nk_equilibrium_is_robust_to_ic_noise(model_data):
+    """The old solver's answer flipped between roots under tiny perturbations."""
+    from pycalima.solvers.equilibrium import NewtonKrylovEquilibriumSolver
+
+    results = []
+    for eps in (0.0, 1e-9, -1e-9):
+        state, y_gas, y_dust, procs = _cool_dense_g10_state()
+        _, y, _ = NewtonKrylovEquilibriumSolver(f_tol=1e-300, f_rtol=1e-6).find_equilibrium(
+            state, y_gas, y_dust * (1 + eps), procs, t_eq_s=400 * 3.156e13)
+        results.append(y / y.sum())
+    for r in results[1:]:
+        np.testing.assert_allclose(r, results[0], atol=1e-3)
+
+
 # ---------------------------------------------------------------------------
 # end to end
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ CALIMA_ENV_VARS = (
     "CALIMA_SED_DIR",
     "CALIMA_DUSTEM_FILE",
     "CALIMA_YIELD_DIR",
+    "CALIMA_PAHDB_DIR",
     "BERNEPATH",
 )
 
@@ -70,14 +71,19 @@ def pristine_env(tmp_path, monkeypatch):
 def _find_model_data() -> Path | None:
     """Locate a populated model_data/ tree, or None.
 
-    Checks $CALIMA_MODEL_DATA, then the repository checkout this test file
-    lives in. Deliberately does not call pycalima._paths, so that the skip
-    decision is independent of the code under test.
+    Checks $CALIMA_MODEL_DATA, then $CALIMA_DATA/model_data (where
+    `calima-export` writes when only the root is set), then the repository
+    checkout this test file lives in. Deliberately does not call
+    pycalima._paths, so that the skip decision is independent of the code
+    under test.
     """
-    env = os.environ.get("CALIMA_MODEL_DATA")
     candidates = []
+    env = os.environ.get("CALIMA_MODEL_DATA")
     if env:
         candidates.append(Path(env))
+    root = os.environ.get("CALIMA_DATA")
+    if root:
+        candidates.append(Path(root) / "model_data")
     repo_root = Path(__file__).resolve().parents[1]
     candidates.append(repo_root / "model_data")
     for c in candidates:

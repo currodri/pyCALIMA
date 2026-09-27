@@ -35,10 +35,33 @@ here; set the corresponding variable if you need the routines that read them:
 None of these are bundled or downloadable; each accessor raises with the
 variable's name if it is needed and unset.
 
-The large PAHdb archives are registered but not bundled:
+(pahdb-data)=
+## The NASA Ames PAHdb (optional)
 
-```bash
-calima-fetch-data list                  # what is available and where
-calima-fetch-data list --missing
-calima-fetch-data import pahdb-theoretical-v4-00 /path/to/pahdb-...xml
-```
+The [NASA Ames PAH IR Spectroscopic Database](https://www.astrochemistry.org/pahdb/)
+is not shipped with pyCALIMA and cannot be downloaded automatically, because
+downloading it requires a (free) registration. **You only need it to build a
+new PAH species catalog** with `pycalima.models.PAH_photophysics.pah_db_lookup`.
+The solvers, `calima-export`, and the shipped `PAH_states` tables all work
+without it.
+
+To get it:
+
+1. Register and log in at <https://www.astrochemistry.org/pahdb/>.
+2. Under *Downloads*, get the **complete theoretical library, v4.00, XML**
+   (~500 MB). The downloaded file name may carry a per-download token.
+3. Tell pyCALIMA where it is, in one of two ways:
+
+   ```bash
+   # a) an environment variable pointing at the directory that holds it,
+   #    with the file renamed to pahdb-complete-theoretical-v4.00.xml
+   export CALIMA_PAHDB_DIR=/path/to/dir
+
+   # b) or copy it (or --link it) into the dataset cache; it is renamed for you
+   calima-fetch-data import pahdb-theoretical-v4-00 /path/to/downloaded.xml --link
+   ```
+
+4. Check: `calima-fetch-data path pahdb-theoretical-v4-00` prints its location.
+
+If code that needs it runs without it, it stops with these same instructions.
+`calima-fetch-data list --missing` shows everything not yet installed.

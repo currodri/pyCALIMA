@@ -4,6 +4,7 @@ GRAIN SIZE DISTRIBUTIONS
 This module contains the classes that help define different grain size distributions.
 """
 # LIBRARIES
+from pycalima.plotting_style import latex_available
 import numpy as np
 
 from pycalima.models.grain_size_config import build_lognormal_distribution, get_bin_by_rank
@@ -479,7 +480,7 @@ def plot_distribution(rho_gas,D_smallPAHs,D_largePAHs,D_smallC,D_largeC,D_smallS
     import seaborn as sns
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

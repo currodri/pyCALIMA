@@ -6,6 +6,7 @@ phi=0 sputtering rates using export_rates_simple, and writes outputs to
 model_data/pah_sputtering_data. It also saves one quick-look plot per bin.
 """
 
+from pycalima.plotting_style import latex_available
 import argparse
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def _save_quicklook_plot(output_path, T, J_e, J_electronic, J_ion, title):
     """Save a quick validation plot for PAH sputtering rates."""
     sns.set_theme(style="white")
     plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

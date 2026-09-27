@@ -144,13 +144,23 @@ size_bytes = 503_300_000
 citation = "NASA Ames PAH IR Spectroscopic Database, theoretical library v4.00"
 url = "https://www.astrochemistry.org/pahdb/"
 url_status = "unconfirmed"
-instructions = """Download the complete theoretical library (v4.00) from
-https://www.astrochemistry.org/pahdb/ and register your copy with:
+env_override = "CALIMA_PAHDB_DIR"
+instructions = """The NASA Ames PAHdb cannot be redistributed with pyCALIMA:
+downloading it requires a (free) registration.
 
-    calima-fetch-data import pahdb-theoretical-v4-00 /path/to/pahdb-complete-theoretical-v4.00.xml
+  1. Register and log in at https://www.astrochemistry.org/pahdb/
+  2. Under Downloads, get the complete theoretical library, v4.00, XML
+     format (~500 MB). The file name may carry a per-download token.
+  3. Tell pyCALIMA where it is, either:
+       a) point an environment variable at the directory holding it
+          (rename the file to pahdb-complete-theoretical-v4.00.xml):
+              export CALIMA_PAHDB_DIR=/path/to/dir
+       b) or copy/symlink it into the dataset cache (renamed for you):
+              calima-fetch-data import pahdb-theoretical-v4-00 /path/to/downloaded.xml [--link]
 
-Needed only by pycalima.models.PAH_photophysics.pah_db_lookup when building a
-species catalog. The shipped PAH_states tables were generated from it already."""
+Only pycalima.models.PAH_photophysics.pah_db_lookup needs it, when building a
+new PAH species catalog. Everything else -- including the dust and PAH solvers
+and the shipped PAH_states tables -- works without it."""
 
 [datasets.pahdb-theoretical-v3-20]
 kind = "manual"
@@ -160,14 +170,17 @@ size_bytes = 71_360_000
 citation = "NASA Ames PAH IR Spectroscopic Database, theoretical library v3.20"
 url = "https://www.astrochemistry.org/pahdb/"
 url_status = "unconfirmed"
+env_override = "CALIMA_PAHDB_DIR"
 instructions = """An older ASCII export of the PAHdb theoretical library. No
-code in pyCALIMA reads it; it is registered only for provenance. It used to be
-committed to this repository (68 MB) and now lives in reference_data/.
+code in pyCALIMA reads it; it is registered only for provenance, so you do not
+need it.
 
-If you need it, download the v3.20 theoretical library from
-https://www.astrochemistry.org/pahdb/ and register your copy with:
+If you want it anyway, register (free) and log in at
+https://www.astrochemistry.org/pahdb/, download the v3.20 theoretical library,
+and either put it in $CALIMA_PAHDB_DIR as
+pahdb-complete-theoretical-v3.20_pIN3f5.ascii or register it with:
 
-    calima-fetch-data import pahdb-theoretical-v3-20 /path/to/pahdb-complete-theoretical-v3.20_pIN3f5.ascii
+    calima-fetch-data import pahdb-theoretical-v3-20 /path/to/downloaded.ascii
 """
 
 # ----------------------------------------------------------------- fetch ---

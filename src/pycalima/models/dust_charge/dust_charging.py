@@ -9,6 +9,7 @@ By: Curro Rodriguez Montero (currodri@gmail.com)
 """
 
 # IMPORT LIBRARIES
+from pycalima.plotting_style import latex_available
 import os
 import numpy as np
 import gc
@@ -1853,7 +1854,7 @@ def compute_charge_vs_gamma(
     # preserve previous usetex setting and apply local rc updates
     prev_usetex = _plt.rcParams.get('text.usetex', False)
     _plt.rcParams.update({
-        "text.usetex": True,
+        "text.usetex": latex_available(),
         "font.family": "serif",
         "font.serif": "Computer Modern Roman",
     })

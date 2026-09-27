@@ -24,7 +24,6 @@ Optional extras:
 |---|---|---|
 | `sim` | `yt` | reading RAMSES outputs (`models.tools.eq_analysis`) |
 | `accel` | `numba` | JIT acceleration of the charging/sputtering kernels |
-| `pahdb` | `amespahdbpythonsuite` | constructing `AmesPAHdb` objects yourself |
 | `plots` | `cmasher` | extra colormaps |
 | `profile` | `psutil` | memory reporting in the profiler |
 | `all` | all of the above | |
@@ -39,10 +38,13 @@ references are rejected in distribution metadata. Both are optional:
 - **UCLCHEM** (`notebooks/ice_formation_study.ipynb`,
   `notebooks/uclchem_multiice_parallel_notebook.ipynb`) — Fortran-backed, build
   from source.
-- A pinned development build of `amespahdbpythonsuite`, if you need to
-  reproduce the shipped PAH tables exactly.
+- `amespahdbpythonsuite` (not on PyPI), only if you construct `AmesPAHdb`
+  objects yourself: `pip install "git+https://github.com/PAHdb/AmesPAHdbPythonSuite"`.
+  `requirements-dev.txt` pins the development build used for the shipped PAH
+  tables.
 
-See `requirements-dev.txt`.
+See `requirements-dev.txt`. The PAHdb *data* is separate again, and optional —
+see {ref}`pahdb-data`.
 
 To also get the test suite and build tooling:
 
