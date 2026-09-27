@@ -1473,6 +1473,7 @@ def plot_peh_vs_recombination(grain_types,a,G0,ne,Tmin,Tmax,nT=100,radiation_mod
     E = 1.2398 / (wavelength[::-1]*1e-3)
     I = I_rad[::-1] * cm**-2/s/nm
     F = I * E * eV
+    e = 1.602176634e-19  # elementary charge [C], as in the PAH modules
     f = F *nm/ (1e-9*m) * h * c / (E*eV)**2 * eV / (e*J)
     I = f.to('erg/s/cm**2/eV').d 
     G0 = np.trapezoid(2.*np.pi*f.to('W/m**2/eV').d[(E<=13.6)&(E>=5.17)],E[(E<=13.6)&(E>=5.17)]) / 1.68e-6

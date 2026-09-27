@@ -475,7 +475,8 @@ def _build_parser():
 
 def main(argv: Sequence[str] | None = None) -> int:
     """``calima-fetch-data`` entry point."""
-    a = _build_parser().parse_args(list(argv) if argv is not None else None)
+    parser = _build_parser()
+    a = parser.parse_args(list(argv) if argv is not None else None)
 
     if a.cmd == "list":
         rows = []
@@ -508,7 +509,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if a.cmd == "fetch":
         if not a.all and a.name is None:
-            p.error("give a dataset name or --all")
+            parser.error("give a dataset name or --all")
         targets = ([d for d in iter_datasets() if d.kind == "fetch"]
                    if a.all else [get_dataset(a.name)])
         rc = 0

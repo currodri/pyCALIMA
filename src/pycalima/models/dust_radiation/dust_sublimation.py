@@ -1467,8 +1467,6 @@ def write_erosion_rate_tables(*args, **kwargs):
     )
     return write_sublimation_rate_tables(*args, **kwargs)
 
-    return written
-
 
 def plot_sublimation_rate_vs_temperature(config_path=None,
                                          T_min=200.0, T_max=4000.0, n_T=300,

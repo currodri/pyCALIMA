@@ -271,3 +271,13 @@ def test_path_subcommand_fails_for_a_missing_dataset(tmp_path, monkeypatch, caps
     manual = next(d for d in iter_datasets() if d.kind == "manual")
     assert main(["path", manual.name]) == 1
     assert "calima-fetch-data" in capsys.readouterr().err
+
+
+def test_fetch_without_a_name_is_a_usage_error_not_a_crash():
+    """`calima-fetch-data fetch` with neither NAME nor --all must print usage;
+    it used to raise NameError after the parser moved into _build_parser()."""
+    from pycalima._datasets import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["fetch"])
+    assert exc.value.code == 2
