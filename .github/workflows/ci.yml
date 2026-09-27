@@ -2,10 +2,7 @@ name: CI
 
 on:
   push:
-    # feature/sphinx-docs is here TEMPORARILY, to preview the documentation
-    # site from that branch before it is merged. Remove it (and the matching
-    # condition in the two Pages steps below) when the branch merges into main.
-    branches: [main, feature/sphinx-docs]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -330,7 +327,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Pages artifact
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/sphinx-docs')
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_build/html
@@ -340,7 +337,7 @@ jobs:
   # =========================================================================
   deploy:
     name: deploy to Pages
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/sphinx-docs')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [tests, packaging, model-data, docs]
     runs-on: ubuntu-latest
     permissions:
