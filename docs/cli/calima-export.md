@@ -38,6 +38,9 @@ calima-export
 # Skip the single most expensive stage that nothing else reuses
 calima-export --skip-stages dust_ion_recombination
 
+# Only the two bins the tutorials use (what CI runs; under a minute)
+calima-export --config tutorial
+
 # Only the PAH tables
 calima-export --stages pah_optical_properties,pah_sputtering_rates,pah_dissociation_tables
 

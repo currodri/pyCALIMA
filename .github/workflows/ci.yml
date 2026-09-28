@@ -134,7 +134,7 @@ jobs:
         # Everything that can change a generated table's contents.
         run: |
           echo "value=model-data-v1-${{ runner.os }}-${{ hashFiles(
-            'src/pycalima/models/grain_size_distribution.json',
+            'src/pycalima/models/grain_size_distribution_tutorial.json',
             'src/pycalima/models/export_all_grain_data.py',
             'src/pycalima/models/grain_distributions.py',
             'src/pycalima/models/grain_size_config.py',
@@ -165,12 +165,16 @@ jobs:
 
       - name: Export the tables the tutorials need
         if: steps.cache.outputs.cache-hit != 'true'
-        # dust_ion_recombination is 45.5% of a full export and nothing
-        # downstream reads its tables; dust_band_luminosities is skipped only
-        # for tidiness. See docs/cli/calima-export.md for the measured profile.
+        # Only the tutorial configuration's two bins, PAHBin_01 and DustBin_03
+        # (silicate, 0.005 um), copied verbatim from the default so their
+        # tables are identical; the tutorials and the table-dependent tests
+        # use the matching solver config tutorial_ic. The full six-bin export
+        # took ~22 min here; this takes well under a minute.
+        # dust_ion_recombination: nothing downstream reads its tables;
+        # dust_band_luminosities is skipped only for tidiness.
         run: |
           mkdir -p "$CALIMA_MODEL_DATA"
-          calima-export \
+          calima-export --config tutorial \
             --skip-stages dust_ion_recombination,dust_band_luminosities \
             --profile-output "$CALIMA_MODEL_DATA/ci_export_profile.json"
 

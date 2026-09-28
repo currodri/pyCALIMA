@@ -294,8 +294,8 @@ def test_bundled_data_is_installed(tree, parts):
 def test_bundled_json_configs_are_installed():
     from pycalima import _paths
 
-    assert len(_paths.list_grain_configs()) == 4
-    assert len(_paths.list_solver_configs()) == 8
+    assert len(_paths.list_grain_configs()) == 5
+    assert len(_paths.list_solver_configs()) == 9
 
 
 def test_ramses_fortran_reference_ships():

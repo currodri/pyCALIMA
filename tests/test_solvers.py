@@ -621,12 +621,15 @@ def test_the_docs_document_every_solver():
 # ---------------------------------------------------------------------------
 
 def test_dust_sputtering_tables_are_actually_loaded(model_data):
-    """Every dust bin must end up with a non-empty sputtering interpolator set."""
+    """Every dust bin must end up with a non-empty sputtering interpolator set.
+
+    Uses tutorial_ic, whose bins are the ones CI exports; example_ic's other
+    bins have tables only after a full `calima-export`."""
     from pycalima._paths import resolve_solver_config_path
     from pycalima.solvers.dust_init import load_initial_conditions
 
     state, _y_gas, _y_dust = load_initial_conditions(
-        resolve_solver_config_path("example_ic")
+        resolve_solver_config_path("tutorial_ic")
     )
     empty = [db.bin_id for db in state.dust_bins if not db.sputtering_interps]
     assert not empty, (
@@ -640,7 +643,7 @@ def test_pah_sputtering_and_photolysis_tables_are_actually_loaded(model_data):
     from pycalima.solvers.dust_init import load_initial_conditions
 
     state, _y_gas, _y_dust = load_initial_conditions(
-        resolve_solver_config_path("example_ic")
+        resolve_solver_config_path("tutorial_ic")
     )
     no_sput = [pb.bin_id for pb in state.pah_bins if not pb.sputtering_interps]
     no_diss = [pb.bin_id for pb in state.pah_bins if pb.dissociation_interp is None]

@@ -25,7 +25,15 @@ snapshots that **are not distributed with pyCALIMA** — see
 ## Rendered here
 
 The two notebooks below are executed every time the documentation is built, so
-what you see is what the current code produces.
+what you see is what the current code produces. To keep that build fast they
+use the `tutorial_ic` solver configuration — one silicate dust bin
+(DustBin_03, 0.005 µm) and one PAH bin (PAHbin_01, $N_C = 54$) — and CI exports
+only those two bins' tables, with `calima-export --config tutorial`. Those
+tables are identical to the default configuration's tables for the same bins.
+Processes that move mass between bins (dust coagulation and shattering, PAH
+coalescence and cluster evaporation) need a second bin, so the tutorials
+describe them but do not run them; `example_ic` does, after a full
+`calima-export`.
 
 ```{toctree}
 :maxdepth: 1
@@ -48,7 +56,7 @@ An end-to-end walkthrough of the full CALIMA solver workflow:
 | 5. Equilibrium solver | Newton–Krylov steady-state run; comparison with RK4 final state |
 | 6. T–nH grid setup | Defining a logarithmic 2-D parameter sweep |
 | 7. Grid run (parallel) | Running all (T, nH) pairs using joblib multi-core parallelism |
-| 8. Grid plotting | Heatmaps of DTM ratio, PAH abundance, and grain-size fractions |
+| 8. Grid plotting | Heatmaps of DTM ratio, PAH abundance, dust mass and PAH-to-dust ratio |
 
 ## `calima_dust_pah_processes.ipynb` — Dust and PAH Processes Deep Dive
 

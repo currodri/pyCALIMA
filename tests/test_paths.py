@@ -99,7 +99,7 @@ def test_get_model_data_dir_does_not_create_by_default(tmp_path, monkeypatch):
 
 def test_bundled_grain_configs_are_discoverable():
     names = _paths.list_grain_configs()
-    assert {"default", "ramses4bin", "4C6Si", "test"} <= set(names), names
+    assert {"default", "ramses4bin", "4C6Si", "test", "tutorial"} <= set(names), names
     for name in names:
         assert _paths.resolve_grain_config_path(name).is_file()
 
@@ -107,7 +107,7 @@ def test_bundled_grain_configs_are_discoverable():
 def test_bundled_solver_configs_are_discoverable():
     names = _paths.list_solver_configs()
     assert "example_ic" in names, names
-    assert len(names) == 8, names
+    assert len(names) == 9, names
     for name in names:
         assert _paths.resolve_solver_config_path(name).is_file()
 

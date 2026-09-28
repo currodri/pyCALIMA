@@ -398,7 +398,8 @@ def get_grain_config_dir() -> Path:
 def list_grain_configs() -> list[str]:
     """Short names of the bundled grain-size configurations.
 
-    ``["4C6Si", "default", "ramses4bin", "test"]`` for the four shipped JSONs.
+    ``["4C6Si", "default", "ramses4bin", "test", "tutorial"]`` for the five
+    shipped JSONs.
     """
     names = []
     for p in sorted(get_grain_config_dir().glob("*grain_size_distribution*.json")):

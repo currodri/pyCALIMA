@@ -1,0 +1,128 @@
+{
+  "_comment": "Tutorial / CI configuration: exactly one PAH bin (PAHBin_01) and one dust bin (DustBin_03, silicate 0.005 um), with parameters and export_parameters copied verbatim from grain_size_distribution.json, so every table it produces is identical to the default configuration's table for that bin. CI exports only this; the tutorials use the matching solver config tutorial_ic.json.",
+  "bins": [
+    {
+      "id": "PAHBin_01",
+      "composition": "graphite",
+      "is_pah": true,
+      "bin_rank": 0
+    },
+    {
+      "id": "DustBin_03",
+      "composition": "silicate",
+      "is_pah": false,
+      "bin_rank": 0
+    }
+  ],
+  "basic": {
+    "a0": [
+      0.0005,
+      0.005
+    ],
+    "amin": [
+      0.0003,
+      0.0005
+    ],
+    "amax": [
+      0.001,
+      0.1
+    ],
+    "sigma": [
+      0.3,
+      0.75
+    ],
+    "s": [
+      2.0,
+      3.3
+    ]
+  },
+  "shattering": {
+    "a0": [
+      0.0005,
+      0.005
+    ],
+    "amin": [
+      0.0005,
+      0.001
+    ],
+    "amax": [
+      0.0006,
+      0.02
+    ],
+    "sigma": [
+      0.3,
+      0.75
+    ],
+    "s": [
+      2.0,
+      3.3
+    ]
+  },
+  "export_parameters": {
+    "collisional_cooling": {
+      "Tmin": 10.0,
+      "Tmax": 1000000000.0,
+      "nT": 200,
+      "nv": 200,
+      "nphi": 200,
+      "delta_max": 0.1
+    },
+    "dust_sputtering": {
+      "Tmin": 1000.0,
+      "Tmax": 1000000000.0,
+      "nT": 200,
+      "nphi": 200,
+      "nbins_v": 200,
+      "hnu_max_ev": 13.6
+    },
+    "pah_sputtering": {
+      "Tmin": 1000.0,
+      "Tmax": 1000000000.0,
+      "nT": 200,
+      "nbins_v": 300,
+      "nbins_theta": 30
+    },
+    "dust_charging": {
+      "gamma_min": 0.0001,
+      "gamma_max": 1000000.0,
+      "n_gamma": 100,
+      "combos_per_gamma": 20,
+      "seed": 42
+    },
+    "dust_photoelectric_heating": {
+      "Tmin": 10.0,
+      "Tmax": 100000.0,
+      "nT": 100,
+      "gamma_min": 1e-06,
+      "gamma_max": 1000000.0,
+      "n_gamma": 100,
+      "radiation_model": "Mathis",
+      "mode": "fix_G0",
+      "fixed_value": 1.0,
+      "n_workers": 8
+    },
+    "pah_photoelectric_heating": {
+      "temperature": 1000.0,
+      "G0": 1.0,
+      "ne_min": 1e-05,
+      "ne_max": 100000.0,
+      "n_ne": 100,
+      "radiation_models": [
+        "Mathis"
+      ],
+      "optical_models": [
+        "Draine"
+      ],
+      "attachment_models": [
+        "Berne",
+        "Tielens"
+      ]
+    },
+    "pah_dissociation": {
+      "g0_min": 0.01,
+      "g0_max": 1000000.0,
+      "nh_min": 0.01,
+      "nh_max": 1000000.0
+    }
+  }
+}

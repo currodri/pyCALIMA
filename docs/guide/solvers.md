@@ -60,6 +60,7 @@ near-zero components cannot dominate it.
 | File | Scenario |
 |---|---|
 | `example_ic.json` | CNM (T = 100 K, nH = 100 cm⁻³, G0 = 1) with all standard processes |
+| `tutorial_ic.json` | The same CNM with one dust bin (DustBin_03) and one PAH bin (PAHbin_01); used by the tutorials, needs only the `tutorial` grain configuration's tables |
 | `all_processes_test.json` | Same environment, all physics flags on, 5 Myr run |
 | `equilibrium_gasdominant_test.json` | Gas-dominated medium, equilibrium test |
 | `equilibrium_nk_test.json` | Reference case for the Newton–Krylov solver |
