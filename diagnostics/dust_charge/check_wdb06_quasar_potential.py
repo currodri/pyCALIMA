@@ -106,7 +106,7 @@ OVERLAY = {'graphite': ((519, 1254, 394, 1133), (1e-3, 1.0, 0.0, 105.0)),
            'silicate': ((1998, 2733, 394, 1132), (1e-3, 1.0, 0.0, 115.0))}
 
 
-def plot_overlay(phi, pdf, path, phi_ref=None):
+def plot_overlay(phi, pdf, path, phi_ref=None, ref_label='reference'):
     """Our phi(a) (colour) over the paper's Figs. 6a and 7a (black)."""
     import subprocess
     import tempfile
@@ -144,7 +144,7 @@ def plot_overlay(phi, pdf, path, phi_ref=None):
         ax.set_title(f'{"Fig. 6a: carbonaceous" if mat == "graphite" else "Fig. 7a: silicate"}'
                      ' (three curves per U: T = 1e4, 1e5, 1e6 K, bottom to top)', fontsize=9)
         ax.legend(frameon=True, framealpha=0.9, fontsize=8, loc='upper right')
-    note = ('; dotted: gas secondaries at the mean impact energy, as WDB06' if phi_ref is not None else '')
+    note = f'; dotted: {ref_label}' if phi_ref is not None else ''
     fig.suptitle('pyCALIMA (colour) over WDB06 Figs. 6a/7a (black)' + note, fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
@@ -156,6 +156,7 @@ def main():
     ap.add_argument('--recompute', action='store_true')
     ap.add_argument('--pdf', help='WDB06 arXiv preprint, to overlay Figs. 6a/7a')
     ap.add_argument('--reference', help='another cached .npz grid to draw dotted on the overlay')
+    ap.add_argument('--reference-label', default='reference', help='legend text for --reference')
     args = ap.parse_args()
     warnings.filterwarnings('ignore')
 
@@ -173,7 +174,7 @@ def main():
     if args.pdf:
         ref = np.load(args.reference)['phi'] if args.reference else None
         over = out_dir / 'wdb06_quasar_potential_overlay.png'
-        plot_overlay(phi, args.pdf, over, ref)
+        plot_overlay(phi, args.pdf, over, ref, args.reference_label)
         print('Saved', over)
 
 

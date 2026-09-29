@@ -325,3 +325,119 @@ class TestSolverIntegration:
         off = self._solve({**base, 'include_gas_secondaries': False}, T=1e5, ne=1.0)
         on = self._solve(base, T=1e5, ne=1.0)
         assert on[3] > off[3]
+
+
+class TestElectronTransmission:
+    @pytest.mark.parametrize("material", MATERIALS)
+    def test_repelling_grain_matches_ds79_eq13(self, material):
+        """For phi < 0, DS79 eq. 13: <s_e> = 1 - (1 + psi) exp(-psi), psi = E_pen/kT,
+        so the transmitted fraction is (1 + psi) exp(-psi)."""
+        from pycalima.models.dust_charge import wdb06_yields as wy
+        from pycalima.models.dust_charge.shared_physics import EV2ERG, KB_CGS
+
+        for a, T in ((1e-7, 1e6), (1e-6, 1e7), (3e-7, 3e6)):
+            psi = wy.penetration_energy(a, material) / (KB_CGS * T / EV2ERG)
+            P, _ = wy.electron_transmission([-5.0], a, T, material)
+            assert P[0] == pytest.approx((1 + psi) * np.exp(-psi), rel=1e-12)
+
+    @pytest.mark.parametrize("Z", [-4.0, 0.0, 8.0])
+    def test_cooling_factor_matches_direct_integration(self, Z):
+        from scipy.integrate import quad
+
+        from pycalima.models.dust_charge import wdb06_yields as wy
+        from pycalima.models.dust_charge.shared_physics import EV2ERG, KB_CGS
+
+        a, T, mat = 1e-7, 2e6, "graphite"
+        kT = KB_CGS * T / EV2ERG
+        eU = Z * wy._e2_over_a(a)
+        L = max(eU, 0.0)
+        Ep = wy.penetration_energy(a, mat)
+        Ec = max((Ep ** 1.5 + L ** 1.5) ** (2 / 3), L)
+        w = lambda E: E * np.exp(-(E - L) / kT)
+        E2 = lambda E: max(E ** 1.5 - Ep ** 1.5, 0.0) ** (2 / 3)
+        top = L + 80 * kT
+        e_all = quad(lambda E: w(E) * (E - eU), L, top)[0]
+        e_stop = quad(lambda E: w(E) * (E - eU), L, Ec)[0]
+        e_dep = quad(lambda E: w(E) * (E - E2(E)), Ec, top, limit=200)[0]
+        P_ref = quad(w, Ec, top)[0] / quad(w, L, top)[0]
+        P, f = wy.electron_transmission([Z], a, T, mat)
+        assert P[0] == pytest.approx(P_ref, rel=1e-8)
+        # E - E_2 has a (E - E_c)^(2/3) cusp at threshold, which limits the
+        # Gauss-Laguerre sum to ~1e-4
+        assert f[0] == pytest.approx((e_stop + e_dep) / e_all, rel=1e-3)
+
+    @pytest.mark.parametrize("material", MATERIALS)
+    def test_limits(self, material):
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        Zs = np.arange(-5, 30)
+        # H II gas: nothing passes through even the smallest grains
+        P, f = wy.electron_transmission(Zs, 3.5e-8, 1e4, material)
+        assert np.all(P < 1e-20) and np.allclose(f, 1.0)
+        prev = np.zeros(Zs.size)
+        for T in (1e5, 1e6, 1e7, 1e8):
+            P, f = wy.electron_transmission(Zs, 1e-7, T, material)
+            assert np.all(P >= prev) and np.all((f >= 0) & (f <= 1))
+            prev = P
+        assert np.all(prev > 0.9)
+
+    def test_transmission_raises_the_charge_of_small_grains_in_hot_gas(self):
+        from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
+
+        T, ne = 1e6, 1.0
+        ions = [{'n': ne, 'T': T, 'm': 1.6726219e-27, 'z': 1}]
+        base = {'yield_model': 'WDB06', 'include_gas_secondaries': False}
+        args = (1e-6, ne, T, 'graphite', 1e-7)
+        off = equilibrium_charge_for_grain(*args, ion_species=ions,
+                                           yield_params={**base, 'include_electron_transmission': False})
+        on = equilibrium_charge_for_grain(*args, ion_species=ions, yield_params=base)
+        assert on[3] > off[3]
+
+
+class TestIonTransmission:
+    def test_transfer_hook_scales_the_ion_current(self):
+        from pycalima.models.dust_charge.shared_physics import (
+            collisional_rates_ions_scalar,
+            collisional_rates_ions_vector,
+        )
+
+        ion = {'n': 1.0, 'T': 1e4, 'm': 1.6726219e-27, 'z': 1}
+        Zs = np.array([-3.0, 0.0, 4.0])
+        ref = collisional_rates_ions_vector(np.array([1e-6]), Zs, [ion])
+        half = collisional_rates_ions_vector(np.array([1e-6]), Zs,
+                                             [{**ion, 'transfer': lambda Z: 0.5 + 0 * Z}])
+        np.testing.assert_allclose(half, 0.5 * ref)
+        assert collisional_rates_ions_scalar(1e-6, 2.0, [{**ion, 'transfer': lambda Z: 0.25 + 0 * Z}]) \
+            == pytest.approx(0.25 * collisional_rates_ions_scalar(1e-6, 2.0, [ion]))
+
+    @pytest.mark.parametrize("material", MATERIALS)
+    def test_charge_transfer_bounds_and_limits(self, material):
+        from pycalima.models.dust_charge import wdb06_yields as wy
+        from pycalima.models.dust_charge.shared_physics import EV2ERG, KB_CGS
+
+        Zs = np.array([-20.0, 0.0, 20.0])
+        for a in (1e-7, 1e-5):
+            prev = np.ones(Zs.size)
+            for T in (1e4, 1e6, 1e7, 1e8, 1e9):
+                p = wy.ion_charge_transfer(Zs, a, T, material, 1, 1, 1.008)
+                assert np.all((p >= 0) & (p <= 1)) and np.all(p <= prev + 1e-15)
+                prev = p
+                # an ion only escapes ionised above E_B, so for Z = 0 the failure
+                # is bounded by the Maxwellian flux above E_B
+                x = (1.008 / wy.M_E_AMU * wy.I_H_EV) / (KB_CGS * T / EV2ERG)
+                assert 1 - p[1] <= (1 + x) * np.exp(-x) + 1e-15
+            # nothing escapes ionised in gas below 1e6 K
+            assert np.all(wy.ion_charge_transfer(Zs, a, 1e6, material, 1, 1, 1.008) == 1.0)
+
+    def test_ion_transmission_lowers_the_charge_in_very_hot_gas(self):
+        from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
+
+        T, ne = 1e8, 1.0
+        ions = [{'n': ne, 'T': T, 'm': 1.6726219e-27, 'z': 1}]
+        base = {'yield_model': 'WDB06', 'include_gas_secondaries': False,
+                'include_electron_transmission': False}
+        args = (1e-6, ne, T, 'graphite', 1e-6)
+        off = equilibrium_charge_for_grain(*args, ion_species=ions,
+                                           yield_params={**base, 'include_ion_transmission': False})
+        on = equilibrium_charge_for_grain(*args, ion_species=ions, yield_params=base)
+        assert on[3] < off[3]

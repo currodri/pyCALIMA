@@ -428,7 +428,9 @@ def collisional_rates_ions_vector(a, Zs, ion_species):
 
         vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g_cgs))
         Jtilde_i = DS87_J_function_vec(Zs, np.array([z_i]), a, T_i)
-        J_total = J_total + cross * n_i * vth_i * Jtilde_i
+        # optional charge-transfer probability, e.g. ions passing through (DS79)
+        transfer = ion["transfer"](Zs) if "transfer" in ion else 1.0
+        J_total = J_total + cross * n_i * vth_i * Jtilde_i * transfer
 
     return np.asarray(J_total, dtype=float)
 
@@ -447,6 +449,8 @@ def collisional_rates_ions_scalar(a, Z, ion_species):
         z_i = float(ion.get("z", 1.0))
 
         vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g_cgs))
-        total += cross * n_i * vth_i * DS87_J_function_scalar(Z, z_i, a, T_i)
+        transfer = float(np.asarray(ion["transfer"](np.array([Z], dtype=float))).reshape(-1)[0]) \
+            if "transfer" in ion else 1.0
+        total += cross * n_i * vth_i * DS87_J_function_scalar(Z, z_i, a, T_i) * transfer
 
     return float(total)

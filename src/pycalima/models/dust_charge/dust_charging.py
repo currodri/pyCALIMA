@@ -809,14 +809,21 @@ def find_Zref_and_bounds_optimized(a, n_e, T_e, ion_species, nu, J_nu, C_abs_nu,
 
 def _wdb06_solver_params(yield_params, a, n_e, T_e, material):
     """Complete ``yield_params`` for ``yield_model='WDB06'``: the van Hoof E_min
-    photodetachment threshold and, unless ``include_gas_secondaries`` is False,
-    secondary emission by impinging gas electrons (WDB06 eq. 26)."""
+    photodetachment threshold and, unless switched off, secondary emission by
+    impinging gas electrons (``include_gas_secondaries``, WDB06 eq. 26) and the
+    transmission of fast electrons through the grain (``include_electron_
+    transmission``, DS79), which removes them from the sticking."""
     params = dict(yield_params)
     params.setdefault('photodetachment_func',
                       lambda Z, a_: wdb06_yields.photodetachment_energy(Z, a_, material))
     if params.get('include_gas_secondaries', True):
         params.setdefault('gas_secondary',
                           lambda Zs: wdb06_yields.gas_secondary_rate(Zs, a, n_e, T_e, material))
+    if params.get('include_electron_transmission', True):
+        base = params.get('s_e_func', electron_sticking_coefficient_graphite if material == 'graphite'
+                          else electron_sticking_coefficient_silicate)
+        params['s_e_func'] = lambda Zs, a_: base(Zs, a_) * (
+            1.0 - wdb06_yields.electron_transmission(Zs, a, T_e, material)[0])
     return params
 
 
@@ -884,6 +891,9 @@ def compute_equilibrium_charge_distribution_vectorized(
         yield_params = _wdb06_solver_params(yield_params, a, n_e, T_e, material)
         if yield_func is None:
             yield_func = wdb06_yields.yield_wdb06_vectorized
+        if yield_params.get('include_ion_transmission', True):
+            # fast ions that pass through still ionised give no charge (DS79)
+            ion_species = wdb06_yields.with_ion_transmission(ion_species, a, material)
     if yield_func is None:
         yield_func = yield_graphite_vectorized if material == 'graphite' else yield_silicate_vectorized
     # electron sticking function
@@ -1132,6 +1142,9 @@ def compute_equilibrium_charge_distribution_vectorized(
         Recomb_Z[iZ] = float(compute_recombination_cooling_rate(args_re))
     if wdb06:
         Gamma_Z = _wdb06_heating(Zs, a, nu, J_nu, C_abs_nu, yield_params, material)
+        if yield_params.get('include_electron_transmission', True):
+            # transmitted electrons remove only the energy they deposit
+            Recomb_Z = Recomb_Z * wdb06_yields.electron_transmission(Zs, a, T_e, material)[1]
         if yield_params.get('include_gas_secondaries', True):
             # WDB06 eq. 28: gas-excited secondaries return energy to the gas
             Recomb_Z = Recomb_Z - (wdb06_yields.gas_secondary_rate(Zs, a, n_e, T_e, material)

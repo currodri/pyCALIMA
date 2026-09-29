@@ -28,6 +28,14 @@ Deliberate departures from WDB06:
   for T >~ 1e5 K; at 1e4 K the mean-energy form extrapolates DS79's fit to
   <E0> ~ 2 eV < W and overstates the yield 10-100 times.
 
+Additions beyond WDB06 (hot gas, Draine & Salpeter 1979): fast electrons that
+pass through the grain are not captured (``electron_transmission``; DS79 range
+law, since the CSDA electron stopping fit of dust_collisional_cooling fails
+below ~100 eV), and fast ions that leave it still ionised transfer no charge
+(``ion_charge_transfer``; ion stopping as in the sputtering and collisional
+cooling tables). Both vanish in H II gas; electrons matter for a <~ 5 nm at
+T >~ 1e6 K, ions only for T >~ 3e7 K.
+
 Energies are in eV and lengths in cm unless stated otherwise.
 """
 
@@ -513,6 +521,141 @@ def gas_secondary_mean_energy(Zs, a, T, material):
     wd = w * gas_secondary_yield_at(E, E_s, a, material)
     norm = np.sum(wd, axis=1)
     return np.where(norm > 0, np.sum(wd * mean, axis=1) / np.maximum(norm, TINY), 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Transmission of fast gas electrons through small grains (Draine & Salpeter 1979)
+# ---------------------------------------------------------------------------
+
+def penetration_energy(a, material):
+    """E_pen [eV] with R(E_pen) = 4a/3, the mean chord of a sphere (DS79 sec.
+    III.a.i): an electron hitting the grain with more energy passes through."""
+    p = atomic.secondary_emission_parameters(_DS79_MATERIAL["graphite" if material == "graphite" else "silicate"])
+    R_keV = 300.0 * ANGSTROM * p["rho_gcm3"] ** -0.85  # R at 1 keV
+    return 1e3 * (4.0 * a / (3.0 * R_keV)) ** (2.0 / 3.0)
+
+
+def electron_transmission(Zs, a, T, material):
+    """(P_tr, f_cool) for thermal electrons reaching a grain of charge Z.
+
+    Straight paths through a thickness 4a/3 with R proportional to E^1.5
+    (DS79 eqs. 11-12): an electron entering with E > E_pen leaves with
+    E_2 = (E^1.5 - E_pen^1.5)^(2/3) and escapes if E_2 > eU (U = Z e / a), i.e. if
+    E > E_c = (E_pen^1.5 + max(eU, 0)^1.5)^(2/3).
+
+    P_tr is the fraction of arriving electrons that pass through and escape
+    (they are not captured). f_cool is the energy they and the captured ones
+    remove from the gas (E_inf for captured, E - E_2 for transmitted) over the
+    energy all arriving electrons carry; it scales the recombination cooling.
+    Arrivals follow the impact-energy distribution E exp(-E/kT), E > max(0, eU)
+    (see ``_thermal_nodes``); E_inf = E - eU.
+    """
+    from pycalima.models.dust_charge.shared_physics import KB_CGS
+
+    kT = KB_CGS * T / EV2ERG
+    Zs = np.atleast_1d(np.asarray(Zs, dtype=float))
+    eU = Zs * _e2_over_a(a)
+    L = np.maximum(eU, 0.0)
+    Ep = penetration_energy(a, material)
+    Ec = np.maximum((Ep ** 1.5 + L ** 1.5) ** (2.0 / 3.0), L)
+
+    # moments of E^n exp(-E/kT) above x, in units of kT^2 exp(-L/kT)
+    def m1(x):
+        return np.exp(-(x - L) / kT) * (x + kT) / kT
+    def m2(x):
+        return np.exp(-(x - L) / kT) * (x * x + 2 * kT * x + 2 * kT * kT) / kT
+
+    n_all = m1(L)
+    P_tr = m1(Ec) / n_all
+
+    e_all = m2(L) - eU * m1(L)                     # int (E - eU) E e^{-E/kT}
+    e_stop = e_all - (m2(Ec) - eU * m1(Ec))        # captured part, E < E_c
+    E = Ec[:, None] + kT * _LAGUERRE_T[None, :]    # transmitted part, E > E_c
+    E2 = np.maximum(E ** 1.5 - Ep ** 1.5, 0.0) ** (2.0 / 3.0)
+    wt = np.exp(-(Ec - L) / kT)[:, None] * _LAGUERRE_W[None, :] * E / kT  # same units as m1, m2
+    e_dep = np.sum(wt * (E - E2), axis=1)
+    f_cool = np.clip((e_stop + e_dep) / np.maximum(e_all, TINY), 0.0, 1.0)
+    return P_tr, f_cool
+
+
+# Ion stopping as in the sputtering / collisional-cooling tables (nuclear plus
+# electronic stopping along the 4a/3 chord, dust_collisional_cooling), with the
+# material constants of export_collisional_cooling_bins.
+_ION_E_LOOKUP = {}
+I_H_EV = 13.605693
+M_E_AMU = 5.48579909e-4
+
+
+def _ion_exit_energy_table(a, material, Z_atomic, mass_amu):
+    """(E, E_out) [eV]: kinetic energy of an ion leaving the far side of the
+    grain after entering with E; E_out = 0 where it stops inside."""
+    key = ("graphite" if material == "graphite" else "silicate", float(a), int(Z_atomic), float(mass_amu))
+    if key not in _ION_E_LOOKUP:
+        import pycalima.models.dust_gas_collisions.dust_collisional_cooling as dcc
+        from pycalima.models.dust_gas_collisions.export_collisional_cooling_bins import (
+            COMPOSITION_PROPERTIES,
+        )
+        props = COMPOSITION_PROPERTIES[key[0]]
+        am, an, rho = props["atomic_mass"], props["atomic_number"], props["density"]
+        n_dust = rho / (am * dcc.au2cgs_m) * an
+        ne_val = 4.0 if an <= 6.5 else (2 + 8 + 4 + 4 * 6) / 7.0  # as export_collisional_cooling
+        E, E_imp = dcc._build_deposited_energy_lookup_ion(
+            n_dust, ne_val, a, Z_atomic, an, am * dcc.au2cgs_m, mass_amu * dcc.au2cgs_m,
+            0.05, 1.0, 1e9, nE_lookup=256)
+        E_out = E - E_imp
+        E_out = np.where(E_out > 1e-3 * E, E_out, 0.0)  # the march stops at 1e-3 E
+        _ION_E_LOOKUP[key] = (E, E_out)
+    return _ION_E_LOOKUP[key]
+
+
+def ion_charge_transfer(Zs, a, T, material, z, Z_atomic, mass_amu):
+    """Probability that an impinging ion of charge z transfers its charge to a
+    grain of charge Z (DS79 sec. III.b, eqs. 19): it does unless it passes
+    through and leaves still ionised, i.e. with more than E_B = (M/m_e) I_H
+    (faster than ~ the Bohr speed, DS79) and enough to escape an attracting
+    grain. Arrivals follow E exp(-E/kT) above max(0, z Z e^2/a).
+    """
+    from pycalima.models.dust_charge.shared_physics import KB_CGS
+
+    kT = KB_CGS * T / EV2ERG
+    Zs = np.atleast_1d(np.asarray(Zs, dtype=float))
+    zeU = z * Zs * _e2_over_a(a)
+    L = np.maximum(zeU, 0.0)
+    E_B = mass_amu / M_E_AMU * I_H_EV
+    thr = np.maximum(E_B, -zeU)                      # exit energy needed
+    E, E_out = _ion_exit_energy_table(a, material, Z_atomic, mass_amu)
+    # lowest entry energy whose exit energy exceeds thr (E_out rises with E)
+    E_star = np.array([E[np.argmax(E_out > t)] if np.any(E_out > t) else np.inf for t in thr])
+    Ec = np.maximum(E_star, L)
+    fail = np.where(np.isfinite(Ec), np.exp(-(Ec - L) / kT) * (Ec + kT) / (L + kT), 0.0)
+    return 1.0 - fail
+
+
+def _atomic_number_from_mass(mass_amu):
+    from pycalima.models.dust_gas_collisions.export_collisional_cooling_bins import ION_SPECIES
+
+    best = min(ION_SPECIES, key=lambda sp: abs(sp["mass"] - mass_amu))
+    return best["Z"]
+
+
+def with_ion_transmission(ion_species, a, material):
+    """Copy of ``ion_species`` whose entries carry a DS79 charge-transfer
+    probability (see ``ion_charge_transfer``). Ion dicts may give 'Z_atomic';
+    otherwise it is taken from the nearest mass in the collisional tables."""
+    from pycalima.models.dust_gas_collisions.dust_collisional_cooling import au2cgs_m
+
+    out = []
+    for ion in ion_species or []:
+        ion = dict(ion)
+        m_g = float(ion.get("m", 1.0))
+        m_g = m_g * 1e3 if m_g < 1e-25 else m_g        # kg -> g, as collisional_rates_ions
+        mass_amu = m_g / au2cgs_m
+        Z_at = int(ion.get("Z_atomic", _atomic_number_from_mass(mass_amu)))
+        z, T = float(ion.get("z", 1.0)), float(ion.get("T", 1.0))
+        ion["transfer"] = (lambda Zs, z=z, T=T, Z_at=Z_at, m=mass_amu:
+                           ion_charge_transfer(Zs, a, T, material, z, Z_at, m))
+        out.append(ion)
+    return out
 
 
 # ---------------------------------------------------------------------------
