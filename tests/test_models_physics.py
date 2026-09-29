@@ -401,6 +401,83 @@ class TestDustCharge:
         eU_kT = brentq(net, -200.0, 0.0)
         assert eU_kT == pytest.approx(-2.51, abs=0.05)
 
+    @pytest.mark.parametrize("grain_type", ["graphite", "silicate"])
+    def test_zmin_follows_wd01_eq24(self, grain_type):
+        """Zmin = int(U_ait a / 14.4 V A) + 1 with int = floor (WD01 eq. 24):
+        a 3.5 A carbonaceous grain can hold one extra electron, not two."""
+        from pycalima.models.dust_charge import shared_physics as sp
+
+        U = getattr(sp, f"autoionisation_potential_{grain_type}")
+        Zmin_fn = getattr(sp, f"most_negative_allowed_charge_{grain_type}")
+        for a in (3.5e-8, 1e-7, 1e-6, 1e-5):
+            x = -float(U(a)) * a / 1e-8 / 14.4
+            assert float(Zmin_fn(a)) == np.floor(x) + 1
+        if grain_type == "graphite":
+            assert float(Zmin_fn(3.5e-8)) == -1
+
+    @pytest.mark.parametrize("grain_type", ["graphite", "silicate"])
+    def test_electron_sticking_vanishes_exactly_at_zmin(self, grain_type):
+        from pycalima.models.dust_charge import shared_physics as sp
+
+        s_e = getattr(sp, f"electron_sticking_coefficient_{grain_type}_scalar")
+        Zmin_fn = getattr(sp, f"most_negative_allowed_charge_{grain_type}")
+        for a in (5e-8, 1e-7, 1e-6):
+            Zmin = int(Zmin_fn(a))
+            assert s_e(Zmin, a) == 0.0
+            assert s_e(Zmin + 1, a) > 0.0
+
+    @staticmethod
+    def _rpe_inputs():
+        from pycalima.models.dust_charge import dust_charging as dc
+        from pycalima.models.dust_charge.shared_physics import EV2ERG, H_CGS
+
+        E = np.linspace(5.0, 13.6, 200)
+        nu = E * EV2ERG / H_CGS
+        J_nu = np.full_like(nu, 1e-20)
+        C_abs = np.full_like(nu, 1e-12)
+        return dc, nu, J_nu, C_abs
+
+    @staticmethod
+    def _flat_yield(nu, Zs, a, params):
+        return np.full((np.size(nu), np.size(Zs)), 0.1)
+
+    @pytest.mark.parametrize("material", ["graphite", "silicate"])
+    def test_rpe_uses_the_given_photodetachment_threshold(self, material):
+        """The material's own threshold reproduces the default; raising the
+        threshold removes photodetachment, so R_pe drops for Z < 0 only."""
+        from pycalima.models.dust_charge import shared_physics as sp
+
+        dc, nu, J_nu, C_abs = self._rpe_inputs()
+        params = {"material": material}
+        Zs = np.arange(-3, 3)
+        own = getattr(sp, f"photodetachment_energy_{material}_vec")
+        ref = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                        self._flat_yield, params)
+        same = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                         self._flat_yield, params, pdt_func=own)
+        np.testing.assert_allclose(same, ref)
+        high = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                         self._flat_yield, params,
+                                         pdt_func=lambda Z, a: 1e3)
+        assert np.all(high[Zs < 0] < ref[Zs < 0])
+        np.testing.assert_allclose(high[Zs >= 0], ref[Zs >= 0])
+
+    @pytest.mark.parametrize("budget", [None, 2 * 8 * 200 * 4, 8 * 200])
+    def test_rpe_per_sr_is_4pi_times_the_mean_intensity(self, budget):
+        """All three memory paths (all-at-once, chunked, streaming) must scale
+        both photoemission and photodetachment by 4 pi."""
+        dc, nu, J_nu, C_abs = self._rpe_inputs()
+        params = {"material": "graphite"}
+        if budget is not None:
+            params["max_tmp_bytes"] = budget
+        Zs = np.arange(-3, 3)
+        iso = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                        self._flat_yield, params)
+        per_sr = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                           self._flat_yield, params,
+                                           J_is_per_sr=True)
+        np.testing.assert_allclose(per_sr, 4.0 * np.pi * iso, rtol=1e-12)
+
     def test_charging_output_dir_is_writable_and_outside_the_package(self, isolated_env):
         from pycalima import _paths
         from pycalima.models.dust_charge.dust_charging import dust_charging_output_dir

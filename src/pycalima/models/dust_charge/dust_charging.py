@@ -38,8 +38,6 @@ from pycalima.models.dust_charge.shared_physics import (
     min_energy_ejection_vec,
     photodetachment_energy_graphite_vec,
     photodetachment_energy_silicate_vec,
-    photodetachment_energy_graphite_scalar,
-    photodetachment_energy_silicate_scalar,
     photodetachment_cross_section_vec,
     min_photon_energy_vec,
     parameter_theta_vec,
@@ -260,6 +258,11 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
     if isinstance(yield_params, dict) and ('include_photodetachment' in yield_params):
         include_pd = bool(yield_params.get('include_photodetachment'))
 
+    material = 'graphite'
+    if isinstance(yield_params, dict):
+        material = yield_params.get('material', 'graphite')
+    pd_scale = 4.0 * np.pi if J_is_per_sr else 1.0
+
     E_eV = None
     if isinstance(yield_params, dict) and 'E_eV' in yield_params:
         try:
@@ -300,12 +303,9 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
             base_int = float(np.trapezoid(integrand[:, 0], nu))
             add_pd = 0.0
             if include_pd and pdt_func is not None and Z < 0:
-                if material == 'graphite':
-                    E_pdt_val = photodetachment_energy_graphite_scalar(Z, a)
-                else:
-                    E_pdt_val = photodetachment_energy_silicate_scalar(Z, a)
+                E_pdt_val = float(pdt_func(Z, a))
                 sigma = photodetachment_cross_section_vec(E_eV, E_pdt_val, Z)
-                integrand_pd = sigma * J_nu 
+                integrand_pd = pd_scale * sigma * J_nu
                 add_pd = float(np.trapezoid(integrand_pd, nu))
             out[idx] = base_int + add_pd
             try:
@@ -342,12 +342,9 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
                 if Zint >= 0:
                     pd_add[iz] = 0.0
                     continue
-                if material == 'graphite':
-                    E_pdt_val = photodetachment_energy_graphite_scalar(Zint, a)
-                else:
-                    E_pdt_val = photodetachment_energy_silicate_scalar(Zint, a)
+                E_pdt_val = float(pdt_func(Zint, a))
                 sigma = photodetachment_cross_section_vec(E_eV, E_pdt_val, Zint)
-                integrand_pd = sigma * J_nu
+                integrand_pd = pd_scale * sigma * J_nu
                 pd_add[iz] = float(np.trapezoid(integrand_pd, nu))
             Rpe_Z = Rpe_Z + pd_add
         # free large temporaries immediately
@@ -391,12 +388,9 @@ def compute_Rpe_vectorized(nu, J_nu, C_abs_nu, a, Zs, yield_func, yield_params, 
                     if Zint >= 0:
                         pd_add[iz] = 0.0
                         continue
-                    if material == 'graphite':
-                        E_pdt_val = photodetachment_energy_graphite_scalar(Zint, a)
-                    else:
-                        E_pdt_val = photodetachment_energy_silicate_scalar(Zint, a)
+                    E_pdt_val = float(pdt_func(Zint, a))
                     sigma = photodetachment_cross_section_vec(E_eV, E_pdt_val, Zint)
-                    integrand_pd = sigma * J_nu
+                    integrand_pd = pd_scale * sigma * J_nu
                     pd_add[iz] = float(np.trapezoid(integrand_pd, nu))
                 out_chunk = out_chunk + pd_add
                 try:

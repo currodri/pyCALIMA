@@ -54,7 +54,7 @@ def _electron_sticking_coefficient_graphite_scalar_impl(Z, a):
     Nc = 468.0 * (a / 1e-7) ** 3
     base = 0.5 * (1.0 - np.exp(-a / ELECTRON_ESCAPE_LENGTH_CM))
     factor = 1.0 / (1.0 + np.exp(20.0 - Nc))
-    zmin = np.floor(-(3.9 + 1.2e7 * a + 2.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a)
+    zmin = np.floor(-(3.9 + 1.2e7 * a + 2.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
     if Z == 0:
         return base * factor
@@ -69,7 +69,7 @@ def _electron_sticking_coefficient_silicate_scalar_impl(Z, a):
     Nc = 468.0 * (a / 1e-7) ** 3
     base = 0.5 * (1.0 - np.exp(-a / ELECTRON_ESCAPE_LENGTH_CM))
     factor = 1.0 / (1.0 + np.exp(20.0 - Nc))
-    zmin = np.floor(-(2.5 + 7.0e6 * a + 8.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a)
+    zmin = np.floor(-(2.5 + 7.0e6 * a + 8.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
     if Z == 0:
         return base * factor
@@ -291,12 +291,12 @@ def autoionisation_potential_silicate(a):
 
 def most_negative_allowed_charge_graphite(a):
     a = np.asarray(a, dtype=float)
-    return np.floor(-autoionisation_potential_graphite(a) / 14.4 * 1.0e8 * a)
+    return np.floor(-autoionisation_potential_graphite(a) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
 
 def most_negative_allowed_charge_silicate(a):
     a = np.asarray(a, dtype=float)
-    return np.floor(-autoionisation_potential_silicate(a) / 14.4 * 1.0e8 * a)
+    return np.floor(-autoionisation_potential_silicate(a) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
 
 def most_positive_allowed_charge(a, W, hnu_max):
