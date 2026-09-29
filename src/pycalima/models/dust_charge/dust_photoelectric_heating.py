@@ -1156,7 +1156,7 @@ def DS87_lambda_function(Z,q,a,T, return_tau=False):
     if np.any(nu_pos):
         tp = tau_safe[nu_pos]
         nup = np.maximum(nu[nu_pos], 1e-300)
-        theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+        theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
         ltilde[nu_pos] = (2.0 + nup / tp) * (1.0 + 1.0 / np.sqrt(1.5 / tp + 3.0 * nup)) * np.exp(-theta_nu / tp)
 
     # if inputs were scalar, return scalar

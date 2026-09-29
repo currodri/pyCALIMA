@@ -40,7 +40,7 @@ def _ds87_j_scalar_impl(Z, q, a, T):
 
     tp = max(tau, TINY)
     nup = max(nu, TINY)
-    theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+    theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
     root_term = 1.0 / np.sqrt(4.0 * tp + 3.0 * nup)
     value = (1.0 + root_term) ** 2 * np.exp(-theta_nu / tp)
     return value if np.isfinite(value) else 0.0
@@ -101,7 +101,7 @@ def DS87_lambda_scalar(Z, q, a, T):
         return float((2.0 - nu / tn) * (1.0 + 1.0 / np.sqrt(inner)))
     tp = max(tau, TINY)
     nup = max(nu, TINY)
-    theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+    theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
     return float((2.0 + nup / tp) * (1.0 + 1.0 / np.sqrt(1.5 / tp + 3.0 * nup)) * np.exp(-theta_nu / tp))
 
 
@@ -272,7 +272,7 @@ def DS87_J_function_vec(Z, q, a, T):
     if np.any(nu_pos):
         tp = tau_safe[nu_pos]
         nup = np.maximum(nu[nu_pos], TINY)
-        theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+        theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
         root_term = 1.0 / np.sqrt(4.0 * tp + 3.0 * nup)
         J[nu_pos] = (1.0 + root_term) ** 2 * np.exp(-theta_nu / tp)
 

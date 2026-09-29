@@ -333,6 +333,74 @@ class TestDustCharge:
         with pytest.raises(KeyError):
             grain_charge_dist(1.0, 100.0, 1.0, "graphite", "7A")
 
+    # Draine & Sutin (1987) Table 1 lists theta_nu / nu, not theta_nu.
+    DS87_NU = np.array([0.5, 1, 2, 3, 4, 5, 10, 20])
+    DS87_THETA_OVER_NU = np.array(
+        [0.4203, 0.5000, 0.5823, 0.6296, 0.6621, 0.6865, 0.7560, 0.8146])
+
+    @staticmethod
+    def _ds87_implementations():
+        from pycalima.models.dust_charge import dust_photoelectric_heating as dph
+        from pycalima.models.dust_charge import shared_physics as sp
+        from pycalima.models.PAH_photophysics import pah_charge_utils as pcu
+
+        J = {
+            "shared_physics.DS87_J_function_scalar": sp.DS87_J_function_scalar,
+            "shared_physics.DS87_J_function_vec":
+                lambda Z, q, a, T: float(sp.DS87_J_function_vec(Z, q, a, T)),
+            "pah_charge_utils.J_function_DS87": pcu.J_function_DS87,
+        }
+        L = {
+            "shared_physics.DS87_lambda_scalar": sp.DS87_lambda_scalar,
+            "dust_photoelectric_heating.DS87_lambda_function":
+                dph.DS87_lambda_function,
+        }
+        return J, L
+
+    @pytest.mark.parametrize("kind", ["J", "Lambda"])
+    def test_ds87_repulsive_factor_matches_table_1(self, kind):
+        """Invert exp(-theta_nu/tau) from each nu > 0 implementation and
+        compare with DS87 Table 1 (theta_nu = nu * tabulated value)."""
+        from pycalima.models.dust_charge.shared_physics import E_STATC, KB_CGS
+
+        a, T, q = 1e-5, 1e4, 1.0
+        tau = a * KB_CGS * T / (q * E_STATC) ** 2
+        J_impls, L_impls = self._ds87_implementations()
+        impls = J_impls if kind == "J" else L_impls
+        for name, fn in impls.items():
+            for nu, ratio in zip(self.DS87_NU, self.DS87_THETA_OVER_NU):
+                if kind == "J":
+                    prefac = (1.0 + 1.0 / np.sqrt(4.0 * tau + 3.0 * nu)) ** 2
+                else:
+                    prefac = (2.0 + nu / tau) * (
+                        1.0 + 1.0 / np.sqrt(1.5 / tau + 3.0 * nu))
+                theta = -tau * np.log(fn(nu * q, q, a, T) / prefac)
+                # the fit 1/(1+nu^-1/2) is good to ~1% against the table
+                assert theta == pytest.approx(nu * ratio, rel=0.02), (
+                    f"{name}: nu={nu}")
+
+    def test_collisional_charge_reaches_spitzer_limit(self):
+        """A large grain in e/p plasma with unit sticking and no field sits at
+        eU/kT = -2.51 (Spitzer 1941; Draine 2011 eq. 25.10)."""
+        from scipy.optimize import brentq
+
+        from pycalima.models.dust_charge.shared_physics import (
+            E_STATC, KB_CGS, ME_CGS, DS87_J_function_scalar,
+        )
+
+        a, T = 1e-4, 1e4
+        mp = 1.67262192e-24
+        kT = KB_CGS * T
+
+        def net(eU_kT):
+            Z = eU_kT * a * kT / E_STATC ** 2
+            J_e = DS87_J_function_scalar(Z, -1.0, a, T) / np.sqrt(ME_CGS)
+            J_p = DS87_J_function_scalar(Z, +1.0, a, T) / np.sqrt(mp)
+            return J_p - J_e
+
+        eU_kT = brentq(net, -200.0, 0.0)
+        assert eU_kT == pytest.approx(-2.51, abs=0.05)
+
     def test_charging_output_dir_is_writable_and_outside_the_package(self, isolated_env):
         from pycalima import _paths
         from pycalima.models.dust_charge.dust_charging import dust_charging_output_dir
