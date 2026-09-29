@@ -190,6 +190,22 @@ class TestYields:
                 assert np.all(Em[Y > 0] <= np.broadcast_to(E[:, None], Y.shape)[Y > 0] + 1e-9), name
 
     @pytest.mark.parametrize("material", MATERIALS)
+    def test_band_secondaries_follow_eq18_with_the_escape_factor(self, material):
+        """Y_sec/Y = (y2_sec/y2)(E_e/eps) l_e^-1/(a^-1 + 10 A^-1) (1 - e^{-a/l_e})."""
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        W, eps = wy.MATERIALS[material]["W"], wy.MATERIALS[material]["eps"]
+        E = np.array([30.0, 150.0, 800.0, 5000.0])
+        for a in (1e-7, 1e-5):
+            c = wy.yield_components(E, [-1], a, material, la_wd01=np.full_like(E, 1e-5))
+            Y, Ys = c["band"][0][:, 0], c["sec:band"][0][:, 0]
+            le = wy.electron_escape_length(E - W, material)
+            # Z = -1: y2 = y2_sec = 1 and E_low = 0
+            expect = (E - W) / eps / le / (1 / a + 1 / wy.L_E_LOW) * (1 - np.exp(-a / le))
+            ok = Y > 0
+            np.testing.assert_allclose(Ys[ok] / Y[ok], expect[ok], rtol=1e-6)
+
+    @pytest.mark.parametrize("material", MATERIALS)
     def test_secondaries_need_a_parent(self, material):
         from pycalima.models.dust_charge import wdb06_yields as wy
 

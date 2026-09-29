@@ -28,6 +28,13 @@ Deliberate departures from WDB06:
   for T >~ 1e5 K; at 1e4 K the mean-energy form extrapolates DS79's fit to
   <E0> ~ 2 eV < W and overstates the yield 10-100 times.
 
+- Secondary yields (eq. 18) carry an extra 1 - exp(-a / l_e(E_exc)), read off
+  their Figs. 3-5 (see ``_iter_components``). Their Fig. 4 curve for
+  a = 0.001 um carbonaceous grains below 291 eV is NOT reproduced: its band
+  secondaries are exactly 2 l_e(E) / 10 A times eq. 18, i.e. l_e fixed at 10 A
+  and no a^-1 term, so the primary both escapes with its energy and spends
+  all of it on secondaries. We keep eq. 18; our yield there is ~2.5x lower.
+
 Additions beyond WDB06 (hot gas, Draine & Salpeter 1979): fast electrons that
 pass through the grain are not captured (``electron_transmission``; DS79 range
 law, since the CSDA electron stopping fit of dust_collisional_cooling fails
@@ -267,11 +274,16 @@ def _iter_components(E, Zs, a, material, la_wd01=None, include_secondaries=True)
     mu_tot = absorption_coefficient(E1, material)[:, None]
 
     def secondaries(Y, y2, E_low, E_high, E_exc):
-        """Eq. 18: Y_sec = Y (y2_sec / y2) (E_exc / eps) l_e^-1 / (a^-1 + 10 A^-1)."""
+        """Eq. 18, Y_sec = Y (y2_sec / y2) (E_exc / eps) l_e^-1 / (a^-1 + 10 A^-1),
+        times 1 - exp(-a / l_e): an exciting electron with l_e >~ a leaves the
+        grain before losing its energy. The factor is not in the printed eq. 18
+        but reproduces WDB06's own Figs. 3-5 above 2 keV (0.01-1 um, within 3%);
+        without it the secondary yield of a 0.1 um grain at 7 keV is 2x theirs."""
         y2s, mean_s = _secondary_y2_and_mean(E_low, E_high)
         ratio = np.where(y2 > 0, y2s / np.maximum(y2, TINY), 0.0)
         E_exc = np.maximum(E_exc, 0.0)
-        Ys = Y * ratio * (E_exc / m["eps"]) * size_factor / electron_escape_length(E_exc, material)
+        le = electron_escape_length(E_exc, material)
+        Ys = Y * ratio * (E_exc / m["eps"]) * size_factor / le * (-np.expm1(-a / le))
         return np.where(Y > 0, Ys, 0.0), mean_s
 
     # --- band structure (eqs. 4-8, 14) ---
