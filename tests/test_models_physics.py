@@ -478,6 +478,24 @@ class TestDustCharge:
                                            J_is_per_sr=True)
         np.testing.assert_allclose(per_sr, 4.0 * np.pi * iso, rtol=1e-12)
 
+    def test_watson_y1_small_grain_limit(self):
+        """For a << l_a, l_e the size enhancement tends to alpha/beta = 1 + l_a/l_e
+        (Watson 1973); X-ray attenuation lengths reach a/l_a ~ 1e-6."""
+        from pycalima.models.dust_charge.shared_physics import Watson73_y1_vec
+
+        la = np.array([1e-6, 1e-4, 1e-2, 1.0])
+        le = 1e-5  # alpha = a/le + a/la <= 1e-3, so the (1 - alpha/4) correction is negligible
+        a = 1e-8
+        np.testing.assert_allclose(Watson73_y1_vec(a, la, le), 1.0 + la / le, rtol=1e-3)
+
+    def test_watson_y1_is_continuous_across_the_series_switch(self):
+        from pycalima.models.dust_charge.shared_physics import Watson73_y1_vec
+
+        la = 1e-5 * np.geomspace(0.5, 2.0, 2001)  # beta = a/la sweeps through 0.1
+        y1 = Watson73_y1_vec(1e-6, la, 1e-7)
+        assert np.all(np.isfinite(y1))
+        assert np.max(np.abs(np.diff(np.log(y1)))) < 1e-3
+
     def test_charging_output_dir_is_writable_and_outside_the_package(self, isolated_env):
         from pycalima import _paths
         from pycalima.models.dust_charge.dust_charging import dust_charging_output_dir

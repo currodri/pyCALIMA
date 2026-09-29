@@ -213,11 +213,20 @@ def photon_attenuation_length_silicate_vec(wav, Im):
     return wav / np.maximum(4.0 * np.pi * Im, TINY)
 
 
+def _watson_h(x):
+    """x^2 - 2x + 2 - 2 exp(-x) = 2 sum_{n>=3} (-x)^n (-1) / n!; the closed form
+    cancels catastrophically for x << 1 (X-ray a/l_a reaches 1e-6)."""
+    x = np.asarray(x, dtype=float)
+    series = x ** 3 / 3.0 * (1.0 - x / 4.0 * (1.0 - x / 5.0 * (1.0 - x / 6.0 * (1.0 - x / 7.0))))
+    direct = x ** 2 - 2.0 * x + 2.0 - 2.0 * np.exp(-np.maximum(x, 0.1))
+    return np.where(x < 0.1, series, direct)
+
+
 def Watson73_y1_vec(a, la, le):
     beta = a / la
     alpha = a / le + a / la
-    num = (beta / alpha) ** 2.0 * (alpha ** 2 - 2.0 * alpha + 2.0 - 2.0 * np.exp(-alpha))
-    den = np.maximum(beta ** 2 - 2.0 * beta + 2.0 - 2.0 * np.exp(-beta), TINY)
+    num = (beta / alpha) ** 2.0 * _watson_h(alpha)
+    den = np.maximum(_watson_h(beta), TINY)
     return num / den
 
 
