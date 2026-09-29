@@ -131,6 +131,23 @@ class TestYields:
             assert hi == pytest.approx(lo, rel=1e-4)
 
     @pytest.mark.parametrize("material", MATERIALS)
+    def test_band_bulk_yield_blends_geometrically(self, material):
+        """log y0 is linear in log hnu across 20-50 eV (WDB06 Figs. 1-2), so at
+        the geometric mean energy y0 is the geometric mean of the two yields."""
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        m = wy.MATERIALS[material]
+        W = m["W"]
+        E = np.array([np.sqrt(20.0 * 50.0)])
+        theta = E - W
+        le = wy.electron_escape_length(theta, material)
+        la = 1.0 / wy.absorption_coefficient(E, material)
+        y_atom = wy._slab_escape(wy.absorption_coefficient(E, material, m["band"]), le, la)
+        y_wd01 = m["y0_wd01"](theta, W)
+        np.testing.assert_allclose(wy.band_bulk_yield(theta, material),
+                                   np.sqrt(y_atom * y_wd01), rtol=1e-10)
+
+    @pytest.mark.parametrize("material", MATERIALS)
     @pytest.mark.parametrize("Z", [-1, 0, 1, 5])
     def test_primary_yield_matches_wd01_below_20_eV(self, material, Z):
         """Without secondaries, WDB06 is WD01 for soft photons (Z >= -1, where

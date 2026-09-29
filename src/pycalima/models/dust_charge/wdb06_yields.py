@@ -215,8 +215,9 @@ def _secondary_y2_and_mean(E_low, E_high):
 def band_bulk_yield(theta, material, a=None, la_wd01_of_E=None):
     """Bulk band-structure yield y0(band, Theta), WDB06 secs. 4.1.3-4.1.4.
 
-    WD01 below hnu = Theta + W = 20 eV, eq. 9 above 50 eV, linear in hnu
-    between. For carbonaceous grains with a <= 13 A, eq. 15 blends back to
+    WD01 below hnu = Theta + W = 20 eV, eq. 9 above 50 eV, and log y0 linear
+    in log hnu between (read off WDB06 Figs. 1-2: the paper only says
+    "interpolate"; a linear-in-hnu blend is up to 75% too high at 35 eV). For carbonaceous grains with a <= 13 A, eq. 15 blends back to
     WD01 (PAHs keep Y -> 1 at high energy).
     """
     m = _material(material)
@@ -231,8 +232,11 @@ def band_bulk_yield(theta, material, a=None, la_wd01_of_E=None):
     y_atom = _slab_escape(absorption_coefficient(E_eval, material, m["band"]), le, la)
     y_atom = np.where(theta > 0, y_atom, 0.0)
 
-    w = np.clip((hnu - 20.0) / 30.0, 0.0, 1.0)
-    y0 = (1.0 - w) * y_wd01 + w * y_atom
+    w = np.clip(np.log(np.maximum(hnu, 20.0) / 20.0) / np.log(2.5), 0.0, 1.0)
+    blend = (w > 0.0) & (w < 1.0)
+    y0 = np.where(w <= 0.0, y_wd01, y_atom)
+    y0 = np.where(blend, np.exp((1.0 - w) * np.log(np.maximum(y_wd01, TINY))
+                                + w * np.log(np.maximum(y_atom, TINY))), y0)
 
     if material == "graphite" and a is not None and a <= 13.0 * ANGSTROM:
         f = np.clip((a - 6.0 * ANGSTROM) / (7.0 * ANGSTROM), 0.0, 1.0)  # eq. 15

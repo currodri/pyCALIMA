@@ -99,9 +99,63 @@ def plot(phi, path):
     plt.close(fig)
 
 
+# Left panels of page 25 of the arXiv preprint at 300 dpi: frame (top, bottom,
+# left, right) px and (a_left, a_right, phi_bottom, phi_top). a ticks 0.01/0.1 um
+# at 640/886 px; phi ticks every 20 V at 140 px (Fig. 6a) and 128 px (Fig. 7a).
+OVERLAY = {'graphite': ((519, 1254, 394, 1133), (1e-3, 1.0, 0.0, 105.0)),
+           'silicate': ((1998, 2733, 394, 1132), (1e-3, 1.0, 0.0, 115.0))}
+
+
+def plot_overlay(phi, pdf, path, phi_ref=None):
+    """Our phi(a) (colour) over the paper's Figs. 6a and 7a (black)."""
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.image as mpimg
+    import matplotlib.pyplot as plt
+
+    colors = ('#2a78d6', '#eb6834', '#1baf7a', '#eda100')
+    with tempfile.TemporaryDirectory() as tmp:
+        stem = Path(tmp) / 'p25'
+        subprocess.run(['pdftoppm', '-f', '25', '-l', '25', '-r', '300', '-gray', '-png',
+                        '-singlefile', str(pdf), str(stem)], check=True)
+        page = mpimg.imread(stem.with_suffix('.png'))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5.6))
+    for ax, (im, mat) in zip(axes, enumerate(MATERIALS)):
+        (t, b, l, r), (a0, a1, p0, p1) = OVERLAY[mat]
+        ext = (np.log10(a0), np.log10(a1), p0, p1)
+        ax.imshow(page[t:b + 1, l:r + 1], cmap='gray', extent=ext, aspect='auto',
+                  vmin=0, vmax=1, alpha=0.75, zorder=0)
+        for iU, U in enumerate(U_VALUES):
+            for iT in range(len(T_VALUES)):
+                ax.plot(np.log10(A_UM), phi[im, iT, iU], color=colors[iU], lw=1.8,
+                        label=f'U = {U:g}' if iT == 0 else None, zorder=2)
+                if phi_ref is not None:
+                    ax.plot(np.log10(A_UM), phi_ref[im, iT, iU], color=colors[iU], lw=1.2,
+                            ls=':', zorder=2)
+        ax.set_xlim(ext[0], ext[1])
+        ax.set_ylim(p0, p1)
+        ax.set_xticks([-3, -2, -1, 0], ['$10^{-3}$', '$10^{-2}$', '0.1', '1'])
+        ax.set_xlabel(r'$a$ ($\mu$m)')
+        ax.set_ylabel(r'$\phi$ (V)')
+        ax.set_title(f'{"Fig. 6a: carbonaceous" if mat == "graphite" else "Fig. 7a: silicate"}'
+                     ' (three curves per U: T = 1e4, 1e5, 1e6 K, bottom to top)', fontsize=9)
+        ax.legend(frameon=True, framealpha=0.9, fontsize=8, loc='upper right')
+    note = ('; dotted: gas secondaries at the mean impact energy, as WDB06' if phi_ref is not None else '')
+    fig.suptitle('pyCALIMA (colour) over WDB06 Figs. 6a/7a (black)' + note, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--recompute', action='store_true')
+    ap.add_argument('--pdf', help='WDB06 arXiv preprint, to overlay Figs. 6a/7a')
+    ap.add_argument('--reference', help='another cached .npz grid to draw dotted on the overlay')
     args = ap.parse_args()
     warnings.filterwarnings('ignore')
 
@@ -116,6 +170,11 @@ def main():
     png = out_dir / 'wdb06_quasar_potential.png'
     plot(phi, png)
     print('Saved', png)
+    if args.pdf:
+        ref = np.load(args.reference)['phi'] if args.reference else None
+        over = out_dir / 'wdb06_quasar_potential_overlay.png'
+        plot_overlay(phi, args.pdf, over, ref)
+        print('Saved', over)
 
 
 if __name__ == '__main__':
