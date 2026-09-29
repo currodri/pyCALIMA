@@ -19,6 +19,7 @@ import pandas as pd
 import seaborn as sns
 from scipy.optimize import curve_fit
 from pycalima.models.grain_size_config import get_optical_props_path
+from pycalima.models.dust_charge import wdb06_yields
 from pycalima.models.dust_charge.shared_physics import (
     GRAPHITE_WORK_FUNCTION,
     SILICATE_WORK_FUNCTION,
@@ -523,8 +524,7 @@ class RpeCache:
             rem_map = {}
             for i in range(0, len(missing), chunk):
                 Zchunk = np.array(missing[i:i+chunk], dtype=int)
-                Rvals = compute_Rpe_vectorized(self.nu, self.J_nu, self.C_abs_nu,
-                                               self.a, Zchunk, self.yield_func, self.yield_params)
+                Rvals = self._rates(Zchunk)
                 for Z, R in zip(Zchunk, Rvals):
                     rem_map[Z] = float(R)
 
@@ -541,8 +541,7 @@ class RpeCache:
         if len(missing) > 0:
             # compute in vectorized batch
             Zm = np.array(missing, dtype=int)
-            Rpe_vals = compute_Rpe_vectorized(self.nu, self.J_nu, self.C_abs_nu,
-                                              self.a, Zm, self.yield_func, self.yield_params)
+            Rpe_vals = self._rates(Zm)
             for Z, R in zip(Zm, Rpe_vals):
                 self.cache[Z] = float(R)
         # return array in the same order as Zs
@@ -550,6 +549,17 @@ class RpeCache:
 
     def get_Rpe_single(self, Z):
         return self.get_Rpe_for_Zs([Z])[0]
+
+    def _rates(self, Zs):
+        """Photoemission + photodetachment, plus any other charge-raising
+        current supplied as ``yield_params['gas_secondary'](Zs)`` (WDB06:
+        secondary emission by impinging gas electrons)."""
+        R = compute_Rpe_vectorized(self.nu, self.J_nu, self.C_abs_nu,
+                                   self.a, Zs, self.yield_func, self.yield_params)
+        extra = self.yield_params.get('gas_secondary') if isinstance(self.yield_params, dict) else None
+        if extra is not None:
+            R = R + np.asarray(extra(Zs), dtype=float)
+        return R
 
 # --------------------------
 # Zref and window finder (optimized, reuses RpeCache)
@@ -797,6 +807,40 @@ def find_Zref_and_bounds_optimized(a, n_e, T_e, ion_species, nu, J_nu, C_abs_nu,
     return int(Zref_fb), int(Zmin_fb), int(Zmax_fb), rpc
 
 
+def _wdb06_solver_params(yield_params, a, n_e, T_e, material):
+    """Complete ``yield_params`` for ``yield_model='WDB06'``: the van Hoof E_min
+    photodetachment threshold and, unless ``include_gas_secondaries`` is False,
+    secondary emission by impinging gas electrons (WDB06 eq. 26)."""
+    params = dict(yield_params)
+    params.setdefault('photodetachment_func',
+                      lambda Z, a_: wdb06_yields.photodetachment_energy(Z, a_, material))
+    if params.get('include_gas_secondaries', True):
+        params.setdefault('gas_secondary',
+                          lambda Zs: wdb06_yields.gas_secondary_rate(Zs, a, n_e, T_e, material))
+    return params
+
+
+def _wdb06_heating(Zs, a, nu, J_nu, C_abs_nu, yield_params, material):
+    """Photoelectric heating per grain [erg s^-1] for each Z, WDB06 eq. 27
+    summed over channels, plus photodetachment (WD01 eq. 40 with eq. 3 E_min)."""
+    nu = np.asarray(nu, dtype=float)
+    E = yield_params.get('E_eV', h_cgs * nu / eV2erg)
+    flux = np.asarray(J_nu, dtype=float) * np.asarray(C_abs_nu, dtype=float)
+    YE = wdb06_yields.yield_energy_product(
+        E, Zs, a, material, la_wd01=yield_params.get('la'),
+        include_secondaries=yield_params.get('include_secondaries', True))
+    Gamma = np.trapezoid(flux[:, None] * YE, nu, axis=0)
+    if yield_params.get('include_photodetachment', True):
+        for i, Z in enumerate(np.asarray(Zs)):
+            if Z >= 0:
+                continue
+            E_pdt = float(wdb06_yields.photodetachment_energy(Z, a, material))
+            sigma = photodetachment_cross_section_vec(E, E_pdt, Z)
+            E_min = float(wdb06_yields.min_energy_vH04(Z, a))
+            Gamma[i] += np.trapezoid(np.asarray(J_nu) * sigma * np.maximum(E - E_pdt + E_min, 0.0), nu)
+    return Gamma * eV2erg
+
+
 # --------------------------
 # Full equilibrium solver (vectorized + optimized)
 # --------------------------
@@ -835,6 +879,11 @@ def compute_equilibrium_charge_distribution_vectorized(
         yield_params = {}
     # default yield function by material if not provided
     material = yield_params.get('material', 'graphite')
+    wdb06 = yield_params.get('yield_model', 'WD01') == 'WDB06'
+    if wdb06:
+        yield_params = _wdb06_solver_params(yield_params, a, n_e, T_e, material)
+        if yield_func is None:
+            yield_func = wdb06_yields.yield_wdb06_vectorized
     if yield_func is None:
         yield_func = yield_graphite_vectorized if material == 'graphite' else yield_silicate_vectorized
     # electron sticking function
@@ -1074,12 +1123,19 @@ def compute_equilibrium_charge_distribution_vectorized(
     Gamma_Z = np.zeros_like(Zs, dtype=float)
     Recomb_Z = np.zeros_like(Zs, dtype=float)
     for iZ, Zv in enumerate(Zs):
-        # photoelectric heating (includes photodetachment inside compute_photoelectric_heating_rate)
-        args_pe = (int(Zv), a, radiation_field_for_heating, ( 'graphite' if material=='graphite' else 'silicate'), Im_for_heating, C_abs_for_heating)
-        Gamma_Z[iZ] = float(compute_photoelectric_heating_rate(args_pe))
+        if not wdb06:
+            # photoelectric heating (includes photodetachment inside compute_photoelectric_heating_rate)
+            args_pe = (int(Zv), a, radiation_field_for_heating, ( 'graphite' if material=='graphite' else 'silicate'), Im_for_heating, C_abs_for_heating)
+            Gamma_Z[iZ] = float(compute_photoelectric_heating_rate(args_pe))
         # recombination cooling
         args_re = (int(Zv), a, n_e, T_e, ( 'graphite' if material=='graphite' else 'silicate'))
         Recomb_Z[iZ] = float(compute_recombination_cooling_rate(args_re))
+    if wdb06:
+        Gamma_Z = _wdb06_heating(Zs, a, nu, J_nu, C_abs_nu, yield_params, material)
+        if yield_params.get('include_gas_secondaries', True):
+            # WDB06 eq. 28: gas-excited secondaries return energy to the gas
+            Recomb_Z = Recomb_Z - (wdb06_yields.gas_secondary_rate(Zs, a, n_e, T_e, material)
+                                   * wdb06_yields.gas_secondary_mean_energy(Zs, a, T_e, material) * eV2erg)
 
     Gamma_total = float(np.sum(P * Gamma_Z))
     Recomb_total = float(np.sum(P * Recomb_Z))
@@ -1482,6 +1538,17 @@ def equilibrium_charge_for_grain(G0, ne, T, grain_type, a_cm,
         yield_func = yield_silicate_vectorized
 
     yield_params_local['material'] = material
+
+    if yield_params_local.get('yield_model', 'WD01') == 'WDB06':
+        # WDB06: Q_abs from Draine (2003) up to 20 keV; the dielectric l_a is
+        # kept below 20 eV, where the band yield is WD01's.
+        yield_func = wdb06_yields.yield_wdb06_vectorized
+        C_abs_interp_cm2 = np.pi * a_cm ** 2 * wdb06_yields.absorption_efficiency(E_for_interp, a_cm, material)
+        if material == 'graphite':
+            la = photon_attenuation_length_graphite_vec(wav_cm_for_interp, Im_perp, Im_par)
+        else:
+            la = photon_attenuation_length_silicate_vec(wav_cm_for_interp, Im)
+        yield_params_local.update({'E_eV': np.asarray(E_for_interp, dtype=float), 'la': la})
 
     Zs, P, rates, Zmean, Zsigma = compute_equilibrium_charge_distribution_vectorized(
         a_cm, ne, T, ion_species, nu, J_nu, C_abs_interp_cm2,
