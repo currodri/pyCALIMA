@@ -1014,6 +1014,24 @@ def export_dust_charging_wrapper(config_path=None, reuse_heating_data=False):
         }
 
 
+def export_dust_charging_rtgroups_wrapper(config_path=None):
+    """Wrapper for the RT-group charging tables (WDB06 yields, RAMSES local-field path)."""
+    from pycalima.models.dust_charge.export_dust_charging_rtgroups import main as export_rtgroups
+
+    timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        print("\n" + "="*80)
+        print("EXPORTING RT-GROUP DUST CHARGING TABLES")
+        print("="*80)
+        result = export_rtgroups(config_path=config_path)
+        return {'status': 'Success', 'timestamp': timestamp_str, 'dir': result['output_dir'],
+                'file_count': result['file_count'], 'bins_processed': result['bins_processed']}
+    except Exception as e:
+        print(f"Error: {e}")
+        return {'status': f'Error: {str(e)}', 'timestamp': timestamp_str,
+                'dir': str(get_model_data_dir() / 'dust_charging_rtgroups_data'), 'file_count': 0}
+
+
 def export_dust_photoelectric_heating_wrapper(config_path=None):
     """Wrapper for dust photoelectric heating export with error handling."""
     from pycalima.models.dust_charge.export_dust_photoelectric_heating import main as export_heating
@@ -1253,6 +1271,7 @@ _STAGES = (
     ('pah_sputtering_rates',             export_pah_sputtering_rates_wrapper,             {}),
     ('dust_photoelectric_heating',       export_dust_photoelectric_heating_wrapper,       {}),
     ('dust_charging',                    export_dust_charging_wrapper,                    {'reuse_heating_data': True}),
+    ('dust_charging_rtgroups',           export_dust_charging_rtgroups_wrapper,           {}),
     ('pah_photoelectric_heating_tables', export_pah_photoelectric_heating_tables_wrapper, {}),
     ('pah_dissociation_tables',          export_pah_dissociation_tables_wrapper,          {}),
     ('dust_sublimation',                 export_dust_sublimation_wrapper,                 {}),

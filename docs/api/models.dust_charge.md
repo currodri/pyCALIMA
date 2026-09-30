@@ -27,5 +27,6 @@ together about 90% of the total. Both scale per dust bin. See
    pycalima.models.dust_charge.shared_physics
    pycalima.models.dust_charge.wdb06_yields
    pycalima.models.dust_charge.wdb06_atomic
+   pycalima.models.dust_charge.rt_group_charging
 ```
 

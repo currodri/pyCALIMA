@@ -7,7 +7,9 @@ configuration or to the underlying physics.
 
 ## Stages and what they cost
 
-A full export runs twelve stages. Two of them dominate: the table below is a
+A full export runs thirteen stages. The profile below predates the
+`dust_charging_rtgroups` stage (RT-group charging tables for RAMSES, a few
+seconds per bin). Two of them dominate: the table below is a
 measured profile of the 25-bin `5PAH10C10Sil` configuration (20 dust + 5 PAH),
 recorded in that model's `export_profile.json`.
 

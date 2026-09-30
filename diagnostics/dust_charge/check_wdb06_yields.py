@@ -20,11 +20,6 @@ import numpy as np
 
 from pycalima import _paths
 from pycalima.models.dust_charge import wdb06_yields as wy
-from pycalima.models.dust_charge.shared_physics import (
-    photon_attenuation_length_graphite_vec,
-    photon_attenuation_length_silicate_vec,
-)
-from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file
 
 COLORS = ('#2a78d6', '#eb6834', '#1baf7a', '#eda100')  # categorical slots 1-4
 SIZES_UM = (0.001, 0.01, 0.1, 1.0)
@@ -53,18 +48,7 @@ FIGS = {
 
 def dielectric_la(E, material):
     """WD01 photon attenuation length [cm] on the E grid (used below 20 eV)."""
-    wav_um = 1.23984193 / E
-
-    def im_n(fname):
-        t = read_dielectric_file(str(_paths.get_optical_props_path('draine_lee_1984', fname)))['table']
-        w = np.asarray(t['wavelength_um'])
-        o = np.argsort(w)
-        return np.interp(wav_um, w[o], np.asarray(t['Im_n'])[o])
-
-    if material == 'graphite':
-        return photon_attenuation_length_graphite_vec(
-            wav_um * 1e-4, im_n('callindex.out_CpeD03_0.10'), im_n('callindex.out_CpaD03_0.10'))
-    return photon_attenuation_length_silicate_vec(wav_um * 1e-4, im_n('eps_suvSil'))
+    return wy.dielectric_attenuation_length(E, material)
 
 
 def components(E, a_um, material):

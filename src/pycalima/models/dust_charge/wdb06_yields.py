@@ -693,6 +693,31 @@ def _adt_qabs(x, k):
     return np.where(w < 1e-3, series, direct)
 
 
+def dielectric_attenuation_length(E, material):
+    """WD01 photon attenuation length l_a [cm] from the Draine (2003) graphite
+    (1/3-2/3) or the smoothed-UV astrosilicate dielectric functions, the
+    choice made by ``equilibrium_charge_for_grain``; used below 20 eV."""
+    from pycalima._paths import get_optical_props_path
+    from pycalima.models.dust_charge.shared_physics import (
+        photon_attenuation_length_graphite_vec,
+        photon_attenuation_length_silicate_vec,
+    )
+    from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file
+
+    wav_um = _HC_EV_UM / np.asarray(E, dtype=float)
+
+    def im_n(fname):
+        t = read_dielectric_file(str(get_optical_props_path("draine_lee_1984", fname)))["table"]
+        w = np.asarray(t["wavelength_um"])
+        o = np.argsort(w)
+        return np.interp(wav_um, w[o], np.asarray(t["Im_n"])[o])
+
+    if material == "graphite":
+        return photon_attenuation_length_graphite_vec(
+            wav_um * 1e-4, im_n("callindex.out_CpeD03_0.10"), im_n("callindex.out_CpaD03_0.10"))
+    return photon_attenuation_length_silicate_vec(wav_um * 1e-4, im_n("eps_suvSil"))
+
+
 def _refractive_index(fname, wav_um):
     from pycalima._paths import get_optical_props_path
     from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file
