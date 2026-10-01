@@ -8,8 +8,8 @@ Methods, on cells sampled from RAMSES dumps (dust_rtgroups_debug_*.dat, e.g. the
        per-group solve with its approximations (Gaussian P(Z) averaged at the
        mean, trimmed discrete windows, Gaussian recombination estimate for the
        bins that carry little of it)
-  tab  charging_model='WDB06tab': charging_psi_tables.psi_lookup (FUV with the
-       Mathis shape scaled to G0, EUV with the reference blackbody shape, n(H+) = n_e)
+  tab  charging_model='WDB06tab': charging_psi_tables.psi_lookup (FUV photon flux
+       and hardness, EUV with the reference blackbody shape, n(H+) = n_e)
   old  charging_model='RM2026': the original (log gamma, log T) charge tables
        (mean charge only)
 
@@ -76,11 +76,13 @@ def one_cell(args):
     N, cr_ = (c["Np"], c["c_red"]) if c["path"] != 1 else (np.zeros_like(c["Np"]), 0.0)
     full = [full_solve(gt, N, cr_, c["T"], c["ne"], ions, c["G0_bg"]) for gt in G["gts"]]
     rt = rg.solve_cell(G["gts"], G["n"], N, cr_, c["T"], c["ne"], ions, G0_bg=c["G0_bg"])
-    G_F, G_E = cpt.cell_G(c["Np"], c["c_red"], c["egy"], G["pts"][0]["L0"], c["G0_bg"])
-    tab = [cpt.psi_lookup(pt, c["T"], c["ne"], G_F, G_E) for pt in G["pts"]]
+    G_F, h, G_E = cpt.cell_inputs(G["pts"][0], c["Np"], c["c_red"], c["G0_bg"])
+    tab = [cpt.psi_lookup(pt, c["T"], c["ne"], G_F, h, G_E) for pt in G["pts"]]
     old = None
     if origdir:
-        old = [cr.original_table_charge(Path(origdir) / f"dust_charge_Z_vs_T_DustBin_{b:02d}", G_F, c["T"], c["ne"])
+        sel = (c["egy"] > 5.6) & (c["egy"] < 13.6)                      # RAMSES advected_G0 (Habing)
+        G0 = float(np.sum(c["Np"][sel] * c["c_red"] * c["egy"][sel]) * rg.EV2ERG / rg.HABING_FLUX) + c["G0_bg"]
+        old = [cr.original_table_charge(Path(origdir) / f"dust_charge_Z_vs_T_DustBin_{b:02d}", G0, c["T"], c["ne"])
                for b in range(1, nb + 1)]
     out = dict(T=c["T"], hii=c["n_Hp"] > 0.5 * c["ne"] and c["T"] > 3e3, n=G["n"], bins={})
 

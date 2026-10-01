@@ -127,11 +127,11 @@ def compare_psitab(runs, tabdir):
                     continue
                 p = line.split()
                 b = int(p[0])
-                T, ne, GF, GE, Zm, Zs, Gm, Lm = (float(x) for x in p[1:9])
-                al = np.array(p[9:19], dtype=float)
+                T, ne, GF, hF, GE, Zm, Zs, Gm, Lm = (float(x) for x in p[1:10])
+                al = np.array(p[10:20], dtype=float)
                 if b not in pts:
                     pts[b] = cpt.read_psi_table(Path(tabdir) / f"dust_charging_psitab_DustBin_{b:02d}.dat")
-                py = cpt.psi_lookup(pts[b], T, ne, GF, GE)
+                py = cpt.psi_lookup(pts[b], T, ne, GF, hF, GE)
                 for k, f in (("Zmean", Zm), ("Zsigma", Zs), ("Gamma", Gm), ("Lambda", Lm)):
                     worst[k] = max(worst[k], rel(py[k], f, 1.0 if k == "Zmean" else 0.0))
                 worst["alpha"] = max(worst["alpha"], rel(py["alpha_rec"], al))

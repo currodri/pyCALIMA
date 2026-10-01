@@ -355,27 +355,31 @@ def test_solve_cell_fits_only_the_bins_that_carry_the_recombination(tables):
 
 def test_psi_table_reproduces_the_solve_at_its_nodes_and_round_trips(tables, tmp_path, monkeypatch):
     """WDB06tab: a lookup at a grid node is the charge solve there; heating stays linear in G below
-    the psi grid; the file round-trips."""
+    the psi grid; the files round-trip; the inputs of a cell give back its FUV hardness."""
     from pycalima.models.dust_charge import charging_psi_tables as cpt
     from pycalima.models.dust_charge import rt_group_charging as rg
 
     monkeypatch.setattr(cpt, "LT", np.array([3.5, 4.0]))
     monkeypatch.setattr(cpt, "LPSI_F", np.array([3.0, 3.5, 4.0]))
+    monkeypatch.setattr(cpt, "H_FUV", np.array([0.1, 0.2]))
     monkeypatch.setattr(cpt, "LPSI_E", np.array([2.0, 3.0]))
     tab, path = tables["graphite", 1e-6]
     pt = cpt.build_psi_table(rg.read_bin_table(path))
     back = cpt.read_psi_table(cpt.write_psi_table(pt, tmp_path / "t.dat"))
-    np.testing.assert_allclose(back["q"], pt["q"], rtol=1e-11, atol=1e-300)
-    T, ne = 1e4, 0.3
+    np.testing.assert_array_equal(back["q"], pt["q"])
+    T, ne, h = 1e4, 0.3, 0.2
     G_F, G_E = 10 ** 3.5 * ne / np.sqrt(T), 1e3 * ne / np.sqrt(T)
-    look = cpt.psi_lookup(pt, T, ne, G_F, G_E)
-    w, egy = cpt.euv_shape(tab["L0"], tab["L1"])
+    look = cpt.psi_lookup(pt, T, ne, G_F, h, G_E)
+    roles, w, egy = cpt.band_shapes(tab["L0"], tab["L1"])
     gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy, kernels="pchip")
-    r = gt.solve(G_E * cpt.F_EUV0 * w / rg.C_CGS, rg.C_CGS, T, ne, [(ne, 1.0, rg.M_HION)], G0_bg=G_F)
+    N = cpt.photon_densities(roles, w, G_F, h, G_E)
+    r = gt.solve(N, rg.C_CGS, T, ne, [(ne, 1.0, rg.M_HION)])
     for key in ("Zmean", "Zsigma", "Gamma"):
-        assert look[key] == pytest.approx(r[key], rel=1e-9)
-    assert look["Lambda"] == pytest.approx(r["Lambda"] + r["Lambda_auto"], rel=1e-9)
-    low = cpt.psi_lookup(pt, T, ne, 1e-3 * G_F, 0.0)            # psi_F below the grid: same charge, Gamma ~ G_F
-    ref = cpt.psi_lookup(pt, T, ne, 10 ** 3.0 * ne / np.sqrt(T), 0.0)
+        assert look[key] == pytest.approx(r[key], rel=1e-6)                 # values stored in float32
+    assert look["Lambda"] == pytest.approx(r["Lambda"] + r["Lambda_auto"], rel=1e-6)
+    assert cpt.cell_inputs(pt, N, rg.C_CGS, 0.0) == pytest.approx((G_F, h, G_E))
+    G_lo = 10 ** 3.0 * ne / np.sqrt(T)
+    low = cpt.psi_lookup(pt, T, ne, 1e-3 * G_lo, h, 0.0)                    # psi_F below the grid: Gamma ~ G
+    ref = cpt.psi_lookup(pt, T, ne, G_lo, h, 0.0)
     assert low["Zmean"] == pytest.approx(ref["Zmean"])
-    assert low["Gamma"] == pytest.approx(ref["Gamma"] * 1e-3 * G_F / (10 ** 3.0 * ne / np.sqrt(T)))
+    assert low["Gamma"] == pytest.approx(1e-3 * ref["Gamma"])
