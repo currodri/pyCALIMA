@@ -295,7 +295,8 @@ def test_temperature_derivatives_match_central_differences(tables, a):
     h = np.log1p(d) - np.log1p(-d)
     for key in ("Gamma", "Lambda"):
         f = (lambda q: q[key] + (q["Lambda_auto"] if key == "Lambda" else 0.0))
-        assert r["d" + key + "_dlnT"] == pytest.approx((f(up) - f(dn)) / h, rel=1e-2, abs=1e-3 * abs(f(r)))
+        rel = 1e-6 if r["discrete"] else 1e-2          # discrete: analytic; wide: forward difference
+        assert r["d" + key + "_dlnT"] == pytest.approx((f(up) - f(dn)) / h, rel=rel, abs=rel * 1e-1 * abs(f(r)))
 
 
 def test_warm_solves_reuse_the_recombination_fit_only_within_the_tolerance(tables):

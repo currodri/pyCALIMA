@@ -758,9 +758,7 @@ class GroupChargingTable:
             Zc = int(np.floor(Zs + 0.5))
             Zint, P, ginc = self._window(max(self.t["Zmin"], Zc - half), min(self.t["Zmax"], Zc + half))
             return Zint, P, True, ginc
-        mu = Zs + 0.5
-        return (np.array([mu - np.sqrt(3) * sigma, mu, mu + np.sqrt(3) * sigma]),
-                np.array([1 / 6, 2 / 3, 1 / 6]), False, None)
+        return _gauss_nodes(Zs, sigma) + (False, None)
 
     def _window(self, z0, z1):
         """Exact P(Z) on the integers z0..z1, grown or trimmed at each end to one
@@ -812,40 +810,87 @@ class GroupChargingTable:
             return float(np.sum(weights * nodes)), float(_width(nodes, weights))
         return float(Zs + 0.5), float(sigma)
 
-    def _dlnT_response(self, out, pair, ginc, dlnT):
-        """d/d ln T of Zmean, Zsigma, Gamma, Lambda (+ auto), from one more set of
-        rates at T (1 + dlnT) on the T call's charges: for a wide P(Z) the pair
-        g(z+-) is re-evaluated, so the shifted root and slope are consistent with
-        the T call by construction; for a discrete one, the change of g is
-        evaluated on the window's increments that link charges with P > 1e-10
-        (the rest cannot move P noticeably) and ln P moves by its cumulative
-        sum. Then Gamma and Lambda are re-averaged."""
+    def _dlnT_response(self, out, pair, dlnT):
+        """d/d ln T of Zmean, Zsigma, Gamma, Lambda (+ auto). Discrete P(Z):
+        analytic (_dlnT_discrete). Wide: one more set of rates at T (1 + dlnT),
+        the pair g(z+-) re-evaluated, so the shifted root and slope are
+        consistent with the T call by construction, then Gamma and Lambda
+        re-averaged on the shifted Gaussian nodes."""
+        if out["discrete"]:
+            return self._dlnT_discrete(out)
         T0 = self.cell["T"]
         N_g, c_red, ne, ions, G0_bg = self._inputs
         self._set_cell(N_g, c_red, T0 * (1.0 + dlnT), ne, ions, G0_bg)
-        nodes, weights = out["nodes"], out["weights"]
-        if out["discrete"]:
-            k = np.nonzero(weights > 1e-10)[0]
-            dg = np.zeros(ginc.size)
-            for j in range(k[0], min(k[-1], ginc.size)):
-                dg[j] = self._g(nodes[j]) - ginc[j]
-            w1 = weights * np.exp(np.concatenate([[0.0], np.cumsum(dg)]))
-            nodes1, weights1 = nodes, w1 / w1.sum()
-            Zs1, sig1 = out["Zstar"], out["Zsigma"]
-        else:
-            zm, zp, gm, gpl = pair
-            gm1, gp1 = self._g(zm), self._g(zp)
-            s0, s1 = (gpl - gm) / (zp - zm), (gp1 - gm1) / (zp - zm)
-            Zs1 = out["Zstar"] + (zm - gm1 / s1) - (zm - gm / s0)
-            sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else out["Zsigma"]
-            nodes1, weights1, _, _ = self._distribution(Zs1, sig1)
-        gam1, lam1, auto1 = self._averages(nodes1, weights1, out["discrete"])
-        zmean1, zsig1 = self._moments(nodes1, weights1, out["discrete"], Zs1, sig1)
+        zm, zp, gm, gpl = pair
+        gm1, gp1 = self._g(zm), self._g(zp)
+        s0, s1 = (gpl - gm) / (zp - zm), (gp1 - gm1) / (zp - zm)
+        Zs1 = out["Zstar"] + (zm - gm1 / s1) - (zm - gm / s0)
+        sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else out["Zsigma"]
+        nodes1, weights1 = _gauss_nodes(Zs1, sig1)
+        gam1, lam1, _ = self._averages(nodes1, weights1, False)
         self._set_cell(N_g, c_red, T0, ne, ions, G0_bg)
         h = np.log1p(dlnT)
-        return dict(dZmean_dlnT=(zmean1 - out["Zmean"]) / h, dZsigma_dlnT=(zsig1 - out["Zsigma"]) / h,
-                    dGamma_dlnT=(gam1 - out["Gamma"]) / h,
-                    dLambda_dlnT=((lam1 + auto1) - (out["Lambda"] + out["Lambda_auto"])) / h)
+        return dict(dZmean_dlnT=(Zs1 - out["Zstar"]) / h, dZsigma_dlnT=(sig1 - out["Zsigma"]) / h,
+                    dGamma_dlnT=(gam1 - out["Gamma"]) / h, dLambda_dlnT=(lam1 - out["Lambda"]) / h)
+
+    def _hot_dlnT(self, key, i, w):
+        """d/d ln T of _hot: its slope in log10 T (zero where log T is clamped)."""
+        lt = self.t["log10_Thot"]
+        y = np.log10(self.cell["T"])
+        if not lt[0] < y < lt[-1]:
+            return 0.0
+        dl = (lt[-1] - lt[0]) / (lt.size - 1)
+        k = min(int((y - lt[0]) / dl), lt.size - 2)
+        tab = self.t[key]
+        a0 = (1 - w) * tab[k, i] + w * tab[k, i + 1]
+        a1 = (1 - w) * tab[k + 1, i] + w * tab[k + 1, i + 1]
+        return (a1 - a0) / dl / np.log(10.0)
+
+    def _rates_dlnT(self, Z):
+        """At charge Z: up, down, the cooling lam of _heating_cooling, and their
+        d/d ln T (tau ~ T, v ~ T^1/2; photoemission does not depend on T)."""
+        c, a = self.cell, self.a
+        i, w = self._u_index(Z * E2_EV_CM / a)
+        up, down = self._up(Z, i, w), self._down(Z, i, w)
+        arr = np.pi * a * a * c["ne"] * c["v_e"]
+        tau_e = a * KB_CGS * c["T"] / E_STATC ** 2
+        je, dje = _ds87_J_dlnT(Z, -1.0, tau_e)
+        lt, dlt = _ds87_lambda_dlnT(Z, tau_e)
+        dion = 0.0
+        for n_i, z_i, v_i in c["ions"]:
+            ji, dji = _ds87_J_dlnT(Z, z_i, a * KB_CGS * c["T"] / (z_i * z_i * E_STATC ** 2))
+            dion += np.pi * a * a * n_i * v_i * ji * (0.5 + dji)
+        st = self._sticking(Z)
+        de, dde = self._hot("delta", c["T"], i, w), self._hot_dlnT("delta", i, w)
+        pt, dpt = self._hot("P_tr", c["T"], i, w), self._hot_dlnT("P_tr", i, w)
+        fc, dfc = self._hot("f_cool", c["T"], i, w), self._hot_dlnT("f_cool", i, w)
+        eb, deb = self._hot("E_bar", c["T"], i, w), self._hot_dlnT("E_bar", i, w)
+        kT = KB_CGS * c["T"]
+        dup = dion + arr * je * (de * (0.5 + dje) + dde)
+        ddown = arr * je * st * ((1.0 - pt) * (0.5 + dje) - dpt)
+        lam = arr * (st * lt * kT * fc - je * de * eb * EV2ERG)
+        dlam = arr * (st * lt * kT * (fc * (1.5 + dlt) + dfc) - je * EV2ERG * (de * eb * (0.5 + dje) + dde * eb + de * deb))
+        return up, dup, down, ddown, lam, dlam
+
+    def _dlnT_discrete(self, out):
+        """Analytic d/d ln T for a discrete P(Z) on its window: d ln P(Z_k) is the
+        cumulative sum of d ln Up(Z_j) - d ln Down(Z_j+1) (centred on its mean),
+        and Gamma (no T dependence per charge) and Lambda move with it, Lambda
+        also through each charge's cooling rate."""
+        Z, P = out["nodes"], out["weights"]
+        r = np.array([self._rates_dlnT(z) for z in Z])            # up, dup, down, ddown, lam, dlam
+        gam = np.array([self._heating_cooling(z)[0] for z in Z])
+        c = np.concatenate([[0.0], np.cumsum(r[:-1, 1] / np.maximum(r[:-1, 0], 1e-300)
+                                             - r[1:, 3] / np.maximum(r[1:, 2], 1e-300))])
+        c -= P @ c
+        dmean = P @ (c * Z)
+        dvar = P @ (c * Z * Z) - 2.0 * out["Zmean"] * dmean
+        dlam = P @ (c * r[:, 4]) + P @ r[:, 5]
+        if Z[0] == self.t["Zmin"]:
+            tau_e = self.a * KB_CGS * self.cell["T"] / E_STATC ** 2
+            dlam += out["Lambda_auto"] * (c[0] + 0.5 + _ds87_J_dlnT(Z[0], -1.0, tau_e)[1])
+        return dict(dZmean_dlnT=dmean, dZsigma_dlnT=0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0,
+                    dGamma_dlnT=P @ (c * gam), dLambda_dlnT=dlam)
 
     def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None):
         """Equilibrium charge and rates for one cell.
@@ -875,9 +920,9 @@ class GroupChargingTable:
         dist = self._warm_window(warm) if warm is not None and warm["discrete"] else None
         if dist is None:
             Zs, sigma, pair = self._root(Z_guess, warm)
-            nodes, weights, discrete, ginc = self._distribution(Zs, sigma)
+            nodes, weights, discrete, _ = self._distribution(Zs, sigma)
         else:
-            (Zs, nodes, weights, ginc), sigma, discrete, pair = dist, None, True, None
+            (Zs, nodes, weights, _), sigma, discrete, pair = dist, None, True, None
         zmean, zsig = self._moments(nodes, weights, discrete, Zs, sigma)
         gam, lam, auto = self._averages(nodes, weights, discrete)
         out = dict(Zstar=Zs, discrete=discrete, Zmean=zmean, Zsigma=zsig, Gamma=gam, Lambda=lam,
@@ -897,8 +942,41 @@ class GroupChargingTable:
                 out["alpha_rec"] = self._recombination_fit(Zs, sigma)
                 out["recomb_ref"] = (x, out["alpha_rec"])
         if dlnT is not None:
-            out.update(self._dlnT_response(out, pair, ginc, dlnT))
+            out.update(self._dlnT_response(out, pair, dlnT))
         return out
+
+
+def _gauss_nodes(Zs, sigma):
+    """3-point Gauss-Hermite nodes and weights of a Gaussian of mean Z* + 1/2."""
+    mu = Zs + 0.5
+    return (np.array([mu - np.sqrt(3) * sigma, mu, mu + np.sqrt(3) * sigma]), np.array([1 / 6, 2 / 3, 1 / 6]))
+
+
+def _ds87_J_dlnT(Z, q, tau):
+    """DS87 J-tilde (theta_nu = nu/(1+nu^-1/2)) at nu = Z/q and d ln J / d ln tau."""
+    nu = Z / q
+    if nu == 0:
+        r = np.sqrt(np.pi / (2.0 * tau))
+        return 1.0 + r, -0.5 * r / (1.0 + r)
+    if nu < 0:
+        A, s = 1.0 - nu / tau, np.sqrt(2.0 / (tau - 2.0 * nu))
+        return A * (1.0 + s), (nu / tau) / A - 0.5 * s * tau / (tau - 2.0 * nu) / (1.0 + s)
+    th, s = nu / (1.0 + 1.0 / np.sqrt(nu)), 1.0 / np.sqrt(4.0 * tau + 3.0 * nu)
+    return (1.0 + s) ** 2 * np.exp(-th / tau), -4.0 * tau * s ** 3 / (1.0 + s) + th / tau
+
+
+def _ds87_lambda_dlnT(Z, tau):
+    """DS87 Lambda-tilde for electrons at grain charge Z and d ln Lambda / d ln tau."""
+    nu = -Z
+    if nu == 0:
+        r = np.sqrt(np.pi / (2.0 * tau))
+        L = 2.0 + 1.5 * r
+        return L, -0.75 * r / L
+    if nu < 0:
+        A, s = 2.0 - nu / tau, 1.0 / np.sqrt(tau - nu)
+        return A * (1.0 + s), (nu / tau) / A - 0.5 * tau * s ** 3 / (1.0 + s)
+    th, A, s = nu / (1.0 + 1.0 / np.sqrt(nu)), 2.0 + nu / tau, 1.0 / np.sqrt(1.5 / tau + 3.0 * nu)
+    return A * (1.0 + s) * np.exp(-th / tau), (-nu / tau) / A + 0.75 * s ** 3 / tau / (1.0 + s) + th / tau
 
 
 def _width(Z, P):
