@@ -26,7 +26,7 @@ DEFAULT_EXPORT_PARAMS = {
 }
 
 
-def main(config_path=None, group_L0=None, group_L1=None):
+def main(config_path=None, group_L0=None, group_L1=None, output_dir=None):
     if config_path:
         set_config_path(config_path)
     params = get_export_parameters('dust_charging_rtgroups', defaults=DEFAULT_EXPORT_PARAMS)
@@ -35,7 +35,8 @@ def main(config_path=None, group_L0=None, group_L1=None):
     if len(L0) != len(L1):
         raise ValueError('group_L0 and group_L1 must have the same length')
 
-    output_dir = get_model_data_dir() / 'dust_charging_rtgroups_data'
+    from pathlib import Path
+    output_dir = Path(output_dir) if output_dir else get_model_data_dir() / 'dust_charging_rtgroups_data'
     output_dir.mkdir(parents=True, exist_ok=True)
     bins = sorted(get_bins(is_pah=False), key=lambda b: b['index'])
     if not bins:
@@ -59,5 +60,6 @@ if __name__ == '__main__':
     ap.add_argument('--config', default=None, help='grain-size configuration JSON')
     ap.add_argument('--group-L0', type=float, nargs='+', default=None, help='group lower edges [eV]')
     ap.add_argument('--group-L1', type=float, nargs='+', default=None, help='group upper edges [eV]')
+    ap.add_argument('--output-dir', default=None, help='default: <model_data>/dust_charging_rtgroups_data')
     args = ap.parse_args()
-    main(args.config, args.group_L0, args.group_L1)
+    main(args.config, args.group_L0, args.group_L1, args.output_dir)

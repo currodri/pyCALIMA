@@ -82,6 +82,56 @@ def load_or_build(bin_id, material, a, L0, L1):
     return rg.build_bin_table(material, a, L0, L1, label=bin_id)
 
 
+METHODS = (('groups', 'RT groups, run-wide egy (RAMSES)', '#2a78d6', 'o'),
+           ('ideal', 'RT groups, true per-cell egy', '#1baf7a', 's'),
+           ('G0only', 'G0-only tables (current)', '#eb6834', '^'))
+
+
+def plot(rows, path):
+    """Errors of each method against the resolved SED: potential difference [V],
+    heating and recombination-cooling ratios, per gas phase, SED and bin."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    spectra = list(dict.fromkeys(r['spectrum'] for r in rows))
+    gases = list(dict.fromkeys(r['gas'] for r in rows))
+    bins = sorted({r['bin'] for r in rows})
+    fig, axes = plt.subplots(3, len(gases), figsize=(5.2 * len(gases), 11), sharex=True, squeeze=False)
+    for ig, gas in enumerate(gases):
+        sub = [r for r in rows if r['gas'] == gas]
+        for im, (key, label, color, marker) in enumerate(METHODS):
+            for ib, b in enumerate(bins):
+                for r in (r for r in sub if r['bin'] == b):
+                    x = spectra.index(r['spectrum']) + (im - 1) * 0.22 + (ib - 1.5) * 0.04
+                    face = color if r['G0'] == max(x_['G0'] for x_ in rows) else 'none'
+                    dphi = (r[key][0] - r['full'][0]) * rg.E2_EV_CM / r['a']
+                    gr = r[key][1] / r['full'][1] if r['full'][1] > 0 else np.nan
+                    lr = r[key][2] / r['full'][2] if r['full'][2] > 0 else np.nan
+                    for row, y in enumerate((dphi, gr, lr)):
+                        axes[row, ig].plot(x, y, marker=marker, ms=5, mec=color, mfc=face, ls='none',
+                                           label=label if (ib == 0 and r is sub[0] and row == 0 and ig == 0) else None)
+        axes[0, ig].axhline(0, color='0.6', lw=0.8)
+        for row in (1, 2):
+            axes[row, ig].axhline(1, color='0.6', lw=0.8)
+            axes[row, ig].set_yscale('log')
+        axes[0, ig].set_title(f'{gas} gas', fontsize=11)
+    axes[0, 0].set_ylabel(r'$\phi_{\rm method} - \phi_{\rm SED}$ (V)')
+    axes[1, 0].set_ylabel(r'$\Gamma_{\rm pe}$ / resolved SED')
+    axes[2, 0].set_ylabel(r'$\Lambda_{\rm rec}$ / resolved SED')
+    for ax in axes[-1]:
+        ax.set_xticks(range(len(spectra)), spectra, rotation=40, ha='right', fontsize=8)
+    for ax in axes.ravel():
+        ax.grid(color='0.92', lw=0.6)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', ncol=3, frameon=False, fontsize=9)
+    fig.text(0.5, 0.005, f'filled: G0 = {max(r["G0"] for r in rows):g}, open: G0 = {min(r["G0"] for r in rows):g}; '
+             'points within a group of four: dust bins ' + ', '.join(bins), ha='center', fontsize=8)
+    fig.tight_layout(rect=(0, 0.02, 1, 0.96))
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--t-source', type=float, default=1e5,
@@ -90,8 +140,16 @@ def main():
     ap.add_argument('--gas', nargs='+', default=list(GAS), choices=list(GAS))
     ap.add_argument('--group-L0', type=float, nargs='+', default=list(rg.DEFAULT_GROUP_L0))
     ap.add_argument('--group-L1', type=float, nargs='+', default=list(rg.DEFAULT_GROUP_L1))
+    ap.add_argument('--plot-only', action='store_true', help='re-plot the saved benchmark JSON')
     args = ap.parse_args()
     warnings.filterwarnings('ignore')
+    out = _paths.get_results_dir() / 'rtgroup_charging_benchmark.json'
+    png = _paths.get_plots_dir() / 'rtgroup_charging_benchmark.png'
+    if args.plot_only:
+        png.parent.mkdir(parents=True, exist_ok=True)
+        plot(json.load(open(out)), png)
+        print('Saved', png)
+        return
 
     L0, L1 = np.array(args.group_L0), np.array(args.group_L1)
     _, egy_run = groups_of(bb(args.t_source), L0, L1)
@@ -135,10 +193,11 @@ def main():
                           + " | dGamma " + " ".join(f"{k}={res[k][1] / Gf - 1 if Gf else 0:+6.2f}"
                                                     for k in ('groups', 'ideal', 'G0only')), flush=True)
 
-    out = _paths.get_results_dir() / 'rtgroup_charging_benchmark.json'
     out.parent.mkdir(parents=True, exist_ok=True)
     json.dump(rows, open(out, 'w'), indent=1, default=float)
-    print(f'\nSaved {out}\n')
+    png.parent.mkdir(parents=True, exist_ok=True)
+    plot(rows, png)
+    print(f'\nSaved {out} and {png}\n')
     print(f"{'method':8s} {'|dphi| [V] median / 95% / max':>32s} {'|dGamma/Gamma| median / 95% / max':>36s}"
           f" {'|dLambda/Lambda| median / max':>30s}")
     for k in ('groups', 'ideal', 'G0only'):

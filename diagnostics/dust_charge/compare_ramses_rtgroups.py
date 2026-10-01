@@ -4,10 +4,14 @@
 RAMSES, with dust_rtgroups_debug=.true., writes dust_rtgroups_debug_XXXXX.dat:
 one line per (call, dust bin) with the inputs it used (T, n_e, H+/He+/He++
 densities and masses, c_red, N_g, group energies) and its outputs (mean charge,
-width, PE heating, recombination and autoionisation cooling). This script
+width, PE heating, recombination and autoionisation cooling) and the
+root-search starting guess (the bin's previous Z*). This script
 re-solves every sampled line with rt_group_charging.GroupChargingTable on the
 same table files and reports the relative differences, which should be at
-round-off level.
+round-off level for full solves (path 0). Lines from the uniform-G0 start-up
+table (path 1: no local RT photons) are compared with a direct solve at the
+same (T, n_e) with n(H+) = n_e, so their differences are the table's
+interpolation error.
 
     python compare_ramses_rtgroups.py RUN_DIR [RUN_DIR ...] --tables TABLES_DIR
 
@@ -38,7 +42,10 @@ def read_dump(path):
                          m_H=v[5], m_He=v[6], c_red=v[7],
                          Np=np.array(p[10:10 + nG], dtype=float), egy=np.array(p[10 + nG:10 + 2 * nG], dtype=float),
                          out=dict(zip(KEYS + ("Zstar",), np.array(p[10 + 2 * nG:16 + 2 * nG], dtype=float))),
-                         discrete=p[16 + 2 * nG] == "T"))
+                         discrete=p[16 + 2 * nG] == "T",
+                         G0_bg=float(p[17 + 2 * nG]) if len(p) > 17 + 2 * nG else 0.0,
+                         path=int(p[18 + 2 * nG]) if len(p) > 18 + 2 * nG else 0,
+                         Z_guess=float(p[19 + 2 * nG]) if len(p) > 19 + 2 * nG else None))
     return rows
 
 
@@ -80,14 +87,27 @@ def main():
         all_rows = [r for d in dumps for r in read_dump(d)]
         rows = all_rows[::args.stride]
         worst = {k: 0.0 for k in KEYS}
+        worst_tab = {k: 0.0 for k in KEYS}
+        n_tab = 0
         n_disc_mismatch = 0
         for r in rows:
             b = r["bin"]
             if b not in tables:
                 tables[b] = rg.read_bin_table(Path(args.tables) / f"dust_charging_rtgroups_DustBin_{b:02d}.dat")
             gt = rg.GroupChargingTable(tables[b], egy=r["egy"])
+            if r["path"] == 1:
+                n_tab += 1
+                py = gt.solve(np.zeros_like(r["Np"]), 0.0, r["T"], r["ne"], [(r["ne"], 1.0, r["m_H"])],
+                              G0_bg=r["G0_bg"])
+                py["Lambda"] += py["Lambda_auto"]
+                py["Lambda_auto"] = 0.0
+                for k in KEYS:
+                    a, f = py[k], r["out"][k]
+                    scale = max(abs(a), abs(f), 1.0 if k == "Zmean" else 0.0)
+                    worst_tab[k] = max(worst_tab[k], abs(a - f) / scale if scale > 0 else 0.0)
+                continue
             ions = [(r["n_Hp"], 1.0, r["m_H"]), (r["n_Hep"], 1.0, r["m_He"]), (r["n_Hepp"], 2.0, r["m_He"])]
-            py = gt.solve(r["Np"], r["c_red"], r["T"], r["ne"], ions)
+            py = gt.solve(r["Np"], r["c_red"], r["T"], r["ne"], ions, G0_bg=r["G0_bg"], Z_guess=r["Z_guess"])
             n_disc_mismatch += int(py["discrete"] != r["discrete"])
             for k in KEYS:
                 a, f = py[k], r["out"][k]
@@ -98,8 +118,11 @@ def main():
                 worst[k] = max(worst[k], d)
         for k in KEYS:
             worst_all[k] = max(worst_all[k], worst[k])
-        print(f"{Path(run).name:22s} {len(rows):5d} calls | max rel diff " +
+        print(f"{Path(run).name:22s} {len(rows) - n_tab:5d} solves | max rel diff " +
               " ".join(f"{k}={worst[k]:.1e}" for k in KEYS) + f" | discrete-flag mismatches {n_disc_mismatch}")
+        if n_tab:
+            print(f"{'':22s} {n_tab:5d} table lookups | max rel diff vs direct solve (interpolation) " +
+                  " ".join(f"{k}={worst_tab[k]:.1e}" for k in KEYS[:4]))
         if args.original_tables:
             last = {}
             for r in all_rows:

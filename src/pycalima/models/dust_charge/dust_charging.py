@@ -1281,9 +1281,9 @@ def compute_equilibrium_charge_distribution_vectorized(
                 elif mode == 'case_b':
                     r0_cm = r0 * 1e-8
                     term1 = (z_i - Zs - 1.0) * (E_STATC**2) / (a + r0_cm)
-                    term2 = (2.0 * z_i - 1.0) * (E_STATC**2) * (a**3) / (2.0 * r0_cm * ((a + r0_cm)**2) * (2.0 * a + r0_cm))
+                    term2 = (1.0 - 2.0 * z_i) * (E_STATC**2) * (a**3) / (2.0 * r0_cm * ((a + r0_cm)**2) * (2.0 * a + r0_cm))
                     dU = (term1 + term2) / EV2ERG
-                    y = IP_X_im1 - IP_a_Z - dU   # WD01 Eq.6: IP(a,Z) - IP(X^i-1) + dU < 0
+                    y = IP_X_im1 - IP_a_Z + dU   # as dust_ion_recombination: WD01 Eq. 6 has a sign typo
                     theta = np.where(y >= 0.0, 1.0, 0.0)
                 
                 Jtilde_i = Jtilde_i * theta
