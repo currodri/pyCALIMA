@@ -25,10 +25,11 @@ the bias of a Mathis FUV (charge within 1%, heating within 1% at the median).
 Electron and ion capture, secondaries and pass-through all scale with
 n_e sqrt(T) at fixed T, so per bin and grid point the table holds
 
-    <Z>, sigma_Z, gamma_F, gamma_E, lambda, ln alpha_i
+    <Z>, sigma_Z, ln gamma_F, ln gamma_E, lambda, ln alpha_i
 
 with Gamma = G_FUV gamma_F + G_EUV gamma_E (heating per unit G of each part at
-the tabulated charge distribution: exact for any G, also outside the psi grid),
+the tabulated charge distribution: exact for any G, also outside the psi grid;
+interpolated in ln, as alpha_i: both fall by orders of magnitude on positive grains),
 Lambda + Lambda_auto = n_e sqrt(T) lambda, and alpha_i the grain-assisted
 recombination coefficients of RECOMB_IONS [cm^3 s^-1 per grain]. A lookup is
 quadrilinear in (log T, log psi_F, h, psi_E), with psi_E linear between 0 and
@@ -47,15 +48,17 @@ import numpy as np
 
 from pycalima.models.dust_charge import rt_group_charging as rg
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 LT = np.round(np.arange(1.0, 8.0 + 1e-9, 0.25), 6)            # log10 T [K]
 LPSI_F = np.round(np.arange(-3.0, 9.0 + 1e-9, 0.25), 6)       # log10 psi_F [K^1/2 cm^3, G in units of F0]
-H_FUV = np.round(np.arange(0.0, 0.4 + 1e-9, 0.05), 6)         # FUV hardness
+H_FUV = np.round(np.arange(0.0, 0.4 + 1e-9, 0.1), 6)          # FUV hardness (0.05: same errors, 1.8x the memory)
 LPSI_E = np.round(np.arange(-3.0, 9.0 + 1e-9, 0.5), 6)        # log10 psi_E; plus psi_E = 0 (first plane)
+# Grid: interpolation errors measured against direct solves at random points of the domain and
+# on 2D Stromgren cells; coarser psi_F (1/3, 0.5 dex) or psi_E (1 dex) roughly double the <Z> tails.
 F_EUV0 = 1e8              # photons cm^-2 s^-1: unit of G_FUV and G_EUV (about the Habing photon flux)
 T_EUV = 4e4               # K: reference blackbody for the photons within each band
 SOFT, HARD, EUV = 1, 2, 3  # group roles (0: not used)
-QUANTITIES = ("Zmean", "Zsigma", "gamma_F", "gamma_E", "lambda") + tuple(f"lnalpha_{el}" for el, _, _ in rg.RECOMB_IONS)
+QUANTITIES = ("Zmean", "Zsigma", "lngamma_F", "lngamma_E", "lambda") + tuple(f"lnalpha_{el}" for el, _, _ in rg.RECOMB_IONS)
 
 
 def group_roles(L0, L1, tol=1e-6):
@@ -131,32 +134,35 @@ def _point(gt, roles, w, T, psi_F, h, psi_E, Z_guess):
         gam.append(sum(p * gt._heating_cooling(z)[0] for z, p in zip(r["nodes"], r["weights"])))
     gt._set_cell(N, rg.C_CGS, T, ne, ions, 0.0)
     lam = (r["Lambda"] + r["Lambda_auto"]) / (ne * np.sqrt(T))
-    vals = [r["Zmean"], r["Zsigma"], gam[0], gam[1], lam] + list(np.log(np.maximum(r["alpha_rec"], 1e-300)))
+    vals = [r["Zmean"], r["Zsigma"], np.log(max(gam[0], 1e-300)), np.log(max(gam[1], 1e-300)), lam] \
+        + list(np.log(np.maximum(r["alpha_rec"], 1e-300)))
     return np.array(vals), r["Zstar"]
 
 
 def _row(args):
     """All (psi_F, h, psi_E) points of one temperature (cold solves, the root search
     started from the previous psi_F)."""
-    tab, T_bb, egy, lt = args
+    tab, T_bb, egy, lt, grid = args
     roles, w, _ = band_shapes(tab["L0"], tab["L1"], T_bb)
     gt = rg.GroupChargingTable(tab, egy=egy, kernels="pchip")
     T = 10.0 ** lt
-    psi_E = np.concatenate([[0.0], 10.0 ** LPSI_E])
-    out = np.zeros((len(QUANTITIES), LPSI_F.size, H_FUV.size, psi_E.size))
+    psi_E = np.concatenate([[0.0], 10.0 ** grid["lpsiE"]])
+    out = np.zeros((len(QUANTITIES), grid["lpsiF"].size, grid["h"].size, psi_E.size))
     for k, pe in enumerate(psi_E):
-        for m, h in enumerate(H_FUV):
+        for m, h in enumerate(grid["h"]):
             zg = None
-            for j, lpf in enumerate(LPSI_F):
+            for j, lpf in enumerate(grid["lpsiF"]):
                 out[:, j, m, k], zg = _point(gt, roles, w, T, 10.0 ** lpf, h, pe, zg)
     return out
 
 
-def build_psi_table(tab, T_bb=T_EUV, egy=None, workers=1):
+def build_psi_table(tab, T_bb=T_EUV, egy=None, workers=1, grid=None):
     """The table of one dust bin (a read_bin_table dict) on (LT, LPSI_F, H_FUV, [0, LPSI_E]),
-    at the group mean energies egy [eV] (default: those of the T_bb blackbody)."""
+    or on grid (dict of lT, lpsiF, h, lpsiE arrays, equally spaced), at the group mean
+    energies egy [eV] (default: those of the T_bb blackbody)."""
     egy = band_shapes(tab["L0"], tab["L1"], T_bb)[2] if egy is None else np.asarray(egy, float)
-    args = [(tab, T_bb, egy, lt) for lt in LT]
+    grid = dict(lT=LT, lpsiF=LPSI_F, h=H_FUV, lpsiE=LPSI_E) if grid is None else grid
+    args = [(tab, T_bb, egy, lt, grid) for lt in grid["lT"]]
     if workers > 1:
         with ProcessPoolExecutor(workers) as ex:
             rows = list(ex.map(_row, args))
@@ -167,7 +173,8 @@ def build_psi_table(tab, T_bb=T_EUV, egy=None, workers=1):
     return dict(version=FORMAT_VERSION, material=tab["material"], a=tab["a"], W=tab["W"],
                 L0=np.asarray(tab["L0"], float), L1=np.asarray(tab["L1"], float), egy=egy, roles=roles, w=w,
                 bg=background_band_fluxes(tab["L0"], tab["L1"], roles), T_bb=T_bb, F0=F_EUV0,
-                lT=LT.copy(), lpsiF=LPSI_F.copy(), h=H_FUV.copy(), psiE=np.concatenate([[0.0], 10.0 ** LPSI_E]),
+                lT=np.array(grid["lT"]), lpsiF=np.array(grid["lpsiF"]), h=np.array(grid["h"]),
+                psiE=np.concatenate([[0.0], 10.0 ** np.asarray(grid["lpsiE"])]),
                 q=q)   # (nq, nT, nPF, nH, nPE)
 
 
@@ -256,4 +263,5 @@ def psi_lookup(pt, T, ne, G_F, h, G_E):
             for dm, wm in ((0, 1 - x), (1, x)):
                 for dk, wk in ((0, 1 - s), (1, s)):
                     c += wi * wj * wm * wk * q[:, i + di, j + dj, m + dm, k + dk]
-    return dict(Zmean=c[0], Zsigma=c[1], Gamma=G_F * c[2] + G_E * c[3], Lambda=ne * sq * c[4], alpha_rec=np.exp(c[5:]))
+    return dict(Zmean=c[0], Zsigma=c[1], Gamma=G_F * np.exp(c[2]) + G_E * np.exp(c[3]), Lambda=ne * sq * c[4],
+                alpha_rec=np.exp(c[5:]))
