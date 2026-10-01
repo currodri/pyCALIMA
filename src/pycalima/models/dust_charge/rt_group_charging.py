@@ -40,7 +40,7 @@ Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1)
    charges around Z*, the window grown or trimmed at each end to one charge
    past where P < ``DISCRETE_TAIL`` of its maximum (warm: while its exact
    width is < ``SIGMA_DISCRETE``, see ``_warm_window``); otherwise it is Gaussian with mean Z* + 1/2, and charge
-   averages use 3-point Gauss-Hermite nodes.
+   averages are taken at its mean.
 4. Heating Gamma = sum_g c N_g H_g(U); recombination cooling from DS87
    Lambda-tilde, scaled for electron pass-through, less the energy the
    gas-excited secondaries return; autoionisation cooling at Zmin.
@@ -49,7 +49,9 @@ Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1)
    solver's T (1 +- dlnT) calls without further solves.
 6. Grain-assisted recombination alpha_i = sum_Z P(Z) pi a^2 v_i J~ Theta_i
    (``recomb``): exact for a discrete P(Z); for a wide one, the segmented
-   Chebyshev reconstruction of ln P in ``_recombination_fit``.
+   Chebyshev reconstruction of ln P in ``_recombination_fit``, reused by warm
+   solves as the fit times the change of a Gaussian estimate
+   (``_recombination_gauss``) while the cell drifts little.
 
 The UV background (RAMSES rtz_UV_background_G0, carried outside the RT
 groups) enters through two more per-bin kernels, the photoemission and heating
@@ -92,7 +94,7 @@ E2_EV_CM = E_STATC ** 2 / EV2ERG      # e^2 in eV cm: U [V] = Z * E2_EV_CM / a
 MATERIAL_CODE = {"graphite": 1, "silicate": 2}
 SIGMA_DISCRETE = 3.0                  # below this, P(Z) is built exactly
 MAX_DISCRETE_STATES = 121
-DISCRETE_TAIL = 1e-10                 # a discrete P(Z) ends one charge past where P < this x max
+DISCRETE_TAIL = 1e-5                  # a discrete P(Z) ends one charge past where P < this x max
 # Grain-assisted recombination of a wide P(Z) (sigma >= SIGMA_DISCRETE), recomb="fit":
 # see GroupChargingTable._recombination_fit. Settings validated per bin against
 # the exact sum over the integer charges (PCHIP kernels): <= 5% typically, < 10% worst,
@@ -107,7 +109,17 @@ RECOMB_REACH = 8.0        # extend down to ion thresholds within this many sigma
 RECOMB_CUT = 25.0         # stop extending once P and each ion's P A Theta are e^-CUT below their peaks
 RECOMB_FLOOR = np.log(1e-8)           # ... or alpha is below 1e-8 of the geometric rate
 RECOMB_EPS = 0.08         # summation step: |(ln P A)''| h^2 / 8 < EPS, h <= sigma
-RECOMB_REUSE_TOL = 2e-3  # warm solves reuse a wide fit while ln T, ln ne, ln N_g, ln n_ion, ln G0 stay within this
+RECOMB_RESOLVED = 1e-6   # alpha / geometric rate above which the fit and its reuse are accurate
+# Warm solves reuse a wide fit, carried by the change of its Gaussian estimate (control variate),
+# while ln T, ln ne, ln N_g, ln n_ion, ln G0 stay within RECOMB_REUSE_TOL of the fitted state and the
+# Gaussian estimate of every resolved alpha has moved by less than RECOMB_REUSE_EPS (in ln).
+# Validated on RAMSES Stromgren call chains: reuse error 99% < 0.3%, worst 6%.
+RECOMB_REUSE_TOL = 1e-2
+RECOMB_REUSE_EPS = 0.02
+# solve_cell fits the recombination of a wide P(Z) only for bins that carry more than this
+# fraction of the cell's grain-assisted recombination of some ion (from the Gaussian estimates);
+# the others keep their Gaussian estimate.
+RECOMB_IMPORTANT = 0.1
 MATHIS_BREAKS = (5.04, 9.26, 11.2, 13.6)  # eV: Mathis et al. (1983) ISRF piecewise breaks and cutoff
 
 # default grids
@@ -686,10 +698,11 @@ class GroupChargingTable:
         """Z*, sigma = (-1/g')^1/2 and the pair (z-, z+, g(z-), g(z+)) that gave g'.
 
         warm (the previous result of this bin): g at Z*_prev +- 1/2; if they
-        bracket the root, Z* is the root of the line through them, accepted if
-        g there implies an error below 1e-3 charges (else Illinois within the
-        pair, e.g. across the kink of g near Z = 0), and g' is taken again
-        around the new root if it moved by more than 0.01; otherwise the bracket
+        bracket the root, Z* is the root of the line through them, accepted as
+        is after a wide P(Z), and otherwise if g there implies an error below
+        1e-3 charges (else Illinois within the pair, e.g. across the kink of g
+        near Z = 0), with g' taken again around the new root if it moved by
+        more than 0.01; if they do not bracket it, the bracket
         search starts from the line's root. Without warm: bracket from
         Z_guess (or the whole range) and Illinois, then g' by central difference."""
         Zlo, Zhi = self.t["Zmin"], self.t["Zmax"] - 1.0
@@ -700,6 +713,8 @@ class GroupChargingTable:
             if slope < 0:
                 Zs = zm - gm / slope
                 if zm <= Zs <= zp:
+                    if not warm["discrete"]:          # wide: g is smooth on the scale of the pair
+                        return Zs, np.sqrt(-1.0 / slope), (zm, zp, gm, gpl)
                     gs = self._g(Zs)
                     if abs(gs / slope) > 1e-3 and gm > 0 > gpl:
                         Zs = self._illinois(zm, zp, gm, gpl)
@@ -727,6 +742,49 @@ class GroupChargingTable:
             vals.append(c["G0_bg"])
         return np.log(vals)
 
+    def refine_recombination(self, out, warm):
+        """The fitted recombination of a wide P(Z) for the cell of the last solve
+        (out): the warm fit reused, times the change of its Gaussian estimate,
+        while the inputs drift by less than RECOMB_REUSE_TOL and every resolved
+        estimate by less than RECOMB_REUSE_EPS; else a new fit. Returns whether
+        it fitted."""
+        Zs, sigma = out["Zstar"], out["Zsigma"]
+        x, lg = self._recomb_inputs(), self._recombination_gauss(Zs, sigma)
+        ref = warm.get("recomb_ref") if warm is not None else None
+        if ref is not None and ref[0].size == x.size and np.max(np.abs(x - ref[0])) <= RECOMB_REUSE_TOL:
+            est = ref[1] * np.exp(lg - ref[2])
+            floor = RECOMB_RESOLVED * self._geometric_rates()
+            m = (ref[1] > floor) | (est > floor)
+            if not m.any() or np.max(np.abs(lg - ref[2])[m]) <= RECOMB_REUSE_EPS:
+                out["alpha_rec"], out["recomb_ref"] = est, ref
+                return False
+        out["alpha_rec"] = self._recombination_fit(Zs, sigma)
+        out["recomb_ref"] = (x, out["alpha_rec"], lg)
+        return True
+
+    def _geometric_rates(self):
+        """pi a^2 v_i of RECOMB_IONS at the cell temperature [cm^3 s^-1]."""
+        mass = np.array([m for _, m, _ in RECOMB_IONS])
+        return np.pi * self.a ** 2 * np.sqrt(8.0 * KB_CGS * self.cell["T"] / (np.pi * mass * M_U))
+
+    def _recombination_gauss(self, Zs, sigma):
+        """ln of a cheap estimate of alpha_i for a wide P(Z), for the reuse of a fit:
+        P Gaussian (mean Z* + 1/2, width sigma) times ln A linear around the peak
+        of P A (two iterations), summed over Z <= Zth_i in closed form."""
+        Zlo, Zhi = self.t["Zmin"], self.t["Zmax"] - 1.0
+        mu = Zs + 0.5
+        zp = mu
+        for _ in range(2):
+            z0 = min(max(zp, Zlo + 1.0), Zhi - 1.0)
+            s = 0.5 * (self._ln_capture_z1(z0 + 1.0) - self._ln_capture_z1(z0 - 1.0))
+            zp = mu + s * sigma ** 2
+        zp = min(max(zp, Zlo), Zhi)
+        mup = mu + s * sigma ** 2
+        mass = np.array([m for _, m, _ in RECOMB_IONS])
+        base = self._ln_capture_z1(zp) + s * (mu - zp) + 0.5 * s * s * sigma * sigma
+        return np.array([base + _log_ndtr((z + 0.5 - mup) / sigma) - 0.5 * np.log(m)
+                         for z, m in zip(self.t["recomb_Zth"], mass)])
+
     def _slope(self, Zs):
         """sigma from g' by central difference at Z* +- 1/2, and that pair."""
         zm, zp = max(Zs - 0.5, self.t["Zmin"]), min(Zs + 0.5, self.t["Zmax"] - 1.0)
@@ -751,14 +809,14 @@ class GroupChargingTable:
 
     def _distribution(self, Zs, sigma):
         """P(Z): exact over the integers around Z* (_window) if sigma < SIGMA_DISCRETE,
-        else a Gaussian of mean Z* + 1/2 on 3-point Gauss-Hermite nodes. Returns
+        else a Gaussian of mean Z* + 1/2, averaged at that mean (_wide_nodes). Returns
         nodes, weights, discrete, and the g increments of the discrete window."""
         if sigma < SIGMA_DISCRETE:
             half = int(np.ceil(3 * max(sigma, 0.5)))
             Zc = int(np.floor(Zs + 0.5))
             Zint, P, ginc = self._window(max(self.t["Zmin"], Zc - half), min(self.t["Zmax"], Zc + half))
             return Zint, P, True, ginc
-        return _gauss_nodes(Zs, sigma) + (False, None)
+        return _wide_nodes(Zs) + (False, None)
 
     def _window(self, z0, z1):
         """Exact P(Z) on the integers z0..z1, grown or trimmed at each end to one
@@ -826,7 +884,7 @@ class GroupChargingTable:
         s0, s1 = (gpl - gm) / (zp - zm), (gp1 - gm1) / (zp - zm)
         Zs1 = out["Zstar"] + (zm - gm1 / s1) - (zm - gm / s0)
         sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else out["Zsigma"]
-        nodes1, weights1 = _gauss_nodes(Zs1, sig1)
+        nodes1, weights1 = _wide_nodes(Zs1)
         gam1, lam1, _ = self._averages(nodes1, weights1, False)
         self._set_cell(N_g, c_red, T0, ne, ions, G0_bg)
         h = np.log1p(dlnT)
@@ -903,10 +961,14 @@ class GroupChargingTable:
         result for this bin (e.g. the last cooling sub-step): the root then costs
         two g evaluations (_root), or none if P(Z) was discrete (_warm_window). recomb: how the
         recombination of a wide P(Z) is summed, "fit" (_recombination_fit) or
-        "exact" (every integer charge, the reference), or None to skip it.
-        With warm, the recombination fit of a wide P(Z) is reused while every
-        input it depends on is within RECOMB_REUSE_TOL (in ln) of the state it
-        was fitted at (``recomb_ref`` in the result).
+        "exact" (every integer charge, the reference), "gauss" (the Gaussian
+        estimate, _recombination_gauss), or None to skip it.
+        With warm, the recombination fit of a wide P(Z) (``recomb_ref`` in the
+        result: inputs, alpha and Gaussian estimate where it was fitted) is
+        reused, times the change of the Gaussian estimate, while every input
+        it depends on is within RECOMB_REUSE_TOL (in ln) of the fitted state
+        and the estimate of every resolved alpha moved by less than
+        RECOMB_REUSE_EPS.
 
         dlnT : if given (e.g. 1e-5), also return the d/d ln T of Zmean, Zsigma,
         Gamma and Lambda + Lambda_auto (_dlnT_response), which serve the cooling
@@ -933,23 +995,30 @@ class GroupChargingTable:
             out["alpha_rec"] = self._recombination(nodes, weights)
         elif recomb == "exact":
             out["alpha_rec"] = self._recombination_exact(Zs, sigma)
+        elif recomb == "gauss":
+            out["alpha_rec"] = np.exp(self._recombination_gauss(Zs, sigma))
+            if warm is not None and "recomb_ref" in warm:
+                out["recomb_ref"] = warm["recomb_ref"]       # kept for a later refine_recombination
         else:
-            x = self._recomb_inputs()
-            ref = warm.get("recomb_ref") if warm is not None else None
-            if ref is not None and ref[0].size == x.size and np.max(np.abs(x - ref[0])) <= RECOMB_REUSE_TOL:
-                out["alpha_rec"], out["recomb_ref"] = ref[1], ref
-            else:
-                out["alpha_rec"] = self._recombination_fit(Zs, sigma)
-                out["recomb_ref"] = (x, out["alpha_rec"])
+            self.refine_recombination(out, warm)
         if dlnT is not None:
             out.update(self._dlnT_response(out, pair, dlnT))
         return out
 
 
-def _gauss_nodes(Zs, sigma):
-    """3-point Gauss-Hermite nodes and weights of a Gaussian of mean Z* + 1/2."""
-    mu = Zs + 0.5
-    return (np.array([mu - np.sqrt(3) * sigma, mu, mu + np.sqrt(3) * sigma]), np.array([1 / 6, 2 / 3, 1 / 6]))
+def _log_ndtr(x):
+    """ln of the standard normal CDF (erfcx in the far lower tail)."""
+    from scipy.special import erfcx
+    from math import erfc, log, sqrt
+    if x < -5.0:
+        return log(0.5 * erfcx(-x / sqrt(2.0))) - 0.5 * x * x
+    return log(0.5 * erfc(-x / sqrt(2.0)))
+
+
+def _wide_nodes(Zs):
+    """A wide (Gaussian) P(Z) is averaged at its mean Z* + 1/2: Gamma and Lambda vary
+    little over sigma (against 3 Gauss-Hermite nodes: median 0.1-3%, worst ~20%)."""
+    return np.array([Zs + 0.5]), np.array([1.0])
 
 
 def _ds87_J_dlnT(Z, q, tau):
@@ -977,6 +1046,28 @@ def _ds87_lambda_dlnT(Z, tau):
         return A * (1.0 + s), (nu / tau) / A - 0.5 * tau * s ** 3 / (1.0 + s)
     th, A, s = nu / (1.0 + 1.0 / np.sqrt(nu)), 2.0 + nu / tau, 1.0 / np.sqrt(1.5 / tau + 3.0 * nu)
     return A * (1.0 + s) * np.exp(-th / tau), (-nu / tau) / A + 0.75 * s ** 3 / tau / (1.0 + s) + th / tau
+
+
+def solve_cell(gts, n_grains, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, warms=None, dlnT=None):
+    """All dust bins of one cell, as RAMSES dust_interface: each bin solved with the
+    Gaussian estimate of the recombination of a wide P(Z), then the fit (with its
+    warm reuse) only for the wide bins that carry more than RECOMB_IMPORTANT of
+    the cell's grain-assisted recombination of some ion. gts: GroupChargingTable
+    per bin; n_grains: grain number density per bin (only ratios matter);
+    Z_guess, warms: per bin (or None). Each result has "refined": fitted or reused."""
+    nb = len(gts)
+    Z_guess = [None] * nb if Z_guess is None else Z_guess
+    warms = [None] * nb if warms is None else warms
+    res = [gt.solve(N_g, c_red, T, ne, ions, G0_bg=G0_bg, Z_guess=zg, recomb="gauss", warm=w, dlnT=dlnT)
+           for gt, zg, w in zip(gts, Z_guess, warms)]
+    rate = np.array([n * r["alpha_rec"] for n, r in zip(n_grains, res)])
+    tot = rate.sum(axis=0)
+    share = np.divide(rate, tot, out=np.zeros_like(rate), where=tot > 0)
+    for gt, r, w, sh in zip(gts, res, warms, share):
+        r["refined"] = bool((not r["discrete"]) and sh.max() > RECOMB_IMPORTANT)
+        if r["refined"]:
+            r["fitted"] = gt.refine_recombination(r, w)
+    return res
 
 
 def _width(Z, P):

@@ -199,12 +199,7 @@ def test_recombination_matches_the_case_a_sum_of_the_same_distribution(tables):
     ne, T = 30.0, 8e3
     r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)])
     assert r["discrete"]
-    half = int(np.ceil(6 * max(r["Zsigma"], 0.5))) + 2
-    Zc = int(np.floor(r["Zstar"] + 0.5))
-    Z = np.arange(max(tab["Zmin"], Zc - half), min(tab["Zmax"], Zc + half) + 1, dtype=float)
-    lnf = np.concatenate([[0.0], np.cumsum([gt._g(z) for z in Z[:-1]])])
-    P = np.exp(lnf - lnf.max())
-    P /= P.sum()
+    Z, P = r["nodes"], r["weights"]
     ions = [{"name": f"{el}+", "z": 1.0, "T": T, "m": m * rg.M_U} for el, m, _ in rg.RECOMB_IONS]
     _, ref = compute_ion_recombination_coefficients(Z, P, tab["a"], ions, grain_type="graphite", recomb_mode="case_a")
     np.testing.assert_allclose(r["alpha_rec"], ref, rtol=1e-10)
@@ -277,8 +272,9 @@ def test_warm_started_solve_matches_a_cold_one(tables, a):
     prev = gt.solve(N, C, 8e3, 30.0, [(30.0, 1.0, M_P)], recomb=None)
     warm = gt.solve(N * 1.001, C, 8e3 * 1.0005, 30.0, [(30.0, 1.0, M_P)], recomb=None, warm=prev)
     cold = gt.solve(N * 1.001, C, 8e3 * 1.0005, 30.0, [(30.0, 1.0, M_P)], recomb=None)
+    rel = 1e-5 if cold["discrete"] else 1e-3       # wide: the slope of the warm pair is not re-centred
     for key in ("Zmean", "Zsigma", "Gamma", "Lambda"):
-        assert warm[key] == pytest.approx(cold[key], rel=1e-5, abs=1e-6)
+        assert warm[key] == pytest.approx(cold[key], rel=rel, abs=1e-6)
 
 
 @pytest.mark.parametrize("a", [1e-6, 1e-5])
@@ -304,15 +300,20 @@ def test_warm_solves_reuse_the_recombination_fit_only_within_the_tolerance(table
 
     tab, path = tables["graphite", 1e-5]
     N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
-    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy, kernels="pchip")
     args = (C, 8e3, 30.0, [(30.0, 1.0, M_P)])
     r0 = gt.solve(N, *args)
     assert not r0["discrete"]
-    near = gt.solve(N * (1 + 0.5 * rg.RECOMB_REUSE_TOL), *args, warm=r0)
-    assert near["alpha_rec"] is r0["alpha_rec"]                  # reused
-    far = gt.solve(N * (1 + 3 * rg.RECOMB_REUSE_TOL), *args, warm=near)
-    assert far["alpha_rec"] is not r0["alpha_rec"]               # re-fitted: the drift is from the fitted state
-    np.testing.assert_allclose(far["alpha_rec"], gt.solve(N * (1 + 3 * rg.RECOMB_REUSE_TOL), *args)["alpha_rec"], rtol=1e-6)
+    f = 1 + 0.2 * rg.RECOMB_REUSE_TOL
+    near = gt.solve(N * f, *args, warm=r0)
+    assert near["recomb_ref"] is r0["recomb_ref"]                       # reused, carried by the estimate
+    fresh = gt.solve(N * f, *args)["alpha_rec"]
+    ok = fresh > rg.RECOMB_RESOLVED * gt._geometric_rates()
+    np.testing.assert_allclose(near["alpha_rec"][ok], fresh[ok], rtol=1e-2)
+    f = 1 + 3 * rg.RECOMB_REUSE_TOL
+    far = gt.solve(N * f, *args, warm=near)
+    assert far["recomb_ref"] is not r0["recomb_ref"]                    # re-fitted: drift from the fitted state
+    np.testing.assert_allclose(far["alpha_rec"], gt.solve(N * f, *args)["alpha_rec"], rtol=1e-6)
 
 
 def test_a_warm_discrete_window_follows_a_large_change_of_the_cell(tables):
@@ -332,3 +333,49 @@ def test_a_warm_discrete_window_follows_a_large_change_of_the_cell(tables):
     ends = warm["weights"][[0, -1]] / warm["weights"].max()
     at_limit = warm["nodes"][[0, -1]] == (tab["Zmin"], tab["Zmax"])
     assert np.all((ends < rg.DISCRETE_TAIL) | at_limit)
+
+
+def test_solve_cell_fits_only_the_bins_that_carry_the_recombination(tables):
+    """Wide bins keep the Gaussian estimate unless they carry more than RECOMB_IMPORTANT of an ion's rate."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    gts = []
+    for a in (1e-6, 1e-5):
+        tab, path = tables["graphite", a]
+        N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
+        gts.append(rg.GroupChargingTable(rg.read_bin_table(path), egy=egy, kernels="pchip"))
+    args = (N, C, 8e3, 30.0, [(30.0, 1.0, M_P)])
+    for n_big, expect in ((1e-12, False), (1e12, True)):
+        res = rg.solve_cell(gts, [1.0, n_big], *args)
+        assert res[0]["discrete"] and not res[0]["refined"] and not res[1]["discrete"]
+        assert res[1]["refined"] is expect
+        if expect:
+            np.testing.assert_allclose(res[1]["alpha_rec"], gts[1].solve(*args)["alpha_rec"], rtol=1e-12)
+
+
+def test_psi_table_reproduces_the_solve_at_its_nodes_and_round_trips(tables, tmp_path, monkeypatch):
+    """WDB06tab: a lookup at a grid node is the charge solve there; heating stays linear in G below
+    the psi grid; the file round-trips."""
+    from pycalima.models.dust_charge import charging_psi_tables as cpt
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    monkeypatch.setattr(cpt, "LT", np.array([3.5, 4.0]))
+    monkeypatch.setattr(cpt, "LPSI_F", np.array([3.0, 3.5, 4.0]))
+    monkeypatch.setattr(cpt, "LPSI_E", np.array([2.0, 3.0]))
+    tab, path = tables["graphite", 1e-6]
+    pt = cpt.build_psi_table(rg.read_bin_table(path))
+    back = cpt.read_psi_table(cpt.write_psi_table(pt, tmp_path / "t.dat"))
+    np.testing.assert_allclose(back["q"], pt["q"], rtol=1e-11, atol=1e-300)
+    T, ne = 1e4, 0.3
+    G_F, G_E = 10 ** 3.5 * ne / np.sqrt(T), 1e3 * ne / np.sqrt(T)
+    look = cpt.psi_lookup(pt, T, ne, G_F, G_E)
+    w, egy = cpt.euv_shape(tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy, kernels="pchip")
+    r = gt.solve(G_E * cpt.F_EUV0 * w / rg.C_CGS, rg.C_CGS, T, ne, [(ne, 1.0, rg.M_HION)], G0_bg=G_F)
+    for key in ("Zmean", "Zsigma", "Gamma"):
+        assert look[key] == pytest.approx(r[key], rel=1e-9)
+    assert look["Lambda"] == pytest.approx(r["Lambda"] + r["Lambda_auto"], rel=1e-9)
+    low = cpt.psi_lookup(pt, T, ne, 1e-3 * G_F, 0.0)            # psi_F below the grid: same charge, Gamma ~ G_F
+    ref = cpt.psi_lookup(pt, T, ne, 10 ** 3.0 * ne / np.sqrt(T), 0.0)
+    assert low["Zmean"] == pytest.approx(ref["Zmean"])
+    assert low["Gamma"] == pytest.approx(ref["Gamma"] * 1e-3 * G_F / (10 ** 3.0 * ne / np.sqrt(T)))

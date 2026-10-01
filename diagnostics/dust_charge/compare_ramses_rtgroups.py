@@ -3,13 +3,14 @@
 
 RAMSES, with dust_rtgroups_debug=.true. (or dust_rtgroups_verify=.true., which
 also stops the run after dust_rtgroups_debug_max calls), writes
-dust_rtgroups_debug_XXXXX.dat (format 2): one line per (call, dust bin) with
+dust_rtgroups_debug_XXXXX.dat (format 4): one line per (call, dust bin) with
 the inputs (T, n_e, H+/He+/He++ densities and masses, c_red, G0_bg, N_g, group
 energies, the cold-start guess), the warm state the call started from (the
 previous Z* of this bin in this cell, its discrete window, the recombination
-fit reference) and the outputs (mean charge, width, PE heating, recombination
+fit reference: inputs, alpha and Gaussian estimate) and the outputs (mean charge, width, PE heating, recombination
 and autoionisation cooling, Z*, their d/d ln T, the grain-assisted
-recombination coefficients of the RECOMB_IONS and whether they were fitted).
+recombination coefficients of the RECOMB_IONS, whether the bin's recombination
+was refined by the fit (solve_cell's importance gate) and whether it fitted).
 
 Each full solve (path 0) is re-solved with GroupChargingTable.solve
 (kernels='pchip') from the same warm state, so every branch is the same and
@@ -20,6 +21,10 @@ uniform-G0 table (path 1: no local photons) are compared with a direct solve,
 so their differences are the table's interpolation error.
 
     python compare_ramses_rtgroups.py RUN_DIR [RUN_DIR ...] --tables TABLES_DIR [--stride N]
+
+With ``--psitab DIR`` it instead checks the lookups of charging_model='WDB06tab'
+(dust_psitab_debug_XXXXX.dat) against charging_psi_tables.psi_lookup on the
+tables in DIR.
 
 With ``--original-tables DIR`` it also shows, for the last dumped state of
 each bin, the mean charge of the original (log gamma, log T) tables there
@@ -60,12 +65,14 @@ def read_dump(path):
         nx = int(nxt())
         w["x"] = np.array([float(nxt()) for _ in range(nx)])
         w["alpha"] = np.array([float(nxt()) for _ in range(len(rg.RECOMB_IONS))])
+        w["lg"] = np.array([float(nxt()) for _ in range(len(rg.RECOMB_IONS))])
         r["warm"] = w
         out = {k: float(nxt()) for k in ("Zmean", "Zsigma", "Gamma", "Lambda", "Lambda_auto", "Zstar")}
         out["discrete"] = nxt() == "T"
         for k in ("dZmean_dlnT", "dZsigma_dlnT", "dGamma_dlnT", "dLambda_dlnT"):
             out[k] = float(nxt())
         out["nfit"] = int(nxt())
+        out["refined"] = nxt() == "T"
         out["alpha"] = np.array([float(nxt()) for _ in range(len(rg.RECOMB_IONS))])
         r["out"] = out
         rows.append(r)
@@ -78,7 +85,7 @@ def warm_dict(w):
         return None
     d = dict(Zstar=w["Zstar"], discrete=w["discrete"], nodes=np.array([w["wlo"], w["whi"]]))
     if w["x"].size:
-        d["recomb_ref"] = (w["x"], w["alpha"])
+        d["recomb_ref"] = (w["x"], w["alpha"], w["lg"])
     return d
 
 
@@ -107,6 +114,32 @@ def original_table_charge(path, G0, T, ne):
             + (1 - u) * v * Z[i, j + 1] + u * v * Z[i + 1, j + 1])
 
 
+def compare_psitab(runs, tabdir):
+    """RAMSES WDB06tab lookups against charging_psi_tables.psi_lookup."""
+    from pycalima.models.dust_charge import charging_psi_tables as cpt
+    pts = {}
+    for run in runs:
+        worst = dict(Zmean=0.0, Zsigma=0.0, Gamma=0.0, Lambda=0.0, alpha=0.0)
+        n = 0
+        for d in sorted(Path(run).glob("dust_psitab_debug_*.dat")):
+            for line in open(d):
+                if line.startswith("#"):
+                    continue
+                p = line.split()
+                b = int(p[0])
+                T, ne, GF, GE, Zm, Zs, Gm, Lm = (float(x) for x in p[1:9])
+                al = np.array(p[9:19], dtype=float)
+                if b not in pts:
+                    pts[b] = cpt.read_psi_table(Path(tabdir) / f"dust_charging_psitab_DustBin_{b:02d}.dat")
+                py = cpt.psi_lookup(pts[b], T, ne, GF, GE)
+                for k, f in (("Zmean", Zm), ("Zsigma", Zs), ("Gamma", Gm), ("Lambda", Lm)):
+                    worst[k] = max(worst[k], rel(py[k], f, 1.0 if k == "Zmean" else 0.0))
+                worst["alpha"] = max(worst["alpha"], rel(py["alpha_rec"], al))
+                n += 1
+        print(f"== {run}: {n} WDB06tab lookups, max rel diff vs psi_lookup: "
+              + " ".join(f"{k}={v:.1e}" for k, v in worst.items()))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("runs", nargs="+", help="run directories holding dust_rtgroups_debug_*.dat")
@@ -115,7 +148,10 @@ def main():
     ap.add_argument("--worst", type=int, default=3, help="show the N worst full solves")
     ap.add_argument("--original-tables", default=None,
                     help="CALIMA table directory with dust_charge_Z_vs_T_DustBin_XX (original path)")
+    ap.add_argument("--psitab", default=None, help="WDB06tab table directory: check dust_psitab_debug_*.dat instead")
     args = ap.parse_args()
+    if args.psitab:
+        return compare_psitab(args.runs, args.psitab)
 
     tabs, gts = {}, {}
 
@@ -155,15 +191,14 @@ def main():
                         continue
                     warm = warm_dict(r["warm"])
                     py = gt.solve(r["Np"], r["c_red"], r["T"], r["ne"], ions, G0_bg=r["G0_bg"],
-                                  Z_guess=r["Z_guess"], recomb="fit", warm=warm, dlnT=DLNT)
+                                  Z_guess=r["Z_guess"], recomb="gauss", warm=warm, dlnT=DLNT)
+                    fitted = gt.refine_recombination(py, warm) if o["refined"] else False   # RAMSES' gate (solve_cell)
                     last[(d, r["bin"])] = py
                     nchk += 1
                     ndisc += int(o["discrete"])
                     nfit += o["nfit"]
                     nmis_disc += int(py["discrete"] != o["discrete"])
-                    refit = (not py["discrete"]) and (warm is None or "recomb_ref" not in warm
-                                                       or py["recomb_ref"] is not warm["recomb_ref"])
-                    nmis_fit += int(refit != bool(o["nfit"]))
+                    nmis_fit += int(fitted != bool(o["nfit"]))
                     if py["discrete"] != o["discrete"]:
                         continue
                     diffs = {}
