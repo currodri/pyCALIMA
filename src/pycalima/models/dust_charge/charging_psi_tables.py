@@ -185,7 +185,7 @@ def _point(gt, roles, w, T, psi_F, h, psi_E, hE1, hE2, Z_guess):
     G_F, G_E = psi_F * ne / np.sqrt(T), psi_E * ne / np.sqrt(T)
     ions = [(ne, 1.0, rg.M_HION)]
     N = photon_densities(roles, w, G_F, h, G_E, hE1, hE2)
-    r = gt.solve(N, rg.C_CGS, T, ne, ions, Z_guess=Z_guess, recomb=None)
+    r = gt.charge_distribution(N, rg.C_CGS, T, ne, ions, Z_guess=Z_guess)
     Z, P = (r["nodes"], r["weights"]) if r["discrete"] else gt.exact_distribution(r["Zstar"], r["Zsigma"])
     zmean = float(P @ Z)
     zsig = float(np.sqrt(max(P @ Z ** 2 - zmean ** 2, 0.0)))

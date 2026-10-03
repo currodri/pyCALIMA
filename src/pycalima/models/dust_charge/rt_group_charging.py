@@ -74,6 +74,7 @@ from pathlib import Path
 
 import numpy as np
 
+from pycalima.models.dust_charge import _charge_kernels as _ck
 from pycalima.models.dust_charge import wdb06_yields as wy
 from pycalima.models.dust_charge.shared_physics import (
     E_STATC,
@@ -360,6 +361,9 @@ class GroupChargingTable:
         U = tab["U"]
         self.x0 = np.arcsinh(U[0] / U_SCALE)
         self.dx = (np.arcsinh(U[-1] / U_SCALE) - self.x0) / (U.size - 1)
+        self.e2a = E2_EV_CM / self.a
+        self.compiled = _ck.NUMBA     # g(Z) and its root in numba (_charge_kernels); False: Python
+        self._nb = self._nbh = None
         # charges at which IP(a, Z) crosses photon-energy edges: g(Z) has kinks there
         Zall = np.arange(tab["Zmin"], tab["Zmax"] + 1.0)
         ipz = grain_ionisation_potential(self.material, self.a, tab["W"], Zall)
@@ -455,6 +459,8 @@ class GroupChargingTable:
 
     def _g(self, Z):
         """ln Up(Z) - ln Down(Z+1): only the up rate at Z and the down rate at Z+1."""
+        if self.compiled and self._nb is not None:
+            return float(_ck.g_scalar(float(Z), *self._nb))
         up = self._up(Z, *self._u_index(Z * E2_EV_CM / self.a))
         down = self._down(Z + 1.0, *self._u_index((Z + 1.0) * E2_EV_CM / self.a))
         return np.log(max(up, 1e-300)) - np.log(max(down, 1e-300))
@@ -511,6 +517,8 @@ class GroupChargingTable:
 
     def _g_arr(self, Z):
         Z = np.asarray(Z, float)
+        if self.compiled and self._nb is not None:
+            return _ck.g_array(np.ascontiguousarray(Z.ravel()), *self._nb).reshape(Z.shape)
         up = self._up_arr(Z, *self._u_index_arr(Z * E2_EV_CM / self.a))
         down = self._down_arr(Z + 1.0, *self._u_index_arr((Z + 1.0) * E2_EV_CM / self.a))
         return np.log(np.maximum(up, 1e-300)) - np.log(np.maximum(down, 1e-300))
@@ -518,6 +526,11 @@ class GroupChargingTable:
     def _heating_cooling_arr(self, Z):
         c, a = self.cell, self.a
         Z = np.asarray(Z, float)
+        if self.compiled and self._nb is not None:
+            if self._nbh is None:
+                self._nbh = _ck.heat_arrays(self)
+            gam, lam = _ck.heating_cooling_array(np.ascontiguousarray(Z.ravel()), *self._nbh)
+            return gam.reshape(Z.shape), lam.reshape(Z.shape)
         i, w = self._u_index_arr(Z * E2_EV_CM / a)
         gamma = EV2ERG * self._photo_arr(self.Hg, getattr(self, "_mH", None), self.t["H_bg"],
                                          getattr(self, "_mHb", None), i, w)
@@ -690,6 +703,8 @@ class GroupChargingTable:
 
     def _illinois(self, a_, b_, fa, fb):
         """Root of g in [a_, b_] with g(a_) > 0 > g(b_)."""
+        if self.compiled and self._nb is not None:
+            return float(_ck.illinois(float(a_), float(b_), float(fa), float(fb), *self._nb))
         side = 0
         Zs = b_
         for _ in range(200):
@@ -713,6 +728,8 @@ class GroupChargingTable:
 
     def _root_from_guess(self, Zg, Zlo, Zhi):
         """Bracket the root by doubling steps (1, 2, 4, ...) from Zg, then Illinois."""
+        if self.compiled and self._nb is not None:
+            return float(_ck.root_from_guess(float(Zg), float(Zlo), float(Zhi), *self._nb))
         fg = self._g(Zg)
         if fg == 0:
             return Zg
@@ -748,6 +765,8 @@ class GroupChargingTable:
         self.cell = dict(cN=c_red * np.asarray(N_g, dtype=float), T=float(T), ne=float(ne), G0_bg=float(G0_bg),
                          v_e=np.sqrt(8 * KB_CGS * T / (np.pi * ME_CGS)),
                          ions=[(float(n), float(z), np.sqrt(8 * KB_CGS * T / (np.pi * m))) for n, z, m in ions])
+        self._nb = _ck.cell_arrays(self) if self.compiled else None
+        self._nbh = None                # heating arguments, built on first use
 
     def _root(self, Z_guess, warm):
         """Z*, sigma = (-1/g')^1/2 and the pair (z-, z+, g(z-), g(z+)) that gave g'.
@@ -1044,6 +1063,19 @@ class GroupChargingTable:
             dlam += out["Lambda_auto"] * (c[0] + 0.5 + _ds87_J_dlnT(Z[0], -1.0, tau_e)[1])
         return dict(dZmean_dlnT=dmean, dZsigma_dlnT=0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0,
                     dGamma_dlnT=P @ (c * gam), dLambda_dlnT=dlam)
+
+    def charge_distribution(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None):
+        """The charge part of a cold solve: Zstar, discrete, Zmean, Zsigma and the charge nodes and
+        weights, as solve(..., recomb=None) returns them, without the heating and cooling averages
+        (for callers that evaluate those on the exact P(Z), e.g. the table builder)."""
+        self._set_cell(N_g, c_red, T, ne, ions, G0_bg)
+        Zs, sigma, _ = self._root(Z_guess, None)
+        if sigma >= SIGMA_DISCRETE:
+            sigma, _ = self._chord(Zs, sigma)
+        nodes, weights, discrete, _ = self._distribution(Zs, sigma)
+        zmean, zsig = self._moments(nodes, weights, discrete, Zs, sigma)
+        return dict(Zstar=Zs, discrete=discrete, Zmean=zmean, Zsigma=zsig,
+                    nodes=np.asarray(nodes, float), weights=np.asarray(weights, float))
 
     def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None):
         """Equilibrium charge and rates for one cell.
