@@ -35,7 +35,10 @@ Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1)
    g at Z*_prev +- 1/2 gives Z* (root of the line through them, checked) and
    g' in ~3 evaluations; a discrete result's charge window is reused instead
    (step 3, no root search).
-2. sigma^2 = -1 / g'(Z*) (Gaussian limit), g' by central difference.
+2. sigma^2 = -1 / g'(Z*) (Gaussian limit), g' by central difference; where that
+   reads >= ``SIGMA_DISCRETE``, g' is taken instead from the chord of g over the
+   integers within ~ +-sigma of Z* (``_chord``), which a kink of g near Z* (at Z ~ 0,
+   or where a photoemission threshold crosses a group edge) does not throw off.
 3. If sigma < ``SIGMA_DISCRETE`` the distribution is built exactly over integer
    charges around Z*, the window grown or trimmed at each end to one charge
    past where P < ``DISCRETE_TAIL`` of its maximum (warm: while its exact
@@ -95,6 +98,7 @@ MATERIAL_CODE = {"graphite": 1, "silicate": 2}
 SIGMA_DISCRETE = 3.0                  # below this, P(Z) is built exactly
 MAX_DISCRETE_STATES = 121
 DISCRETE_TAIL = 1e-5                  # a discrete P(Z) ends one charge past where P < this x max
+SIGMA_CHORD_ITER = 3                  # at most this many chords for the width of a wide P(Z)
 # Grain-assisted recombination of a wide P(Z) (sigma >= SIGMA_DISCRETE), recomb="fit":
 # see GroupChargingTable._recombination_fit. Settings validated per bin against
 # the exact sum over the integer charges (PCHIP kernels): <= 5% typically, < 10% worst,
@@ -473,6 +477,57 @@ class GroupChargingTable:
         lam -= arrive * jt * self._hot("delta", c["T"], i, w) * self._hot("E_bar", c["T"], i, w) * EV2ERG
         return gamma, lam
 
+    # -- the same on arrays of charges (exact_distribution, the WDB06tab nodes); the scalar
+    #    versions above are what RAMSES mirrors
+    def _u_index_arr(self, U):
+        f = np.clip((np.arcsinh(U / U_SCALE) - self.x0) / self.dx, 0.0, self.t["U"].size - 1.0)
+        i = np.minimum(f.astype(int), self.t["U"].size - 2)
+        return i, f - i
+
+    def _sticking_arr(self, Z):
+        a = self.a
+        base = 0.5 * (1.0 - np.exp(-a / 1e-7))
+        neg = base / (1.0 + np.exp(20.0 - 468.0 * (a / 1e-7) ** 3))
+        return np.where(Z <= self.t["Zmin"], 0.0, np.where(Z > 0, base, neg))
+
+    def _photo_arr(self, Y, m, Ybg, mbg, i, w):
+        c = self.cell
+        if self.kernels == "linear":
+            return c["cN"] @ self._kern(Y, None, i, w) + c["G0_bg"] * self._kern(Ybg, None, i, w)
+        return np.maximum(c["cN"] @ self._kern(Y, m, i, w) + c["G0_bg"] * self._kern(Ybg, mbg, i, w), 0.0)
+
+    def _up_arr(self, Z, i, w):
+        c, a = self.cell, self.a
+        up = self._photo_arr(self.Kg, getattr(self, "_mK", None), self.t["K_bg"], getattr(self, "_mKb", None), i, w)
+        for n_i, z_i, v_i in c["ions"]:
+            up = up + np.pi * a * a * n_i * v_i * DS87_J_function_vec(Z, z_i, a, c["T"])
+        arrive_e = np.pi * a * a * c["ne"] * c["v_e"] * DS87_J_function_vec(Z, -1.0, a, c["T"])
+        return up + arrive_e * self._hot("delta", c["T"], i, w)
+
+    def _down_arr(self, Z, i, w):
+        c, a = self.cell, self.a
+        arrive_e = np.pi * a * a * c["ne"] * c["v_e"] * DS87_J_function_vec(Z, -1.0, a, c["T"])
+        return arrive_e * self._sticking_arr(Z) * (1.0 - self._hot("P_tr", c["T"], i, w))
+
+    def _g_arr(self, Z):
+        Z = np.asarray(Z, float)
+        up = self._up_arr(Z, *self._u_index_arr(Z * E2_EV_CM / self.a))
+        down = self._down_arr(Z + 1.0, *self._u_index_arr((Z + 1.0) * E2_EV_CM / self.a))
+        return np.log(np.maximum(up, 1e-300)) - np.log(np.maximum(down, 1e-300))
+
+    def _heating_cooling_arr(self, Z):
+        c, a = self.cell, self.a
+        Z = np.asarray(Z, float)
+        i, w = self._u_index_arr(Z * E2_EV_CM / a)
+        gamma = EV2ERG * self._photo_arr(self.Hg, getattr(self, "_mH", None), self.t["H_bg"],
+                                         getattr(self, "_mHb", None), i, w)
+        arrive = np.pi * a * a * c["ne"] * c["v_e"]
+        lam = arrive * self._sticking_arr(Z) * _ds87_lambda_electron_arr(Z, a, c["T"]) * KB_CGS * c["T"] \
+            * self._hot("f_cool", c["T"], i, w)
+        lam = lam - arrive * DS87_J_function_vec(Z, -1.0, a, c["T"]) * self._hot("delta", c["T"], i, w) \
+            * self._hot("E_bar", c["T"], i, w) * EV2ERG
+        return gamma, lam
+
     def _capture_z1(self, Z):
         """pi a^2 (8kT / pi m_u)^1/2 J~(Z, z=1) [cm^3 s^-1]: capture rate
         coefficient of a singly charged ion of mass 1 amu at grain charge Z."""
@@ -792,6 +847,42 @@ class GroupChargingTable:
         slope = (gpl - gm) / (zp - zm)
         return (np.sqrt(-1.0 / slope) if slope < 0 else 0.0), (zm, zp, gm, gpl)
 
+    def _chord(self, Zs, sigma):
+        """sigma from the chord of g over the integers floor(Z*) - k + 1 .. floor(Z*) + k,
+        k = round(sigma), re-centred from the new sigma until k is stable (at most
+        SIGMA_CHORD_ITER chords; sigma: the starting width). The secant at Z* +- 1/2
+        (_slope) is off by up to a factor ~3 where g has a kink next to Z*. Returns
+        sigma and the chord (lo, hi, g(lo), g(hi)), or the starting sigma and None if
+        no chord has g decreasing."""
+        Zlo, Zhi = self.t["Zmin"], self.t["Zmax"] - 1.0
+        k, chord = None, None
+        for _ in range(SIGMA_CHORD_ITER):
+            kn = max(1, int(round(sigma)))
+            if kn == k:
+                break
+            k = kn
+            lo, hi = max(np.floor(Zs) - k + 1.0, Zlo), min(np.floor(Zs) + k, Zhi)
+            if hi <= lo:
+                break
+            glo, ghi = self._g(lo), self._g(hi)
+            slope = (ghi - glo) / (hi - lo)
+            if slope >= 0:
+                break
+            sigma, chord = np.sqrt(-1.0 / slope), (lo, hi, glo, ghi)
+        return sigma, chord
+
+    def exact_distribution(self, Zs, width, tail=1e-12):
+        """The exact P(Z) of the cell set by the last solve: g on every integer within
+        8 width + 10 of Z*, trimmed where P < tail x its maximum (the reference that
+        the Gaussian of a wide P(Z) approximates). Returns the charges and P."""
+        Z = np.arange(max(self.t["Zmin"], np.floor(Zs - 8 * width - 10)),
+                      min(self.t["Zmax"], np.ceil(Zs + 8 * width + 10)) + 1.0)
+        lnf = np.concatenate([[0.0], np.cumsum(self._g_arr(Z[:-1]))])
+        lnf -= lnf.max()
+        k = lnf > np.log(tail)
+        P = np.exp(lnf[k])
+        return Z[k], P / P.sum()
+
     def _averages(self, nodes, weights, discrete):
         """Gamma, Lambda (+ autoionisation at Zmin) averaged over the charge nodes."""
         gam = lam = 0.0
@@ -868,12 +959,12 @@ class GroupChargingTable:
             return float(np.sum(weights * nodes)), float(_width(nodes, weights))
         return float(Zs + 0.5), float(sigma)
 
-    def _dlnT_response(self, out, pair, dlnT):
+    def _dlnT_response(self, out, pair, dlnT, chord=None):
         """d/d ln T of Zmean, Zsigma, Gamma, Lambda (+ auto). Discrete P(Z):
         analytic (_dlnT_discrete). Wide: one more set of rates at T (1 + dlnT),
-        the pair g(z+-) re-evaluated, so the shifted root and slope are
-        consistent with the T call by construction, then Gamma and Lambda
-        re-averaged on the shifted Gaussian nodes."""
+        the pair g(z+-) re-evaluated, so the shifted root is consistent with the
+        T call by construction, and the width from the same chord (or pair), then
+        Gamma and Lambda re-averaged on the shifted Gaussian nodes."""
         if out["discrete"]:
             return self._dlnT_discrete(out)
         T0 = self.cell["T"]
@@ -884,6 +975,10 @@ class GroupChargingTable:
         s0, s1 = (gpl - gm) / (zp - zm), (gp1 - gm1) / (zp - zm)
         Zs1 = out["Zstar"] + (zm - gm1 / s1) - (zm - gm / s0)
         sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else out["Zsigma"]
+        if chord is not None:
+            lo, hi = chord[:2]
+            c1 = (self._g(hi) - self._g(lo)) / (hi - lo)
+            sig1 = np.sqrt(-1.0 / c1) if c1 < 0 else out["Zsigma"]
         nodes1, weights1 = _wide_nodes(Zs1)
         gam1, lam1, _ = self._averages(nodes1, weights1, False)
         self._set_cell(N_g, c_red, T0, ne, ions, G0_bg)
@@ -980,8 +1075,13 @@ class GroupChargingTable:
         """
         self._set_cell(N_g, c_red, T, ne, ions, G0_bg)
         dist = self._warm_window(warm) if warm is not None and warm["discrete"] else None
+        chord = None
         if dist is None:
             Zs, sigma, pair = self._root(Z_guess, warm)
+            if sigma >= SIGMA_DISCRETE:
+                # warm and wide: start the chord from the last width, usually one chord
+                start = warm["Zsigma"] if warm is not None and not warm["discrete"] else sigma
+                sigma, chord = self._chord(Zs, start)
             nodes, weights, discrete, _ = self._distribution(Zs, sigma)
         else:
             (Zs, nodes, weights, _), sigma, discrete, pair = dist, None, True, None
@@ -1002,7 +1102,7 @@ class GroupChargingTable:
         else:
             self.refine_recombination(out, warm)
         if dlnT is not None:
-            out.update(self._dlnT_response(out, pair, dlnT))
+            out.update(self._dlnT_response(out, pair, dlnT, chord))
         return out
 
 
@@ -1174,6 +1274,17 @@ def uniform_lookup(tab, T, ne):
     u, v = fx - i, fy - j
     return ((1 - u) * (1 - v) * tab[:, i, j] + u * (1 - v) * tab[:, i + 1, j]
             + (1 - u) * v * tab[:, i, j + 1] + u * v * tab[:, i + 1, j + 1])
+
+
+def _ds87_lambda_electron_arr(Z, a, T):
+    """DS87_lambda_scalar(Z, -1, a, T) on an array of grain charges."""
+    nu = -np.asarray(Z, float)
+    tau = max(a * KB_CGS * T / E_STATC ** 2, 1e-300)
+    neg = (2.0 - nu / tau) * (1.0 + 1.0 / np.sqrt(np.maximum(tau - nu, 1e-300)))
+    nup = np.maximum(nu, 1e-300)
+    theta = nup / (1.0 + 1.0 / np.sqrt(nup))
+    pos = (2.0 + nup / tau) * (1.0 + 1.0 / np.sqrt(1.5 / tau + 3.0 * nup)) * np.exp(-theta / tau)
+    return np.where(nu == 0.0, 2.0 + 1.5 * np.sqrt(np.pi / (2.0 * tau)), np.where(nu < 0.0, neg, pos))
 
 
 def _ds87_lambda(Z, q, a, T):

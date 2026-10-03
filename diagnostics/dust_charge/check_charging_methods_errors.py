@@ -76,8 +76,8 @@ def one_cell(args):
     N, cr_ = (c["Np"], c["c_red"]) if c["path"] != 1 else (np.zeros_like(c["Np"]), 0.0)
     full = [full_solve(gt, N, cr_, c["T"], c["ne"], ions, c["G0_bg"]) for gt in G["gts"]]
     rt = rg.solve_cell(G["gts"], G["n"], N, cr_, c["T"], c["ne"], ions, G0_bg=c["G0_bg"])
-    G_F, h, G_E = cpt.cell_inputs(G["pts"][0], c["Np"], c["c_red"], c["G0_bg"])
-    tab = [cpt.psi_lookup(pt, c["T"], c["ne"], G_F, h, G_E) for pt in G["pts"]]
+    inputs = cpt.cell_inputs(G["pts"][0], c["Np"], c["c_red"], c["G0_bg"])
+    tab = [cpt.psi_lookup(pt, c["T"], c["ne"], *inputs) for pt in G["pts"]]
     old = None
     if origdir:
         sel = (c["egy"] > 5.6) & (c["egy"] < 13.6)                      # RAMSES advected_G0 (Habing)

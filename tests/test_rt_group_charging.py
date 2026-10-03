@@ -261,6 +261,39 @@ def test_recombination_thresholds_follow_the_ionisation_potentials(tables):
     assert zth["Mg"] < 0 and zth["Fe"] < 0 and zth["H"] > 0
 
 
+def _exact_moments(gt, Zs, width):
+    """<Z> and sigma_Z of the exact P(Z), from g on every integer around Z*."""
+    Z = np.arange(max(gt.t["Zmin"], np.floor(Zs - 15 * width - 10)), min(gt.t["Zmax"], np.ceil(Zs + 15 * width + 10)) + 1.0)
+    lnf = np.concatenate([[0.0], np.cumsum([gt._g(z) for z in Z[:-1]])])
+    P = np.exp(lnf - lnf.max())
+    P /= P.sum()
+    m = P @ Z
+    return m, np.sqrt(P @ Z ** 2 - m ** 2)
+
+
+def test_charge_width_holds_across_the_kink_of_g_at_zero(tables):
+    """A 10 nm graphite grain lit by soft FUV only, through the fields where its charge
+    crosses Z = 0: there g(Z) has a kink, and the secant at Z* +- 1/2 read sigma ~3x
+    too wide, flipping a P(Z) of sigma ~2.8 to the Gaussian branch. The chord width
+    (_chord) keeps sigma and <Z> on the exact P(Z)."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["graphite", 1e-6]
+    gt = rg.GroupChargingTable(rg.read_bin_table(path))
+    soft = np.nonzero((np.asarray(tab["L0"]) >= 5.6) & (np.asarray(tab["L1"]) <= 11.2))[0]
+    T, ne = 1e4, 1.0
+    crossed = False
+    for x in np.geomspace(1e-2, 3e-1, 61):
+        N = np.zeros(len(tab["L0"]))
+        N[soft] = x
+        r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None)
+        m, sig = _exact_moments(gt, r["Zstar"], max(r["Zsigma"], 0.5))
+        crossed |= abs(m) < 1.0
+        assert r["Zsigma"] == pytest.approx(sig, rel=0.06)
+        assert r["Zmean"] == pytest.approx(m, abs=0.15 * sig)   # wide: mean at Z* + 1/2
+    assert crossed
+
+
 @pytest.mark.parametrize("a", [1e-6, 1e-5])
 def test_warm_started_solve_matches_a_cold_one(tables, a):
     """The next sub-step, warm-started from the previous result, gives the cold result."""
@@ -354,32 +387,39 @@ def test_solve_cell_fits_only_the_bins_that_carry_the_recombination(tables):
 
 
 def test_psi_table_reproduces_the_solve_at_its_nodes_and_round_trips(tables, tmp_path, monkeypatch):
-    """WDB06tab: a lookup at a grid node is the charge solve there; heating stays linear in G below
-    the psi grid; the files round-trip; the inputs of a cell give back its FUV hardness."""
+    """WDB06tab: a lookup at a grid node is the exact P(Z) there; heating stays linear in G below
+    the psi grid; the files round-trip; the inputs of a cell give back its FUV and EUV hardnesses."""
     from pycalima.models.dust_charge import charging_psi_tables as cpt
     from pycalima.models.dust_charge import rt_group_charging as rg
 
     monkeypatch.setattr(cpt, "LT", np.array([3.5, 4.0]))
     monkeypatch.setattr(cpt, "LPSI_F", np.array([3.0, 3.5, 4.0]))
-    monkeypatch.setattr(cpt, "H_FUV", np.array([0.1, 0.2]))
+    monkeypatch.setattr(cpt, "SQRT_H", np.sqrt([0.1, 0.2]))
     monkeypatch.setattr(cpt, "LPSI_E", np.array([2.0, 3.0]))
     tab, path = tables["graphite", 1e-6]
     pt = cpt.build_psi_table(rg.read_bin_table(path))
     back = cpt.read_psi_table(cpt.write_psi_table(pt, tmp_path / "t.dat"))
     np.testing.assert_array_equal(back["q"], pt["q"])
-    T, ne, h = 1e4, 0.3, 0.2
+    T, ne, h, hE1, hE2 = 1e4, 0.3, 0.2, 0.4, 0.0                         # on the grid nodes
     G_F, G_E = 10 ** 3.5 * ne / np.sqrt(T), 1e3 * ne / np.sqrt(T)
-    look = cpt.psi_lookup(pt, T, ne, G_F, h, G_E)
+    look = cpt.psi_lookup(pt, T, ne, G_F, h, G_E, hE1, hE2)
     roles, w, egy = cpt.band_shapes(tab["L0"], tab["L1"])
     gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy, kernels="pchip")
-    N = cpt.photon_densities(roles, w, G_F, h, G_E)
-    r = gt.solve(N, rg.C_CGS, T, ne, [(ne, 1.0, rg.M_HION)])
-    for key in ("Zmean", "Zsigma", "Gamma"):
-        assert look[key] == pytest.approx(r[key], rel=1e-6)                 # values stored in float32
-    assert look["Lambda"] == pytest.approx(r["Lambda"] + r["Lambda_auto"], rel=1e-6)
-    assert cpt.cell_inputs(pt, N, rg.C_CGS, 0.0) == pytest.approx((G_F, h, G_E))
+    N = cpt.photon_densities(roles, w, G_F, h, G_E, hE1, hE2)
+    r = gt.solve(N, rg.C_CGS, T, ne, [(ne, 1.0, rg.M_HION)], recomb=None)
+    Z, P = (r["nodes"], r["weights"]) if r["discrete"] else gt.exact_distribution(r["Zstar"], r["Zsigma"])
+    gam, lam, auto = gt._averages(Z, P, True)
+    m = P @ Z
+    exact = dict(Zmean=m, Zsigma=np.sqrt(P @ Z ** 2 - m ** 2), Gamma=gam, Lambda=lam + auto)
+    for key in ("Zmean", "Zsigma", "Gamma", "Lambda"):
+        assert look[key] == pytest.approx(exact[key], rel=1e-6)             # values stored in float32
+    np.testing.assert_allclose(look["alpha_rec"], gt._recombination(Z, P), rtol=1e-5)
+    assert cpt.cell_inputs(pt, N, rg.C_CGS, 0.0) == pytest.approx((G_F, h, G_E, hE1, hE2))
+    ref_hE = cpt.reference_hardness(tab["L0"], tab["L1"])                  # a blackbody gives back its split
+    Nbb = cpt.photon_densities(roles, w, G_F, h, G_E, *ref_hE)
+    assert cpt.cell_inputs(pt, Nbb, rg.C_CGS, 0.0)[3:] == pytest.approx(ref_hE)
     G_lo = 10 ** 3.0 * ne / np.sqrt(T)
-    low = cpt.psi_lookup(pt, T, ne, 1e-3 * G_lo, h, 0.0)                    # psi_F below the grid: Gamma ~ G
-    ref = cpt.psi_lookup(pt, T, ne, G_lo, h, 0.0)
+    low = cpt.psi_lookup(pt, T, ne, 1e-3 * G_lo, h, 0.0, hE1, hE2)          # psi_F below the grid: Gamma ~ G
+    ref = cpt.psi_lookup(pt, T, ne, G_lo, h, 0.0, hE1, hE2)
     assert low["Zmean"] == pytest.approx(ref["Zmean"])
     assert low["Gamma"] == pytest.approx(1e-3 * ref["Gamma"])

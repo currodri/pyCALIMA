@@ -3,10 +3,10 @@
 
 RAMSES, with dust_rtgroups_debug=.true. (or dust_rtgroups_verify=.true., which
 also stops the run after dust_rtgroups_debug_max calls), writes
-dust_rtgroups_debug_XXXXX.dat (format 4): one line per (call, dust bin) with
+dust_rtgroups_debug_XXXXX.dat (format 5): one line per (call, dust bin) with
 the inputs (T, n_e, H+/He+/He++ densities and masses, c_red, G0_bg, N_g, group
 energies, the cold-start guess), the warm state the call started from (the
-previous Z* of this bin in this cell, its discrete window, the recombination
+previous Z* of this bin in this cell, its discrete window and width, the recombination
 fit reference: inputs, alpha and Gaussian estimate) and the outputs (mean charge, width, PE heating, recombination
 and autoionisation cooling, Z*, their d/d ln T, the grain-assisted
 recombination coefficients of the RECOMB_IONS, whether the bin's recombination
@@ -61,7 +61,8 @@ def read_dump(path):
         r["egy"] = np.array([float(nxt()) for _ in range(nG)])
         zg = float(nxt())
         r["Z_guess"] = None if zg <= -1e299 else zg
-        w = dict(valid=nxt() == "T", discrete=nxt() == "T", Zstar=float(nxt()), wlo=float(nxt()), whi=float(nxt()))
+        w = dict(valid=nxt() == "T", discrete=nxt() == "T", Zstar=float(nxt()), wlo=float(nxt()), whi=float(nxt()),
+                 Zsigma=float(nxt()))
         nx = int(nxt())
         w["x"] = np.array([float(nxt()) for _ in range(nx)])
         w["alpha"] = np.array([float(nxt()) for _ in range(len(rg.RECOMB_IONS))])
@@ -83,7 +84,7 @@ def warm_dict(w):
     """The pyCALIMA warm result equivalent to a dumped RTGState."""
     if not w["valid"]:
         return None
-    d = dict(Zstar=w["Zstar"], discrete=w["discrete"], nodes=np.array([w["wlo"], w["whi"]]))
+    d = dict(Zstar=w["Zstar"], discrete=w["discrete"], Zsigma=w["Zsigma"], nodes=np.array([w["wlo"], w["whi"]]))
     if w["x"].size:
         d["recomb_ref"] = (w["x"], w["alpha"], w["lg"])
     return d
@@ -127,11 +128,11 @@ def compare_psitab(runs, tabdir):
                     continue
                 p = line.split()
                 b = int(p[0])
-                T, ne, GF, hF, GE, Zm, Zs, Gm, Lm = (float(x) for x in p[1:10])
-                al = np.array(p[10:20], dtype=float)
+                T, ne, GF, hF, GE, hE1, hE2, Zm, Zs, Gm, Lm = (float(x) for x in p[1:12])
+                al = np.array(p[12:22], dtype=float)
                 if b not in pts:
                     pts[b] = cpt.read_psi_table(Path(tabdir) / f"dust_charging_psitab_DustBin_{b:02d}.dat")
-                py = cpt.psi_lookup(pts[b], T, ne, GF, hF, GE)
+                py = cpt.psi_lookup(pts[b], T, ne, GF, hF, GE, hE1, hE2)
                 for k, f in (("Zmean", Zm), ("Zsigma", Zs), ("Gamma", Gm), ("Lambda", Lm)):
                     worst[k] = max(worst[k], rel(py[k], f, 1.0 if k == "Zmean" else 0.0))
                 worst["alpha"] = max(worst["alpha"], rel(py["alpha_rec"], al))

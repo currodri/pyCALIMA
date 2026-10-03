@@ -13,7 +13,8 @@ from pycalima.models.dust_charge import rt_group_charging as rg
 from pycalima.models.grain_size_config import get_bins, get_model_data_dir, set_config_path
 
 
-def main(config_path=None, rtgroups_dir=None, output_dir=None, T_bb=cpt.T_EUV, egy=None, workers=1):
+def main(config_path=None, rtgroups_dir=None, output_dir=None, T_bb=cpt.T_EUV, egy=None, workers=1,
+         euv_hardness=True):
     if config_path:
         set_config_path(config_path)
     base = get_model_data_dir()
@@ -26,7 +27,7 @@ def main(config_path=None, rtgroups_dir=None, output_dir=None, T_bb=cpt.T_EUV, e
     for b in bins:
         tab = rg.read_bin_table(rtgroups_dir / f"dust_charging_rtgroups_{b['id']}.dat")
         print(f"  [{b['id']}] {tab['material']}, a = {tab['a']:.4e} cm", flush=True)
-        pt = cpt.build_psi_table(tab, T_bb=T_bb, egy=egy, workers=workers)
+        pt = cpt.build_psi_table(tab, T_bb=T_bb, egy=egy, workers=workers, euv_hardness=euv_hardness)
         files.append(cpt.write_psi_table(pt, output_dir / f"dust_charging_psitab_{b['id']}.dat", label=b['id']))
     return {'output_dir': str(output_dir), 'file_count': len(files)}
 
@@ -40,6 +41,9 @@ if __name__ == '__main__':
     ap.add_argument('--egy', default=None,
                     help="the run's group mean energies [eV], comma-separated (RAMSES info_rt egy; default: the blackbody's)")
     ap.add_argument('--workers', type=int, default=1)
+    ap.add_argument('--no-euv-hardness', action='store_true',
+                    help="no EUV hardness axes (h_E1, h_E2): the reference blackbody's EUV split, as format 4; "
+                         "1/12 of the memory, but hard or non-thermal EUV is then off by up to 3x in <Z>")
     a = ap.parse_args()
     egy = [float(x) for x in a.egy.split(',')] if a.egy else None
-    print(main(a.config, a.rtgroups_dir, a.output_dir, a.T_bb, egy, a.workers))
+    print(main(a.config, a.rtgroups_dir, a.output_dir, a.T_bb, egy, a.workers, not a.no_euv_hardness))
