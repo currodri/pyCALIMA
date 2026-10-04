@@ -295,79 +295,53 @@ def build_pah_sputtering_interpolator(
 
 
 # ---------------------------------------------------------------------------
-# Grain charge tables (2-D T × gamma)
+# Uniform-ISRF charging tables (T x n_e/G0)
 # ---------------------------------------------------------------------------
 
-def build_charge_interpolator(
-    table_file: str | Path,
-    clamp_range: tuple = (-60.0, 60.0),
-) -> Callable:
-    """Build a bilinear interpolator for a grain charge Z_avg or Z_sigma table.
+ISRF_FORMAT_VERSION = 1
+ISRF_D_CHARGES = (-1, 1, 2, 3)
+"""Impactor charges of the tables' Coulomb factors D_j."""
 
-    File format (produced by ``models/dust_charge/export_dust_charging_vs_gamma.py``)
-    ---------------------------------------------------------------------------------
-    Lines starting with ``#`` : comments (skipped)
-    Line 1 : ``nT  nGamma``
-    Line 2 : log₁₀(T [K]) axis, ``nT`` values
-    Line 3 : log₁₀(gamma) axis, ``nGamma`` values
-    Lines 4…nT+3 : Z or sigma values, ``nGamma`` values per row
 
-    Parameters
-    ----------
-    table_file :
-        Path to ``dust_charge_Z_vs_T_<bin_id>`` or
-        ``dust_charge_sigma_vs_T_<bin_id>`` file.
-    clamp_range :
-        ``(lo, hi)`` — values outside this range are replaced by the nearest
-        valid neighbour to suppress erroneous table entries.
+def read_isrf_charging_table(table_file: str | Path) -> dict:
+    """Read a bin's uniform-ISRF charging table.
+
+    Written by ``models/dust_charge/export_dust_charging_isrf.py``
+    (``charging_isrf_tables.write_isrf_table``, which documents the format);
+    read here as RAMSES reads it, so that solvers/ does not import models/.
 
     Returns
     -------
-    evaluate : callable
-        ``evaluate(T, gamma)`` → Z (or sigma), float or ndarray.
-        Out-of-bounds queries are extrapolated by clamping to the table edge.
+    dict
+        ``a`` (grain radius [cm]), ``lT`` (log10 T [K]), ``lX`` (log10 n_e/G0
+        [cm^-3]) and ``q`` (quantities x T x X: <Z>, sigma_Z, ln Gamma_1,
+        lambda_1, then ln D_j for ``ISRF_D_CHARGES``).
     """
     path = Path(table_file)
     with path.open("r", encoding="utf-8") as fh:
-        lines = [ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith("#")]
+        lines = [ln for ln in fh.read().splitlines() if ln.strip() and not ln.startswith("#")]
+    head = lines[0].split()
+    version, nT, nX, nQ = (int(v) for v in head[:4])
+    if version != ISRF_FORMAT_VERSION:
+        raise ValueError(f"{path}: format {version}, expected {ISRF_FORMAT_VERSION} (re-export the tables)")
+    lT = np.array(lines[1].split(), dtype=np.float64)
+    lX = np.array(lines[2].split(), dtype=np.float64)
+    q = np.array([ln.split() for ln in lines[3:3 + nQ * nT]], dtype=np.float64).reshape(nQ, nT, nX)
+    return {"a": float(head[4]), "lT": lT, "lX": lX, "q": q}
 
-    if len(lines) < 4:
-        raise ValueError(f"Charge table too short: {path}")
 
-    nT, nG = (int(x) for x in lines[0].split())
-    log_T_ax = np.array(lines[1].split(), dtype=np.float64)
-    log_g_ax = np.array(lines[2].split(), dtype=np.float64)
-
-    if log_T_ax.size != nT or log_g_ax.size != nG:
-        raise ValueError(f"{path}: axis size mismatch (expected {nT}×{nG})")
-
-    values = np.empty((nT, nG), dtype=np.float64)
-    for i in range(nT):
-        values[i] = np.array(lines[3 + i].split(), dtype=np.float64)
-
-    # Clamp obviously bad values (isolated numerical failures)
-    lo, hi = clamp_range
-    bad = (values < lo) | (values > hi)
-    if bad.any():
-        # Fill bad cells using the valid boundary values
-        values = np.clip(values, lo, hi)
-
-    interp = RegularGridInterpolator(
-        (log_T_ax, log_g_ax),
-        values,
-        method="linear",
-        bounds_error=False,
-        fill_value=None,  # extrapolate by nearest edge
-    )
-
-    def evaluate(T_query, gamma_query: float):
-        scalar = np.ndim(T_query) == 0 and np.ndim(gamma_query) == 0
-        T_arr = np.atleast_1d(np.asarray(T_query, dtype=np.float64))
-        g_arr = np.atleast_1d(np.asarray(gamma_query, dtype=np.float64))
-        T_arr = np.clip(T_arr, 1.0, 1.0e10)
-        g_arr = np.clip(g_arr, 1.0e-20, 1.0e20)
-        pts = np.column_stack((np.log10(T_arr), np.log10(g_arr)))
-        result = interp(pts)
-        return float(result[0]) if scalar else result
-
-    return evaluate
+def isrf_charging_lookup(table: dict, G0: float, T: float, ne: float) -> Tuple[float, float, np.ndarray]:
+    """<Z>, sigma_Z and the Coulomb factors D_j (``ISRF_D_CHARGES``) of a
+    uniform-ISRF charging table at G0 [Habing], T [K] and n_e [cm^-3]: bilinear
+    in (log10 T, log10 n_e/G0), clamped to the grid (RAMSES ``isrf_lookup``)."""
+    lT, lX, q = table["lT"], table["lX"], table["q"]
+    lt = min(max(math.log10(T), lT[0]), lT[-1])
+    lx = min(max(math.log10(max(ne, 1e-300) / max(G0, 1e-300)), lX[0]), lX[-1])
+    fi = (lt - lT[0]) / (lT[1] - lT[0])
+    fj = (lx - lX[0]) / (lX[1] - lX[0])
+    i = min(int(fi), lT.size - 2)
+    j = min(int(fj), lX.size - 2)
+    u, v = fi - i, fj - j
+    c = ((1 - u) * (1 - v) * q[:, i, j] + u * (1 - v) * q[:, i + 1, j]
+         + (1 - u) * v * q[:, i, j + 1] + u * v * q[:, i + 1, j + 1])
+    return float(c[0]), float(c[1]), np.exp(c[4:4 + len(ISRF_D_CHARGES)])

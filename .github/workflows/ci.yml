@@ -165,7 +165,7 @@ jobs:
 
       - name: Export the tables the tutorials need
         if: steps.cache.outputs.cache-hit != 'true'
-        # dust_ion_recombination is 45.5% of a full export and nothing
+        # dust_ion_recombination is most of a full export and nothing
         # downstream reads its tables; dust_band_luminosities is skipped only
         # for tidiness. See docs/cli/calima-export.md for the measured profile.
         run: |
@@ -181,8 +181,8 @@ jobs:
         run: |
           set -e
           for d in optical_properties thermal_sputtering_data \
-                   pah_sputtering_data dust_charging_data \
-                   dust_photoelectric_heating_data dust_sublimation \
+                   pah_sputtering_data dust_charging_rtgroups_data \
+                   dust_charging_isrf_data dust_sublimation \
                    PAH_dissociation_data PAH_photoelectric_heating_data \
                    collisional_cooling_data; do
             test -d "$CALIMA_MODEL_DATA/$d" || { echo "::error::missing $d"; exit 1; }

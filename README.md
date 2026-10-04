@@ -68,8 +68,8 @@ table lookup, the ODE integration and the output writer, and fails loudly if a
 generated table is missing or malformed. It writes an `_evolution.txt`
 trajectory and an `_evolution.png` summary.
 
-Two of the twelve export stages account for about 92% of `calima-export`'s
-runtime. [The CLI reference](https://currodri.github.io/pyCALIMA/cli/calima-export.html)
+One of the twelve export stages, `dust_ion_recombination`, accounts for the
+largest share of `calima-export`'s runtime. [The CLI reference](https://currodri.github.io/pyCALIMA/cli/calima-export.html)
 breaks down the cost and shows how to regenerate only part of it.
 
 ## What's in the box

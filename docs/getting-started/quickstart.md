@@ -29,9 +29,10 @@ lookup, the ODE integration and the output writer, and it fails loudly if any
 generated table is missing or malformed. It writes an `_evolution.txt`
 trajectory and an `_evolution.png` summary figure.
 
-If step 4 looks slow, it is: two of the twelve export stages account for about
-92% of the total. {doc}`/cli/calima-export` breaks down the cost and shows how
-to regenerate only part of it.
+If step 4 looks slow, it is: one of the twelve export stages,
+`dust_ion_recombination`, accounts for the largest share of the total.
+{doc}`/cli/calima-export` breaks down the cost and shows how to regenerate
+only part of it.
 
 ## Where to go next
 

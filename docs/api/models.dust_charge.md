@@ -6,10 +6,8 @@ Coulomb enhancement of gas-grain collision rates, and dust-assisted ion
 recombination.
 
 :::{warning}
-`dust_photoelectric_heating` and `dust_ion_recombination` are the two dominant
-stages of a full export — 15.9 and 15.4 minutes respectively at 20 dust bins,
-together about 90% of the total. Both scale per dust bin. See
-{doc}`/cli/calima-export`.
+`dust_ion_recombination` is the dominant stage of a full export — 15.4 minutes
+at 20 dust bins. It scales per dust bin. See {doc}`/cli/calima-export`.
 :::
 
 ## Modules
@@ -29,5 +27,7 @@ together about 90% of the total. Both scale per dust bin. See
    pycalima.models.dust_charge.wdb06_atomic
    pycalima.models.dust_charge.rt_group_charging
    pycalima.models.dust_charge.charging_psi_tables
+   pycalima.models.dust_charge.charging_isrf_tables
+   pycalima.models.dust_charge.coulomb_focusing
 ```
 

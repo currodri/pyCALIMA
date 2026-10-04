@@ -25,11 +25,6 @@ so their differences are the table's interpolation error.
 With ``--psitab DIR`` it instead checks the lookups of charging_model='WDB06tab'
 (dust_psitab_debug_XXXXX.dat) against charging_psi_tables.psi_lookup on the
 tables in DIR.
-
-With ``--original-tables DIR`` it also shows, for the last dumped state of
-each bin, the mean charge of the original (log gamma, log T) tables there
-(charging_model='RM2026': G0 from the groups with 5.6 < egy < 13.6 eV, as
-rtz_cooling_module's advected_G0).
 """
 import argparse
 from pathlib import Path
@@ -96,25 +91,6 @@ def rel(a, b, floor=0.0):
     return float(np.max(np.where(s > 0, np.abs(a - b) / np.where(s > 0, s, 1.0), 0.0)))
 
 
-def original_table_charge(path, G0, T, ne):
-    """Bilinear (log gamma, log T) lookup of dust_charge_Z_vs_T_DustBin_XX, as
-    RAMSES compute_mean_dust_charge (clamped at the edges)."""
-    with open(path) as fh:
-        rows = [ln for ln in fh if not ln.startswith("#")]
-    ng, nT = (int(x) for x in rows[0].split())
-    lT = np.array(rows[1].split(), dtype=float)
-    lg = np.array(rows[2].split(), dtype=float)
-    Z = np.array([r.split() for r in rows[3:3 + ng]], dtype=float)
-    x = np.log10(max(G0, 1e-6) * np.sqrt(T) / max(ne, 1e-20))
-    y = np.log10(T)
-    fx = np.clip((x - lg[0]) / (lg[1] - lg[0]), 0, ng - 1)
-    fy = np.clip((y - lT[0]) / (lT[1] - lT[0]), 0, nT - 1)
-    i, j = min(int(fx), ng - 2), min(int(fy), nT - 2)
-    u, v = fx - i, fy - j
-    return ((1 - u) * (1 - v) * Z[i, j] + u * (1 - v) * Z[i + 1, j]
-            + (1 - u) * v * Z[i, j + 1] + u * v * Z[i + 1, j + 1])
-
-
 def compare_psitab(runs, tabdir):
     """RAMSES WDB06tab lookups against charging_psi_tables.psi_lookup."""
     from pycalima.models.dust_charge import charging_psi_tables as cpt
@@ -147,8 +123,6 @@ def main():
     ap.add_argument("--tables", required=True, help="directory with dust_charging_rtgroups_DustBin_XX.dat")
     ap.add_argument("--stride", type=int, default=1, help="check every Nth full solve (each line is independent)")
     ap.add_argument("--worst", type=int, default=3, help="show the N worst full solves")
-    ap.add_argument("--original-tables", default=None,
-                    help="CALIMA table directory with dust_charge_Z_vs_T_DustBin_XX (original path)")
     ap.add_argument("--psitab", default=None, help="WDB06tab table directory: check dust_psitab_debug_*.dat instead")
     args = ap.parse_args()
     if args.psitab:
@@ -246,15 +220,6 @@ def main():
             k = max(diffs, key=diffs.get)
             print(f"   worst: {m:.1e} in {k} | bin {r['bin']} T {r['T']:.4g} ne {r['ne']:.3g} warm {r['warm']['valid']}"
                   f"/{r['warm']['discrete']} discrete {r['out']['discrete']} <Z> {r['out']['Zmean']:.4f}")
-        if args.original_tables:
-            for b in sorted({r["bin"] for d in dumps for r in read_dump(d)[-8:]}):
-                r = [r for d in dumps for r in read_dump(d) if r["bin"] == b][-1]
-                sel = (r["egy"] > 5.6) & (r["egy"] < 13.6)
-                G0 = float(np.sum(r["Np"][sel] * r["c_red"] * r["egy"][sel]) * 1.602176634e-12 / 1.6e-3)
-                Zo = original_table_charge(Path(args.original_tables) / f"dust_charge_Z_vs_T_DustBin_{b:02d}", G0, r["T"], r["ne"])
-                a = tabs[b]["a"]
-                print(f"    last state bin {b}: T={r['T']:.0f} ne={r['ne']:.3g} G0={G0:.3g} | Z new {r['out']['Zmean']:9.2f} "
-                      f"({r['out']['Zmean'] * rg.E2_EV_CM / a:7.2f} V)  Z original tables {Zo:9.2f} ({Zo * rg.E2_EV_CM / a:7.2f} V)")
 
 
 if __name__ == "__main__":

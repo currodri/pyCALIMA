@@ -15,8 +15,8 @@ $$
 $$ (eq-dgd-bookkeeping)
 
 where $f_e$ is the mass fraction of element $e$ in the grain material
-(`solvers/dust_rates.py:321`–`325` for accretion, `:396`–`400` for the
-tabulated sputtering, `:583`–`587` for sublimation). Mass is therefore
+(`solvers/dust_rates.py:326`–`330` for accretion, `:401`–`405` for the
+tabulated sputtering, `:550`–`554` for sublimation). Mass is therefore
 conserved element by element.
 
 | Process | `physics` flag | `models` key | Kernel |
@@ -25,7 +25,7 @@ conserved element by element.
 | Thermal sputtering | `dust_sputtering` | `dust_sputtering_model` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` |
 | Thermal sublimation | `dust_sublimation` | none | `sublimation_rate` |
 
-All three flags default to `false` (`solvers/dust_init.py:583`–`585`). The
+All three flags default to `false` (`solvers/dust_init.py:573`–`575`). The
 processes are appended to the process list only if the flag is set and there
 is at least one dust bin (`solvers/rhs.py:86`–`107`).
 
@@ -42,7 +42,7 @@ k_\mathrm{acc} = k_0\;\Pi(T)\;
 \quad [\mathrm{s^{-1}}]
 $$ (eq-dgd-kacc)
 
-(`solvers/dust_rates.py:315`), with $m_e$ the atomic mass of element $e$ [g].
+(`solvers/dust_rates.py:320`), with $m_e$ the atomic mass of element $e$ [g].
 The rate constant is precomputed per bin from the grain radius $a$ [cm],
 the bulk density $\rho_\mathrm{gr}$ [g cm$^{-3}$] (`grain_density_gcm3`) and
 the configured `sticking_coefficient` $S$ (default 1):
@@ -63,25 +63,25 @@ element.
 elements of the bin; it picks the element whose supply, relative to its
 share of the grain mass, is smallest. If any constituent has
 $\rho_e \le 0$ or $f_e \le 0$, the bin does not grow
-(`solvers/dust_rates.py:286`–`299`). The same $k_\mathrm{acc}$ then removes
+(`solvers/dust_rates.py:291`–`304`). The same $k_\mathrm{acc}$ then removes
 every constituent in stoichiometric proportion, through
 {eq}`eq-dgd-bookkeeping`.
 
 **Global cut-offs.** Accretion is switched off entirely for
 $T > 1.8\times10^{5}$ K, where the gas is taken to be fully ionised
-(`solvers/dust_rates.py:209`–`211`). A bin is skipped when
-$n_\mathrm{H} >$ `nhmax_acc` (`solvers/dust_rates.py:269`). This per-bin
+(`solvers/dust_rates.py:214`–`216`). A bin is skipped when
+$n_\mathrm{H} >$ `nhmax_acc` (`solvers/dust_rates.py:274`). This per-bin
 ceiling is read from the bin's `nhmax_acc` key, defaulting to
-$10^4$ cm$^{-3}$ (`solvers/dust_init.py:457`). The code comment gives
+$10^4$ cm$^{-3}$ (`solvers/dust_init.py:447`). The code comment gives
 $10^3$ cm$^{-3}$ for carbon grains and $10^4$ cm$^{-3}$ for silicates in
-{cite:t}`Dubois2024` (`solvers/dust_rates.py:268`). The lower ceiling for
+{cite:t}`Dubois2024` (`solvers/dust_rates.py:273`). The lower ceiling for
 carbon is how the docstring's "C is fully molecular (CO) for
 $n_\mathrm{H} > 10^3$ cm$^{-3}$" is implemented; no separate CO check exists.
 
 ### Regime selection
 
 A cell is treated as **sub-grid** when all of the following hold
-(`solvers/dust_rates.py:219`–`226`):
+(`solvers/dust_rates.py:224`–`231`):
 
 - $n_\mathrm{H} \ge 0.1$ cm$^{-3}$;
 - $T \le 10^4$ K;
@@ -92,15 +92,15 @@ $$
 \lambda_J = \sqrt{\frac{\pi k_B T}{G\, m_\mathrm{H}^2\, n_\mathrm{H}}}
 $$ (eq-dgd-jeans)
 
-(`solvers/dust_rates.py:221`), using $m_\mathrm{H} = 1.6726219\times10^{-24}$ g
+(`solvers/dust_rates.py:226`), using $m_\mathrm{H} = 1.6726219\times10^{-24}$ g
 and $G = 6.674\times10^{-8}$ cm$^3$ g$^{-1}$ s$^{-2}$
-(`solvers/dust_rates.py:202`–`203`). The cell size $\Delta x$ comes from
+(`solvers/dust_rates.py:207`–`208`). The cell size $\Delta x$ comes from
 `turbulence.local_dx_pc`, converted with 1 pc $= 3.085677581\times10^{18}$ cm
-(`solvers/dust_init.py:563`–`565`). Every other cell is **resolved**.
+(`solvers/dust_init.py:553`–`555`). Every other cell is **resolved**.
 
 :::{note}
 `local_dx_pc` defaults to 0. With $\Delta x = 0$ the Jeans test is skipped
-and treated as unresolved (`solvers/dust_rates.py:223`–`224`). So, unless a
+and treated as unresolved (`solvers/dust_rates.py:228`–`229`). So, unless a
 cell size is given, every cell with $n_\mathrm{H}\ge0.1$ cm$^{-3}$ and
 $T\le10^4$ K uses the sub-grid regime.
 :::
@@ -110,8 +110,8 @@ clumping boost:
 
 | Regime | $\Pi(T)$ | $C_\mathrm{turb}$ | Code |
 |---|---|---|---|
-| Resolved | $\sqrt{T}\,/\,(1 + 10^{-4}\,T^{1.5})$, the sticking of {cite:t}`LeBourlot2012` | 1 | `solvers/dust_rates.py:251`, `:283` |
-| Sub-grid | $\alpha_\mathrm{eff}\sqrt{T_\mathrm{acc}}$, with $\alpha_\mathrm{eff}=1/3$, $T_\mathrm{acc}=100$ K | Eq. {eq}`eq-dgd-boost` | `solvers/dust_rates.py:232`–`234` |
+| Resolved | $\sqrt{T}\,/\,(1 + 10^{-4}\,T^{1.5})$, the sticking of {cite:t}`LeBourlot2012` | 1 | `solvers/dust_rates.py:256`, `:288` |
+| Sub-grid | $\alpha_\mathrm{eff}\sqrt{T_\mathrm{acc}}$, with $\alpha_\mathrm{eff}=1/3$, $T_\mathrm{acc}=100$ K | Eq. {eq}`eq-dgd-boost` | `solvers/dust_rates.py:237`–`239` |
 
 In both regimes $\Pi$ multiplies the configured $S$ already folded into $k_0$.
 
@@ -119,7 +119,7 @@ In both regimes $\Pi$ multiplies the configured $S$ already folded into $k_0$.
 The `_k0_accretion` docstring says that "no further T-dependent suppression
 is applied in accretion_rate()" (`solvers/dust_init.py:172`–`173`). That is
 not what the code does: in resolved cells `accretion_rate` applies the
-factor $1/(1+10^{-4}T^{1.5})$ (`solvers/dust_rates.py:251`).
+factor $1/(1+10^{-4}T^{1.5})$ (`solvers/dust_rates.py:256`).
 :::
 
 ### Turbulent clumping boost
@@ -135,8 +135,8 @@ c_s = \sqrt{\tfrac{5}{3}\,k_B T / m_\mathrm{H}},\qquad
 w = \ln\!\left[1 + (0.4\,\mathcal{M})^2\right]
 $$ (eq-dgd-mach)
 
-(`solvers/dust_rates.py:236`, `:244`–`245`). Here $\sigma$ [cm s$^{-1}$] is
-`turbulence.local_sigma_km_s` $\times10^5$ (`solvers/dust_init.py:564`),
+(`solvers/dust_rates.py:241`, `:249`–`250`). Here $\sigma$ [cm s$^{-1}$] is
+`turbulence.local_sigma_km_s` $\times10^5$ (`solvers/dust_init.py:554`),
 default 0. Then
 
 $$
@@ -146,15 +146,15 @@ C_\mathrm{turb} = \tfrac{1}{2}\,e^{w^2}\,
 s_\mathrm{max} = \ln\frac{n_\mathrm{max}}{\min(n_\mathrm{H},\,n_\mathrm{max})}
 $$ (eq-dgd-boost)
 
-(`solvers/dust_rates.py:279`–`281`), evaluated separately for each bin
+(`solvers/dust_rates.py:284`–`286`), evaluated separately for each bin
 because $n_\mathrm{max}$ differs between bins.
 
 :::{note}
 This deliberately follows the ramses-yomp convention
-(`solvers/dust_rates.py:237`–`246`): $w = \ln(1+b^2\mathcal{M}^2)$ with
+(`solvers/dust_rates.py:242`–`251`): $w = \ln(1+b^2\mathcal{M}^2)$ with
 $b = 0.4$ is used as the log-normal *width*, and $w^2$ as the variance. The
 textbook log-normal has variance $\sigma_s^2 = \ln(1+b^2\mathcal{M}^2)$
-instead. The docstring (`solvers/dust_rates.py:180`–`182`) states the same
+instead. The docstring (`solvers/dust_rates.py:185`–`187`) states the same
 convention. With $\sigma = 0$ the Mach floor gives $w \approx 1.6\times10^{-11}$
 and $C_\mathrm{turb}\to 1$ whenever $n_\mathrm{H} < n_\mathrm{max}$.
 :::
@@ -163,8 +163,8 @@ and $C_\mathrm{turb}\to 1$ whenever $n_\mathrm{H} < n_\mathrm{max}$.
 
 $E_C$ is a fixed factor per bin, not a computed grain charge. It is applied
 only when $T < 2\times10^4$ K **or** $n_\mathrm{H} > 10$ cm$^{-3}$
-(`solvers/dust_rates.py:257`); otherwise $E_C = 1$. When applied
-(`solvers/dust_rates.py:303`–`313`):
+(`solvers/dust_rates.py:262`); otherwise $E_C = 1$. When applied
+(`solvers/dust_rates.py:308`–`318`):
 
 | Bin | Condition | $E_C$ |
 |---|---|---|
@@ -174,19 +174,19 @@ only when $T < 2\times10^4$ K **or** $n_\mathrm{H} > 10$ cm$^{-3}$
 
 :::{note}
 The `accretion_rate` docstring gives $E_C = 0$ for large carbonaceous grains
-(`solvers/dust_rates.py:192`). The code uses $10^{-5}$
-(`solvers/dust_rates.py:307`), matching the Fortran value quoted in the
-comment. The solver loads per-bin grain-charge tables and defines a
-point-charge factor `_coulomb_factor_WD99` (`solvers/dust_rates.py:88`), but
-accretion never calls them. The fixed factors above are the only Coulomb
-treatment.
+(`solvers/dust_rates.py:197`). The code uses $10^{-5}$
+(`solvers/dust_rates.py:312`), matching the Fortran value quoted in the
+comment. The solver loads the per-bin uniform-ISRF charging tables and defines
+`_get_coulomb_D` (`solvers/dust_rates.py:132`), the Coulomb factor over the
+grain's charge distribution, but accretion never calls it. The fixed factors
+above are the only Coulomb treatment.
 :::
 
 ## Thermal sputtering
 
 The variant is selected by `models.dust_sputtering_model`
 (`solvers/rhs.py:93`–`98`). The default is `"kirchschlager"`
-(`solvers/dust_init.py:599`), and any unrecognised string also falls through
+(`solvers/dust_init.py:589`), and any unrecognised string also falls through
 to the tabulated kernel.
 
 | `dust_sputtering_model` | Kernel | Tables read |
@@ -200,9 +200,9 @@ to the tabulated kernel.
 For each bin the solver loads one table per projectile species: H, He, C, N,
 O, Ne, Mg, Si, S and Fe (`solvers/dust_init.py:137`, `:226`–`233`). Missing
 tables are skipped silently, and a bin with no tables is not sputtered at
-all (`solvers/dust_rates.py:367`–`368`). Each table gives
+all (`solvers/dust_rates.py:372`–`373`). Each table gives
 $R_e(T,\phi) = n_e^{-1}\,|da/dt|$ in µm yr$^{-1}$ cm$^3$. The solver
-evaluates it at $\phi = 0$ (uncharged grain; `solvers/dust_rates.py:385`) and
+evaluates it at $\phi = 0$ (uncharged grain; `solvers/dust_rates.py:390`) and
 forms
 
 $$
@@ -210,11 +210,11 @@ k_\mathrm{spu} = \frac{3}{a_{\mu\mathrm{m}}\;t_\mathrm{yr}}
 \sum_e \frac{\rho_e}{m_e}\,R_e(T, 0)
 $$ (eq-dgd-spu-table)
 
-(`solvers/dust_rates.py:372`–`393`), with $a_{\mu\mathrm{m}}$ the bin radius in
-µm and $t_\mathrm{yr} = 3.1536\times10^7$ s (`solvers/dust_rates.py:33`). The
+(`solvers/dust_rates.py:377`–`398`), with $a_{\mu\mathrm{m}}$ the bin radius in
+µm and $t_\mathrm{yr} = 3.1536\times10^7$ s (`solvers/dust_rates.py:34`). The
 projectile density $\rho_e/m_e$ is the *total* gas-phase density of element
 $e$, whatever its ionisation state. Species with $\rho_e < 10^{-40}$ g cm$^{-3}$
-are ignored (`solvers/dust_rates.py:378`).
+are ignored (`solvers/dust_rates.py:383`).
 
 The tables are written by `calima-export`
 (`models/dust_gas_collisions/export_sputtering_rates_bins.py`). By default
@@ -276,8 +276,8 @@ $$
 \log_{10} Y_\mathrm{th} = \sum_{k=0}^{5} c_k\,(\log_{10}[0.60\,T])^k ,
 $$ (eq-dgd-hu)
 
-in µm yr$^{-1}$ cm$^3$ (`solvers/dust_rates.py:78`–`81`). The coefficients
-for carbon and silicate are at `solvers/dust_rates.py:45`–`52`, and $0.60$
+in µm yr$^{-1}$ cm$^3$ (`solvers/dust_rates.py:79`–`82`). The coefficients
+for carbon and silicate are at `solvers/dust_rates.py:46`–`53`, and $0.60$
 is the mean molecular weight of fully ionised gas. The rate is scaled with
 $n_\mathrm{H}$ rather than with individual ion densities:
 
@@ -285,14 +285,14 @@ $$
 k_\mathrm{spu} = \frac{3\,n_\mathrm{H}\,Y_\mathrm{th}(T)}{a_{\mu\mathrm{m}}\,t_\mathrm{yr}}
 $$ (eq-dgd-spu-hu)
 
-(`solvers/dust_rates.py:459`–`462`). A bin counts as carbonaceous if its
-highest mass-fraction element is C (`solvers/dust_rates.py:450`–`452`).
+(`solvers/dust_rates.py:464`–`467`). A bin counts as carbonaceous if its
+highest mass-fraction element is C (`solvers/dust_rates.py:455`–`457`).
 
 - `nozawa2006` assigns the composition-matched yield
-  (`solvers/dust_rates.py:454`).
+  (`solvers/dust_rates.py:459`).
 - `nozawa2006_ramses` deliberately **swaps** the yields: carbon bins get the
   silicate yield and silicate bins get the carbon yield
-  (`solvers/dust_rates.py:522`). This reproduces the bin-index-based dispatch
+  (`solvers/dust_rates.py:527`). This reproduces the bin-index-based dispatch
   of the RAMSES-CALIMA Fortran runs of {cite:t}`Dubois2024`, whose bin
   ordering is the reverse of pyCALIMA's. Use it only to compare against
   those simulations. Above roughly $7\times10^5$ K the silicate yield exceeds
@@ -301,9 +301,9 @@ highest mass-fraction element is C (`solvers/dust_rates.py:450`–`452`).
 
 :::{note}
 The `thermal_sputtering_rate_nozawa` docstring gives $Y_\mathrm{th}$ in
-cm$^4$ yr$^{-1}$ (`solvers/dust_rates.py:424`). The implementation treats it
+cm$^4$ yr$^{-1}$ (`solvers/dust_rates.py:429`). The implementation treats it
 as µm yr$^{-1}$ cm$^3$, as `_nozawa_yield` documents
-(`solvers/dust_rates.py:69`). The polynomial has no temperature cut-off; it
+(`solvers/dust_rates.py:70`). The polynomial has no temperature cut-off; it
 simply becomes negligible in cold gas.
 :::
 
@@ -319,7 +319,7 @@ $$
 k_\mathrm{sub} = 3\,\varepsilon(T)
 $$ (eq-dgd-sub)
 
-(`solvers/dust_rates.py:575`–`580`), since $m\propto a^3$. The interpolant is
+(`solvers/dust_rates.py:580`–`585`), since $m\propto a^3$. The interpolant is
 linear, returns 0 below the table and the last tabulated value above it
 (`solvers/dust_init.py:299`–`303`).
 
@@ -360,10 +360,10 @@ process as currently implemented:
 1. The exporter writes the second column as $\log_{10}\varepsilon$
    (`dust_sublimation.py:1408`), but the solver loader reads it as linear
    $\varepsilon$ (`solvers/dust_init.py:296`). Negative logarithms are then
-   discarded by the $\varepsilon \le 0$ test (`solvers/dust_rates.py:576`),
+   discarded by the $\varepsilon \le 0$ test (`solvers/dust_rates.py:581`),
    and positive ones are used as the rate itself. So sublimation is
    suppressed wherever $\varepsilon < 1$ s$^{-1}$ and strongly underestimated
    elsewhere.
 2. The tables are functions of the *dust* temperature $T_d$, but the solver
-   looks them up at the *gas* temperature (`solvers/dust_rates.py:575`).
+   looks them up at the *gas* temperature (`solvers/dust_rates.py:580`).
 :::

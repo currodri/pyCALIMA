@@ -10,8 +10,6 @@ Methods, on cells sampled from RAMSES dumps (dust_rtgroups_debug_*.dat, e.g. the
        bins that carry little of it)
   tab  charging_model='WDB06tab': charging_psi_tables.psi_lookup (FUV photon flux
        and hardness, EUV with the reference blackbody shape, n(H+) = n_e)
-  old  charging_model='RM2026': the original (log gamma, log T) charge tables
-       (mean charge only)
 
 The reference ("full") is the exact P(Z) on every integer charge within
 Z* +- (15 sigma + 10) from the same RT-group rates (PCHIP kernels), with the
@@ -21,7 +19,7 @@ test setups), for Gamma, Lambda (+ autoionisation), alpha of H+, C+, S+, Fe+
 (resolved: > 1e-6 of the geometric rate) and <Z> (relative to max(|Z|, 1)).
 
     python check_charging_methods_errors.py RUN_DIR [RUN_DIR ...] --rtgroups DIR --psitab DIR
-        [--original-tables DIR] [--cells 1500] [--workers 8]
+        [--cells 1500] [--workers 8]
 """
 import argparse
 from concurrent.futures import ProcessPoolExecutor
@@ -63,7 +61,7 @@ def full_solve(gt, N, c_red, T, ne, ions, G0_bg):
 
 
 def one_cell(args):
-    c, rtdir, psidir, origdir = args
+    c, rtdir, psidir = args
     nb = 4
     key = tuple(c["egy"])
     if key not in _G:
@@ -78,12 +76,6 @@ def one_cell(args):
     rt = rg.solve_cell(G["gts"], G["n"], N, cr_, c["T"], c["ne"], ions, G0_bg=c["G0_bg"])
     inputs = cpt.cell_inputs(G["pts"][0], c["Np"], c["c_red"], c["G0_bg"])
     tab = [cpt.psi_lookup(pt, c["T"], c["ne"], *inputs) for pt in G["pts"]]
-    old = None
-    if origdir:
-        sel = (c["egy"] > 5.6) & (c["egy"] < 13.6)                      # RAMSES advected_G0 (Habing)
-        G0 = float(np.sum(c["Np"][sel] * c["c_red"] * c["egy"][sel]) * rg.EV2ERG / rg.HABING_FLUX) + c["G0_bg"]
-        old = [cr.original_table_charge(Path(origdir) / f"dust_charge_Z_vs_T_DustBin_{b:02d}", G0, c["T"], c["ne"])
-               for b in range(1, nb + 1)]
     out = dict(T=c["T"], hii=c["n_Hp"] > 0.5 * c["ne"] and c["T"] > 3e3, n=G["n"], bins={})
 
     def vals(r, f):
@@ -97,8 +89,7 @@ def one_cell(args):
         fv = {"Zmean": f["Zmean"], "Gamma": f["Gamma"], "Lambda": f["Lambda"],
               **{f"alpha {k}": f["alpha"][i] if f["alpha"][i] > rg.RECOMB_RESOLVED * f["geo"][i] else np.nan
                  for k, i in IONS.items()}}
-        out["bins"][b + 1] = dict(full=fv, rt=vals(rt[b], f), tab=vals(tab[b], f),
-                                  old=None if old is None else dict(Zmean=old[b]))
+        out["bins"][b + 1] = dict(full=fv, rt=vals(rt[b], f), tab=vals(tab[b], f))
     return out
 
 
@@ -115,12 +106,8 @@ def summarize(res):
     rows = {}
     for c in res:
         for b, d in c["bins"].items():
-            for m in ("rt", "tab", "old"):
-                if d[m] is None:
-                    continue
+            for m in ("rt", "tab"):
                 for q in QTY:
-                    if q not in d[m]:
-                        continue
                     tot = np.nansum([c["n"][bb - 1] * abs(dd["full"][q]) for bb, dd in c["bins"].items()]) if q != "Zmean" else np.nan
                     share = c["n"][b - 1] * abs(d["full"][q]) / tot if q != "Zmean" and tot > 0 and np.isfinite(d["full"][q]) else np.nan
                     rows.setdefault((m, b, q), []).append((err(d[m][q], d["full"][q], q), share, c["hii"]))
@@ -189,7 +176,6 @@ def main():
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--rtgroups", required=True)
     ap.add_argument("--psitab", required=True)
-    ap.add_argument("--original-tables", default=None)
     ap.add_argument("--cells", type=int, default=1500, help="cells sampled per run")
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args()
@@ -205,7 +191,7 @@ def main():
         cells += [cs[i] for i in rng.choice(len(cs), min(args.cells, len(cs)), replace=False)]
     print(f"{len(cells)} cells", flush=True)
     with ProcessPoolExecutor(args.workers) as ex:
-        res = list(ex.map(one_cell, [(c, args.rtgroups, args.psitab, args.original_tables) for c in cells], chunksize=8))
+        res = list(ex.map(one_cell, [(c, args.rtgroups, args.psitab) for c in cells], chunksize=8))
     rows = summarize(res)
     lines = report(rows)
     print("\n".join(lines))

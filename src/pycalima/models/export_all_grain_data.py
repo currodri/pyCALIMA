@@ -364,119 +364,27 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
 
     readme_lines.extend([
-        "### 6. Dust Grain Charge (Zmean vs Gamma)",
+        "### 6. Dust Charging under a Uniform ISRF (WDB06)",
         "",
     ])
 
-    if 'dust_charging' in export_results:
-        charging_result = export_results['dust_charging']
-        charging_source = charging_result.get('source', 'direct_charge_solver')
-        charging_gamma_min = charging_result.get('gamma_min')
-        charging_gamma_max = charging_result.get('gamma_max')
-        charging_n_gamma = charging_result.get('n_gamma')
-        charging_samples = charging_result.get('combos_per_gamma')
-        charging_samples_min = charging_result.get('combos_per_gamma_min')
-        charging_samples_max = charging_result.get('combos_per_gamma_max')
-        charging_mode = charging_result.get('mode')
-        charging_fixed = charging_result.get('fixed_value')
-        charging_temp_min = charging_result.get('temperature_min')
-        charging_temp_max = charging_result.get('temperature_max')
-        charging_n_temp = charging_result.get('n_temperature')
-
-        if charging_source == 'heating_tables':
-            function_line = "- **Function**: Reuse of `make_rate_gamma_T_tables()` outputs from `models.dust_charge.dust_photoelectric_heating`"
-            description_lines = [
-                "- **Description**: Equilibrium charge moments (Zmean, Zsigma) reused from dust-photoelectric-heating",
-                "  tables, preserving the same gamma/temperature sampling across both exports.",
-            ]
-        else:
-            function_line = "- **Function**: `compute_charge_vs_gamma()` from `models.dust_charge.dust_charging`"
-            description_lines = [
-                "- **Description**: Equilibrium charge (Zmean) distribution for dust grains as function of",
-                "  gamma parameter gamma = G0 * sqrt(T) / ne, sampled with random (G0, T, ne) combinations.",
-            ]
-
-        if charging_gamma_min is not None and charging_gamma_max is not None and charging_n_gamma is not None:
-            gamma_line = f"- **Gamma Range**: {charging_gamma_min:.2e} to {charging_gamma_max:.2e} ({int(charging_n_gamma)} points)"
-        else:
-            gamma_line = "- **Gamma Range**: dynamic"
-
-        if charging_samples is not None:
-            sampling_line = f"- **Samples per Gamma**: {int(charging_samples)}"
-        elif charging_samples_min is not None and charging_samples_max is not None:
-            sampling_line = f"- **Samples per Gamma**: variable ({int(charging_samples_min)} to {int(charging_samples_max)})"
-        else:
-            sampling_line = "- **Samples per Gamma**: dynamic"
-
+    if 'dust_charging_isrf' in export_results:
+        isrf_result = export_results['dust_charging_isrf']
         readme_lines.extend([
-            f"- **Status**: {charging_result['status']}",
-            f"- **Export Time**: {charging_result['timestamp']}",
-            f"- **Output Directory**: `{charging_result['dir']}`",
-            function_line,
-            *description_lines,
-            gamma_line,
-            sampling_line,
-            f"- **Output Format**: PNG scatter plots + JSON data files with Zmean and Zsigma",
-            f"- **Files**: {charging_result.get('file_count', '?')} files ({charging_result.get('bins_processed', 0)} bins processed)",
-            "",
-        ])
-        if charging_source == 'heating_tables' and charging_temp_min is not None and charging_temp_max is not None and charging_n_temp is not None:
-            readme_lines.extend([
-                f"- **Temperature Grid Reused**: {charging_temp_min:.2e} to {charging_temp_max:.2e} K ({int(charging_n_temp)} points)",
-            ])
-        if charging_mode is not None:
-            if charging_fixed is None:
-                readme_lines.extend([f"- **Heating Coupling Mode**: {charging_mode}"])
-            else:
-                readme_lines.extend([f"- **Heating Coupling Mode**: {charging_mode} (fixed_value={float(charging_fixed):.3g})"])
-        if charging_source == 'heating_tables' or charging_mode is not None:
-            readme_lines.extend([""])
-
-    readme_lines.extend([
-        "### 7. Dust Photoelectric Heating Rates",
-        "",
-    ])
-
-    if 'dust_photoelectric_heating' in export_results:
-        heating_result = export_results['dust_photoelectric_heating']
-        h_tmin = heating_result.get('Tmin')
-        h_tmax = heating_result.get('Tmax')
-        h_nt = heating_result.get('nT')
-        h_gmin = heating_result.get('gamma_min')
-        h_gmax = heating_result.get('gamma_max')
-        h_ng = heating_result.get('n_gamma')
-        h_mode = heating_result.get('mode')
-        h_fixed = heating_result.get('fixed_value')
-        h_rad = heating_result.get('radiation_model')
-
-        if h_tmin is not None and h_tmax is not None and h_nt is not None:
-            temp_grid_line = f"- **Temperature Grid**: {float(h_tmin):.2e} to {float(h_tmax):.2e} K ({int(h_nt)} points log-spaced)"
-        else:
-            temp_grid_line = "- **Temperature Grid**: dynamic"
-
-        if h_gmin is not None and h_gmax is not None and h_ng is not None:
-            gamma_grid_line = f"- **Gamma Grid**: {float(h_gmin):.2e} to {float(h_gmax):.2e} ({int(h_ng)} points log-spaced)"
-        else:
-            gamma_grid_line = "- **Gamma Grid**: dynamic"
-
-        readme_lines.extend([
-            f"- **Status**: {heating_result['status']}",
-            f"- **Export Time**: {heating_result['timestamp']}",
-            f"- **Output Directory**: `{heating_result['dir']}`",
-            f"- **Function**: `make_rate_gamma_T_tables()` from `models.dust_charge.dust_photoelectric_heating`",
-            f"- **Description**: Photoelectric heating and recombination cooling rates for dust grains as 2D tables",
-            f"  on gamma × temperature grid. Rates computed using equilibrium charge distribution.",
-            temp_grid_line,
-            gamma_grid_line,
-            f"- **Radiation Model**: {h_rad if h_rad is not None else 'dynamic'}",
-            f"- **Mode**: {h_mode if h_mode is not None else 'dynamic'}" + (f" (fixed_value={float(h_fixed):.3g})" if h_fixed is not None else ""),
-            f"- **Output Format**: NPZ (binary numpy) + PNG quick-look plots with metadata",
-            f"- **Files**: {heating_result.get('file_count', '?')} files ({heating_result.get('bins_processed', 0)} bins processed)",
+            f"- **Status**: {isrf_result['status']}",
+            f"- **Export Time**: {isrf_result['timestamp']}",
+            f"- **Output Directory**: `{isrf_result['dir']}`",
+            f"- **Function**: `main()` from `models.dust_charge.export_dust_charging_isrf`",
+            f"- **Description**: WDB06 charge balance under a uniform Mathis ISRF, with H+ ions at n = n_e,",
+            f"  built from each bin's RT-group table. Axes log10 T and log10 (n_e/G0); quantities <Z>, sigma_Z,",
+            f"  PE heating, recombination cooling and the Coulomb factors D_j, all over the exact P(Z).",
+            f"  Read by RAMSES charging_model='WDB06isrf'.",
+            f"- **Files**: {isrf_result.get('file_count', '?')} files (one per dust bin)",
             "",
         ])
 
     readme_lines.extend([
-        "### 8. PAH Photoelectric Heating Tables",
+        "### 7. PAH Photoelectric Heating Tables",
         "",
     ])
 
@@ -499,7 +407,7 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
 
     readme_lines.extend([
-        "### 9. PAH Dissociation Tables",
+        "### 8. PAH Dissociation Tables",
         "",
     ])
 
@@ -518,7 +426,7 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
 
     readme_lines.extend([
-        "### 10. Dust Sublimation",
+        "### 9. Dust Sublimation",
         "",
     ])
 
@@ -538,7 +446,7 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
 
     readme_lines.extend([
-        "### 11. Dust-Assisted Ion Recombination Coefficients",
+        "### 10. Dust-Assisted Ion Recombination Coefficients",
         "",
     ])
 
@@ -581,7 +489,7 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
     
     readme_lines.extend([
-        "### 12. Dust Band Luminosities",
+        "### 11. Dust Band Luminosities",
         "",
     ])
 
@@ -636,21 +544,6 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         "2. Compute sputtering rates as function of ion energy (temperature, charge)",
         "3. Generate T-φ tables for rapid lookup in simulations",
         "",
-        "### Dust Grain Charge Computation",
-        "",
-        "1. Compute equilibrium ionisation potential and electron affinity",
-        "2. Solve for equilibrium charge using photoelectric balance",
-        "3. Sample multiple (G0, T, ne) combinations per gamma value",
-        "4. Calculate mean and RMS charge distributions",
-        "",
-        "### Photoelectric Heating Rate Computation",
-        "",
-        "1. Calculate photoelectric emission cross-sections and yields",
-        "2. Compute electron velocity distributions after photoemission",
-        "3. Calculate energy carried away by escaped electrons (heating rate)",
-        "4. Integrate recombination cooling over velocity distributions",
-        "5. Tabulate heating and cooling rates on gamma × T grid",
-        "",
         "---",
         "",
         "## File Organization",
@@ -676,18 +569,8 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         "│   ├── sputtering_<PAHBinID>_Z_8",
         "│   ├── sputtering_<PAHBinID>_quicklook.png",
         "│   └── ...",
-        "├── dust_charging_data/",
-        "│   ├── charge_<BinID>.png",
-        "│   ├── charge_<BinID>.json",
-        "│   ├── dust_charge_Z_vs_T_dustbin_###",
-        "│   ├── dust_charge_sigma_vs_T_dustbin_###",
-        "│   └── ...",
-        "├── dust_photoelectric_heating_data/",
-        "│   ├── heating_<BinID>.npz",
-        "│   ├── heating_<BinID>.png",
-        "│   ├── heating_<BinID>.json",
-        "│   ├── dust_rates_heating_<mode>_<BinID>.dat",
-        "│   ├── dust_rates_cooling_<mode>_<BinID>.dat",
+        "├── dust_charging_isrf_data/",
+        "│   ├── dust_charging_isrf_<BinID>.dat",
         "│   └── ...",
         "├── PAH_dissociation_data/",
         "│   ├── dissociation_pah_bin_*.dat",
@@ -753,12 +636,9 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         "# PAH sputtering rates (phi=0)",
         "python -m models.PAH_gas_collisions.export_pah_sputtering_rates_bins",
         "",
-        "# Dust grain charge vs gamma",
-        "python -m models.dust_charge.export_dust_charging_vs_gamma",
+        "# Dust charging under a uniform ISRF (reads the RT-group charging tables)",
+        "python -m models.dust_charge.export_dust_charging_isrf",
         "",
-        "# Dust photoelectric heating rates",
-        "python -m models.dust_charge.export_dust_photoelectric_heating",
-
         "# PAH dissociation tables",
         "python -m models.PAH_photophysics.export_pah_dissociation_tables",
         "",
@@ -776,8 +656,7 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         "",
         "```bash",
         "python -m models.export_all_grain_data --config /path/to/config.json",
-        "python -m models.dust_charge.export_dust_charging_vs_gamma --config /path/to/config.json",
-        "python -m models.dust_charge.export_dust_photoelectric_heating --config /path/to/config.json",
+        "python -m models.dust_charge.export_dust_charging_isrf --config /path/to/config.json",
         "```",
         "",
         "---",
@@ -971,49 +850,6 @@ def export_pah_sputtering_rates_wrapper(config_path=None):
         }
 
 
-def export_dust_charging_wrapper(config_path=None, reuse_heating_data=False):
-    """Wrapper for dust charging vs gamma export with error handling."""
-    from pycalima.models.dust_charge.export_dust_charging_vs_gamma import main as export_charging
-
-    start_time = datetime.now()
-    timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
-
-    try:
-        print("\n" + "="*80)
-        print("EXPORTING DUST CHARGING (ZMEAN VS GAMMA)")
-        print("="*80)
-        result = export_charging(config_path=config_path, reuse_heating_data=reuse_heating_data)
-        return {
-            'status': 'Success',
-            'timestamp': timestamp_str,
-            'dir': result.get('output_dir', 'model_data/dust_charging_data'),
-            'file_count': result.get('file_count', 0),
-            'bins_processed': result.get('bins_processed', 0),
-            'source': result.get('source', 'direct_charge_solver'),
-            'gamma_min': result.get('gamma_min'),
-            'gamma_max': result.get('gamma_max'),
-            'n_gamma': result.get('n_gamma'),
-            'combos_per_gamma': result.get('combos_per_gamma'),
-            'combos_per_gamma_min': result.get('combos_per_gamma_min'),
-            'combos_per_gamma_max': result.get('combos_per_gamma_max'),
-            'temperature_min': result.get('temperature_min'),
-            'temperature_max': result.get('temperature_max'),
-            'n_temperature': result.get('n_temperature'),
-            'mode': result.get('mode'),
-            'fixed_value': result.get('fixed_value'),
-        }
-    except Exception as e:
-        print(f"Error: {e}")
-        return {
-            'status': f'Error: {str(e)}',
-            'timestamp': timestamp_str,
-            'dir': 'model_data/dust_charging_data',
-            'file_count': 0,
-            'bins_processed': 0,
-            'source': 'direct_charge_solver',
-        }
-
-
 def export_dust_charging_rtgroups_wrapper(config_path=None):
     """Wrapper for the RT-group charging tables (WDB06 yields, RAMSES local-field path)."""
     from pycalima.models.dust_charge.export_dust_charging_rtgroups import main as export_rtgroups
@@ -1032,43 +868,22 @@ def export_dust_charging_rtgroups_wrapper(config_path=None):
                 'dir': str(get_model_data_dir() / 'dust_charging_rtgroups_data'), 'file_count': 0}
 
 
-def export_dust_photoelectric_heating_wrapper(config_path=None):
-    """Wrapper for dust photoelectric heating export with error handling."""
-    from pycalima.models.dust_charge.export_dust_photoelectric_heating import main as export_heating
+def export_dust_charging_isrf_wrapper(config_path=None):
+    """Wrapper for the uniform-ISRF charging tables (WDB06, RAMSES charging_model='WDB06isrf')."""
+    from pycalima.models.dust_charge.export_dust_charging_isrf import main as export_isrf
 
-    start_time = datetime.now()
-    timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
-
+    timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
         print("\n" + "="*80)
-        print("EXPORTING DUST PHOTOELECTRIC HEATING RATES")
+        print("EXPORTING UNIFORM-ISRF DUST CHARGING TABLES")
         print("="*80)
-        result = export_heating(config_path=config_path)
-        return {
-            'status': 'Success',
-            'timestamp': timestamp_str,
-            'dir': result.get('output_dir', 'model_data/dust_photoelectric_heating_data'),
-            'file_count': result.get('file_count', 0),
-            'bins_processed': result.get('bins_processed', 0),
-            'Tmin': result.get('Tmin'),
-            'Tmax': result.get('Tmax'),
-            'nT': result.get('nT'),
-            'gamma_min': result.get('gamma_min'),
-            'gamma_max': result.get('gamma_max'),
-            'n_gamma': result.get('n_gamma'),
-            'mode': result.get('mode'),
-            'fixed_value': result.get('fixed_value'),
-            'radiation_model': result.get('radiation_model'),
-        }
+        result = export_isrf(config_path=config_path)
+        return {'status': 'Success', 'timestamp': timestamp_str, 'dir': result['output_dir'],
+                'file_count': result['file_count']}
     except Exception as e:
         print(f"Error: {e}")
-        return {
-            'status': f'Error: {str(e)}',
-            'timestamp': timestamp_str,
-            'dir': 'model_data/dust_photoelectric_heating_data',
-            'file_count': 0,
-            'bins_processed': 0,
-        }
+        return {'status': f'Error: {str(e)}', 'timestamp': timestamp_str,
+                'dir': str(get_model_data_dir() / 'dust_charging_isrf_data'), 'file_count': 0}
 
 
 def export_pah_photoelectric_heating_tables_wrapper(config_path=None):
@@ -1258,20 +1073,16 @@ def export_dust_band_luminosities_wrapper(config_path=None):
 # Ordered stage table driving main(). The name is the key used by --stages,
 # --skip-stages, the profile JSON and the generated README.
 #
-# Order is significant: 'dust_charging' is passed reuse_heating_data=True so
-# that it reuses the equilibrium charge solves already performed by
-# 'dust_photoelectric_heating' instead of repeating them (22.6s vs several
-# minutes at 20 dust bins). _select_stages() therefore refuses a selection
-# that keeps 'dust_charging' but drops the stage it reuses.
+# Order is significant: 'dust_charging_isrf' reads the tables that
+# 'dust_charging_rtgroups' writes.
 _STAGES = (
     ('dust_optical_properties',          export_dust_optical_properties_wrapper,          {}),
     ('pah_optical_properties',           export_pah_optical_properties_wrapper,           {}),
     ('collisional_cooling',              export_collisional_cooling_wrapper,              {}),
     ('sputtering_rates',                 export_sputtering_rates_wrapper,                 {}),
     ('pah_sputtering_rates',             export_pah_sputtering_rates_wrapper,             {}),
-    ('dust_photoelectric_heating',       export_dust_photoelectric_heating_wrapper,       {}),
-    ('dust_charging',                    export_dust_charging_wrapper,                    {'reuse_heating_data': True}),
     ('dust_charging_rtgroups',           export_dust_charging_rtgroups_wrapper,           {}),
+    ('dust_charging_isrf',               export_dust_charging_isrf_wrapper,               {}),
     ('pah_photoelectric_heating_tables', export_pah_photoelectric_heating_tables_wrapper, {}),
     ('pah_dissociation_tables',          export_pah_dissociation_tables_wrapper,          {}),
     ('dust_sublimation',                 export_dust_sublimation_wrapper,                 {}),
@@ -1282,7 +1093,7 @@ _STAGES = (
 STAGE_NAMES = tuple(name for name, _func, _kwargs in _STAGES)
 
 # stage -> stages whose output it reuses within the same invocation
-_STAGE_REUSES = {'dust_charging': ('dust_photoelectric_heating',)}
+_STAGE_REUSES = {}
 
 
 def _parse_stage_list(spec):
@@ -1345,8 +1156,8 @@ def main(config_path=None, profile=True, profile_output=None,
         Comma-separated subset of :data:`STAGE_NAMES` to run. Default: all.
     skip_stages : str, optional
         Comma-separated stages to omit. Mutually exclusive with *stages*.
-        Skipping ``dust_ion_recombination`` alone removes roughly 45% of a
-        full export's wall-clock time.
+        Skipping ``dust_ion_recombination`` alone removes most of a full
+        export's wall-clock time.
 
     Returns
     -------
@@ -1483,7 +1294,7 @@ def _build_parser():
         default=None,
         help='Comma-separated stages to omit. Mutually exclusive with '
              '--stages. Skipping dust_ion_recombination alone removes '
-             'roughly 45%% of the total wall-clock time.'
+             'most of the total wall-clock time.'
     )
     parser.add_argument(
         '--list-stages',
