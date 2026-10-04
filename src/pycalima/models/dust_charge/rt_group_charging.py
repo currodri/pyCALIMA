@@ -1276,6 +1276,9 @@ PREDICT_TOL = 0.2          # predict: largest |d ln S|, |d ln N|, |d ln T| and r
 PREDICT_TOL_SHAPE = 0.3    # predict: largest change of a group's photon density beyond d ln S
 PREDICT_WIDE_ZERO = 0.5    # predict: no prediction of a wide P(Z) with |Z* + 1/2| within this + 1/2 of zero (kink of g)
 PREDICT_WIDE_DZ = 1.0      # predict: no prediction moving the Z* of a wide P(Z) by more than max(1, this x sigma)
+PREDICT_LIN_TOL = 0.1      # predict: a wide P(Z) is linearised while |d ln S|, |d ln N|, |d ln T| <= this,
+PREDICT_LIN_DZ = 0.25      # its Z* moves by at most max(1, this x sigma)
+PREDICT_LIN_ZERO = 1.0     # and Z* + 1/2 stays this + 1/2 away from zero charge; else it is corrected
 
 
 def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape=PREDICT_TOL_SHAPE):
@@ -1289,12 +1292,13 @@ def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape
     within PREDICT_WIDE_ZERO + 1/2 of the kink of g at zero charge or the two are on either side
     of it, or the prediction moves Z* by more than max(1, PREDICT_WIDE_DZ sigma).
 
-    A discrete P(Z) is the linearisation. A wide one is corrected at the new inputs: one Newton
-    step of g from the linear Z* (g' = -1/sigma^2, sigma linear), then Gamma and Lambda at
-    Z* + 1/2, as solve averages a wide P(Z). alpha_rec (if r has one): a discrete P(Z) moves
-    ln alpha_i along its sensitivities; a wide one scales r's alpha (fitted or not) by the change
-    of its Gaussian estimate, as refine_recombination reuses a fit. Returns a result dict like
-    solve's (Lambda including the autoionisation, the d/d ln T and the anchor of r), with
+    A discrete P(Z) is the linearisation. So is a wide one while the change is small (within
+    PREDICT_LIN_TOL, PREDICT_LIN_DZ and PREDICT_LIN_ZERO); beyond, it is corrected at the new
+    inputs: one Newton step of g from the linear Z* (g' = -1/sigma^2, sigma linear), then Gamma
+    and Lambda at Z* + 1/2, as solve averages a wide P(Z). alpha_rec (if r has one): a discrete
+    P(Z) moves ln alpha_i along its sensitivities; a wide one scales r's alpha (fitted or not) by
+    the change of its Gaussian estimate, as refine_recombination reuses a fit. Returns a result
+    dict like solve's (Lambda including the autoionisation, the d/d ln T and the anchor of r), with
     "predicted" True."""
     an = r["anchor"]
     N_g = np.asarray(N_g, float)
@@ -1333,19 +1337,25 @@ def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape
     alpha = r.get("alpha_rec")
     if not r["discrete"]:
         gt = an["table"]
-        gt._set_cell(N_g, c_red, T, ne, ions, G0_bg)
-        zl, sl = out["Zstar"], out["Zsigma"]
-        zs = min(max(zl + sl * sl * gt._g(zl), gt.t["Zmin"]), gt.t["Zmax"] - 1.0)
-        # neither end may come near the kink of g at zero charge, or cross it
-        z0, z1 = r["Zstar"] + 0.5, zs + 0.5
-        if z0 * z1 <= 0.0 or min(abs(z0), abs(z1)) < PREDICT_WIDE_ZERO + 0.5:
-            return None
-        if abs(z1 - z0) > max(1.0, PREDICT_WIDE_DZ * r["Zsigma"]):
-            return None
-        out["Gamma"], out["Lambda"] = gt._heating_cooling(zs + 0.5)
-        out["Zstar"], out["Zmean"] = zs, zs + 0.5
+        z0, z1 = r["Zstar"] + 0.5, out["Zstar"] + 0.5
+        linear = (max(abs(dS), abs(dN), abs(dT)) <= PREDICT_LIN_TOL and z0 * z1 > 0.0
+                  and min(abs(z0), abs(z1)) >= PREDICT_LIN_ZERO + 0.5
+                  and abs(z1 - z0) <= max(1.0, PREDICT_LIN_DZ * r["Zsigma"]))
+        if not linear or alpha is not None:
+            gt._set_cell(N_g, c_red, T, ne, ions, G0_bg)
+        if not linear:
+            zl, sl = out["Zstar"], out["Zsigma"]
+            zs = min(max(zl + sl * sl * gt._g(zl), gt.t["Zmin"]), gt.t["Zmax"] - 1.0)
+            # neither end may come near the kink of g at zero charge, or cross it
+            z1 = zs + 0.5
+            if z0 * z1 <= 0.0 or min(abs(z0), abs(z1)) < PREDICT_WIDE_ZERO + 0.5:
+                return None
+            if abs(z1 - z0) > max(1.0, PREDICT_WIDE_DZ * r["Zsigma"]):
+                return None
+            out["Gamma"], out["Lambda"] = gt._heating_cooling(zs + 0.5)
+            out["Zstar"], out["Zmean"] = zs, zs + 0.5
         if alpha is not None:
-            alpha = alpha * np.exp(gt._recombination_gauss(zs, sl) - an["lg"])
+            alpha = alpha * np.exp(gt._recombination_gauss(out["Zstar"], out["Zsigma"]) - an["lg"])
     elif alpha is not None:
         alpha = alpha * np.exp(r["dlnalpha_dlnS"] * dS + r["dlnalpha_dlnN"] * dN + r["dlnalpha_dlnT"] * dT)
     out["alpha_rec"] = alpha

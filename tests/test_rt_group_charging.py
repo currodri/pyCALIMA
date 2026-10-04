@@ -521,6 +521,23 @@ def test_prediction_of_a_wide_distribution_is_corrected_at_the_new_inputs(tables
     np.testing.assert_allclose(p["alpha_rec"], q["alpha_rec"], rtol=1e-4)
 
 
+def test_small_change_of_a_wide_distribution_is_the_linearisation(tables):
+    """Within PREDICT_LIN_TOL and a shift below max(1, PREDICT_LIN_DZ sigma), a wide P(Z) is not
+    corrected: Gamma and Lambda are the anchor's plus its sensitivities times the changes."""
+    rg, gt, N = _predictor_cell(tables, 1e-5)
+    T, ne = 8e3, 30.0
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None, sens=True)
+    assert not r["discrete"]
+    eps = 0.01
+    ne1 = ne * np.exp(0.7 * eps)
+    p = rg.predict(r, N * np.exp(eps), C, T * np.exp(-eps), ne1, [(ne1, 1.0, M_P)])
+    assert p is not None and abs(p["Zstar"] - r["Zstar"]) <= max(1.0, rg.PREDICT_LIN_DZ * r["Zsigma"])
+    dS = np.log(float((N * np.exp(eps)) @ r["anchor"]["k_star"]) / float(N @ r["anchor"]["k_star"]))
+    for k in ("Gamma", "Lambda"):
+        lin = _total(r, k) + r[f"d{k}_dlnS"] * dS + r[f"d{k}_dlnN"] * 0.7 * eps - r[f"d{k}_dlnT"] * eps
+        assert p[k] == pytest.approx(lin, rel=1e-12)
+
+
 def test_prediction_of_a_wide_distribution_is_refused_beyond_its_width(tables):
     """A change that would move the wide P(Z) by ~7.5 charges, more than sigma: solve again."""
     rg, gt, N = _predictor_cell(tables, 1e-5)
