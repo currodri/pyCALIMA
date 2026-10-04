@@ -472,14 +472,17 @@ def test_prediction_error_falls_as_the_square_of_the_change(tables, a, eps0):
     the wide P(Z) of the larger grain (dZ/d ln T ~ -90) within what predict accepts."""
     rg, gt, N = _predictor_cell(tables, a)
     T, ne = 8e3, 30.0
-    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None, sens=True)
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", sens=True)
     miss = []
     for eps in (eps0, eps0 / 2):
         N1, T1, ne1 = N * np.exp(eps), T * np.exp(-eps), ne * np.exp(0.7 * eps)
         p = rg.predict(r, N1, C, T1, ne1, [(ne1, 1.0, M_P)])
         assert p is not None
-        q = gt.solve(N1, C, T1, ne1, [(ne1, 1.0, M_P)], recomb=None)
-        miss.append(max(abs(p[k] - _total(q, k)) / abs(_total(q, k)) for k in ("Gamma", "Lambda")))
+        q = gt.solve(N1, C, T1, ne1, [(ne1, 1.0, M_P)], recomb="gauss")
+        m = [abs(p[k] - _total(q, k)) / abs(_total(q, k)) for k in ("Gamma", "Lambda")]
+        if q["discrete"]:          # a wide P(Z) takes alpha at the linear sigma: first order, ~1e-6 here
+            m.append(np.max(np.abs(p["alpha_rec"] / q["alpha_rec"] - 1)))
+        miss.append(max(m))
     assert miss[0] < 0.02
     assert miss[1] < miss[0] / 2.5
 
@@ -499,12 +502,45 @@ def test_prediction_is_refused_beyond_its_tolerances(tables):
     assert rg.predict(r, N * np.exp(0.05), C, T * np.exp(0.05), ne, ions) is not None
 
 
-def test_prediction_of_a_wide_distribution_is_refused_beyond_a_fraction_of_its_width(tables):
-    """The larger grain's wide P(Z) would move by ~3.7 charges (> max(1, sigma/4)): solve again."""
+def test_prediction_of_a_wide_distribution_is_corrected_at_the_new_inputs(tables):
+    """The larger grain's wide P(Z) moves by ~3.7 charges: the linear Z* is corrected by a Newton
+    step of g and Gamma, Lambda and the recombination are evaluated there, so the prediction
+    matches the solve far better than the linearisation would."""
+    rg, gt, N = _predictor_cell(tables, 1e-5)
+    T, ne = 8e3, 30.0
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", sens=True)
+    assert not r["discrete"]
+    eps = 0.04
+    N1, T1, ne1 = N * np.exp(eps), T * np.exp(-eps), ne * np.exp(0.7 * eps)
+    p = rg.predict(r, N1, C, T1, ne1, [(ne1, 1.0, M_P)])
+    q = gt.solve(N1, C, T1, ne1, [(ne1, 1.0, M_P)], recomb="gauss")
+    assert p is not None and abs(p["Zstar"] - r["Zstar"]) > 3.0
+    assert p["Zmean"] == pytest.approx(q["Zmean"], abs=1e-3)
+    for k in ("Gamma", "Lambda"):
+        assert p[k] == pytest.approx(_total(q, k), rel=1e-5)
+    np.testing.assert_allclose(p["alpha_rec"], q["alpha_rec"], rtol=1e-4)
+
+
+def test_prediction_of_a_wide_distribution_is_refused_beyond_its_width(tables):
+    """A change that would move the wide P(Z) by ~7.5 charges, more than sigma: solve again."""
     rg, gt, N = _predictor_cell(tables, 1e-5)
     T, ne = 8e3, 30.0
     r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None, sens=True)
-    assert not r["discrete"]
-    eps = 0.04
+    assert not r["discrete"] and r["Zsigma"] < 7.0
+    eps = 0.08
     ne1 = ne * np.exp(0.7 * eps)
     assert rg.predict(r, N * np.exp(eps), C, T * np.exp(-eps), ne1, [(ne1, 1.0, M_P)]) is None
+
+
+def test_recombination_sensitivities_match_central_differences(tables):
+    """sens=True with a recombination on a discrete P(Z) gives d ln alpha_i / d ln S, N, T."""
+    rg, gt, N = _predictor_cell(tables, 1e-6)
+    T, ne, h = 8e3, 30.0, 1e-3
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", sens=True)
+    assert r["discrete"] and np.all(r["alpha_rec"] > 0)
+    runs = {"S": lambda s: gt.solve(N * s, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss"),
+            "N": lambda s: gt.solve(N, C, T, ne * s, [(ne * s, 1.0, M_P)], recomb="gauss"),
+            "T": lambda s: gt.solve(N, C, T * s, ne, [(ne, 1.0, M_P)], recomb="gauss")}
+    for key, run in runs.items():
+        fd = (np.log(run(np.exp(h))["alpha_rec"]) - np.log(run(np.exp(-h))["alpha_rec"])) / (2 * h)
+        np.testing.assert_allclose(r[f"dlnalpha_dln{key}"], fd, rtol=1e-3, atol=1e-6)

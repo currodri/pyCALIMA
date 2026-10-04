@@ -1062,7 +1062,7 @@ class GroupChargingTable:
             tau_e = self.a * KB_CGS * self.cell["T"] / E_STATC ** 2
             dlam += out["Lambda_auto"] * (c[0] + 0.5 + _ds87_J_dlnT(Z[0], -1.0, tau_e)[1])
         return dict(dZmean_dlnT=dmean, dZsigma_dlnT=0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0,
-                    dGamma_dlnT=P @ (c * gam), dLambda_dlnT=dlam)
+                    dGamma_dlnT=P @ (c * gam), dLambda_dlnT=dlam, dlnP_dlnT=c)
 
     def charge_distribution(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None):
         """The charge part of a cold solve: Zstar, discrete, Zmean, Zsigma and the charge nodes and
@@ -1154,7 +1154,11 @@ class GroupChargingTable:
         autoionisation with N. Discrete P(Z): d ln P(Z_k) is the cumulative sum of
         d ln Up(Z_j) - d ln Down(Z_j + 1), centred on its mean (as _dlnT_discrete). Wide: the root
         moves by -(dg/dtheta)/(dg/dZ), with dg/dZ = -1/sigma^2, sigma by the change of that slope
-        across the pair Z* -+ 1/2, and Gamma, Lambda (at Z* + 1/2) along their slope in Z."""
+        across the pair Z* -+ 1/2, and Gamma, Lambda (at Z* + 1/2) along their slope in Z.
+        With a recombination (alpha_rec) and a discrete P(Z), also d ln alpha_i / d ln S, N, T:
+        alpha_i is sum P A over the charges at or below Zth_i, P moving as above and the capture
+        rate A ~ T^1/2 J~(Z, 1) also with T. A wide P(Z) needs none: predict evaluates its
+        Gaussian estimate again."""
         a = self.a
         mK, mKb = getattr(self, "_mK", None), getattr(self, "_mKb", None)
         res = {}
@@ -1177,6 +1181,20 @@ class GroupChargingTable:
                 res[f"dZsigma_dln{key}"] = 0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0
                 res[f"dGamma_dln{key}"] = P @ (c * gam) + fgam * (P @ gam)
                 res[f"dLambda_dln{key}"] = dlam
+                res[f"_c{key}"] = c
+            if out.get("alpha_rec") is not None:
+                A = self._capture_z1(Z)
+                tau = a * KB_CGS * self.cell["T"] / E_STATC ** 2
+                dlnA = np.array([0.5 + _ds87_J_dlnT(z, 1.0, tau)[1] for z in Z])
+                cT = np.asarray(out["dlnP_dlnT"], float)
+                for key, c in (("S", res["_cS"]), ("N", res["_cN"]), ("T", cT + dlnA)):
+                    d = np.zeros(len(RECOMB_IONS))
+                    for j, z in enumerate(self.t["recomb_Zth"]):
+                        wj = P * A * np.clip(z + 1.0 - Z, 0.0, 1.0)       # _recombination, h = 1
+                        if wj.sum() > 0:
+                            d[j] = (wj @ c) / wj.sum()
+                    res[f"dlnalpha_dln{key}"] = d
+            del res["_cS"], res["_cN"]
             return res
         Zs, sigma = out["Zstar"], out["Zsigma"]
 
@@ -1197,14 +1215,19 @@ class GroupChargingTable:
         return res
 
     def _anchor(self, out):
-        """What predict needs from this solve: the inputs, and the per-group photoemission kernel
-        at Z* (the change of the photoemission rate there is the S of the linearisation)."""
+        """What predict needs from this solve: the inputs, the per-group photoemission kernel
+        at Z* (the change of the photoemission rate there is the S of the linearisation), this
+        table (the correction of a wide P(Z)) and, with a recombination, the Gaussian estimate of
+        a wide P(Z) (the change of which scales its alpha)."""
         N_g, c_red, ne, ions, G0_bg = self._inputs
         i, w = self._u_index(out["Zstar"] * E2_EV_CM / self.a)
         mK, mKb = getattr(self, "_mK", None), getattr(self, "_mKb", None)
+        lg = None
+        if not out["discrete"] and out.get("alpha_rec") is not None:
+            lg = self._recombination_gauss(out["Zstar"], out["Zsigma"])
         return dict(N_g=np.array(N_g, float), c_red=float(c_red), T=self.cell["T"], ne=float(ne), G0_bg=float(G0_bg),
                     n_ion=np.array([n for n, _, _ in ions], float), k_star=np.array(self._kern(self.Kg, mK, i, w), float),
-                    kbg_star=float(self._kern(self.t["K_bg"], mKb, i, w)))
+                    kbg_star=float(self._kern(self.t["K_bg"], mKb, i, w)), table=self, lg=lg)
 
 
 def _log_ndtr(x):
@@ -1251,8 +1274,8 @@ def _ds87_lambda_dlnT(Z, tau):
 
 PREDICT_TOL = 0.2          # predict: largest |d ln S|, |d ln N|, |d ln T| and residual of the ion densities
 PREDICT_TOL_SHAPE = 0.3    # predict: largest change of a group's photon density beyond d ln S
-PREDICT_WIDE_ZERO = 1.0    # predict: no prediction of a wide P(Z) with |Z* + 1/2| below this (kink of the cooling)
-PREDICT_WIDE_DZ = 0.25     # predict: no prediction moving the Z* of a wide P(Z) by more than max(1, this x sigma)
+PREDICT_WIDE_ZERO = 0.5    # predict: no prediction of a wide P(Z) with |Z* + 1/2| within this + 1/2 of zero (kink of g)
+PREDICT_WIDE_DZ = 1.0      # predict: no prediction moving the Z* of a wide P(Z) by more than max(1, this x sigma)
 
 
 def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape=PREDICT_TOL_SHAPE):
@@ -1263,10 +1286,16 @@ def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape
     beyond d ln N, exceeds tol, if a group's photon density changed by more than tol_shape
     beyond d ln S, if the predicted sigma is on the other side of SIGMA_DISCRETE than r's (a
     change of the closure), or if, for a wide P(Z), Z* + 1/2 of r or of the prediction comes
-    within PREDICT_WIDE_ZERO + 1/2 of the kink of the cooling at zero charge (r's slopes span
-    [Z*, Z* + 1]) or the two are on either side of it, or the prediction moves Z* by more than
-    max(1, PREDICT_WIDE_DZ sigma). Returns a result dict like solve's (Lambda including the
-    autoionisation, the d/d ln T and the anchor of r), with "predicted" True."""
+    within PREDICT_WIDE_ZERO + 1/2 of the kink of g at zero charge or the two are on either side
+    of it, or the prediction moves Z* by more than max(1, PREDICT_WIDE_DZ sigma).
+
+    A discrete P(Z) is the linearisation. A wide one is corrected at the new inputs: one Newton
+    step of g from the linear Z* (g' = -1/sigma^2, sigma linear), then Gamma and Lambda at
+    Z* + 1/2, as solve averages a wide P(Z). alpha_rec (if r has one): a discrete P(Z) moves
+    ln alpha_i along its sensitivities; a wide one scales r's alpha (fitted or not) by the change
+    of its Gaussian estimate, as refine_recombination reuses a fit. Returns a result dict like
+    solve's (Lambda including the autoionisation, the d/d ln T and the anchor of r), with
+    "predicted" True."""
     an = r["anchor"]
     N_g = np.asarray(N_g, float)
     P0 = an["c_red"] * float(an["N_g"] @ an["k_star"]) + an["G0_bg"] * an["kbg_star"]
@@ -1301,15 +1330,25 @@ def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape
     out["Zstar"] = r["Zstar"] + (out["Zmean"] - r["Zmean"])
     if (out["Zsigma"] < SIGMA_DISCRETE) != r["discrete"]:
         return None
+    alpha = r.get("alpha_rec")
     if not r["discrete"]:
-        # a wide P(Z) is averaged at Z* + 1/2 and its slopes taken over [Z*, Z* + 1]: neither end
-        # may come near the kink of the cooling at zero charge, or cross it
-        z0, z1 = r["Zstar"] + 0.5, out["Zstar"] + 0.5
+        gt = an["table"]
+        gt._set_cell(N_g, c_red, T, ne, ions, G0_bg)
+        zl, sl = out["Zstar"], out["Zsigma"]
+        zs = min(max(zl + sl * sl * gt._g(zl), gt.t["Zmin"]), gt.t["Zmax"] - 1.0)
+        # neither end may come near the kink of g at zero charge, or cross it
+        z0, z1 = r["Zstar"] + 0.5, zs + 0.5
         if z0 * z1 <= 0.0 or min(abs(z0), abs(z1)) < PREDICT_WIDE_ZERO + 0.5:
             return None
-        # beyond a fraction of the width, the rates' curvature in Z makes the linearisation drift
         if abs(z1 - z0) > max(1.0, PREDICT_WIDE_DZ * r["Zsigma"]):
             return None
+        out["Gamma"], out["Lambda"] = gt._heating_cooling(zs + 0.5)
+        out["Zstar"], out["Zmean"] = zs, zs + 0.5
+        if alpha is not None:
+            alpha = alpha * np.exp(gt._recombination_gauss(zs, sl) - an["lg"])
+    elif alpha is not None:
+        alpha = alpha * np.exp(r["dlnalpha_dlnS"] * dS + r["dlnalpha_dlnN"] * dN + r["dlnalpha_dlnT"] * dT)
+    out["alpha_rec"] = alpha
     for k in ("dZmean_dlnT", "dZsigma_dlnT", "dGamma_dlnT", "dLambda_dlnT"):
         out[k] = r[k]
     return out

@@ -195,7 +195,7 @@ def main():
         worst_served = {k: 0.0 for k in KEYS[:4]}
         worst_tab = {k: 0.0 for k in KEYS[:4]}
         worst_sens = {k: 0.0 for k in SENS}
-        worst_pred = {k: 0.0 for k in KEYS[:6]}
+        worst_pred = {k: 0.0 for k in KEYS[:6] + ("alpha",)}
         npath = np.zeros(5, int)
         nchk = ndisc = nfit = nmis_disc = nmis_fit = 0
         nref = nmis_ref = nmis_pred = 0
@@ -206,9 +206,13 @@ def main():
             return [(r["n_Hp"], 1.0, r["m_H"]), (r["n_Hep"], 1.0, r["m_He"]), (r["n_Hepp"], 2.0, r["m_He"])]
 
         def solve_full(r):
-            return table(r["bin"], r["egy"]).solve(r["Np"], r["c_red"], r["T"], r["ne"], ions_of(r), G0_bg=r["G0_bg"],
-                                                   Z_guess=r["Z_guess"], recomb="gauss", warm=warm_dict(r["warm"]),
-                                                   dlnT=DLNT, sens=r["out"]["sens"])
+            """The full solve of a dumped call, refined where RAMSES refined it (its importance
+            gate), so that a predictor anchor carries the same alpha."""
+            gt_, warm_ = table(r["bin"], r["egy"]), warm_dict(r["warm"])
+            py_ = gt_.solve(r["Np"], r["c_red"], r["T"], r["ne"], ions_of(r), G0_bg=r["G0_bg"], Z_guess=r["Z_guess"],
+                            recomb="gauss", warm=warm_, dlnT=DLNT, sens=r["out"]["sens"])
+            py_["fitted"] = gt_.refine_recombination(py_, warm_) if r["out"]["refined"] else False
+            return py_
 
         def predicted(an, r):
             """rt_group_charging.predict at r's inputs from anchor an = [row, its Python solve or None]."""
@@ -238,11 +242,10 @@ def main():
                     if (k0 - 1) % args.stride:
                         last.pop((d, r["bin"]), None)
                         continue
-                    warm = warm_dict(r["warm"])
                     py = solve_full(r)
+                    fitted = py["fitted"]
                     if o["sens"]:
                         an[1] = py
-                    fitted = gt.refine_recombination(py, warm) if o["refined"] else False   # RAMSES' gate (solve_cell)
                     last[(d, r["bin"])] = py
                     nchk += 1
                     ndisc += int(o["discrete"])
@@ -281,6 +284,10 @@ def main():
                         continue
                     last[(d, r["bin"])] = py                     # the T +- 1e-5 calls it serves
                     for k in worst_pred:
+                        if k == "alpha":
+                            if o["alpha"].any():                 # the run has the grain recombination
+                                worst_pred[k] = max(worst_pred[k], rel(py["alpha_rec"], o["alpha"]))
+                            continue
                         worst_pred[k] = max(worst_pred[k], rel(py[k], o[k], 1.0 if k in ("Zmean", "Zstar") else 0.0))
                 elif r["path"] == 2:
                     py = last.get((d, r["bin"]))
