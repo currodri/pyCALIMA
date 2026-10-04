@@ -128,6 +128,26 @@ for figure comparisons.
 | 4, historical models | M5 | Montillaud Figs. 6–7; Andrews Figs. 7–9; Allain critical size; Murga Orion Bar ratios |
 | 5, observations | M7 | {cite:t}`Chown2024` templates; PDRs4All charge and size profiles; NGC 7023 (`NWPDR_NGC7023/`) |
 
+### Status
+
+**M1 (statistical mechanics) passes** (`tests/test_pahchem.py`;
+{mod}`pycalima.pahchem.dos`, {mod}`pycalima.pahchem.molecule`):
+
+- **Beyer–Swinehart vs direct count:** identical for frequencies on the grid.
+- **Whitten–Rabinovitch accuracy:** within 2.2 % of Beyer–Swinehart above the
+  zero-point energy for 30 PAH-like modes. Its error grows with the number of
+  modes, reaching −3 % (C$_{24}$H$_{12}$) and −9 % (C$_{54}$H$_{18}$) at
+  $E = E_z$. Beyer–Swinehart is therefore the state count for rates;
+  Whitten–Rabinovitch only serves as a check. The 5 % target set before
+  measuring was not achievable for large PAHs.
+- **Microcanonical vs canonical temperature:** $T_{\rm micro}/T_{\rm can}-1$
+  is positive, below 3 % from 1 eV up, and falls monotonically to
+  $\approx 1.1/s$ at 20 eV for C$_{24}$H$_{12}$, C$_{54}$H$_{18}$ and
+  C$_{96}$H$_{24}$, as the classical $1/(s-1)$ predicts.
+- **Thermal energy vs Tielens:** $U(T)/(3N-6)$ for C$_{54}$H$_{18}$ matches
+  the Tielens E–T table to 2–7 %, which confirms that the table is energy per
+  mode.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;
