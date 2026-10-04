@@ -1,0 +1,91 @@
+# Method card: Andrews, Candian & Tielens 2016, A&A 595, A23.
+#
+# Every input of the published model, as the paper states it. Each value has a
+# `source` (section, table or equation of the paper) and a `confidence`:
+# A experiment, B benchmarked theory, C theory, D extrapolation,
+# E assumption. "unspecified" marks what the paper does not give; those are the
+# places a reproduction is free to differ and must say what it chose.
+
+[card]
+name = "Andrews2016"
+bib_key = "Andrews2016"
+citation = "Andrews, Candian & Tielens 2016, A&A 595, A23"
+read_from = "journal PDF, all sections and Appendices A-D"
+status = "draft"
+
+[species]
+parents = ["C24H12", "C54H18", "C96H24"]
+nh_range = "0 to NH0 + 4"                        # Sect. 2
+charges = "every state with IP < 13.6 eV; Z = -1 (C24, C54), Z = -2 (C96)"  # Fig. 4
+source = "Sect. 2, Sect. 2.3.1, Fig. 4"
+
+[environment]
+pdr_code = "Meudon PDR code 1.4.4, isobaric, P = 7e6 K cm^-3"   # Table 1
+g0_habing = { value = 2600.0, unit = "Habing", source = "Table 1", confidence = "E" }
+star = "binary, two Kurucz 15000 K atmospheres"                  # Sect. 2.2
+e_max = { value = 13.6, unit = "eV", source = "Sect. 2", confidence = "E" }
+targets_profile = "Fig. 3 (n, T, G0/n(H), gamma vs A_V)"
+
+[absorption]
+sigma_uv = "Malloci+2007 (C24H12, C54H18); C96H24 = C54H18 scaled by NC; dehydrogenated coronene from Malloci+2008; other states: closest NH, same Z"
+source = "Sect. 2.3.2"
+confidence = "C"
+
+[ionisation]
+yield = "Jochims+1996: linear from IP, unity above IP + 9.2 eV"   # Sect. 2.3.2
+rate = "k_ion = int_IP^Emax sigma_UV Y_ion n(E) dE"                # eq. 2
+ip_parent = "Table A.1 (Tobita+1994, Malloci+2007, BT94 conducting disc)"
+delta_ip_per_missing_h = { value = 0.1, unit = "eV", source = "eq. 1, Malloci+2008", confidence = "D" }
+electron_energy_removed_from_internal_energy = "unspecified"
+
+[ir_cooling]
+method = "thermal approximation, k_IR = 4 pi sum_i sigma_i B(nu_i, T(E)) / E"   # eq. 3
+t_of_e = "from Cv(T) of each molecule (Bakes+2001)"
+modes = "PAHdb or own B3LYP/4-31G, scaled 0.958 (0.9097 for CC triple bonds); closest NH, same Z when missing"
+source = "Sect. 2.3.3, Sect. 2.4.3, Tables A.2-A.4"
+recurrent_fluorescence = "neglected (Sect. 2.4.3)"
+
+[dissociation]
+rate_form = "Arrhenius (Tielens 2005), k = e (kT_e/h) exp(dS/R) exp(-E_act/kT_e)"
+source = "Sect. 2.4.3, Table 2"
+h_loss_even = { E_act = 4.6, dS_J_K_mol = 44.8, source = "Table 2, Ling+1995 pyrene+", confidence = "D" }
+h_loss_odd = { E_act = 4.1, dS_J_K_mol = 55.6, source = "Table 2, Ling+1995 pyrene+", confidence = "D" }
+h2_loss_even = { E_act = 3.52, dS_J_K_mol = -53.1, source = "Table 2, Ling+1995 pyrene+", confidence = "D" }
+h_loss_superh_Zle0 = { E_act = 1.4, dS_J_K_mol = 55.6, source = "Table 2, Bauschlicher & Ricca 2014", confidence = "C" }
+h_loss_superh_Zgt0 = { E_act = 1.55, dS_J_K_mol = 55.6, source = "Table 2, Bauschlicher & Ricca 2014", confidence = "C" }
+loss_order = "duo H first, then solo H one by one; H2 only from a duo ring, even NH, while duo H remain"
+superh_h2_loss = "not photolytic; Eley-Rideal abstraction instead"
+c_loss = "not modelled"
+
+[cascade]
+# The definition that previous reproductions got wrong (pahchem-spec.md, M0 audit).
+temperature_pdf = "G_n(T): Bakes+2001 Poisson cooling, iterated over n photons (eqs. 4-6)"
+channel_average = "k_i = int k_i(T) G_n(T) dT  (eq. 7), no dissociation sink"
+branching = "P_i = k_i / k_tot, k_tot = k_H + k_H2 + k_IR  (eq. 8)"
+network_rate = "r_abs * P_i  (Sect. 2.4.3, last paragraph)"
+fig6_and_tableB_quantity = "k_i of eq. 7, NOT the network rate r_abs * P_i"
+fig6_evidence = "reproduced within 0.06-0.25 dex by the sink-free cascade integral; see diagnostics/pahchem/check_andrews16_tableB_definition.py"
+choice_of_n_and_Ti = "unspecified"
+
+[electrons]
+recombination = "BT94 collisional, k = n_e s_e (8kT/pi m_e)^1/2 pi a^2 J~ (DS87), a = 0.9e-8 sqrt(NC) cm, x0.82 disc correction"  # eq. A.1
+sticking_cations = { value = 1.0, source = "App. A.3", confidence = "E" }
+sticking_neutrals = "Allamandola+1989 with Cagliari polarisabilities; C96 extrapolated; s_e -> 1 for EA >~ 1 eV"
+ea = "Table A.1; delta EA = delta IP per missing H"
+anion_h_addition = "associative detachment: PAH(-1, NH) + H -> PAH(0, NH+1) + e, k = 7.8e-10 cm^3 s^-1 (Demarais+2012)"
+dissociative_recombination = "explored, found unimportant except superhydrogenated coronene cations"
+
+[hydrogen]
+cation_addition = { value = 1.4e-10, unit = "cm^3 s^-1", source = "Sect. 2.4.4, Le Page+1997, Betts+2006", confidence = "A" }
+neutral_addition = "geometric cross section with Rauls & Hornekaer 2008 barriers: 0.06, 0, 0.03-0.04 eV for extra H 1-3, none up to 8"
+neutral_dehydrogenated_addition = { efficiency = 0.07, source = "Sect. 2.4.4, Demarais+2014", confidence = "D" }
+eley_rideal_abstraction = { value = 8.7e-13, unit = "cm^3 s^-1 * sqrt(T/100)", source = "eq. 10, sigma = 0.06 A^2 (Mennella+2012)", confidence = "A" }
+h2_addition = "not modelled"
+solver = "steady state, Newton-Raphson, per slab (App. C)"
+
+[targets]
+fig5 = "k_IR(E), k_H(E), k_H2(E) for C24H11/12/13, C54H17/18/19, C96H23/24/25 (digitised: H-loss_*_Andrews16.csv, kIR_*)"
+fig6 = "k_i(G0) of eq. 7 (Table B); NOT network rates"
+fig7 = "C54 NH fractions vs A_V in NGC 7023 NW (digitised: NWPDR_NGC7023/Nh_circumcoronene.csv)"
+fig8 = "charge fractions vs gamma (digitised: C*HN_*_andrews16.csv)"
+fig9 = "hydrogenation map"

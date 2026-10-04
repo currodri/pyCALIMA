@@ -80,4 +80,6 @@ grain-collisions
 charging-heating
 pah
 radiation
+pahchem-spec
+pahchem-data-requests
 ```

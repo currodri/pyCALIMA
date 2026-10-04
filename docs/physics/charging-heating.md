@@ -258,7 +258,7 @@ uses the interpolator.
 `models/PAH_charge/PAH_photoelectric_heating.py` follows {cite:t}`Berne2022`
 and tracks four charge states ($Z=-1,0,1,2$) of a PAH with $N_{\rm C}$ carbon
 atoms and radius $a=(N_{\rm C}/468)^{1/3}$ nm
-(`models/PAH_charge/PAH_photoelectric_heating.py:890`). The ionisation
+(`models/PAH_charge/PAH_photoelectric_heating.py:894`). The ionisation
 potential is ${\rm IP}=3.9\ {\rm eV}+(e/4\pi\epsilon_0)[(Z+\tfrac12)/a+(Z+2)(0.03\,{\rm nm})/a^2]$
 for $Z\neq-1$, and 6.0 eV for $Z=-1$
 (`models/PAH_charge/PAH_photoelectric_heating.py:187`–`189`)
@@ -272,14 +272,14 @@ P_{\rm inj}=2\pi\!\int_{\rm IP}^{13.6}\!(E-{\rm IP})Y\sigma\frac{I}{E}dE,\quad
 P_{\rm abs}=2\pi\!\int^{13.6}\!\sigma I\,dE
 $$ (eq-pah-rates)
 
-(`models/PAH_charge/PAH_photoelectric_heating.py:548`, `565`, `583`,
-`895`–`914`). Here $I$ is in W m$^{-2}$ eV$^{-1}$ and $\sigma$ in m$^2$; $k$
+(`models/PAH_charge/PAH_photoelectric_heating.py:548`, `586`, `604`,
+`899`–`918`). Here $I$ is in W m$^{-2}$ eV$^{-1}$ and $\sigma$ in m$^2$; $k$
 is converted to s$^{-1}$ with the factor $6.2415\times10^{18}$ eV J$^{-1}$
 (`models/PAH_charge/PAH_photoelectric_heating.py:548`), and the powers to
-erg s$^{-1}$ with $10^7$ (`models/PAH_charge/PAH_photoelectric_heating.py:994`–`1001`). The
+erg s$^{-1}$ with $10^7$ (`models/PAH_charge/PAH_photoelectric_heating.py:985`–`992`). The
 neutral and cation $P_{\rm inj}$ are multiplied by a partition coefficient of
 0.46 {cite:p}`Brechignac2014` (`models/PAH_charge/PAH_photoelectric_heating.py:81`,
-`908`–`909`).
+`912`–`913`).
 
 Two models set the electron-capture rates, selected by `attach_model`. In
 `Berne`, attachment follows {cite:t}`Carelli2013`,
@@ -289,27 +289,23 @@ $\phi=1.85\times10^5/(T\sqrt{N_{\rm C}})$. In `Tielens`, attachment is
 $1.3\times10^{-7}\sqrt{N_{\rm C}}$ {cite:p}`Tielens2005` and recombination is
 $1.3\times10^{-6}\sqrt{N_{\rm C}}\sqrt{300/T}$ {cite:p}`Tielens2021`
 (`models/PAH_charge/PAH_photoelectric_heating.py:293`–`343`). The code solves
-the four-state balance for the fractions $f_Z$ and forms three outputs:
+the four-state balance for the fractions $f_Z$ in
+`four_state_charge_fractions`, from detailed balance between neighbouring
+states ($f_{-1}k_{\rm det}=f_0k_{\rm att}n_e$,
+$f_Zk_{{\rm pe},Z}=f_{Z+1}k_{{\rm rec},Z+1}n_e$), and forms three outputs:
 
 - $P_{\rm inj}=\sum f_ZP_{{\rm inj},Z}$ and $P_{\rm abs}=\sum f_ZP_{{\rm abs},Z}$,
   in erg s$^{-1}$;
 - the efficiency $\epsilon=P_{\rm inj}/P_{\rm abs}$;
 - recombination cooling with $\tfrac32kT$ per captured electron.
 
-(`models/PAH_charge/PAH_photoelectric_heating.py:978`–`1006`.)
-
-:::{note}
-The last term of $f_2$ divides by $k_{\rm det}k_{\rm pe,0}k_{\rm pe,0}$
-(`models/PAH_charge/PAH_photoelectric_heating.py:989`). The other three
-fractions imply $k_{\rm det}k_{\rm pe,0}k_{\rm pe,1}$. Renormalising afterwards
-does not remove this inconsistency.
-:::
+(`models/PAH_charge/PAH_photoelectric_heating.py:982`–`997`.)
 
 The exporter does not scale the field. $G_0$ is the field's own integral,
 $2\pi\int_{5.17}^{13.6}I\,dE/1.68\times10^{-6}$
-(`models/PAH_charge/PAH_photoelectric_heating.py:882`). $\gamma$ is swept by
+(`models/PAH_charge/PAH_photoelectric_heating.py:886`). $\gamma$ is swept by
 varying $n_e$ at one fixed $T$ (1000 K in the shipped configuration), and
-$\gamma=G_0\sqrt T/n_e$ (`models/PAH_charge/PAH_photoelectric_heating.py:1658`).
+$\gamma=G_0\sqrt T/n_e$ (`models/PAH_charge/PAH_photoelectric_heating.py:1632`).
 The `G0` export parameter is recorded in `index.json` but is not passed to the
 calculation.
 
