@@ -423,3 +423,87 @@ def test_psi_table_reproduces_the_solve_at_its_nodes_and_round_trips(tables, tmp
     ref = cpt.psi_lookup(pt, T, ne, G_lo, h, 0.0, hE1, hE2)
     assert low["Zmean"] == pytest.approx(ref["Zmean"])
     assert low["Gamma"] == pytest.approx(1e-3 * ref["Gamma"])
+
+
+def _total(q, key):
+    return q[key] + (q.get("Lambda_auto", 0.0) if key == "Lambda" else 0.0)
+
+
+def _predictor_cell(tables, a):
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["graphite", a]
+    N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
+    return rg, rg.GroupChargingTable(rg.read_bin_table(path), egy=egy), N
+
+
+@pytest.mark.parametrize("a", [1e-6, 1e-5])
+def test_photon_and_density_sensitivities_match_central_differences(tables, a):
+    """sens=True gives the d/d ln S (every photon density scaled) and d/d ln N (n_e and the ion
+    densities scaled) that the predictor linearises with."""
+    rg, gt, N = _predictor_cell(tables, a)
+    T, ne, h = 8e3, 30.0, 1e-3
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None, sens=True)
+    runs = {"S": lambda s: gt.solve(N * s, C, T, ne, [(ne, 1.0, M_P)], recomb=None),
+            "N": lambda s: gt.solve(N, C, T, ne * s, [(ne * s, 1.0, M_P)], recomb=None)}
+    rel = 1e-3 if r["discrete"] else 3e-2               # wide: the Gaussian closure around Z*
+    for key, run in runs.items():
+        up, dn = run(np.exp(h)), run(np.exp(-h))
+        for q in ("Zmean", "Gamma", "Lambda"):
+            fd = (_total(up, q) - _total(dn, q)) / (2 * h)
+            scale = max(abs(_total(r, q)), 1.0) if q == "Zmean" else abs(_total(r, q))
+            assert r[f"d{q}_dln{key}"] == pytest.approx(fd, rel=rel, abs=rel * scale)
+
+
+def test_prediction_of_an_unchanged_cell_is_its_anchor(tables):
+    rg, gt, N = _predictor_cell(tables, 1e-6)
+    r = gt.solve(N, C, 8e3, 30.0, [(30.0, 1.0, M_P)], recomb=None, sens=True)
+    p = rg.predict(r, N, C, 8e3, 30.0, [(30.0, 1.0, M_P)])
+    assert p is not None and p["predicted"]
+    for q in ("Zmean", "Zsigma", "Gamma"):
+        assert p[q] == r[q]
+    assert p["Lambda"] == r["Lambda"] + r["Lambda_auto"]
+
+
+@pytest.mark.parametrize("a, eps0", [(1e-6, 0.04), (1e-5, 0.01)])
+def test_prediction_error_falls_as_the_square_of_the_change(tables, a, eps0):
+    """Photons, densities and T changed together: the first-order prediction misses the solve by
+    a second-order amount (halving the change divides the miss by ~4). eps0 keeps the shift of
+    the wide P(Z) of the larger grain (dZ/d ln T ~ -90) within what predict accepts."""
+    rg, gt, N = _predictor_cell(tables, a)
+    T, ne = 8e3, 30.0
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None, sens=True)
+    miss = []
+    for eps in (eps0, eps0 / 2):
+        N1, T1, ne1 = N * np.exp(eps), T * np.exp(-eps), ne * np.exp(0.7 * eps)
+        p = rg.predict(r, N1, C, T1, ne1, [(ne1, 1.0, M_P)])
+        assert p is not None
+        q = gt.solve(N1, C, T1, ne1, [(ne1, 1.0, M_P)], recomb=None)
+        miss.append(max(abs(p[k] - _total(q, k)) / abs(_total(q, k)) for k in ("Gamma", "Lambda")))
+    assert miss[0] < 0.02
+    assert miss[1] < miss[0] / 2.5
+
+
+def test_prediction_is_refused_beyond_its_tolerances(tables):
+    rg, gt, N = _predictor_cell(tables, 1e-6)
+    T, ne = 8e3, 30.0
+    ions = [(ne, 1.0, M_P)]
+    r = gt.solve(N, C, T, ne, ions, recomb=None, sens=True)
+    assert rg.predict(r, N * np.exp(0.15), C, T, ne, ions) is None            # photoemission rate
+    assert rg.predict(r, N, C, T * np.exp(0.15), ne, ions) is None            # temperature
+    assert rg.predict(r, N, C, T, ne, [(ne * np.exp(0.15), 1.0, M_P)]) is None   # ions beyond n_e
+    shaped = N.copy()
+    shaped[np.argmax(N)] *= np.exp(0.5)                                      # one group, beyond the shape
+    assert rg.predict(r, shaped * np.exp(-0.01), C, T, ne, ions) is None
+    assert rg.predict(r, N * np.exp(0.05), C, T * np.exp(0.05), ne, ions) is not None
+
+
+def test_prediction_of_a_wide_distribution_is_refused_beyond_a_fraction_of_its_width(tables):
+    """The larger grain's wide P(Z) would move by ~3.7 charges (> max(1, sigma/4)): solve again."""
+    rg, gt, N = _predictor_cell(tables, 1e-5)
+    T, ne = 8e3, 30.0
+    r = gt.solve(N, C, T, ne, [(ne, 1.0, M_P)], recomb=None, sens=True)
+    assert not r["discrete"]
+    eps = 0.04
+    ne1 = ne * np.exp(0.7 * eps)
+    assert rg.predict(r, N * np.exp(eps), C, T * np.exp(-eps), ne1, [(ne1, 1.0, M_P)]) is None

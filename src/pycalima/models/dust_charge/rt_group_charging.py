@@ -1077,7 +1077,8 @@ class GroupChargingTable:
         return dict(Zstar=Zs, discrete=discrete, Zmean=zmean, Zsigma=zsig,
                     nodes=np.asarray(nodes, float), weights=np.asarray(weights, float))
 
-    def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None):
+    def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None,
+              sens=False):
         """Equilibrium charge and rates for one cell.
 
         N_g : photon densities per group [cm^-3]; c_red : RT speed of light
@@ -1097,6 +1098,9 @@ class GroupChargingTable:
         and the estimate of every resolved alpha moved by less than
         RECOMB_REUSE_EPS.
 
+        sens : also return the analytic d/d ln S and d/d ln N of Zmean, Zsigma, Gamma and
+        Lambda + Lambda_auto (_sensitivities) and the inputs and kernels the predictor needs
+        ("anchor"; predict), with dlnT (default 1e-5) for the T direction.
         dlnT : if given (e.g. 1e-5), also return the d/d ln T of Zmean, Zsigma,
         Gamma and Lambda + Lambda_auto (_dlnT_response), which serve the cooling
         solver's T (1 +- dlnT) calls without solving again. Returns a dict with
@@ -1133,9 +1137,74 @@ class GroupChargingTable:
                 out["recomb_ref"] = warm["recomb_ref"]       # kept for a later refine_recombination
         else:
             self.refine_recombination(out, warm)
+        if sens and dlnT is None:
+            dlnT = 1e-5
         if dlnT is not None:
             out.update(self._dlnT_response(out, pair, dlnT, chord))
+        if sens:
+            out.update(self._sensitivities(out))
+            out["anchor"] = self._anchor(out)
         return out
+
+    def _sensitivities(self, out):
+        """d/d ln S (every photon density, local and background, x e^theta) and d/d ln N (n_e and
+        every ion density x e^theta) of Zmean, Zsigma, Gamma and Lambda + Lambda_auto, analytic:
+        the predictor's linearisation (predict). Photoemission and the heating scale with S; the
+        ion capture, the gas-electron secondaries, electron capture, the cooling and the
+        autoionisation with N. Discrete P(Z): d ln P(Z_k) is the cumulative sum of
+        d ln Up(Z_j) - d ln Down(Z_j + 1), centred on its mean (as _dlnT_discrete). Wide: the root
+        moves by -(dg/dtheta)/(dg/dZ), with dg/dZ = -1/sigma^2, sigma by the change of that slope
+        across the pair Z* -+ 1/2, and Gamma, Lambda (at Z* + 1/2) along their slope in Z."""
+        a = self.a
+        mK, mKb = getattr(self, "_mK", None), getattr(self, "_mKb", None)
+        res = {}
+        if out["discrete"]:
+            Z, P = np.asarray(out["nodes"], float), np.asarray(out["weights"], float)
+            i, w = self._u_index_arr(Z * E2_EV_CM / a)
+            up = np.maximum(self._up_arr(Z, i, w), 1e-300)
+            photo = self._photo_arr(self.Kg, mK, self.t["K_bg"], mKb, i, w)
+            gam, lam = self._heating_cooling_arr(Z)
+            auto = out.get("Lambda_auto", 0.0)
+            for key, fup, fdn, fgam, flam in (("S", photo / up, 0.0, 1.0, 0.0), ("N", (up - photo) / up, 1.0, 0.0, 1.0)):
+                c = np.concatenate([[0.0], np.cumsum(fup[:-1] - fdn)])
+                c -= P @ c
+                dmean = P @ (c * Z)
+                dvar = P @ (c * Z * Z) - 2.0 * out["Zmean"] * dmean
+                dlam = P @ (c * lam) + flam * (P @ lam)
+                if auto:
+                    dlam += auto * (c[0] + flam)
+                res[f"dZmean_dln{key}"] = dmean
+                res[f"dZsigma_dln{key}"] = 0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0
+                res[f"dGamma_dln{key}"] = P @ (c * gam) + fgam * (P @ gam)
+                res[f"dLambda_dln{key}"] = dlam
+            return res
+        Zs, sigma = out["Zstar"], out["Zsigma"]
+
+        def dg(z):                     # dg/dln S, dg/dln N at charge z (up at z, down at z + 1)
+            i, w = self._u_index(z * E2_EV_CM / a)
+            up = max(self._up(z, i, w), 1e-300)
+            photo = float(self._photo_arr(self.Kg, mK, self.t["K_bg"], mKb, i, w))
+            return photo / up, (up - photo) / up - 1.0
+
+        g0, gm, gp = dg(Zs), dg(Zs - 0.5), dg(Zs + 0.5)
+        (gam_lo, gam_hi), (lam_lo, lam_hi) = self._heating_cooling_arr(np.array([Zs, Zs + 1.0]))
+        for k, key in enumerate(("S", "N")):
+            dZs = sigma * sigma * g0[k]
+            res[f"dZmean_dln{key}"] = dZs
+            res[f"dZsigma_dln{key}"] = 0.5 * sigma ** 3 * (gp[k] - gm[k])
+            res[f"dGamma_dln{key}"] = (gam_hi - gam_lo) * dZs + (out["Gamma"] if key == "S" else 0.0)
+            res[f"dLambda_dln{key}"] = (lam_hi - lam_lo) * dZs + (out["Lambda"] if key == "N" else 0.0)
+        return res
+
+    def _anchor(self, out):
+        """What predict needs from this solve: the inputs, and the per-group photoemission kernel
+        at Z* (the change of the photoemission rate there is the S of the linearisation)."""
+        N_g, c_red, ne, ions, G0_bg = self._inputs
+        i, w = self._u_index(out["Zstar"] * E2_EV_CM / self.a)
+        mK, mKb = getattr(self, "_mK", None), getattr(self, "_mKb", None)
+        return dict(N_g=np.array(N_g, float), c_red=float(c_red), T=self.cell["T"], ne=float(ne), G0_bg=float(G0_bg),
+                    n_ion=np.array([n for n, _, _ in ions], float), k_star=np.array(self._kern(self.Kg, mK, i, w), float),
+                    kbg_star=float(self._kern(self.t["K_bg"], mKb, i, w)))
 
 
 def _log_ndtr(x):
@@ -1178,6 +1247,73 @@ def _ds87_lambda_dlnT(Z, tau):
         return A * (1.0 + s), (nu / tau) / A - 0.5 * tau * s ** 3 / (1.0 + s)
     th, A, s = nu / (1.0 + 1.0 / np.sqrt(nu)), 2.0 + nu / tau, 1.0 / np.sqrt(1.5 / tau + 3.0 * nu)
     return A * (1.0 + s) * np.exp(-th / tau), (-nu / tau) / A + 0.75 * s ** 3 / tau / (1.0 + s) + th / tau
+
+
+PREDICT_TOL = 0.1          # predict: largest |d ln S|, |d ln N|, |d ln T| and residual of the ion densities
+PREDICT_TOL_SHAPE = 0.3    # predict: largest change of a group's photon density beyond d ln S
+PREDICT_SIGMA_MARGIN = 0.2   # predict: no prediction that would bring sigma this close to SIGMA_DISCRETE
+PREDICT_WIDE_ZERO = 1.0    # predict: no prediction of a wide P(Z) with |Z* + 1/2| below this (kink of the cooling)
+PREDICT_WIDE_DZ = 0.25     # predict: no prediction moving the Z* of a wide P(Z) by more than max(1, this x sigma)
+
+
+def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape=PREDICT_TOL_SHAPE):
+    """First-order prediction of a solve from an earlier one of the same cell and bin (r: a
+    solve(..., sens=True) result), or None where it must be solved again. The changes since r:
+    d ln S of the photoemission rate at r's Z* (all groups and the background, with r's
+    kernels), d ln N of n_e, d ln T; refused if one of them, or the change of the ion densities
+    beyond d ln N, exceeds tol, if a group's photon density changed by more than tol_shape
+    beyond d ln S, if the predicted sigma comes within PREDICT_SIGMA_MARGIN of SIGMA_DISCRETE
+    (a change of the closure), or if, for a wide P(Z), Z* + 1/2 of r or of the prediction comes
+    within PREDICT_WIDE_ZERO + 1/2 of the kink of the cooling at zero charge (r's slopes span
+    [Z*, Z* + 1]) or the two are on either side of it, or the prediction moves Z* by more than
+    max(1, PREDICT_WIDE_DZ sigma). Returns a result dict like solve's (Lambda including the
+    autoionisation, the d/d ln T and the anchor of r), with "predicted" True."""
+    an = r["anchor"]
+    N_g = np.asarray(N_g, float)
+    P0 = an["c_red"] * float(an["N_g"] @ an["k_star"]) + an["G0_bg"] * an["kbg_star"]
+    P1 = c_red * float(N_g @ an["k_star"]) + G0_bg * an["kbg_star"]
+    if P0 > 0.0 and P1 > 0.0:
+        dS = np.log(P1 / P0)
+    elif P0 <= 0.0 and P1 <= 0.0:
+        dS = 0.0
+    else:
+        return None
+    dN, dT = np.log(ne / an["ne"]), np.log(T / an["T"])
+    if max(abs(dS), abs(dN), abs(dT)) > tol:
+        return None
+    n_ion = np.array([n for n, _, _ in ions], float)
+    big = np.maximum(n_ion, an["n_ion"]) > 1e-6 * ne
+    if big.any():
+        if np.any((n_ion[big] <= 0.0) | (an["n_ion"][big] <= 0.0)):
+            return None
+        if np.max(np.abs(np.log(n_ion[big] / an["n_ion"][big]) - dN)) > tol:
+            return None
+    lit = np.maximum(N_g, an["N_g"]) > 1e-30 * max(np.max(np.maximum(N_g, an["N_g"])), 1e-300)
+    if lit.any():
+        if np.any((N_g[lit] <= 0.0) | (an["N_g"][lit] <= 0.0)):
+            return None
+        if np.max(np.abs(np.log(N_g[lit] / an["N_g"][lit]) - dS)) > tol_shape:
+            return None
+    out = dict(predicted=True, discrete=r["discrete"], anchor=an,
+               Lambda_auto=0.0, nodes=r.get("nodes"), weights=r.get("weights"))
+    lam0 = r["Lambda"] + r.get("Lambda_auto", 0.0)
+    for k, base in (("Zmean", r["Zmean"]), ("Zsigma", r["Zsigma"]), ("Gamma", r["Gamma"]), ("Lambda", lam0)):
+        out[k] = base + r[f"d{k}_dlnS"] * dS + r[f"d{k}_dlnN"] * dN + r[f"d{k}_dlnT"] * dT
+    out["Zstar"] = r["Zstar"] + (out["Zmean"] - r["Zmean"])
+    if abs(out["Zsigma"] - SIGMA_DISCRETE) < PREDICT_SIGMA_MARGIN or (out["Zsigma"] < SIGMA_DISCRETE) != r["discrete"]:
+        return None
+    if not r["discrete"]:
+        # a wide P(Z) is averaged at Z* + 1/2 and its slopes taken over [Z*, Z* + 1]: neither end
+        # may come near the kink of the cooling at zero charge, or cross it
+        z0, z1 = r["Zstar"] + 0.5, out["Zstar"] + 0.5
+        if z0 * z1 <= 0.0 or min(abs(z0), abs(z1)) < PREDICT_WIDE_ZERO + 0.5:
+            return None
+        # beyond a fraction of the width, the rates' curvature in Z makes the linearisation drift
+        if abs(z1 - z0) > max(1.0, PREDICT_WIDE_DZ * r["Zsigma"]):
+            return None
+    for k in ("dZmean_dlnT", "dZsigma_dlnT", "dGamma_dlnT", "dLambda_dlnT"):
+        out[k] = r[k]
+    return out
 
 
 def solve_cell(gts, n_grains, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, warms=None, dlnT=None):
