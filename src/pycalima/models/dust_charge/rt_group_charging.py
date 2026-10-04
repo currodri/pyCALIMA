@@ -1249,9 +1249,8 @@ def _ds87_lambda_dlnT(Z, tau):
     return A * (1.0 + s) * np.exp(-th / tau), (-nu / tau) / A + 0.75 * s ** 3 / tau / (1.0 + s) + th / tau
 
 
-PREDICT_TOL = 0.1          # predict: largest |d ln S|, |d ln N|, |d ln T| and residual of the ion densities
+PREDICT_TOL = 0.2          # predict: largest |d ln S|, |d ln N|, |d ln T| and residual of the ion densities
 PREDICT_TOL_SHAPE = 0.3    # predict: largest change of a group's photon density beyond d ln S
-PREDICT_SIGMA_MARGIN = 0.2   # predict: no prediction that would bring sigma this close to SIGMA_DISCRETE
 PREDICT_WIDE_ZERO = 1.0    # predict: no prediction of a wide P(Z) with |Z* + 1/2| below this (kink of the cooling)
 PREDICT_WIDE_DZ = 0.25     # predict: no prediction moving the Z* of a wide P(Z) by more than max(1, this x sigma)
 
@@ -1262,8 +1261,8 @@ def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape
     d ln S of the photoemission rate at r's Z* (all groups and the background, with r's
     kernels), d ln N of n_e, d ln T; refused if one of them, or the change of the ion densities
     beyond d ln N, exceeds tol, if a group's photon density changed by more than tol_shape
-    beyond d ln S, if the predicted sigma comes within PREDICT_SIGMA_MARGIN of SIGMA_DISCRETE
-    (a change of the closure), or if, for a wide P(Z), Z* + 1/2 of r or of the prediction comes
+    beyond d ln S, if the predicted sigma is on the other side of SIGMA_DISCRETE than r's (a
+    change of the closure), or if, for a wide P(Z), Z* + 1/2 of r or of the prediction comes
     within PREDICT_WIDE_ZERO + 1/2 of the kink of the cooling at zero charge (r's slopes span
     [Z*, Z* + 1]) or the two are on either side of it, or the prediction moves Z* by more than
     max(1, PREDICT_WIDE_DZ sigma). Returns a result dict like solve's (Lambda including the
@@ -1300,7 +1299,7 @@ def predict(r, N_g, c_red, T, ne, ions=(), G0_bg=0.0, tol=PREDICT_TOL, tol_shape
     for k, base in (("Zmean", r["Zmean"]), ("Zsigma", r["Zsigma"]), ("Gamma", r["Gamma"]), ("Lambda", lam0)):
         out[k] = base + r[f"d{k}_dlnS"] * dS + r[f"d{k}_dlnN"] * dN + r[f"d{k}_dlnT"] * dT
     out["Zstar"] = r["Zstar"] + (out["Zmean"] - r["Zmean"])
-    if abs(out["Zsigma"] - SIGMA_DISCRETE) < PREDICT_SIGMA_MARGIN or (out["Zsigma"] < SIGMA_DISCRETE) != r["discrete"]:
+    if (out["Zsigma"] < SIGMA_DISCRETE) != r["discrete"]:
         return None
     if not r["discrete"]:
         # a wide P(Z) is averaged at Z* + 1/2 and its slopes taken over [Z*, Z* + 1]: neither end

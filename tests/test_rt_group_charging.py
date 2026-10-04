@@ -489,9 +489,10 @@ def test_prediction_is_refused_beyond_its_tolerances(tables):
     T, ne = 8e3, 30.0
     ions = [(ne, 1.0, M_P)]
     r = gt.solve(N, C, T, ne, ions, recomb=None, sens=True)
-    assert rg.predict(r, N * np.exp(0.15), C, T, ne, ions) is None            # photoemission rate
-    assert rg.predict(r, N, C, T * np.exp(0.15), ne, ions) is None            # temperature
-    assert rg.predict(r, N, C, T, ne, [(ne * np.exp(0.15), 1.0, M_P)]) is None   # ions beyond n_e
+    big = 1.5 * rg.PREDICT_TOL
+    assert rg.predict(r, N * np.exp(big), C, T, ne, ions) is None             # photoemission rate
+    assert rg.predict(r, N, C, T * np.exp(big), ne, ions) is None             # temperature
+    assert rg.predict(r, N, C, T, ne, [(ne * np.exp(big), 1.0, M_P)]) is None    # ions beyond n_e
     shaped = N.copy()
     shaped[np.argmax(N)] *= np.exp(0.5)                                      # one group, beyond the shape
     assert rg.predict(r, shaped * np.exp(-0.01), C, T, ne, ions) is None

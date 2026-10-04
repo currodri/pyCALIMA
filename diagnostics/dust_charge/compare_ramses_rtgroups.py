@@ -10,7 +10,8 @@ previous Z* of this bin in this cell, its discrete window and width, the recombi
 fit reference: inputs, alpha and Gaussian estimate) and the outputs (mean charge, width, PE heating, recombination
 and autoionisation cooling, Z*, their d/d ln T, the grain-assisted
 recombination coefficients of the RECOMB_IONS, whether the bin's recombination
-was refined by the fit (solve_cell's importance gate) and whether it fitted).
+was refined by the fit (solve_cell's importance gate) and whether it fitted), then
+the d/d ln S and d/d ln N of the predictor (zero where it is off).
 
 Each full solve (path 0) is re-solved with GroupChargingTable.solve
 (kernels='pchip') from the same warm state, so every branch is the same and
@@ -20,7 +21,15 @@ checked against the Python derivatives of that solve. Lines from the
 uniform-G0 table (path 1: no local photons) are compared with a direct solve,
 so their differences are the table's interpolation error.
 
+With the predictor on (rtg_predict_tol > 0), each full solve also carries
+d/d ln S and d/d ln N, compared with solve(..., sens=True). A predicted call
+(path 4) is replayed with rt_group_charging.predict from the Python solve of its
+anchor (the last full solve of that bin in that cell since the warm states were
+reset); a full solve that had an anchor is a refused prediction, and predict
+must refuse it too.
+
     python compare_ramses_rtgroups.py RUN_DIR [RUN_DIR ...] --tables TABLES_DIR [--stride N]
+        [--predict-tol 0.1 --predict-tol-shape 0.3]   (the run's rtg_predict_tol, _shape)
 
 With ``--psitab DIR`` it instead checks the lookups of charging_model='WDB06tab'
 (dust_psitab_debug_XXXXX.dat) against charging_psi_tables.psi_lookup on the
@@ -40,20 +49,26 @@ from pycalima.models.dust_charge import rt_group_charging as rg
 
 KEYS = ("Zmean", "Zsigma", "Gamma", "Lambda", "Lambda_auto", "Zstar",
         "dZmean_dlnT", "dZsigma_dlnT", "dGamma_dlnT", "dLambda_dlnT", "alpha")
+SENS = tuple(f"d{q}_dln{x}" for x in "SN" for q in ("Zmean", "Zsigma", "Gamma", "Lambda"))
 DLNT = 1e-5          # dust_interface RTG_DLNT
 
 
 def read_dump(path):
-    """Calls of one dump file, in order (warm-state resets 'R' are not needed:
-    each line carries the warm state it used)."""
+    """Calls of one dump file, in order. Each line carries the warm state it used; the
+    warm-state resets 'R' only number the rows' epochs (a predictor anchor is that of
+    the same cell and bin in the same epoch)."""
     rows = []
+    epoch = 0
     for line in open(path):
-        if line.startswith("#") or line.startswith("R"):
+        if line.startswith("R"):
+            epoch += 1
+            continue
+        if line.startswith("#"):
             continue
         p = line.split()
         it = iter(p)
         nxt = lambda: next(it)                                           # noqa: E731
-        r = dict(icell=int(nxt()), bin=int(nxt()), path=int(nxt()))
+        r = dict(icell=int(nxt()), bin=int(nxt()), path=int(nxt()), epoch=epoch)
         for k in ("T", "ne", "n_Hp", "n_Hep", "n_Hepp", "m_H", "m_He", "c_red", "G0_bg"):
             r[k] = float(nxt())
         nG = int(nxt())
@@ -75,6 +90,10 @@ def read_dump(path):
         out["nfit"] = int(nxt())
         out["refined"] = nxt() == "T"
         out["alpha"] = np.array([float(nxt()) for _ in range(len(rg.RECOMB_IONS))])
+        sens = [float(x) for x in it]                                  # absent before the predictor
+        out["sens"] = len(sens) == len(SENS) and any(sens)
+        if out["sens"]:
+            out.update(zip(SENS, sens))
         r["out"] = out
         rows.append(r)
     return rows
@@ -150,6 +169,8 @@ def main():
     ap.add_argument("--original-tables", default=None,
                     help="CALIMA table directory with dust_charge_Z_vs_T_DustBin_XX (original path)")
     ap.add_argument("--psitab", default=None, help="WDB06tab table directory: check dust_psitab_debug_*.dat instead")
+    ap.add_argument("--predict-tol", type=float, default=rg.PREDICT_TOL, help="the run's rtg_predict_tol")
+    ap.add_argument("--predict-tol-shape", type=float, default=rg.PREDICT_TOL_SHAPE, help="the run's rtg_predict_tol_shape")
     args = ap.parse_args()
     if args.psitab:
         return compare_psitab(args.runs, args.psitab)
@@ -173,26 +194,54 @@ def main():
         worst_dd = {k: 0.0 for k in KEYS[6:10]}             # derivatives of discrete P(Z) (analytic)
         worst_served = {k: 0.0 for k in KEYS[:4]}
         worst_tab = {k: 0.0 for k in KEYS[:4]}
-        npath = np.zeros(3, int)
+        worst_sens = {k: 0.0 for k in SENS}
+        worst_pred = {k: 0.0 for k in KEYS[:6]}
+        npath = np.zeros(5, int)
         nchk = ndisc = nfit = nmis_disc = nmis_fit = 0
+        nref = nmis_ref = nmis_pred = 0
         bad = []
         last = {}
+
+        def ions_of(r):
+            return [(r["n_Hp"], 1.0, r["m_H"]), (r["n_Hep"], 1.0, r["m_He"]), (r["n_Hepp"], 2.0, r["m_He"])]
+
+        def solve_full(r):
+            return table(r["bin"], r["egy"]).solve(r["Np"], r["c_red"], r["T"], r["ne"], ions_of(r), G0_bg=r["G0_bg"],
+                                                   Z_guess=r["Z_guess"], recomb="gauss", warm=warm_dict(r["warm"]),
+                                                   dlnT=DLNT, sens=r["out"]["sens"])
+
+        def predicted(an, r):
+            """rt_group_charging.predict at r's inputs from anchor an = [row, its Python solve or None]."""
+            if an[1] is None:
+                an[1] = solve_full(an[0])
+            return rg.predict(an[1], r["Np"], r["c_red"], r["T"], r["ne"], ions_of(r), G0_bg=r["G0_bg"],
+                              tol=args.predict_tol, tol_shape=args.predict_tol_shape)
+
         for d in dumps:
             rows = read_dump(d)
             k0 = 0
+            anchors = {}     # (icell, bin, epoch) -> [row, Python solve]: the last full solve with sensitivities
             for r in rows:
                 npath[r["path"]] += 1
                 gt = table(r["bin"], r["egy"])
-                ions = [(r["n_Hp"], 1.0, r["m_H"]), (r["n_Hep"], 1.0, r["m_He"]), (r["n_Hepp"], 2.0, r["m_He"])]
+                ions = ions_of(r)
                 o = r["out"]
+                akey = (r["icell"], r["bin"], r["epoch"])
                 if r["path"] == 0:
+                    an = anchors.pop(akey, None)
+                    if an is not None:
+                        nref += 1
+                        nmis_ref += int(predicted(an, r) is not None)    # RAMSES refused this prediction
+                    if o["sens"]:
+                        anchors[akey] = an = [r, None]
                     k0 += 1
                     if (k0 - 1) % args.stride:
                         last.pop((d, r["bin"]), None)
                         continue
                     warm = warm_dict(r["warm"])
-                    py = gt.solve(r["Np"], r["c_red"], r["T"], r["ne"], ions, G0_bg=r["G0_bg"],
-                                  Z_guess=r["Z_guess"], recomb="gauss", warm=warm, dlnT=DLNT)
+                    py = solve_full(r)
+                    if o["sens"]:
+                        an[1] = py
                     fitted = gt.refine_recombination(py, warm) if o["refined"] else False   # RAMSES' gate (solve_cell)
                     last[(d, r["bin"])] = py
                     nchk += 1
@@ -204,6 +253,8 @@ def main():
                         continue
                     diffs = {}
                     for k in KEYS:
+                        if k == "alpha" and not o["alpha"].any():
+                            continue                            # dust_ion_recombination off (or alpha = 0 exactly)
                         floor = 1.0 if k in ("Zmean", "Zstar") else 0.0
                         if k == "dZmean_dlnT":
                             floor = 1e-6 * max(abs(o["Zmean"]), 1.0)
@@ -215,7 +266,22 @@ def main():
                         worst[k] = max(worst[k], diffs[k])
                         if o["discrete"] and k in worst_dd:
                             worst_dd[k] = max(worst_dd[k], diffs[k])
+                    if o["sens"]:
+                        scale = dict(Zmean=max(abs(o["Zmean"]), 1.0), Zsigma=max(o["Zsigma"], 1.0), Gamma=abs(o["Gamma"]),
+                                     Lambda=abs(o["Lambda"] + o["Lambda_auto"]))
+                        for k in SENS:
+                            worst_sens[k] = max(worst_sens[k], rel(py[k], o[k], 1e-6 * scale[k[1:-5]]))
                     bad.append((max(diffs.values()), r, diffs))
+                elif r["path"] == 4:
+                    an = anchors.get(akey)
+                    py = predicted(an, r) if an is not None else None
+                    if py is None:
+                        nmis_pred += 1                           # RAMSES predicted what predict refuses
+                        last.pop((d, r["bin"]), None)
+                        continue
+                    last[(d, r["bin"])] = py                     # the T +- 1e-5 calls it serves
+                    for k in worst_pred:
+                        worst_pred[k] = max(worst_pred[k], rel(py[k], o[k], 1.0 if k in ("Zmean", "Zstar") else 0.0))
                 elif r["path"] == 2:
                     py = last.get((d, r["bin"]))
                     if py is None:
@@ -232,13 +298,20 @@ def main():
                     py["Lambda"] += py["Lambda_auto"]
                     for k in KEYS[:4]:
                         worst_tab[k] = max(worst_tab[k], rel(py[k], o[k], 1.0 if k == "Zmean" else 0.0))
-        print(f"== {run}: {sum(npath)} calls (full {npath[0]}, uniform table {npath[1]}, from d/dlnT {npath[2]})")
+        print(f"== {run}: {sum(npath)} calls (full {npath[0]}, uniform table {npath[1]}, from d/dlnT {npath[2]}, "
+              f"predicted {npath[4]})")
         print(f"   {nchk} full solves re-solved ({ndisc} discrete, {nfit} recombination fits): "
               f"discrete-flag mismatches {nmis_disc}, fit/reuse mismatches {nmis_fit}")
         print("   max rel diff, full solves: " + " ".join(f"{k}={v:.1e}" for k, v in worst.items()))
         print("     of which d/dlnT of discrete P(Z) (analytic; wide: forward difference): "
               + " ".join(f"{k}={v:.1e}" for k, v in worst_dd.items()))
+        if any(worst_sens.values()):
+            print("     d/dlnS, d/dlnN (predictor): " + " ".join(f"{k}={v:.1e}" for k, v in worst_sens.items()))
         print("   max rel diff, from d/dlnT: " + " ".join(f"{k}={v:.1e}" for k, v in worst_served.items()))
+        if npath[4] or nref:
+            print(f"   predictor: {npath[4]} predicted (refused by predict: {nmis_pred}), {nref} refused "
+                  f"(predicted by predict: {nmis_ref})")
+            print("   max rel diff, predicted vs predict: " + " ".join(f"{k}={v:.1e}" for k, v in worst_pred.items()))
         if npath[1]:
             print("   max rel diff, uniform table vs direct solve (interpolation): "
                   + " ".join(f"{k}={v:.1e}" for k, v in worst_tab.items()))
