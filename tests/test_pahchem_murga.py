@@ -62,6 +62,25 @@ def test_fig6_profile_reproduces_the_figshare_headers():
     assert p.n_e.min() > 0 and p.loc[p.chi >= 3.99e4, "n_e"].min() > 1e3      # the HII region is ionised
 
 
+def _goumans(iso, site, T):
+    t = _csv("goumans2011_table3.csv")
+    r = t[(t.isotope == iso) & (t.site.astype(str) == site)]
+    row = r[r.range == ("high" if T > r.t_c_K.iloc[0] else "low")].iloc[0]
+    return row.alpha_cm3_site_s * (T / 300.0) ** row.beta * np.exp(-row.gamma_K / T)
+
+
+def test_goumans2011_transcription_matches_the_text():
+    """Goumans 2011 Sect. 3 at 40 K: core 10^-22.5, edge 10^-16.9, D at the edge
+    10^-18.7 (HQTST data), k_H/k_D = 64; the fits reproduce them to 0.3 dex
+    (measured -22.2, -16.6/-17.1, -18.4, 61)."""
+    assert np.log10(_goumans("H", "3a1", 40.0)) == pytest.approx(-22.5, abs=0.3)
+    edge = 0.5 * (_goumans("H", "1", 40.0) + _goumans("H", "4", 40.0))
+    assert np.log10(edge) == pytest.approx(-16.9, abs=0.3)
+    assert np.log10(_goumans("D", "1", 40.0)) == pytest.approx(-18.7, abs=0.35)
+    assert _goumans("H", "1", 40.0) / _goumans("D", "1", 40.0) == pytest.approx(64.0, rel=0.1)
+    assert _goumans("H", "1", 300.0) > _goumans("H", "3a1", 300.0) * 1e3      # edge >> core
+
+
 # --- the Figshare data -------------------------------------------------------
 
 def test_murga2020_profiles_and_rates_parse():
