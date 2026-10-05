@@ -1,0 +1,42 @@
+# Allain, Leach & Sedlmayr 1996, A&A 305, 616 (paper II), Fig. 7: ionised fraction alpha_ion (II eqs. 17-18,
+# sum of the cation populations over all hydrogenation states) against N_C, at steady state in the Set 2 field
+# scaled by chi, for the media of II Table 4. Digitised from the ADS scan (1996A&A...305..616A) with
+# WebPlotDigitizer, 2026-10-05; only the Orion Bar (PDR) and NGC 7027 (PN) curves.
+# medium: as in II Table 4; n_c: number of C atoms (read off the curve, not integers); alpha_ion_percent: [%].
+medium,n_c,alpha_ion_percent
+Orion Bar,5.759,18.297
+Orion Bar,10.366,22.283
+Orion Bar,13.717,24.819
+Orion Bar,15.602,21.014
+Orion Bar,20.209,25.543
+Orion Bar,23.560,28.804
+Orion Bar,30.471,28.804
+Orion Bar,36.963,28.442
+Orion Bar,43.246,28.442
+Orion Bar,49.529,28.442
+Orion Bar,57.068,29.710
+Orion Bar,64.817,31.159
+Orion Bar,71.937,32.246
+Orion Bar,79.476,33.333
+Orion Bar,87.435,34.420
+Orion Bar,93.717,35.326
+Orion Bar,99.581,36.051
+NGC 7027,5.759,91.304
+NGC 7027,8.691,92.029
+NGC 7027,13.717,93.841
+NGC 7027,16.021,92.391
+NGC 7027,20.628,93.841
+NGC 7027,23.560,95.109
+NGC 7027,29.424,94.746
+NGC 7027,35.079,94.746
+NGC 7027,41.571,94.746
+NGC 7027,49.319,94.746
+NGC 7027,54.974,94.928
+NGC 7027,59.581,95.109
+NGC 7027,63.351,95.471
+NGC 7027,70.262,95.471
+NGC 7027,75.916,95.652
+NGC 7027,81.571,95.833
+NGC 7027,89.110,96.196
+NGC 7027,94.974,96.196
+NGC 7027,99.581,96.196

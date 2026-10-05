@@ -668,6 +668,16 @@ has a runner yet.
     $k_{\rm IR}$ convention as I Table 4.
   - With this field the single-state destruction times agree to ≤ 0.21 dex,
     and the critical sizes move by < 0.7 C.
+- **Ionised fraction (II Fig. 7)**, digitised for the Orion Bar and NGC 7027
+  (`allain96_fig7_alpha_ion.csv`):
+  - C$_{10}$–C$_{32}$: within 1–5 points in the Orion Bar and 1–2.5 points in
+    NGC 7027.
+  - In the Orion Bar the residual, as log odds, equals our I Table 5
+    photoionisation residual to 0.06 dex. So the recombination side (II eq.
+    9) reproduces and what remains is the cross section.
+  - PAH 50 C and 100 C are +9 and +10 points (strict xfail): Li & Draine
+    $\sigma$ makes their photoionisation 0.2 dex high. Removing that leaves
+    1 point.
 
 **Le Page+01/03 runner** ({mod}`pycalima.pahchem.lepage01`,
 `tests/test_pahchem_lepage01.py`, `check_lepage01.py`, 2026-10-05).
@@ -701,7 +711,7 @@ has a runner yet.
 
 What the remaining targets need:
 - **Raster figures the user is digitising:**
-  - for Allain: II Figs. 7, 9 and 10 (I Fig. 5 is done);
+  - for Allain: II Figs. 9 and 10, and Fig. 7 for the other four media (I Fig. 5 and the Fig. 7 Orion Bar and NGC 7027 curves are done);
   - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6, 7 and 9.
 - **Murga:**
   - its figures are vector and can be extracted here;

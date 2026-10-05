@@ -167,6 +167,55 @@ def test_network_is_normalised_and_charges_respond_to_ne_over_chi(states):
     assert s["NGC 7027"]["alpha_ion"] > 0.9 and s["HI region"]["alpha_ion"] < 0.1
 
 
+def _fig7(medium):
+    """II Fig. 7 (digitised), alpha_ion as a fraction, interpolated in N_C."""
+    import pandas as pd
+    from pycalima import _paths
+
+    d = pd.read_csv(_paths.get_external_data_path("pahchem/allain96_fig7_alpha_ion.csv"), comment="#")
+    d = d[d.medium == medium].sort_values("n_c")
+    return lambda nc: float(np.interp(nc, d.n_c, d.alpha_ion_percent)) / 100.0
+
+
+def _log_odds(a):
+    return float(np.log10(a / (1.0 - a)))
+
+
+@pytest.mark.parametrize("medium, tol", [("Orion Bar", 0.05), ("NGC 7027", 0.03)])
+@pytest.mark.parametrize("name", ["C10H8", "C14H10", "C16H10", "C24H12", "C32H14"])
+def test_paper_ii_fig7_ionised_fraction(states, medium, tol, name):
+    """II Fig. 7 (digitised): alpha_ion of the Malloci-sigma species. Measured Orion
+    Bar -4.7 to -1.1 points, NGC 7027 -2.4 to -0.9 points."""
+    s = _family(name, states).steady(medium)
+    assert s["alpha_ion"] == pytest.approx(_fig7(medium)(A.SPECIES[name][0]), abs=tol)
+
+
+@pytest.mark.parametrize("name", ["C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C"])
+def test_paper_ii_fig7_residual_is_the_photoionisation_rate(states, name):
+    """In the Orion Bar (alpha_ion ~ 0.2-0.4, where the balance is most sensitive)
+    alpha/(1 - alpha) ~ k_ion/(n_e k_rec), so the Fig. 7 residual, as log odds,
+    should equal our I Table 5 photoionisation residual (Set 1). Measured: they
+    differ by -0.03 to +0.06 dex, the PAH 50 C +9 point excess included (+0.18
+    against +0.20). The recombination side (II eq. 9) reproduces; what remains is
+    sigma."""
+    s = _family(name, states).steady("Orion Bar")
+    fig7 = _log_odds(s["alpha_ion"]) - _log_odds(_fig7("Orion Bar")(A.SPECIES[name][0]))
+    t5 = TARGETS["paperI_table5"]
+    k_ion = A.AllainState(name, A.load_modes(name, states)).rates(A.set1_field())["ion"]
+    assert fig7 == pytest.approx(_dex(k_ion, t5["set1"][t5["species"].index(name)]), abs=0.1)
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "PAH 50 C and 100 C are +9 and +10 points above II Fig. 7 in the Orion Bar because their "
+    "photoionisation rate is high: Li & Draine sigma substitutes Verstraete & Leger 1992, and PAH 50 C "
+    "is +0.20 dex in I Table 5 (no 100 C entry there). Removing 0.2 dex gives 27.5 and 35.2 % against "
+    "28.5 and 36.1 %."))
+@pytest.mark.parametrize("name", ["PAH 50 C", "PAH 100 C"])
+def test_paper_ii_fig7_ionised_fraction_large_pahs(states, name):
+    s = _family(name, states).steady("Orion Bar")
+    assert s["alpha_ion"] == pytest.approx(_fig7("Orion Bar")(A.SPECIES[name][0]), abs=0.05)
+
+
 @pytest.mark.parametrize("name, key", [("C16H10", "pyrene"), ("C32H14", "ovalene")])
 def test_paper_ii_table5_single_state_destruction_times(states, name, key):
     """tau of the normal neutral and the bare cation, in all six media (Set 2).

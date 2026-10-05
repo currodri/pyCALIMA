@@ -35,6 +35,15 @@ Measured (2026-10-05; Malloci+07 sigma, PAHdb A, Set 2 from I Fig. 5):
   - The network means are 1-2 dex shorter for pyrene (except NGC 7027 at
     -0.36) and for ovalene in NGC 7023 and the diffuse medium. Our steady
     states are more dehydrogenated there.
+- **II Fig. 7** (alpha_ion vs N_C, Orion Bar and NGC 7027, digitised):
+  - C10-C32 (Malloci sigma): Orion Bar -4.7 to -1.1 points, NGC 7027 -2.4 to
+    -0.9 points.
+  - As log odds, the Orion Bar residual equals the I Table 5 photoionisation
+    residual to 0.06 dex, so recombination (II eq. 9) reproduces and the rest
+    is sigma.
+  - PAH 50 C and 100 C (Li & Draine sigma): +9 and +10 points in the Orion
+    Bar; removing the 0.2 dex photoionisation excess gives 27.5 and 35.2 %
+    against 28.5 and 36.1 %.
 - **Critical sizes** [C]: Orion Bar 39.2, HI 37.9, M82 42.0, NGC 7023 44.4,
   NGC 7027 46.6, diffuse warm 64.2. Allain: > 40 everywhere, smallest in the
   Orion Bar and HI, 50 in NGC 7027, 55 in the warm medium.
@@ -104,7 +113,8 @@ def main():
                   f"{dex(s['tau_bare_cation_yr'], t5b[f'{key}_dehydrogenated_cation'][j])} "
                   f"{dex(s['tau_uv_yr'], t5b[f'{key}_mean'][j])}")
 
-    print("\nalpha_ion / alpha_H by medium (II Figs. 7, 10 targets; to be digitised):")
+    print("\nalpha_ion / alpha_H by medium (II Figs. 7, 10 targets; Fig. 7 Orion Bar and NGC 7027 digitised,"
+          " see tests/test_pahchem_allain96.py):")
     print("  " + " " * 20 + " ".join(f"{n:>11s}" for n in names))
     for med in A.MEDIA:
         cells = []

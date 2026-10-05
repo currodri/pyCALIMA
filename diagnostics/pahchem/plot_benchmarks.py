@@ -16,6 +16,7 @@ the check_*.py scripts, whose docstrings record the measured numbers.
 | andrews16_ngc7023 | Figs. 7 (N_H) and 8 (charge) of C54H18 in NGC 7023 NW | M5 | ~7 min |
 | murga_wiebe22_fig1 | R_H(chi) of C66H20 by four rate forms | M5 | ~2 min |
 | sensitivity | the one-at-a-time ranking at NGC 7023 and the Orion Bar | M5 | ~25 min |
+| allain96_fig7 | ionised fraction vs N_C, Orion Bar and NGC 7027 (Allain+96 II Fig. 7) | M5 | ~30 s |
 
 Inputs that are not shipped:
 - ``--west-esi``: the West+18 ESI workbook (default: the west2018-esi dataset);
@@ -371,9 +372,35 @@ def fig_sensitivity(args, out):
     _save(fig, out, "sensitivity")
 
 
+def fig_allain96_fig7(args, out):
+    from pycalima.pahchem import allain96 as A
+
+    names = ["C10H8", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C", "PAH 100 C"]
+    d = pd.read_csv(EXT("pahchem/allain96_fig7_alpha_ion.csv"), comment="#")
+    fams = {n: A.AllainFamily(n, A.load_modes(n, args.states_dir)) for n in names}
+    nc = np.array([A.SPECIES[n][0] for n in names])
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for med, color in (("Orion Bar", "C0"), ("NGC 7027", "C3")):
+        c = d[d.medium == med].sort_values("n_c")
+        ax.plot(c.n_c, c.alpha_ion_percent, color=color, lw=4, alpha=0.35, label=f"Allain+96 II Fig. 7, {med}")
+        alpha = np.array([fams[n].steady(med)["alpha_ion"] for n in names])
+        ax.plot(nc, 100 * alpha, "o--", color=color, label=f"pahchem.allain96, {med}")
+        odds = alpha / (1 - alpha) * 10**-0.2               # large PAHs: remove the I Table 5 k_ion excess
+        large = nc >= 50
+        ax.plot(nc[large], 100 * (odds / (1 + odds))[large], "x", ms=9, color=color,
+                label=f"{med}, 50/100 C with $k_{{\\rm ion}}$ / 10$^{{0.2}}$")
+    ax.set_xlabel("$N_{\\rm C}$")
+    ax.set_ylabel("$\\alpha_{\\rm ion}$ [%]")
+    ax.set_title("Allain+96 II Fig. 7: ionised fraction in their configuration\n"
+                 "(Malloci $\\sigma$ up to 32 C; Li & Draine $\\sigma$ at 50 and 100 C)", fontsize=9)
+    ax.legend(fontsize=7)
+    _save(fig, out, "allain96_fig7")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
-    fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity)}
+    fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
+    fig_allain96_fig7)}
 
 
 def main():
