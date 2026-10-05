@@ -108,6 +108,15 @@ loss, comparing $E_0$ with {cite:t}`West2018` and the pathways with
   oscillator strengths for the cations, at CAM-B3LYP or ωB97X-D/6-31+G(d) on the
   D$_0$ geometry. Validate first on anthracene$^+$ and tetracene$^+$, whose
   rates were measured in storage rings {cite:p}`Martin2013,Bernard2023`.
+- **Vibronic oscillator strengths.** Equilibrium-geometry $f$ is not enough:
+  storage-ring studies find RF needs vibronically enhanced, effective $f$
+  10–100× larger. Examples are a Franck–Condon–Herzberg–Teller $f = 0.011$
+  against $10^{-4}$ without it for 1-cyanonaphthalene$^+$, and AIMD-averaged
+  $f$ 30–65× the TD-DFT value for biphenylene$^+$
+  {cite:p}`NavarroNavarrete2023,Subramani2025`. Ask for Herzberg–Teller $f$
+  (Gaussian `freq=(FC,HT)` on the D$_0$/D$_n$ pair), or $f$ averaged along MD
+  at 2–10 eV of vibrational energy, for at least coronene$^+$. For degenerate
+  (Jahn–Teller) D$_0$ states, report the degeneracies as well.
 - **UV absorption.** $\sigma(E)$ up to 13.6 eV for species not covered by
   {cite:t}`Malloci2007`: C$_{96}$H$_{24}$ and the hydrogenation ladders.
 

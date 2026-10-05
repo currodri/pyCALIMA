@@ -66,6 +66,9 @@ network_rate = "r_abs * P_i  (Sect. 2.4.3, last paragraph)"
 fig6_and_tableB_quantity = "k_i of eq. 7, NOT the network rate r_abs * P_i"
 fig6_evidence = "reproduced within 0.06-0.25 dex by the sink-free cascade integral; see diagnostics/pahchem/check_andrews16_tableB_definition.py"
 choice_of_n_and_Ti = "unspecified"
+# pahchem M3 results with the same k(E) (Table 2, T_e form) for comparison:
+sink_cascade_coronene = "H-loss probability per heating photon 0.18 (energy_me, with sink), against r_abs P_i ~ 0.97 from eqs. 7-8"
+sink_cascade_c54 = "single-photon to G0 ~ 10, then ~G0^2 (enhancement 56 at G0 = 1e4); Table B.2 already has slope ~2 at G0 = 1"
 
 [electrons]
 recombination = "BT94 collisional, k = n_e s_e (8kT/pi m_e)^1/2 pi a^2 J~ (DS87), a = 0.9e-8 sqrt(NC) cm, x0.82 disc correction"  # eq. A.1

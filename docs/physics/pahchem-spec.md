@@ -305,6 +305,39 @@ $f(Z)$. That ranking decides the second round of requests in
 | Recombination, attachment | DS87 $\tilde J$ capture | $s_e$, EA, product branching | {cite:t}`BakesTielens1994` | B | products after recombination | RRKM on the neutral | 1 |
 | Mutual neutralisation | Langevin | — | — | E | — | us | 2 |
 
+## Literature reviewed, and what it is used for
+
+These are papers read for this design beyond the ones the tables above cite.
+They are recorded here so that the same papers are not reassessed later.
+"Cite only" means the paper supports an assumption but provides no number
+we use.
+
+| Paper | What it provides | Use |
+|---|---|---|
+| {cite:t}`Blanquart2007` | G3MP2B3 thermochemistry of 46 neutral PAHs and aryl radicals up to coronene. $\Delta_f H(298)$ of pyrene is 226.1 kJ mol$^{-1}$ (experiment 225.7) and of coronene 292.4 (experiment 302.0). B3LYP frequency scale factor 0.966. | Check of the collaborators' neutral-parent thermochemistry. Do **not** take C–H bond energies from its radical table: they give ≈ 5.5 eV for pyrenyl, against the ≈ 4.7 eV usually quoted. |
+| {cite:t}`Gatchell2021` | Hot coronene-cation fragments stored in DESIREE (13 K) stop decaying after ~10 ms, attributed to radiative cooling; power-law decays. | A qualitative constraint on IR and recurrent-fluorescence cooling of coronene$^+$ (M3). It becomes quantitative only if the supplement gives the decay curves and initial energies. |
+| {cite:t}`Lee2021` | XUV-pumped fluorene, phenanthrene and pyrene ions: electronic relaxation in < 100 fs for PAH$^+$ and PAH$^{2+}$. Dications prefer losing even numbers of C atoms. | Cite only: it supports the statistical (internal conversion first) basis of RRKM. |
+| {cite:t}`Cilesiz2025` | $\Delta_f H$ of 8 neutral PAHs with 9 functionals; double hybrids are best (DSD-PBEP86, MUE 0.6 kcal mol$^{-1}$). | Cite only: supports recommending double-hybrid single points ({doc}`pahchem-data-requests`). |
+| Fernández 2020 (Chem. Sci. 11, 3769); Su et al. 2023 (ChemPhysChem 24, e202200638); Mao et al. 2021 (Proc. Combust. Inst. 38, 729) | Diels–Alder reactivity; atmospheric nitration of neutrals; C$_5$H$_5$ combustion kinetics. | Not relevant. |
+| {cite:t}`NavarroNavarrete2023` | 1-cyanonaphthalene$^+$ in DESIREE: the first measured energy-loss rate $-dE/dt(E)$ of a PAH cation (their Fig. 11) and $k_{\rm diss}(E)$ (Fig. 9). RF inputs: $h\nu_{\rm el} = 1.10$ eV and $A_{\rm RF} = 2\pi\nu^2e^2f/(\epsilon_0 m_e c^3)$. Their calculated $f = 0.011$ needs Herzberg–Teller coupling (without it, $10^{-4}$); fitted $f = 0.0074$. HCN loss $E_a = 3.16$ eV, $A = 2\times10^{13}$ s$^{-1}$; $k_c = 302.9$ s$^{-1}$. At 3–5 eV the loss rate is up to 100× the IR-only value. | **The first RF gate.** Reproduce Fig. 11 with `dos` + `cooling` + RF (M3). The full model is in Stockett et al. 2023 (Nat. Commun. 14, 395; arXiv:2209.05229). |
+| {cite:t}`Subramani2025` | Acenaphthylene$^+$ and biphenylene$^+$ in DESIREE: $k_c = 1230$ and 1050 s$^{-1}$. Master equation with the inverse-Laplace $k$, an anharmonic Beyer–Swinehart density of states, the same harmonic cascade as `cooling`, and RF as $A_j\rho(E-E_j)/\rho(E)$. RF states from AIMD (Tables 2–3). Their inverse-Laplace refit of the West+18 ACY$^+$ H loss: $E_a = 4.68$ eV, $A = 6.1\times10^{15}$ s$^{-1}$. $E_c$ (RF = dissociation) ≈ 5.8, 7.6, 10.6 eV for C$_{10}$, C$_{12}$, C$_{18}$–C$_{20}$. | RF benchmark and a cross-check of the M2 West gate. The $E_c$ size trend is a sanity target for coronene. |
+| {cite:t}`Lee2023` | Naphthalene$^+$ and azulene$^+$ in DESIREE. Isomerisation and C$_2$H$_2$-loss barriers (CCSD(T)//ωB97X-D: 3.72–4.75 eV), branching H : C$_2$H$_2$ ≈ 1 : 1 at 5.1 eV, RF states ($f$ up to 0.094). Their model overestimates $k_c$ by 1.7–2× and underestimates absolute rates by ~10×. | RF benchmark and C$_2$H$_2$ pathway structure. A realistic error budget for a state-of-the-art model. |
+| {cite:t}`MurgaWiebe2022` | $k(E)$ by RRK, inverse-Laplace and two Arrhenius parameter sets (Table 1), pushed through multiphoton heating. For C$_{66}$H$_{20}$ the H- and C-loss rates spread by ~6 dex; lifetimes spread by up to ~20 dex at $N_{\rm C} \approx 100$. The minimum surviving size is 45–100 C depending on the set. | **M5 target.** Reproduce their Figs. 1–2 from the Table 1 parameters, then place the gated microcanonical rates inside that envelope. It measures the same rate-form dependence as the M2 finding. |
+| {cite:t}`Stockett2025` | An anharmonic IR cascade (Morse levels, $\nu^3$ correction, overtones and combination bands) for 2-cyanoindene. Overtones and combinations carry ~1/3 of the photons and ~1/2 of the power near threshold. | Method for an optional anharmonic `cooling` mode; an estimate that the harmonic cascade may underestimate cooling by up to ~2× at UV energies. |
+| {cite:t}`Allamandola1989` | The origin of the exact microcanonical emission rate used in `cooling`, and the demonstration that the thermal approximation fails near thresholds. | Cite for `cooling`. |
+| {cite:t}`Sehring2025`; {cite:t}`DouglasWalker2025` | PM6 quartic force fields for neutral PAHs up to C$_{30}$; 2-cyanoindene$^+$ spectroscopy. | Cite only (a cheap route to anharmonic constants); not relevant. |
+
+The DESIREE papers agree that equilibrium-geometry TD-DFT underestimates RF
+oscillator strengths by 10–100×. Vibronic (Herzberg–Teller) coupling must be
+included, and $f$ may depend on $E$. So the T3 request in
+{doc}`pahchem-data-requests` asks for vibronic $f$, and pahchem treats $f$ as
+an uncertain parameter with a confidence grade.
+
+None of these closes a gap in the process table. The H addition and
+abstraction barriers per site and charge, super-hydrogenated H loss, C$_2$H$_2$
+loss in compact PAHs, and IP/EA along the hydrogenation ladders still come from
+{doc}`pahchem-data-requests`.
+
 ## Known legacy issues
 
 These stay in the frozen `models/PAH_photophysics/` code and are not fixed
