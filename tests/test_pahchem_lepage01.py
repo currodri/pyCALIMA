@@ -96,7 +96,8 @@ def test_lp01_table1_rrk_column_implies_e0_near_0p7_ev():
 
 
 def test_branching_is_a_probability_and_the_rate_is_bounded_by_absorption():
-    E = L.energy_grid(L.ionisation_potential(24))
+    """k_ph <= the absorption rate over the same photon range (the whole field)."""
+    E = L.energy_grid(L.field().energy_ev.min())
     for nh, z in ((12, 0), (13, 0), (13, 1), (5, 1)):
         P = L.branching(24, nh, 12, z, E)
         total = sum(P.values())
@@ -154,23 +155,82 @@ def test_lp03_fig4_follows_from_lp03_table2_rates(nt):
 
 
 def test_pahchem_k_ion_against_lp03_table2():
-    """eq. 15 with the um^-1 yield and the Allain IP law. With Li & Draine sigma,
-    k_ion is 1.17-1.71x LP03 Table 2 (C100 to C16); with Malloci coronene
-    per C, 0.92-1.24x. The offset is the sigma substitute (Joblin soot per C,
-    Paper I Fig. 11, is not tabulated)."""
+    """eq. 15 with the um^-1 yield, the Allain IP law and their sigma (Paper I
+    Fig. 11): k_ion is 1.06-1.34x LP03 Table 2 (C100 to C16). With the eV form
+    of the yield (Montillaud's transcription) it is 0.96-0.99x for C16-C32 but
+    0.82x and 0.72x for C50 and C100; the IPs are not stated, so the two cannot
+    be told apart. Substitutes: Li & Draine 1.17-1.71x, Malloci per C
+    0.92-1.24x."""
     for nc, (theirs, _, _) in LP03_TABLE2.items():
-        assert 1.0 < L.k_ion(nc) / theirs < 1.8
+        assert 1.0 < L.k_ion(nc) / theirs < 1.4
         assert 0.85 < L.k_ion(nc, substitute="malloci") / theirs < 1.3
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "With pahchem's own k_ion (Li & Draine sigma substituting the untabulated Joblin soot sigma) the "
-    "cation fraction of LP03 Fig. 4 is 0.02-0.13 too high; with their Table 2 k_ion it agrees to 0.015. "
-    "Needs Paper I Fig. 11 digitised."))
+    "With pahchem's own k_ion the LP03 Fig. 4 fractions are off by up to 0.07 with their sigma (Paper I "
+    "Fig. 11; 0.13 with Li & Draine), against 0.015 with their Table 2 k_ion. The rest is k_ion 1.06-1.34x "
+    "high: the yield units (um^-1 as printed; the eV form gives 0.08) and the unstated IPs."))
 def test_lp03_fig4_with_pahchem_k_ion():
     for nt, rows in LP03_FIG4.items():
         for nc, theirs in rows.items():
             assert np.allclose(_fig4(nt, nc, L.k_ion(nc)), theirs, atol=0.03), (nt, nc)
+
+
+# --- Paper I Fig. 10: photodissociation rates with H loss vs N_C (digitised) ---
+
+#: the compact family of LP03 Sect. 2 (C100H28: card c100_note)
+FAMILY = [(6, 6), (10, 8), (14, 10), (16, 10), (24, 12), (32, 14), (50, 20), (80, 24), (100, 28),
+          (120, 30), (150, 40)]
+#: Fig. 10 class -> (charge, N_H of a C_x H_y family member)
+CLASSES = {"PAH": (0, lambda y: y), "PAH+": (1, lambda y: y), "XdPAH": (0, lambda y: 1),
+           "XdPAH+": (1, lambda y: 1), "PAHH": (0, lambda y: y + 1), "PAHH+": (1, lambda y: y + 1)}
+
+
+def _lp01_fig10(cls):
+    import pandas as pd
+    from pycalima import _paths
+
+    d = pd.read_csv(_paths.get_external_data_path("pahchem/lepage01_fig10_kph.csv"), comment="#")
+    d = d[d.species_class == cls].sort_values("n_c")
+    return d.n_c.to_numpy(), d.k_ph_s.to_numpy()
+
+
+def _fig10_dex(cls, nc, y):
+    x, k = _lp01_fig10(cls)
+    if not x[0] - 1 <= nc <= x[-1] + 1:
+        return None
+    theirs = 10 ** np.interp(nc, x, np.log10(k))
+    z, nh_of = CLASSES[cls]
+    return float(np.log10(L.k_photodissociation(nc, nh_of(y), y, z)["H"] / theirs))
+
+
+@pytest.mark.parametrize("cls", ["PAH", "PAH+", "PAHH", "PAHH+"])
+def test_paper_i_fig10_rates(cls):
+    """k_ph (H loss) at chi = 1 against Paper I Fig. 10 over the family (6-150
+    C), with their sigma (Fig. 11), the whole field and (1 - Y_ion) for
+    neutrals. Measured max |dex|: PAH 0.10, PAH+ 0.21, PAHH 0.17 (6 C), PAHH+
+    0.15."""
+    dex = [d for nc, y in FAMILY if (d := _fig10_dex(cls, nc, y)) is not None]
+    assert len(dex) >= 7 and max(map(abs, dex)) < 0.25, np.round(dex, 2)
+
+
+@pytest.mark.parametrize("cls", ["XdPAH", "XdPAH+"])
+def test_paper_i_fig10_extremely_dehydrogenated(cls):
+    """One H left: within 0.15 dex up to 24 C (measured 0.13), and the size
+    where k_ph falls through 1e-12 s^-1 within 2.5 C (measured 44.7 against
+    43.6 neutral, 48.0 against 46.2 cation). The rate falls ~0.27 dex per C
+    there, so a 1-2 C shift is +0.3-0.5 dex at 32-50 C."""
+    assert all(abs(_fig10_dex(cls, nc, y)) < 0.15 for nc, y in FAMILY if nc <= 24)
+    z = CLASSES[cls][0]
+
+    def crossing(nc, k):
+        lk = np.log10(k)
+        i = int(np.argmax(lk < -12))
+        return float(np.interp(-12, [lk[i], lk[i - 1]], [nc[i], nc[i - 1]]))
+
+    ncs = np.arange(30, 61)
+    ours = crossing(ncs, np.array([L.k_photodissociation(int(n), 1, 20, z)["H"] for n in ncs]))
+    assert ours == pytest.approx(crossing(*_lp01_fig10(cls)), abs=2.5)
 
 
 # --- The hydrogenation network (LP03 Fig. 9, Sect. 4.1) ---
@@ -185,10 +245,12 @@ def _standard(nc, nh0):
 
 
 def test_lp03_fig9_small_pahs_are_extremely_dehydrogenated():
-    """C24Hn at nt = 100, chi = 1: measured 0.96 of the population at N_H <= 1
-    (Fig. 9: N_H ~ 0-2; Sect. 4.1: 20-30 C 'extremely dehydrogenated')."""
+    """C24Hn at nt = 100, chi = 1: measured 0.86 of the population at N_H <= 2
+    (Fig. 9: N_H ~ 0-2; Sect. 4.1: 20-30 C 'extremely dehydrogenated'). It was
+    0.96 with eq. 11 as printed (from IP, no 1 - Y_ion); Paper I Fig. 10 fixes
+    both (k_photodissociation)."""
     f = _standard(24, 12)
-    assert f[:, :3].sum() > 0.9
+    assert f[:, :3].sum() > 0.8
 
 
 def test_lp03_fig9_mid_and_large_pahs():

@@ -709,14 +709,31 @@ has a runner yet.
   - From LP03's own Table 2 rates it is reproduced within 0.015.
   - Our recombination, attachment and photodetachment rates match Table 2
     within 1.5 %.
-  - Our ionisation rate is 1.2–1.7× high with the substitute Li & Draine
-    $\sigma$, which makes the cation fraction 0.02–0.13 too high (strict
-    xfail, pending LP01 Fig. 11).
-- **Hydrogenation (LP03 Fig. 9, card readings ±0.03):**
-  - C$_{50}$H$_{20}^+$ is 0.64 against ~0.6.
-  - C$_{80}$H$_{24}^+$ and C$_{80}$H$_{25}^+$ are 0.59/0.26 against
+  - With their own $\sigma$ (LP01 Fig. 11, digitised into
+    `lepage01_fig11_sigma_per_c.csv`), our ionisation rate is 1.06–1.34× high
+    and the fractions are off by up to 0.07 (strict xfail; 0.13 with Li &
+    Draine).
+  - The remaining offset is the yield units and the unstated IPs. With the
+    eV form of the yield (Montillaud's transcription) the rate is 0.96–0.99×
+    for C$_{16}$–C$_{32}$, but 0.72–0.82× for C$_{50}$–C$_{100}$. So the
+    figures cannot tell which form Le Page computed.
+- **Photodissociation (LP01 Fig. 10, digitised into `lepage01_fig10_kph.csv`):**
+  - Fig. 10 and its caption fix two inputs the card listed as "not stated":
+    eq. 11 integrates over the whole field, not from IP, and neutrals carry
+    $(1 - Y_{\rm ion})$. These are now the defaults.
+  - With them, PAH, PAH$^+$, PAHH and PAHH$^+$ agree within 0.21 dex over
+    6–150 C.
+  - The XdPAH classes (one H left) agree within 0.13 dex up to 24 C. They
+    fall through $10^{-12}$ s$^{-1}$ within 1–2 C of theirs.
+  - The PAHH$^+$ sp$^3$ H-loss path degeneracy is $N_{\rm H} - y$:
+    $2(N_{\rm H} - y)$ is +0.22–0.29 dex high from 50 C up, where the rate
+    is no longer saturated.
+- **Hydrogenation (LP03 Fig. 9, card readings ±0.03; the figure is too hard
+  to read for a proper digitisation):**
+  - C$_{50}$H$_{20}^+$ is 0.60 against ~0.6.
+  - C$_{80}$H$_{24}^+$ and C$_{80}$H$_{25}^+$ are 0.58/0.26 against
     0.6/0.27.
-  - C$_{32}$H$_{14}^+$ and C$_{32}$H$_{14}$ are 0.55/0.30 against 0.45/0.37.
+  - C$_{32}$H$_{14}^+$ and C$_{32}$H$_{14}$ are 0.50/0.33 against 0.45/0.37.
   - With benzene recombination instead, C$_{80}$H$_{25}^+$ drops to 0.08, so
     Fig. 9 used the naphthalene value.
 - **LP01 Table 1:** the two-frequency column is reproduced within 0.25 dex by
@@ -727,7 +744,9 @@ has a runner yet.
 What the remaining targets need:
 - **Raster figures the user is digitising:**
   - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);
-  - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6, 7 and 9.
+  - for Le Page: LP01 Figs. 10–11 are done; LP03 Figs. 6–7 are digitised
+    and await a gate. LP03 Fig. 9 is not digitisable; the card readings
+    stand.
 - **Murga:**
   - its figures are vector and can be extracted here;
   - the network needs a size ($N_{\rm C}$) axis, time integration through a

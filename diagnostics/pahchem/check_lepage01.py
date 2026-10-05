@@ -20,17 +20,27 @@ Measured (2026-10-05):
     0.25 dex. The RRK column needs E0 ~ 0.7 eV.
 - **Charge.**
   - k_rec n_e, k_e and k_p equal Table 2.
-  - k_ion with Li & Draine sigma is 1.2-1.7x Table 2 (Malloci per C:
-    0.9-1.2x), so the cation fractions of Fig. 4 are 0.02-0.13 high. With
-    the Table 2 k_ion, Fig. 4 is reproduced to 0.015.
+  - k_ion with their sigma (Paper I Fig. 11, digitised) is 1.06-1.34x Table
+    2 (Li & Draine: 1.2-1.7x; Malloci per C: 0.9-1.2x), so the Fig. 4
+    fractions are off by up to 0.07 (0.13 with Li & Draine). With the Table
+    2 k_ion, Fig. 4 is reproduced to 0.015.
+- **Photodissociation (Paper I Fig. 10, digitised)**, with eq. 11 over the
+  whole field and (1 - Y_ion) for neutrals, as the figure and its caption
+  require:
+  - PAH, PAH+, PAHH and PAHH+ within 0.21 dex over 6-150 C (PAHH+ with
+    sp3 H-loss degeneracy N_H - y; 2(N_H - y) puts it +0.22-0.29 high
+    from 50 C up).
+  - XdPAH(+) within 0.13 dex up to 24 C; the fall below 1e-12 s^-1 at 44.7
+    and 48.0 C against 43.6 and 46.2.
 - **Fig. 9** (nt = 100, chi = 1, naphthalene recombination). C16 and C24 sit
-  at N_H <= 1; C32H14+/C32H14 are 0.55/0.30 (card 0.45/0.37); C50H20+ is
-  0.64 (0.6); C80H24+/C80H25+ are 0.59/0.26 (0.6/0.27).
+  at N_H <= 2 (C16H0 neutral 0.53; card ~0.6); C32H14+/C32H14 are 0.50/0.33
+  (card 0.45/0.37); C50H20+ is 0.60 (0.6); C80H24+/C80H25+ are 0.58/0.26
+  (0.6/0.27).
   - With the benzene recombination, C80H25+ falls to 0.08 (Fig. 9: 0.27),
     and C32 and C50 become mostly neutral. This supports the card's
     inference that Fig. 9 uses naphthalene.
-  - Dropping the stepladder or adding (1 - Y_ion) to eq. 11 moves no
-    fraction by more than 0.07. The Malloci sigma lowers f+ by 0.03-0.07.
+  - Dropping the stepladder or the (1 - Y_ion) moves no fraction by more
+    than 0.09. The Malloci sigma lowers f+ by 0.01-0.03.
 
 Takes ~1 min.
 """
@@ -65,7 +75,7 @@ def main():
         got = np.log10(L.k_of_E(nc, nh, E0, 5.0, float(nh), np.array(Es, float)))
         print(f"{name:13s} log k at {Es} eV: {np.round(got, 2)} (quoted {q})")
 
-    print("\nk_ion [s^-1] at chi = 1:  ours (Li & Draine)  ours (Malloci/C)  LP03 Table 2")
+    print("\nk_ion [s^-1] at chi = 1:  ours (their Fig. 11)  ours (Malloci/C)  LP03 Table 2")
     for nc, theirs in LP03_TABLE2_KION.items():
         print(f"  C{nc:<4d} {L.k_ion(nc):18.2e} {L.k_ion(nc, substitute='malloci'):17.2e} {theirs:13.2e}")
 
@@ -73,7 +83,7 @@ def main():
     variants = (("baseline (naphthalene rec.)", {}, L.STANDARD),
                 ("benzene recombination", {}, L.Environment(recombination="benzene")),
                 ("no stepladder", {"stepladder": False}, L.STANDARD),
-                ("(1 - Y_ion) in eq. 11", {"one_minus_yion": True}, L.STANDARD),
+                ("no (1 - Y_ion) in eq. 11", {"one_minus_yion": False}, L.STANDARD),
                 ("Malloci sigma per C", {"substitute": "malloci"}, L.STANDARD))
     for nc, nh0 in FAMILIES:
         for label, opts, env in variants:

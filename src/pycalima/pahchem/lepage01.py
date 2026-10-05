@@ -21,10 +21,10 @@ be traced to one entry:
   addition follows Sect. 3.4, and recombination is dissociative by 2nu-RRKM
   branching at E = IP (Sect. 3.3).
 
-Substitutes, used until the inputs are digitised:
-- the Joblin soot cross section per C atom (Paper I Fig. 11) has no
-  printed parameters; Li & Draine (2001) neutral sigma stands in for it
-  (``SIGMA``).
+Inputs read from figures, and substitutes:
+- the Joblin soot cross section per C atom has no printed parameters; it
+  is Paper I Fig. 11 as digitised (``SIGMA_FILE``). Li & Draine (2001) and
+  Malloci coronene remain as options of ``sigma_uv``.
 - No IPs are printed; Allain+96 I eq. 12 is used, the law of the paper Le
   Page cite for eq. 15.
 """
@@ -35,7 +35,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
+import pandas as pd
 
+from pycalima import _paths
 from pycalima.pahchem import dos, fields, photo, rates
 from pycalima.pahchem.network import PAHNetwork
 
@@ -70,7 +72,8 @@ SIGMA_DETACH = 2.0e-18         # cm^2 per C atom (Sect. 3.5.1)
 N_PH_DETACH = 1.0e9            # photons cm^-2 s^-1 above ~3 eV (Sect. 3.5.1)
 NE_OVER_NT = 1.4e-4            # (Sect. 2)
 
-SIGMA = "li_draine"            # substitute for the Joblin soot sigma (module docstring)
+SIGMA = "lepage01_fig11"       # their Joblin-soot sigma per C, digitised (sigma_uv)
+SIGMA_FILE = "pahchem/lepage01_fig11_sigma_per_c.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -88,19 +91,25 @@ def two_nu_ts(nc, nh, dS_cal=5.0):
     return np.array([NU_CC] * (3 * nc - 6) + [NU_CH] * (3 * nh - 3) + [TS_BEND[dS_cal]] * 2)
 
 
-def path_degeneracy(nh, nh0, channel):
+def path_degeneracy(nh, nh0, channel, charge=0):
     """Reaction-path degeneracy (not stated; card [dissociation], confidence D-E).
 
     - Aromatic H loss (N_H <= y): N_H, the equivalent H. This reproduces the
       coronene, benzene and anthracene checks.
-    - sp3 H loss (N_H > y): 2 (N_H - y), the H on the CH2 groups. This
-      reproduces Fig. 9's C24H13.
+    - sp3 H loss (N_H > y), neutral: 2 (N_H - y), the H on the CH2 groups,
+      read from Fig. 9's C24H13 (thumbnail; Fig. 10 is insensitive: the
+      neutral PAHH rate is saturated).
+    - sp3 H loss, cation: N_H - y. Paper I Fig. 10 (digitised) fixes it: with
+      2 (N_H - y) PAHH+ is +0.22-0.29 dex high from 50 C up, where the rate is
+      no longer saturated; with N_H - y, within 0.15 dex at every size.
     - sp3 H2 loss: N_H - y, one per CH2 group (an assumption, E).
     """
     if nh <= nh0:
         return float(nh) if channel == "H" else 0.0
     extra = nh - nh0
-    return 2.0 * extra if channel == "H" else float(extra)
+    if channel == "H":
+        return float(extra) if charge > 0 else 2.0 * extra
+    return float(extra)
 
 
 @lru_cache(maxsize=None)
@@ -126,7 +135,7 @@ def channels(nc, nh, nh0, charge):
         if (kind, scope, ch) not in CHANNELS or nh + DNH[ch] < 0:
             continue
         E0, dS = CHANNELS[(kind, scope, ch)]
-        s = path_degeneracy(nh, nh0, ch)
+        s = path_degeneracy(nh, nh0, ch, charge)
         if s > 0:
             out[ch] = (E0, dS, s)
     return out
@@ -174,13 +183,24 @@ def field(chi=1.0):
     return fields.RadiationField(E, F, f"Le Page+01 (Draine + Mathis < 5 eV) x {chi:g}")
 
 
+@lru_cache(maxsize=None)
+def _fig11():
+    t = pd.read_csv(_paths.get_external_data_path(SIGMA_FILE), comment="#")
+    return t["energy_eV"].to_numpy(), t["sigma_per_c_Mb"].to_numpy() * 1e-18
+
+
 def sigma_uv(nc, energy_ev, substitute=SIGMA):
     """UV cross section [cm^2], the same for every charge and N_H (LP03 Sect. 3.2.3).
 
-    Joblin's per-C fit (Paper I Fig. 11) is not printed: ``"li_draine"``
-    uses the Li & Draine (2001) neutral sigma; ``"malloci"`` uses the
-    Malloci coronene neutral sigma per C x N_C.
+    ``"lepage01_fig11"`` (default): their Joblin-soot fit per C atom, digitised
+    from Paper I Fig. 11, x N_C; held at its 13.16 eV value up to 13.6 eV.
+    Substitutes for comparison: ``"li_draine"``, the Li & Draine (2001)
+    neutral sigma; ``"malloci"``, the Malloci coronene neutral sigma per C x
+    N_C.
     """
+    if substitute == "lepage01_fig11":
+        E, s = _fig11()
+        return np.interp(energy_ev, E, s, left=0.0) * nc
     if substitute == "li_draine":
         return photo.sigma_li_draine(nc, 0, energy_ev)
     if substitute == "malloci":
@@ -219,16 +239,23 @@ def k_ion(nc, chi=1.0, substitute=SIGMA):
     return field(chi).photon_rate(_sigma_on_grid(nc, ip, substitute) * y, E)
 
 
-def k_photodissociation(nc, nh, nh0, charge, chi=1.0, one_minus_yion=False, stepladder=True,
+def k_photodissociation(nc, nh, nh0, charge, chi=1.0, one_minus_yion=True, stepladder=True,
                         e_min=None, substitute=SIGMA):
     """{channel: k_ph} [s^-1], eq. 11: int_e_min^13.6 P_i(E) sigma N dE.
 
-    ``e_min`` defaults to the IP of the neutral, as eq. 11 is printed, for
-    both charges. ``one_minus_yion`` multiplies the neutral integrand by
-    (1 - Y_ion), which the text implies and eq. 11 lacks.
+    Two defaults depart from eq. 11 as printed (which starts at IP and has no
+    yield factor). Paper I Fig. 10 fixes both:
+    - ``e_min`` defaults to the bottom of the field (0.5 eV; any e_min <=
+      2.8 eV gives the same within 2 %). From IP, the PAHH rates (E0 = 1.2
+      eV) are 3-20x below Fig. 10.
+    - ``one_minus_yion`` multiplies the neutral integrand by (1 - Y_ion). The
+      caption calls neutrals less dissociative "because of the existing
+      competitive photoionization channel"; without it the neutral PAH rates
+      are 0.2-0.7 dex above Fig. 10.
+    ``e_min="ip"`` restores the printed lower limit.
     """
     ip = ionisation_potential(nc)
-    e_min = ip if e_min is None else float(e_min)
+    e_min = (field(chi).energy_ev.min() if e_min is None else ip if e_min == "ip" else float(e_min))
     E = energy_grid(e_min)
     P = branching(nc, nh, nh0, charge, E, stepladder=stepladder)
     w = _sigma_on_grid(nc, e_min, substitute)
@@ -300,7 +327,7 @@ class LePage01:
     - The neutral rows have no chemistry (Sect. 3.4).
     """
 
-    def __init__(self, nc, nh0, one_minus_yion=False, stepladder=True, substitute=SIGMA):
+    def __init__(self, nc, nh0, one_minus_yion=True, stepladder=True, substitute=SIGMA):
         self.nc, self.nh0 = nc, nh0
         self.nh_values = tuple(range(0, 2 * nh0 + 1))
         self.opts = dict(one_minus_yion=one_minus_yion, stepladder=stepladder, substitute=substitute)
