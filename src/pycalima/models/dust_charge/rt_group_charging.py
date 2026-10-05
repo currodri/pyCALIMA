@@ -477,8 +477,8 @@ class GroupChargingTable:
         lam -= arrive * jt * self._hot("delta", c["T"], i, w) * self._hot("E_bar", c["T"], i, w) * EV2ERG
         return gamma, lam
 
-    # -- the same on arrays of charges (exact_distribution, the WDB06tab nodes); the scalar
-    #    versions above are what RAMSES mirrors
+    # -- the same on arrays of charges (the exact P(Z) at the charging_isrf_tables nodes); the
+    #    scalar versions above are what RAMSES mirrors
     def _u_index_arr(self, U):
         f = np.clip((np.arcsinh(U / U_SCALE) - self.x0) / self.dx, 0.0, self.t["U"].size - 1.0)
         i = np.minimum(f.astype(int), self.t["U"].size - 2)
@@ -870,18 +870,6 @@ class GroupChargingTable:
                 break
             sigma, chord = np.sqrt(-1.0 / slope), (lo, hi, glo, ghi)
         return sigma, chord
-
-    def exact_distribution(self, Zs, width, tail=1e-12):
-        """The exact P(Z) of the cell set by the last solve: g on every integer within
-        8 width + 10 of Z*, trimmed where P < tail x its maximum (the reference that
-        the Gaussian of a wide P(Z) approximates). Returns the charges and P."""
-        Z = np.arange(max(self.t["Zmin"], np.floor(Zs - 8 * width - 10)),
-                      min(self.t["Zmax"], np.ceil(Zs + 8 * width + 10)) + 1.0)
-        lnf = np.concatenate([[0.0], np.cumsum(self._g_arr(Z[:-1]))])
-        lnf -= lnf.max()
-        k = lnf > np.log(tail)
-        P = np.exp(lnf[k])
-        return Z[k], P / P.sum()
 
     def _averages(self, nodes, weights, discrete):
         """Gamma, Lambda (+ autoionisation at Zmin) averaged over the charge nodes."""

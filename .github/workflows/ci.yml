@@ -165,13 +165,12 @@ jobs:
 
       - name: Export the tables the tutorials need
         if: steps.cache.outputs.cache-hit != 'true'
-        # dust_ion_recombination is most of a full export and nothing
-        # downstream reads its tables; dust_band_luminosities is skipped only
-        # for tidiness. See docs/cli/calima-export.md for the measured profile.
+        # dust_band_luminosities is skipped only for tidiness. See
+        # docs/cli/calima-export.md for the measured profile.
         run: |
           mkdir -p "$CALIMA_MODEL_DATA"
           calima-export \
-            --skip-stages dust_ion_recombination,dust_band_luminosities \
+            --skip-stages dust_band_luminosities \
             --profile-output "$CALIMA_MODEL_DATA/ci_export_profile.json"
 
       - name: Assert the tables actually exist

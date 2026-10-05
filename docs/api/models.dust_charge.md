@@ -5,9 +5,10 @@ Grain charging and photoelectric heating: equilibrium charge distributions,
 Coulomb enhancement of gas-grain collision rates, and dust-assisted ion
 recombination.
 
-:::{warning}
-`dust_ion_recombination` is the dominant stage of a full export — 15.4 minutes
-at 20 dust bins. It scales per dust bin. See {doc}`/cli/calima-export`.
+:::{note}
+The subpackage's two export stages, `dust_charging_rtgroups` and
+`dust_charging_isrf` (built from the tables of the first), scale per dust bin.
+See {doc}`/cli/calima-export` for what they cost.
 :::
 
 ## Modules
@@ -19,14 +20,12 @@ at 20 dust bins. It scales per dust bin. See {doc}`/cli/calima-export`.
 
    pycalima.models.dust_charge.dust_charging
    pycalima.models.dust_charge.dust_photoelectric_heating
-   pycalima.models.dust_charge.dust_ion_recombination
    pycalima.models.dust_charge.Coulomb_enhancement
    pycalima.models.dust_charge.IM19_charging
    pycalima.models.dust_charge.shared_physics
    pycalima.models.dust_charge.wdb06_yields
    pycalima.models.dust_charge.wdb06_atomic
    pycalima.models.dust_charge.rt_group_charging
-   pycalima.models.dust_charge.charging_psi_tables
    pycalima.models.dust_charge.charging_isrf_tables
    pycalima.models.dust_charge.coulomb_focusing
 ```

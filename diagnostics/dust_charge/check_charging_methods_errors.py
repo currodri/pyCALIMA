@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Errors of the RAMSES grain-charging methods against the full charge distribution.
+"""Errors of the RAMSES grain-charging method WDB06rt against the full charge distribution.
 
-Methods, on cells sampled from RAMSES dumps (dust_rtgroups_debug_*.dat, e.g. the
+Method, on cells sampled from RAMSES dumps (dust_rtgroups_debug_*.dat, e.g. the
 2D Stromgren verification restarts):
 
   rt   charging_model='WDB06rt': rt_group_charging.solve_cell (cold), i.e. the
        per-group solve with its approximations (Gaussian P(Z) averaged at the
        mean, trimmed discrete windows, Gaussian recombination estimate for the
        bins that carry little of it)
-  tab  charging_model='WDB06tab': charging_psi_tables.psi_lookup (FUV photon flux
-       and hardness, EUV with the reference blackbody shape, n(H+) = n_e)
 
 The reference ("full") is the exact P(Z) on every integer charge within
 Z* +- (15 sigma + 10) from the same RT-group rates (PCHIP kernels), with the
@@ -18,7 +16,7 @@ given per bin and for the cell totals per H (Milky Way abundances of the RAMSES
 test setups), for Gamma, Lambda (+ autoionisation), alpha of H+, C+, S+, Fe+
 (resolved: > 1e-6 of the geometric rate) and <Z> (relative to max(|Z|, 1)).
 
-    python check_charging_methods_errors.py RUN_DIR [RUN_DIR ...] --rtgroups DIR --psitab DIR
+    python check_charging_methods_errors.py RUN_DIR [RUN_DIR ...] --rtgroups DIR
         [--cells 1500] [--workers 8]
 """
 import argparse
@@ -32,7 +30,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from pycalima import _paths
-from pycalima.models.dust_charge import charging_psi_tables as cpt
 from pycalima.models.dust_charge import rt_group_charging as rg
 
 import compare_ramses_rtgroups as cr
@@ -61,21 +58,18 @@ def full_solve(gt, N, c_red, T, ne, ions, G0_bg):
 
 
 def one_cell(args):
-    c, rtdir, psidir = args
+    c, rtdir = args
     nb = 4
     key = tuple(c["egy"])
     if key not in _G:
         tabs = [rg.read_bin_table(Path(rtdir) / f"dust_charging_rtgroups_DustBin_{b:02d}.dat") for b in range(1, nb + 1)]
         _G[key] = dict(gts=[rg.GroupChargingTable(t, egy=c["egy"], kernels="pchip") for t in tabs],
-                       pts=[cpt.read_psi_table(Path(psidir) / f"dust_charging_psitab_DustBin_{b:02d}.dat") for b in range(1, nb + 1)],
                        n=[MW[b] * M_P / X_H / (4 / 3 * np.pi * t["a"] ** 3 * RHO[t["material"]]) for b, t in zip(range(1, nb + 1), tabs)])
     G = _G[key]
     ions = [(c["n_Hp"], 1.0, c["m_H"]), (c["n_Hep"], 1.0, c["m_He"]), (c["n_Hepp"], 2.0, c["m_He"])]
     N, cr_ = (c["Np"], c["c_red"]) if c["path"] != 1 else (np.zeros_like(c["Np"]), 0.0)
     full = [full_solve(gt, N, cr_, c["T"], c["ne"], ions, c["G0_bg"]) for gt in G["gts"]]
     rt = rg.solve_cell(G["gts"], G["n"], N, cr_, c["T"], c["ne"], ions, G0_bg=c["G0_bg"])
-    inputs = cpt.cell_inputs(G["pts"][0], c["Np"], c["c_red"], c["G0_bg"])
-    tab = [cpt.psi_lookup(pt, c["T"], c["ne"], *inputs) for pt in G["pts"]]
     out = dict(T=c["T"], hii=c["n_Hp"] > 0.5 * c["ne"] and c["T"] > 3e3, n=G["n"], bins={})
 
     def vals(r, f):
@@ -89,7 +83,7 @@ def one_cell(args):
         fv = {"Zmean": f["Zmean"], "Gamma": f["Gamma"], "Lambda": f["Lambda"],
               **{f"alpha {k}": f["alpha"][i] if f["alpha"][i] > rg.RECOMB_RESOLVED * f["geo"][i] else np.nan
                  for k, i in IONS.items()}}
-        out["bins"][b + 1] = dict(full=fv, rt=vals(rt[b], f), tab=vals(tab[b], f))
+        out["bins"][b + 1] = dict(full=fv, rt=vals(rt[b], f))
     return out
 
 
@@ -102,16 +96,16 @@ def err(a, f, q):
 
 
 def summarize(res):
-    """Per bin, method, quantity: errors and the bin's share of the cell total; totals per cell."""
+    """Per bin and quantity: errors and the bin's share of the cell total; totals per cell."""
     rows = {}
     for c in res:
         for b, d in c["bins"].items():
-            for m in ("rt", "tab"):
+            for m in ("rt",):
                 for q in QTY:
                     tot = np.nansum([c["n"][bb - 1] * abs(dd["full"][q]) for bb, dd in c["bins"].items()]) if q != "Zmean" else np.nan
                     share = c["n"][b - 1] * abs(d["full"][q]) / tot if q != "Zmean" and tot > 0 and np.isfinite(d["full"][q]) else np.nan
                     rows.setdefault((m, b, q), []).append((err(d[m][q], d["full"][q], q), share, c["hii"]))
-        for m in ("rt", "tab"):
+        for m in ("rt",):
             for q in QTY[1:]:
                 f = np.array([c["n"][b - 1] * d["full"][q] for b, d in c["bins"].items()])
                 a = np.array([c["n"][b - 1] * d[m][q] for b, d in c["bins"].items()])
@@ -141,30 +135,27 @@ def report(rows):
 
 def plot(rows, path):
     qs = ("Zmean", "Gamma", "Lambda", "alpha C+")
-    fig, axes = plt.subplots(2, len(qs), figsize=(4.2 * len(qs), 7.5), sharey=True)
+    fig, axes = plt.subplots(1, len(qs), figsize=(4.2 * len(qs), 4.2), sharey=True)
     cols = {1: "#2a78d6", 2: "#7fb3e8", 3: "#d6542a", 4: "#eba27f", "total": "0.15"}
-    for r, m in enumerate(("rt", "tab")):
-        for c, q in enumerate(qs):
-            ax = axes[r, c]
-            for b in (1, 2, 3, 4, "total"):
-                v = rows.get((m, b, q))
-                if not v:
-                    continue
-                e = np.sort(np.array([x[0] for x in v if np.isfinite(x[0])]))
-                if e.size == 0:
-                    continue
-                ax.loglog(np.maximum(e, 1e-8), 1 - np.arange(e.size) / e.size, color=cols[b], lw=2.2 if b == "total" else 1.4,
-                          label=f"bin {b}" if b != "total" else "cell total")
-            ax.axvline(0.3, color="0.6", lw=0.8, ls="--")
-            ax.set_xlim(1e-6, 10)
-            ax.set_ylim(1e-3, 1.2)
-            ax.grid(color="0.92", lw=0.6)
-            ax.set_title(f"{'WDB06rt (per group)' if m == 'rt' else 'WDB06tab (tables)'}: {q}", fontsize=10)
-            if c == 0:
-                ax.set_ylabel("fraction of cells with error > x")
-            if r == 1:
-                ax.set_xlabel("relative error vs full P(Z)")
-    axes[0, 0].legend(frameon=False, fontsize=8)
+    for c, q in enumerate(qs):
+        ax = axes[c]
+        for b in (1, 2, 3, 4, "total"):
+            v = rows.get(("rt", b, q))
+            if not v:
+                continue
+            e = np.sort(np.array([x[0] for x in v if np.isfinite(x[0])]))
+            if e.size == 0:
+                continue
+            ax.loglog(np.maximum(e, 1e-8), 1 - np.arange(e.size) / e.size, color=cols[b], lw=2.2 if b == "total" else 1.4,
+                      label=f"bin {b}" if b != "total" else "cell total")
+        ax.axvline(0.3, color="0.6", lw=0.8, ls="--")
+        ax.set_xlim(1e-6, 10)
+        ax.set_ylim(1e-3, 1.2)
+        ax.grid(color="0.92", lw=0.6)
+        ax.set_title(f"WDB06rt (per group): {q}", fontsize=10)
+        ax.set_xlabel("relative error vs full P(Z)")
+    axes[0].set_ylabel("fraction of cells with error > x")
+    axes[0].legend(frameon=False, fontsize=8)
     fig.suptitle("Grain charging methods against the full charge distribution (Stromgren cells; line: 30%)", fontsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
@@ -175,7 +166,6 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--rtgroups", required=True)
-    ap.add_argument("--psitab", required=True)
     ap.add_argument("--cells", type=int, default=1500, help="cells sampled per run")
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args()
@@ -191,7 +181,7 @@ def main():
         cells += [cs[i] for i in rng.choice(len(cs), min(args.cells, len(cs)), replace=False)]
     print(f"{len(cells)} cells", flush=True)
     with ProcessPoolExecutor(args.workers) as ex:
-        res = list(ex.map(one_cell, [(c, args.rtgroups, args.psitab) for c in cells], chunksize=8))
+        res = list(ex.map(one_cell, [(c, args.rtgroups) for c in cells], chunksize=8))
     rows = summarize(res)
     lines = report(rows)
     print("\n".join(lines))

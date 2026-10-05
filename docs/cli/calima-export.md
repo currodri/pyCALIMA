@@ -7,37 +7,38 @@ configuration or to the underlying physics.
 
 ## Stages and what they cost
 
-A full export runs twelve stages. The table below is a measured profile of the
+A full export runs eleven stages. The table below is a measured profile of the
 25-bin `5PAH10C10Sil` configuration (20 dust + 5 PAH), recorded in that model's
-`export_profile.json`, less the stages since removed; shares are of the stages
-listed. It predates the two charging stages for RAMSES, `dust_charging_rtgroups`
-(RT-group tables, a few seconds per bin) and `dust_charging_isrf` (uniform-ISRF
-tables built from them, about half a minute per dust bin). One stage dominates:
+`export_profile.json`, less the stages since removed; the total and the shares
+are of the stages listed, from that same measurement. It predates the two
+charging stages for RAMSES, `dust_charging_rtgroups` (RT-group tables, a few
+seconds per bin) and `dust_charging_isrf` (uniform-ISRF tables built from them,
+about half a minute per dust bin). Of the stages measured, two take most of the
+time:
 
 | Stage | Writes | Seconds | Share |
 |---|---|---:|---:|
-| `dust_ion_recombination` | `dust_ion_recombination_data/` | 925.5 | 87.6% |
-| `sputtering_rates` | `thermal_sputtering_data/` | 64.6 | 6.1% |
-| `collisional_cooling` | `collisional_cooling_data/` | 43.0 | 4.1% |
-| `dust_optical_properties` | `optical_properties/` | 5.7 | 0.5% |
-| `pah_photoelectric_heating_tables` | `PAH_photoelectric_heating_data/` | 5.6 | 0.5% |
-| `dust_sublimation` | `dust_sublimation/` | 4.8 | 0.5% |
-| `pah_sputtering_rates` | `pah_sputtering_data/` | 3.7 | 0.4% |
-| `pah_optical_properties` | `optical_properties/` | 2.7 | 0.3% |
-| `pah_dissociation_tables` | `PAH_dissociation_data/` | 1.2 | 0.1% |
+| `sputtering_rates` | `thermal_sputtering_data/` | 64.6 | 49.2% |
+| `collisional_cooling` | `collisional_cooling_data/` | 43.0 | 32.7% |
+| `dust_optical_properties` | `optical_properties/` | 5.7 | 4.4% |
+| `pah_photoelectric_heating_tables` | `PAH_photoelectric_heating_data/` | 5.6 | 4.3% |
+| `dust_sublimation` | `dust_sublimation/` | 4.8 | 3.6% |
+| `pah_sputtering_rates` | `pah_sputtering_data/` | 3.7 | 2.8% |
+| `pah_optical_properties` | `optical_properties/` | 2.7 | 2.0% |
+| `pah_dissociation_tables` | `PAH_dissociation_data/` | 1.2 | 0.9% |
 | `dust_band_luminosities` | `optical_properties/` | 0.0 | 0.0% |
-| **total** | | **1056.9** | **17.6 min** |
+| **total** | | **131.3** | **2.2 min** |
 
 It scales per dust bin, so the default configuration — 4 dust and 2 PAH bins —
 is very much faster than this. Use `--stages` or `--skip-stages` to regenerate
 only what you need:
 
 ```bash
-# Everything (roughly half an hour at 25 bins, minutes at the default 6)
+# Everything (roughly a quarter of an hour at 25 bins, minutes at the default 6)
 calima-export
 
-# Skip the single most expensive stage that nothing else reuses
-calima-export --skip-stages dust_ion_recombination
+# Skip a stage whose tables you do not need
+calima-export --skip-stages dust_band_luminosities
 
 # Only the PAH tables
 calima-export --stages pah_optical_properties,pah_sputtering_rates,pah_dissociation_tables

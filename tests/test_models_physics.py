@@ -516,25 +516,6 @@ class TestDustCharge:
         assert _paths.PKG_DIR not in out.parents
         assert out.is_relative_to(isolated_env)
 
-    @pytest.mark.parametrize("mode", ["case_a", "case_b"])
-    def test_both_ion_recombination_paths_agree_on_the_same_distribution(self, mode):
-        """equilibrium_charge_for_grain's rates and compute_ion_recombination_coefficients
-        apply the same WD01 thresholds (case B keeps the corrected sign of Eq. 6)."""
-        from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
-        from pycalima.models.dust_charge.dust_ion_recombination import compute_ion_recombination_coefficients
-
-        ions = [{"name": n, "n": 1e-3, "T": 100.0, "m": m, "z": 1.0}
-                for n, m in (("H+", 1.6726e-24), ("C+", 1.9926e-23), ("Mg+", 4.0359e-23))]
-        a = 1e-7   # 10 A: for C+ at Z = +1 case B forbids the transfer, Eq. 6 as printed allows it
-        Zs, P, rates, _, _ = equilibrium_charge_for_grain(10.0, 0.03, 100.0, "graphite", a, ion_species=ions,
-                                                          recomb_mode=mode)
-        assert P[Zs == 1][0] > 0.05
-        _, ref = compute_ion_recombination_coefficients(Zs, P, a, ions, grain_type="graphite", recomb_mode=mode)
-        np.testing.assert_allclose(rates["ion_recomb_rate_coefficients"], ref, rtol=1e-12)
-        _, ref_a = compute_ion_recombination_coefficients(Zs, P, a, ions, grain_type="graphite", recomb_mode="case_a")
-        if mode == "case_b":
-            assert not np.allclose(ref, ref_a, rtol=1e-6, atol=0.0)   # the threshold is active here
-
 
 # ===========================================================================
 # models/dust_radiation

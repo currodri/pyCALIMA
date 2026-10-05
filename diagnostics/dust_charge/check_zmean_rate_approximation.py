@@ -35,6 +35,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+from pycalima import _paths
 from pycalima.models.dust_charge.charging_isrf_tables import isrf_lookup, read_isrf_table
 from pycalima.models.dust_charge.dust_charging import (
     equilibrium_charge_for_grain,
@@ -1391,8 +1392,6 @@ def _build_grid_rows(
 
 
 def parse_args() -> argparse.Namespace:
-    default_base = str(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison")
-
     p = argparse.ArgumentParser(
         description="Compare full charge-distribution rates against a Zmean-only approximation"
     )
@@ -1746,7 +1745,7 @@ def main() -> None:
     out_summary = (
         Path(args.output_summary)
         if args.output_summary
-        else Path(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.summary.json")
+        else _paths.get_results_dir("dust_charge") / "zmean_rate_approx_comparison.summary.json"
     )
     out_summary.parent.mkdir(parents=True, exist_ok=True)
     with open(out_summary, "w", encoding="utf-8") as fh:
@@ -1755,7 +1754,7 @@ def main() -> None:
     out_plot = (
         Path(args.output_plot)
         if args.output_plot
-        else Path(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.ratio_map.png")
+        else _paths.get_plots_dir("dust_charge") / "zmean_rate_approx_comparison.ratio_map.png"
     )
     try:
         plot_meta = _plot_ratio_maps(

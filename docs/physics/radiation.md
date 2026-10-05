@@ -87,7 +87,7 @@ one of two ways.
 **`precomputed`** is the function default
 (`models/dust_radiation/export_dust_optical_properties.py:54`) and the method
 `calima-export` uses, since it calls the function without `cabs_method`
-(`models/export_all_grain_data.py:707`). It reads the tables
+(`models/export_all_grain_data.py:655`). It reads the tables
 {cite:t}`DraineLee1984` and {cite:t}`LaorDraine1993` computed: `Gra_81` for
 graphite and `suvSil_81` for smoothed-UV astronomical silicate
 (`models/dust_radiation/dust_oppacity.py:1778-1783`). Each table has 81 radii
@@ -240,23 +240,23 @@ and $u_E=0$ for $E>13.6$ eV.
 ### Named fields
 
 The charging and photoelectric-heating code selects a field by name through
-`get_radiation_field` (`models/dust_charge/dust_photoelectric_heating.py:1577`).
+`get_radiation_field` (`models/dust_charge/dust_photoelectric_heating.py:1575`).
 Every field is then cut to $0.1\le E\le13.6$ eV
-(`models/dust_charge/dust_photoelectric_heating.py:1753-1762`).
+(`models/dust_charge/dust_photoelectric_heating.py:1751-1760`).
 
 | name | definition | code |
 |---|---|---|
-| `Draine` | Draine (1978) formula on the `draine1978.dat` wavelengths; returns `[E, λ, I_E]` | `models/dust_charge/dust_photoelectric_heating.py:1597-1606` |
-| `Habing` | the Draine field divided by 1.7, labelled {cite:t}`Habing1968` | `models/dust_charge/dust_photoelectric_heating.py:1607-1616` |
-| `Mathis` | `Mathis83_radiation_field` converted to $I_\lambda$ in erg cm$^{-2}$ s$^{-1}$ nm$^{-1}$ sr$^{-1}$, using $I_\nu=c\,u_\nu/4\pi$; returns `[λ, I_λ]` | `models/dust_charge/dust_photoelectric_heating.py:1617-1652` |
-| `BB<T>`, `O6V`, `B0V`, `A0`, `HD200775` | stellar spectra diluted by $(r_\star/d)^2$ | `models/dust_charge/dust_photoelectric_heating.py:1658-1710` |
-| `BPASS_veryyoung_lowz`, `BPASS_young_midz`, `BPASS_old_highz` | BPASS v2.2.1 SED from `$CALIMA_SED_DIR`, at (10 Myr, $Z=0.0002$), (0.1 Gyr, 0.01) or (1 Gyr, 0.02) | `models/dust_charge/dust_photoelectric_heating.py:1711-1749`, `:48-72` |
+| `Draine` | Draine (1978) formula on the `draine1978.dat` wavelengths; returns `[E, λ, I_E]` | `models/dust_charge/dust_photoelectric_heating.py:1595-1604` |
+| `Habing` | the Draine field divided by 1.7, labelled {cite:t}`Habing1968` | `models/dust_charge/dust_photoelectric_heating.py:1605-1614` |
+| `Mathis` | `Mathis83_radiation_field` converted to $I_\lambda$ in erg cm$^{-2}$ s$^{-1}$ nm$^{-1}$ sr$^{-1}$, using $I_\nu=c\,u_\nu/4\pi$; returns `[λ, I_λ]` | `models/dust_charge/dust_photoelectric_heating.py:1615-1650` |
+| `BB<T>`, `O6V`, `B0V`, `A0`, `HD200775` | stellar spectra diluted by $(r_\star/d)^2$ | `models/dust_charge/dust_photoelectric_heating.py:1656-1708` |
+| `BPASS_veryyoung_lowz`, `BPASS_young_midz`, `BPASS_old_highz` | BPASS v2.2.1 SED from `$CALIMA_SED_DIR`, at (10 Myr, $Z=0.0002$), (0.1 Gyr, 0.01) or (1 Gyr, 0.02) | `models/dust_charge/dust_photoelectric_heating.py:1709-1747`, `:47-71` |
 
 `$CALIMA_SED_DIR` must point at a directory; if it is unset, the code raises
 `RuntimeError`, and if it is not a directory, `FileNotFoundError`
-(`models/dust_charge/dust_photoelectric_heating.py:58-71`). The default
+(`models/dust_charge/dust_photoelectric_heating.py:57-70`). The default
 `export_parameters` choose `Mathis` for the PAH photoelectric export
-(`models/grain_size_distribution.json:173`).
+(`models/grain_size_distribution.json:154`).
 
 ### What $G_0$ means
 
@@ -264,9 +264,9 @@ $G_0$ is defined differently in different modules:
 
 | where | definition of $G_0$ | code |
 |---|---|---|
-| dust charging solver (ion-recombination tables) | a pure multiplier of the chosen base spectrum, $J_\nu = G_0\,J_\nu^\mathrm{base}$; the base spectrum is not renormalised | `models/dust_charge/dust_photoelectric_heating.py:2296`, `models/dust_charge/export_dust_ion_recombination.py:88` |
+| full-spectrum dust charging solver (`dust_charging`) | a pure multiplier of the chosen base spectrum, $J_\nu = G_0\,J_\nu^\mathrm{base}$; the base spectrum is not renormalised | `models/dust_charge/dust_photoelectric_heating.py:2294` |
 | uniform-ISRF charging tables | Habing: the Mathis field scaled to $1.6\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ in 6–13.6 eV, times $G_0$ | `models/dust_charge/rt_group_charging.py:221-226` |
-| `compute_G0_from_rad_field` | $\int_{6}^{13.6\,\mathrm{eV}}4\pi I_E\,dE\,/\,1.68\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ | `models/dust_charge/dust_charging.py:1567`, `:1618`, `:1629` |
+| `compute_G0_from_rad_field` | $\int_{6}^{13.6\,\mathrm{eV}}4\pi I_E\,dE\,/\,1.68\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ | `models/dust_charge/dust_charging.py:1542`, `:1593`, `:1604` |
 | PAH photoelectric heating | $\int_{5.17}^{13.6\,\mathrm{eV}}2\pi I_E\,dE\,/\,1.68\times10^{-6}$ W m$^{-2}$ | `models/PAH_charge/PAH_photoelectric_heating.py:881-882` |
 | PAH temperature (`compute_base_g0`) | $c\int_{6}^{13.6\,\mathrm{eV}}u_E\,dE\,/\,1.6\times10^{-3}$ | `models/PAH_photophysics/pah_temperature.py:103-111` |
 | sublimation | a multiplier of the full Mathis field | `models/dust_radiation/dust_sublimation.py:362-368` |
@@ -278,13 +278,13 @@ for `Mathis` and `compute_base_g0` gives 1.13 for `Mathis83_radiation_field`
 
 :::{note}
 Two inconsistencies in `compute_G0_from_rad_field`
-(`models/dust_charge/dust_charging.py:1567-1632`):
+(`models/dust_charge/dust_charging.py:1542-1607`):
 
-- **Solid angle.** The comment at line 1617 says "hemisphere (2π sr)", but the
-  code multiplies by $4\pi$ (line 1618).
+- **Solid angle.** The comment at line 1592 says "hemisphere (2π sr)", but the
+  code multiplies by $4\pi$ (line 1593).
 - **Energy-first fields.** For three-column fields it integrates $I_E$ in file
   order with no sort, and does not multiply by a solid angle
-  (lines 1592-1598). `Draine` and `Habing` store energy in descending order,
+  (lines 1567-1573). `Draine` and `Habing` store energy in descending order,
   so they come out negative: $G_0=-1.59$ and $-0.94$.
 
 The docstring of `get_radiation_field` promises three columns for every field;

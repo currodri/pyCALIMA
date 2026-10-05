@@ -27,14 +27,11 @@ from pycalima.models.dust_charge.shared_physics import (
     ME_CGS,
     H_CGS,
     C_CGS,
-    KB_CGS,
     EV2ERG,
     E_STATC,
     TINY,
     _coulomb_energy_over_a,
     ionisation_potential_valence_vec,
-    electron_affinity_graphite_vec,
-    electron_affinity_silicate_vec,
     min_energy_ejection_vec,
     photodetachment_energy_graphite_vec,
     photodetachment_energy_silicate_vec,
@@ -47,7 +44,6 @@ from pycalima.models.dust_charge.shared_physics import (
     Watson73_y1_vec,
     BT94_y0_graphite_vec,
     y0_silicate_vec,
-    DS87_J_function_vec,
     autoionisation_potential_graphite,
     autoionisation_potential_silicate,
     most_negative_allowed_charge_graphite,
@@ -63,7 +59,6 @@ from pycalima.models.dust_charge.shared_physics import (
     collisional_rates_ions_vector,
 )
 from pycalima import _paths
-from pycalima.models.grain_size_config import get_model_data_dir
 from pycalima.plotting_style import use_calima_style
 
 PATH_OPTICS = str(get_optical_props_path())
@@ -71,14 +66,14 @@ _EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 
 def dust_charging_output_dir(*subdirs):
-    """Directory for generated dust-charging tables.
+    """Directory for this module's figures (debug yield plots, charge distributions).
 
-    Resolved on every call, not at import: it depends on $CALIMA_DATA and on
-    the active configuration's model_name. The previous module-level
-    ``os.makedirs`` ran at *import* time and raised PermissionError on a
-    read-only install prefix, taking down the whole dust_charge subpackage.
+    Resolved on every call, not at import: it depends on $CALIMA_RESULTS and
+    $CALIMA_DATA. The previous module-level ``os.makedirs`` ran at *import*
+    time and raised PermissionError on a read-only install prefix, taking down
+    the whole dust_charge subpackage.
     """
-    return get_model_data_dir().joinpath('dust_charging_data', *subdirs)
+    return _paths.get_plots_dir(os.path.join('dust_charge', *subdirs), create=False)
 
 
 def _dust_charging_output_path(filename, *subdirs):
@@ -92,7 +87,6 @@ silicate_work_function = SILICATE_WORK_FUNCTION  # [eV]
 me = ME_CGS  # Electron mass [g]
 h_cgs = H_CGS  # Planck constant [erg s]
 c_cgs = C_CGS  # Speed of light [cm/s]
-kb_cgs = KB_CGS  # Boltzmann constant [erg/K]
 silicate_band_gap = SILICATE_BAND_GAP  # [eV]
 electron_escape_length = ELECTRON_ESCAPE_LENGTH_CM  # [cm]
 eV2erg = EV2ERG  # Conversion factor from eV to erg
@@ -861,8 +855,7 @@ def compute_equilibrium_charge_distribution_vectorized(
     initial_halfwidth=20,
     tol_edge=1e-4,
     debug=False,
-    max_cache_bytes=None,
-    recomb_mode=None
+    max_cache_bytes=None
 ):
     """
     Compute equilibrium P(Z) using vectorized photoemission and optimized bounds finder.
@@ -1207,97 +1200,6 @@ def compute_equilibrium_charge_distribution_vectorized(
     rates['efficiency'] = float(eff_val)
     # ------------------------------------------------------------------
 
-    # Compute ion recombination rates and rate coefficients for each species in ion_species
-    # Weingartner & Draine (2001) model: s_i is assumed to be 1.0.
-    ion_recomb_rates = []
-    ion_recomb_rate_coefficients = []
-    if ion_species:
-        if material == 'graphite':
-            W = GRAPHITE_WORK_FUNCTION
-        else:
-            W = SILICATE_WORK_FUNCTION
-
-        cross = np.pi * a * a
-        for ion in ion_species:
-            n_i = float(ion.get("n", 0.0))
-            T_i = float(ion.get("T", 1.0))
-            m_g = float(ion.get("m", 1.0))
-            m_g_cgs = m_g * 1e3 if m_g < 1e-25 else m_g
-            z_i = float(ion.get("z", 1.0))
-            s_i = float(ion.get("s_i", 1.0))  # Default sticking coefficient is 1.0 (WD01)
-
-            vth_i = np.sqrt(8.0 * kb_cgs * T_i / (np.pi * m_g_cgs))
-            Jtilde_i = DS87_J_function_vec(Zs, np.array([z_i]), a, T_i)
-
-            mode = recomb_mode
-            if mode is None and isinstance(yield_params, dict):
-                mode = yield_params.get('recomb_mode', None)
-
-            if mode in ['case_a', 'case_b']:
-                name = ion.get('name', '')
-                el_key = None
-                for el in ['He', 'Na', 'Mg', 'Si', 'Ca', 'Mn', 'Fe']:
-                    if name.startswith(el):
-                        el_key = el
-                        break
-                if el_key is None:
-                    for el in ['H', 'C', 'S', 'K']:
-                        if name.startswith(el):
-                            el_key = el
-                            break
-                
-                ATOMIC_RADII = {
-                    'H': 0.37, 'He': 0.50, 'C': 0.77, 'Na': 1.86, 'Mg': 1.60,
-                    'Si': 1.18, 'S': 1.03, 'K': 2.27, 'Ca': 1.97, 'Mn': 1.37, 'Fe': 1.24
-                }
-                IONIZATION_POTENTIALS = {
-                    'H': 13.598, 'He': 24.587, 'C': 11.260, 'Na': 5.139, 'Mg': 7.646,
-                    'Si': 8.151, 'S': 10.360, 'K': 4.341, 'Ca': 6.113, 'Mn': 7.434, 'Fe': 7.902
-                }
-
-                r0 = float(ion.get('r0', ATOMIC_RADII.get(el_key, 0.77) if el_key else 0.77))
-                IP_X_im1 = float(ion.get('IP_X_im1', ion.get('IP_ion', ion.get('ionization_potential', IONIZATION_POTENTIALS.get(el_key, 13.6) if el_key else 13.6))))
-
-                # Calculate grain ionization potential IP(a,Z) in eV (piecewise: valence IP for Z >= 0, EA of Z+1 for Z < 0)
-                # Grain material from yield_params, as the photoemission code in
-                # this module reads it; graphite if unspecified.
-                grain_type = (yield_params.get('material', 'graphite')
-                              if isinstance(yield_params, dict) else 'graphite')
-                is_graphite = grain_type.lower().startswith('gra') or grain_type.lower().startswith('car')
-                IP_a_Z = np.zeros(len(Zs), dtype=float)
-                for idx, Z in enumerate(Zs):
-                    if Z >= 0:
-                        IP_a_Z[idx] = ionisation_potential_valence_vec(W, Z, a)
-                    else:
-                        if is_graphite:
-                            IP_a_Z[idx] = electron_affinity_graphite_vec(Z + 1, a)
-                        else:
-                            IP_a_Z[idx] = electron_affinity_silicate_vec(Z + 1, a)
-
-                if mode == 'case_a':
-                    y = IP_X_im1 - IP_a_Z
-                    theta = np.where(y >= 0.0, 1.0, 0.0)
-                elif mode == 'case_b':
-                    r0_cm = r0 * 1e-8
-                    term1 = (z_i - Zs - 1.0) * (E_STATC**2) / (a + r0_cm)
-                    term2 = (1.0 - 2.0 * z_i) * (E_STATC**2) * (a**3) / (2.0 * r0_cm * ((a + r0_cm)**2) * (2.0 * a + r0_cm))
-                    dU = (term1 + term2) / EV2ERG
-                    y = IP_X_im1 - IP_a_Z + dU   # as dust_ion_recombination: WD01 Eq. 6 has a sign typo
-                    theta = np.where(y >= 0.0, 1.0, 0.0)
-                
-                Jtilde_i = Jtilde_i * theta
-            
-            # Rate coefficient (cm^3 s^-1 per grain): alpha_gr_i = sum_Z P(Z) * cross * vth * s_i * Jtilde
-            alpha_i = float(np.sum(P * cross * vth_i * s_i * Jtilde_i))
-            # Total rate per grain (s^-1): rate_i = n_i * alpha_gr_i
-            rate_i = n_i * alpha_i
-            
-            ion_recomb_rates.append(rate_i)
-            ion_recomb_rate_coefficients.append(alpha_i)
-
-    rates['ion_recomb_rates'] = np.array(ion_recomb_rates)
-    rates['ion_recomb_rate_coefficients'] = np.array(ion_recomb_rate_coefficients)
-
     return Zs, P, rates, Zmean, Zsigma
 
 
@@ -1372,8 +1274,7 @@ def plot_charge_distribution(Zs, P, ax=None, title=None, xlabel='Z', ylabel='P(Z
 
 def equilibrium_charge_for_grain(G0, ne, T, grain_type, a_cm,
                                  radiation_model='Mathis', rad_field=None,
-                                 yield_params=None, ion_species=None, Z_start=0, debug=False,
-                                 recomb_mode=None):
+                                 yield_params=None, ion_species=None, Z_start=0, debug=False):
     """
     High-level wrapper that builds the radiation and optical inputs for a single
     grain and returns the equilibrium charge distribution using the
@@ -1565,7 +1466,7 @@ def equilibrium_charge_for_grain(G0, ne, T, grain_type, a_cm,
     Zs, P, rates, Zmean, Zsigma = compute_equilibrium_charge_distribution_vectorized(
         a_cm, ne, T, ion_species, nu, J_nu, C_abs_interp_cm2,
         yield_func=yield_func, yield_params=yield_params_local, Z_start=Z_start,
-        debug=debug, max_cache_bytes=max_cache_bytes, recomb_mode=recomb_mode
+        debug=debug, max_cache_bytes=max_cache_bytes
     )
 
     return Zs, P, rates, Zmean, Zsigma
@@ -1573,8 +1474,7 @@ def equilibrium_charge_for_grain(G0, ne, T, grain_type, a_cm,
 
 def heating_and_cooling_for_tuple(G0, ne, T, grain_type, a,
                                   radiation_model='Mathis', yield_params=None,
-                                  ion_species=None, Z_start=0, debug=False,
-                                  recomb_mode=None):
+                                  ion_species=None, Z_start=0, debug=False):
     """
     Compute photoelectric heating and recombination cooling powers for a single
     tuple of (G0, ne, T) for a given grain size and material.
@@ -1622,8 +1522,7 @@ def heating_and_cooling_for_tuple(G0, ne, T, grain_type, a,
         yield_params=yield_params,
         ion_species=ion_species,
         Z_start=Z_start,
-        debug=debug,
-        recomb_mode=recomb_mode
+        debug=debug
     )
 
     out = {
@@ -1636,8 +1535,6 @@ def heating_and_cooling_for_tuple(G0, ne, T, grain_type, a,
         'Zsigma': float(Zsigma),
         'Zs': Zs,
         'P': P,
-        'ion_recomb_rates': rates.get('ion_recomb_rates', np.array([])),
-        'ion_recomb_rate_coefficients': rates.get('ion_recomb_rate_coefficients', np.array([])),
     }
     return out
 

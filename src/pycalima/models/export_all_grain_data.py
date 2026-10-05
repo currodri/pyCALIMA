@@ -446,50 +446,7 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
 
     readme_lines.extend([
-        "### 10. Dust-Assisted Ion Recombination Coefficients",
-        "",
-    ])
-
-    if 'dust_ion_recombination' in export_results:
-        recomb_result = export_results['dust_ion_recombination']
-        r_tmin = recomb_result.get('Tmin')
-        r_tmax = recomb_result.get('Tmax')
-        r_nt = recomb_result.get('nT')
-        r_gmin = recomb_result.get('gamma_min')
-        r_gmax = recomb_result.get('gamma_max')
-        r_ng = recomb_result.get('n_gamma')
-        r_mode = recomb_result.get('mode')
-        r_fixed = recomb_result.get('fixed_value')
-        r_rad = recomb_result.get('radiation_model')
-
-        if r_tmin is not None and r_tmax is not None and r_nt is not None:
-            temp_grid_line = f"- **Temperature Grid**: {float(r_tmin):.2e} to {float(r_tmax):.2e} K ({int(r_nt)} points log-spaced)"
-        else:
-            temp_grid_line = "- **Temperature Grid**: dynamic"
-
-        if r_gmin is not None and r_gmax is not None and r_ng is not None:
-            gamma_grid_line = f"- **Gamma Grid**: {float(r_gmin):.2e} to {float(r_gmax):.2e} ({int(r_ng)} points log-spaced)"
-        else:
-            gamma_grid_line = "- **Gamma Grid**: dynamic"
-
-        readme_lines.extend([
-            f"- **Status**: {recomb_result['status']}",
-            f"- **Export Time**: {recomb_result['timestamp']}",
-            f"- **Output Directory**: `{recomb_result['dir']}`",
-            f"- **Function**: `main()` from `models.dust_charge.export_dust_ion_recombination`",
-            f"- **Description**: Recombination coefficients alpha (using Weingartner & Draine 2001 Case A threshold)",
-            f"  for 11 ions ordered by atomic number: H, He, C, Na, Mg, Si, S, K, Ca, Mn, Fe.",
-            temp_grid_line,
-            gamma_grid_line,
-            f"- **Radiation Model**: {r_rad if r_rad is not None else 'dynamic'}",
-            f"- **Mode**: {r_mode if r_mode is not None else 'dynamic'}" + (f" (fixed_value={float(r_fixed):.3g})" if r_fixed is not None else ""),
-            f"- **Output Format**: DAT tables + PNG quick-look plots + JSON metadata + NPZ binary",
-            f"- **Files**: {recomb_result.get('file_count', '?')} files ({recomb_result.get('bins_processed', 0)} bins processed)",
-            "",
-        ])
-    
-    readme_lines.extend([
-        "### 11. Dust Band Luminosities",
+        "### 10. Dust Band Luminosities",
         "",
     ])
 
@@ -581,12 +538,6 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         "│   ├── sublimation_rate_vs_T.pdf",
         "│   ├── dust_sublimation.pdf",
         "│   └── ...",
-        "├── dust_ion_recombination_data/",
-        "│   ├── dust_rates_ion_recomb_<BinID>.dat",
-        "│   ├── ion_recomb_<BinID>.npz",
-        "│   ├── ion_recomb_<BinID>.png",
-        "│   ├── ion_recomb_<BinID>.json",
-        "│   └── ...",
         "└── README.md (this file)",
         "```",
         "",
@@ -644,9 +595,6 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         "",
         "# Dust sublimation rates and plots",
         "python -m models.dust_radiation.dust_sublimation",
-        "",
-        "# Dust-assisted ion recombination coefficients",
-        "python -m models.dust_charge.export_dust_ion_recombination",
         "",
         "# Dust band luminosities",
         "python -m models.dust_radiation.export_dust_band_luminosities",
@@ -992,45 +940,6 @@ def export_dust_sublimation_wrapper(config_path=None):
         }
 
 
-def export_dust_ion_recombination_wrapper(config_path=None):
-    """Wrapper for dust-assisted ion recombination export with error handling."""
-    from pycalima.models.dust_charge.export_dust_ion_recombination import main as export_recomb
-
-    start_time = datetime.now()
-    timestamp_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
-
-    try:
-        print("\n" + "="*80)
-        print("EXPORTING DUST-ASSISTED ION RECOMBINATION COEFFICIENTS")
-        print("="*80)
-        result = export_recomb(config_path=config_path)
-        return {
-            'status': 'Success',
-            'timestamp': timestamp_str,
-            'dir': result.get('output_dir', 'model_data/dust_ion_recombination_data'),
-            'file_count': result.get('file_count', 0),
-            'bins_processed': result.get('bins_processed', 0),
-            'Tmin': result.get('Tmin'),
-            'Tmax': result.get('Tmax'),
-            'nT': result.get('nT'),
-            'gamma_min': result.get('gamma_min'),
-            'gamma_max': result.get('gamma_max'),
-            'n_gamma': result.get('n_gamma'),
-            'mode': result.get('mode'),
-            'fixed_value': result.get('fixed_value'),
-            'radiation_model': result.get('radiation_model'),
-        }
-    except Exception as e:
-        print(f"Error: {e}")
-        return {
-            'status': f'Error: {str(e)}',
-            'timestamp': timestamp_str,
-            'dir': 'model_data/dust_ion_recombination_data',
-            'file_count': 0,
-            'bins_processed': 0,
-        }
- 
- 
 def export_dust_band_luminosities_wrapper(config_path=None):
     """Wrapper for dust band luminosities export with error handling."""
     from pycalima.models.dust_radiation.export_dust_band_luminosities import export_band_luminosities
@@ -1086,7 +995,6 @@ _STAGES = (
     ('pah_photoelectric_heating_tables', export_pah_photoelectric_heating_tables_wrapper, {}),
     ('pah_dissociation_tables',          export_pah_dissociation_tables_wrapper,          {}),
     ('dust_sublimation',                 export_dust_sublimation_wrapper,                 {}),
-    ('dust_ion_recombination',           export_dust_ion_recombination_wrapper,           {}),
     ('dust_band_luminosities',           export_dust_band_luminosities_wrapper,           {}),
 )
 
@@ -1156,8 +1064,6 @@ def main(config_path=None, profile=True, profile_output=None,
         Comma-separated subset of :data:`STAGE_NAMES` to run. Default: all.
     skip_stages : str, optional
         Comma-separated stages to omit. Mutually exclusive with *stages*.
-        Skipping ``dust_ion_recombination`` alone removes most of a full
-        export's wall-clock time.
 
     Returns
     -------
@@ -1293,8 +1199,7 @@ def _build_parser():
         type=str,
         default=None,
         help='Comma-separated stages to omit. Mutually exclusive with '
-             '--stages. Skipping dust_ion_recombination alone removes '
-             'most of the total wall-clock time.'
+             '--stages.'
     )
     parser.add_argument(
         '--list-stages',

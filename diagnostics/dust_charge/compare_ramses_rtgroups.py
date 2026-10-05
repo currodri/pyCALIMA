@@ -21,10 +21,6 @@ uniform-G0 table (path 1: no local photons) are compared with a direct solve,
 so their differences are the table's interpolation error.
 
     python compare_ramses_rtgroups.py RUN_DIR [RUN_DIR ...] --tables TABLES_DIR [--stride N]
-
-With ``--psitab DIR`` it instead checks the lookups of charging_model='WDB06tab'
-(dust_psitab_debug_XXXXX.dat) against charging_psi_tables.psi_lookup on the
-tables in DIR.
 """
 import argparse
 from pathlib import Path
@@ -91,42 +87,13 @@ def rel(a, b, floor=0.0):
     return float(np.max(np.where(s > 0, np.abs(a - b) / np.where(s > 0, s, 1.0), 0.0)))
 
 
-def compare_psitab(runs, tabdir):
-    """RAMSES WDB06tab lookups against charging_psi_tables.psi_lookup."""
-    from pycalima.models.dust_charge import charging_psi_tables as cpt
-    pts = {}
-    for run in runs:
-        worst = dict(Zmean=0.0, Zsigma=0.0, Gamma=0.0, Lambda=0.0, alpha=0.0)
-        n = 0
-        for d in sorted(Path(run).glob("dust_psitab_debug_*.dat")):
-            for line in open(d):
-                if line.startswith("#"):
-                    continue
-                p = line.split()
-                b = int(p[0])
-                T, ne, GF, hF, GE, hE1, hE2, Zm, Zs, Gm, Lm = (float(x) for x in p[1:12])
-                al = np.array(p[12:22], dtype=float)
-                if b not in pts:
-                    pts[b] = cpt.read_psi_table(Path(tabdir) / f"dust_charging_psitab_DustBin_{b:02d}.dat")
-                py = cpt.psi_lookup(pts[b], T, ne, GF, hF, GE, hE1, hE2)
-                for k, f in (("Zmean", Zm), ("Zsigma", Zs), ("Gamma", Gm), ("Lambda", Lm)):
-                    worst[k] = max(worst[k], rel(py[k], f, 1.0 if k == "Zmean" else 0.0))
-                worst["alpha"] = max(worst["alpha"], rel(py["alpha_rec"], al))
-                n += 1
-        print(f"== {run}: {n} WDB06tab lookups, max rel diff vs psi_lookup: "
-              + " ".join(f"{k}={v:.1e}" for k, v in worst.items()))
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("runs", nargs="+", help="run directories holding dust_rtgroups_debug_*.dat")
     ap.add_argument("--tables", required=True, help="directory with dust_charging_rtgroups_DustBin_XX.dat")
     ap.add_argument("--stride", type=int, default=1, help="check every Nth full solve (each line is independent)")
     ap.add_argument("--worst", type=int, default=3, help="show the N worst full solves")
-    ap.add_argument("--psitab", default=None, help="WDB06tab table directory: check dust_psitab_debug_*.dat instead")
     args = ap.parse_args()
-    if args.psitab:
-        return compare_psitab(args.runs, args.psitab)
 
     tabs, gts = {}, {}
 

@@ -41,7 +41,6 @@ from pycalima.models.dust_charge.shared_physics import (
 )
 from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file, save_imn_file
 from pycalima import _paths
-from pycalima.models.grain_size_config import get_model_data_dir
 from pycalima.plotting_style import use_calima_style
 
 
@@ -102,14 +101,13 @@ _EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 
 def dust_photoelectric_output_dir(*subdirs):
-    """Directory for generated photoelectric-heating tables.
+    """Directory for this module's figures and heating-rate sweeps.
 
-    Resolved on every call, not at import: it depends on $CALIMA_DATA and on
-    the active configuration's model_name. The previous module-level
-    ``os.makedirs`` ran at *import* time and raised PermissionError on a
-    read-only install prefix.
+    Resolved on every call, not at import: it depends on $CALIMA_RESULTS and
+    $CALIMA_DATA. The previous module-level ``os.makedirs`` ran at *import*
+    time and raised PermissionError on a read-only install prefix.
     """
-    return get_model_data_dir().joinpath('dust_photoelectric_heating_data', *subdirs)
+    return _paths.get_results_dir(os.path.join('dust_charge', 'photoelectric_heating', *subdirs), create=False)
 
 
 def _photoelectric_output_path(path):
@@ -2263,7 +2261,7 @@ def Planck_function(T, nu):
 
 def _compute_rates_point(task):
     """Helper for parallel execution: task is a tuple (G0_used, ne_used, T_used, grain_type, a_cm, radiation_model, ion_species).
-    Returns (peh, rec, Zmean, Zsigma, ion_recomb_rates, ion_recomb_rate_coefficients) (or nan/empty on error).
+    Returns (peh, rec, Zmean, Zsigma) (or nan on error).
     """
     G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task[:6]
     ion_species = task[6] if len(task) > 6 else []
@@ -2305,9 +2303,7 @@ def _compute_rates_point(task):
     )
     peh = float(rates.get('Gamma_total', np.nan) - float(rates.get('Autoionisation_cooling', 0.0)))
     rec = float(rates.get('Recomb_total', 0.0))
-    ion_recomb_rates = rates.get('ion_recomb_rates', np.array([]))
-    ion_recomb_rate_coefficients = rates.get('ion_recomb_rate_coefficients', np.array([]))
-    return peh, rec, Zmean, Zsigma, ion_recomb_rates, ion_recomb_rate_coefficients
+    return peh, rec, Zmean, Zsigma
 
 
 def plot_heating_cooling_surfaces(grain_type, a_cm, radiation_model='Mathis', combination='G0_vs_sqrtT_over_ne',
