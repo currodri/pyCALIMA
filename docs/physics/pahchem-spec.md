@@ -414,6 +414,31 @@ targets to tune to. The questions to send Candian/Tielens are: how $G_n$ is
 normalised; which $T$ range enters $k_{\rm IR}$ in eq. 8; the $s_e$ values;
 and whether ionising photons heat in $G(T,E)$.
 
+**M5, third result: Murga & Wiebe 2022, Fig. 1**
+(`diagnostics/pahchem/check_murga_wiebe22.py`). Their four rate forms for
+C$_{66}$H$_{20}$ H loss, with their Table 1 parameters, are put through
+pahchem's sink-free multiphoton $P(E)$ (log $R_{\rm H}$ in yr$^{-1}$, ours
+against theirs):
+
+| Form | $\chi = 1$ | $\chi = 10^4$ |
+|---|---|---|
+| RRK | −7.7 vs ≈ −7.0 | +0.7 vs ≈ 0.0 |
+| Arrh. 1 | −2.5 vs ≈ −4.1 | +3.2 vs ≈ +0.3 |
+| Arrh. 2 | −6.1 vs ≈ −9.3 | +1.4 vs ≈ −3.6 |
+| Laplace | −7.1 vs ≈ −3.1 | +0.6 vs ≈ +1.7 |
+
+- **RRK agrees within 0.7 dex.** It is fixed completely by ($s$, $k_0$,
+  $E_0$), so this validates our multiphoton $P(E)$ against Draine & Li's
+  $dp/dE$.
+- **The other three differ by 1.6–5 dex, in both directions, and in a
+  different order from theirs.** Implementations of the *same named* method
+  differ by orders of magnitude, through conventions the paper does not
+  state. Two candidates: whether $\rho$ includes the ZPE, and whether the
+  Arrhenius form has the $T_e$ correction.
+- So their 6-dex spread is part rate-form physics and part implementation.
+- With a dissociation sink, the rates fall a further 1–1.5 dex at
+  $\chi = 10^4$.
+
 **Electron sticking** (literature search, 2026-10-04). No prescription better
 constrained than Bakes & Tielens 1994 / Weingartner & Draine 2001 has been
 published since. Recent models reuse a classic law plus the
