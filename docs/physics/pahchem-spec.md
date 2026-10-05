@@ -780,6 +780,38 @@ has a runner yet.
     Figshare files lack are now tabulated per location
     (`murga2022_fig6_profile.csv`).
 
+**Murga: charge** ({mod}`pycalima.pahchem.murga_charge`,
+`tests/test_pahchem_murga_charge.py`, `check_murga_charge.py`). WD01 chain
+on pyCALIMA's WD01 rate functions.
+- **M22 Figshare f(a, Z)** (158 locations × 10 sizes, $\chi$, $T$ and
+  $n_e$ per location):
+
+  | Region | median $\Delta\langle Z\rangle$ | max $\lvert\Delta f\rvert$ | modal Z agrees |
+  |---|---|---|---|
+  | PDR 1 | −0.04 | 0.13 | 92 % |
+  | PDR 2 | −0.03 | 0.05 | 96 % |
+  | DF | −0.00 | 0.03 | 100 % |
+  | MC | −0.00 | 0.03 | 100 % |
+
+  - **Inferred, not tested.** The files fix choices Murga do not state, so
+    this is an inference of their configuration:
+    - $s_e = 1$ for every $Z$ (the WD01 law gives +0.5–0.8 in the PDR);
+    - the MMP83 shape for $\chi$, although MARION uses Draine;
+    - no C$^+$ collisions;
+    - WD01 eq. 24 $Z_{\rm min}$ truncated as printed;
+    - the chain truncated at $Z = -2..9$.
+  - **H II region:** −0.97 (strict xfail). The EUV of an O6 star is added
+    there with no stated spectrum.
+- **M20 Fig. 3** (66 integer ⟨Z⟩): 48/66 with M22's configuration and at
+  best 57/66 (strict xfail).
+  - The Horsehead C$_{66}$H$_{20}$ anion needs the floor $Z_{\rm min}$,
+    which the M22 files exclude, so the two papers ran different charge
+    conventions.
+  - Orion C$_{128}$H$_{28}$ at +2 is not reproduced by any variant tried.
+- **pyCALIMA bugs found** in `models/dust_charge`, not fixed here:
+  - its solver overflows at $\chi \lesssim 0.01$ and $T \approx 13$ K;
+  - its $Z_{\rm min}$ rounding goes one charge below WD01 eq. 24 as printed.
+
 What the remaining targets need:
 - **Raster figures the user is digitising:**
   - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);

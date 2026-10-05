@@ -121,6 +121,7 @@ ir_cooling = "not stated (Shiva)"
 charge_model = "f_i(Z) per size bin from Weingartner & Draine 2001 (Sect. 3.1)"
 coupling = "each Z evolves its own (a, X_H) distribution with Z-dependent rates; f(Z) weights the populations (eq. 8). f is independent of time and X_H in the Figshare files, so there is no charge exchange inside the network (inferred)"
 anion_ir_properties = "anions treated as cations in the spectra (Sect. 4.3.3)"
+inferred_from_figshare = "f(a, Z) of the Figshare files is reproduced (median <Z> within 0.04 outside the HII region; pahchem.murga_charge.MURGA2022) only with: electron sticking 1 for every Z; chi in MMP83 units; no ion collisions; WD01 eq. 24 Z_min truncated as printed; the chain truncated at Z = -2..9. Not stated in the paper: an inference, confidence D"
 source = "Sect. 3.1, 3.2, 4.3.3"
 
 [hydrogen]
