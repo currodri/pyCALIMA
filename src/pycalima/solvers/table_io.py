@@ -298,7 +298,7 @@ def build_pah_sputtering_interpolator(
 # Uniform-ISRF charging tables (T x n_e/G0)
 # ---------------------------------------------------------------------------
 
-ISRF_FORMAT_VERSION = 1
+ISRF_FORMAT_VERSION = 2
 ISRF_D_CHARGES = (-1, 1, 2, 3)
 """Impactor charges of the tables' Coulomb factors D_j."""
 
@@ -315,7 +315,8 @@ def read_isrf_charging_table(table_file: str | Path) -> dict:
     dict
         ``a`` (grain radius [cm]), ``lT`` (log10 T [K]), ``lX`` (log10 n_e/G0
         [cm^-3]) and ``q`` (quantities x T x X: <Z>, sigma_Z, ln Gamma_1,
-        lambda_1, then ln D_j for ``ISRF_D_CHARGES``).
+        lambda_1, ln D_j for ``ISRF_D_CHARGES``, then ln alpha_i of the
+        grain-assisted ion recombination, which the solver does not use).
     """
     path = Path(table_file)
     with path.open("r", encoding="utf-8") as fh:

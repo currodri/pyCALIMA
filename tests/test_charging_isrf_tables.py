@@ -41,7 +41,9 @@ def test_lookup_at_a_node_returns_the_node():
             assert lk["Zsigma"] == pytest.approx(q[1], rel=1e-12)
             assert lk["Gamma"] == pytest.approx(G0 * np.exp(q[2]), rel=1e-12)
             assert lk["Lambda"] == pytest.approx(ne * np.sqrt(T) * q[3], rel=1e-12)
-            np.testing.assert_allclose(lk["D"], np.exp(q[4:]), rtol=1e-12)
+            nD = len(cit.D_CHARGES)
+            np.testing.assert_allclose(lk["D"], np.exp(q[4:4 + nD]), rtol=1e-12)
+            np.testing.assert_allclose(lk["alpha"], np.exp(q[4 + nD:]), rtol=1e-12)
 
 
 def test_solver_reader_agrees_with_the_exporter(isolated_env):
@@ -71,13 +73,17 @@ def test_g0_scaling_at_fixed_ne_over_g0(G0):
     assert lk["Zmean"] == pytest.approx(ref["Zmean"], rel=1e-12, abs=1e-12)
     assert lk["Zsigma"] == pytest.approx(ref["Zsigma"], rel=1e-12)
     np.testing.assert_allclose(lk["D"], ref["D"], rtol=1e-12)
+    np.testing.assert_allclose(lk["alpha"], ref["alpha"], rtol=1e-12)     # per grain: a function of P(Z) and T
     assert lk["Gamma"] / ref["Gamma"] == pytest.approx(G0, rel=1e-12)
     assert lk["Lambda"] / ref["Lambda"] == pytest.approx(G0, rel=1e-12)     # n_e = G0 x
 
 
 def test_build_matches_its_nodes(isolated_env, model_data):
     """A tiny build from a real RT-group table: every node is the node solved on its own
-    (cold), so neither the warm start along x nor the row assembly changes a value."""
+    (cold), so neither the warm start along x nor the row assembly changes a value. And the
+    recombination planes order as the case-A thresholds do: an ion of higher ionisation
+    potential can take an electron from more grain charges, so alpha_i sqrt(m_i) (the same
+    capture kernel summed over more charges) cannot decrease with it."""
     from pycalima.models.dust_charge import rt_group_charging as rg
 
     files = sorted((model_data / "dust_charging_rtgroups_data").glob("dust_charging_rtgroups_*.dat"))
@@ -92,3 +98,10 @@ def test_build_matches_its_nodes(isolated_env, model_data):
         for j, lx in enumerate(lX):
             node, _ = cit._node(gt, 10.0 ** lt, 10.0 ** lx, None)
             np.testing.assert_allclose(t["q"][:, i, j], node, rtol=1e-10, atol=0)
+    k0 = cit.QUANTITIES.index(f"lnalpha_{rg.RECOMB_IONS[0][0]}")
+    order = np.argsort([ip for _, _, ip in rg.RECOMB_IONS])
+    lnm = 0.5 * np.log([m for _, m, _ in rg.RECOMB_IONS])
+    for i in range(len(lT)):
+        for j in range(len(lX)):
+            scaled = (t["q"][k0:k0 + len(rg.RECOMB_IONS), i, j] + lnm)[order]
+            assert np.all(np.diff(scaled) >= -1e-12), (lT[i], lX[j], scaled)

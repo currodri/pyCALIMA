@@ -1,12 +1,13 @@
 """WDB06 grain charging under a uniform ISRF, tabulated for RAMSES charging_model='WDB06isrf':
-the charge of runs without RT photon groups, and the PE heating and recombination cooling of
-the charging models that do not compute their own (WDB06rt and WDB06tab do).
+the charge of runs without RT photon groups, with its PE heating, recombination cooling,
+Coulomb focusing factors and grain-assisted ion recombination, and the PE heating of the
+charging models that do not compute their own (WDB06rt does).
 
 The charge balance is that of ``rt_group_charging`` with no local RT photons: the UV background
 (the Mathis ISRF scaled to G0 Habing in 6-13.6 eV) and H+ ions with n(H+) = n_e. Every rate is
 linear in G0 or in n_e, so one table at G0 = 1 serves any G0 through x = n_e/G0:
 
-    <Z>, sigma_Z, D_j (G0, T, n_e) = table(T, x)
+    <Z>, sigma_Z, D_j, alpha_i (G0, T, n_e) = table(T, x)
     Gamma (G0, T, n_e)             = G0 * Gamma_1(T, x)               [erg s^-1 per grain]
     Lambda (G0, T, n_e)            = n_e sqrt(T) * lambda_1(T, x)     [erg s^-1 per grain]
 
@@ -16,13 +17,16 @@ is negative for strongly positive grains in cold gas, so lambda_1 is stored line
 node is evaluated on the exact P(Z), every integer charge with P > 1e-300 of the maximum within
 8 sigma + 10 of the peak and always from Z = -3 to +3, not on the solver's Gaussian of a wide
 P(Z) nor on its trimmed window of a narrow one: <Z>, sigma_Z, the PE heating, the
-recombination cooling, and the Coulomb focusing factors D_j over that P(Z) for impactor
-charges j = -1, +1, +2, +3 (``coulomb_focusing``). Through the tail of P(Z) at the opposite
-sign, D_j of a small grain in cold gas differs by orders of magnitude from any Gaussian of the
-same mean and width.
+recombination cooling, the Coulomb focusing factors D_j over that P(Z) for impactor
+charges j = -1, +1, +2, +3 (``coulomb_focusing``), and the grain-assisted recombination
+coefficients alpha_i [cm^3 s^-1 per grain] of the singly charged ions of
+``rt_group_charging.RECOMB_IONS`` (``GroupChargingTable._recombination``: case-A charge
+thresholds), read by RAMSES for dust_ion_recombination. Through the tail of P(Z) at the
+opposite sign, D_j of a small grain in cold gas differs by orders of magnitude from any
+Gaussian of the same mean and width.
 
-Stored, on (log10 T, log10 x): <Z>, sigma_Z, ln Gamma_1, lambda_1, ln D_j. A lookup is bilinear
-and clamped to the grid.
+Stored, on (log10 T, log10 x): <Z>, sigma_Z, ln Gamma_1, lambda_1, ln D_j, ln alpha_i. A lookup
+is bilinear and clamped to the grid.
 
     python -m pycalima.models.dust_charge.export_dust_charging_isrf
 """
@@ -34,11 +38,12 @@ import numpy as np
 from pycalima.models.dust_charge import coulomb_focusing as cf
 from pycalima.models.dust_charge import rt_group_charging as rg
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 LT = np.linspace(1.0, 9.0, 161)         # log10 T [K]
 LX = np.linspace(-8.0, 8.0, 161)        # log10 (n_e / G0) [cm^-3]
 D_CHARGES = (-1, 1, 2, 3)               # impactor charges of the D planes
-QUANTITIES = ("Zmean", "Zsigma", "lnGamma1", "lambda1") + tuple(f"lnD{j:+d}" for j in D_CHARGES)
+QUANTITIES = (("Zmean", "Zsigma", "lnGamma1", "lambda1") + tuple(f"lnD{j:+d}" for j in D_CHARGES)
+              + tuple(f"lnalpha_{ion}" for ion, _, _ in rg.RECOMB_IONS))
 LN_FLOOR = np.log(1e-300)
 
 
@@ -67,7 +72,8 @@ def _node(gt, T, x, Z_guess):
     auto = gt._averages(Z[:1], P[:1], True)[2]          # autoionisation at Zmin, if P(Z) reaches it
     D = cf.coulomb_factors_exact(Z, P, T, gt.t["a"], max(D_CHARGES))
     lnD = [np.log(max(D[j + 1], 1e-300)) for j in D_CHARGES]
-    vals = [zmean, zsig, np.log(max(P @ heat, 1e-300)), (P @ cool + auto) / (x * np.sqrt(T))] + lnD
+    lnalpha = [np.log(max(v, 1e-300)) for v in gt._recombination(Z, P)]
+    vals = [zmean, zsig, np.log(max(P @ heat, 1e-300)), (P @ cool + auto) / (x * np.sqrt(T))] + lnD + lnalpha
     return np.array(vals), r["Zstar"]
 
 
@@ -107,7 +113,8 @@ def write_isrf_table(t, path, label=""):
         f.write(f"# bin {label}: {t['material']}, a = {t['a']:.6e} cm; ions: H+ with n = n_e; x = n_e/G0 [cm^-3]\n")
         f.write("# quantities (each nT x nX, T slow): " + " ".join(QUANTITIES) + "\n")
         f.write("# Gamma = G0 exp(lnGamma1), Lambda = n_e sqrt(T) lambda1 [erg/s per grain]; "
-                "D_j = exp(lnD_j); see pycalima.models.dust_charge.charging_isrf_tables\n")
+                "D_j = exp(lnD_j); alpha_i = exp(lnalpha_i) [cm^3/s per grain]; "
+                "see pycalima.models.dust_charge.charging_isrf_tables\n")
         f.write(f"{t['version']} {t['lT'].size} {t['lX'].size} {len(QUANTITIES)} {t['a']:.8e}\n")
         f.write(" ".join(f"{v:.8e}" for v in t["lT"]) + "\n")
         f.write(" ".join(f"{v:.8e}" for v in t["lX"]) + "\n")
@@ -131,8 +138,9 @@ def read_isrf_table(path):
 
 
 def isrf_lookup(t, G0, T, ne):
-    """<Z>, sigma_Z, Gamma, Lambda [erg/s per grain] and D_j (D_CHARGES) of one bin's table at
-    background G0 [Habing], T [K], n_e [cm^-3]: bilinear in (log T, log n_e/G0), clamped."""
+    """<Z>, sigma_Z, Gamma, Lambda [erg/s per grain], D_j (D_CHARGES) and alpha_i (RECOMB_IONS)
+    [cm^3/s per grain] of one bin's table at background G0 [Habing], T [K], n_e [cm^-3]:
+    bilinear in (log T, log n_e/G0), clamped."""
     lt = min(max(np.log10(T), t["lT"][0]), t["lT"][-1])
     lx = min(max(np.log10(max(ne, 1e-300) / max(G0, 1e-300)), t["lX"][0]), t["lX"][-1])
     fi = (lt - t["lT"][0]) / (t["lT"][1] - t["lT"][0])
@@ -142,4 +150,6 @@ def isrf_lookup(t, G0, T, ne):
     u, v = fi - i, fj - j
     q = t["q"]
     c = (1 - u) * (1 - v) * q[:, i, j] + u * (1 - v) * q[:, i + 1, j] + (1 - u) * v * q[:, i, j + 1] + u * v * q[:, i + 1, j + 1]
-    return dict(Zmean=c[0], Zsigma=c[1], Gamma=G0 * np.exp(c[2]), Lambda=ne * np.sqrt(T) * c[3], D=np.exp(c[4:]))
+    nD = len(D_CHARGES)
+    return dict(Zmean=c[0], Zsigma=c[1], Gamma=G0 * np.exp(c[2]), Lambda=ne * np.sqrt(T) * c[3],
+                D=np.exp(c[4:4 + nD]), alpha=np.exp(c[4 + nD:]))
