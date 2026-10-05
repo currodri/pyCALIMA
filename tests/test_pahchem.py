@@ -415,3 +415,171 @@ def test_west2018_transition_states_follow_their_convention(west_esi, n):
     assert theirs == pytest.approx(dS, abs=1.0)
     ours = rates.transition_state_for_entropy(rx, 3100.0, dS, n_scaled=5)
     assert np.max(np.abs(ours / ts - 1.0)) < 0.02
+
+
+# ===========================================================================
+# M3: radiation fields, absorption, IR cascade, internal-energy master equation
+# ===========================================================================
+
+from pycalima.pahchem import cooling, energy_me, fields, photo
+
+E_PH = np.linspace(5.0, 13.6, 345)
+
+
+def test_isrf_g0_values():
+    """Habing G0: Draine (1978) 1.7 and Mathis et al. (1983) 1.14 in the literature."""
+    assert fields.draine1978().g0() == pytest.approx(1.67, abs=0.02)
+    assert fields.mathis1983().g0() == pytest.approx(1.13, abs=0.02)
+
+
+@pytest.mark.parametrize("make", [lambda: fields.draine1978(g0=37.0),
+                                  lambda: fields.blackbody(30000.0, 37.0),
+                                  lambda: fields.kurucz(15000, 37.0)])
+def test_fields_scale_to_the_requested_g0(make):
+    f = make()
+    assert f.g0() == pytest.approx(37.0, rel=1e-10)
+    assert f.scaled(370.0).photon_rate(np.ones_like(E_PH), E_PH) == pytest.approx(
+        10 * f.photon_rate(np.ones_like(E_PH), E_PH), rel=1e-10)
+
+
+def test_li_draine_radius_and_cross_section():
+    assert photo.li_draine_radius_um(468) == pytest.approx(1e-3)
+    for nc, Z in ((24, 0), (54, 1), (96, 0)):
+        s = photo.sigma_li_draine(nc, Z, E_PH)
+        assert np.all(np.isfinite(s)) and np.all(s > 0)
+        per_c = np.trapezoid(s, E_PH) / nc                 # cm^2 eV per C atom
+        assert 2e-17 < per_c < 2e-16, (nc, Z, per_c)
+
+
+def test_malloci_and_li_draine_agree_for_coronene():
+    """Measured: int sigma dE over 5-13.6 eV differs by 18 %."""
+    ld = np.trapezoid(photo.sigma_li_draine(24, 0, E_PH), E_PH)
+    ma = np.trapezoid(photo.sigma_malloci_coronene(0, E_PH), E_PH)
+    assert ld / ma == pytest.approx(1.0, abs=0.3)
+
+
+@pytest.mark.parametrize("yield_", [lambda E: photo.yield_jochims1996(E, 7.0),
+                                    lambda E: photo.yield_lepage2001(E, 7.0)])
+def test_ionisation_yields_are_probabilities_and_vanish_below_ip(yield_):
+    E = np.linspace(4.0, 20.0, 400)
+    y = yield_(E)
+    assert np.all((y >= 0) & (y <= 1))
+    assert np.all(y[E < 7.0] == 0)
+
+
+def test_heating_and_ionisation_add_up_to_absorption():
+    f = fields.draine1978(g0=10.0)
+    sigma = photo.sigma_malloci_coronene(1, E_PH)
+    Y = photo.yield_jochims1996(E_PH, 11.5)
+    total = f.photon_rate(sigma, E_PH)
+    assert (np.trapezoid(photo.heating_spectrum(f, sigma, Y, E_PH), E_PH)
+            + photo.ionisation_rate(f, sigma, Y, E_PH)) == pytest.approx(total, rel=1e-10)
+
+
+def test_single_oscillator_emits_at_n_times_A():
+    """One mode with n quanta emits at n A (the v -> v-1 rate is v A)."""
+    nu, A = 1000.0, 3.0
+    E, counts = dos.beyer_swinehart([nu], 10 * nu)
+    k = cooling.mode_emission_rates(E, counts, [nu], [A], window_cm=1.0,
+                                    at_cm=np.arange(1, 10) * nu)
+    assert np.allclose(k[0], A * np.arange(1, 10))
+
+
+@pytest.fixture(scope="module")
+def toy_cascade():
+    """60 PAH-like modes, A_i = 1-10 s^-1, and one channel with E0 = 3 eV."""
+    f = _random_modes(60, seed=7)
+    A = np.random.default_rng(7).uniform(1.0, 10.0, f.size)
+    cm = energy_me.CascadeModel(f, A, e_max_cm=25.0 * EV, de_cm=50.0)
+    E, counts = dos.beyer_swinehart(f, 25.0 * EV + 200.0)
+    k = rates.inverse_laplace_arrhenius(E, counts, 1e16, 3.0 * EV)
+    return cm, {"X": k[np.rint(cm.energy_cm).astype(int)]}
+
+
+def test_photon_yields_are_probabilities(toy_cascade):
+    cm, ch = toy_cascade
+    Y = cm.photon_yields(ch)["X"]
+    assert np.all((Y >= 0) & (Y <= 1 + 1e-12))
+    assert np.all(Y[cm.energy_cm < 3.0 * EV] == 0)
+    assert Y[-1] > 0.99                                  # k >> k_IR at 25 eV
+
+
+def _toy_heating(g0):
+    f = fields.draine1978(g0=g0)
+    return photo.heating_spectrum(f, photo.sigma_li_draine(20, 0, E_PH), np.zeros_like(E_PH), E_PH)
+
+
+def test_steady_state_conserves_energy(toy_cascade):
+    """Absorbed power = radiated power + energy carried off by dissociation."""
+    cm, ch = toy_cascade
+    h = _toy_heating(1e4)
+    no_loss = cm.steady_state(E_PH, h, {})
+    assert no_loss.radiated_power == pytest.approx(no_loss.absorbed_power, rel=1e-6)
+    ss = cm.steady_state(E_PH, h, ch)
+    carried = ss.probability @ (ch["X"] * cm.energy_cm)
+    assert ss.radiated_power + carried == pytest.approx(ss.absorbed_power, rel=1e-6)
+
+
+def test_steady_state_reduces_to_single_photon_yields_at_low_g0(toy_cascade):
+    cm, ch = toy_cascade
+    Y = cm.photon_yields(ch)["X"]
+    for g0 in (1.0, 10.0):
+        h = _toy_heating(g0)
+        single = np.trapezoid(h * np.interp(E_PH * EV, cm.energy_cm, Y), E_PH)
+        ss = cm.steady_state(E_PH, h, ch)
+        assert ss.rates["X"] == pytest.approx(single, rel=0.01)
+        assert ss.rates["X"] <= np.trapezoid(h, E_PH)
+
+
+def test_cooling_tends_to_the_thermal_approximation(pah_states):
+    """Measured for C24H12: P_micro/P_thermal = 0.95 at 1 eV, 0.999 at 40 eV."""
+    from pycalima.models.PAH_photophysics.pah_mol_data import compute_thermal_ir_rate
+
+    path = pah_states / "C24H12_0.dat"
+    sp = PAHSpecies.from_states_file(path)
+    E, counts = dos.beyer_swinehart(sp.freqs_cm, 41.0 * EV, 2.0)
+    at = np.array([1.0, 3.0, 8.0, 20.0, 40.0]) * EV
+    micro = cooling.cooling_rate(sp.freqs_cm, cooling.mode_emission_rates(
+        E, counts, sp.freqs_cm, sp.einstein_a, at_cm=at))
+    thermal = np.array([cooling.cooling_rate(sp.freqs_cm, cooling.thermal_mode_rates(
+        sp.freqs_cm, sp.einstein_a, dos.canonical_temperature(sp.freqs_cm, e))) for e in at])
+    legacy = np.array([compute_thermal_ir_rate(str(path), e / EV)[2] * e for e in at])
+    assert np.allclose(thermal, legacy, rtol=1e-5)
+    ratio = micro / thermal
+    assert np.all((ratio > 0.9) & (ratio <= 1.0)) and np.all(np.diff(ratio) > 0), ratio
+    assert ratio[-1] > 0.995
+
+
+@pytest.mark.parametrize("name", ["C24H12", "C96H24"])
+def test_andrews16_fig5_ir_rate(pah_states, name):
+    """k_IR(E) = (dE/dt)/E (Andrews+16 eq. 3) against Fig. 5.
+
+    Measured: within 0.22 dex (C24H12) and 0.26 dex (C96H24).
+    """
+    from pycalima._paths import get_external_data_path
+
+    sp = PAHSpecies.from_states_file(pah_states / f"{name}_0.dat")
+    d = np.loadtxt(get_external_data_path(f"kIR_{name}_Andrews16.csv"), delimiter=",")
+    d = d[d[:, 0] > 0.5]
+    E, counts = dos.beyer_swinehart(sp.freqs_cm, d[:, 0].max() * EV + 200.0, 2.0)
+    k = cooling.cooling_rate(sp.freqs_cm, cooling.mode_emission_rates(
+        E, counts, sp.freqs_cm, sp.einstein_a, at_cm=d[:, 0] * EV)) / (d[:, 0] * EV)
+    assert np.all(np.abs(np.log10(k / d[:, 1])) < 0.3)
+
+
+def test_circumcoronene_becomes_multiphoton(pah_states):
+    """C54H18 H loss: single-photon below G0 ~ 10, ~G0^2 above (measured
+    enhancement 1.01, 1.5, 6, 56 at G0 = 1, 1e2, 1e3, 1e4)."""
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, e_max_cm=45.0 * EV, de_cm=100.0)
+    ch = {"H": rates.arrhenius_effective_temperature(sp.freqs_cm, cm.energy_cm, 4.6 * EV, 44.8)}
+    Y = cm.photon_yields(ch)["H"]
+    sigma, ion = photo.sigma_li_draine(54, 0, E_PH), photo.yield_jochims1996(E_PH, 6.14)
+    enh = []
+    for g0 in (1.0, 1e3, 1e4):
+        h = photo.heating_spectrum(fields.draine1978(g0=g0), sigma, ion, E_PH)
+        single = np.trapezoid(h * np.interp(E_PH * EV, cm.energy_cm, Y), E_PH)
+        enh.append(cm.steady_state(E_PH, h, ch).rates["H"] / single)
+    assert enh[0] == pytest.approx(1.0, abs=0.03)
+    assert 3.0 < enh[1] < 15.0 and 30.0 < enh[2] < 120.0, enh
+    assert 0.8 < np.log10(enh[2] / enh[1]) < 1.1, enh       # slope ~ 2 in G0

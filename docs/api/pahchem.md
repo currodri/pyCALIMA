@@ -16,4 +16,8 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.molecule
    pycalima.pahchem.rates
    pycalima.pahchem.labdata
+   pycalima.pahchem.fields
+   pycalima.pahchem.photo
+   pycalima.pahchem.cooling
+   pycalima.pahchem.energy_me
 ```

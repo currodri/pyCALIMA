@@ -227,6 +227,46 @@ assumed 10$^4$. This ~1 eV is the size of the laboratory systematic on the
 threshold, larger than either paper's quoted errors. The sensitivity analysis
 of M5 should carry it as the uncertainty of the H-loss $E_0$.
 
+**M3a (photophysics and the internal-energy master equation) passes.**
+
+- {mod}`pycalima.pahchem.fields`: one field type (4$\pi$ photon flux per eV)
+  and one $G_0$ (Habing, 6–13.6 eV). Draine (1978) has $G_0 = 1.67$ and
+  Mathis et al. (1983) 1.13.
+- {mod}`pycalima.pahchem.photo`: Li & Draine $\sigma$ at the LD01 radius, the
+  Malloci coronene $\sigma$, and the Jochims and Le Page yields. Heating plus
+  ionisation equals absorption.
+- {mod}`pycalima.pahchem.cooling`: the exact harmonic microcanonical emission
+  rate $k_i(E) = A_i\sum_{v\ge1}\rho(E-vh\nu_i)/\rho(E)$. For one oscillator
+  it gives $nA$ exactly. It falls below the thermal approximation by 5 % at
+  1 eV and 0.1 % at 40 eV, and the thermal approximation equals the legacy code.
+  $(dE/dt)/E$ matches Andrews Fig. 5 $k_{\rm IR}$ to 0.26 dex.
+- {mod}`pycalima.pahchem.energy_me`: the internal-energy master equation, with
+  discrete IR down-jumps, photon up-jumps and dissociation sinks; split jumps
+  conserve energy.
+  - **Per-photon yields** come from an exact absorbing-cascade recursion and
+    are never above 1.
+  - **Multiphoton rates** come from a renewal steady state.
+  - **Energy balance** is exact: absorbed = radiated + carried off, to
+    $10^{-6}$.
+  - **Low-$G_0$ limit:** the steady state equals the single-photon result to
+    1 %.
+
+Results under the Andrews H-loss parameters:
+
+- **Coronene** stays single-photon to 2 % up to $G_0 = 10^5$, as Andrews state.
+  Its H-loss probability per heating photon is 0.18. Their eqs. (7)–(8) give
+  ≈ 0.97 with the same $k(E)$.
+- **Circumcoronene** becomes multiphoton above $G_0 \sim 10$, with enhancement
+  1.5, 6 and 56 at $G_0 = 10^2$, $10^3$, $10^4$, scaling as $\sim G_0^2$.
+  Andrews Table B already has slope ≈ 2 at $G_0 = 1$. M5 has to show whether
+  that comes from the sink-free eq. (7).
+
+Still open (M3b):
+- an independent Monte Carlo check of the master equation;
+- recurrent fluorescence, which needs TD-DFT inputs (T3);
+- the ionisation-branching gate against Zhen+2016 and Wenzel+2020, which needs
+  their tabulated yields.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;
