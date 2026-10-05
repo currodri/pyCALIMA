@@ -44,6 +44,12 @@ Measured (2026-10-05; Malloci+07 sigma, PAHdb A, Set 2 from I Fig. 5):
   - PAH 50 C and 100 C (Li & Draine sigma): +9 and +10 points in the Orion
     Bar; removing the 0.2 dex photoionisation excess gives 27.5 and 35.2 %
     against 28.5 and 36.1 %.
+- **II Fig. 10** (alpha_H vs N_C within each charge state, Orion Bar and
+  NGC 7027, digitised):
+  - N_C >= 24: within 1.6 points (Orion Bar) and 3.4 (NGC 7027).
+  - Orion Bar, 10-16 C: 15-19 points (neutral) and 10-16 (cation) too
+    dehydrogenated. H addition x2, dehydrogenated photo-rates x0.5 or all
+    photo-rates x0.7 each close it.
 - **Critical sizes** [C]: Orion Bar 39.2, HI 37.9, M82 42.0, NGC 7023 44.4,
   NGC 7027 46.6, diffuse warm 64.2. Allain: > 40 everywhere, smallest in the
   Orion Bar and HI, 50 in NGC 7027, 55 in the warm medium.

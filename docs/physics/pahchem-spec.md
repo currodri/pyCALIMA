@@ -678,6 +678,21 @@ has a runner yet.
   - PAH 50 C and 100 C are +9 and +10 points (strict xfail): Li & Draine
     $\sigma$ makes their photoionisation 0.2 dex high. Removing that leaves
     1 point.
+- **Hydrogenation (II Fig. 10)**, digitised for the Orion Bar cations and
+  neutrals and for NGC 7027 (`allain96_fig10_alpha_h.csv`). $\alpha_{\rm H}$
+  is normalised within each charge state.
+  - From 24 C up the agreement is within 1.6 points in the Orion Bar and 3.4
+    points in NGC 7027, including the full hydrogenation at 50 and 100 C.
+  - In NGC 7027 the 10–32 C PAHs are bare, as theirs are. Their transition
+    lies between 32 and 50 C, where we have no species.
+  - In the Orion Bar the 10–16 C PAHs are 15–19 points (neutral) and 10–16
+    points (cation) too dehydrogenated (strict xfail), as are the network
+    means of II Table 5.
+    - A factor ~2 in the H-loss / H-addition balance closes it. The tabulated
+      states agree to 0.15 dex, so the suspects are the intermediate states,
+      whose rates rest on the unstated C–H mode removal and band-$A$ scaling.
+    - $\alpha_{\rm H}$ is steep here, which turns a 0.15–0.3 dex rate offset
+      into 15 points.
 
 **Le Page+01/03 runner** ({mod}`pycalima.pahchem.lepage01`,
 `tests/test_pahchem_lepage01.py`, `check_lepage01.py`, 2026-10-05).
@@ -711,7 +726,7 @@ has a runner yet.
 
 What the remaining targets need:
 - **Raster figures the user is digitising:**
-  - for Allain: II Figs. 9 and 10, and Fig. 7 for the other four media (I Fig. 5 and the Fig. 7 Orion Bar and NGC 7027 curves are done);
+  - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);
   - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6, 7 and 9.
 - **Murga:**
   - its figures are vector and can be extracted here;

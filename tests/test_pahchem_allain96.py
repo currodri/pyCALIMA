@@ -216,6 +216,56 @@ def test_paper_ii_fig7_ionised_fraction_large_pahs(states, name):
     assert s["alpha_ion"] == pytest.approx(_fig7("Orion Bar")(A.SPECIES[name][0]), abs=0.05)
 
 
+def _fig10(medium, charge):
+    """II Fig. 10 (digitised), alpha_H as a fraction, interpolated in N_C."""
+    import pandas as pd
+    from pycalima import _paths
+
+    d = pd.read_csv(_paths.get_external_data_path("pahchem/allain96_fig10_alpha_h.csv"), comment="#")
+    d = d[(d.medium == medium) & (d.charge == charge)].sort_values("n_c")
+    return lambda nc: float(np.interp(nc, d.n_c, d.alpha_h_percent)) / 100.0
+
+
+def _alpha_h(fam, medium, charge):
+    """alpha_H normalised within one charge state (II eq. 21), or over both."""
+    s = fam.steady(medium)
+    if charge == "both":
+        return s["alpha_H"]
+    f = s["f"][{"neutral": 0, "cation": 1}[charge]]
+    return float(f @ np.arange(fam.nh0 + 1) / (fam.nh0 * f.sum()))
+
+
+@pytest.mark.parametrize("medium, charge", [("Orion Bar", "neutral"), ("Orion Bar", "cation"), ("NGC 7027", "both")])
+@pytest.mark.parametrize("name", ["C24H12", "C32H14", "PAH 50 C", "PAH 100 C"])
+def test_paper_ii_fig10_hydrogenation_from_24c(states, medium, charge, name):
+    """II Fig. 10 (digitised): alpha_H from 24 C up. Measured within 1.6 points in the
+    Orion Bar (neutral and cation) and 3.4 in NGC 7027 (C32H14: 0.4 % against 3.8 %,
+    on the steep 32-50 C rise of their curve)."""
+    assert _alpha_h(_family(name, states), medium, charge) == pytest.approx(
+        _fig10(medium, charge)(A.SPECIES[name][0]), abs=0.04)
+
+
+@pytest.mark.parametrize("name", ["C10H8", "C14H10", "C16H10"])
+def test_paper_ii_fig10_ngc7027_small_pahs_are_bare(states, name):
+    """NGC 7027 (n_H/chi = 0.15): small PAHs fully dehydrogenated, as in II Fig. 10
+    (measured alpha_H <= 0.3 %, theirs <= 0.2 %)."""
+    assert _alpha_h(_family(name, states), "NGC 7027", "both") < 0.01
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "Orion Bar, 10-16 C: our alpha_H is 15-19 points (neutral) and 10-16 points (cation) below II "
+    "Fig. 10, i.e. too dehydrogenated, as in the II Table 5 network means. A factor ~2 in the H-loss / "
+    "H-addition balance closes it (H addition x2, dehydrogenated-state photo-rates x0.5, or all photo-rates "
+    "x0.7). The tabulated states (alpha_H = 1, 0.5, 0.25; I Table 4, II Table 2) agree to 0.15 dex, so the "
+    "suspects are the intermediate states, whose rates rest on the unstated C-H mode removal and band-A "
+    "scaling (allain96.strip_h_modes)."))
+@pytest.mark.parametrize("charge", ["neutral", "cation"])
+@pytest.mark.parametrize("name", ["C10H8", "C14H10", "C16H10"])
+def test_paper_ii_fig10_orion_bar_small_pahs(states, charge, name):
+    assert _alpha_h(_family(name, states), "Orion Bar", charge) == pytest.approx(
+        _fig10("Orion Bar", charge)(A.SPECIES[name][0]), abs=0.05)
+
+
 @pytest.mark.parametrize("name, key", [("C16H10", "pyrene"), ("C32H14", "ovalene")])
 def test_paper_ii_table5_single_state_destruction_times(states, name, key):
     """tau of the normal neutral and the bare cation, in all six media (Set 2).
