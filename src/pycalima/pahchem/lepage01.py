@@ -265,6 +265,37 @@ def k_photodissociation(nc, nh, nh0, charge, chi=1.0, one_minus_yion=True, stepl
     return {c: f.photon_rate(w * p, E) for c, p in P.items()}
 
 
+#: LP03 Sect. 4.3: C2H2 loss (E0 by size: 4.5 eV small PAHs, 5.5 pyrene+, 6.0 large cations;
+#: dS 10 cal/K; 6 paths in compact PAHs) and C2 loss of the bare skeleton (8 eV; dS not
+#: stated, 5 cal/K being the stated default "for processes for which no data are available")
+C2H2_LOSS_DS, C2H2_LOSS_DEGENERACY = 10.0, 6.0
+C2_LOSS = (8.0, 5.0)
+H_ADDITION_FIG6, C_INSERTION_FIG6 = 2.5e-9, 3.5e-12   # s^-1 at nt = 25 (LP03 Sect. 4.3)
+
+
+def carbon_loss_ts(nc, nh, dS_cal):
+    """C-loss transition state (not stated): one 1000 cm^-1 mode removed and
+    two more scaled to give dS(1000 K), mirroring the H-loss TS (an
+    assumption, E)."""
+    return rates.transition_state_for_entropy(two_nu_modes(nc, nh), NU_CC, dS_cal * CAL, n_scaled=2)
+
+
+def k_carbon_loss(nc, nh, nh0, charge, E0_ev, dS_cal, degeneracy=1.0, chi=1.0, substitute=SIGMA):
+    """C2 / C2H2 loss rate [s^-1], LP03 Figs. 6-7: int P_C sigma N dE over the
+    whole field, P_C = k_C / (k_C + k_H + k_rad) at E = h nu, with (1 - Y_ion)
+    for neutrals, as k_photodissociation."""
+    E = energy_grid(field(chi).energy_ev.min())
+    Eg, counts = _grid(nc, nh)
+    kc = np.interp(E, Eg / EV, rates.rrkm(Eg, counts, carbon_loss_ts(nc, nh, dS_cal), E0_ev * EV,
+                                           degeneracy=degeneracy, window_cm=WINDOW_CM))
+    kh = sum((k_of_E(nc, nh, *p, E) for p in channels(nc, nh, nh0, charge).values()), np.zeros_like(E))
+    w = _sigma_on_grid(nc, float(E[0]), substitute)
+    if charge == 0:
+        ip = ionisation_potential(nc)
+        w = w * (1.0 - photo.yield_lepage2001(E, ip, ionisation_potential(24), form="lepage01"))
+    return field(chi).photon_rate(w * kc / (kc + kh + K_RAD), E)
+
+
 def k_recombination(temperature_k, n_e, law="benzene"):
     """k_rec n_e [s^-1]: size independent, (300/T)^1/2 (LP03 Sect. 3.2.3)."""
     return K_REC_300K[law] * np.sqrt(300.0 / temperature_k) * n_e

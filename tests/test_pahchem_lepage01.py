@@ -233,6 +233,44 @@ def test_paper_i_fig10_extremely_dehydrogenated(cls):
     assert ours == pytest.approx(crossing(*_lp01_fig10(cls)), abs=2.5)
 
 
+# --- LP03 Figs. 6-7: H and carbon loss against size (digitised) ---
+
+def _lp03(fig, channel):
+    import pandas as pd
+    from pycalima import _paths
+
+    name = {6: "lepage03_fig6_dehydrogenated_rates.csv", 7: "lepage03_fig7_normal_rates.csv"}[fig]
+    d = pd.read_csv(_paths.get_external_data_path(f"pahchem/{name}"), comment="#")
+    d = d[d.channel == channel].sort_values("n_c")
+    return d.n_c.to_numpy(), d.k_s.to_numpy()
+
+
+def test_lp03_fig7_h_loss_is_the_cation_rate():
+    """Fig. 7 H loss of the normal PAHs (C14H10-C32H14) is the cation rate:
+    measured +0.02 to +0.13 dex for Z = +1, -0.37 to -0.67 for the neutral."""
+    x, k = _lp03(7, "H")
+    for nc, y in ((14, 10), (16, 10), (24, 12), (32, 14)):
+        theirs = 10 ** np.interp(nc, x, np.log10(k))
+        assert abs(np.log10(L.k_photodissociation(nc, y, y, 1)["H"] / theirs)) < 0.15
+        assert np.log10(L.k_photodissociation(nc, y, y, 0)["H"] / theirs) < -0.3
+
+
+def test_lp03_fig6_c2_loss_sets_the_minimum_skeleton_size():
+    """C2 loss of the bare neutral skeleton (8 eV, 5 cal/K, TS of
+    carbon_loss_ts) equals C+ insertion (3.5e-12 s^-1) at 16.2 C, against
+    18.1 C on Fig. 6 and '18-20 C' in the text (LP03 Sect. 4.3). With one H
+    left, H loss wins and C2 loss never reaches the insertion rate: Fig. 6 is
+    the bare skeleton."""
+    def crossing(nc, k, level=np.log10(L.C_INSERTION_FIG6)):
+        lk = np.log10(k)
+        i = int(np.argmax(lk < level))
+        return float(np.interp(level, [lk[i], lk[i - 1]], [nc[i], nc[i - 1]]))
+
+    ncs = np.arange(8, 31)
+    ours = crossing(ncs, np.array([L.k_carbon_loss(int(n), 0, 20, 0, *L.C2_LOSS) for n in ncs]))
+    assert ours == pytest.approx(crossing(*_lp03(6, "C2")), abs=2.5)
+
+
 # --- The hydrogenation network (LP03 Fig. 9, Sect. 4.1) ---
 
 _FIG9 = {}

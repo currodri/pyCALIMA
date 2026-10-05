@@ -728,6 +728,16 @@ has a runner yet.
   - The PAHH$^+$ sp$^3$ H-loss path degeneracy is $N_{\rm H} - y$:
     $2(N_{\rm H} - y)$ is +0.22–0.29 dex high from 50 C up, where the rate
     is no longer saturated.
+- **H and carbon loss against size (LP03 Figs. 6–7, digitised):**
+  - Fig. 7's H loss is the cation rate, within 0.13 dex over 14–32 C.
+  - Fig. 6's C$_2$ loss is the bare skeleton: with one H left, H loss wins.
+    With 8 eV, the default 5 cal K$^{-1}$ mol$^{-1}$ and an assumed
+    transition state (one C–C mode removed, two scaled), the neutral reaches
+    C$^+$ insertion at 16.2 C, against 18.1 C on the figure and 18–20 C in
+    the text.
+  - The C$_2$H$_2$ curves are underdetermined, because the per-size $E_0$
+    and the charge are not stated. 4.5 eV fits C$_{14}$–C$_{16}$, 6.0 eV the
+    C$_{28}$ cation, but not pyrene at 5.5 eV. Recorded, not gated.
 - **Hydrogenation (LP03 Fig. 9, card readings ±0.03; the figure is too hard
   to read for a proper digitisation):**
   - C$_{50}$H$_{20}^+$ is 0.60 against ~0.6.
@@ -744,9 +754,8 @@ has a runner yet.
 What the remaining targets need:
 - **Raster figures the user is digitising:**
   - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);
-  - for Le Page: LP01 Figs. 10–11 are done; LP03 Figs. 6–7 are digitised
-    and await a gate. LP03 Fig. 9 is not digitisable; the card readings
-    stand.
+  - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6–7 are done. LP03
+    Fig. 9 is not digitisable; the card readings stand.
 - **Murga:**
   - its figures are vector and can be extracted here;
   - the network needs a size ($N_{\rm C}$) axis, time integration through a

@@ -32,6 +32,16 @@ Measured (2026-10-05):
     from 50 C up).
   - XdPAH(+) within 0.13 dex up to 24 C; the fall below 1e-12 s^-1 at 44.7
     and 48.0 C against 43.6 and 46.2.
+- **LP03 Figs. 6-7** (digitised):
+  - Fig. 7 H loss is the cation rate (+0.02 to +0.13 dex; the neutral is
+    0.4-0.7 dex lower).
+  - Fig. 6 C2 loss is the bare skeleton: the neutral reaches C+ insertion
+    (3.5e-12 s^-1) at 16.2 C against 18.1 C (text: 18-20 C), with 8 eV,
+    5 cal/K and the assumed TS of carbon_loss_ts.
+  - Fig. 7 C2H2 loss is underdetermined: E0 = 4.5 eV fits C14-C16 neutrals
+    (+0.15/+0.29 dex), 6.0 eV the C28 cation (-0.05), but pyrene does not fit
+    the stated 5.5 eV (-0.70) and the charge is not stated. Printed, not
+    gated.
 - **Fig. 9** (nt = 100, chi = 1, naphthalene recombination). C16 and C24 sit
   at N_H <= 2 (C16H0 neutral 0.53; card ~0.6); C32H14+/C32H14 are 0.50/0.33
   (card 0.45/0.37); C50H20+ is 0.60 (0.6); C80H24+/C80H25+ are 0.58/0.26
@@ -78,6 +88,18 @@ def main():
     print("\nk_ion [s^-1] at chi = 1:  ours (their Fig. 11)  ours (Malloci/C)  LP03 Table 2")
     for nc, theirs in LP03_TABLE2_KION.items():
         print(f"  C{nc:<4d} {L.k_ion(nc):18.2e} {L.k_ion(nc, substitute='malloci'):17.2e} {theirs:13.2e}")
+
+    lp03 = "lepage03_fig7_normal_rates.csv"
+    t7 = pd.read_csv(get_external_data_path(f"pahchem/{lp03}"), comment="#")
+    c = t7[t7.channel == "C2H2"].sort_values("n_c")
+    print("\nLP03 Fig. 7 C2H2 loss of normal PAHs (dS 10, x6; E0 by size not stated precisely), dex(ours/theirs)"
+          " for E0 = 4.5 / 5.5 / 6.0 eV:")
+    for nc, y in ((14, 10), (16, 10), (24, 12), (28, 13)):
+        theirs = 10 ** np.interp(nc, c.n_c, np.log10(c.k_s))
+        for z in (0, 1):
+            print(f"  C{nc}H{y} Z={z}: " + " ".join(
+                f"{np.log10(L.k_carbon_loss(nc, y, y, z, e0, L.C2H2_LOSS_DS, L.C2H2_LOSS_DEGENERACY) / theirs):+6.2f}"
+                for e0 in (4.5, 5.5, 6.0)))
 
     print("\nLP03 Fig. 9, nt = 100, chi = 1, T = 100 K (top states, Z H_N: fraction)")
     variants = (("baseline (naphthalene rec.)", {}, L.STANDARD),

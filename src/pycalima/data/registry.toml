@@ -143,7 +143,8 @@ dest = "external_data/pahchem"
 files = ["west2018_table1.csv", "jochims94_table1.csv", "jochims94_table2.csv", "pah_electron_recombination.csv",
          "allain96_sigma_malloci2007.csv", "allain96_set2_field.csv",
          "allain96_fig7_alpha_ion.csv", "allain96_fig10_alpha_h.csv",
-         "lepage01_fig10_kph.csv", "lepage01_fig11_sigma_per_c.csv"]
+         "lepage01_fig10_kph.csv", "lepage01_fig11_sigma_per_c.csv",
+         "lepage03_fig6_dehydrogenated_rates.csv", "lepage03_fig7_normal_rates.csv"]
 size_bytes = 29_000
 citation = "West et al. (2018), PCCP 20, 7195, Table 1; Jochims et al. (1994), ApJ 420, 307, Tables 1-2; PAH-cation recombination compiled by Bierbaum, Le Page & Snow (2011); Malloci, Joblin & Mulas (2007) TD-DFT absorption cross sections (Cagliari PAH database), for the Allain+96 runner"
 url_status = "none"

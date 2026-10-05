@@ -18,6 +18,8 @@ the check_*.py scripts, whose docstrings record the measured numbers.
 | sensitivity | the one-at-a-time ranking at NGC 7023 and the Orion Bar | M5 | ~25 min |
 | allain96_fig7 | ionised fraction vs N_C, Orion Bar and NGC 7027 (Allain+96 II Fig. 7) | M5 | ~30 s |
 | allain96_fig10 | hydrogenation coefficient vs N_C, Orion Bar (by charge) and NGC 7027 (II Fig. 10) | M5 | ~30 s |
+| lepage01_fig10 | H-loss photodissociation rate vs N_C, six classes (Le Page+01 Fig. 10) | M5 | ~1 min |
+| lepage03_fig6_7 | C2 / C2H2 / H loss vs N_C, dehydrogenated and normal PAHs (LP03 Figs. 6-7) | M5 | ~1 min |
 
 Inputs that are not shipped:
 - ``--west-esi``: the West+18 ESI workbook (default: the west2018-esi dataset);
@@ -427,10 +429,76 @@ def fig_allain96_fig10(args, out):
     _save(fig, out, "allain96_fig10")
 
 
+LP_FAMILY = [(6, 6), (10, 8), (14, 10), (16, 10), (24, 12), (32, 14), (50, 20), (80, 24), (100, 28),
+             (120, 30), (150, 40), (200, 50)]
+
+
+def fig_lepage01_fig10(args, out):
+    from pycalima.pahchem import lepage01 as L
+
+    d = pd.read_csv(EXT("pahchem/lepage01_fig10_kph.csv"), comment="#")
+    classes = {"PAH": (0, lambda y: y), "PAH+": (1, lambda y: y), "XdPAH": (0, lambda y: 1),
+               "XdPAH+": (1, lambda y: 1), "PAHH": (0, lambda y: y + 1), "PAHH+": (1, lambda y: y + 1)}
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for i, (cls, (z, nh_of)) in enumerate(classes.items()):
+        c = d[d.species_class == cls].sort_values("n_c")
+        ax.semilogy(c.n_c, c.k_ph_s, color=f"C{i}", lw=4, alpha=0.35, label=f"Le Page+01 Fig. 10, {cls}")
+        nc = [n for n, _ in LP_FAMILY if n <= c.n_c.max() + 1]
+        k = [L.k_photodissociation(n, nh_of(y), y, z)["H"] for n, y in LP_FAMILY if n <= c.n_c.max() + 1]
+        ax.semilogy(nc, k, "o--", ms=4, color=f"C{i}", label=f"pahchem.lepage01, {cls}")
+    ax.set_ylim(1e-16, 1e-6)
+    ax.set_xlabel("$N_{\\rm C}$")
+    ax.set_ylabel("$k_{\\rm ph}$ (H loss) [s$^{-1}$]")
+    ax.set_title("Le Page+01 Fig. 10 in their configuration: their $\\sigma$ (Fig. 11), whole field,\n"
+                 "$(1 - Y_{\\rm ion})$ for neutrals; PAH: normal, Xd: one H left, PAHH: one extra H", fontsize=9)
+    ax.legend(fontsize=6, ncol=2)
+    _save(fig, out, "lepage01_fig10")
+
+
+def fig_lepage03_fig6_7(args, out):
+    from pycalima.pahchem import lepage01 as L
+
+    f6 = pd.read_csv(EXT("pahchem/lepage03_fig6_dehydrogenated_rates.csv"), comment="#")
+    f7 = pd.read_csv(EXT("pahchem/lepage03_fig7_normal_rates.csv"), comment="#")
+    fig, (a6, a7) = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
+    ncs = np.arange(6, 41)
+    c = f6[f6.channel == "C2"].sort_values("n_c")
+    a6.semilogy(c.n_c, c.k_s, color="C0", lw=4, alpha=0.35, label="LP03 Fig. 6, C$_2$ loss")
+    c = f6[f6.channel == "C2H2"].sort_values("n_c")
+    a6.semilogy(c.n_c, c.k_s, color="C1", lw=4, alpha=0.35, label="LP03 Fig. 6, C$_2$H$_2$ loss (not modelled)")
+    for z, ls in ((0, "--"), (1, ":")):
+        a6.semilogy(ncs, [L.k_carbon_loss(int(n), 0, 20, z, *L.C2_LOSS) for n in ncs], ls, color="C0",
+                    label=f"pahchem, bare C$_n$, Z = {z} (8 eV, 5 cal/K)")
+    for k, lab in ((L.H_ADDITION_FIG6, "H addition"), (L.C_INSERTION_FIG6, "C$^+$ insertion")):
+        a6.axhline(k, color="0.5", lw=0.8)
+        a6.text(38, k * 1.3, lab, fontsize=7, ha="right", color="0.4")
+    a6.set_title("LP03 Fig. 6: extremely dehydrogenated PAHs", fontsize=9)
+    c = f7[f7.channel == "H"].sort_values("n_c")
+    a7.semilogy(c.n_c, c.k_s, color="C2", lw=4, alpha=0.35, label="LP03 Fig. 7, H loss")
+    c = f7[f7.channel == "C2H2"].sort_values("n_c")
+    a7.semilogy(c.n_c, c.k_s, color="C1", lw=4, alpha=0.35, label="LP03 Fig. 7, C$_2$H$_2$ loss")
+    fam = [(14, 10), (16, 10), (24, 12), (32, 14), (50, 20)]
+    for z, ls in ((1, "o--"), (0, "s:")):
+        a7.semilogy([n for n, _ in fam], [L.k_photodissociation(n, y, y, z)["H"] for n, y in fam], ls,
+                    color="C2", label=f"pahchem H loss, Z = {z}")
+    for e0, ls in ((4.5, "^--"), (6.0, "v--")):
+        a7.semilogy([n for n, _ in fam], [L.k_carbon_loss(n, y, y, 1, e0, L.C2H2_LOSS_DS, L.C2H2_LOSS_DEGENERACY)
+                                          for n, y in fam], ls, color="C1",
+                    label=f"pahchem C$_2$H$_2$ loss, Z = 1, $E_0$ = {e0} eV")
+    a7.set_title("LP03 Fig. 7: normal H coverage", fontsize=9)
+    for a in (a6, a7):
+        a.set_xlabel("$N_{\\rm C}$")
+        a.set_ylim(1e-16, 1e-7)
+        a.legend(fontsize=6)
+    a6.set_ylabel("rate [s$^{-1}$]")
+    fig.suptitle("Le Page+03 (n$_t$ = 25, $\\chi$ = 1): carbon-skeleton survival", fontsize=10)
+    _save(fig, out, "lepage03_fig6_7")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
-    fig_allain96_fig7, fig_allain96_fig10)}
+    fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7)}
 
 
 def main():
