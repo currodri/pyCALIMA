@@ -29,4 +29,5 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.baseline
    pycalima.pahchem.allain96
    pycalima.pahchem.lepage01
+   pycalima.pahchem.murga_data
 ```

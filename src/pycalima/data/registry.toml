@@ -144,8 +144,10 @@ files = ["west2018_table1.csv", "jochims94_table1.csv", "jochims94_table2.csv", 
          "allain96_sigma_malloci2007.csv", "allain96_set2_field.csv",
          "allain96_fig7_alpha_ion.csv", "allain96_fig10_alpha_h.csv",
          "lepage01_fig10_kph.csv", "lepage01_fig11_sigma_per_c.csv",
-         "lepage03_fig6_dehydrogenated_rates.csv", "lepage03_fig7_normal_rates.csv"]
-size_bytes = 29_000
+         "lepage03_fig6_dehydrogenated_rates.csv", "lepage03_fig7_normal_rates.csv",
+         "murga2020_fig3_mean_charge.csv", "murga2020_fig4_c2h2_per_molecule.csv",
+         "murga2020_fig5_c2h2_vs_av.csv", "murga2022_fig6_profile.csv", "murga2022_fig6_curves.csv"]
+size_bytes = 135_000
 citation = "West et al. (2018), PCCP 20, 7195, Table 1; Jochims et al. (1994), ApJ 420, 307, Tables 1-2; PAH-cation recombination compiled by Bierbaum, Le Page & Snow (2011); Malloci, Joblin & Mulas (2007) TD-DFT absorption cross sections (Cagliari PAH database), for the Allain+96 runner"
 url_status = "none"
 notes = """Hand-transcribed laboratory tables for the pahchem M2 gates: iPEPICO E0 and
@@ -234,6 +236,35 @@ RRKM k(E) of their iPEPICO fits.
 Only the pahchem RRKM laboratory tests read it; they are skipped without it."""
 
 # ----------------------------------------------------------------- fetch ---
+
+[datasets.murga2020-figshare]
+kind = "fetch"
+dest = "pahchem/murga2020"
+files = ["Share_Acetylene/Orion-Bar-1/Orion_par_goi1.dat", "Share_Acetylene/Orion-Bar-1/pahrates_orion_goi1.dat",
+         "Share_Acetylene/Orion-Bar-2/Orion_par_goi2.dat", "Share_Acetylene/Orion-Bar-2/pahrates_orion_goi2.dat",
+         "Share_Acetylene/Horsehead/Horse_par_fix.dat", "Share_Acetylene/Horsehead/pahrates_horse.dat"]
+size_bytes = 7_500_000
+citation = "Murga, Kirsanova, Vasyunin & Pavlyuchenkov (2020), MNRAS 497, 2327; Figshare doi:10.6084/m9.figshare.12597092 (CC BY 4.0)"
+url = "https://doi.org/10.6084/m9.figshare.12597092"
+url_status = "confirmed"
+fetcher = "pycalima.pahchem.murga_data:fetch_murga2020"
+notes = """Environment profiles (Fig. 2) and PAH C2H2 production rates (Fig. 6, A1) for
+the Orion Bar and the Horsehead. The fetcher downloads Share_Acetylene.zip, checks
+Figshare's MD5 and unpacks it. Read with pycalima.pahchem.murga_data."""
+
+[datasets.murga2022-figshare]
+kind = "fetch"
+dest = "pahchem/murga2022"
+files = ["result_marion1_av_nodestr.dat", "result_marion1_av_nodestr60.dat", "result_marion1_av.dat",
+         "bands_fix_marion1_av_nodestr.dat", "bands_fix_marion1_av_nodestr60.dat", "bands_fix_marion1_av.dat"]
+size_bytes = 213_400_000
+citation = "Murga, Kirsanova, Wiebe & Boley (2022), MNRAS 509, 800; Figshare doi:10.6084/m9.figshare.14892612 (CC BY 4.0)"
+url = "https://doi.org/10.6084/m9.figshare.14892612"
+url_status = "confirmed"
+fetcher = "pycalima.pahchem.murga_data:fetch_murga2022"
+notes = """The (location, Z, time, X_H, size) PAH populations of models b, c and d
+(Table 4) along the MARION Orion Bar profile, and band intensities. ~215 MB; the
+fetcher checks Figshare's MD5 per file. Read with pycalima.pahchem.murga_data."""
 
 [datasets.cagliari-pah]
 kind = "fetch"

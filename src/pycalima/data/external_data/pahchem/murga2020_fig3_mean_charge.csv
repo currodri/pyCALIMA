@@ -1,0 +1,73 @@
+# Murga, Kirsanova, Vasyunin & Pavlyuchenkov 2020, MNRAS 497, 2327 (arXiv:2007.06568), Fig. 3, read exactly
+# from the vector figures of the arXiv source (charges_U_orion.eps, charges_U_horse.eps) with diagnostics/pahchem/digitise_vector_figure.py
+# (tick calibration residual <= 1.4e-4 dex), 2026-10-05. Sites: Orion Bar (isochoric, Goicoechea+15 profile,
+# Figshare Orion_par_goi1.dat) and Horsehead (Horse_par_fix.dat).
+# mean_z: the plotted '<Z>' of the WD01a charge distribution; every plotted value is an integer (rounded or
+# modal, not stated).
+site,molecule,av,mean_z
+horsehead,C128H28,0.1,0
+horsehead,C128H28,0.5,-1
+horsehead,C128H28,1.0,-1
+horsehead,C128H28,1.5,-1
+horsehead,C128H28,2.0,0
+horsehead,C128H28,2.5,0
+horsehead,C128H28,3.0,0
+horsehead,C128H28,3.5,0
+horsehead,C128H28,4.0,0
+horsehead,C128H28,4.5,0
+horsehead,C128H28,5.0,0
+horsehead,C24H12,0.1,0
+horsehead,C24H12,0.5,0
+horsehead,C24H12,1.0,0
+horsehead,C24H12,1.5,0
+horsehead,C24H12,2.0,0
+horsehead,C24H12,2.5,0
+horsehead,C24H12,3.0,0
+horsehead,C24H12,3.5,0
+horsehead,C24H12,4.0,0
+horsehead,C24H12,4.5,0
+horsehead,C24H12,5.0,0
+horsehead,C66H20,0.1,-1
+horsehead,C66H20,0.5,-1
+horsehead,C66H20,1.0,-1
+horsehead,C66H20,1.5,-1
+horsehead,C66H20,2.0,0
+horsehead,C66H20,2.5,0
+horsehead,C66H20,3.0,0
+horsehead,C66H20,3.5,0
+horsehead,C66H20,4.0,0
+horsehead,C66H20,4.5,0
+horsehead,C66H20,5.0,0
+orion_isochoric,C128H28,0.1,2
+orion_isochoric,C128H28,0.5,1
+orion_isochoric,C128H28,1.0,1
+orion_isochoric,C128H28,1.5,0
+orion_isochoric,C128H28,2.0,0
+orion_isochoric,C128H28,2.5,0
+orion_isochoric,C128H28,3.0,0
+orion_isochoric,C128H28,3.5,0
+orion_isochoric,C128H28,4.0,0
+orion_isochoric,C128H28,4.5,0
+orion_isochoric,C128H28,5.0,1
+orion_isochoric,C24H12,0.1,0
+orion_isochoric,C24H12,0.5,0
+orion_isochoric,C24H12,1.0,0
+orion_isochoric,C24H12,1.5,0
+orion_isochoric,C24H12,2.0,0
+orion_isochoric,C24H12,2.5,0
+orion_isochoric,C24H12,3.0,0
+orion_isochoric,C24H12,3.5,0
+orion_isochoric,C24H12,4.0,0
+orion_isochoric,C24H12,4.5,0
+orion_isochoric,C24H12,5.0,0
+orion_isochoric,C66H20,0.1,1
+orion_isochoric,C66H20,0.5,0
+orion_isochoric,C66H20,1.0,0
+orion_isochoric,C66H20,1.5,0
+orion_isochoric,C66H20,2.0,0
+orion_isochoric,C66H20,2.5,0
+orion_isochoric,C66H20,3.0,0
+orion_isochoric,C66H20,3.5,0
+orion_isochoric,C66H20,4.0,0
+orion_isochoric,C66H20,4.5,0
+orion_isochoric,C66H20,5.0,0

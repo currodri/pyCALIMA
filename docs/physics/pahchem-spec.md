@@ -751,13 +751,42 @@ has a runner yet.
   the stated value.
 - **Not done:** LP09 (H$_2$ formation).
 
+**Murga+2020/2022: data** ({mod}`pycalima.pahchem.murga_data`,
+`tests/test_pahchem_murga.py`, 2026-10-05).
+- **Fetchable datasets.** The Figshare model outputs are registered as the
+  fetchable datasets `murga2020-figshare` and `murga2022-figshare`. Their
+  fetchers check Figshare's MD5. `calima-fetch-data verify` now treats an
+  unfetched `fetch` dataset as optional.
+- **Parsers.** {mod}`~pycalima.pahchem.murga_data` reads:
+  - the 2020 profiles and C$_2$H$_2$ rates;
+  - the 2022 (location, $Z$, $t$, $X_{\rm H}$, size) populations of models
+    b–d.
+- **Figures read from the vector source.** The arXiv sources'
+  matplotlib vector figures are read exactly with
+  `diagnostics/pahchem/digitise_vector_figure.py` (tick calibration to
+  $\le 10^{-4}$ dex):
+  - M20 Fig. 3 (⟨Z⟩, integers);
+  - M20 Fig. 4 (C$_2$H$_2$ per molecule, 20 parents × 2 $A_V$ × 2 $Z$ × 2
+    sites);
+  - M20 Fig. 5;
+  - M22 Fig. 6 (the MARION profile).
+- **Checks on the extraction:**
+  - Fig. 4 reproduces the stated full destruction at Orion $A_V = 0.1$
+    ($N_{\rm C}/2$ per neutral, to 0.01 %).
+  - The 158 Figshare locations are placed on the Fig. 6 distance axis by
+    their $\chi$. The Fig. 6 $T_{\rm gas}$ and $n_{\rm H}$ at those distances
+    reproduce the Figshare headers (median −0.001 and −0.003 dex).
+  - The $n_e$, $n_{\rm H_2}$, $n_{\rm C}$ and $n_{\rm C^+}$ that the
+    Figshare files lack are now tabulated per location
+    (`murga2022_fig6_profile.csv`).
+
 What the remaining targets need:
 - **Raster figures the user is digitising:**
   - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);
   - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6–7 are done. LP03
     Fig. 9 is not digitisable; the card readings stand.
 - **Murga:**
-  - its figures are vector and can be extracted here;
+  - its figures are extracted (above);
   - the network needs a size ($N_{\rm C}$) axis, time integration through a
     profile, and a WD01 charge mode.
 
