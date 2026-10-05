@@ -143,6 +143,9 @@ time_dependent = "yes, from the initial distribution in a fixed environment"
 age = { value = 1.0e5, unit = "yr", source = "Sect. 4.1 (Salgado+2016, Kirsanova & Wiebe 2019)", confidence = "E" }
 n_output_times_figshare = { value = 11, unit = "", source = "Figshare description", confidence = "E" }
 output_times = "not stated; in model c most locations change little after the first output time"
+output_times_inferred = "linear, 0, 1e4, ..., 1e5 yr: the pure-loss 3.3 A neutral chains of the deep MC (Figshare locations 134-151) fall by the same factor at every output (pahchem.murga2022, gate 1); inference, confidence D"
+temperature_relation_inferred = "DL01 T(E) with the post-absorption M20 yield: the second/first H-loss step ratio of the Figshare chains is 1.250 at every chi (DL01: 1.278; Tielens: 0.835); inference, confidence D"
+charge_classes_inferred = "every Z >= 1 evolves identically in the files, and so do Z = -1, -2: three charge classes (anion, neutral, cation) for the rates"
 solver = "not stated"
 source = "Sect. 3.1, 4.1"
 

@@ -846,9 +846,39 @@ Gates:
       relation all along.**
   - **Laplace** remains −2 to −4 dex: a $\rho(E)$ convention (fewer modes,
     or the ZPE included). It is recorded as a bound test.
-- **Open for the trajectories.** Which $T(E)$ M20 actually ran (stated:
-  DL01; MW22 behaves as Tielens) shifts the parent rates by 2–3 dex. M20
-  Fig. 4 will decide.
+- **Which $T(E)$ SHIVA ran.** The two choices shift the parent rates by 2–3
+  dex. The M22 Figshare chains say DL01, as M20 states (see the next
+  section), so MW22's Tielens-like curves are the exception.
+
+**Murga+2022 network, model b** ({mod}`pycalima.pahchem.murga2022`,
+`tests/test_pahchem_murga2022.py`, `check_murga2022.py`). H loss and
+addition only, as bin-to-bin fluxes on the 5 $X_{\rm H}$ bins, per size and
+charge class, at the 158 locations.
+
+What the Figshare data reveal:
+- **Output times:** linear, 0 to $10^5$ yr. The pure-loss chains of 3.3 Å
+  neutrals in the deep MC fit exactly.
+- **$T(E)$:** DL01, as M20 states. Their second-to-first step ratio is 1.250
+  at every $\chi$; ours is 1.278 with DL01 and 0.835 with Tielens.
+  - So MW22 (Tielens-like) and M20/M22 (DL01) used different $T(E)$
+    relations within SHIVA.
+  - The post-absorption yield reading is the right one. The time-averaged
+    reading is ~12 dex off.
+
+Gates:
+- **Deep-MC step rate:** theirs is 1.5–2.5× ours (DL01). The factor grows
+  with depth, which suggests a field shape that changes inward (not
+  stated).
+- **3.3 Å dehydrogenation** at $10^5$ yr: within 0.07 in every region.
+- **PAHs ≥ 6 Å** end 60–90 % super-hydrogenated where Figshare keeps them
+  normal (strict xfail).
+  - The M20 H-addition rates as printed outrun the super-H photo-loss by
+    $10^3$–$10^4$.
+  - The Figshare super-H steps are ~$2\times10^{-13}$ s$^{-1}$ whatever
+    $n_{\rm H}$.
+  - So M22's addition or super-H loss differs from M20 as printed.
+- **Not attempted:** models c and d (C loss and addition), because model b's
+  super-H balance is not in hand.
 
 What the remaining targets need:
 - **Raster figures the user is digitising:**
