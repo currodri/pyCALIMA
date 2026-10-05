@@ -1,0 +1,157 @@
+# Method card: Murga, Kirsanova, Vasyunin & Pavlyuchenkov 2020, MNRAS 497, 2327
+# ("Impact of PAH photodissociation on the formation of small hydrocarbons in
+# the Orion Bar and the Horsehead PDRs"), i.e. the PAH branch of the SHIVA
+# dust-destruction model (Murga+2016, Astron. Rep. 60, 233; Murga+2019,
+# MNRAS 488, 965) as modified in Sect. 2 of this paper.
+#
+# Conventions as in andrews16.toml. Each number has a `source` (section, table,
+# equation or figure) and a `confidence`:
+# A experiment, B benchmarked theory, C theory, D extrapolation, E assumption.
+# "not stated" marks what the paper does not give; a reproduction is free to
+# choose there and must say what it chose. "M16" = Murga, Khoperskov & Wiebe
+# 2016 (arXiv:1612.00419), "M19" = Murga+2019 Shiva paper (arXiv:1906.11308),
+# "Pav12" = Pavlyuchenkov+2012 (arXiv:1201.0642); "M20" = this paper.
+# Section numbers refer to arXiv:2007.06568v1 (the only arXiv version).
+
+[card]
+name = "Murga2020"
+bib_key = "Murga2020"
+citation = "Murga, Kirsanova, Vasyunin & Pavlyuchenkov 2020, MNRAS 497, 2327 (doi:10.1093/mnras/staa2026, arXiv:2007.06568)"
+read_from = "arXiv v1 full text (Sects. 1-5, Table 1, Figs. 1-8, App. A); Figshare data set 10.6084/m9.figshare.12597092 (environment profiles and C2H2 production rates); M19 Sects. 2-3 and App. B; M16 Sect. 3.1; Pav12 App. A. Journal version not read (paywalled)."
+status = "draft"
+model_name = "SHIVA (not an acronym; no expansion given in M19 or M20)"
+not_a_paper = "'Murga et al. 2020, A&A 644, A89' does not exist: A&A 644, A89 is Di Campli et al. 2020 (solar prominence spectropolarimetry, doi:10.1051/0004-6361/202037931), and Crossref lists no A&A paper by Murga. 'Murga et al. 2019, MNRAS 487, 3004' (cited on the shiva branch) is also wrong: the Shiva paper is MNRAS 488, 965."
+
+[species]
+parents = ["C16H10", "C30H14", "C42H24", "C48H18", "C96H26", "C24H12", "C54H18", "C96H24", "C150H30", "C32H14", "C66H20", "C112H26", "C40H16", "C78H22", "C128H28", "C48H12", "C90H24", "C144H30", "C110H26", "C130H28"]
+families = "pyrene: C16H10 C30H14 C42H24 C48H18 C96H26; coronene: C24H12 C54H18 C96H24 C150H30; ovalene: C32H14 C66H20 C112H26; anthracene: C40H16 C78H22 C128H28; tetracene: C48H12 C90H24 C144H30; other compact: C110H26 C130H28"
+selection = "20 compact PAHs, 'the most abundant in the ISM' after Andrews+2015 (ApJ 807, 99)"
+source = "Sect. 3"
+state_variables = "real-valued N_C and N_H per molecule and per fixed charge Z (eqs. 1-2)"
+hydrogenation_classes = "normal X_H = X_H0; dehydrogenated X_H < X_H0; super-hydrogenated X_H > X_H0, with X_H = N_H/N_C (Sect. 2)"
+parity = "ignored: even/odd N_H not distinguished (Sect. 2.1)"
+nh_range = "not stated: neutral H addition has no saturation limit in Fig. 1 ('All X_H'), and no maximum N_H is given"
+charges = "not stated as a list; f(i, Z) from WD01a; Fig. 3 shows Z = -1 ... +2; Fig. 4 evolves Z = 0 and Z = 1"
+radius_of_molecule = "not stated (a_i enters C_abs, k_IR, Y_ion and charging)"
+structure_classes = "edge vs core carbon for neutral H addition only: N_C,edge(t0) = N_H(t0), N_C,core = N_C(t0) - N_H(t0), ratio kept constant as N_C changes (Sect. 2.2)"
+isomers_or_defects = "not modelled; compact PAHs only (Sect. 3)"
+
+[field]
+shape = "Mathis, Mezger & Panagia 1983 ISRF scaled by chi (footnote 3; Sect. 2.1, below eq. 6)"
+g0_definition = "chi = intensity relative to the MMP83 mean ISM field (not Habing); pahchem fields.mathis1983 has G0 = 1.13 Habing at chi = 1"
+e_min_destruction = { value = 5.0, unit = "eV", source = "eq. 6 and text below it", confidence = "E" }
+e_max = { value = 13.6, unit = "eV", source = "eq. 6", confidence = "E" }
+attenuation = "c_V^UV A_V = -2.5 log10(chi/chi0), eq. 12"
+c_uv_over_v = { value = 3.0, unit = "", source = "Sect. 3, below eq. 12 (Cardelli+89 mean over 912-2500 A)", confidence = "D" }
+chi0_horsehead = { value = 60.0, unit = "MMP83", source = "Sect. 3 and Sect. 1", confidence = "C" }
+chi_orion_ionisation_front = { value = 2.0e4, unit = "MMP83", source = "Sect. 1 (Goicoechea+15, Salgado+16), at 0.235 pc", confidence = "C" }
+orion_profile_note = "the tabulated Orion chi(A_V) (Figshare Orion_par_goi*.dat, column U) does NOT follow eq. 12 with c = 3 and chi0 = 2e4: a fit gives c = 1.84, chi0 = 9.6e3 (max residual 0.13 dex). The Horsehead column follows eq. 12 exactly (c = 3.00, chi0 = 60.3). Use the tabulated U, not eq. 12, for the Orion Bar."
+dust_attenuation_of_shape = "not stated (the MMP83 shape is scaled, not reddened)"
+
+[photophysics]
+sigma_uv = "C_abs(a, E, Z) of Draine & Li 2007 (neutral vs ionised PAH) (Sect. 2.1, below eq. 6)"
+sigma_confidence = "C"
+sigma_radius_convention = "not stated (DL07 a(N_C) assumed but not written)"
+ionisation_yield = "Weingartner & Draine 2001a Y_ion (Sect. 2.1, 'We adopt the ionization yield ... from WD01a')"
+ip_and_ea = "not stated explicitly; implied WD01a IP(Z, a) and EA(Z, a) via 'charge was calculated based on WD01a' (Sect. 3)"
+ionising_photons_heat = "no: 'the photon energy (E) either is spent to ionization or converts to the internal energy' (Sect. 2.1)"
+ionisation_branching_in_yield = "not stated in M20 eq. 4; M19 eq. B2 multiplies the C-C dissociation yield by [1 - Y_ion(a, E, Z)]"
+electron_energy = "not stated"
+photodetachment = "not stated (implied WD01a)"
+
+[heating]
+mode = "multiphoton (Guhathakurta & Draine 1989), new in M20 relative to M16 (Sect. 2.1)"
+p_of_e_method = "p(a_i, E_in) 'as in Pavlyuchenkov+2012' (M19 Sect. 2.1): Monte Carlo photon-arrival history (Poisson times, p(nu) ~ Q_abs J_nu / h nu), continuous IR cooling dU/dt = 4 pi a^2 pi int Q_abs (J_nu - B_nu(T)) dnu, then the ergodic time fraction per T bin (Pav12 App. A)"
+pav12_split = { value = 0.01, unit = "E_th (h nu_c = 0.01 <E_th>)", source = "Pav12 App. A; inherited, not restated in M20", confidence = "E" }
+p_of_e_is_time_averaged = "implied (Pav12 ergodic P(T)); M20 eq. 5 then integrates Y_sp(E_in) over this p(E_in). Whether p is the time-averaged or the post-absorption distribution is not stated in M20 and decides the magnitude of the rates"
+e_t_relation = "microcanonical T_m(E_in) from Draine & Li 2001 (Sect. 2.1, below eq. 9); which DL01 relation (mode spectrum, N_H dependence) not stated. Pav12 itself used C_V/Nk = 3/[1 + (T_d/T)^2], T_d = 450 K (graphite), which is NOT the DL01 PAH relation"
+continuous_vs_discrete_cooling = "continuous (Pav12)"
+heating_by_ionising_absorptions = "no (Sect. 2.1)"
+
+[dissociation]
+rate_form = "Arrhenius at the effective temperature (Tielens 2005): k_diss = k0(T_e) exp(-E0/k T_e), k0 = (k T_e/h) exp(1 + dS/R), T_e = T_m (1 - 0.2 E0/E_in) (eqs. 7-9). This is pahchem rates.arrhenius_effective_temperature except that T_m comes from DL01, not from the molecule's modes."
+murga_wiebe22_relation = "H loss (4.3 eV, 11.8 cal/K/mol) is exactly the Murga & Wiebe 2022 Table 1 'Arrh. 2' set; C2H2 loss (4.6 eV, 10 cal/K/mol) is the 'Arrh. 2' carbon-loss set (Micelotta+10b). SHIVA's earlier default (M16, M19) was RRK k0 (1 - E0/E)^(3N-7) with k0 = 1e16, 1e16, 1e15 s^-1 for H, H2, C2 and E0 a free parameter (M16 eq. 6)."
+branching = "single-photon yield Y_sp = k_diss/(k_diss + k_IR(a, E_in, Z)) (eq. 4), separately per fragment; averaged over p(a, E_in) (eq. 5); R_frag = Y_diss int_5eV^13.6eV C_abs F dE (eq. 6)"
+competition_between_channels = "not stated: eq. 4 has only k_diss and k_IR in the denominator, per fragment; whether k_H, k_H2, k_C2H2 compete (M19 eq. B2 used k_diss = k_H + k_H2 + k_C2H2) is not stated"
+sink_in_p_of_e = "no (p(E) is a heating/cooling history, no dissociation sink)"
+units = "R in atoms s^-1; 'rates for molecules are multiplied by 2' (Sect. 2) yet eq. 1 also has -2 R_H2 and -2 R_C2H2: a factor-2 ambiguity in the H2 and C2H2 channels"
+dS_units_note = "Table 1 gives cal K^-1 mol^-1; the text says kcal (typo). Andrews+16 means: (4.6 + 4.1)/2 = 4.35 eV (paper: 4.3), (44.8 + 55.6)/2 J = 12.0 cal (paper: 11.8)"
+source = "Sect. 2.1, Table 1, eqs. 4-10"
+h_loss_normal_dehydro = { E_act = 4.3, dS_cal_K_mol = 11.8, source = "Table 1 (X_H <= X_H0, any Z); Andrews+16 even/odd mean", confidence = "D" }
+h_loss_superh_Zle0 = { E_act = 1.4, dS_cal_K_mol = 13.3, source = "Table 1 (X_H > X_H0, Z <= 0); Andrews+16", confidence = "E" }
+h_loss_superh_Zgt0 = { E_act = 1.55, dS_cal_K_mol = 13.3, source = "Table 1 (X_H > X_H0, Z > 0); Andrews+16", confidence = "E" }
+h2_loss_normal_dehydro = { E_act = 3.52, dS_cal_K_mol = -12.69, source = "Table 1; Andrews+16 (Ling+95)", confidence = "D" }
+h2_loss_superh = "not a photo channel; Eley-Rideal instead (Table 1 '-', Sect. 2.1)"
+c2h2_loss_normal_dehydro = { E_act = 4.6, dS_cal_K_mol = 10.0, source = "Table 1; Micelotta+10, Ling & Lifshitz 1998", confidence = "D" }
+c2h2_loss_superh = { E_act = 2.0, dS_cal_K_mol = 10.0, source = "Table 1; E0 from Wolf+16 (< 2.73 eV) and CH3-loss ~2 eV, dS assumed equal to normal", confidence = "E" }
+c2_loss = "C2H2 is the only carbon fragment; a molecule with N_H <= 1 yields no C2H2 (eq. 3); whether N_C still falls then (C2 loss) is not stated"
+other_fragments = "not modelled (CH3, CxHy from super-H explicitly neglected, Sect. 2.1)"
+charge_dependence = "only through C_abs, k_IR, Y_ion and the super-H E0 (Table 1)"
+
+[cooling]
+ir = "k_IR(a_i, E_in, Z) in eq. 4; method not stated in M20. In M16 eq. 7 and M19 (Fig. 2, 'photons s^-1'): thermal-approximation photon emission rate k_IR(E) = int C_abs(lambda) 4 pi B_lambda(T[E]) dlambda/(hc/lambda), charge-dependent through the IR C_abs"
+ir_cross_section = "not stated for M20 (DL07 implied); M19 used Jones+13 HAC with ion band scalings 1/4.4 (C-H) and 8 (C-C)"
+recurrent_fluorescence = "not modelled"
+modes = "none: no discrete vibrational modes anywhere in the model"
+
+[electrons]
+charge_model = "WD01a: photoionisation, electron and C+ collisions; probability f(i, Z) per molecule (Sect. 3)"
+charge_is_fixed_during_evolution = "yes: each (i, Z) is evolved separately and the outputs are weighted by f(i, Z) (eq. 13); no charge transitions in the network"
+f_of_z_updated_with_nh = "not stated (presumably computed for the parent)"
+sticking = "not stated (implied WD01a)"
+recombination_products = "not applicable (charge fixed)"
+fig3_quantity = "'mean charge' <Z> is plotted, but every plotted value is an integer (-1, 0, 1, 2): rounded or modal Z; not stated which"
+
+[hydrogen]
+addition_neutral = "k(Z=0) = 0.5 (N_C,edge k_edge + N_C,core k_core), k_edge = 0.5 (k_1 + k_4), k_core = k_3a, Goumans 2011 tunnelling rates per site vs T_gas; applies at every X_H (Fig. 1, Sect. 2.2). Goumans' numbers not transcribed in M20."
+addition_ion_normal = { value = 1.4e-10, unit = "cm^3 s^-1 x N_H/N_C", source = "Fig. 1, Sect. 2.2; Montillaud+13", confidence = "B" }
+addition_ion_superh = { value = 1.0e-12, unit = "cm^3 s^-1", source = "Fig. 1, Sect. 2.2", confidence = "E" }
+addition_ion_dehydro = "0.5 (1.4e-10 N_H/N_C + 5e-11) cm^3 s^-1 (Fig. 1; Montillaud+13 even/odd mean)"
+addition_ion_dehydro_constant = { value = 5.0e-11, unit = "cm^3 s^-1", source = "Fig. 1, Sect. 2.2; Montillaud+13", confidence = "B" }
+ion_means = "Z != 0 (anions take the cation rates)"
+h2_addition_ion = { value = 5.0e-13, unit = "cm^3 s^-1", source = "Sect. 2.2, eq. 11", confidence = "E" }
+h2_addition_neutral = "not modelled"
+eley_rideal_abstraction = { value = 8.7e-13, unit = "cm^3 s^-1 x sqrt(T_gas/100) x n_H", source = "eq. 10, Andrews+16", confidence = "A" }
+eley_rideal_scope = "super-hydrogenated states only; whether it removes 1 or 2 H atoms from the PAH not stated"
+h2_formation_output = "not reported"
+total = "H^{i,Z} = n_H k(Z=0) for neutrals; n_H k(Z!=0) + n_H2 k_H2 for ions (eq. 11)"
+source = "Sect. 2.2, Fig. 1"
+
+[aromatisation]
+modelled = "no for PAHs (SHIVA's band-gap E_g aromatisation, M19 eq. B1, applies to HAC grains only)"
+
+[network]
+equations = "dN_C/dt = -2 R_C2H2; dN_H/dt = -R_H - 2 R_H2 - 2 R_C2H2 + H (eq. 1)"
+integrator = "explicit Euler (eq. 2)"
+dt = { value = 1.0, unit = "yr", source = "Sect. 2, below eq. 2 ('decreasing it does not change the result')", confidence = "E" }
+t_end = { value = 1.0e6, unit = "yr", source = "Sect. 2, below eq. 3", confidence = "E" }
+stop_condition = "molecule loses all carbon, or t_end"
+c2h2_count = "N_C2H2 = (1/2) sum_j [N_C(t_j) - N_C(t_j-1)] only for steps with N_H(t_j-1) > 1 (eq. 3; sign convention: magnitude)"
+rate_update = "not stated whether R(N_C, N_H, Z) are recomputed every step or tabulated"
+steady_state = "not used: time evolution of a single trajectory per (i, Z), not a distribution over states"
+size_distribution = "WD01 R_V = 3.1, 'maximum number of PAH-size grains' (b_C not written); N_bin = 4 bins between a(C16H10) and a(C150H30), bin spacing not stated (eqs. 14-15)"
+pah_abundance = { value = 2.0e-7, unit = "PAHs (3-20 A) per H nucleus", source = "Sect. 3, WD01 R_V = 3.1", confidence = "D" }
+
+[environment]
+orion_isochoric = "Goicoechea+15 (main text); Figshare Orion-Bar-1/Orion_par_goi1.dat"
+orion_isobaric = "Goicoechea+19 (App. A); Figshare Orion-Bar-2/Orion_par_goi2.dat"
+horsehead = "n_H, n_e, n_C+ from Goicoechea+09; n_H2, T_gas from Le Gal+17; Figshare Horsehead/Horse_par_fix.dat"
+profile_columns = "Av, Tgas [K], nH+nH2 [cm^-3, total H nuclei], then n(H), n(H2), n_e, n(C+) as abundances relative to H nuclei (inferred: n(H2) -> 0.5 at large A_V), U = chi"
+av_grid = "0.1, 0.5, 1.0, ..., 5.0 (11 points)"
+orion_av01 = "T = 4400 K, n_H = 2.0e5 cm^-3 (atomic), n_e = 110 cm^-3, chi = 1.1e4 (goi1)"
+horsehead_av01 = "T = 120 K, n_H = 2.0e4 cm^-3, x(H) = 0.3, n_e = 2 cm^-3, chi = 45"
+n_total_orion_isochoric = { value = 2.0e5, unit = "cm^-3", source = "Figshare Orion_par_goi1.dat, column 3", confidence = "C" }
+orion_age = { value = 1.0e5, unit = "yr", source = "Sect. 4.2 (Salgado+16), for the gas chemistry only", confidence = "C" }
+horsehead_age = { value = 5.0e5, unit = "yr", source = "Sect. 4.2 (Pound+03), for the gas chemistry only", confidence = "C" }
+initial_state = "parent molecules, normal hydrogenation (implied by Sect. 3)"
+
+[targets]
+# Ranked by benchmark value for pahchem. "tab" = numbers available, "dig" = digitise.
+t1_fig4 = "Fig. 4, N_C2H2^{i,Z} (C2H2 produced per molecule within 1e6 yr) vs molecule (categorical, the 20 parents ordered by N_C; log y: Orion 1e-4..1e2, Horsehead 1e-10..1e-3); points A_V = 0.1 and 2.0, Z = 0 and 1; isochoric Orion and Horsehead. dig. Read-off (approx.): Orion A_V = 0.1, Z = 0 equals N_C/2 for all 20 (full destruction: 8 for C16H10 ... 75 for C150H30); Z = 1 rises 0.1 (C16H10), 0.55 (C24H12), ~20 (C66H20), ~62 (C150H30); A_V = 2, Z = 0 falls from 0.2 (C16H10) to ~2e-4 for N_C >= 48; Horsehead A_V = 0.1 ~1e-3 to 3.5e-3; A_V = 2, Z = 0 ~1e-7 (C16H10) to ~2e-10. Isolates the coupled H-loss / H-addition / C2H2-loss competition at fixed Z, per molecule, with tabulated conditions."
+t1_text = "'At A_V = 0.1 the PAH production stops after 10^4 yr due to full destruction of PAHs within this period' (Sect. 4.1, Orion isochoric); Figshare: last non-zero rate at exactly 1.0e4 yr (goi1) and 3.05e4 yr (goi2, isobaric). Critical-size statement: every parent up to C150H30 destroyed at chi = 1.1e4, T = 4400 K."
+t2_fig6 = "Fig. 6 (and Fig. A1 right, isobaric), R_C2H2 [s^-1 cm^-3] from PAHs vs A_V at 1e4, 1e5, 1e6 yr, Orion and Horsehead. tab: Figshare pahrates_orion_goi1.dat, pahrates_orion_goi2.dat, pahrates_horse.dat (columns: A_V point index 0-10, t [yr] on a 1-1e6 log grid of 100 steps, rate per H nucleus; multiply by column 3 of the profile). End-to-end regression including WD01 weighting and f(Z). Caveat: the tabulated rate at t <= ~10 yr is ~1e-14 per H at EVERY A_V, also Horsehead A_V = 5 (chi = 6e-5); this initial transient is unexplained."
+t3_fig3 = "Fig. 3, <Z> vs A_V (0.1-5) for C24H12, C66H20, C128H28, Orion (isochoric) and Horsehead. dig (integer values only). Orion: C24H12 0 everywhere; C66H20 +1 at 0.1, 0 beyond; C128H28 +2 (0.1), +1 (0.5, 1.0), 0 (1.5-4.5), +1 (5.0). Horsehead: C24H12 0; C66H20 and C128H28 -1 at 0.1-1.5, 0 beyond. Isolates the charge balance (WD01a yields, IP/EA, capture, C+), the only piece testable without dissociation; text: 'large PAHs are ionized twice' (Orion), 'larger ones can have also a negative charge number in 0.1 < A_V < 2' (Horsehead) (Sect. 3)."
+t4_fig5 = "Fig. 5, total N_C2H2^i (C24H12, C66H20, C128H28) and N_C2H2 (WD01-weighted, per H) vs A_V, Orion and Horsehead, f(Z)-weighted (eq. 13). dig. Adds the charge weighting to t1; Horsehead C24H12 vs C128H28 diverge beyond A_V ~ 3."
+t5_text = "Sect. 3 statements: neutral H addition 'sharply increases with temperature, when the temperature exceeds ~200 K'; Orion A_V = 0.1 neutrals 'almost always in the normal or super-hydrogenated states'; ions with N_C > 70 produce comparable C2H2, smaller ones less 'by 1-2 orders'; at A_V = 2 small neutrals (N_C < 40) produce more. Sect. 2: H-loss exceeds C2H2-loss 'by 1-2 orders' (citing Allain+96, an input not an output)."
+t6_m19_fig2 = "M19 Fig. 2 right: WD01a Y_ion vs h nu (5-25 eV) for a = 3.3 A, Z = 0, 1, 2, 3. dig. Gate for a WD01a yield implementation, independent of optics. M19 Fig. 2 left: k_IR [photons s^-1] vs h nu for a = 3.3, 5 A, Z = 0, 1 (HAC optics, so indicative only)."
+not_targets = "Figs. 7, 8, A2 (MONACO small-hydrocarbon abundances; tabulated in Figshare results.dat) test gas chemistry, not PAH physics. Fig. 2 and Fig. A1 left are inputs (tabulated). Sect. 4.2 'k ~ 1e-14 - 1e-13 s^-1' is an assumed e-folding in 1e6 yr, not a model result."

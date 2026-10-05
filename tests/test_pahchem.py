@@ -459,12 +459,25 @@ def test_malloci_and_li_draine_agree_for_coronene():
 
 
 @pytest.mark.parametrize("yield_", [lambda E: photo.yield_jochims1996(E, 7.0),
-                                    lambda E: photo.yield_lepage2001(E, 7.0)])
+                                    lambda E: photo.yield_lepage2001(E, 7.0),
+                                    lambda E: photo.yield_lepage2001(E, 7.0, form="lepage01")])
 def test_ionisation_yields_are_probabilities_and_vanish_below_ip(yield_):
     E = np.linspace(4.0, 20.0, 400)
     y = yield_(E)
     assert np.all((y >= 0) & (y <= 1))
     assert np.all(y[E < 7.0] == 0)
+
+
+def test_lepage_yield_in_um_units_exceeds_montillaud_transcription_below_d():
+    """Le Page+01 eq. 14 is in um^-1; Montillaud+13 eq. 1 keeps b with E in eV.
+    Same at d (~14.9 eV), Le Page's higher below: 0.16 against 0.018 at 7.5 eV
+    for coronene (c = 1)."""
+    E = np.array([7.5, 10.0, 14.88])
+    lp = photo.yield_lepage2001(E, 7.02, form="lepage01")
+    m13 = photo.yield_lepage2001(E, 7.02)
+    assert lp[0] == pytest.approx(0.16, abs=0.01) and m13[0] == pytest.approx(0.018, abs=0.002)
+    assert lp[-1] == pytest.approx(m13[-1], rel=1e-3)
+    assert np.all(lp >= m13)
 
 
 def test_heating_and_ionisation_add_up_to_absorption():

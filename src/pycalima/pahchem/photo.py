@@ -63,15 +63,29 @@ def yield_jochims1996(energy_ev, ip_ev) -> np.ndarray:
     return np.clip((np.asarray(energy_ev, dtype=float) - ip_ev) / 9.2, 0.0, 1.0)
 
 
-def yield_lepage2001(energy_ev, ip_ev, ip_coronene_ev=7.02) -> np.ndarray:
-    """Y = 0.8 exp{-0.00128 [c (E - 14.89)]^4}, c = (14.89 - IP_cor)/(14.89 - IP).
+#: hc [eV um]: Le Page+01 eq. 14 takes every energy in um^-1
+EV_UM = 1.239842
 
-    Le Page et al. (2001) as used by Montillaud et al. (2013, eq. 1); zero
-    below IP.
+
+def yield_lepage2001(energy_ev, ip_ev, ip_coronene_ev=7.02, form="montillaud13") -> np.ndarray:
+    """Y = 0.8 exp{-b [c (E - d)]^4}, c = (d - IP_cor)/(d - IP); zero below IP.
+
+    ``form="montillaud13"``: Montillaud et al. (2013) eq. 1, E in eV with
+    d = 14.89 eV and b = 0.00128. ``form="lepage01"``: Le Page et al. (2001)
+    eq. 14 as printed, with every energy in um^-1 (d = 12 um^-1 = 14.88 eV,
+    b = 0.00128 um^4). Montillaud's transcription kept b while converting d
+    to eV, which lowers Y by ~9x at 7.5 eV and ~1.5x at 10 eV (method card
+    lepage01.toml, yield_unit_discrepancy).
     """
     E = np.asarray(energy_ev, dtype=float)
-    c = (14.89 - ip_coronene_ev) / (14.89 - ip_ev)
-    return np.where(E >= ip_ev, 0.8 * np.exp(-0.00128 * (c * (E - 14.89)) ** 4), 0.0)
+    if form == "montillaud13":
+        x, ip, ip_cor, d = E, ip_ev, ip_coronene_ev, 14.89
+    elif form == "lepage01":
+        x, ip, ip_cor, d = E / EV_UM, ip_ev / EV_UM, ip_coronene_ev / EV_UM, 12.0
+    else:
+        raise ValueError(f"form must be 'montillaud13' or 'lepage01', not {form!r}")
+    c = (d - ip_cor) / (d - ip)
+    return np.where(E >= ip_ev, 0.8 * np.exp(-0.00128 * (c * (x - d)) ** 4), 0.0)
 
 
 def ionisation_rate(field, sigma_cm2, yield_, energy_ev) -> float:

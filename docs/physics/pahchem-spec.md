@@ -586,6 +586,62 @@ Open items:
   `calima-run` rates with `photolysis_model = "pahchem"` should match the
   engine, followed by a RAMSES single-cell test.
 
+**Benchmark figures** (`diagnostics/pahchem/plot_benchmarks.py`, 2026-10-05).
+The script makes one PNG per benchmark, in `<plots dir>/pahchem/`, and runs
+the same calculations as the gated tests:
+- West+18;
+- Jochims+94;
+- Montillaud Figs. 3 and 10;
+- Andrews Fig. 5, Table B and NGC 7023;
+- Murga & Wiebe Fig. 1;
+- the sensitivity tornado.
+
+**Extended targets: method cards drafted 2026-10-05.** None of these models
+has a runner yet.
+- **`allain96.toml`** (Allain+96 I and II).
+  - The model: one Jochims RRK law for every PAH, with single-photon
+    branching at $E = h\nu$ and no cascade.
+  - Tables 4–5 (I) and 2–3 and 5 (II) are transcribed; they are the cheapest
+    targets.
+  - Errors in the papers themselves:
+    - two I Table 4 entries break their own $k_{\rm C_2H_2}/k_{\rm H_2} = 0.1$;
+    - II eq. 10 is 3.3× too low;
+    - I eq. 19 does not join eq. 18.
+- **`lepage01.toml`** (Le Page+01, +03 and +09).
+  - The "Le Page" coronene $k(E)$ in Montillaud's Fig. 3 is Le Page+01
+    Fig. 9: a two-frequency RRKM with $E_0 = 4.8$ eV and $\Delta S = 5$ cal
+    K$^{-1}$ mol$^{-1}$. It is reproduced to ±0.12 dex only with path
+    degeneracy 12, which the paper does not state.
+  - The 2003 Fig. 4 charge fractions and Table 2 rates are transcribed.
+  - **The yield-law units.** Le Page's eq. 14 is in µm$^{-1}$. Montillaud+13
+    eq. 1 converts $d$ to eV but keeps $b$, which lowers $Y$ 9× at 7.5 eV.
+    `photo.yield_lepage2001` now takes `form="lepage01"` or
+    `form="montillaud13"` (the default, which the Montillaud card uses).
+  - The "Le Page yield" row of the sensitivity ranking used the Montillaud
+    form.
+- **`murga2020.toml`** (SHIVA, Murga+2019/2020).
+  - The H loss is `arrhenius_effective_temperature` with Murga & Wiebe's
+    "Arrh. 2" set, with $T_m$ from Draine & Li 2001 rather than from modes.
+  - The Figshare data (doi:10.6084/m9.figshare.12597092) tabulate the Fig. 2
+    profiles and the C$_2$H$_2$ production rates.
+  - The unmerged branch `worktree-shiva-model` is not a starting point:
+    - it cites a non-existent A&A paper;
+    - its conditions are invented;
+    - its cooling and charge physics are hand-made.
+- **`murga2022.toml`** (Orion Bar).
+  - The full model output is on Figshare (doi:10.6084/m9.figshare.14892612):
+    158 positions × charge × hydrogenation × size × time, for models b, c and
+    d. It reproduces their Fig. 8, so the targets are tabulated.
+  - Model b (H loss only) is the closest to the $(Z, N_{\rm H})$ network.
+  - Their "Andrews+16" H-loss parameters (4.3 eV, 11.8 cal) are not
+    Andrews' Table 2 values.
+
+What running these models needs:
+- **Allain and Le Page:** a first-event branching mode next to `energy_me`.
+- **Le Page:** the two-frequency species.
+- **Murga:** a size ($N_{\rm C}$) axis, time integration through a profile,
+  and a WD01 charge mode.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;

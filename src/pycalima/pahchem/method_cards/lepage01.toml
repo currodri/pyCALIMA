@@ -1,0 +1,221 @@
+# Method card: Le Page, Snow & Bierbaum 2001, ApJS 132, 233 (Paper I, the
+# model), with the results of Le Page, Snow & Bierbaum 2003, ApJ 584, 316
+# (Paper II, "LP03") and the H2-formation extension of Le Page, Snow &
+# Bierbaum 2009, ApJ 704, 274 ("LP09", section [lp09]).
+#
+# Conventions as in andrews16.toml: each value has a `source` (section,
+# equation, table or figure; "LP03"/"LP09" prefix when not Paper I) and a
+# `confidence`: A experiment, B benchmarked theory, C theory, D extrapolation,
+# E assumption. "not stated" marks what the papers do not give. "inferred"
+# in a source means the value is not printed but follows from printed numbers
+# (the derivation is given); such values carry confidence D or lower.
+
+[card]
+name = "LePage2001"
+bib_key = "LePage2001"
+citation = "Le Page, Snow & Bierbaum 2001, ApJS 132, 233 (doi:10.1086/318952); results in Le Page, Snow & Bierbaum 2003, ApJ 584, 316 (doi:10.1086/345595); H2 formation in Le Page, Snow & Bierbaum 2009, ApJ 704, 274 (doi:10.1088/0004-637X/704/1/274)"
+read_from = "Paper I: IOP full-text HTML, all sections, Appendix, eqs. 1-35 and Tables 1-3 as images, Figs. 1-15 at thumbnail resolution. LP03: journal PDF (Wayback copy of the IOP PDF), all sections, Tables 1-2, Figs. 1-9. LP09: IOP HTML (Wayback, 2024-05-15), all sections, Tables 1-2, Figs. 1-6."
+status = "draft"
+
+[species]
+families = "compact PAHs, each run separately (LP03 Sect. 2): C6H6, C10H8, C14H10, C16H10, C24H12, C32H14 (known); C50H20, C80H24, C100H26, C120H30, C150H40, C200H50 (graphitic planes, one H per peripheral C)"
+c100_note = "LP03 Sect. 2 prints C100H26, but Paper I Table 1 (C100H29 as PAHH) and LP09 Fig. 2 (C100H28) imply C100H28: probably a typo in LP03"
+nh_range = "0 to 2y, y = normal H count (Paper I Sect. 4.1: 2y + 1 hydrogenation states)"
+charges = "Paper I network: cation and neutral only, 4y + 2 equations (Sect. 4.1); anions excluded (Sect. 3.5.1). LP03 Fig. 4 adds anions in a separate charge-only balance"
+charge_of_hydrogenation = "rates do not depend on N_H except through the channel type (Table 3) and the H-addition rules ([hydrogen])"
+carbon_skeleton = "fixed: no C, C2 or C2H2 loss in the network (Sect. 3.5.2; LP03 Sect. 3.1.2). LP03 Sect. 4.3 computes C2H2 and Cn loss rates separately (Figs. 6-7) but does not feed them back"
+source = "Paper I Sects. 1, 3.5, 4.1; LP03 Sect. 2"
+
+[field]
+shape = "Draine (1978) between 5 and 13.6 eV via the analytic expression of Allain et al. (1996a, 1996b); below 5 eV the Mathis, Mezger & Panagia (1983) field as given in Dartois & d'Hendecourt (1997)"
+why_not_habing = "Habing G0 (6-13.6 eV) omits the < 6 eV photons that drive photodetachment and PAHH photodissociation (Sect. 2)"
+scaling = "chi, a multiplier of this field; chi = 1 is the normal interstellar field (LP03 Sect. 2); LP09 states chi in units of Draine's field"
+e_max = { value = 13.6, unit = "eV", source = "eqs. 11 and 15 (upper limit)", confidence = "E" }
+e_min_photodissociation = "not stated: eq. 11 as printed integrates from IP to 13.6 eV (as eq. 15); Sect. 3.1.5 says PAHH loss 'might be very efficient' because of low-energy photons, which only matters if the integral starts below IP"
+e_min_photodetachment = { value = 3.0, unit = "eV", source = "Sect. 3.5.1 (EA ~ 3 eV); LP03 Sect. 3.2.3 ('we include all photons above 3 eV')", confidence = "E" }
+source = "Paper I Sect. 2, Fig. 3"
+
+[environment]
+nt_range = { value = [0.1, 1000.0], unit = "cm^-3, total H density n_H + 2 n_H2", source = "Sect. 2; LP03 Sect. 2", confidence = "E" }
+standard_nt = { value = 100.0, unit = "cm^-3", source = "LP03 Sect. 2", confidence = "E" }
+standard_f = { value = 0.5, unit = "n_H2 / n_H (so n_H ~ 50, n_H2 ~ 25 cm^-3 at nt = 100)", source = "LP03 Sect. 2", confidence = "E" }
+standard_chi = { value = 1.0, unit = "Draine (1978) field", source = "LP03 Sect. 2", confidence = "E" }
+temperature = { value = 100.0, unit = "K", source = "Sect. 2; LP03 Sect. 2", confidence = "E" }
+ne_over_nt = { value = 1.4e-4, unit = "", source = "Sect. 2 (n_e = n(C+), C/H = 1.4e-4, Sofia 1997); LP03 Sect. 2", confidence = "D" }
+o_over_h = { value = 3.2e-4, unit = "", source = "Sect. 2 (Meyer et al. 1997); LP03 Sect. 5 (Meyer, Jura & Cardelli 1998)", confidence = "A" }
+n_over_h = { value = 6.0e-5, unit = "", source = "Sect. 2", confidence = "A" }
+cloud_structure = "single homogeneous zone, no extinction, no H2 self-shielding (Sect. 2); parameters varied one at a time (LP03 Sect. 3.1.3)"
+variations = "LP03: nt 0.1-1000 (Fig. 1), chi 0.01-100 (Fig. 2), H2 proportion 0.005-50 (Fig. 3), ne/nt 1e-4 to 5e-4 (Sect. 3.1.3, 'small changes'), T < 400 K (only k_rec depends on T)"
+fig4_densities = "LP03 Fig. 4: nt = 10, 25, 100 cm^-3 (f, chi, T, ne/nt not restated: presumably standard)"
+fig6_7_conditions = "LP03 Figs. 6-7: nt = 25 cm^-3, chi = 1"
+
+[photophysics]
+sigma_uv = "Joblin (1992) soot extract, mean mass 365 amu, per C atom, fitted by five Gaussians at 2.4, 3.3, 4.8, 5.75, 6.5 um^-1 and a broad peak at 17 um^-1 (Fig. 11)"
+sigma_uv_parameters = "not stated: Gaussian widths and amplitudes are not given; only Fig. 11 (per C atom, 1e-18 cm^2 units) is printed"
+sigma_cations = "same as neutrals, scaled by N_C (LP03 Sect. 3.2.3); dropping cation absorption below 7.75 eV changed results 'very little'"
+sigma_hydrogenation = "not stated: per-C-atom cross section implies no N_H dependence"
+yield_form = "Y_ion = a exp{-b [c (E_exc - d)]^4} (eq. 14), all energies in um^-1 (10.96 um^-1 = 13.6 eV)"
+yield_a = { value = 0.8, unit = "", source = "Sect. 3.2, eq. 14", confidence = "C" }
+yield_b = { value = 0.00128, unit = "(um^-1)^-4", source = "Sect. 3.2, eq. 14: 'both expressed in conventional um^-1 units'", confidence = "C" }
+yield_b_in_ev = { value = 5.42e-4, unit = "eV^-4", source = "inferred: 0.00128 / (1.23984 eV um)^4", confidence = "C" }
+yield_d = { value = 12.0, unit = "um^-1 (= 14.88 eV)", source = "Sect. 3.2 (printed as 'c is the approximate energy (12 um^-1)', a typo for d)", confidence = "C" }
+yield_c = "c = (12 - IP_coronene)/(12 - IP_PAH), IPs in um^-1 (a ratio: unit-free)"
+yield_data = "fit to Verstraete et al. (1990) coronene and pyrene yields; reaches ~0.75 at 13.6 eV (Sect. 3.2)"
+yield_unit_discrepancy = "Montillaud+13 eq. 1 (and pahchem photo.yield_lepage2001) converts d to 14.89 eV but keeps b = 0.00128 with E in eV. That is not Le Page's law: with b in um^-4 the yield at c = 1 is 0.16 / 0.24 / 0.42 / 0.59 at 7.5 / 8 / 9 / 10 eV, against 0.018 / 0.045 / 0.17 / 0.39 for the eV form (x9 at 7.5 eV, x1.5 at 10 eV; equal at 13.6 eV)"
+yield_below_ip = "not stated: eq. 14 is non-zero below IP; eq. 15 integrates from IP"
+ionisation_rate = "k_ion = int_IP^13.6 Y_ion sigma_UV N(E) dE (eq. 15, after Allain et al. 1996a)"
+ip_values = "not stated: no IP table in Paper I or LP03; IP vs N_H and IP of the coronene reference also not stated"
+ionising_photons_heat = "not stated as an equation: Sect. 3.2 says 'either an absorbed photon will ionize the neutral molecule (eq. [15]) or participate in the photodissociation (eq. [11])', but eq. 11 as printed has no (1 - Y_ion) factor"
+double_ionisation = "neglected: coronene needs 11.5 eV, lifetime > 100 yr (Sect. 3.5.4)"
+photodetachment = "k_p = sigma_ion N_C N_ph (eq. 22)"
+photodetachment_sigma = { value = 2.0e-18, unit = "cm^2 per C atom", source = "Sect. 3.5.1 ('very conservative', same as the ionisation cross section)", confidence = "E" }
+photodetachment_nph = { value = 1.0e9, unit = "photons cm^-2 s^-1 (printed 'eV^-1 cm^-2 s^-1'), Draine field from EA ~ 3 eV to 13.6 eV", source = "Sect. 3.5.1", confidence = "D" }
+ea_values = "not stated beyond 'about 3 eV' (Sect. 3.5.1) and '< 1 eV' for naphthalene, anthracene, pyrene (Sect. 3.5.1)"
+
+[heating]
+photon_count = "single photon: E_exc = h nu of one absorbed photon; no multiphoton heating (Sect. 3.1.5, eq. 11; Montillaud+13 Sect. 1 names multiphoton events as their addition)"
+initial_thermal_energy = "not stated (internal energy before absorption not added)"
+recombination_energy = "a recombining cation is treated as a neutral excited to E = IP of the neutral (Sect. 3.3)"
+photodissociation_rate = "k_ph = int_IP^13.6 [k_diss/(k_diss + k'_rad)] sigma_UV N(E) dE (eq. 11)"
+source = "Paper I Sects. 3.1.5, 3.3"
+
+[dissociation]
+rate_form = "two-frequency RRKM ('2nu-RRKM'): k(E) = sigma G*(E - E0)/(h N(E)) (eq. 2), harmonic sums/densities by steepest descent (psRRKM, Speir 1993); no rotations"
+modes_reactant = "C_xH_y: 3x - 6 modes at 1000 cm^-1 (nu_CC) and 3y modes at 1300 cm^-1 (nu_CH)"
+modes_ts = "3x - 6 at 1000 cm^-1, 3y - 3 at 1300 cm^-1, plus two 'disappearing' C-H bends nu_TS (250 cm^-1 gives dS = 5 cal/K; 950 cm^-1 gives dS = 0)"
+nu_cc = { value = 1000.0, unit = "cm^-1", source = "Sect. 3.1.3 ('we arbitrarily choose')", confidence = "E" }
+nu_ch = { value = 1300.0, unit = "cm^-1", source = "Sect. 3.1.3 (geometric mean of 700, 1000, 3000 cm^-1)", confidence = "E" }
+nu_ts_loose = { value = 250.0, unit = "cm^-1", source = "Sect. 3.1.3", confidence = "E" }
+nu_ts_dS0 = { value = 950.0, unit = "cm^-1", source = "Sect. 3.1.5", confidence = "E" }
+dS_check = "pahchem rates.vibrational_entropy: the 250 cm^-1 TS gives dS(1000 K) = 5.03 cal/K/mol for C6H6, C10H8, C14H10 and C24H12 alike (independent of size), as Le Page intends"
+path_degeneracy = "not stated in general (eq. 2 defines sigma; '= 6 for benzene cation H loss'). Inferred sigma = number of equivalent H: the coronene CSV is reproduced only with sigma = 12; benzene, anthracene checks with sigma = y (see check_* below)"
+h2_loss_ts = "not stated: which modes are removed or loosened for the H2 channel"
+superh_degeneracy = "not stated; LP01 Fig. 9 C24H13 (E0 = 1.2 eV, dS = 0) is matched by sigma = 2 (log k = 4.1 at 2 eV, 11.1 at 13.6 eV)"
+# Table 3: the parameters of the six channels used by the model.
+pah_cation_h_loss = { E_act = 4.8, dS_cal_K = 5.0, unit = "eV; cal K^-1 at 1000 K", source = "Table 3 (Ling et al. 1995)", confidence = "D" }
+pahh_cation_h_loss = { E_act = 2.9, dS_cal_K = 5.0, unit = "eV; cal K^-1", source = "Table 3 (heats of formation of C10H9+, C10H8+, C10H7+)", confidence = "D" }
+pahh_cation_h2_loss = { E_act = 3.2, dS_cal_K = 5.0, unit = "eV; cal K^-1", source = "Table 3", confidence = "D" }
+pah_neutral_h_loss = { E_act = 4.8, dS_cal_K = 5.0, unit = "eV; cal K^-1", source = "Table 3 (Ling et al. 1995)", confidence = "D" }
+pahh_neutral_h_loss = { E_act = 1.2, dS_cal_K = 0.0, unit = "eV; cal K^-1", source = "Table 3 (Mebel et al. 1997, C6H7: dS = 0.06 cal/K)", confidence = "C" }
+pahh_neutral_h2_loss = { E_act = 1.6, dS_cal_K = 5.0, unit = "eV; cal K^-1", source = "Table 3 (Ling et al. 1995)", confidence = "D" }
+channel_scope = "'PAH' rows apply to every N_H <= y (dehydrogenated included, odd or even); 'PAHH' rows to every N_H > y (Table 3 note a)"
+odd_even = "no odd/even difference in E0 (contrast Montillaud+13 3.2 eV for odd)"
+lp03_aliphatic_h = { E_act = 2.0, dS_cal_K = 0.0, unit = "eV; cal K^-1", source = "LP03 Sect. 4.3 (between Mebel 1.2 and cyclohexane 2.6 eV), used in LP03 Figs. 6-7", confidence = "E" }
+lp03_fig8_endothermicity = "LP03 Fig. 8: C200 PAHH -> PAH + H with 1.16 eV (a, Mebel) vs 2.0 eV (b): complete hydrogenation in (b)"
+lp03_c2h2_loss = { E_act = 6.0, dS_cal_K = 10.0, unit = "eV; cal K^-1 (large cations; 4.5 eV small PAHs, 5.5 eV pyrene+ from Jochims appearance energies)", source = "LP03 Sect. 4.3", confidence = "D" }
+lp03_c2h2_degeneracy = { value = 6.0, unit = "", source = "LP03 Sect. 4.3 (compact PAHs, Fig. 7)", confidence = "E" }
+lp03_cn_loss = { E_act = 8.0, unit = "eV (dS not stated; 5 cal/K is the stated default 'for processes for which no data are available')", source = "LP03 Sect. 4.3 (Leger+89 7.4-8.5 eV; MOPAC C16+ -> C14+ + C2 ~10 eV)", confidence = "D" }
+lp03_c30o_loss = { E_act = 3.3, dS_cal_K = 0.0, unit = "eV; cal K^-1 (C30O+ -> C30+ + O, lifetime 1.4 yr)", source = "LP03 Sect. 5", confidence = "E" }
+# The coronene k(E) curve digitised in dissoc_rate_coronene_Montillaud.csv (column "LePage").
+coronene_kE_origin = "Montillaud+13 Fig. 3 'kdiss - Le Page et al.' cites Le Page et al. (2001): it is Paper I Fig. 9, curve C24H12(+), i.e. the 2nu-RRKM H loss of the normal coronene cation (and neutral: same curve) with E0 = 4.8 eV, dS = 5 cal/K, sigma = 12. diagnostics/pahchem/plot_benchmarks.py labels it 'Le Page+03': should be Le Page+01"
+coronene_kE_check = "pahchem rates.rrkm on the Le Page mode set (66 x 1000, 36 x 1300; TS 66 x 1000, 33 x 1300, 2 x 250 cm^-1), E0 = 4.8 eV, sigma = 12, Beyer-Swinehart 5 cm^-1 grain: log10(model/CSV) = +0.12 -0.07 +0.07 -0.04 -0.01 -0.01 -0.06 +0.06 over 7.6-15 eV (digitisation scatter). sigma = 1 is uniformly 1.0-1.15 dex low"
+check_benzene = { value = [3.19, 6.1], unit = "log10 k [s^-1] at 4.5 and 5.5 eV, C6H6+ (exp. 3.15, 6.2)", source = "Sect. 3.1.3, Fig. 7", confidence = "B" }
+check_benzene_pahchem = "E0 = 3.8 eV (Table 2), sigma = 6: 3.14, 6.01"
+check_naphthalene = { value = [3.9, 7.5], unit = "log10 k [s^-1] at 7 and 10 eV, C10H8+ (exp. 3.7, 7.3)", source = "Sect. 3.1.3, Fig. 7", confidence = "B" }
+check_naphthalene_pahchem = "with Table 2 E0 = 4.5 eV, sigma = 8: 2.82, 6.84 (1 dex low); E0 = 4.2 eV gives 3.99, 7.56: the E0 Le Page used here is not stated"
+check_anthracene = { value = [2.2, 7.6], unit = "log10 k [s^-1] at 7.9 and 13.6 eV, C14H10+ (exp. 2.0, 7.5)", source = "Sect. 3.1.3, Fig. 7", confidence = "B" }
+check_anthracene_pahchem = "E0 = 4.4 eV (Table 2), sigma = 10: 2.09, 7.61"
+lab_parameters = { benzene = [3.8, 5.7], naphthalene = [4.5, 5.6], anthracene = [4.4, 5.9], phenanthrene = [3.9, 4.4], pyrene = [4.6, 11.0], larger = [4.8, 5.0], unit = "[E0 eV, dS(1000 K) cal/K] for PAH+ -> PAH-1+ + H", source = "Table 2 (Klippenstein+93, Ho+95, Ling & Lifshitz 98, Ling+95; 'larger' is the estimate)", confidence = "A" }
+rrk_alternative = "eq. 3, k = nu (1 - E0/E)^(s-1), nu = 1e16 s^-1, E0 = 2.8 eV (Jochims+94): rejected for N_C > 50 (Sect. 3.1.4, Table 1)"
+
+[cooling]
+competing_rate = "stepladder (Holbrook et al. 1996): k'_rad = k_rad prod_{i=1}^{n} k_rad/(k_diss + k_rad), n = (E_exc - E0)/q_IR (eq. 12, Herbst & Le Page 1999)"
+q_ir = { value = 0.18, unit = "eV per IR photon", source = "Sect. 3.1.5", confidence = "E" }
+k_rad = "k_rad = 73 E_vib^1.5 / s^0.5 (eq. 13, Herbst & Dunbar 1991); units of E_vib not stated"
+k_rad_constant = { value = 100.0, unit = "s^-1", source = "Sect. 3.1.5: 'replacing [eq. 13] by a standard energy-independent value of krad = 1e2 s^-1 was found to give almost the same results'; also k'_rad -> k_rad acceptable", confidence = "E" }
+ir_emission_rate_typical = { value = 100.0, unit = "s^-1", source = "Sect. 3.1", confidence = "E" }
+recurrent_fluorescence = "not included"
+note = "no internal-energy cascade or P(E): the branching k_diss/(k_diss + k'_rad) is evaluated at the photon energy only"
+
+[electrons]
+recombination_law = "size-independent experimental rate with T^-1/2 (Sect. 3.3; LP03 Sect. 3.2.3), not grain theory"
+recombination_eq16 = "Paper I eq. 16 prints k_rec = 1e-6 (100/T)^1/2 cm^3 s^-1, while the text and LP03 use the 300 K Abouelaziz values"
+krec_benzene_300K = { value = 1.0e-6, unit = "cm^3 s^-1 at 300 K, x (300/T)^1/2", source = "LP03 Sect. 3.2.3 (Abouelaziz+93); used for LP03 Table 2, Fig. 4 and Fig. 5", confidence = "A" }
+krec_naphthalene_300K = { value = 3.0e-7, unit = "cm^3 s^-1 at 300 K, x (300/T)^1/2", source = "LP03 Sect. 3.2.3 ('In our model we have chosen'), Fig. 5 caption (Fig. 1c uses it); Paper I Appendix (inferred: k_rec n_e = 0.019 month^-1 at nt = 100, T = 100 K gives 5.2e-7 = 3e-7 sqrt(3))", confidence = "A" }
+krec_choice_ambiguity = "LP03 states both 'we therefore set the recombination rate for all species equal to the benzene value' (Table 2) and 'we have chosen the naphthalene rate' (Figs. 1c, 5). Inferred: Figs. 1-3, 9 and the Paper I appendix use naphthalene; Table 2 and Fig. 4 use benzene (Fig. 4 is reproduced exactly with Table 2 rates)"
+dissociative_recombination = "2nu-RRKM branching at E = IP of the neutral (Sect. 3.3): H loss for small PAH+, non-dissociative for pyrene (x + y = 26) and larger (Fig. 13). PAHH+ recombination remains dissociative up to 200 C (LP03 Sect. 5; LP09 Sect. 2)"
+attachment_form = "k_e = Y_a 2 pi (alpha e^2 / m_e)^1/2 (eq. 20, Omont 1986), Y_a = 1, alpha = 0.9 N_C^3/2 A^3"
+attachment_coefficient = { value = 1.0e-7, unit = "cm^3 s^-1 x N_C^3/4", source = "eq. 21", confidence = "D" }
+anion_neutral_ratio = { value = 7.8e-2, unit = "r_n for N_C = 25, n_H = 25 cm^-3", source = "Sect. 3.5.1, eq. 23", confidence = "D" }
+anion_cation_ratio = "r_-/+ = 8.5e-3 n_H^2 N_C^-5/4 (eq. 25); 9.5e-2 for N_C = 25, n_H = 25 (Sect. 3.5.1)"
+anion_chemistry = "none (Sect. 3.5.1)"
+
+[hydrogen]
+cation_h_addition = "k = (y/x) k_benzene for C_xH_y+ (Sect. 3.4), no T dependence; association = termolecular rate (radiative association assumed efficient)"
+k_benzene_h = { value = 2.2e-10, unit = "cm^3 s^-1", source = "Sect. 3.4", confidence = "A" }
+which_y = "not stated whether y is the current or the normal H count; the 'reactive' carbons are 'the peripheral ones which already bear H atoms'"
+check_values = { naphthalene = 1.8e-10, pyrene = 1.4e-10, coronene = 1.1e-10, unit = "cm^3 s^-1 (exp. 1.9e-10 Snow+98, 1.4e-10 Le Page+99a)", source = "Sect. 3.4", confidence = "B" }
+even_dehydrogenated_cations = "same reactivity as normal PAH+ (Sect. 3.4, from doubly dehydrogenated naphthalene and pyrene)"
+odd_dehydrogenated_h = { value = 5.0e-11, unit = "cm^3 s^-1", source = "Sect. 3.4 (naphthalene system)", confidence = "D" }
+odd_dehydrogenated_h2 = { value = 5.0e-11, unit = "cm^3 s^-1 (forms the protonated PAH, i.e. N_H + 2)", source = "Sect. 3.4 (phenylium, naphthylium)", confidence = "D" }
+even_dehydrogenated_h2 = "not stated"
+pahh_cation_h = { value = 1.0e-12, unit = "cm^3 s^-1, every further step up to 2y", source = "Sect. 3.4 (Snow+98)", confidence = "D" }
+pahh_cation_h_lp03 = "LP03 Sect. 3.1.1: each step for protonated pyrene ~50x slower than for normal PAH+ (i.e. ~3e-12)"
+pahh_cation_h2 = { value = 0.0, unit = "cm^3 s^-1", source = "Sect. 3.4", confidence = "D" }
+neutral_chemistry = "none in the standard model; a 1e-10 cm^3 s^-1 radical + H test changed 'only a few percent' (Sect. 3.4; LP03 Sect. 2, C30Hn)"
+abstraction = "not included (Sect. 3.4: minor for naphthalene and larger, Herbst & Le Page 1999)"
+h2_formation = "not in Paper I; LP09 ([lp09])"
+o_addition = { value = 1.0e-10, unit = "cm^3 s^-1 (lifetime 4e4 yr at n_H = 25; not in the network)", source = "Sect. 3.5.3", confidence = "D" }
+c_plus_insertion = { value = 3.0e-9, unit = "cm^3 s^-1 (anthracene, Canosa+95; LP03 uses 1e-9; not in the network)", source = "Sect. 3.5.3; LP03 Sect. 4.3", confidence = "A" }
+
+[network]
+equations = "d[PAH_i]/dt = -sum loss + sum growth (eq. 27) over 4y + 2 states; one row replaced by sum = 1 (eq. 28); [K'][X] = [B] (eq. 29)"
+solution = "steady state, direct linear solve (Scilab 2.3)"
+time_dependence = "check only: Markov chain [S] = [I] + tau t([K]) (eq. 31), squared repeatedly; converged when sum |X_n - X_inf| < 0.3 from a uniform start (Sect. 4.2)"
+appendix_example = "C50: three states C50H20+, C50H20, C50H21+ (eq. 33); the 57/27/16 % result follows exactly from the four rates in [targets]"
+coupling = "families independent; no size distribution (LP03 Sect. 2)"
+
+[targets]
+# Ranked by benchmark value: (1) tabulated or exactly reproducible, isolating one input.
+rank1_lp03_fig4 = "LP03 Fig. 4: cation/neutral/anion fractions vs N_C (16, 24, 32, 50, 80, 100) at nt = 10, 25, 100. A three-state balance with the LP03 Table 2 rates (k_rec, k_e scaled to nt) reproduces it to the plotted precision (e.g. C24 at nt = 100: 0.18/0.62/0.20 computed and plotted). Tests the charge physics in isolation from hydrogenation"
+lp03_fig4_nt10 = { C16 = [0.61, 0.37, 0.01], C24 = [0.74, 0.26, 0.01], C32 = [0.81, 0.19, 0.01], C50 = [0.89, 0.11, 0.0], C80 = [0.94, 0.06, 0.0], C100 = [0.95, 0.05, 0.0], unit = "[cation, neutral, anion], read from plotted markers (+- 0.01)", source = "LP03 Fig. 4a", confidence = "C" }
+lp03_fig4_nt25 = { C16 = [0.38, 0.58, 0.05], C24 = [0.52, 0.45, 0.04], C32 = [0.62, 0.34, 0.03], C50 = [0.76, 0.23, 0.02], C80 = [0.86, 0.14, 0.01], C100 = [0.89, 0.11, 0.01], unit = "[cation, neutral, anion], read from plotted markers (+- 0.01)", source = "LP03 Fig. 4b", confidence = "C" }
+lp03_fig4_nt100 = { C16 = [0.11, 0.66, 0.23], C24 = [0.18, 0.62, 0.20], C32 = [0.25, 0.58, 0.17], C50 = [0.39, 0.48, 0.13], C80 = [0.56, 0.34, 0.08], C100 = [0.63, 0.30, 0.07], unit = "[cation, neutral, anion], read from plotted markers (+- 0.01)", source = "LP03 Fig. 4c", confidence = "C" }
+lp03_text_coronene = "LP03 Sect. 4.2: coronene at nt = 100, chi = 0.5: anions ~20 %, neutrals 70 %, cations 10 %"
+rank2_lp03_table2 = "LP03 Table 2 [s^-1] at nt = 25, T = 100 K, chi = 1, ne/nt = 1.4e-4 (inferred from k_rec = 6.0e-9 and k_e = 1e-7 N_C^3/4 n_e with n_e = 3.5e-3). k_ion tests sigma (Joblin) x Y (eq. 14) x Draine field; k_rec, k_e, k_ph are closed-form"
+lp03_table2_kion = { C16 = 4.0e-9, C24 = 6.9e-9, C32 = 1.0e-8, C50 = 2.0e-8, C100 = 5.0e-8, unit = "s^-1, this work (Salama: 4.0e-9, 5.8e-9, -, -, 1.7e-8; Allain: 3.8e-9, 7.5e-9, 8.4e-9, 9.8e-9, -)", source = "LP03 Table 2", confidence = "C" }
+lp03_table2_krec = { all = 6.0e-9, unit = "s^-1 = 1e-6 sqrt(300/100) x 25 x 1.4e-4 (Salama: 1.3e-8, 1.3e-8, 4.4e-7 for C16, C24, C100; Allain: 3e-8 to 7e-8)", source = "LP03 Table 2, Sect. 3.2.3", confidence = "C" }
+lp03_table2_ke = { C16 = 2.8e-9, C24 = 3.8e-9, C50 = 6.6e-9, C100 = 1.1e-8, unit = "s^-1 (C32 blank; Salama: 5.3e-12, 7.2e-12, -, 2.1e-8)", source = "LP03 Table 2", confidence = "C" }
+lp03_table2_kph = { C16 = 3.2e-8, C24 = 4.8e-8, C50 = 1.0e-7, C100 = 2.0e-7, unit = "s^-1 photodetachment = 2e-18 N_C 1e9 (C32 blank; Salama: 4.0e-9, 4.8e-9, -, 4.3e-8)", source = "LP03 Table 2", confidence = "C" }
+rank3_coronene_kE = "Paper I Fig. 9 (log10 k vs E_exc, 2-13.6 eV) for C24H13, C24H13+, C24H11(+), C24H12(+): the C24H12(+) curve is digitised (dissoc_rate_coronene_Montillaud.csv, 'LePage', via Montillaud+13 Fig. 3) and reproduced to 0.1 dex ([dissociation].coronene_kE_check). Fig. 8: same for C6H5, C6H6, C6H7 and cations with Klippenstein/Kuhlewind data (must be digitised). Fig. 7 and the text values (check_*) give six log k numbers"
+rank4_appendix = "Paper I Appendix, C50 at n_H = 50 cm^-3, nt = 100 cm^-3, n_e/nt = 1.4e-4: k_ion = 0.052, k_rec n_e = 0.019, k_diss,H (C50H21+) = 0.022, k_add,H [H] (C50H20+) = 0.011 month^-1 give 57 % C50H20+, 27 % C50H20, 16 % C50H21+; S^(2^5) rows (eq. 35) 0.576/0.265/0.158, 0.581/0.273/0.144, 0.546/0.265/0.188; migration ~64 months"
+appendix_rates = { k_ion = 0.052, krec_ne = 0.019, kdiss_H = 0.022, kadd_H_nH = 0.011, unit = "month^-1", source = "Paper I Appendix", confidence = "C" }
+appendix_result = { C50H20_cation = 0.57, C50H20 = 0.27, C50H21_cation = 0.16, unit = "steady-state fraction", source = "Paper I Appendix", confidence = "C" }
+rank5_lp01_table1 = "Paper I Table 1: log10 k(C50H21) - log10 k(PAHH) at 5 and 10 eV, RRK / 2nu-RRKM / binomial, for C80H25 ... C200H51 (a scaling test of the 2nu-RRKM code)"
+lp01_table1_5eV = { C80H25 = [6.8, 1.5, 1.6], C100H29 = [12.0, 2.3, 2.4], C120H31 = [16.0, 2.9, 3.0], C150H41 = [24.0, 3.8, 4.0], C200H51 = [36.0, 4.9, 5.1], unit = "dex [RRK, 2nu-RRKM, binomial]", source = "Paper I Table 1", confidence = "C" }
+lp01_table1_10eV = { C80H25 = [3.2, 1.3, 1.5], C100H29 = [5.4, 2.0, 2.3], C120H31 = [7.5, 2.6, 2.9], C150H41 = [11.0, 3.5, 3.8], C200H51 = [17.0, 4.5, 4.9], unit = "dex [RRK, 2nu-RRKM, binomial]", source = "Paper I Table 1", confidence = "C" }
+lp01_table1_channel = "not stated: which E0/dS the PAHH species use in Table 1"
+rank6_lp03_fig9 = "LP03 Fig. 9: species weight vs N_H for C16, C24, C32, C50, C80 at the standard conditions (nt = 100, f = 0.5, chi = 1, T = 100 K): bimodal; C16 and C24 at N_H ~ 0-2 (C16 neutral ~0.6), C32H14+ ~0.45 and C32H14 ~0.37, C50H20+ ~0.6, C80H24+ ~0.6 with C80H25+ ~0.27 (3-D bars, must be digitised, +- 0.03)"
+rank7_lp03_fig1_3 = "LP03 Figs. 1-3: charge x N_H distributions for C16, C24, C32, C50 vs nt (0.1-1000), chi (0.01-100), H2 proportion (0.005-50); 3-D bar charts, must be digitised; text: C24Hn split between n = 4-12 at nt = 100; C50 peaked at C50H20 at every nt with C50H21+ rising; transition between 24 and 32 C"
+rank8_lp03_fig8 = "LP03 Fig. 8: C200 N_H distribution vs nt for PAHH -> PAH + H endothermicity 1.16 eV (a) and 2.0 eV (b, full hydrogenation); LP09 Sect. 4: 60 % of C200Hn have n > 51 (a)"
+lp03_table1_dehydro_start = { C16 = ["<1", "<1", 1.4, 4.2, 5.7], C24 = ["<1", "<1", "<1", 35, 230], C32 = ["<1", "<1", 42000, 250, 110], C50 = [200000, 18000, 2000, 260, 95], C200 = [64000, 49000, 5900, 690, 92], unit = "yr at nt = [0.1, 1, 10, 100, 1000] cm^-3 from a fully dehydrogenated start", source = "LP03 Table 1", confidence = "C" }
+lp03_table1_normal_start = { C16 = [53, 54, 57, 110, 150], C24 = [120, 120, 130, 750, 4.4], C32 = [7300, 27000, "<1", 2.0, "<1"], C50 = ["<1", "<1", "<1", 1.1, "<1"], C200 = [2600, 260, 26, 2.4, "<1"], unit = "yr at nt = [0.1, 1, 10, 100, 1000] cm^-3 from the normal-H start", source = "LP03 Table 1", confidence = "C" }
+lp03_table1_note = "migration times depend on the 0.3 convergence criterion of Paper I Sect. 4.2: low benchmark value"
+rank9_lp01_figs = "Paper I Fig. 10 (k_ph vs N_C for PAH, PAH+, XdPAH, XdPAH+, PAHH, PAHH+; PAH+ drops below 1e-12 s^-1 near N_C ~ 40), Fig. 12 (k_ion vs N_C, ~1e-9 at 6 C to ~1e-7 at 200 C), Fig. 13 (DR branching vs x + y), Fig. 11 (sigma_UV per C): all must be digitised"
+rank10_lp03_figs6_7 = "LP03 Figs. 6-7: photodissociation rates (H, C2H2, C2 loss) vs N_C for extremely dehydrogenated (Fig. 6) and normal (Fig. 7) PAHs, nt = 25, chi = 1, against H addition 2.5e-9 s^-1 and C+ insertion 3.5e-12 s^-1; minimum skeleton size 18-20 C; must be digitised"
+size_classes = "LP03 Sect. 4.1/6: < 15-20 C destroyed; 20-30 C extremely dehydrogenated; 30-40 C hydrogenated, prone to C2H2 loss; > 40 C normal H coverage (with PAHH+); very large (150-200 C) possibly fully hydrogenated"
+
+[lp09]
+# Le Page, Snow & Bierbaum 2009, ApJ 704, 274: what changes for H2 formation.
+mechanism = "PAH-H + H -> PAH; PAH + hnu -> PAH+ + e; PAH+ + H -> PAH+H+; PAH+H+ + e -> PAH+H + hnu (branching 0) / PAH-H + H2 (a) / PAH + H (1 - a) (eqs. 3a-3d, Fig. 1); plus k'diss: PAH+H+ + hnu -> PAH-H+ + H2, and k_H2: PAH-H+ + H2 -> PAH+H+"
+states = "six: PAH-H, PAH, PAH-H+, PAH+, PAH+H+ (Fig. 1); no anions"
+branching_a = { value = 0.5, unit = "H2 fraction of PAH+H+ recombination (stabilisation 0)", source = "LP09 Sects. 2-3 (H2 binding 4.5 eV ~ C-H 4.8 eV)", confidence = "E" }
+k_h_pah_minus_h_cation = { value = 1.6e-10, unit = "cm^3 s^-1, PAH-H+ + H", source = "LP09 Sect. 4.3 (small PAH ions)", confidence = "D" }
+k_h_pah_cation = { value = 2.0e-10, unit = "cm^3 s^-1, PAH+ + H (Paper I: (y/x) 2.2e-10)", source = "LP09 Sect. 4.3", confidence = "D" }
+size_scaling_of_kH = "not stated (Paper I scaled with y/x)"
+recombination = "changed: 'the rate of recombination between the pyrene ion and an electron approaches the value deduced from an extension of classical grain theory... we have chosen this rate, following Vuong & Foing (2000)' (Sect. 4.2); the value is not stated"
+other_rates = "'the same as those inferred in Le Page et al. (2001)' (Sect. 3)"
+f_definition = "f = 2 n_H2 / nt (Paper I/LP03 used n_H2/n_H; both give n_H2 = 25 at nt = 100, f = 0.5)"
+c_h_pah = { value = 3.3e-5, unit = "C in PAHs per H (15 % of 220 ppm)", source = "LP09 Sect. 3", confidence = "E" }
+ne_over_nt = "not stated (presumably 1.4e-4)"
+rate_definition = "R_PAH = (a k_rec n_e + k'diss) n(PAH+H+) / (nt n_H) (Sect. 3)"
+beta0 = { value = 5.0e-11, unit = "s^-1, unshielded H2 photodissociation", source = "LP09 Sect. 3 (Duley & Williams 1984)", confidence = "D" }
+reference_rate = { value = 3.0e-17, unit = "cm^3 s^-1 (Jura 1975)", source = "LP09 Sect. 3", confidence = "A" }
+table1 = { C50H20 = 2.1e-17, C100H28 = 1.3e-17, C200H50 = 2.9e-18, unit = "cm^3 s^-1 at f = 0.5, nt = 10, T = 100 K, chi = 1", source = "LP09 Table 1", confidence = "C" }
+plateau_text = { value = 4.0e-17, unit = "cm^3 s^-1, C50 plateau ~ (1/2) a k_H (C/H)_PAH / x", source = "LP09 Sect. 4 (zone B)", confidence = "C" }
+plateau_check = "with a = 0.5, k_H = 2e-10, (C/H)_PAH = 3.3e-5, x = 50 the formula gives 3.3e-17, not 4e-17; LP09 Fig. 2 C50H20 plateau is ~4e-17"
+fig2 = "R (cm^3 s^-1) vs nt/chi (1e-2 to 1e4) for C32H14, C40H16, C50H20, C80H24, C100H28, C120H30, C150H40, C200H50 at f = 0.5, T = 100 K: digitised in H2_formation_rate_PAH_LePage2009.csv (all but C200H50; X = nt/chi, Y = R). Check: CSV C50 at nt/chi = 6.7-12.3 gives 2.4-1.9e-17 vs Table 1 2.1e-17 at 10; C100 at 10.6 gives 1.27e-17 vs 1.3e-17"
+fig3_zones = "A: steep drop at low nt/chi ~ (nt/chi)^y (atomic) or ^(y/2) (molecular); B: plateau; C: slope -1"
+fig5 = "rho Oph PDR H2 profile: T = 300 K, nt = 2e4, (C/H)PAH = 7.5e-5, chi = 400; beta from 5e-11 at N(H2) = 1e15 to 6e-15 s^-1 at 1e20 cm^-2 (log-log line); H/H2 layer ~0.05 pc"
+table2_q = { Orion_bar = [3.0e-4, 4.2], NGC2023 = [9.0e-4, 18.0], Oph_W = [1.3e-3, 40.0], IC63 = [3.0e-3, 150.0], Horsehead = [4.0e-3, 1000.0], unit = "[I(H2*)/I(PAH*), nt/chi]", source = "LP09 Table 2 (Habart+03, 04, 05)", confidence = "A" }
+fig6 = "q/(nt/chi) vs nt/chi with model curves; best fit ~100 C (must be digitised)"
