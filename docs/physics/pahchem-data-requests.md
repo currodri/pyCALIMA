@@ -13,9 +13,26 @@ capability required:
   them.
 - **T3:** excited states. This is a new capability for the group.
 
-T1 and the T2 validation item can be asked for now. The full T2 list is
-refined by the sensitivity analysis of milestone M5, which ranks barriers by
-how much they move the predicted $f(N_{\rm H})$ and $f(Z)$.
+T1 and the T2 validation item can be asked for now.
+
+**Priority, from the M5 sensitivity ranking** ({doc}`pahchem-spec`). The
+observables are C$_{54}$H$_{18}$ dehydrogenation and charge at the NGC 7023
+edge and in the Orion Bar.
+
+1. **Per-state vibrational modes along the hydrogenation ladder** (T1.1):
+   ~1 dex on dehydrogenation in the Orion Bar.
+2. **UV absorption cross sections per charge and hydrogenation state** (T3):
+   ~1 dex on dehydrogenation, and the largest effect on charge.
+3. **H- and H$_2$-loss barriers of the even, odd and dehydrogenated states**
+   (T2.1–T2.2): 0.5–1 dex per −0.5 eV.
+4. **Electronic states for recurrent fluorescence** (T3), together with
+   anharmonic cooling: ~0.8 dex if cooling is 3× faster.
+5. Below that: H-addition barriers (≤ 0.4 dex). Super-H and Eley–Rideal
+   energetics do not move these observables; they matter only for the super-H
+   fraction and for H$_2$ formation.
+
+Outside DFT, the electron-capture (recombination) rates of large cations move
+the charge by up to 0.5 in $f_+$, and no measurement exists above C$_{16}$.
 
 ## Common specification for every deliverable
 
@@ -80,27 +97,36 @@ or below C$_{96}$.
 loss, comparing $E_0$ with {cite:t}`West2018` and the pathways with
 {cite:t}`Trinquier2017`. This fixes the protocol before it is scaled up.
 
-**Then, in priority order:**
+**Then, in priority order.** This order follows the M5 sensitivity ranking.
+An earlier draft put H addition first.
 
-1. **H addition.**
-   - *What:* transition states for H addition per site class (outer-edge solo,
-     duo and trio, and sites next to an sp$^3$ carbon), for $Z = 0, +1, -1$ and
-     $n$ = 1–6 extra H, for the coronene family.
-   - *With:* IRC, TS frequencies, and the imaginary frequency for a tunnelling
-     correction.
-   - *Why:* this is the highest value per CPU-hour. The only systematic set is
-     for coronene$^+$ {cite:p}`Cazaux2016`; the neutral barriers come from one
-     coronene study.
-2. **H abstraction (Eley–Rideal), H + HPAH → H$_2$ + PAH.** Transition states
-   for abstraction from sp$^3$ CH$_2$ groups and from aromatic C–H, per charge.
-   The current models use one cross section measured on coronene films
-   {cite:p}`Mennella2012`.
-3. **H$_2$ loss and H roaming.** Tight transition states, following the
-   protocol of {cite:t}`Castellanos2018`, for cations and neutrals.
-4. **Aromatic H loss.** Relaxed C–H dissociation scans, **not** a TS search:
-   the channel has no saddle point and needs variational TST. Also sp$^3$ H loss
-   from superhydrogenated states, which is the reverse of item 1. The benchmark
-   models simply assume 1.4–1.55 eV for it.
+1. **H$_2$ loss and H roaming.** Tight transition states, following the
+   protocol of {cite:t}`Castellanos2018`, for cations and neutrals, along the
+   even and dehydrogenated ladder. A −0.5 eV change in this $E_0$ moves C$_{54}$
+   dehydrogenation by up to 1 dex.
+2. **Aromatic H loss along the ladder, even and odd (radical) states.**
+   Relaxed C–H dissociation scans, **not** a TS search: the channel has no
+   saddle point and needs variational TST. A −0.5 eV change moves
+   dehydrogenation by 0.5–1 dex. The laboratory thresholds disagree by
+   0.7–1.4 eV ({doc}`pahchem-spec`, M2).
+3. **H addition.**
+   - *What:* transition states for H addition per site class (outer-edge
+     solo, duo and trio, and sites next to an sp$^3$ carbon), for
+     $Z = 0, +1, -1$ and $n$ = 1–6 extra H, for the coronene family.
+   - *With:* IRC, TS frequencies, and the imaginary frequency for a
+     tunnelling correction.
+   - *Why:* this moves dehydrogenation by ≤ 0.4 dex, but sets the super-H
+     fraction and the H$_2$-formation route. The only systematic set is for
+     coronene$^+$ {cite:p}`Cazaux2016`.
+4. **H abstraction (Eley–Rideal), H + HPAH → H$_2$ + PAH, and sp$^3$ H loss
+   from super-H states.**
+   - Transition states for abstraction from sp$^3$ CH$_2$ groups and from
+     aromatic C–H, per charge.
+   - The sp$^3$ H loss is the reverse of item 3; the models assume
+     1.4–1.55 eV.
+   - Neither moves dehydrogenation or charge. Both matter for H$_2$
+     formation on PAHs. The current models use one cross section measured on
+     coronene films {cite:p}`Mennella2012`.
 
 ## T3: excited states (later)
 

@@ -439,6 +439,72 @@ against theirs):
 - With a dissociation sink, the rates fall a further 1–1.5 dex at
   $\chi = 10^4$.
 
+**M5, sensitivity ranking** (`diagnostics/pahchem/check_sensitivity.py`,
+2026-10-05).
+
+{mod}`pycalima.pahchem.baseline` is pahchem's own model of C$_{54}$H$_{18}$,
+with inputs from `method_cards/pahchem_baseline.toml`:
+- RRKM from the West+18 transition states;
+- the physical cascade, with sinks;
+- Li & Draine $\sigma$;
+- BT94 capture with the literature-default $s_e$;
+- the Andrews+16 H chemistry.
+
+Each input was moved one at a time across its literature range at two sites:
+- **NGC 7023 NW edge:** $G_0 = 4100$, $n({\rm H}) = 1.35\times10^4$, Kurucz
+  15000 K.
+- **Orion Bar atomic PDR:** $G_0 = 2\times10^4$, $n({\rm H}) =
+  5\times10^4$, Kurucz 40000 K.
+
+The baseline fractions are:
+
+| | Dehydrogenated | Cationic |
+|---|---|---|
+| NGC 7023 edge | 0.04 % | 38 % |
+| Orion Bar | 8.4 % | 86 % |
+
+The ranking, by the largest $|\Delta \log f_{\rm dehydro}|$; $\Delta f_+$ is
+the change in cation fraction:
+
+| Input (low / high) | NGC 7023: $\Delta\log f_{\rm dehydro}$ | Orion Bar: $\Delta\log f_{\rm dehydro}$ | Charge |
+|---|---|---|---|
+| Per-state mode set (stripped vs parent) | +0.03 | **+1.08** | $\Delta f_+ = -0.13$ (Orion) |
+| UV cross section ×0.5 / ×2 | −0.80 / +0.82 | −0.99 / +0.97 | **$\Delta f_+$ ∓0.16–0.20** |
+| H$_2$-loss $E_0$ ∓0.5 eV | +0.96 / −0.26 | +0.56 / −0.12 | – |
+| Odd-H loss $E_0$ ∓0.5 eV | +0.66 / −0.04 | +0.96 / −0.44 | – |
+| IR cooling ×3 (RF proxy) | −0.77 | −0.89 | – |
+| Even-H loss $E_0$ ∓0.5 eV | +0.84 / −0.08 | +0.55 / −0.08 | – |
+| H-loss $\Delta S^\ddagger$ ∓40 J K$^{-1}$ mol$^{-1}$ | −0.08 / +0.75 | −0.07 / +0.50 | – |
+| Ionising photons heat | +0.47 | +0.31 | – |
+| Electron capture ÷6.5 | +0.38 | +0.28 | **$\Delta f_+ = +0.48$** (NGC 7023) |
+| Neutral H addition ÷3 / ×3 | +0.25 / −0.38 | +0.10 / −0.23 | – |
+| Cation H addition ×0.5 / ×2 | +0.08 / −0.12 | +0.37 / −0.40 | – |
+| Rate form: Andrews Arrhenius-$T_e$ | +0.20 | −0.22 | – |
+| Le Page instead of Jochims yields | −0.17 | −0.04 | $\Delta f_+ \le 0.04$ |
+| Neutral $s_e = 10^{-2}$ | +0.05 | +0.01 | ≈ 0 |
+| Super-H $E_0$ ±0.3 eV; Eley–Rideal $\sigma$ ×/÷3 | 0 | 0 | 0 |
+
+What this means for the data:
+
+- **Hydrogenation.** Four inputs each move it by ~1 dex: the per-state
+  vibrational modes, the UV cross sections, the H- and H$_2$-loss barriers
+  of the even/odd and dehydrogenated states, and the IR/RF cooling. A
+  −0.5 eV error matters far more than a +0.5 eV one, because a lower barrier
+  opens a channel while a higher one hands the flux to the other channel.
+  The 0.7–1.4 eV laboratory disagreement on $E_0$ (M2) is therefore
+  decisive.
+- **Charge.** $\sigma$ (ionisation) and the electron-capture rates dominate.
+  The ionisation yield model and the neutral sticking barely matter, because
+  anions are rare at these $G_0$.
+- **Inputs that do not move these observables.** H-addition barriers and
+  rates move the result by at most 0.4 dex. Super-H energetics and
+  Eley–Rideal leave $f_{\rm dehydro}$ and $f_+$ unchanged (they matter for
+  the super-H fraction and for H$_2$ formation, which this ranking does not
+  score).
+
+Caveats: one at a time, C$_{54}$ only, two sites, and the Andrews H chemistry
+throughout. Interactions between inputs, and other sizes, still need a grid.
+
 **Electron sticking** (literature search, 2026-10-04). No prescription better
 constrained than Bakes & Tielens 1994 / Weingartner & Draine 2001 has been
 published since. Recent models reuse a classic law plus the
