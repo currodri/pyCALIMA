@@ -615,3 +615,111 @@ def test_monte_carlo_matches_multiphoton_steady_state():
     events = me / np.trapezoid(h, E_PH) * n_ph
     assert events > 50
     assert abs(mc - me) < 3.0 * me / np.sqrt(events), (mc, me, events)
+
+
+# ===========================================================================
+# M4: (Z, N_H) network and collisional rate coefficients
+# ===========================================================================
+
+from pycalima.pahchem import chemistry
+from pycalima.pahchem.network import PAHNetwork
+
+
+@pytest.mark.parametrize("T", [50.0, 100.0, 500.0])
+def test_eley_rideal_reproduces_andrews16_eq10(T):
+    """sigma_er = 0.06 A^2 (Mennella+12) gives 8.7e-13 sqrt(T/100) cm^3 s^-1."""
+    k = chemistry.cross_section_rate(T, 0.06)
+    assert k == pytest.approx(8.7e-13 * np.sqrt(T / 100.0), rel=0.01)
+
+
+def test_electron_capture_orders_and_low_t_scaling():
+    """Coulomb focusing: attractive > neutral > repulsive; for a cation at
+    low T the DS87 J~ ~ 1/tau, so the coefficient goes as T^-1/2."""
+    T = 100.0
+    k = {z: chemistry.electron_capture(24, z, T) for z in (-1, 0, 1, 2)}
+    assert k[2] > k[1] > k[0] > k[-1] > 0
+    slope = np.log(chemistry.electron_capture(24, 1, 40.0) / chemistry.electron_capture(24, 1, 20.0)) / np.log(2)
+    assert slope == pytest.approx(-0.5, abs=0.05)
+
+
+def _toy_network(g0=1.0, ne=0.1, nH=100.0, T=100.0):
+    """Coronene-like: Z = -1..2, N_H = 0..14 (N_H0 = 12). Rates are illustrative."""
+    net = PAHNetwork(charges=(-1, 0, 1, 2), nh_values=range(0, 15))
+    nz, nn = net.shape
+    nh = np.array(net.nh_values)[None, :] * np.ones((nz, 1))
+    z = np.array(net.charges)[:, None] * np.ones((1, nn))
+    ion = np.where(z < 2, 1e-8 * g0 * (1.0 + 0.1 * (z + 1)), 0.0)
+    rec = np.where(z > -1, [[chemistry.electron_capture(24, int(q), T) * ne] * nn for q in net.charges], 0.0)
+    h_loss = np.where(nh > 0, 3e-9 * g0 * np.where(nh > 12, 1e2, 1.0), 0.0)
+    h2_loss = np.where((nh >= 2) & (nh % 2 == 0) & (nh <= 12), 2e-10 * g0, 0.0)
+    add = np.where(nh < 14, chemistry.cross_section_rate(T, 1.1) * nH, 0.0)
+    er = np.where(nh > 12, chemistry.cross_section_rate(T, 0.06) * nH, 0.0)
+    net.add("photoionisation", ion, dz=+1)
+    net.add("recombination", rec, dz=-1)
+    net.add("H loss", h_loss, dnh=-1)
+    net.add("H2 loss", h2_loss, dnh=-2, h2_released=1)
+    # neutrals and cations add H; anions by associative detachment, to (0, N_H + 1)
+    net.add("H addition", np.where(z >= 0, add, 0.0), dnh=+1)
+    net.add("associative detachment", np.where(z == -1, add, 0.0), dz=+1, dnh=+1)
+    net.add("Eley-Rideal", er, dnh=-1, h2_released=1)
+    return net
+
+
+def test_network_generator_conserves_probability():
+    Q = _toy_network().generator()
+    assert np.allclose(np.asarray(Q.sum(axis=0)).ravel(), 0.0, atol=1e-20)
+
+
+def test_network_rejects_rates_that_leave_the_state_space():
+    net = PAHNetwork(charges=(0, 1), nh_values=range(0, 3))
+    with pytest.raises(ValueError, match="outside"):
+        net.add("bad", 1.0, dnh=+1)                 # N_H = 2 has nowhere to go
+
+
+def test_network_steady_state_is_normalised_and_reached_in_time():
+    net = _toy_network(g0=1e3, ne=0.1, nH=1e3)
+    f = net.steady_state()
+    assert f.sum() == pytest.approx(1.0) and np.all(f >= 0)
+    f0 = net.zeros()
+    f0[1, 12] = 1.0                                    # neutral, normally hydrogenated
+    late = net.evolve(f0, [1e14])[-1]
+    assert np.allclose(late, f, atol=1e-6)
+
+
+def test_network_balances_hydrogen_at_steady_state():
+    """Net H-atom flux into the PAH population is zero at steady state."""
+    net = _toy_network(g0=1e2, nH=1e3)
+    f = net.steady_state()
+    flux = net.fluxes(f)
+    dnh = {p.name: p.dnh for p in net.processes}
+    gained = sum(flux[n] * dnh[n] for n in flux)
+    scale = sum(abs(flux[n] * dnh[n]) for n in flux)
+    assert abs(gained) < 1e-8 * scale
+
+
+def test_charge_chain_matches_the_four_state_closed_form():
+    """A pure charge network is the four_state_charge_fractions of PAH_charge."""
+    from pycalima.models.PAH_charge.PAH_photoelectric_heating import four_state_charge_fractions
+
+    k_att, k_det, k_pe0, k_pe1, k_rec1, k_rec2, ne = 3e-9, 2e-8, 5e-8, 1e-9, 4e-6, 9e-6, 0.05
+    net = PAHNetwork(charges=(-1, 0, 1, 2), nh_values=(12,))
+    net.add("up", np.array([[k_det], [k_pe0], [k_pe1], [0.0]]), dz=+1)
+    net.add("down", np.array([[0.0], [k_att * ne], [k_rec1 * ne], [k_rec2 * ne]]), dz=-1)
+    f = net.steady_state()[:, 0]
+    expected = four_state_charge_fractions(k_att, k_det, k_pe0, k_pe1, k_rec1, k_rec2, ne)
+    assert np.allclose(f, expected, rtol=1e-10)
+
+
+def test_charge_balance_depends_on_g0_over_ne_only():
+    """With photo-rates proportional to G0 and capture to n_e, scaling both by
+    the same factor leaves every fraction unchanged (the gamma parameter)."""
+    a = _toy_network(g0=10.0, ne=0.01, nH=0.0).steady_state()
+    b = _toy_network(g0=1e3, ne=1.0, nH=0.0).steady_state()
+    assert np.allclose(a.sum(axis=1), b.sum(axis=1), atol=1e-12)
+
+
+def test_h2_formation_counts_eley_rideal_and_h2_loss():
+    net = _toy_network(g0=1e2, nH=1e3)
+    f = net.steady_state()
+    flux = net.fluxes(f)
+    assert net.h2_formation_rate(f) == pytest.approx(flux["H2 loss"] + flux["Eley-Rideal"])

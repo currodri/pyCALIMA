@@ -276,6 +276,40 @@ Still open:
 - the ionisation-branching gate against Zhen+2016 and Wenzel+2020, which needs
   their tabulated yields.
 
+**M4 (the (Z, N$_{\rm H}$) network) passes.**
+
+- {mod}`pycalima.pahchem.network`: a generic transition network over charge ×
+  hydrogenation. Each process is (ΔZ, ΔN$_{\rm H}$) with a rate per source
+  state; a rate into a state outside the network is an error. It gives the
+  steady state, time evolution (dense matrix exponential), per-process fluxes,
+  H$_2$ formation, and charge and hydrogenation fractions.
+- **Which processes exist is the caller's choice.** Anion H addition, for
+  example, is added explicitly as associative detachment to (0,
+  N$_{\rm H}$+1), the Andrews+16 choice. The legacy network had it wrong.
+- {mod}`pycalima.pahchem.chemistry`: $\sigma v e^{-E_b/kT}$ collision
+  coefficients and Bakes & Tielens electron capture with the DS87
+  $\tilde J$.
+
+Gates:
+- the Mennella+12 abstraction cross section reproduces Andrews eq. (10) to 1 %;
+- capture is ordered attractive > neutral > repulsive, and a cation goes as
+  $T^{-1/2}$ at low $T$;
+- the generator conserves probability;
+- time evolution reaches the steady state;
+- the H-atom flux balances at steady state;
+- the pure charge chain equals `four_state_charge_fractions`;
+- the charge balance depends only on $G_0/n_e$ when photo-rates ∝ $G_0$ and
+  capture ∝ $n_e$;
+- H$_2$ formation equals H$_2$ loss plus Eley–Rideal.
+
+Still open:
+- a physical electron sticking coefficient for neutrals (it is 1 by default;
+  the legacy fits to the target figures must not return);
+- cross-checking the charge balance against the WD01 solver in `dust_charge`
+  for the same rates;
+- per-state photo-rates from `energy_me` assembled for every (Z,
+  N$_{\rm H}$). This is the method-card runner, and it is M5.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;
