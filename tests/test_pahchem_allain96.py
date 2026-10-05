@@ -136,8 +136,9 @@ def _set2_or_skip():
 
 @pytest.mark.parametrize("name", ["C14H10", "C16H10", "C24H12"])
 def test_paper_ii_tables_2_3_small_pahs(states, name):
-    """Cations, alpha_H = 0.5 and 0.25 neutrals, bare skeletons. With the Set 1/1.6
-    proxy, measured |dex| <= 0.22 over every column."""
+    """Cations, alpha_H = 0.5 and 0.25 neutrals, bare skeletons, in the Set 2 field
+    (I Fig. 5). Measured |dex| <= 0.18 over these columns (0.22 with the Set 1/1.6
+    proxy)."""
     field = _set2_or_skip()
     t2, t3 = TARGETS["paperII_table2"], TARGETS["paperII_table3"]
     i, nh0 = t2["species"].index(name), A.SPECIES[name][1]
@@ -168,9 +169,9 @@ def test_network_is_normalised_and_charges_respond_to_ne_over_chi(states):
 
 @pytest.mark.parametrize("name, key", [("C16H10", "pyrene"), ("C32H14", "ovalene")])
 def test_paper_ii_table5_single_state_destruction_times(states, name, key):
-    """tau of the normal neutral and the bare cation, in all six media (Set 1/1.6
-    proxy). These are II Table 3 rates scaled by chi, so they test that the media are
-    read right. Measured |dex| <= 0.37; the Orion Bar pyrene entries are skipped
+    """tau of the normal neutral and the bare cation, in all six media (Set 2).
+    These are II Table 3 rates scaled by chi, so they test that the media are
+    read right. Measured |dex| <= 0.21 (0.37 with the Set 1/1.6 proxy); the Orion Bar pyrene entries are skipped
     (they break the 1/chi scaling: card check)."""
     t5 = TARGETS["paperII_table5"]
     fam = _family(name, states)
@@ -206,9 +207,9 @@ def test_large_pahs_fully_hydrogenated_in_uir_media(states, name):
 
 def test_paper_ii_critical_sizes(states):
     """II Sect. 4: survivors > 40 C everywhere, smallest in the Orion Bar and HI cloud,
-    50 C in NGC 7027, 55 C in the warm diffuse medium. Measured (Set 1/1.6 proxy,
-    log k interpolated linearly in N_C between our species): Orion Bar 38.8, HI
-    37.5, M82 41.5, NGC 7023 44.1, NGC 7027 46.3, diffuse warm 63.5."""
+    50 C in NGC 7027, 55 C in the warm diffuse medium. Measured (Set 2, log k
+    interpolated linearly in N_C between our species): Orion Bar 39.2, HI 37.9,
+    M82 42.0, NGC 7023 44.4, NGC 7027 46.6, diffuse warm 64.2."""
     names = ["C10H8", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C", "PAH 100 C"]
     nc = [A.SPECIES[n][0] for n in names]
     crit = {}

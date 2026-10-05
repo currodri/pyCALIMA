@@ -42,9 +42,8 @@ this module chooses as follows. Every choice is confidence E.
   be per steradian like eq. 18; eq. 18 is used from 5 eV up. The two do not
   join at 5 eV (factor ~2; card [field].set1_check).
 - **Set 2, Gondhalekar+80** (paper II's only field). Read from
-  ``SET2_FILE`` once I Fig. 5 is digitised. Until then the stand-in is
-  Set 1 / 1.6, the card's set_ratio, and every Set 2 number carries that
-  flag.
+  ``SET2_FILE``, digitised from I Fig. 5 (2.88-13.59 eV). ``set2_proxy``
+  (Set 1 / 1.6, the card's set_ratio) remains as a fallback.
 - **k_IR for ovalene and larger.** sum_i A_i, the card's literal reading of
   "neglected". With the occupation factor kept, the C32H14 / PAH 50 C H-loss
   rates rise 2.6x / 10x (check_allain96.py).

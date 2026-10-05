@@ -658,8 +658,16 @@ has a runner yet.
 - **Network-mean destruction times:** 1–2 dex shorter than II Table 5, a
   strict xfail, because our steady state is more dehydrogenated. Their own
   text agrees with ours, not with their Table 5.
-- **Blocked:** the II Tables 2–3 gates need the Set 2 field (I Fig. 5,
-  raster). With Set 1/1.6 the small PAHs already agree to 0.2 dex.
+- **Paper II rate tables (II Tables 2–3), in the Set 2 field** (Gondhalekar+80,
+  digitised from I Fig. 5 into `allain96_set2_field.csv`; $G_0 = 0.95$):
+  - C$_{14}$–C$_{24}$ agree within 0.23 dex in every column;
+  - C$_{32}$H$_{14}$ is −0.17 dex in its normal states and within 0.04 dex
+    when dehydrogenated;
+  - PAH 50 C and 100 C are −1.2 to −1.4 dex in their normal states but within
+    0.2 dex when dehydrogenated: the same unstated $N_{\rm H0}$ and
+    $k_{\rm IR}$ convention as I Table 4.
+  - With this field the single-state destruction times agree to ≤ 0.21 dex,
+    and the critical sizes move by < 0.7 C.
 
 **Le Page+01/03 runner** ({mod}`pycalima.pahchem.lepage01`,
 `tests/test_pahchem_lepage01.py`, `check_lepage01.py`, 2026-10-05).
@@ -693,7 +701,7 @@ has a runner yet.
 
 What the remaining targets need:
 - **Raster figures the user is digitising:**
-  - for Allain: I Fig. 5 and II Figs. 7, 9 and 10;
+  - for Allain: II Figs. 7, 9 and 10 (I Fig. 5 is done);
   - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6, 7 and 9.
 - **Murga:**
   - its figures are vector and can be extracted here;

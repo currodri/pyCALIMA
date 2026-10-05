@@ -3,14 +3,13 @@
 
 Prints dex = log10(pahchem / Allain) for:
 - I Tables 4 and 5 (Set 1, Draine);
-- II Tables 2 and 3 (Set 2; the Set 1 / 1.6 proxy until I Fig. 5 is
-  digitised);
+- II Tables 2 and 3 (Set 2, digitised from I Fig. 5);
 - II Table 5 destruction times in the six media.
 
 It also prints our alpha_ion and alpha_H (the targets of II Figs. 7 and 10,
 which are not digitised) and the critical sizes (II Sect. 4, Fig. 15).
 
-Measured (2026-10-05; Malloci+07 sigma, PAHdb A, Set 2 proxy):
+Measured (2026-10-05; Malloci+07 sigma, PAHdb A, Set 2 from I Fig. 5):
 
 - **I Table 5** (photoionisation): -0.11 to +0.03 dex for C14-C32 with
   Malloci sigma; PAH 50 C +0.20 with Li & Draine sigma.
@@ -23,21 +22,21 @@ Measured (2026-10-05; Malloci+07 sigma, PAHdb A, Set 2 proxy):
     Allain's 2.27e-16 lies between our occupation-kept N_H = 18-20 (4.3e-16,
     1.0e-16) and occupation-dropped N_H = 16 (1.7e-16): N_H0 and the k_IR
     convention are both unstated.
-- **II Tables 2-3** (proxy):
-  - N_C <= 24: within 0.22 dex in every column.
-  - C32H14: normal states -0.33 dex, dehydrogenated states +0.03.
-  - PAH 50 C and 100 C: normal states -1.5 dex, alpha_H = 0.5 states -0.3 to
-    -0.4, alpha_H <= 0.25 states -0.1 to -0.4.
+- **II Tables 2-3** (Set 2):
+  - N_C <= 24: within 0.23 dex in every column.
+  - C32H14: normal states -0.17 to -0.19 dex, dehydrogenated -0.02 to +0.04.
+  - PAH 50 C and 100 C: normal states -1.2 to -1.4 dex, alpha_H = 0.5 states
+    -0.09 to -0.15, alpha_H <= 0.25 states -0.19 to +0.07.
   - The deficit appears only where many C-H modes remain under k_IR = sum A.
 - **II Table 5:**
-  - The single-state times (normal neutral, bare cation) agree within 0.37
+  - The single-state times (normal neutral, bare cation) agree within 0.21
     dex. The exception is pyrene in the Orion Bar, which breaks Allain's own
     1/chi scaling.
   - The network means are 1-2 dex shorter for pyrene (except NGC 7027 at
     -0.36) and for ovalene in NGC 7023 and the diffuse medium. Our steady
     states are more dehydrogenated there.
-- **Critical sizes** [C]: Orion Bar 38.8, HI 37.5, M82 41.5, NGC 7023 44.1,
-  NGC 7027 46.3, diffuse warm 63.5. Allain: > 40 everywhere, smallest in the
+- **Critical sizes** [C]: Orion Bar 39.2, HI 37.9, M82 42.0, NGC 7023 44.4,
+  NGC 7027 46.6, diffuse warm 64.2. Allain: > 40 everywhere, smallest in the
   Orion Bar and HI, 50 in NGC 7027, 55 in the warm medium.
 
 Needs the PAHdb mode files named in pahchem.allain96.SPECIES under
