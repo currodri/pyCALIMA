@@ -880,6 +880,33 @@ Gates:
 - **Not attempted:** models c and d (C loss and addition), because model b's
   super-H balance is not in hand.
 
+**Murga+2020 trajectories** ({mod}`pycalima.pahchem.murga2020`,
+`tests/test_pahchem_murga2020.py`, `check_murga2020.py`). Eqs. 1–3 of M20:
+real-valued $N_{\rm C}(t)$ and $N_{\rm H}(t)$ at fixed $Z$, with photo-rates
+tabulated on $(N_{\rm C}, N_{\rm H})$ and Goumans/Fig. 1 H addition. The
+integrator is stiff LSODA; it matches M20's explicit Euler to $10^{-8}$ where
+Euler is stable.
+- **Full destruction (Orion $A_V = 0.1$, $Z = 0$):** all 20 parents give
+  $N_{\rm C}/2$ to 0.1 %. Goumans addition super-hydrogenates the neutrals,
+  and the 2.0 eV super-H C$_2$H$_2$ channel destroys them.
+  - C$_{150}$H$_{30}$ dies at $1.6\times10^3$ yr with DL01, against the
+    $10^4$ yr end of production in Figshare. Tielens gives 24 yr.
+- **Partial destruction:** Orion cations, Orion $A_V = 2$ and the Horsehead
+  are 1–4 dex above Fig. 4 for every combination of the open choices tried
+  (rms 2.6–4.6 dex; strict xfail).
+  - Under any H addition the real-valued $N_{\rm H}$ drifts above
+    $X_{\rm H0}$ and opens the super-H channel, which runs ~$10^{12}$×
+    faster than the normal channels.
+  - Fig. 4 needs a super-H contribution $10^2$–$10^4$× smaller. M20's
+    threshold handling is not published.
+- **$p(E)$ verdicts conflict between the papers.**
+  - M20 Fig. 4 needs the time-averaged reading: post-absorption makes the
+    Horsehead coronene lose C$_2$H$_2$ ~$10^4$× too fast.
+  - The M22 Figshare chains need the post-absorption yield: time-averaged is
+    ~12 dex off.
+  - Either SHIVA changed between the papers, or the two used a definition
+    neither states. **Open.**
+
 What the remaining targets need:
 - **Raster figures the user is digitising:**
   - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);

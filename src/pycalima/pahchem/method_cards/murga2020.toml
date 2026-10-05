@@ -128,6 +128,7 @@ t_end = { value = 1.0e6, unit = "yr", source = "Sect. 2, below eq. 3", confidenc
 stop_condition = "molecule loses all carbon, or t_end"
 c2h2_count = "N_C2H2 = (1/2) sum_j [N_C(t_j) - N_C(t_j-1)] only for steps with N_H(t_j-1) > 1 (eq. 3; sign convention: magnitude)"
 rate_update = "not stated whether R(N_C, N_H, Z) are recomputed every step or tabulated"
+reproduction_note = "pahchem.murga2020 reproduces Fig. 4's full destruction (Orion A_V = 0.1, Z = 0) exactly but is 1-4 dex high where destruction is partial: the real-valued N_H crosses X_H0 under any H addition and opens the super-H channel; how M20 handle that threshold is not published. Fig. 4 prefers the time-averaged p(E), whereas the M22 Figshare chains prefer the post-absorption yield (murga2022.toml): unresolved"
 steady_state = "not used: time evolution of a single trajectory per (i, Z), not a distribution over states"
 size_distribution = "WD01 R_V = 3.1, 'maximum number of PAH-size grains' (b_C not written); N_bin = 4 bins between a(C16H10) and a(C150H30), bin spacing not stated (eqs. 14-15)"
 pah_abundance = { value = 2.0e-7, unit = "PAHs (3-20 A) per H nucleus", source = "Sect. 3, WD01 R_V = 3.1", confidence = "D" }
