@@ -261,9 +261,18 @@ Results under the Andrews H-loss parameters:
   Andrews Table B already has slope ≈ 2 at $G_0 = 1$. M5 has to show whether
   that comes from the sink-free eq. (7).
 
-Still open (M3b):
-- an independent Monte Carlo check of the master equation;
-- recurrent fluorescence, which needs TD-DFT inputs (T3);
+**M3b: the Monte Carlo check passes.** {mod}`pycalima.pahchem.montecarlo`
+follows single molecules by Gillespie sampling, with continuous energy and no
+binning or jump splitting. It agrees with `energy_me` within Poisson errors in
+two regimes:
+
+- **per-photon yields:** |z| < 1;
+- **deep multiphoton** (8 eV barrier, rate $4\times10^5$ times the
+  single-photon value): MC/ME = 0.95–0.99 ($z = -0.8$, $-0.1$).
+
+Still open:
+- recurrent fluorescence, which needs TD-DFT inputs (T3) and a storage-ring
+  benchmark;
 - the ionisation-branching gate against Zhen+2016 and Wenzel+2020, which needs
   their tabulated yields.
 

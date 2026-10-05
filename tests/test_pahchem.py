@@ -583,3 +583,35 @@ def test_circumcoronene_becomes_multiphoton(pah_states):
     assert enh[0] == pytest.approx(1.0, abs=0.03)
     assert 3.0 < enh[1] < 15.0 and 30.0 < enh[2] < 120.0, enh
     assert 0.8 < np.log10(enh[2] / enh[1]) < 1.1, enh       # slope ~ 2 in G0
+
+
+# --- Monte Carlo check of the master equation (continuous E, no binning) ---
+
+from pycalima.pahchem import montecarlo
+
+
+def test_monte_carlo_matches_photon_yields(toy_cascade):
+    cm, ch = toy_cascade
+    Y = np.interp(5.0 * EV, cm.energy_cm, cm.photon_yields(ch)["X"])
+    n = 2000
+    y = montecarlo.MonteCarlo(cm, ch, seed=1).photon_yields(5.0 * EV, n)["X"]
+    assert abs(y - Y) < 3.0 * np.sqrt(Y * (1 - Y) / n), (y, Y)
+
+
+def test_monte_carlo_matches_multiphoton_steady_state():
+    """A barrier (8 eV) that one 5-13.6 eV photon rarely clears: the rate is
+    ~4e5 times the single-photon value at G0 = 1e8. Measured MC/ME = 0.95,
+    z = -0.8, with 3000 photons (~200 events)."""
+    f = _random_modes(60, seed=7)
+    A = np.random.default_rng(7).uniform(1.0, 10.0, f.size)
+    cm = energy_me.CascadeModel(f, A, e_max_cm=45.0 * EV, de_cm=50.0)
+    E, counts = dos.beyer_swinehart(f, 45.0 * EV + 200.0)
+    k = rates.inverse_laplace_arrhenius(E, counts, 1e16, 8.0 * EV)
+    ch = {"X": k[np.rint(cm.energy_cm).astype(int)]}
+    h = _toy_heating(1e8)
+    me = cm.steady_state(E_PH, h, ch).rates["X"]
+    n_ph = 1500
+    mc = montecarlo.MonteCarlo(cm, ch, E_PH, h, seed=4).steady_rates(n_ph)["X"]
+    events = me / np.trapezoid(h, E_PH) * n_ph
+    assert events > 50
+    assert abs(mc - me) < 3.0 * me / np.sqrt(events), (mc, me, events)
