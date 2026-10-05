@@ -322,3 +322,96 @@ def test_andrews16_fig5_rates(pah_states, name, channel, E_act, dS):
     k = rates.arrhenius_effective_temperature(sp.freqs_cm, d[:, 0] * EV, E_act * EV, dS)
     dex = np.abs(np.log10(k / d[:, 1]))
     assert np.median(dex) < 0.25 and dex.max() < 0.55, np.round(dex, 2)
+
+
+# ===========================================================================
+# M2: laboratory gates (level 2) -- West+18 iPEPICO, Jochims+94 PIMS
+# ===========================================================================
+
+from pycalima.pahchem import labdata
+
+# Reactions whose ESI k(E) was computed with the Table 1 E0 (E0 fitted to the
+# ESI k(E) within 0.01 eV of Table 1), and the integer reaction-path degeneracy
+# that k(E) implies. Others differ: R16 implies E0 = 2.61 eV (Table 1: 2.63);
+# R5, R8-R10, R14, R15, R18, R20 by 0.03-0.28 eV; R6, R12, R13, R17, R19 and
+# R21-R23 by ~1 eV with a non-integer degeneracy, so their ESI columns do not
+# match Table 1.
+WEST_CLEAN = {1: 1, 2: 6, 3: 2, 4: 1, 7: 1, 24: 2, 25: 1}
+
+
+@pytest.fixture(scope="module")
+def west_esi():
+    from pycalima._datasets import DatasetUnavailable
+
+    try:
+        return labdata.west2018_esi()
+    except DatasetUnavailable:
+        pytest.skip("west2018-esi not installed (calima-fetch-data import west2018-esi ...)")
+
+
+def test_jochims94_table1_obeys_their_eq1():
+    """E_int = AP - IP + <E_th> (eq. 1): a check of the transcription.
+
+    Rows flagged c (isomerisation) or d (isotopic shift) add a term; skipped.
+    """
+    t = labdata.jochims94_table(1)
+    t = t[t["flag"].isna() & t["ip_eV"].notna()]
+    checked = 0
+    for ch in ("H", "H2", "C2H2"):
+        rows = t[t[f"ap_{ch}_eV"].notna() & t[f"eint_{ch}_eV"].notna()]
+        resid = rows[f"ap_{ch}_eV"] - rows["ip_eV"] + rows["eth_eV"] - rows[f"eint_{ch}_eV"]
+        assert np.all(np.abs(resid) <= 0.05), resid
+        checked += len(rows)
+    assert checked >= 15
+
+
+def test_rrk_reproduces_jochims94_table2():
+    """k = nu ((E - E0)/E)^(s-1), nu = 1e16 s^-1, E0 = 2.8 eV (their eq. 2).
+
+    Measured: every printed E_int(calc) and E_crit(calc) to 0.01 eV.
+    """
+    from scipy.optimize import brentq
+
+    for name, row in labdata.jochims94_table(2).iterrows():
+        s = int(row["s_minus_1"]) + 1
+        for k, col in ((1e4, "eint_calc_eV"), (1e2, "ecrit_calc_eV")):
+            E = brentq(lambda e: np.log(rates.rrk(e * EV, s, 1e16, 2.8 * EV)) - np.log(k), 2.81, 60.0)
+            assert E == pytest.approx(row[col], abs=0.006), (name, col, E)
+
+
+def test_west2018_table1_is_complete():
+    t = labdata.west2018_table1()
+    assert list(t.index) == list(range(1, 26))
+    assert (t["E0_err_eV"] > 0).all() and (t["dS_err_J_K_mol"] > 0).all()
+    assert t["ie_eV"].between(6.5, 8.5).all()
+
+
+@pytest.mark.parametrize("n, sigma", sorted(WEST_CLEAN.items()))
+def test_rrkm_reproduces_west2018_esi_rates(west_esi, n, sigma):
+    """Their B3LYP frequencies and Table 1 E0 in our rrkm give their k(E).
+
+    Measured: median 0.0002-0.01 dex over 10 eV, the larger where Table 1
+    rounds E0 to 0.01 eV (R7). A code check of rrkm against minimal-PEPICO.
+    """
+    r = west_esi[n]
+    E0 = labdata.west2018_table1().loc[n, "E0_eV"] * EV
+    grid, counts = dos.beyer_swinehart(r.reactant_freqs_cm, r.energy_cm.max() + 10.0)
+    k = rates.rrkm(grid, counts, r.ts_freqs_cm, E0, degeneracy=sigma, window_cm=1.0)
+    ours = k[np.rint(r.energy_cm).astype(int)]
+    ok = (r.k_s > 0) & (ours > 0)
+    dex = np.abs(np.log10(ours[ok] / r.k_s[ok]))
+    assert ok.sum() > 100
+    assert np.median(dex) < 0.02 and dex.max() < 0.05, (np.median(dex), dex.max())
+
+
+@pytest.mark.parametrize("n", [1, 4, 7, 24, 25])
+def test_west2018_transition_states_follow_their_convention(west_esi, n):
+    """Their TS: the reactant less one C-H stretch, with the 5 lowest modes
+    scaled to give dS(1000 K). Our builder reproduces it to 2 %."""
+    r = west_esi[n]
+    rx, ts = np.sort(r.reactant_freqs_cm), np.sort(r.ts_freqs_cm)
+    dS = labdata.west2018_table1().loc[n, "dS_J_K_mol"]
+    theirs = (rates.vibrational_entropy(ts, 1000.0) - rates.vibrational_entropy(rx, 1000.0)) * rates.R_J_MOL_K
+    assert theirs == pytest.approx(dS, abs=1.0)
+    ours = rates.transition_state_for_entropy(rx, 3100.0, dS, n_scaled=5)
+    assert np.max(np.abs(ours / ts - 1.0)) < 0.02

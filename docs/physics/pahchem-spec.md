@@ -188,15 +188,44 @@ So the form is part of a model's definition. Each method card records it, and
 it must never be swapped silently. Andrews' Fig. 7–9 fractions rest on the
 effective-temperature form, which is much faster than RRKM near threshold.
 
-The laboratory gates are still to do:
+**The M2 laboratory gates pass** (`tests/test_pahchem.py`,
+{mod}`pycalima.pahchem.labdata`).
 
-- **iPEPICO $k(E)$ of {cite:t}`West2018`.** Their E$_0$ and
-  $\Delta S^\ddagger(1000\,{\rm K})$ (Table 1, 25 reactions) are transcribed
-  but not yet checked against the PDF. The $k(E)$ curves themselves are in
-  their ESI Table S1, which we do not have.
-- **The $E(k = 10^4\,{\rm s^{-1}})$ thresholds of {cite:t}`Jochims1994`**,
-  whose table we do not have.
-- **PAHdb cation modes** for those molecules, which are to be extracted.
+- **The laboratory data.** West+18 Table 1 and Jochims+94 Tables 1–2 are
+  transcribed into `external_data/pahchem/`. Transcribing Jochims Table 1 was
+  checked with their own eq. (1), $E_{\rm int} = {\rm AP} - {\rm IP} +
+  \langle E_{\rm th}\rangle$, which holds to ≤ 0.05 eV.
+- **The West ESI.** Its frequencies and $k(E)$ are the manual dataset
+  `west2018-esi`.
+- **RRKM against West's own inputs.** Fed their B3LYP frequencies (reactant
+  and transition state) and their Table 1 $E_0$, `rates.rrkm` reproduces their
+  $k(E)$ for 7 reactions, to a median of 0.0002–0.01 dex over 10 eV. The
+  integer degeneracies come out as 1, 2 and 6. The remaining reactions'
+  spreadsheet columns imply an $E_0$ 0.02–1.7 eV away from Table 1, so they are
+  not used for the gate.
+- **West's transition-state convention.** Their TS is the reactant minus one
+  C–H stretch, with the 5 lowest modes scaled to give $\Delta S^\ddagger$ at
+  1000 K. `transition_state_for_entropy(..., n_scaled=5)` reproduces their TS
+  frequencies to 2 %.
+- **RRK.** With $\nu = 10^{16}$ s$^{-1}$ and $E_0 = 2.8$ eV, `rates.rrk`
+  reproduces every $E_{\rm int}$ and $E_{\rm crit}$ of Jochims Table 2 to the
+  printed 0.01 eV.
+
+The two experiments disagree on the H-loss threshold
+(`diagnostics/pahchem/check_west18_vs_jochims94.py`). West's $k(E)$ reaches
+$10^4$ s$^{-1}$ at an internal energy higher than Jochims' measured
+$E_{\rm int}$:
+
+| Molecule | Offset |
+|---|---|
+| Pyrene | +1.42 eV |
+| Fluoranthene | +0.73 eV |
+| Coronene | +1.22 eV |
+
+At Jochims' $E_{\rm int}$, West's rates are 10$^2$–10$^3$ s$^{-1}$, not the
+assumed 10$^4$. This ~1 eV is the size of the laboratory systematic on the
+threshold, larger than either paper's quoted errors. The sensitivity analysis
+of M5 should carry it as the uncertainty of the H-loss $E_0$.
 
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
