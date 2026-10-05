@@ -811,6 +811,37 @@ def test_montillaud13_circumcoronene_threshold_energy(pah_states):
     assert _threshold_energy_ev(sp, 4.8) == pytest.approx(17.0, abs=1.0)
 
 
+@pytest.mark.parametrize("name, nh, nh0, n_solo, table, tol", [
+    ("C24H12", 12, 12, 0, "table_B1_coronene.csv", 0.3),
+    ("C24H12", 13, 12, 0, "table_B1_coronene.csv", 0.3),       # superH with parent modes
+    ("C54H18", 18, 18, 6, "table_B2_circumcoronene.csv", 0.5),
+    ("C96H24", 24, 24, 12, "table_B3_circumcircumcoronene.csv", 0.6),
+])
+def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, name, nh, nh0, n_solo, table, tol):
+    """Andrews+16 Table B is eq. 7, the sink-free average of k_i over the
+    stationary distribution. With all absorptions heating and a Kurucz 15000 K
+    field, measured |dex| at G0 = 1e2: 0.17 (C24H12), 0.08 (C24H13),
+    0.27 (C54H18), 0.52 (C96H24). With ionising photons removed from the
+    heating it is -0.5 to -1.5 dex, which is the evidence for the
+    all-absorptions-heat reading."""
+    import pandas as pd
+    from pycalima._paths import get_external_data_path
+    from pycalima.pahchem.andrews16 import Andrews16State, channels
+
+    sp = PAHSpecies.from_states_file(pah_states / f"{name}_0.dat")
+    st = Andrews16State(sp, nh0, n_solo, 0)
+    st.k = {c: rates.arrhenius_effective_temperature(sp.freqs_cm, st.cm.energy_cm, Ea * EV, dS)
+            for c, (Ea, dS) in channels(nh, nh0, n_solo, 0).items()}
+    sigma = (photo.sigma_malloci_coronene(0, E_PH) if sp.nc == 24 else photo.sigma_li_draine(sp.nc, 0, E_PH))
+    g0 = 1e2
+    r = st.rates(E_PH, sigma, fields.kurucz(15000, g0))
+    row = pd.read_csv(get_external_data_path(table)).query("Z == 0 and NH == @nh").iloc[0]
+    for c, k in r.k_eq7.items():
+        theirs = 10 ** sum(row[f"{c}_loss_p{i}"] * np.log10(g0) ** i for i in range(5))
+        assert abs(np.log10(k / theirs)) < tol, (c, np.log10(k / theirs))
+    assert sum(r.network_rates.values()) <= r.r_abs
+
+
 def test_h2_formation_counts_eley_rideal_and_h2_loss():
     net = _toy_network(g0=1e2, nH=1e3)
     f = net.steady_state()

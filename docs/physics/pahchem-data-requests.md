@@ -140,4 +140,14 @@ loss, comparing $E_0$ with {cite:t}`West2018` and the pathways with
   1.2 dex less $G_0$ than ours. These two inputs are the only unpublished ones
   left in that comparison ({doc}`pahchem-spec`, M5).
 - **Mayer/West:** the iPEPICO $k(E)$ curves behind {cite:t}`West2018`, as
-  tables.
+  tables. (The ESI spreadsheet gives them for 7 of 25 reactions consistently
+  with Table 1; see {doc}`pahchem-spec`, M2.)
+- **Candian/Tielens:** for {cite:t}`Andrews2016`:
+  - how $G_n(T)$ is normalised;
+  - which temperature range enters $k_{\rm IR}$ in their eq. 8;
+  - the neutral electron sticking coefficients they computed;
+  - whether ionising photons are included in $G(T,E)$.
+
+  Their Table B is reproduced only if they are, and their Fig. 7
+  hydrogenation needs a $k_{\rm IR}$ in eq. 8 ~$10^3$ smaller than the
+  cooling-path value ({doc}`pahchem-spec`, M5).

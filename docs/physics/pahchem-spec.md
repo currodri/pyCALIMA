@@ -365,6 +365,55 @@ What closes the gap is the mode sets and $k_{\rm IR}$ of Montillaud et al.
 Physically, the per-state modes of {doc}`pahchem-data-requests` T1.1 matter
 just as much, since the mode set changes the result by ~1 dex.
 
+**M5, second result: Andrews+16.** {mod}`pycalima.pahchem.andrews16`
+emulates their photo-rate recipe (eqs. 4–8) and network (Appendix C).
+
+*Eq. 7, the Table B quantity, is reproduced.* $G_n(T)$ is taken to be the
+sink-free stationary distribution of `energy_me`, which includes multiphoton
+heating. With a Kurucz 15000 K field and **all absorptions heating**, Table B
+is reproduced to −0.2 dex (C$_{24}$H$_{12}$), +0.1 (C$_{24}$H$_{13}$),
+−0.3 to +0.4 (C$_{54}$H$_{18}$) and −0.5 (C$_{96}$H$_{24}$). This is a test.
+With the ionising photons removed from the heating, the match degrades to
+−0.5 to −1.5 dex. Table B itself is therefore the evidence that their
+$G(T,E)$ is heated by ionising photons too. One state is off:
+C$_{96}$H$_{25}$, +2.3 dex. That cannot change the network, because
+$P_{\rm H} = 1$ there either way.
+
+*Eq. 8 is the problem* (`diagnostics/pahchem/check_andrews16_ngc7023.py`).
+Here $k_{\rm IR}$ in $P_i = k_i/(k_{\rm H}+k_{\rm H_2}+k_{\rm IR})$ is taken
+along their thermal cooling path down to $T_i$ ("$T_{\rm peak}$ where $dT/dt
+= \bar r$"), which gives $k_{\rm IR} = \bar r\,\ln(E/U(T_i))$.
+
+- **Hydrogenation.** C$_{54}$H$_{18}$ then stays ≥ 97 % normally
+  hydrogenated through NGC 7023 NW. Their Fig. 7 has N$_{\rm H}$ = 16 at
+  0.19 at the edge and 0.11 at $A_V = 2$. That needs an effective
+  H$_2$-loss rate of ~$10^{-9}$ s$^{-1}$ at $A_V = 2$, against
+  $2\times10^{-11}$ from their own Table B there. Their network behaves as if
+  $k_{\rm IR}$ in eq. 8 were ~$10^3$ smaller. That is what one gets if $G$
+  carries its weight near $T_i$ = 3–20 K, where the thermal $k_{\rm IR}$
+  vanishes.
+- **Why it cannot be settled.** Eq. 8 is not specified tightly enough: how
+  the cold part of $G$ enters decides whether C$_{54}$ comes out fully
+  hydrogenated or substantially dehydrogenated.
+- **Charge** (Fig. 8). The shape is right, but at every $\gamma$ ours is more
+  neutral and anionic than theirs, resembling theirs at 2–3× lower $\gamma$.
+  The candidates are Malloci against Li & Draine $\sigma$ for ionisation, and
+  their computed Allamandola $s_e$ against our $s_e = 1$ for the C$_{54}$
+  neutral.
+
+*Interpretation.* The two published PDR models that pahchem reproduces
+disagree with each other, and each disagrees with pahchem, through inputs
+they do not publish:
+- Montillaud: modes and $k_{\rm IR}$;
+- Andrews: the weighting of $G$ in eq. 8, the $s_e$ values and $\sigma$.
+
+This is the clearest argument for the physical cascade of `energy_me`, whose
+per-photon yield (coronene: 0.18) has a sink and no free normalisation.
+Their *figures* should be used as order-of-magnitude benchmarks, not as
+targets to tune to. The questions to send Candian/Tielens are: how $G_n$ is
+normalised; which $T$ range enters $k_{\rm IR}$ in eq. 8; the $s_e$ values;
+and whether ionising photons heat in $G(T,E)$.
+
 **Electron sticking** (literature search, 2026-10-04). No prescription better
 constrained than Bakes & Tielens 1994 / Weingartner & Draine 2001 has been
 published since. Recent models reuse a classic law plus the
