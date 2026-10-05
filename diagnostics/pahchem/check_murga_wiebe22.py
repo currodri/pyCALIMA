@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Murga & Wiebe (2022) Fig. 1: C66H20 H-loss rate R_H(chi) by four rate forms.
 
+Superseded by check_shiva.py, which compares with the exact Fig. 1
+(external_data/pahchem/murga_wiebe22_fig1.csv, from the vector figure) using
+SHIVA's own T(E), k_IR and p(E). The eye-read values below are kept as the
+record of the M5 comparison with PAHdb modes.
+
 Their R_x = int k_diss(E) dp/dE dE (eq. 1) uses Draine & Li (2001) multiphoton
 dp/dE in the Mathis field scaled by chi, with the Table 1 parameters:
 

@@ -298,9 +298,6 @@ def fig_andrews16_ngc7023(args, out):
     _save(fig, out, "andrews16_ngc7023")
 
 
-#: log10 R_H [yr^-1] read by eye from Murga & Wiebe 2022 Fig. 1 (+-0.5 dex), at chi = 1 and 1e4
-MW22_BY_EYE = {"RRK": (-7.0, 0.0), "Arrh. 1": (-4.1, 0.3), "Arrh. 2": (-9.3, -3.6), "Laplace": (-3.1, 1.7)}
-
 
 def fig_murga_wiebe22_fig1(args, out):
     yr, cal = 3.15576e7, 4.184
@@ -322,12 +319,14 @@ def fig_murga_wiebe22_fig1(args, out):
         for n, kk in k.items():
             free[n].append(np.log10(P @ kk * yr))
             sink[n].append(np.log10(cm.steady_state(E_PH, h, {n: kk}).rates[n] * yr))
+    mw = pd.read_csv(EXT("pahchem/murga_wiebe22_fig1.csv"), comment="#")
     fig, ax = plt.subplots(figsize=(7, 5.5))
     for i, n in enumerate(k):
         ax.plot(np.log10(chi), free[n], color=f"C{i}", label=f"pahchem {n} (sink-free, their eq. 1)")
         ax.plot(np.log10(chi), sink[n], ":", color=f"C{i}")
-        ax.errorbar([0.0, 4.0], MW22_BY_EYE[n], yerr=0.5, fmt="s", mfc="none", color=f"C{i}", capsize=3,
-                    label=f"MW22 Fig. 1 {n} (by eye)")
+        c = mw[(mw["product"] == "H") & (mw["method"] == n)].sort_values("chi")
+        ax.plot(np.log10(c.chi), np.log10(c.rate_per_yr), "s-", lw=4, alpha=0.35, color=f"C{i}",
+                label=f"MW22 Fig. 1 {n}")
     ax.plot([], [], "k:", label="with a dissociation sink (physical)")
     ax.set_xlabel("$\\log \\chi$ (Mathis)")
     ax.set_ylabel("$\\log R_{\\rm H}$ [yr$^{-1}$]")

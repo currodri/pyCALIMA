@@ -812,6 +812,44 @@ on pyCALIMA's WD01 rate functions.
   - its solver overflows at $\chi \lesssim 0.01$ and $T \approx 13$ K;
   - its $Z_{\rm min}$ rounding goes one charge below WD01 eq. 24 as printed.
 
+**Murga: the SHIVA rate engine** ({mod}`pycalima.pahchem.shiva`,
+`tests/test_pahchem_shiva.py`, `check_shiva.py`).
+
+The engine is built from these pieces:
+- the DL01 synthetic modes and their $T(E)$;
+- Tielens' Arrhenius-$T_e$ law;
+- the thermal IR photon-emission rate from LD01 $C_{\rm abs}$ (DL07 is not
+  bundled);
+- the WD01a yield;
+- a stationary $p(E)$ under continuous cooling, both time-averaged and
+  post-absorption (M20 does not say which);
+- the M20 eq. 4–6 rate.
+
+Gates:
+- **Inputs.** DL01 $T(E)$ reproduces DL01 Fig. 7 to 0.004 dex. The WD01a
+  yield reproduces M19 Fig. 2 to 0.0012. Both figures are read from the
+  vector source.
+- **MW22 Fig. 1** (exact, `murga_wiebe22_fig1.csv`; the eye-read gate is
+  retired):
+  - **RRK.** RRK has no $T(E)$, so it tests $p(E)$ and absorption: within
+    0.33 dex at $\chi \ge 100$.
+    - At $\chi = 1$ it is −1.4 dex (strict xfail). There two-photon events
+      are needed, so the point probes the tail of $p(E)$, which differs
+      between continuous cooling and their Monte Carlo.
+  - **The Arrhenius forms** are reproduced only with Tielens'
+    $T_m = 2000\,{\rm K}\,(E/N_{\rm C})^{0.4}$: H +0.6 dex, C ≤ 0.1 dex at
+    $\chi = 100$.
+    - With the DL01 relation that M20 states, they are 1.6–3.4 dex off
+      (strict xfail). DL01 runs 5–10 % hotter at 10–14 eV, and
+      $E_0/kT \approx 45$ turns that into 2–3 dex.
+    - **This is the 3–5 dex "rate-form" gap found in M5: it was the $T(E)$
+      relation all along.**
+  - **Laplace** remains −2 to −4 dex: a $\rho(E)$ convention (fewer modes,
+    or the ZPE included). It is recorded as a bound test.
+- **Open for the trajectories.** Which $T(E)$ M20 actually ran (stated:
+  DL01; MW22 behaves as Tielens) shifts the parent rates by 2–3 dex. M20
+  Fig. 4 will decide.
+
 What the remaining targets need:
 - **Raster figures the user is digitising:**
   - for Allain: II Fig. 9, and Figs. 7 and 10 for the other four media (I Fig. 5 and the Orion Bar and NGC 7027 curves of Figs. 7 and 10 are done);
