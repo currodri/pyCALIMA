@@ -1,0 +1,52 @@
+# Method card: the pahchem baseline (pycalima.pahchem.baseline.Params defaults).
+#
+# Not a published model: pahchem's own choices, each from the laboratory-gated
+# pieces where they exist. Conventions as in andrews16.toml (source, A-E
+# confidence). Every entry is a knob of the sensitivity analysis.
+
+[card]
+name = "pahchem_baseline"
+bib_key = "West2018"
+citation = "pahchem baseline (this work); dissociation from West et al. 2018, PCCP 20, 7195"
+read_from = "pahchem-spec.md, M2-M5"
+status = "draft"
+
+[species]
+parents = ["C24H12", "C54H18", "C96H24"]
+nh_range = "0 to NH0 + 4"
+charges = "Z with a Table A.1 IP (Andrews+16): C54 -1..+2"
+modes = "parent PAHdb v4 modes for every state (variant: PAHSpecies.stripped)"
+
+[dissociation]
+rate_form = "RRKM; TS = reactant minus one C-H stretch, 5 lowest modes scaled to dS(1000 K) (West+18 convention)"
+h_loss_even = { E_act = 4.41, dS_J_K_mol = 12.0, source = "West+18 Table 1, R20 coronene+ (+-0.83 eV, +-44)", confidence = "A" }
+h_loss_odd = { E_act = 3.16, dS_J_K_mol = 10.0, source = "West+18 abstract: second H loss ~3.16 eV on average; dS chosen", confidence = "B" }
+h2_loss = { E_act = 4.58, dS_J_K_mol = 40.0, source = "West+18 Table 1, R15 perylene+ (+-1.3 eV, +-69)", confidence = "B" }
+h_loss_superh_Zle0 = { E_act = 1.40, dS_J_K_mol = 12.0, source = "Andrews+16 Table 2 (Bauschlicher & Ricca 2014); dS chosen", confidence = "C" }
+h_loss_superh_Zgt0 = { E_act = 1.55, dS_J_K_mol = 12.0, source = "Andrews+16 Table 2; dS chosen", confidence = "C" }
+degeneracy = "N_H for aromatic H loss, 1 for the odd-H radical, 2 for H2, N_H - N_H0 for super-H (West+18 ESI k(E): sigma = 12 coronene+, 10 fluoranthene+, 1 for second H)"
+laboratory_systematic = "E0 thresholds of West+18 and Jochims+94 differ by 0.7-1.4 eV"
+
+[cascade]
+method = "energy_me microcanonical IR cascade with dissociation sinks, multiphoton steady state"
+recurrent_fluorescence = "not included (sensitivity: IR rates x3)"
+
+[photophysics]
+sigma = "Li & Draine 2001 at the LD01 radius, neutral tables for Z <= 0, ionised for Z > 0"
+yield = "Jochims+96 linear ramp; photodetachment with IP = EA"
+ionising_photons_heat = "no (sensitivity: yes)"
+ip_ladder = "Andrews+16 Table A.1 + 0.1 eV per missing H"
+
+[electrons]
+capture = "BT94 with DS87 J~, a = 0.9 sqrt(N_C) A, x0.82"
+sticking_cation = { value = 1.0, source = "extrapolation of C6-C16 recombination data (pah_electron_recombination.csv)", confidence = "D" }
+sticking_neutral_C54 = { value = 1.0, source = "C60 attachment ~ Langevin; non-valence anion of circumcoronene (pahchem-spec.md)", confidence = "D" }
+
+[hydrogen]
+cation_addition = { value = 1.4e-10, unit = "cm^3 s^-1", source = "Betts+06 coronene+ (as Andrews+16)", confidence = "A" }
+neutral_addition = "geometric 35.7 A^2 x N_C/24 with Rauls & Hornekaer barriers; 7 % for dehydrogenated (Andrews+16)"
+associative_detachment = { value = 7.8e-10, unit = "cm^3 s^-1", source = "Demarais+12 (as Andrews+16)", confidence = "D" }
+eley_rideal = { value = 0.06, unit = "A^2", source = "Mennella+12", confidence = "A" }
+
+[targets]
+sensitivity = "diagnostics/pahchem/check_sensitivity.py at NGC 7023 NW edge and the Orion Bar atomic PDR"

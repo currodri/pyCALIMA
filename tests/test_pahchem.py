@@ -842,6 +842,24 @@ def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, name, nh, nh0, n
     assert sum(r.network_rates.values()) <= r.r_abs
 
 
+def test_baseline_rates_are_physical_and_respond_to_g0(pah_states):
+    """Baseline (sink cascades): every photo-rate <= r_abs; more UV per H atom
+    means more dehydrogenation and more cations."""
+    from dataclasses import replace
+    from pycalima.pahchem.baseline import BaselineModel, Environment, Params
+
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    model = BaselineModel("C54", sp, Params(de_cm=600.0, e_max_ev=40.0))
+    low = Environment("low", 1e3, 1e4, 4.0, 400.0)
+    high = replace(low, g0=1e5)
+    pr = model.photo_rates(high)
+    r_abs = fields.kurucz(15000, high.g0).photon_rate(photo.sigma_li_draine(54, 0, E_PH), E_PH)
+    assert all(v.get("H", 0) + v.get("H2", 0) <= r_abs for (z, _), v in pr.items() if z == 0)
+    s_low, s_high = model.summary(low), model.summary(high, pr)
+    assert s_high["f_dehydrogenated"] > s_low["f_dehydrogenated"]
+    assert s_high["f_cation"] > s_low["f_cation"]
+
+
 def test_h2_formation_counts_eley_rideal_and_h2_loss():
     net = _toy_network(g0=1e2, nH=1e3)
     f = net.steady_state()
