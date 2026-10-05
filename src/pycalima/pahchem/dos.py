@@ -32,6 +32,19 @@ from scipy.special import gammaln
 KB_CM = 0.695034800          # Boltzmann constant [cm^-1 K^-1]
 CM_PER_EV = 8065.543937      # [cm^-1 eV^-1]
 
+try:                          # the optional `accel` extra
+    from numba import njit
+
+    @njit(cache=True)
+    def _bs_kernel(counts, steps):
+        """Beyer-Swinehart in place: for each mode, c[i] += c[i - f] in increasing i."""
+        n = counts.size
+        for f in steps:
+            for i in range(f, n):
+                counts[i] += counts[i - f]
+except ImportError:
+    _bs_kernel = None
+
 
 def _frequencies(freqs_cm):
     freqs = np.asarray(freqs_cm, dtype=float)
@@ -66,13 +79,17 @@ def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0):
     n = int(np.floor(e_max_cm / grain_cm)) + 1
     counts = np.zeros(n)
     counts[0] = 1.0
-    for f in np.maximum(np.rint(freqs / grain_cm).astype(int), 1):
-        # Sequential recursion c[i] += c[i - f]; every source index in a block
-        # of length f lies in the block before, already updated, so each block
-        # can be added as one slice.
-        for start in range(f, n, f):
-            stop = min(start + f, n)
-            counts[start:stop] += counts[start - f:stop - f]
+    steps = np.maximum(np.rint(freqs / grain_cm).astype(np.int64), 1)
+    if _bs_kernel is not None:
+        _bs_kernel(counts, steps)
+    else:
+        for f in steps:
+            # Sequential recursion c[i] += c[i - f]; every source index in a
+            # block of length f lies in the block before, already updated, so
+            # each block can be added as one slice.
+            for start in range(f, n, f):
+                stop = min(start + f, n)
+                counts[start:stop] += counts[start - f:stop - f]
     if not np.all(np.isfinite(counts)):
         raise OverflowError("state count overflowed float64; lower e_max_cm")
     return np.arange(n) * grain_cm, counts

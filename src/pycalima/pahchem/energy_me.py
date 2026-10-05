@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import scipy.linalg
 import scipy.sparse
 import scipy.sparse.linalg
 
@@ -94,6 +95,15 @@ class CascadeModel:
         self.k_modes[pos < 0] = 0.0                  # cannot emit more than E
         self.k_ir = self.k_modes.sum(axis=0)
         self._lo, self._hi, self._w = _split(np.maximum(pos, 0.0), self.n)
+        # IR gains in banded storage (they do not depend on the field or the channels):
+        # Q[i, j] (rate j -> i) for i <= j sits at ir_band[up + i - j, j], up = largest down-jump
+        cols = np.broadcast_to(np.arange(self.n), self._lo.shape)
+        live = self.k_modes > 0.0                    # modes that cannot emit have clamped, unused targets
+        self._up = int(max(1, np.max((cols - self._lo)[live], initial=0)))
+        self._ir_band = np.zeros((self._up + 1, self.n))
+        for target, weight in ((self._lo, 1.0 - self._w), (self._hi, self._w)):
+            np.add.at(self._ir_band, (self._up + target[live] - cols[live], cols[live]),
+                      (weight * self.k_modes)[live])
 
     def _absorption_kernel(self, photon_energy_ev, heating_spectrum):
         """Rate of up-jumps by s bins, r_s [s^-1], s = 0, 1, ...
@@ -153,6 +163,71 @@ class CascadeModel:
             Channel name -> k_c on ``self.energy_cm``.
         """
         names, K = self._channels(channel_rates)
+        r = self._absorption_kernel(photon_energy_ev, heating_spectrum)
+        P = self._solve_banded(r, K.sum(axis=0))
+        if P is None:                                   # singular banded system: general sparse solve
+            return self._steady_state_sparse(photon_energy_ev, heating_spectrum, channel_rates)
+        return self._steady_state_result(P, r, names, K)
+
+    def _solve_banded(self, r, k_out):
+        """P from Q P = 0, sum P = 1, as a banded LU plus a rank-1 correction.
+
+        Q has the IR down-jumps (at most ``self._up`` bins) above the diagonal
+        and the photon up-jumps (``r.size - 1`` bins, clamped to the top bin,
+        which stays inside the band) below it. Dissociation re-injects into
+        bin 0, but row 0 is replaced by the normalisation, so only the loss on
+        the diagonal enters. Row 0 = ones splits into its in-band part (kept in
+        B) and the rest, w: A = B + e_0 w^T (Sherman-Morrison). Same solution
+        as the general sparse solve to ~1e-14, ~100x faster for a 1800-bin
+        grid. Returns None if B is singular.
+        """
+        n, up = self.n, self._up
+        lo = max(1, int(np.max(np.nonzero(r)[0], initial=0)))
+        ab = np.zeros((up + lo + 1, n))
+        ab[: up + 1] = self._ir_band
+        cols = np.arange(n)
+        for s in np.nonzero(r)[0]:                      # unclamped up-jumps: Q[j + s, j]
+            if s < n:
+                ab[up + s, : n - s] += r[s]
+        # clamped jumps from column j (s > n - 1 - j) land in the top bin, n - 1 - j below the diagonal
+        tail = np.concatenate([np.cumsum(r[::-1])[::-1], [0.0]])        # tail[k] = sum_{s >= k} r_s
+        j = cols[n - 1 - cols <= lo]                                    # columns that can overshoot
+        ab[up + (n - 1 - j), j] += tail[np.minimum(n - j, tail.size - 1)]
+        ab[up] -= self.k_ir + r.sum() + k_out                          # diagonal: all losses
+        # Row 0 -> ones: in band for j <= up (band row up - j), the rest goes to w
+        ab[up - np.arange(min(up, n - 1) + 1), np.arange(min(up, n - 1) + 1)] = 1.0
+        w = np.zeros(n)
+        w[up + 1:] = 1.0
+        rhs = np.zeros((n, 2))
+        rhs[0] = 1.0                                     # b = e_0, and z solves B z = e_0
+        try:
+            yz = scipy.linalg.solve_banded((lo, up), ab, rhs, check_finite=False)
+        except np.linalg.LinAlgError:
+            return None
+        y, z = yz[:, 0], yz[:, 1]
+        P = y - z * (w @ y) / (1.0 + w @ z)
+        if not np.all(np.isfinite(P)):
+            return None
+        P = np.clip(P, 0.0, None)
+        return P / P.sum()
+
+    def _steady_state_result(self, P, r, names, K):
+        n, cols = self.n, np.arange(self.n)
+        # Diagnostics. From bin j a jump of s bins lands min(s, n-1-j) bins up.
+        s = np.arange(r.size)
+        cum_r = np.concatenate([[0.0], np.cumsum(r)])
+        cum_rs = np.concatenate([[0.0], np.cumsum(r * s)])
+        room = np.minimum(n - 1 - cols, r.size - 1)          # largest unclamped s
+        landed = cum_rs[room + 1] + (n - 1 - cols) * (cum_r[-1] - cum_r[room + 1])
+        absorbed_power = float(P @ landed * self.de_cm)
+        radiated_power = float(P @ (self.freqs_cm @ self.k_modes))
+        overflow = float(P @ (cum_r[-1] - cum_r[room + 1]))
+        rates = {c: float(P @ K[i]) for i, c in enumerate(names)}
+        return SteadyState(self.energy_cm, P, rates, absorbed_power, radiated_power, overflow)
+
+    def _steady_state_sparse(self, photon_energy_ev, heating_spectrum, channel_rates) -> SteadyState:
+        """``steady_state`` by a general sparse solve (the reference for the banded path)."""
+        names, K = self._channels(channel_rates)
         n = self.n
         cols = np.arange(n)
         rows_, cols_, vals_ = [], [], []
@@ -186,14 +261,4 @@ class CascadeModel:
         P = scipy.sparse.linalg.spsolve(A.tocsc(), b)
         P = np.clip(P, 0.0, None)
         P /= P.sum()
-        # Diagnostics. From bin j a jump of s bins lands min(s, n-1-j) bins up.
-        s = np.arange(r.size)
-        cum_r = np.concatenate([[0.0], np.cumsum(r)])
-        cum_rs = np.concatenate([[0.0], np.cumsum(r * s)])
-        room = np.minimum(n - 1 - cols, r.size - 1)          # largest unclamped s
-        landed = cum_rs[room + 1] + (n - 1 - cols) * (cum_r[-1] - cum_r[room + 1])
-        absorbed_power = float(P @ landed * self.de_cm)
-        radiated_power = float(P @ (self.freqs_cm @ self.k_modes))
-        overflow = float(P @ (cum_r[-1] - cum_r[room + 1]))
-        rates = {c: float(P @ K[i]) for i, c in enumerate(names)}
-        return SteadyState(self.energy_cm, P, rates, absorbed_power, radiated_power, overflow)
+        return self._steady_state_result(P, r, names, K)

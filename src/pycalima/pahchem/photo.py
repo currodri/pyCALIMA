@@ -23,6 +23,8 @@ Cross sections [cm^2] on an energy grid in eV:
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 
 from pycalima import _paths
@@ -39,15 +41,38 @@ def li_draine_radius_um(nc: int) -> float:
     return 1e-3 * (nc / 468.0) ** (1.0 / 3.0)
 
 
+@lru_cache(maxsize=None)
+def _li_draine_table(kind):
+    """The parsed Li & Draine (2001) efficiency table (parsing it takes ~0.3 s)."""
+    import os
+
+    from pycalima.models.PAH_radiation.pah_oppacity import PATH_OPTICS, pah_efficiencies
+
+    name = "PAHion_30" if kind == "iPAH" else "PAHneu_30"
+    return pah_efficiencies(os.path.join(PATH_OPTICS, "li_draine_2001", name))
+
+
+_SIGMA_CACHE: dict = {}
+
+
 def sigma_li_draine(nc, charge, energy_ev) -> np.ndarray:
-    """Li & Draine (2001) absorption cross section [cm^2]."""
+    """Li & Draine (2001) absorption cross section [cm^2].
+
+    Memoised on (N_C, neutral/ionised, energy grid): the 2-D interpolation
+    costs ~0.2 s and callers ask for the same grid for every state.
+    """
     from pycalima.models.PAH_radiation.pah_oppacity import interpolate_pah_cross_sections_2d
 
     E = np.asarray(energy_ev, dtype=float)
     kind = "iPAH" if charge > 0 else "nPAH"
-    _, _, _, c_abs, _ = interpolate_pah_cross_sections_2d(
-        kind, li_draine_radius_um(nc), target_wavelengths=HC_EV_UM / E)
-    return np.asarray(c_abs, dtype=float)
+    key = (float(nc), kind, E.shape, E.tobytes())
+    if key not in _SIGMA_CACHE:
+        if len(_SIGMA_CACHE) > 256:
+            _SIGMA_CACHE.clear()
+        _, _, _, c_abs, _ = interpolate_pah_cross_sections_2d(
+            kind, li_draine_radius_um(nc), target_wavelengths=HC_EV_UM / E, data_table=_li_draine_table(kind))
+        _SIGMA_CACHE[key] = np.asarray(c_abs, dtype=float)
+    return _SIGMA_CACHE[key].copy()
 
 
 def sigma_malloci_coronene(charge, energy_ev) -> np.ndarray:

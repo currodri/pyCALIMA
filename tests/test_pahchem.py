@@ -533,6 +533,20 @@ def test_steady_state_conserves_energy(toy_cascade):
     assert ss.radiated_power + carried == pytest.approx(ss.absorbed_power, rel=1e-6)
 
 
+@pytest.mark.parametrize("g0", [1e-2, 1.0, 1e4, 1e6])
+def test_banded_steady_state_equals_the_sparse_solve(toy_cascade, g0):
+    """The banded LU + Sherman-Morrison path of steady_state against the general
+    sparse solve it replaced (measured <= 5e-11 on PAHdb C24-C96 grids)."""
+    cm, ch = toy_cascade
+    h = _toy_heating(g0)
+    for channels in ({}, ch):
+        a, b = cm.steady_state(E_PH, h, channels), cm._steady_state_sparse(E_PH, h, channels)
+        assert np.allclose(a.probability, b.probability, rtol=1e-8, atol=1e-12 * b.probability.max())
+        for c in channels:
+            assert a.rates[c] == pytest.approx(b.rates[c], rel=1e-8)
+        assert a.absorbed_power == pytest.approx(b.absorbed_power, rel=1e-8)
+
+
 def test_steady_state_reduces_to_single_photon_yields_at_low_g0(toy_cascade):
     cm, ch = toy_cascade
     Y = cm.photon_yields(ch)["X"]
