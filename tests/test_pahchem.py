@@ -196,3 +196,129 @@ def test_thermal_energy_matches_tielens_table_per_mode(pah_states):
     T, e_per_mode_ev = table[table[:, 0] >= 150.0].T
     ours = dos.thermal_energy(sp.freqs_cm, T) / sp.n_modes / dos.CM_PER_EV
     assert np.all(np.abs(ours / e_per_mode_ev - 1.0) < 0.10)
+
+
+# ===========================================================================
+# M2: unimolecular rates (levels 0-1)
+# ===========================================================================
+
+from pycalima.pahchem import rates
+
+EV = dos.CM_PER_EV
+
+
+@pytest.fixture(scope="module")
+def coronene_grid():
+    """C24H12-like modes; the identities below hold for any mode set.
+
+    The grid reaches 40 eV so that the Boltzmann weight at 2000 K (mean
+    energy ~18 eV for 102 modes) is not truncated.
+    """
+    f = _random_modes(102, seed=3)
+    E, counts = dos.beyer_swinehart(f, 40.0 * EV)
+    return f, E, counts
+
+
+def _ln_q(freqs, T):
+    return -np.sum(np.log(-np.expm1(-np.asarray(freqs) / (dos.KB_CM * T))))
+
+
+@pytest.mark.parametrize("T", [500.0, 1000.0, 2000.0])
+def test_inverse_laplace_arrhenius_averages_to_arrhenius(coronene_grid, T):
+    """<k(E)>_T = A exp(-E0/kT) exactly: the form is the inverse Laplace
+    transform of the Arrhenius law."""
+    _, E, counts = coronene_grid
+    k = rates.inverse_laplace_arrhenius(E, counts, 6.8e17, 4.8 * EV)
+    expected = 6.8e17 * np.exp(-4.8 * EV / (dos.KB_CM * T))
+    assert rates.thermal_rate(E, counts, k, T) == pytest.approx(expected, rel=0.01)
+
+
+@pytest.mark.parametrize("T", [500.0, 1000.0, 2000.0])
+def test_rrkm_averages_to_transition_state_theory(coronene_grid, T):
+    """<k(E)>_T = (kT/h) Q_TS/Q exp(-E0/kT).
+
+    Exact for the frequencies the grid actually counts, which Beyer-Swinehart
+    rounds to whole grains: that rounding alone moves a ~30 cm^-1 mode's Q by
+    ~1 %, so Q is evaluated on the rounded frequencies.
+    """
+    f, E, counts = coronene_grid
+    ts = rates.transition_state_for_entropy(f, 3050.0, 44.8)
+    k = rates.rrkm(E, counts, ts, 4.6 * EV)
+    tst = (rates.KB_J_K * T / rates.H_J_S
+           * np.exp(_ln_q(np.rint(ts), T) - _ln_q(np.rint(f), T))
+           * np.exp(-4.6 * EV / (dos.KB_CM * T)))
+    assert rates.thermal_rate(E, counts, k, T) == pytest.approx(tst, rel=0.005)
+
+
+def test_transition_state_has_the_requested_entropy(coronene_grid):
+    f, _, _ = coronene_grid
+    for n_scaled in (None, 5):
+        for dS in (-53.1, 0.0, 44.8):
+            ts = rates.transition_state_for_entropy(f, 3050.0, dS, n_scaled=n_scaled)
+            assert ts.size == f.size - 1
+            got = (rates.vibrational_entropy(ts, 1000.0) - rates.vibrational_entropy(f, 1000.0))
+            assert got * rates.R_J_MOL_K == pytest.approx(dS, abs=1e-6)
+
+
+def test_rates_vanish_below_threshold_and_grow_above(coronene_grid):
+    f, E, counts = coronene_grid
+    i0 = int(4.6 * EV)
+    for k in (rates.inverse_laplace_arrhenius(E, counts, 1e16, 4.6 * EV),
+              rates.rrkm(E, counts, rates.transition_state_for_entropy(f, 3050.0, 10.0), 4.6 * EV),
+              rates.rrk(E, f.size, 1e16, 4.6 * EV)):
+        assert np.all(k[:i0 - 1] == 0.0)
+        assert np.all(np.diff(k[i0 + 200:]) >= 0.0)
+
+
+def test_rrk_tends_to_the_prefactor():
+    assert rates.rrk(1e12, 100, 3e16, 4.6 * EV) == pytest.approx(3e16, rel=1e-4)
+
+
+def test_effective_temperature_form_matches_legacy(pah_states):
+    """Same physics as models.PAH_photophysics.pah_mol_data."""
+    from pycalima.models.PAH_photophysics.pah_mol_data import compute_rrkm_dissociation_rate
+
+    path = pah_states / "C54H18_0.dat"
+    sp = PAHSpecies.from_states_file(path)
+    for e_ev in (6.0, 10.0, 20.0):
+        ours = rates.arrhenius_effective_temperature(sp.freqs_cm, e_ev * EV, 4.6 * EV, 44.8)
+        assert ours == pytest.approx(compute_rrkm_dissociation_rate(str(path), e_ev, 4.6, 44.8), rel=1e-5)
+
+
+def test_montillaud13_fig3_coronene(pah_states):
+    """k = A rho(E-E0)/rho(E), A = 6.8e17 s^-1, E0 = 4.8 eV (Montillaud+13 eq. 3).
+
+    Measured against the digitised Fig. 3: -0.11 to -0.26 dex at 7-15 eV, a
+    near-constant offset from using PAHdb neutral modes where Montillaud used
+    Malloci+07 modes (method card: modes).
+    """
+    import pandas as pd
+    from pycalima._paths import get_external_data_path
+
+    sp = PAHSpecies.from_states_file(pah_states / "C24H12_0.dat")
+    E, counts = dos.beyer_swinehart(sp.freqs_cm, 16.0 * EV)
+    k = rates.inverse_laplace_arrhenius(E, counts, 6.8e17, 4.8 * EV)
+    fig = pd.read_csv(get_external_data_path("dissoc_rate_coronene_Montillaud.csv"), skiprows=1)
+    x, y = fig.iloc[:, 0].dropna().to_numpy(), fig.iloc[:, 1].dropna().to_numpy()
+    dex = np.log10(k[(x * EV).astype(int)] / y)
+    assert np.all(np.abs(dex) < 0.3), dex
+    assert np.ptp(dex) < 0.2, dex                  # shape: offset, not slope
+
+
+@pytest.mark.parametrize("name", ["C24H12", "C54H18", "C96H24"])
+@pytest.mark.parametrize("channel, E_act, dS", [("H-loss", 4.6, 44.8), ("H2-loss", 3.52, -53.1)])
+def test_andrews16_fig5_rates(pah_states, name, channel, E_act, dS):
+    """Andrews+16 Table 2 parameters with the T_e form, against Fig. 5.
+
+    Points within 1.5 eV of E_act are dropped: the curves are steep there and
+    a small digitising error in E is a large one in k. Measured elsewhere:
+    median |dex| <= 0.22 (C96 sits uniformly ~0.2 dex high), max 0.51.
+    """
+    from pycalima._paths import get_external_data_path
+
+    sp = PAHSpecies.from_states_file(pah_states / f"{name}_0.dat")
+    d = np.loadtxt(get_external_data_path(f"{channel}_{name}_Andrews16.csv"), delimiter=",")
+    d = d[d[:, 0] > E_act + 1.5]
+    k = rates.arrhenius_effective_temperature(sp.freqs_cm, d[:, 0] * EV, E_act * EV, dS)
+    dex = np.abs(np.log10(k / d[:, 1]))
+    assert np.median(dex) < 0.25 and dex.max() < 0.55, np.round(dex, 2)

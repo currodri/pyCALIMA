@@ -148,6 +148,56 @@ for figure comparisons.
   the Tielens E–T table to 2–7 %, which confirms that the table is energy per
   mode.
 
+**M2 (unimolecular rates): level 0–1 passes; the laboratory gates are
+blocked on data.** {mod}`pycalima.pahchem.rates` implements:
+
+- RRKM with an explicit transition state;
+- the inverse-Laplace Arrhenius form of Montillaud;
+- the effective-temperature Arrhenius form of Andrews and Tielens;
+- RRK;
+- a transition state built from a measured $\Delta S^\ddagger$, scaling either
+  all modes or the 5 lowest, as {cite:t}`West2018` do.
+
+What passes:
+
+- **Thermal identities.** The canonical average of each exact form gives back
+  its thermal law: $A e^{-E_0/kT}$ to 0.2 %, and transition-state theory to
+  0.5 %, at 500–2000 K. The RRKM identity holds only when $Q$ is evaluated on
+  the grid-rounded frequencies, because rounding a ~30 cm$^{-1}$ mode moves
+  its $Q$ by ~1 %.
+- **Montillaud Fig. 3** (coronene, $A = 6.8\times10^{17}$ s$^{-1}$,
+  $E_0 = 4.8$ eV). The curve is matched to within a near-constant −0.11 to
+  −0.26 dex. The offset is expected: they used Malloci modes, we use PAHdb
+  neutral modes.
+- **Andrews Fig. 5** (H and H$_2$ loss, C$_{24}$, C$_{54}$, C$_{96}$). The
+  median $|\Delta| \le 0.22$ dex and the maximum is 0.51 dex, at more than
+  1.5 eV above threshold. C$_{96}$ sits uniformly ~0.2 dex high. The values
+  agree with the legacy `pah_mol_data` to $10^{-6}$ dex.
+
+The same $(E_0, \Delta S)$ gives very different $k(E)$ depending on the form.
+For coronene H loss ($E_0 = 4.6$ eV, $\Delta S = 44.8$ J K$^{-1}$
+mol$^{-1}$) at 10 eV:
+
+| Form | $k$ [s$^{-1}$] |
+|---|---|
+| Effective-temperature form (Andrews) | 93 |
+| Inverse-Laplace form, $A = (ekT/h)e^{\Delta S/R}$ at 1000 K | 3 |
+| RRKM, TS with that $\Delta S$ | 0.2 |
+
+So the form is part of a model's definition. Each method card records it, and
+it must never be swapped silently. Andrews' Fig. 7–9 fractions rest on the
+effective-temperature form, which is much faster than RRKM near threshold.
+
+The laboratory gates are still to do:
+
+- **iPEPICO $k(E)$ of {cite:t}`West2018`.** Their E$_0$ and
+  $\Delta S^\ddagger(1000\,{\rm K})$ (Table 1, 25 reactions) are transcribed
+  but not yet checked against the PDF. The $k(E)$ curves themselves are in
+  their ESI Table S1, which we do not have.
+- **The $E(k = 10^4\,{\rm s^{-1}})$ thresholds of {cite:t}`Jochims1994`**,
+  whose table we do not have.
+- **PAHdb cation modes** for those molecules, which are to be extracted.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;
