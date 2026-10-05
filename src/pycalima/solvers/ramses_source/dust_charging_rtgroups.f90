@@ -1102,40 +1102,50 @@ module dust_charging_rtgroups
     end subroutine find_root
 
     ! --------------------------------------------------------- discrete P(Z)
-    subroutine eval_int(Z, want_d)
+    subroutine eval_int(Z, want_d, rates_only)
         ! rates, heating, cooling (and their d/d ln T) of integer charge Z into the window buffers.
         ! Each J~ / Lambda~ and hot-gas row is evaluated once, with its d/d ln T when want_d: the
         ! electrons, z = 1 (H+, He+ and b_A share it) and He++ (only if present); the sums keep the
-        ! order of the separate evaluations, so the buffers are the same to the bit
+        ! order of the separate evaluations, so the buffers are the same to the bit. rates_only:
+        ! only Up, Down, the photoemission and b_A (and their d/d ln T), for the charges below the
+        ! window in the recombination
         implicit none
         real(dp), intent(in) :: Z
         logical, intent(in) :: want_d
+        logical, intent(in), optional :: rates_only
         real(dp) :: w, photo, heat, je, dlt, ptr, fc, eb, st, lt, kT, dje, dld, j1, dj1, j3, dj3, ion, dion
         real(dp) :: dde, dpt, dfc, deb
         integer :: i, k
+        logical :: full
+        full = .true.
+        if (present(rates_only)) full = .not. rates_only
         k = nint(Z) - b_base
         call u_of(Z, i, w)
-        call kernels(i, w, photo, heat, .true.)
+        call kernels(i, w, photo, heat, full)
         j3 = 0d0
         dj3 = 0d0
         if (want_d) then
             call jtilde_dlnT(Z, -1d0, c_tau_e, je, dje)
-            call lambdatilde_dlnT(Z, c_tau_e, lt, dld)
+            if (full) call lambdatilde_dlnT(Z, c_tau_e, lt, dld)
             call jtilde_dlnT(Z, 1d0, c_tau_ion(1), j1, dj1)
             if (c_arr_ion(3) /= 0d0 .or. c_nion(3) > 0d0) call jtilde_dlnT(Z, c_zion(3), c_tau_ion(3), j3, dj3)
             call hot_and_dlnT(rtg(c_bin)%delta, i, w, dlt, dde)
             call hot_and_dlnT(rtg(c_bin)%Ptr, i, w, ptr, dpt)
-            call hot_and_dlnT(rtg(c_bin)%fcool, i, w, fc, dfc)
-            call hot_and_dlnT(rtg(c_bin)%Ebar, i, w, eb, deb)
+            if (full) then
+                call hot_and_dlnT(rtg(c_bin)%fcool, i, w, fc, dfc)
+                call hot_and_dlnT(rtg(c_bin)%Ebar, i, w, eb, deb)
+            end if
         else
             je = jtilde(Z, -1d0, c_tau_e)
-            lt = lambdatilde(Z)
+            if (full) lt = lambdatilde(Z)
             j1 = jtilde(Z, 1d0, c_tau_ion(1))
             if (c_nion(3) > 0d0) j3 = jtilde(Z, c_zion(3), c_tau_ion(3))
             dlt = hot(rtg(c_bin)%delta, i, w)
             ptr = hot(rtg(c_bin)%Ptr, i, w)
-            fc = hot(rtg(c_bin)%fcool, i, w)
-            eb = hot(rtg(c_bin)%Ebar, i, w)
+            if (full) then
+                fc = hot(rtg(c_bin)%fcool, i, w)
+                eb = hot(rtg(c_bin)%Ebar, i, w)
+            end if
         end if
         ion = 0d0                                   ! ion_capture(Z)
         if (c_nion(1) > 0d0) ion = ion + c_arr_ion(1)*j1
@@ -1146,8 +1156,10 @@ module dust_charging_rtgroups
         b_up(k) = photo + ion + c_arr_e*je*dlt
         b_ph(k) = photo                             ! the photoemission part (rtgroups_solve_bin sens)
         b_dn(k) = c_arr_e*je*st*(1d0 - ptr)
-        b_gam(k) = RTG_EV2ERG*heat
-        b_lam(k) = c_arr_e*st*lt*kT*fc - c_arr_e*je*dlt*eb*RTG_EV2ERG
+        if (full) then
+            b_gam(k) = RTG_EV2ERG*heat
+            b_lam(k) = c_arr_e*st*lt*kT*fc - c_arr_e*je*dlt*eb*RTG_EV2ERG
+        end if
         b_A(k) = c_geoA*j1
         if (.not. want_d) return
         ! an ion with no density adds an exact zero: skipped
@@ -1157,9 +1169,11 @@ module dust_charging_rtgroups
         if (c_arr_ion(3) /= 0d0) dion = dion + c_arr_ion(3)*j3*(0.5d0 + dj3)
         b_dup(k) = dion + c_arr_e*je*(dlt*(0.5d0 + dje) + dde)
         b_ddn(k) = c_arr_e*je*st*((1d0 - ptr)*(0.5d0 + dje) - dpt)
-        b_lamd(k) = c_arr_e*(st*lt*kT*fc - je*dlt*eb*RTG_EV2ERG)
-        b_dlam(k) = c_arr_e*(st*lt*kT*(fc*(1.5d0 + dld) + dfc) &
-                    - je*RTG_EV2ERG*(dlt*eb*(0.5d0 + dje) + dde*eb + dlt*deb))
+        if (full) then
+            b_lamd(k) = c_arr_e*(st*lt*kT*fc - je*dlt*eb*RTG_EV2ERG)
+            b_dlam(k) = c_arr_e*(st*lt*kT*(fc*(1.5d0 + dld) + dfc) &
+                        - je*RTG_EV2ERG*(dlt*eb*(0.5d0 + dje) + dde*eb + dlt*deb))
+        end if
         b_dA(k) = 0.5d0 + dj1                       ! d ln b_A / d ln T (rtgroups_solve_bin sens)
     end subroutine eval_int
 
@@ -1764,12 +1778,14 @@ module dust_charging_rtgroups
         type(RTGState), intent(inout) :: st
         integer, intent(in) :: alpha_mode
         type(RTGResult), intent(out) :: r
-        real(dp) :: Zs, sigma, pair(4), h, s0, s1, Zs1, sig1, chord(4)
-        real(dp) :: gm1, gp1, gam1, lam1, c(NBUF), cb, dvar, je, dje, EA, arrive2, zr, lg(RTG_NRI)
-        integer :: lo, hi, k, j, half, Zc
+        real(dp) :: Zs, sigma, pair(4), h, s0, s1, Zs1, sig1, chord(4), lnP, lnAlo
+        real(dp) :: gm1, gp1, gam1, lam1, c(1 - MAX_DISCRETE_STATES:NBUF), cb, dvar, je, dje, EA, arrive2, zr, lg(RTG_NRI)
+        integer :: lo, hi, k, j, half, Zc, lt
         logical :: disc, got, want_d, have_chord
         logical, intent(in), optional :: sens    ! also d/d ln S, d/d ln N and the anchor of rtgroups_predict
-        real(dp) :: cS(NBUF), cN(NBUF), cbS, cbN, dvS, dvN, sg(2), sgm(2), sgp(2), gl, ll, gh, lh, dZS, dZN, sw
+        ! c, cS, cN: indexed by charge - lo + 1, from the lowest charge below the window in the recombination
+        real(dp) :: cS(1 - MAX_DISCRETE_STATES:NBUF), cN(1 - MAX_DISCRETE_STATES:NBUF)
+        real(dp) :: cbS, cbN, dvS, dvN, sg(2), sgm(2), sgp(2), gl, ll, gh, lh, dZS, dZN, sw
 
         if (any(rtg(ii)%egy_used /= egy(1:rtg(ii)%nG))) call rtgroups_set_group_energies(ii, egy)
         call set_cell(ii, Np, c_red, T, ne, n_Hp, n_Hep, n_Hepp, G0_bg)
@@ -1835,13 +1851,33 @@ module dust_charging_rtgroups
                 arrive2 = RTG_PI*rtg(ii)%a**2*c_ne*c_ve
                 r%Lambda_auto = b_P(lo - b_base)*arrive2*jtilde(rtg(ii)%Zmin, -1d0, c_tau_e)*EA*RTG_EV2ERG
             end if
+            lt = lo
             if (alpha_mode /= RTG_ALPHA_NONE) then
                 do j = 1, RTG_NRI
                     do k = lo, hi
                         if (dble(k) <= rtg(ii)%Zth(j)) r%alpha(j) = r%alpha(j) + b_P(k - b_base)*b_A(k - b_base)
                     end do
-                    r%alpha(j) = r%alpha(j)/sqrt(RI_MASS(j))
                 end do
+                ! and the charges below the window (pyCALIMA _recombination_discrete): on a positive grain
+                ! A rises by up to exp(e^2/akT) per charge towards lower Z, so P A can peak far below the
+                ! window. P continues by g one charge at a time (in b_P, for sens) down to lt, stopping at
+                ! Zmin or once P(Z) A(Zmin) (Z - Zmin), a bound on all the remaining terms, is e^-RECOMB_CUT
+                ! below each ion's sum (at least 1e-300). No floor on the geometric rate: below it a
+                ! stopped sum misses the charges that set it, and jumps wherever the stop moves
+                lnP = log(b_P(lo - b_base))
+                lnAlo = log(c_geoA*jtilde(rtg(ii)%Zmin, 1d0, c_tau_ion(1)))
+                do k = lo - 1, max(lo - MAX_DISCRETE_STATES, nint(rtg(ii)%Zmin), b_base + 1), -1
+                    call eval_int(dble(k), want_d, rates_only=.true.)
+                    lnP = lnP - gwin(k)
+                    b_P(k - b_base) = exp(lnP)
+                    do j = 1, RTG_NRI
+                        if (dble(k) <= rtg(ii)%Zth(j)) r%alpha(j) = r%alpha(j) + b_P(k - b_base)*b_A(k - b_base)
+                    end do
+                    lt = k
+                    if (all(lnP + lnAlo + log(max(dble(k) - rtg(ii)%Zmin, 1d0)) < &
+                            log(max(r%alpha, 1d-300)) - RECOMB_CUT)) exit
+                end do
+                r%alpha = r%alpha/sqrt(RI_MASS)
             end if
             if (want_d) then
                 c(1) = 0d0
@@ -1979,9 +2015,17 @@ module dust_charging_rtgroups
             ! A ~ T^1/2 J~(Z, 1) also with T
             st%adla = 0d0
             if (alpha_mode /= RTG_ALPHA_NONE .and. want_d) then
+                ! the charges below the window down to lt (step 2): d ln P continued downwards from lo
+                do k = lo - 1, lt, -1
+                    c(k - lo + 1) = c(k - lo + 2) - (b_dup(k - b_base)/max(b_up(k - b_base), RTG_TINY) &
+                                                     - b_ddn(k + 1 - b_base)/max(b_dn(k + 1 - b_base), RTG_TINY))
+                    cb = max(b_up(k - b_base), RTG_TINY)
+                    cS(k - lo + 1) = cS(k - lo + 2) - b_ph(k - b_base)/cb
+                    cN(k - lo + 1) = cN(k - lo + 2) - ((cb - b_ph(k - b_base))/cb - 1d0)
+                end do
                 do j = 1, RTG_NRI
                     sw = 0d0
-                    do k = lo, hi
+                    do k = lt, hi
                         if (dble(k) > rtg(ii)%Zth(j)) cycle
                         cb = b_P(k - b_base)*b_A(k - b_base)
                         sw = sw + cb

@@ -1,7 +1,7 @@
 # CALIMA dust module layout
 
 This folder contains the CALIMA dust and PAH physics used by RAMSES (a copy of the RAMSES
-`calima/` sources at ramses_chicago_new commit da38113c (feature/wdb06-isrf-tables), for reference). The code is split into small modules so that shared state, table loading, physics kernels, and runtime wrappers stay separate.
+`calima/` sources at ramses_chicago_new commit 7ac91268 (feature/wdb06-isrf-tables), for reference). The code is split into small modules so that shared state, table loading, physics kernels, and runtime wrappers stay separate.
 
 ## Module hierarchy
 

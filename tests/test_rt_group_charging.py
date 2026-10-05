@@ -32,7 +32,7 @@ def tables(tmp_path_factory):
     from pycalima.models.dust_charge import rt_group_charging as rg
 
     out = {}
-    for mat, a in (("graphite", 1e-6), ("graphite", 1e-5)):
+    for mat, a in (("graphite", 1e-6), ("graphite", 1e-5), ("silicate", 5e-7)):
         tab = rg.build_bin_table(mat, a, U=rg.u_grid(n=241), Ts=np.geomspace(3e3, 3e6, 13),
                                  T_hot=np.geomspace(1e3, 1e9, 13), label=f"{mat}_{a:g}")
         path = rg.write_bin_table(tab, tmp_path_factory.mktemp("rtg") / f"{mat}_{a:g}.dat")
@@ -188,9 +188,10 @@ def test_warm_start_finds_the_same_root_from_any_guess(tables, a):
 
 
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
-    """alpha_rec of a discrete P(Z), and _recombination on charges across the ion thresholds
-    read from the table file, are the case-A sum written from its definition (WD01b):
-    sum_Z P(Z) pi a^2 (8kT / pi m_i)^1/2 J~(Z, 1) [IP(a, Z) <= IP(X)]."""
+    """_recombination over a discrete P(Z)'s window, and on charges across the ion thresholds
+    read from the table file, is the case-A sum written from its definition (WD01b):
+    sum_Z P(Z) pi a^2 (8kT / pi m_i)^1/2 J~(Z, 1) [IP(a, Z) <= IP(X)]; alpha_rec, which adds
+    the charges below the window, is the sum over the exact P(Z)."""
     from pycalima.models.dust_charge import rt_group_charging as rg
     from pycalima.models.dust_charge.shared_physics import (
         DS87_J_function_vec, electron_affinity_graphite_vec, ionisation_potential_valence_vec)
@@ -208,12 +209,51 @@ def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
         return np.array([np.sum(PA * (ip <= ip_x)) * np.sqrt(8 * rg.KB_CGS * T / (np.pi * m * rg.M_U))
                          for _, m, ip_x in rg.RECOMB_IONS])
 
-    np.testing.assert_allclose(r["alpha_rec"], case_a(r["nodes"], r["weights"]), rtol=1e-10)
+    np.testing.assert_allclose(gt._recombination(r["nodes"], r["weights"]), case_a(r["nodes"], r["weights"]),
+                               rtol=1e-10)
+    np.testing.assert_allclose(r["alpha_rec"], gt._recombination_exact(r["Zstar"], max(r["Zsigma"], 0.5)), rtol=5e-5)
     Z = np.arange(30.0, 150.0)          # Mg+, Fe+, Si+ thresholds below these charges, the others among them
     P = np.random.default_rng(1).random(Z.size)
     alpha = gt._recombination(Z, P / P.sum())
     assert 0 < np.count_nonzero(alpha) < alpha.size
     np.testing.assert_allclose(alpha, case_a(Z, P / P.sum()), rtol=1e-10)
+
+
+@pytest.mark.parametrize("state", ["cold", "fuv_lit"])
+def test_recombination_of_a_discrete_distribution_includes_the_charges_below_its_window(tables, state):
+    """On a positive small grain in cold gas the capture rate rises by ~exp(e^2/akT) per charge
+    towards lower Z (e^2/akT ~ 110 for 5 nm at 30 K, ~20 at 160 K), so the recombination of a
+    discrete P(Z) is set by charges below its window, near Z <= 0. alpha_rec is the exact sum,
+    also far below the geometric rate (C+ on the grain in FUV-lit neutral gas: < 1e-20 of it),
+    and it varies smoothly where the window's lowest charge moves. There a sum over the window
+    alone jumps by up to ~e^500, and one stopped at 1e-8 of the geometric rate by ~e^13."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["silicate", 5e-7]
+    iC = [ion for ion, _, _ in rg.RECOMB_IONS].index("C")
+    if state == "cold":                 # 30 K, n_e swept
+        N, egy, _ = _bb_cell(4e4, 1.0, tab["L0"], tab["L1"])
+        T, cells, jump = 30.0, [(N, ne) for ne in np.geomspace(2.5e-3, 3.5e-3, 21)], 0.5
+    else:                               # 160 K neutral gas, no photons above 13.6 eV, G0 swept
+        N, egy, _ = _bb_cell(4.29e4, 1.0, tab["L0"], tab["L1"])
+        N = np.where(tab["L1"] <= 13.6 + 1e-9, N, 0.0)
+        T, cells, jump = 160.0, [(G0 * N, 0.057) for G0 in np.geomspace(1e3, 1e4, 25)], 3.0
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    ln_alpha, lowest = [], set()
+    for Ng, ne in cells:
+        r = gt.solve(Ng, C, T, ne, [(ne, 1.0, M_P)])
+        assert r["discrete"]
+        exact = gt._recombination_exact(r["Zstar"], max(r["Zsigma"], 0.5))
+        ok = exact > 1e-280
+        assert ok[iC]
+        np.testing.assert_allclose(r["alpha_rec"][ok], exact[ok], rtol=5e-5)
+        ln_alpha.append(np.log(r["alpha_rec"][iC]))
+        lowest.add(r["nodes"][0])
+    assert len(lowest) > 1
+    assert np.max(np.abs(np.diff(ln_alpha))) < jump
+    if state == "fuv_lit":
+        geo = np.pi * tab["a"] ** 2 * np.sqrt(8.0 * rg.KB_CGS * T / (np.pi * rg.M_U))
+        assert np.exp(max(ln_alpha)) < 1e-20 * geo
 
 
 @pytest.mark.parametrize("scale, ne, T", [(0.0, 0.03, 100.0), (0.0, 0.03, 6000.0), (1.0, 30.0, 8e3)])

@@ -51,7 +51,9 @@ Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1)
    more set of rates at T (1 + dlnT) on the same charges, to serve the cooling
    solver's T (1 +- dlnT) calls without further solves.
 6. Grain-assisted recombination alpha_i = sum_Z P(Z) pi a^2 v_i J~ Theta_i
-   (``recomb``): exact for a discrete P(Z); for a wide one, the segmented
+   (``recomb``): exact for a discrete P(Z), over its window and the charges below it while
+   their terms can matter (``_recombination_discrete``: on a positive grain P A can peak
+   far below the window); for a wide one, the segmented
    Chebyshev reconstruction of ln P in ``_recombination_fit``, reused by warm
    solves as the fit times the change of a Gaussian estimate
    (``_recombination_gauss``) while the cell drifts little.
@@ -545,6 +547,38 @@ class GroupChargingTable:
         mass = np.array([m for _, m, _ in RECOMB_IONS])
         frac = lambda z: np.clip((z + 0.5 - (Z - 0.5 * h)) / h, 0.0, 1.0)  # noqa: E731
         return np.array([np.sum(P * A * frac(z)) for z in self.t["recomb_Zth"]]) / np.sqrt(mass)
+
+    def _recombination_discrete(self, nodes, weights):
+        """Grain-assisted recombination of a discrete P(Z) (charges ``nodes``, ascending, with
+        ``weights`` summing to one): the sum over its window and over the charges below it,
+        with P continued from the window by g, one charge at a time, while those terms can
+        matter. On a positive grain the capture rate rises by up to exp(e^2/akT) per charge
+        towards lower Z, so P A can peak far below the window, at Z <= 0 for a small grain in
+        cold gas. The walk stops at Zmin, or once a bound on all the remaining terms is e^-CUT
+        below each ion's sum (sums below 1e-300 count as 1e-300). The bound is
+        P(Z) A(Zmin) (Z - Zmin): P falls and A rises towards Zmin. There is no floor relative to
+        the geometric rate, unlike _recombination_fit: below such a floor a stopped sum misses
+        the charges that set it, and jumps by ~exp(e^2/akT) wherever the stop moves by one
+        charge. The weights keep the window's normalisation; the tail adds less than
+        DISCRETE_TAIL to it."""
+        t = self.t
+        Zlo, zth = t["Zmin"], t["recomb_Zth"]
+        Z = np.asarray(nodes, float)
+        W = np.asarray(weights, float)
+        S = np.array([np.sum(W * self._capture_z1(Z) * (Z <= z)) for z in zth])
+        lnA_lo = self._ln_capture_z1(Zlo)
+        z, lnP = Z[0], np.log(W[0])
+        for _ in range(MAX_DISCRETE_STATES):
+            if z <= Zlo:
+                break
+            z -= 1.0
+            lnP -= self._g(z)
+            S = S + np.exp(lnP) * self._capture_z1(z)[0] * (z <= zth)
+            bound = lnP + lnA_lo + np.log(max(z - Zlo, 1.0))
+            if np.all(bound < np.log(np.maximum(S, 1e-300)) - RECOMB_CUT):
+                break
+        mass = np.array([m for _, m, _ in RECOMB_IONS])
+        return S / np.sqrt(mass)
 
     def _ln_capture_z1(self, Z):
         """ln of the capture coefficient of _capture_z1, in log form (DS87 with
@@ -1080,7 +1114,7 @@ class GroupChargingTable:
         if recomb is None:
             out["alpha_rec"] = None
         elif discrete:
-            out["alpha_rec"] = self._recombination(nodes, weights)
+            out["alpha_rec"] = self._recombination_discrete(nodes, weights)
         elif recomb == "exact":
             out["alpha_rec"] = self._recombination_exact(Zs, sigma)
         elif recomb == "gauss":
