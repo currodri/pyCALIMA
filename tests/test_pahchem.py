@@ -754,17 +754,21 @@ _MONTILLAUD_CACHE = {}
 
 @pytest.fixture
 def montillaud_c54(pah_states):
-    """Built once per session: each photo_rates call solves ~36 cascades."""
+    """Their stated model (parent modes for every state); built once per session."""
     from pycalima.pahchem.montillaud13 import Montillaud13
 
     if "C54" not in _MONTILLAUD_CACHE:
         sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
-        _MONTILLAUD_CACHE["C54"] = Montillaud13(sp, "C54", modes="stripped", e_max_ev=40.0, de_cm=300.0)
+        _MONTILLAUD_CACHE["C54"] = Montillaud13(sp, "C54", modes="parent", e_max_ev=40.0, de_cm=300.0)
     return _MONTILLAUD_CACHE["C54"]
 
 
 # A point on the digitised 50 % contour of Montillaud+13 Fig. 10 (C54H18).
 M13_G0, M13_NH = 44.4561, 1275.63
+M13_GAP = ("pahchem's C54H18 needs ~1.2 dex more G0 than Montillaud+13 Fig. 10. With their A and E0 "
+           "and PAHdb modes, its threshold energy (k_diss = k_IR) is 19.5 eV against their 17 eV, so "
+           "their k(E) is ~10x faster or their k_IR slower: their Malloci modes (scaling?) and Monte "
+           "Carlo k_IR(E) are not published. Remove this marker when it passes.")
 
 
 def _m13_dehydrogenated(model, g0):
@@ -773,19 +777,38 @@ def _m13_dehydrogenated(model, g0):
 
 
 def test_montillaud13_fig10_contour_offset(montillaud_c54):
-    """Our 50 % contour lies +0.25 to +0.5 dex in G0 above theirs (measured +0.38
-    at nH = 1276 with per-state stripped modes; +1.2 with the parent's modes).
-    A regression bound on the documented gap, not agreement."""
-    assert _m13_dehydrogenated(montillaud_c54, M13_G0 * 10**0.25) < 0.5
-    assert _m13_dehydrogenated(montillaud_c54, M13_G0 * 10**0.5) > 0.5
+    """Our 50 % contour lies +1.1 to +1.4 dex in G0 above theirs (measured +1.24
+    at nH = 1276; f = 0.056, 0.40, 0.83 at +1.1, +1.2, +1.4). A regression
+    bound on the documented gap, not agreement."""
+    assert _m13_dehydrogenated(montillaud_c54, M13_G0 * 10**1.1) < 0.5
+    assert _m13_dehydrogenated(montillaud_c54, M13_G0 * 10**1.4) > 0.5
 
 
-@pytest.mark.xfail(strict=True, reason="pahchem's C54H18 is ~0.4 dex in G0 more photostable than "
-                   "Montillaud+13 Fig. 10. The gap closes from 1.2 dex with per-state modes; the rest needs "
-                   "DFT modes of each state, Malloci's C54 sigma and cation IR intensities. Remove this "
-                   "marker when it passes.")
+@pytest.mark.xfail(strict=True, reason=M13_GAP)
 def test_montillaud13_fig10_agreement(montillaud_c54):
     assert 0.25 < _m13_dehydrogenated(montillaud_c54, M13_G0) < 0.75
+
+
+def _threshold_energy_ev(sp, E0_ev, A=6.8e17):
+    """E where k_diss (inverse Laplace) first exceeds the IR photon-emission rate."""
+    E, counts = dos.beyer_swinehart(sp.freqs_cm, 30.0 * EV, 2.0)
+    at = np.arange(5.0, 29.0, 0.05) * EV
+    k_ir = cooling.mode_emission_rates(E, counts, sp.freqs_cm, sp.einstein_a, at_cm=at).sum(axis=0)
+    k = rates.inverse_laplace_arrhenius(E, counts, A, E0_ev * EV)[np.rint(at / 2.0).astype(int)]
+    return at[np.argmax(k > k_ir)] / EV
+
+
+def test_montillaud13_coronene_threshold_energy(pah_states):
+    """Sect. 6.1: E_th ~ 9.6 eV for coronene; ours 10.25 eV (PAHdb neutral modes)."""
+    sp = PAHSpecies.from_states_file(pah_states / "C24H12_0.dat")
+    assert _threshold_energy_ev(sp, 4.8) == pytest.approx(9.6, abs=1.0)
+
+
+@pytest.mark.xfail(strict=True, reason=M13_GAP)
+def test_montillaud13_circumcoronene_threshold_energy(pah_states):
+    """Sect. 6.1: E_th ~ 17 eV for C54H18; ours 19.5 eV."""
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    assert _threshold_energy_ev(sp, 4.8) == pytest.approx(17.0, abs=1.0)
 
 
 def test_h2_formation_counts_eley_rideal_and_h2_loss():

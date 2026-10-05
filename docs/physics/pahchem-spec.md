@@ -316,29 +316,54 @@ the engine (`diagnostics/pahchem/check_montillaud13_fig10.py`). The quantity
 is the fraction of C$_{54}$H$_{18}$ totally dehydrogenated on a ($G_0$,
 $n_{\rm H}$) grid.
 
-The paper does not say which vibrational modes the dehydrogenated states use,
-and that choice dominates the result:
+**Which modes the dehydrogenated states use.** The paper does not say so
+explicitly, but implies the parent's (Malloci) modes for every state.
+Photodissociation depends "on the size of the species through their
+vibrational density of states, and ... on their hydrogenation state through
+the binding energy $E_0$" (Sect. 3.7). The faithful reproduction therefore
+uses parent modes. Stripping C–H modes per missing H is a pahchem sensitivity
+variant, not their model:
 
 | Mode set for each state | 10 % contour | 50 % contour | 90 % contour |
 |---|---|---|---|
-| Parent C$_{54}$H$_{18}$ modes | +1.5 dex | +1.2 dex | +1.0 dex |
-| C–H modes stripped per missing H | +0.60 | +0.35 (−0.26 to +0.56) | +0.00 |
+| Parent C$_{54}$H$_{18}$ modes (their model) | +1.5 dex | +1.2 dex (+1.24 at $n_{\rm H} = 1276$) | +1.0 dex |
+| C–H modes stripped per missing H (variant) | +0.60 | +0.35 | +0.00 |
 
 (Offsets are median log $G_0$, ours minus theirs, at the same $n_{\rm H}$.)
 
-- With the parent's 210 modes, the even-N$_{\rm H}$ steps ($E_0 = 4.8$ eV) are
-  ~100× too slow. With bare-skeleton modes, $k_{\rm eff}$ at $G_0 = 100$ rises
-  110×, while the odd-N$_{\rm H}$ rate barely moves.
-- The contour slope is reproduced (d log $n_{\rm H}$/d log $G_0$ ≈ 1.4; theirs
-  ≈ 1.5), so the multiphoton physics behaves.
-- Our transition is broader than theirs. The likely causes are the crude
-  stripped modes, Li & Draine instead of Malloci $\sigma$, and neutral instead
-  of cation IR intensities.
-- Tests: a regression bound on the gap passes, and a strict xfail records the
-  missing agreement.
+**Where the 1.2 dex gap comes from.** The cleaner diagnostic is their
+threshold energy, $E_{\rm th}$, where $k_{\rm diss} = k_{\rm IR}$ (Sect. 6.1).
+With their $A$ and $E_0$:
 
-This makes **per-state vibrational modes the most consequential missing
-input** found so far. It is item T1.1 of {doc}`pahchem-data-requests`.
+| Molecule | Theirs | Ours (PAHdb neutral modes) |
+|---|---|---|
+| Coronene | 9.6 eV | 10.25 eV |
+| C$_{54}$H$_{18}$ | 17 eV | 19.5 eV |
+
+- Their C$_{54}$ $k(E)$ is therefore ~10× faster than ours at the same $E$,
+  or their $k_{\rm IR}$ is slower. That is not a constant offset: for
+  coronene we match their Fig. 3 to within −0.2 dex.
+- PAHdb cation modes make the gap larger, not smaller: they radiate ~4×
+  faster at threshold, giving $E_{\rm th} = 20.3$ eV.
+- The difference must lie in inputs the paper does not publish: their Malloci
+  frequencies (scaled or not) and their Monte Carlo $k_{\rm IR}(E)$. Those are
+  exactly the items under "asked of others" in {doc}`pahchem-data-requests`.
+
+Other observations:
+- The contour slope is reproduced (≈ 1.4; theirs ≈ 1.5), so the multiphoton
+  physics behaves.
+- The mode set moves the even-N$_{\rm H}$ rates by ~100×. With bare-skeleton
+  modes, $k_{\rm eff}$ at $G_0 = 100$ rises 110×.
+
+Tests:
+- a regression bound on the Fig. 10 gap passes;
+- the coronene $E_{\rm th}$ test passes;
+- strict xfails record the missing Fig. 10 agreement and the C$_{54}$
+  $E_{\rm th}$.
+
+What closes the gap is the mode sets and $k_{\rm IR}$ of Montillaud et al.
+Physically, the per-state modes of {doc}`pahchem-data-requests` T1.1 matter
+just as much, since the mode set changes the result by ~1 dex.
 
 **Electron sticking** (literature search, 2026-10-04). No prescription better
 constrained than Bakes & Tielens 1994 / Weingartner & Draine 2001 has been

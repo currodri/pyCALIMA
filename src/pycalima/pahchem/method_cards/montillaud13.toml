@@ -47,6 +47,8 @@ A_diss = { value = 6.8e17, unit = "s^-1", source = "Sect. 3.3.2, from Jochims+19
 E0_even = { value = 4.8, unit = "eV", source = "Sect. 3.3.2, Joblin+2013 PIRENEA coronene+", confidence = "B" }
 E0_odd = { value = 3.2, unit = "eV", source = "Sect. 3.3.2", confidence = "B" }
 superh = "k(NH0 + 1) = k(NH0 - 1): lower limit"
+modes_per_state = "the parent's (Malloci+07) modes for every hydrogenation state: implied by Sect. 3.7, where k_diss depends on hydrogenation only through E0"
+threshold_energies = { C24 = 9.6, C54 = 17.0, C66 = 20.0, unit = "eV, where k_diss = k_IR", source = "Sect. 6.1", confidence = "C" }
 charge_dependence = "none"
 channels = "H loss only; no H2 or C loss"
 

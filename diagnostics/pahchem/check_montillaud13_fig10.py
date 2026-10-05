@@ -13,11 +13,13 @@ Measured (2026-10-04), median offset (range):
 | 50 % | +1.2 | +0.35 (-0.26 to +0.56) |
 | 90 % | +1.0 | +0.00 (-0.64 to +0.12) |
 
-With the parent's modes, every state dissociates like C54H18 (210 modes); the
-even-N_H steps are then ~100x too slow. Stripping C-H modes per missing H
-closes most of the gap. The rest awaits DFT modes of each state
-(pahchem-data-requests, T1), Malloci's C54 sigma, and cation IR intensities.
-Takes ~1 min with parent modes and ~10 min with stripped modes.
+``--modes parent`` is their model: Sect. 3.7 implies parent modes for every
+hydrogenation state. ``stripped`` is a pahchem sensitivity variant. With
+their A and E0 and PAHdb modes, our C54H18 threshold energy is 19.5 eV
+against their 17 eV (coronene: 10.25 against 9.6). So their k(E) is ~10x
+faster or their k_IR slower, through inputs they do not publish (Malloci
+modes, Monte Carlo k_IR). Takes ~1 min with parent modes and ~10 min with
+stripped modes.
 """
 import argparse
 from pathlib import Path
@@ -32,7 +34,7 @@ from pycalima.pahchem.montillaud13 import Montillaud13
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--modes", choices=("parent", "stripped"), default="stripped")
+    ap.add_argument("--modes", choices=("parent", "stripped"), default="parent")
     ap.add_argument("--states-dir", type=Path, default=_paths.get_model_data_dir() / "PAH_states")
     ap.add_argument("--de-cm", type=float, default=100.0)
     args = ap.parse_args()

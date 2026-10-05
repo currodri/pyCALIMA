@@ -133,7 +133,11 @@ loss, comparing $E_0$ with {cite:t}`West2018` and the pathways with
 
 ## Asked of others
 
-- **Joblin/Montillaud:** the mode sets and $k_{\rm IR}(E)$ used in
-  {cite:t}`Montillaud2013`, if they will share them.
+- **Joblin/Montillaud:** the mode sets (and whether they were scaled) and the
+  Monte Carlo $k_{\rm IR}(E)$, $e_{\rm IR}(E)$ used in {cite:t}`Montillaud2013`.
+  With their published $A$ and $E_0$ and PAHdb modes we get $E_{\rm th}$ =
+  19.5 eV for C$_{54}$H$_{18}$ against their 17 eV, and their Fig. 10 needs
+  1.2 dex less $G_0$ than ours. These two inputs are the only unpublished ones
+  left in that comparison ({doc}`pahchem-spec`, M5).
 - **Mayer/West:** the iPEPICO $k(E)$ curves behind {cite:t}`West2018`, as
   tables.
