@@ -636,11 +636,69 @@ has a runner yet.
   - Their "Andrews+16" H-loss parameters (4.3 eV, 11.8 cal) are not
     Andrews' Table 2 values.
 
-What running these models needs:
-- **Allain and Le Page:** a first-event branching mode next to `energy_me`.
-- **Le Page:** the two-frequency species.
-- **Murga:** a size ($N_{\rm C}$) axis, time integration through a profile,
-  and a WD01 charge mode.
+**Allain+96 runner** ({mod}`pycalima.pahchem.allain96`,
+`tests/test_pahchem_allain96.py`, `check_allain96.py`, 2026-10-05).
+- **Inputs it substitutes, because the papers don't give them:**
+  - Malloci+07 cross sections stand in for the Joblin (1992) spectra;
+  - PAHdb modes stand in for the unstated Léger+89b Einstein A;
+  - PAH 50 C and PAH 100 C are PAHdb C$_{50}$H$_{20}$ and C$_{100}$H$_{26}$.
+- **Level 0 passes:**
+  - the RRK convention;
+  - $k_{\rm C_2H_2}/k_{\rm H_2} = 0.1$;
+  - the eq. 11 yield;
+  - the eq. 9 recombination (benzene$^+$ $1.0\times10^{-6}$);
+  - Set 1 equals `fields.draine1978` to 0.13 %.
+- **Photoionisation (I Table 5):** −0.11 to +0.03 dex for C$_{14}$–C$_{32}$.
+- **Dissociation (I Table 4):** C$_{14}$–C$_{24}$ within 0.09 dex and
+  C$_{32}$ at −0.22 dex. PAH 50 C is −1.35 dex, a strict xfail: its
+  $N_{\rm H0}$ and $k_{\rm IR}$ convention are not stated.
+- **Network:** the II Table 5 single-state destruction times agree to ≤ 0.37
+  dex. The critical sizes are 39–46 C in the UIR media and 64 C in the warm
+  diffuse medium, against their 40–55 C.
+- **Network-mean destruction times:** 1–2 dex shorter than II Table 5, a
+  strict xfail, because our steady state is more dehydrogenated. Their own
+  text agrees with ours, not with their Table 5.
+- **Blocked:** the II Tables 2–3 gates need the Set 2 field (I Fig. 5,
+  raster). With Set 1/1.6 the small PAHs already agree to 0.2 dex.
+
+**Le Page+01/03 runner** ({mod}`pycalima.pahchem.lepage01`,
+`tests/test_pahchem_lepage01.py`, `check_lepage01.py`, 2026-10-05).
+- **Dissociation rates:** the two-frequency transition state gives
+  $\Delta S = 5.03$ cal K$^{-1}$ mol$^{-1}$ at every size.
+  - Coronene $k(E)$ is within −0.07 to +0.15 dex above threshold (path
+    degeneracy 12).
+  - Benzene$^+$ and anthracene$^+$ are within 0.14 dex.
+  - Naphthalene$^+$ is a strict xfail: Table 2's 4.5 eV does not reproduce
+    it, and ~4.2 eV would.
+- **The Appendix C$_{50}$ example** comes out at 0.578/0.268/0.155. It does
+  so only if the recombination of C$_{50}$H$_{21}^+$ is dissociative.
+- **Charge (LP03 Fig. 4):**
+  - From LP03's own Table 2 rates it is reproduced within 0.015.
+  - Our recombination, attachment and photodetachment rates match Table 2
+    within 1.5 %.
+  - Our ionisation rate is 1.2–1.7× high with the substitute Li & Draine
+    $\sigma$, which makes the cation fraction 0.02–0.13 too high (strict
+    xfail, pending LP01 Fig. 11).
+- **Hydrogenation (LP03 Fig. 9, card readings ±0.03):**
+  - C$_{50}$H$_{20}^+$ is 0.64 against ~0.6.
+  - C$_{80}$H$_{24}^+$ and C$_{80}$H$_{25}^+$ are 0.59/0.26 against
+    0.6/0.27.
+  - C$_{32}$H$_{14}^+$ and C$_{32}$H$_{14}$ are 0.55/0.30 against 0.45/0.37.
+  - With benzene recombination instead, C$_{80}$H$_{25}^+$ drops to 0.08, so
+    Fig. 9 used the naphthalene value.
+- **LP01 Table 1:** the two-frequency column is reproduced within 0.25 dex by
+  the neutral PAHH channel. The RRK column needs $E_0 \approx 0.7$ eV, not
+  the stated value.
+- **Not done:** LP09 (H$_2$ formation).
+
+What the remaining targets need:
+- **Raster figures the user is digitising:**
+  - for Allain: I Fig. 5 and II Figs. 7, 9 and 10;
+  - for Le Page: LP01 Figs. 10–11 and LP03 Figs. 6, 7 and 9.
+- **Murga:**
+  - its figures are vector and can be extracted here;
+  - the network needs a size ($N_{\rm C}$) axis, time integration through a
+    profile, and a WD01 charge mode.
 
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per

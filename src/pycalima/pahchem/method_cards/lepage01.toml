@@ -109,6 +109,7 @@ lp03_c30o_loss = { E_act = 3.3, dS_cal_K = 0.0, unit = "eV; cal K^-1 (C30O+ -> C
 # The coronene k(E) curve digitised in dissoc_rate_coronene_Montillaud.csv (column "LePage").
 coronene_kE_origin = "Montillaud+13 Fig. 3 'kdiss - Le Page et al.' cites Le Page et al. (2001): it is Paper I Fig. 9, curve C24H12(+), i.e. the 2nu-RRKM H loss of the normal coronene cation (and neutral: same curve) with E0 = 4.8 eV, dS = 5 cal/K, sigma = 12. diagnostics/pahchem/plot_benchmarks.py labels it 'Le Page+03': should be Le Page+01"
 coronene_kE_check = "pahchem rates.rrkm on the Le Page mode set (66 x 1000, 36 x 1300; TS 66 x 1000, 33 x 1300, 2 x 250 cm^-1), E0 = 4.8 eV, sigma = 12, Beyer-Swinehart 5 cm^-1 grain: log10(model/CSV) = +0.12 -0.07 +0.07 -0.04 -0.01 -0.01 -0.06 +0.06 over 7.6-15 eV (digitisation scatter). sigma = 1 is uniformly 1.0-1.15 dex low"
+coronene_kE_check_runner = "pahchem.lepage01 counts states on a 50 cm^-1 grain (every 2nu and TS frequency is a multiple of 50) with the density averaged over 250 cm^-1: -0.07 to +0.15 dex over 8.3-15 eV, +0.23 at the 7.6 eV threshold. The 5 cm^-1 grain with a 200 cm^-1 window overstates rho by 22 % (~0.09 dex in k)"
 check_benzene = { value = [3.19, 6.1], unit = "log10 k [s^-1] at 4.5 and 5.5 eV, C6H6+ (exp. 3.15, 6.2)", source = "Sect. 3.1.3, Fig. 7", confidence = "B" }
 check_benzene_pahchem = "E0 = 3.8 eV (Table 2), sigma = 6: 3.14, 6.01"
 check_naphthalene = { value = [3.9, 7.5], unit = "log10 k [s^-1] at 7 and 10 eV, C10H8+ (exp. 3.7, 7.3)", source = "Sect. 3.1.3, Fig. 7", confidence = "B" }
