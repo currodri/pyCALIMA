@@ -221,6 +221,63 @@ def build_pah_photolysis_interpolator(
     return evaluate, info
 
 
+def read_pah_nd_table(table_file: str | Path) -> Tuple[list, np.ndarray]:
+    """Read a ``pahchem-nd v1`` table (``pahchem.export_pah_tables``).
+
+    File format
+    -----------
+    ``#`` lines : header
+    next line   : ``ndim``
+    next line   : the ``ndim`` axis lengths
+    then        : each axis's values in turn, one per line
+    then        : the table, C order (last axis fastest)
+
+    Returns
+    -------
+    axes : list of ndarray
+    values : ndarray, shape given by the axis lengths
+    """
+    path = Path(table_file)
+    with path.open("r", encoding="utf-8") as fh:
+        lines = [ln.strip() for ln in fh if ln.strip() and not ln.strip().startswith("#")]
+    ndim = int(lines[0])
+    shape = tuple(int(v) for v in lines[1].split())
+    if len(shape) != ndim:
+        raise ValueError(f"{path}: {ndim} dimensions but {len(shape)} axis lengths")
+    pos, axes = 2, []
+    for n in shape:
+        axes.append(np.array([float(v) for v in lines[pos:pos + n]]))
+        pos += n
+    size = int(np.prod(shape))
+    if len(lines) - pos != size:
+        raise ValueError(f"{path}: {len(lines) - pos} values, expected {size}")
+    return axes, np.array([float(v) for v in lines[pos:]]).reshape(shape)
+
+
+def build_pah_photolysis_interpolator_nd(table_file: str | Path) -> Tuple[Callable, dict]:
+    """Multilinear interpolator of a ``pahchem-nd`` photolysis table.
+
+    Returns
+    -------
+    evaluate : callable
+        ``evaluate(log10_G0, log10_nH, log10_T, log10_xe)`` -> log10(rate [s^-1]).
+        Each coordinate is clamped to its axis range, i.e. the table edge
+        value is used outside it.
+    info : dict
+        Keys ``axes`` and ``log_rate``.
+    """
+    axes, values = read_pah_nd_table(table_file)
+    interp = RegularGridInterpolator(tuple(axes), values, method="linear")
+    lo = np.array([a[0] for a in axes])
+    hi = np.array([a[-1] for a in axes])
+
+    def evaluate(*coords) -> float:
+        pt = np.clip(np.array(coords, dtype=float), lo, hi)
+        return float(interp(pt[None, :])[0])
+
+    return evaluate, {"axes": axes, "log_rate": values}
+
+
 # ---------------------------------------------------------------------------
 # PAH sputtering (1-D T table per ion species)
 # ---------------------------------------------------------------------------

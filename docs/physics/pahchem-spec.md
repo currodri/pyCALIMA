@@ -534,6 +534,58 @@ published since. Recent models reuse a classic law plus the
   and calibrate on the anthracene (~$10^{-9}$) and C$_{60}$ (~$10^{-6}$)
   attachment rates. That needs the T1 electron affinities.
 
+**M6, RAMSES tables** ({mod}`pycalima.pahchem.export_pah_tables`, export
+stage `pahchem_dissociation_tables`, solver key
+`models.photolysis_model = "pahchem"`).
+
+Physics. The table holds the carbon-loss rate per molecule,
+$k = \sum_Z f(Z, N_{\rm H} = 0)\, k_{\rm C_2}(Z)$:
+- $f$ is the steady state of the baseline $(Z, N_{\rm H})$ network.
+- $k_{\rm C_2}$ is RRKM C$_2$ loss from the bare skeleton, with the cascade
+  sinks:
+  - $E_0 = 4.6$ eV and $\Delta S^\ddagger = 10$ cal K$^{-1}$ mol$^{-1}$
+    (Micelotta+10b; the Murga & Wiebe "Arrh. 2" set), confidence **D**;
+  - the bare skeleton's own PAHdb modes (C$_{24}$, C$_{54}$, C$_{96}$),
+    otherwise the stripped parent.
+- C$_2$ loss is taken from the bare skeleton only: compact PAHs lose their
+  H before any carbon (Zhen+14). Carbon loss is not fed back into $f$.
+
+Assumptions:
+- the field has the Draine 1978 shape, scaled by $G_0$ (Habing);
+- $n({\rm H}) = n_{\rm H}$, i.e. the gas is atomic;
+- each PAH bin maps to the nearest parent in $\log N_{\rm C}$, with
+  $N_{\rm C} = 418\,(a_0/10\,\text{Å})^3$;
+- bins outside $16 \le N_{\rm C} \le 150$, i.e. the cluster bins, are
+  skipped.
+
+Spot check at $G_0 = 10^4$, $n_{\rm H} = 100$: $f_{\rm bare} = 0.99$ and
+$k = 10^{-7.2}$ s$^{-1}$. A companion `pahchem_state_<bin>.npz` stores, on
+the same grid, $f_+$, $f_-$, $f_{\rm dehydro}$, $f_{\rm bare}$ and
+$R_{\rm H_2}$ per PAH.
+
+File format `pahchem-nd v1`, written by `write_nd_table` and read by
+`solvers.table_io.read_pah_nd_table`. One value per line:
+
+```
+# ...                       any number of header lines starting with '#'
+4                           ndim
+n1 n2 n3 n4                 axis lengths: log10 G0, log10 nH, log10 T, log10 x_e
+<n1 values> ... <n4 values> the axis values, ascending
+<n1*n2*n3*n4 values>        log10 k [s^-1], C order (x_e fastest); floor -100
+```
+
+A reader evaluates the table by multilinear interpolation, clamping each
+coordinate to its axis range, with $x_e = n_e/n_{\rm H}$. The RAMSES Fortran
+reader is **not written yet**; it belongs in the RAMSES repository.
+
+Open items:
+- **Cluster bins.** The cluster approach in pyCALIMA needs revision before
+  its bins can get pahchem tables. PAHdb has theoretical cluster data
+  (`pahdb-complete-clusters_theoretical`), including for C$_{24}$H$_{12}$.
+- **Gate not yet run.** The planned gate is an end-to-end check: the
+  `calima-run` rates with `photolysis_model = "pahchem"` should match the
+  engine, followed by a RAMSES single-cell test.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;

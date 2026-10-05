@@ -69,7 +69,15 @@ class Environment:
     n_h: float           # atomic H [cm^-3]
     n_e: float           # [cm^-3]
     temperature_k: float
-    teff_k: int = 15000  # Kurucz template
+    teff_k: int | None = 15000   # Kurucz template; None for the Draine (1978) ISRF shape
+
+    def field(self):
+        return (fields.kurucz(self.teff_k, self.g0) if self.teff_k is not None
+                else fields.draine1978(g0=self.g0))
+
+
+#: C2 loss from the bare carbon skeleton (Micelotta+10b; Murga & Wiebe 2022 "Arrh. 2").
+C2_LOSS = (4.6, 10.0 * 4.184)        # E0 [eV], dS [J K^-1 mol^-1]
 
 
 NGC7023_EDGE = Environment("NGC 7023 NW edge (A_V ~ 0)", 4100.0, 1.35e4, 3.9, 470.0, 15000)
@@ -141,23 +149,53 @@ class BaselineModel:
     # -- rates -----------------------------------------------------------------
     def photo_rates(self, env):
         """{(Z, N_H): {"H", "H2", "ion"}} [s^-1] with physical (sink) cascades."""
-        field = fields.kurucz(env.teff_k, env.g0)
+        field = env.field()
         out = {}
         for z in self.charges:
             sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
             for nh in self.nh_values:
-                ip = self.ionisation_energy(z, nh)
-                if ip is None or ip >= 13.6:
-                    y = np.zeros_like(E_PH)
-                elif self.p.yield_model == "lepage":
-                    y = photo.yield_lepage2001(E_PH, ip)
-                else:
-                    y = photo.yield_jochims1996(E_PH, ip)
-                h = photo.heating_spectrum(field, sigma, np.zeros_like(E_PH) if self.p.ionising_photons_heat else y, E_PH)
+                y, h = self._absorption(field, sigma, z, nh)
                 ch = self._channels(nh, z)
                 rec = dict(self._cascade(nh)[1].steady_state(E_PH, h, ch).rates) if ch else {}
                 rec["ion"] = photo.ionisation_rate(field, sigma, y, E_PH)
                 out[(z, nh)] = rec
+        return out
+
+    def _absorption(self, field, sigma, z, nh):
+        """(ionisation yield, heating spectrum) of state (Z, N_H)."""
+        ip = self.ionisation_energy(z, nh)
+        if ip is None or ip >= 13.6:
+            y = np.zeros_like(E_PH)
+        elif self.p.yield_model == "lepage":
+            y = photo.yield_lepage2001(E_PH, ip)
+        else:
+            y = photo.yield_jochims1996(E_PH, ip)
+        heat_y = np.zeros_like(E_PH) if self.p.ionising_photons_heat else y
+        return y, photo.heating_spectrum(field, sigma, heat_y, E_PH)
+
+    def carbon_loss_rates(self, env, bare=None):
+        """{Z: k_C2} [s^-1] of the bare skeleton (N_H = 0), with a sink cascade.
+
+        ``bare`` is the PAHSpecies of the bare skeleton (e.g. PAHdb C54); if
+        None, ``species.stripped(0)``. The transition state removes the C-C
+        stretch nearest 1600 cm^-1 and scales the 5 lowest modes to C2_LOSS's
+        dS. Path degeneracy 1. The source and confidence are in the card.
+        """
+        sp = self.species.stripped(0) if bare is None else bare
+        if "bare" not in self._cm:
+            cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a * self.p.ir_scale,
+                                        e_max_cm=self.p.e_max_ev * dos.CM_PER_EV, de_cm=self.p.de_cm)
+            E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
+            ts = rates.transition_state_for_entropy(sp.freqs_cm, 1600.0, C2_LOSS[1], n_scaled=5)
+            k = rates.rrkm(E, counts, ts, C2_LOSS[0] * dos.CM_PER_EV)
+            self._cm["bare"] = (cm, k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)])
+        cm, k = self._cm["bare"]
+        field = env.field()
+        out = {}
+        for z in self.charges:
+            sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
+            _, h = self._absorption(field, sigma, z, 0)
+            out[z] = cm.steady_state(E_PH, h, {"C2": k}).rates["C2"]
         return out
 
     def network(self, photo_rates, env):

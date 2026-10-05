@@ -865,3 +865,71 @@ def test_h2_formation_counts_eley_rideal_and_h2_loss():
     f = net.steady_state()
     flux = net.fluxes(f)
     assert net.h2_formation_rate(f) == pytest.approx(flux["H2 loss"] + flux["Eley-Rideal"])
+
+
+# ===========================================================================
+# M6: N-D tables for the solver and RAMSES
+# ===========================================================================
+
+def _toy_axes():
+    return {"log_g0": np.array([0.0, 2.0, 4.0]), "log_nh": np.array([1.0, 3.0]),
+            "log_t": np.array([2.0, 3.0]), "log_xe": np.array([-5.0, -4.0, -3.0])}
+
+
+def test_pahchem_nd_table_round_trip_and_clamping(tmp_path):
+    from pycalima.pahchem.export_pah_tables import write_nd_table
+    from pycalima.solvers.table_io import build_pah_photolysis_interpolator_nd, read_pah_nd_table
+
+    axes = _toy_axes()
+    grid = np.meshgrid(*axes.values(), indexing="ij")
+    values = 1.5 * grid[0] - 0.7 * grid[1] + 0.2 * grid[2] + 0.1 * grid[3]      # multilinear
+    path = tmp_path / "pahchem_dissociation_PAHBin_01.dat"
+    write_nd_table(path, axes, values, ["# test"])
+    ax, back = read_pah_nd_table(path)
+    assert all(np.allclose(a, b) for a, b in zip(ax, axes.values()))
+    assert np.allclose(back, values, atol=1e-6)
+    ev, _ = build_pah_photolysis_interpolator_nd(path)
+    assert ev(1.0, 2.0, 2.5, -4.5) == pytest.approx(1.5 - 1.4 + 0.5 - 0.45, abs=1e-6)
+    assert ev(9.0, 2.0, 2.5, -4.5) == pytest.approx(ev(4.0, 2.0, 2.5, -4.5))    # clamped
+
+
+def test_solver_loads_pahchem_table_and_passes_t_and_xe(tmp_path):
+    from types import SimpleNamespace
+    from pycalima.pahchem.export_pah_tables import write_nd_table
+    from pycalima.solvers.dust_init import _load_pah_photolysis_table
+    from pycalima.solvers.dust_rates import pah_photolysis_rate
+
+    axes = _toy_axes()
+    grid = np.meshgrid(*axes.values(), indexing="ij")
+    write_nd_table(tmp_path / "pahchem_dissociation_PAHBin_01.dat", axes, -10.0 + grid[2] + grid[3], ["#"])
+    interp, ndim = _load_pah_photolysis_table("PAHBin_01", tmp_path, "pahchem")
+    assert ndim == 4 and interp is not None
+    assert _load_pah_photolysis_table("PAHBin_01", tmp_path, "RM2026") == (None, 2)
+
+    m_c = 12.011 * 1.66054e-24
+    pb = SimpleNamespace(is_cluster=False, dissociation_interp=interp, dissociation_ndim=4,
+                         mpah=54 * m_c, bin_index=0, smallr_pah=0.0)
+    state = SimpleNamespace(local_G0=100.0, local_nH=100.0, local_Tk=1000.0, local_ne=0.01,
+                            el_names=["H", "He", "C"], el_atomic_mass_g=[1.0, 4.0, m_c], pah_bins=[pb])
+    y_dust, dydt_gas, dydt_dust = np.array([1e-20]), np.zeros(3), np.zeros(1)
+    pah_photolysis_rate(state, np.zeros(3), y_dust, dydt_gas, dydt_dust)
+    k = 10 ** (-10.0 + 3.0 + np.log10(0.01 / 100.0))                     # log T = 3, log x_e = -4
+    assert -dydt_dust[0] == pytest.approx(k * 1e-20 / pb.mpah * 2 * m_c, rel=1e-6)
+    assert dydt_gas[2] == pytest.approx(-dydt_dust[0])
+
+
+def test_pahchem_carbon_loss_falls_with_density(pah_states):
+    """At fixed G0 more H atoms keep the skeleton hydrogenated, so less of it
+    is bare and carbon loss drops; k_C2 tracks the bare fraction."""
+    from pycalima.pahchem.baseline import BaselineModel, Params
+    from pycalima.pahchem.export_pah_tables import compute_bin_table
+
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    bare = PAHSpecies.from_states_file(pah_states / "C54_0.dat")
+    model = BaselineModel("C54", sp, Params(de_cm=600.0, e_max_ev=40.0))
+    axes = {"log_g0": np.array([4.0]), "log_nh": np.array([1.0, 2.0, 4.0]),
+            "log_t": np.array([2.0]), "log_xe": np.array([-4.0])}
+    log_k, aux = compute_bin_table(model, bare, axes, progress=lambda *_: None)
+    k = log_k[0, :, 0, 0]
+    assert np.all(np.diff(k) < 0), k
+    assert aux["f_bare"][0, 0, 0, 0] > 0.9 > aux["f_bare"][0, 2, 0, 0]

@@ -96,6 +96,7 @@ from .chemistry_state import (
 from .table_io import (
     build_sputtering_interpolator,
     build_pah_photolysis_interpolator,
+    build_pah_photolysis_interpolator_nd,
     build_pah_sputtering_interpolator,
     build_charge_interpolator,
 )
@@ -235,20 +236,32 @@ def _load_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
     return interps
 
 
-def _load_pah_photolysis_table(bin_id: str, data_dir: Path):
-    """Load PAH photolysis 2-D table for *bin_id*.
+def _load_pah_photolysis_table(bin_id: str, data_dir: Path, model: str = "RM2026"):
+    """Load the PAH photolysis table of *bin_id* for ``models.photolysis_model``.
 
-    Returns a callable ``(log10_G0, log10_nH) → log10(rate [s⁻¹])`` or
-    ``None`` if the file does not exist.
+    ``"pahchem"`` reads ``pahchem_dissociation_<bin>.dat``: a callable
+    ``(log10 G0, log10 nH, log10 T, log10 x_e) -> log10(rate)``, ndim 4.
+    Any other value reads the legacy ``dissociation_<bin>.dat``: a callable
+    ``(log10 G0, log10 nH) -> log10(rate)``, ndim 2.
+
+    Returns
+    -------
+    (callable or None, ndim)
+        None if the file does not exist.
     """
+    if model == "pahchem":
+        fname = _resolve_table(data_dir, f"pahchem_dissociation_{bin_id}.dat")
+        if not fname.exists():
+            return None, 4
+        return build_pah_photolysis_interpolator_nd(fname)[0], 4
     fname = _resolve_table(data_dir, f"dissociation_{bin_id}.dat")
     if not fname.exists():
-        return None
+        return None, 2
     try:
         evaluate_fn, _ = build_pah_photolysis_interpolator(fname)
-        return evaluate_fn
+        return evaluate_fn, 2
     except Exception:
-        return None
+        return None, 2
 
 
 def _load_pah_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
@@ -493,7 +506,8 @@ def load_initial_conditions(
         apah_cm = (3.0 * mpah / (4.0 * PI * spah)) ** (1.0 / 3.0)
 
         # Load photolysis and sputtering tables
-        dissociation_interp = _load_pah_photolysis_table(bin_id, pah_photolysis_dir)
+        dissociation_interp, dissociation_ndim = _load_pah_photolysis_table(
+            bin_id, pah_photolysis_dir, str(cfg.get("models", {}).get("photolysis_model", "RM2026")))
         sput_interps_pah = _load_pah_sputtering_tables(bin_id, pah_sputtering_dir)
 
         pah_bin = PAHBinParams(
@@ -509,6 +523,7 @@ def load_initial_conditions(
             mpah_min=mpah_min,
             mpah_max=mpah_max,
             dissociation_interp=dissociation_interp,
+            dissociation_ndim=dissociation_ndim,
             sputtering_interps=sput_interps_pah,
             is_cluster=bool(pb.get("is_cluster", False)),
             dust_index_interact=int(pb.get("dust_index_interact", -1)),

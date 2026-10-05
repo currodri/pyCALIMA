@@ -1143,6 +1143,26 @@ def export_pah_dissociation_tables_wrapper(config_path=None):
         }
 
 
+def export_pahchem_dissociation_tables_wrapper(config_path=None):
+    """Wrapper for the pahchem N-D PAH carbon-loss tables (photolysis_model = "pahchem")."""
+    from pycalima.pahchem.export_pah_tables import main as export_pahchem
+
+    timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        print("\n" + "="*80)
+        print("EXPORTING PAHCHEM PAH CARBON-LOSS TABLES")
+        print("="*80)
+        result = export_pahchem(config_path=config_path)
+        return {'status': 'Success', 'timestamp': timestamp_str, 'dir': result['output_dir'],
+                'file_count': result['file_count'], 'tables_generated': result['tables_generated']}
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'status': f'Error: {str(e)}', 'timestamp': timestamp_str,
+                'dir': 'model_data/PAH_dissociation_data', 'file_count': 0, 'tables_generated': 0}
+
+
 def export_dust_sublimation_wrapper(config_path=None):
     """Wrapper for dust sublimation rate tables and plots export with error handling."""
     from pycalima.models.dust_radiation.dust_sublimation import export_dust_sublimation
@@ -1274,6 +1294,7 @@ _STAGES = (
     ('dust_charging_rtgroups',           export_dust_charging_rtgroups_wrapper,           {}),
     ('pah_photoelectric_heating_tables', export_pah_photoelectric_heating_tables_wrapper, {}),
     ('pah_dissociation_tables',          export_pah_dissociation_tables_wrapper,          {}),
+    ('pahchem_dissociation_tables',      export_pahchem_dissociation_tables_wrapper,      {}),
     ('dust_sublimation',                 export_dust_sublimation_wrapper,                 {}),
     ('dust_ion_recombination',           export_dust_ion_recombination_wrapper,           {}),
     ('dust_band_luminosities',           export_dust_band_luminosities_wrapper,           {}),

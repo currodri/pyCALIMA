@@ -54,12 +54,21 @@ $(G_0, n_{\rm H})$ outside the grid returns the *global minimum* of the table
 (`fill_value = log_rate.min()`, `solvers/table_io.py:207`).
 :::
 
+The `models.photolysis_model` key selects the table:
+
+- **`"RM2026"`** (the default): the legacy 2-D table described here,
+  `dissociation_<bin_id>.dat`.
+- **`"pahchem"`**: the 4-D table `pahchem_dissociation_<bin_id>.dat`
+  (`pahchem.export_pah_tables`, stage `pahchem_dissociation_tables`). It gives
+  the C$_2$-loss rate on (log $G_0$, log $n_{\rm H}$, log $T$, log $x_e$).
+  The kernel passes `local_Tk` and `local_ne/local_nH`, and out-of-range
+  coordinates are clamped to the table edges. The physics is in
+  {doc}`pahchem-spec`.
+
 :::{note}
-The `models.photolysis_model` key (default `"RM2026"`) is parsed and stored
-(`solvers/dust_init.py:600`), but no Python code reads it. There is only one
-photolysis kernel. The RAMSES Fortran branches on the key, but both branches
-call the same routine. `pah_sputtering_model` and `cluster_evaporation_model`
-are in the same position.
+`pah_sputtering_model` and `cluster_evaporation_model` are parsed but not
+read: each has a single kernel. The RAMSES Fortran does not yet read the
+`pahchem` table ({doc}`pahchem-spec`, M6).
 :::
 
 ### How the table is built

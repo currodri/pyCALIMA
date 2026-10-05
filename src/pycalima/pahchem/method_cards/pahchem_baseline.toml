@@ -26,6 +26,8 @@ h_loss_superh_Zle0 = { E_act = 1.40, dS_J_K_mol = 12.0, source = "Andrews+16 Tab
 h_loss_superh_Zgt0 = { E_act = 1.55, dS_J_K_mol = 12.0, source = "Andrews+16 Table 2; dS chosen", confidence = "C" }
 degeneracy = "N_H for aromatic H loss, 1 for the odd-H radical, 2 for H2, N_H - N_H0 for super-H (West+18 ESI k(E): sigma = 12 coronene+, 10 fluoranthene+, 1 for second H)"
 laboratory_systematic = "E0 thresholds of West+18 and Jochims+94 differ by 0.7-1.4 eV"
+c2_loss = { E_act = 4.6, dS_J_K_mol = 41.84, source = "Micelotta+10b; Murga & Wiebe 2022 Table 1 'Arrh. 2' (10 cal K^-1 mol^-1)", confidence = "D" }
+c2_loss_rate_form = "RRKM from the bare skeleton (PAHdb C24/C54/C96 modes; else stripped parent); TS = minus the mode nearest 1600 cm^-1, 5 lowest scaled; degeneracy 1. RAMSES table k = sum_Z f(Z, N_H=0) k_C2(Z) (export_pah_tables)"
 
 [cascade]
 method = "energy_me microcanonical IR cascade with dissociation sinks, multiphoton steady state"
