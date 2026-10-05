@@ -718,6 +718,76 @@ def test_charge_balance_depends_on_g0_over_ne_only():
     assert np.allclose(a.sum(axis=1), b.sum(axis=1), atol=1e-12)
 
 
+def test_measured_cation_recombination_implies_sticking_below_one_rising_with_size():
+    """Measured k_rec (C6-C16 cations, 300 K) over capture with s_e = 1 at the
+    Li & Draine radius: 0.03-0.35, rising with N_C, reaching 1 near N_C ~ 20.
+    So s_e(cation) ~ 1 is an extrapolation for C24-C96, and WD01's
+    s_e = 0.5(1 - exp(-a/l_e)) ~ 0.1 already underestimates pyrene+."""
+    from pycalima.pahchem.photo import li_draine_radius_um
+
+    t = labdata.electron_recombination()
+    assert t["n_c"].between(6, 16).all() and t["k_cm3_s"].between(1e-7, 1e-5).all()
+    ratio = np.array([k / chemistry.electron_capture(n, 1, 300.0, disc_factor=1.0,
+                                                     radius_cm=li_draine_radius_um(n) * 1e-4)
+                      for n, k in zip(t["n_c"], t["k_cm3_s"])])
+    assert np.all((ratio > 0.01) & (ratio < 1.0)), ratio
+    slope, intercept = np.polyfit(t["n_c"], np.log10(ratio), 1)
+    assert slope > 0
+    assert 15.0 < -intercept / slope < 35.0                 # N_C where s_e -> 1
+
+
+def test_stripped_species_keeps_3n_minus_6_and_removes_ch_modes(pah_states):
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    bare = sp.stripped(0)
+    assert bare.n_modes == 3 * 54 - 6
+    assert not np.any(bare.freqs_cm > 2900.0)                 # no C-H stretch left
+    assert sp.stripped(10).n_modes == 3 * 64 - 6
+
+
+# ===========================================================================
+# M5: reproductions of published models through their method cards
+# ===========================================================================
+
+
+_MONTILLAUD_CACHE = {}
+
+
+@pytest.fixture
+def montillaud_c54(pah_states):
+    """Built once per session: each photo_rates call solves ~36 cascades."""
+    from pycalima.pahchem.montillaud13 import Montillaud13
+
+    if "C54" not in _MONTILLAUD_CACHE:
+        sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+        _MONTILLAUD_CACHE["C54"] = Montillaud13(sp, "C54", modes="stripped", e_max_ev=40.0, de_cm=300.0)
+    return _MONTILLAUD_CACHE["C54"]
+
+
+# A point on the digitised 50 % contour of Montillaud+13 Fig. 10 (C54H18).
+M13_G0, M13_NH = 44.4561, 1275.63
+
+
+def _m13_dehydrogenated(model, g0):
+    net = model.network(model.photo_rates(g0), 0.5 * M13_NH, 1.4e-4 * M13_NH, 100.0)
+    return net.steady_state()[:, 0].sum()
+
+
+def test_montillaud13_fig10_contour_offset(montillaud_c54):
+    """Our 50 % contour lies +0.25 to +0.5 dex in G0 above theirs (measured +0.38
+    at nH = 1276 with per-state stripped modes; +1.2 with the parent's modes).
+    A regression bound on the documented gap, not agreement."""
+    assert _m13_dehydrogenated(montillaud_c54, M13_G0 * 10**0.25) < 0.5
+    assert _m13_dehydrogenated(montillaud_c54, M13_G0 * 10**0.5) > 0.5
+
+
+@pytest.mark.xfail(strict=True, reason="pahchem's C54H18 is ~0.4 dex in G0 more photostable than "
+                   "Montillaud+13 Fig. 10. The gap closes from 1.2 dex with per-state modes; the rest needs "
+                   "DFT modes of each state, Malloci's C54 sigma and cation IR intensities. Remove this "
+                   "marker when it passes.")
+def test_montillaud13_fig10_agreement(montillaud_c54):
+    assert 0.25 < _m13_dehydrogenated(montillaud_c54, M13_G0) < 0.75
+
+
 def test_h2_formation_counts_eley_rideal_and_h2_loss():
     net = _toy_network(g0=1e2, nH=1e3)
     f = net.steady_state()

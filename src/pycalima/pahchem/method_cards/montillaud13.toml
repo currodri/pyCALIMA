@@ -67,6 +67,17 @@ neutral_addition = "0 (standard) or 3e-11 radicals / 3e-13 closed shell at 300 K
 cation_h2 = "0 or 5e-13 cm^3 s^-1 (adds 2 H)"
 source = "Sect. 3.4, Tables 3-4"
 
+[run]
+# Numbers read by pahchem.montillaud13 (Table 4 unless stated), per parent N_C.
+recombination_alpha_300K = { C24 = 1.0e-5, C54 = 1.4e-5, C66 = 1.56e-5, C96 = 1.85e-5, unit = "cm^3 s^-1, scales as T^-1/2", source = "Table 4; Sect. 3.5", confidence = "D" }
+cation_h_addition_even = { C24 = 1.4e-10, C54 = 9.3e-11, C66 = 8.5e-11, C96 = 7.0e-11, unit = "cm^3 s^-1, no T dependence", source = "Table 4 (normal and even-dehydrogenated cations)", confidence = "D" }
+cation_h_addition_odd = { value = 5.0e-11, unit = "cm^3 s^-1", source = "Table 4 (odd-dehydrogenated cations)", confidence = "D" }
+cation_h_addition_superh = { value = 0.0, unit = "cm^3 s^-1", source = "Table 4 (NH0 + 1 is the top state)", confidence = "E" }
+neutral_h_addition_standard = { value = 0.0, unit = "cm^3 s^-1", source = "Sect. 3.4, standard model", confidence = "E" }
+fig10_conditions = "Mathis83 ISRF scaled to G0 = 1-1e4 Habing, T = 100 K, n(H) = 0.5 nH, n(e) = 1.4e-4 nH (Sect. 6.2)"
+fig10_quantity = "fraction of species totally dehydrogenated (N_H = 0), all charges"
+deviations = "pahchem uses Li & Draine sigma at the LD01 radius (no Malloci C54 sigma bundled), PAHdb neutral parent modes for every state, and its own microcanonical IR cascade instead of the Joblin+02 Monte Carlo k_IR(E)"
+
 [targets]
 fig3 = "k_IR(E) and k_diss(E) for C24H12 and C66H20 (digitised: dissoc_rate_coronene_Montillaud.csv)"
 fig4 = "hydrogenation state vs position, NGC 7023 NW"

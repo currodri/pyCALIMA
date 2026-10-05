@@ -37,6 +37,12 @@ def jochims94_table(n: int) -> pd.DataFrame:
                        comment="#").set_index("molecule")
 
 
+def electron_recombination() -> pd.DataFrame:
+    """Measured PAH-cation electron recombination at ~300 K (C6-C16)."""
+    return pd.read_csv(_paths.get_external_data_path("pahchem", "pah_electron_recombination.csv"),
+                       comment="#")
+
+
 @dataclass(frozen=True)
 class WestReaction:
     """One reaction of West+18 ESI Table S1."""

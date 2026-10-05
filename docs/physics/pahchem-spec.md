@@ -310,6 +310,65 @@ Still open:
 - per-state photo-rates from `energy_me` assembled for every (Z,
   N$_{\rm H}$). This is the method-card runner, and it is M5.
 
+**M5 (reproductions), first result: Montillaud+13 Fig. 10.**
+{mod}`pycalima.pahchem.montillaud13` runs the Montillaud method card through
+the engine (`diagnostics/pahchem/check_montillaud13_fig10.py`). The quantity
+is the fraction of C$_{54}$H$_{18}$ totally dehydrogenated on a ($G_0$,
+$n_{\rm H}$) grid.
+
+The paper does not say which vibrational modes the dehydrogenated states use,
+and that choice dominates the result:
+
+| Mode set for each state | 10 % contour | 50 % contour | 90 % contour |
+|---|---|---|---|
+| Parent C$_{54}$H$_{18}$ modes | +1.5 dex | +1.2 dex | +1.0 dex |
+| C–H modes stripped per missing H | +0.60 | +0.35 (−0.26 to +0.56) | +0.00 |
+
+(Offsets are median log $G_0$, ours minus theirs, at the same $n_{\rm H}$.)
+
+- With the parent's 210 modes, the even-N$_{\rm H}$ steps ($E_0 = 4.8$ eV) are
+  ~100× too slow. With bare-skeleton modes, $k_{\rm eff}$ at $G_0 = 100$ rises
+  110×, while the odd-N$_{\rm H}$ rate barely moves.
+- The contour slope is reproduced (d log $n_{\rm H}$/d log $G_0$ ≈ 1.4; theirs
+  ≈ 1.5), so the multiphoton physics behaves.
+- Our transition is broader than theirs. The likely causes are the crude
+  stripped modes, Li & Draine instead of Malloci $\sigma$, and neutral instead
+  of cation IR intensities.
+- Tests: a regression bound on the gap passes, and a strict xfail records the
+  missing agreement.
+
+This makes **per-state vibrational modes the most consequential missing
+input** found so far. It is item T1.1 of {doc}`pahchem-data-requests`.
+
+**Electron sticking** (literature search, 2026-10-04). No prescription better
+constrained than Bakes & Tielens 1994 / Weingartner & Draine 2001 has been
+published since. Recent models reuse a classic law plus the
+{cite:t}`Carelli2013` attachment rates.
+
+- **Cations.** Measured recombination for C$_6$–C$_{16}$ cations
+  (`external_data/pahchem/pah_electron_recombination.csv`; pyrene$^+$
+  $4.1\times10^{-6}$ cm$^3$ s$^{-1}$) is 0.03–0.35 of capture with
+  $s_e = 1$, rising with $N_{\rm C}$ and reaching 1 near
+  $N_{\rm C} \approx 20$.
+  - So $s_e^+ = 1$ is the default for C$_{24}$–C$_{96}$, as an extrapolation.
+  - WD01's $s_e^+ \approx 0.1$ already underestimates pyrene$^+$ by 2.4×.
+  - Sensitivity range: ~6.5× (WD01 at the low end, Montillaud's
+    pyrene/Spitzer mean in between).
+  - No data exist for any cation above C$_{16}$, or for any dication.
+- **Neutrals.**
+  - Coronene: default $k \approx 2.7\times10^{-9}$ cm$^3$ s$^{-1}$
+    ({cite:t}`Carelli2013`, an upper bound; $s_e \approx 4\times10^{-3}$). The
+    range spans 4 decades, from $10^{-5}$ (statistical, as in Andrews+16) to
+    0.15 (WD01).
+  - C$_{54}$H$_{18}$ and C$_{96}$H$_{24}$: default $s_e = 1$, on two grounds:
+    C$_{60}$ attaches at ~Langevin, and circumcoronene binds a non-valence
+    anion state that acts as a capture doorway (Voora & Jordan 2015; Mulvey &
+    Jordan 2024). Range down to $10^{-2}$.
+- **First-principles option.** Compute $s_e^0 = \langle k_{\rm IR}/(k_{\rm IR}
+  + k_{\rm autodetach})\rangle$ with `energy_me` at $E = {\rm EA} + \epsilon$,
+  and calibrate on the anthracene (~$10^{-9}$) and C$_{60}$ (~$10^{-6}$)
+  attachment rates. That needs the T1 electron affinities.
+
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
   photon is at most 1;
