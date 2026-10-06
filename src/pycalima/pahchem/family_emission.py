@@ -5,8 +5,15 @@ steady-state fractions f(Z, N_H)) to the emission of every state:
 
 - **Modes.** Each state emits with the PAHdb modes of its own charge
   (``charge_species``). Below N_H0 the C-H modes are stripped per missing H
-  (``PAHSpecies.stripped``), so the C-H bands weaken. Above N_H0 the parent's
-  modes are kept: aliphatic C-H bands (3.4 um) are not modelled.
+  (``PAHSpecies.stripped``), so the C-H bands weaken.
+- **Super-hydrogenated states** (N_H > N_H0) emit with the DFT modes of the
+  genuine super-H isomer (the parent skeleton with one sp3 CH2 per extra H;
+  ``superh_species``, from ``load_superh_species``). These carry the aliphatic
+  C-H stretches (3.4 um), the CH2 scissoring (6.9 um) and wag/twist modes, and
+  the weakened aromatic C-H bands. PAHdb has only some (Z, N_H): a missing
+  state takes the nearest N_H of the same charge, else of the nearest charge
+  (``superh_choice`` records which). Without ``superh_species`` the parent's
+  modes are used and no aliphatic band appears.
 - **Heating.** Absorption is the baseline's: the Li & Draine sigma of charge Z,
   photons that ionise do not heat. Each state gets its own multiphoton steady
   state P(E) (``energy_me``), and its band photon rates are R_i = sum_j P_j k_i(E_j).
@@ -25,9 +32,30 @@ import numpy as np
 from pycalima.pahchem import dos, emission, energy_me, photo
 from pycalima.pahchem.baseline import E_PH
 
-#: Maragkoudakis+20 Table 1 wavebands [um], also used for the family band ratios
-BANDS_UM = {"3.3": (3.1, 3.5), "6.2": (6.1, 6.8), "7.7": (7.0, 8.2), "8.6": (8.2, 8.9),
-            "11.2": (10.5, 11.6), "12.7": (12.3, 13.3)}
+#: Wavebands [um]. "3.3" ... "11.2" are Maragkoudakis+20 Table 1 ("3.3" holds both C-H
+#: stretches); "3.29" (aromatic) and "3.4" (aliphatic) split it, and "6.9" holds the CH2
+#: scissoring, between their 6.2 and 7.7 windows. Positions after the -15 cm^-1 shift.
+BANDS_UM = {"3.3": (3.1, 3.5), "3.29": (3.20, 3.36), "3.4": (3.36, 3.60), "6.2": (6.1, 6.8),
+            "6.9": (6.8, 7.0), "7.7": (7.0, 8.2), "8.6": (8.2, 8.9), "11.2": (10.5, 11.6),
+            "12.7": (12.3, 13.3)}
+
+
+def load_superh_species(directory, formula):
+    """{(Z, N_H): PAHSpecies} of the super-H files ``<formula skeleton>H<n>_<Z>.dat`` in ``directory``.
+
+    ``formula`` is the parent, e.g. "C54H18"; files with more H on the same
+    carbon count are returned (model_data/PAH_states/superh, see its README).
+    """
+    from pathlib import Path
+
+    from pycalima.pahchem.molecule import PAHSpecies
+
+    nc = formula.split("H")[0]
+    out = {}
+    for p in sorted(Path(directory).glob(f"{nc}H*_*.dat")):
+        sp = PAHSpecies.from_states_file(p)
+        out[(sp.charge, sp.nh)] = sp
+    return out
 
 
 class FamilyEmission:
@@ -38,26 +66,48 @@ class FamilyEmission:
     model : baseline.BaselineModel
     charge_species : dict
         Z -> PAHSpecies of the parent at that charge, for every Z of ``model``.
+    superh_species : dict, optional
+        (Z, N_H) -> PAHSpecies of genuine super-H isomers (``load_superh_species``).
     de_cm, e_max_ev : float
         Grid of the emission cascades (energy_me.CascadeModel).
     """
 
-    def __init__(self, model, charge_species, de_cm=100.0, e_max_ev=30.0):
+    def __init__(self, model, charge_species, superh_species=None, de_cm=100.0, e_max_ev=30.0):
         missing = set(model.charges) - set(charge_species)
         if missing:
             raise ValueError(f"no modes for charges {sorted(missing)}")
         self.model, self.charge_species = model, charge_species
+        self.superh = dict(superh_species or {})
         self.de_cm, self.e_max_cm = de_cm, e_max_ev * dos.CM_PER_EV
         self._cascades = {}
 
+    def superh_choice(self, z, nh):
+        """The (Z, N_H) of the super-H modes used for state (z, nh > N_H0), or None."""
+        if not self.superh:
+            return None
+        if (z, nh) in self.superh:
+            return (z, nh)
+        return min(self.superh, key=lambda k: (abs(k[0] - z), abs(k[1] - nh), k[1]))
+
+    def _mode_key(self, z, nh):
+        parent = self.charge_species[z]
+        if nh < parent.nh:
+            return ("stripped", z, nh)
+        if nh > parent.nh and self.superh:
+            return ("superh",) + self.superh_choice(z, nh)
+        return ("parent", z, parent.nh)
+
     def state_species(self, z, nh):
-        sp = self.charge_species[z]
-        return sp.stripped(nh) if nh < sp.nh else sp
+        kind, zz, n = self._mode_key(z, nh)
+        if kind == "superh":
+            return self.superh[(zz, n)]
+        sp = self.charge_species[zz]
+        return sp.stripped(n) if kind == "stripped" else sp
 
     def _cascade(self, z, nh):
-        key = (z, min(nh, self.charge_species[z].nh))
+        key = self._mode_key(z, nh)
         if key not in self._cascades:
-            sp = self.state_species(*key)
+            sp = self.state_species(z, nh)
             self._cascades[key] = (sp, energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, self.e_max_cm, self.de_cm))
         return self._cascades[key]
 

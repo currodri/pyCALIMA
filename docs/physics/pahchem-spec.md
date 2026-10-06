@@ -871,8 +871,10 @@ figure `family_emission`).
     29/18/19/31 (C$_{24}$H$_{12}$, −1 to +2), 46/37/38/44/45 (C$_{54}$H$_{18}$,
     −1 to +3) and 114/108/111/112/113 (C$_{96}$H$_{24}$, −1 to +3). They are in
     `model_data/PAH_states` as `<formula>_<Z>.dat`; dications are triplets.
-  - Below $N_{\rm H0}$ the C–H modes are stripped per missing H; super-H
-    states keep the parent modes (no 3.4 µm aliphatic band).
+  - Below $N_{\rm H0}$ the C–H modes are stripped per missing H.
+  - **Super-H states** emit with the DFT modes of the genuine
+    super-hydrogenated isomer when PAHdb has it, so the aliphatic bands come
+    with the molecule (see below).
   - **Heating.** Each state has its own multiphoton steady state under the
     baseline's absorption: σ of charge $Z$, and ionising photons do not heat.
   - The emission does not feed back on $f$.
@@ -903,9 +905,60 @@ figure `family_emission`).
   - **Coronene.** C$_{24}$H$_{12}$ has no solo H, so its C–H out-of-plane band
     (~11.7–11.9 µm) falls outside the 10.5–11.6 µm window. Its "6.2/11.2" is
     meaningless; Maragkoudakis+20 excluded such PAHs for this reason.
-- **Not yet in:** aliphatic bands of super-H states; per-state (DFT) modes
-  of dehydrogenated states (T1); temperature-dependent band shifts and
-  widths; the comparison with observations (M7c).
+- **Super-hydrogenated emission** (2026-10-06).
+  - **The isomers.** Each extra H makes an sp$^3$ CH$_2$ on the parent
+    skeleton. PAHdb v4.00 has 13 such isomers in the network's range
+    $N_{\rm H0}+1$ to $+4$, all B3LYP/6-31G* as the parents, with one CH$_2$
+    per added H; the lowest-energy one is taken per formula and charge.
+    - They are in `model_data/PAH_states/superh/` (README).
+    - The other CnHm with more H in PAHdb are different skeletons, so the
+      selection uses $n_{\rm CH_2}$.
+    - **Coverage:**
+
+      | Family | Isomers |
+      |---|---|
+      | C$_{24}$ | H$_{13}^\pm$, H$_{16}$ |
+      | C$_{54}$ | H$_{19}^\pm$, H$_{20}$, H$_{21}^+$ |
+      | C$_{96}$ | H$_{25}$ and H$_{28}$, −1/0/+1 |
+
+    - A missing state takes the nearest $N_{\rm H}$ of its charge, else the
+      nearest charge (`superh_choice`).
+  - **What the DFT gives.**
+    - The aliphatic C–H stretch peaks at 2954–2962 cm$^{-1}$ (3.38 µm),
+      37 km/mol per aliphatic H against 24 per aromatic H in C$_{24}$H$_{16}$.
+      So $A_{3.4}/A_{3.3} \approx 1.5$ per C–H, as B3LYP studies find.
+    - The aromatic 3.3 and out-of-plane bands weaken with each converted H.
+    - The CH$_2$ scissoring at 6.9 µm is weak. The 1400–1500 cm$^{-1}$
+      intensity changes little on super-hydrogenation: C$_{24}$ 0 → 8 km/mol
+      (H$_{16}$), C$_{54}$ 5 → 14 (H$_{20}$), C$_{96}$ 61 → 45 (H$_{28}$). Even
+      a 96 % super-H family does not raise 6.9/6.2. The 3.4 µm band is the only
+      extra band that matters. The interstellar 6.85/7.25 µm bands need
+      methyl or HAC-like carriers, which the network does not have.
+  - **Bands.** "3.3" (3.1–3.5 µm, Maragkoudakis+20) holds both stretches, so
+    it is split into "3.29" (3.20–3.36, aromatic) and "3.4" (3.36–3.60,
+    aliphatic); "6.9" is 6.80–7.00 µm.
+    - With 15 cm$^{-1}$ Lorentzians the aromatic band's wing alone puts
+      3.4/3.29 at 0.027 (C$_{54}$) to 0.029 (C$_{96}$). That is the floor of
+      this band definition, not aliphatic emission.
+  - **Results.**
+    - Single states: C$_{54}$H$_{20}$ 0.41 and C$_{96}$H$_{28}$ 0.62.
+    - Cations differ by molecule: C$_{54}$H$_{19}^+$ is at the floor (0.039),
+      while C$_{96}$H$_{28}^+$ gives 0.59.
+    - **The family 3.4/3.29 traces super-hydrogenation:**
+
+      | Environment | C$_{54}$ f(super-H) | C$_{54}$ 3.4/3.29 | C$_{96}$ 3.4/3.29 |
+      |---|---|---|---|
+      | $G_0 = 10$, $n_{\rm H} = 10^4$ | 0.96 | 0.39 | 0.47 |
+      | CNM ($G_0 = 1$, $n_{\rm H} = 30$) | 0.50 | 0.20 | 0.09 |
+      | NGC 7023 edge, Orion Bar | 0.01–0.03 | ≈ floor | ≈ floor |
+
+  - **Caveats.**
+    - Harmonic DFT cannot give the 3.4–3.6 µm substructure (Fermi
+      resonances; anharmonic spectra of hydrogenated PAHs, Mackie+15/18).
+    - The fallback states carry their neighbour's number of CH$_2$.
+- **Not yet in:** per-state (DFT) modes of dehydrogenated states (T1);
+  temperature-dependent band shifts and widths; the comparison with
+  observations (M7c).
 
 **Benchmark figures** (`diagnostics/pahchem/plot_benchmarks.py`, 2026-10-05).
 The script makes one PNG per benchmark, in `<plots dir>/pahchem/`, and runs

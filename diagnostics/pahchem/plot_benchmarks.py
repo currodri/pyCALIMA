@@ -788,13 +788,14 @@ def fig_rigopoulou2021_fig1(args, out):
 def fig_family_emission(args, out):
     """M7b: population-weighted spectra and band ratios of the C54 and C96 families."""
     from pycalima.pahchem.baseline import NGC7023_EDGE, ORION_BAR_ATOMIC, BaselineModel, Environment
-    from pycalima.pahchem.family_emission import FamilyEmission, band_fluxes
+    from pycalima.pahchem.family_emission import FamilyEmission, band_fluxes, load_superh_species
 
     grid = np.arange(500.0, 3500.0, 0.5)
     fams = {}
     for parent, formula, charges in (("C54", "C54H18", (-1, 0, 1, 2)), ("C96", "C96H24", (-1, 0, 1, 2, 3))):
         sp = {z: PAHSpecies.from_states_file(args.states_dir / f"{formula}_{z}.dat") for z in charges}
-        fams[parent] = FamilyEmission(BaselineModel(parent, sp[0], anion=sp[-1]), sp)
+        sh = load_superh_species(args.states_dir / "superh", formula)
+        fams[parent] = FamilyEmission(BaselineModel(parent, sp[0], anion=sp[-1]), sp, sh)
     f, axes = plt.subplots(1, 3, figsize=(16, 4.8), gridspec_kw={"width_ratios": [1.4, 1.4, 1]})
     fam = fams["C54"]
     for ax, env in zip(axes[:2], (NGC7023_EDGE, ORION_BAR_ATOMIC)):
