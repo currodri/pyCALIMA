@@ -582,16 +582,25 @@ Open items:
 - **Cluster bins.** The cluster approach in pyCALIMA needs revision before
   its bins can get pahchem tables. PAHdb has theoretical cluster data
   (`pahdb-complete-clusters_theoretical`), including for C$_{24}$H$_{12}$.
-- **Precision floor of the network solve** (found 2026-10-05).
-  - Populations below ~$10^{-16}$ of the peak are rounding noise in any
-    double-precision global solve. Both the sparse and a banded solve leave
-    local balance residuals of order 1 there.
-  - So where the bare fraction $f(Z, N_{\rm H} = 0)$ should be far smaller
-    (low $G_0$ or high $n_{\rm H}$), the table holds noise at
-    ~$10^{-16}\,k_{\rm C_2}$ or the −100 floor. The physical rates there
-    are negligible (destruction times $\gg$ a Hubble time), but the corner
-    is non-monotonic.
-  - Fix: solve the chain in log space or by ratio recursion from the peak.
+- **Precision floor of the network solve** (found 2026-10-05, fixed
+  2026-10-06).
+  - A general linear solve resolves populations only down to ~$10^{-16}$ of
+    the peak; below that it returns noise (local balance residuals of order
+    1).
+  - So the bare fraction $f(Z, N_{\rm H} = 0)$ at low $G_0$ or high
+    $n_{\rm H}$ came out as 0 or ~$2\times10^{-16}$ instead of e.g.
+    $10^{-92}$, and the table corner was a non-monotonic plateau at
+    ~$10^{-16}\,k_{\rm C_2}$.
+  - `PAHNetwork.steady_state` now uses the Grassmann–Taksar–Heyman
+    algorithm (`network.gth_stationary`). It is subtraction-free, so every
+    population comes out to relative precision: an exact 150-decade chain is
+    reproduced to $2\times10^{-15}$, and every baseline state balances to
+    $3\times10^{-16}$.
+  - The table is now monotonic in $G_0$ at every $n_{\rm H}$. It reaches
+    the −100 floor only where the true rate is below $10^{-100}$ s$^{-1}$.
+  - Checked and unaffected: the `energy_me` and SHIVA $p(E)$ solves balance
+    every bin to ≤ $10^{-12}$ down to $P \sim 10^{-60}$, and equal GTH on
+    the same chains. The WD01 charge chain is solved in log space.
 - **Gate not yet run.** The planned gate is an end-to-end check: the
   `calima-run` rates with `photolysis_model = "pahchem"` should match the
   engine, followed by a RAMSES single-cell test.

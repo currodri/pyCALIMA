@@ -23,6 +23,37 @@ import scipy.sparse
 import scipy.sparse.linalg
 
 
+def gth_stationary(R):
+    """Stationary distribution of a continuous-time Markov chain by GTH.
+
+    ``R[i, j]`` >= 0 is the rate of i -> j (the diagonal is ignored). The
+    Grassmann-Taksar-Heyman algorithm (Grassmann, Taksar & Heyman 1985) is
+    Gaussian elimination of the states from the last to the first, in which
+    the diagonal is never formed: each pivot is the sum of the remaining exit
+    rates. With no subtraction, every stationary probability comes out to
+    high relative accuracy (O'Cinneide 1993), not only those near the peak.
+    Cost O(n^3), negligible for a few hundred states.
+
+    Returns None if the chain is not irreducible (a state with no exit to
+    the states not yet eliminated).
+    """
+    A = np.array(R, dtype=float)
+    np.fill_diagonal(A, 0.0)
+    n = A.shape[0]
+    s = np.zeros(n)
+    for k in range(n - 1, 0, -1):
+        s[k] = A[k, :k].sum()
+        if not s[k] > 0.0:
+            return None
+        # censor state k: paths i -> k -> j become i -> j with weight A[k, j] / s_k
+        A[:k, :k] += np.outer(A[:k, k], A[k, :k] / s[k])
+    p = np.zeros(n)
+    p[0] = 1.0
+    for k in range(1, n):
+        p[k] = p[:k] @ A[:k, k] / s[k]
+    return p / p.sum()
+
+
 @dataclass
 class Process:
     name: str
@@ -99,8 +130,36 @@ class PAHNetwork:
         return scipy.sparse.csc_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
                                        shape=(n, n))
 
+    def transition_matrix(self) -> np.ndarray:
+        """Dense R[i, j] = rate of i -> j [s^-1] (i != j), states flattened as in ``generator``."""
+        nz, nn = self.shape
+        n = nz * nn
+        idx = np.arange(n).reshape(self.shape)
+        R = np.zeros((n, n))
+        for p in self.processes:
+            src = np.nonzero(p.rate > 0)
+            if src[0].size:
+                np.add.at(R, (idx[src], idx[src[0] + p.dz, src[1] + p.dnh]), p.rate[src])
+        np.fill_diagonal(R, 0.0)
+        return R
+
     def steady_state(self) -> np.ndarray:
-        """Stationary populations f[Z, N_H], summing to 1."""
+        """Stationary populations f[Z, N_H], summing to 1.
+
+        By the Grassmann-Taksar-Heyman algorithm (``gth_stationary``), which
+        gives every population to high relative accuracy, however small
+        (e.g. a fully dehydrogenated fraction of 1e-60). A general linear
+        solve resolves populations only down to ~1e-16 of the largest one;
+        below that it returns rounding noise. Falls back to the sparse solve
+        if the chain is reducible.
+        """
+        f = gth_stationary(self.transition_matrix())
+        if f is None:
+            return self._steady_state_sparse()
+        return f.reshape(self.shape)
+
+    def _steady_state_sparse(self) -> np.ndarray:
+        """Stationary populations by a general sparse solve (accurate to ~1e-16 of the peak)."""
         Q = self.generator().tolil()
         n = Q.shape[0]
         Q[0, :] = np.ones(n)

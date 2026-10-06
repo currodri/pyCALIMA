@@ -724,6 +724,40 @@ def test_network_balances_hydrogen_at_steady_state():
     assert abs(gained) < 1e-8 * scale
 
 
+def test_gth_reproduces_an_exact_chain_over_150_decades():
+    """A birth-death chain with populations falling to ~1e-150: the closed form is a
+    product of rate ratios. GTH (network.steady_state) gets every entry to relative
+    precision (measured 2e-15)."""
+    n = 60
+    up, down = np.full(n - 1, 1e-3), np.full(n - 1, 3.4e-1)
+    net = PAHNetwork(charges=(0,), nh_values=range(n))
+    net.add("up", np.r_[up, 0.0][None, :], dnh=+1)
+    net.add("down", np.r_[0.0, down][None, :], dnh=-1)
+    exact = np.concatenate([[1.0], np.cumprod(up / down)])
+    exact /= exact.sum()
+    assert exact[-1] < 1e-140
+    assert np.allclose(net.steady_state().ravel(), exact, rtol=1e-12, atol=0.0)
+
+
+def test_every_state_of_a_baseline_network_is_balanced(pah_states):
+    """C54H18 at G0 = 0.1, nH = 100: the fully dehydrogenated fraction is ~1e-92,
+    far below the ~1e-16 a general linear solve resolves (it returned 2e-16 noise).
+    With GTH each state's net flux is <= 1e-12 of its own in + out flux (measured
+    3e-16), so the tiny populations are physical."""
+    from pycalima.pahchem.baseline import BaselineModel, Environment, Params
+
+    model = BaselineModel("C54", PAHSpecies.from_states_file(pah_states / "C54H18_0.dat"), Params())
+    pr = model.photo_rates(Environment("t", 0.1, 1.0, 1.0, 100.0, teff_k=None))
+    net = model.network(pr, Environment("t", 0.1, 100.0, 1e-2, 100.0, teff_k=None))
+    f = net.steady_state().ravel()
+    R = net.transition_matrix()
+    inflow, outflow = f @ R, f * R.sum(axis=1)
+    tot = inflow + outflow
+    ok = tot > 0
+    assert np.max(np.abs(inflow - outflow)[ok] / tot[ok]) < 1e-12
+    assert 0.0 < f.reshape(net.shape)[:, 0].sum() < 1e-40
+
+
 def test_charge_chain_matches_the_four_state_closed_form():
     """A pure charge network is the four_state_charge_fractions of PAH_charge."""
     from pycalima.models.PAH_charge.PAH_photoelectric_heating import four_state_charge_fractions
