@@ -84,6 +84,48 @@ def test_arrhenius_matches_pahchem_rates_on_the_same_modes():
     assert np.allclose(ours, ref, rtol=0.02)
 
 
+@pytest.mark.parametrize("nc, z", [(16, 0), (66, 1), (150, 0)])
+def test_ir_rate_splines_equal_the_planck_integral(nc, z):
+    """ir_rates tabulates the Planck integral per (N_C, Z) as ln-ln cubic splines:
+    measured <= 5e-10 relative against the direct integral over 2-1e5 K."""
+    T = np.exp(np.random.default_rng(nc).uniform(np.log(2.0), np.log(1e5), 2000))
+    k, p = S.ir_rates(nc, z, T)
+    ke, pe = S._ir_rates_exact(nc, z, T)
+    assert np.allclose(k, ke, rtol=1e-8) and np.allclose(p, pe, rtol=1e-8)
+
+
+def test_stationary_distribution_equals_the_dense_solve():
+    """The banded p(E) solve against np.linalg.solve on the same generator,
+    including the extreme-field corner (C150H30, chi = 1e6) where a normalisation
+    row of empty bins would lose 8 digits, and a 20 A grain (N_C = 3688) at
+    chi = 1e4, where the first-pass row 0 overflows."""
+    for nc, nh, chi in ((16, 10, 1.0), (150, 30, 1e6), (3688, 40, 1e4)):
+        m = S.ShivaMolecule(nc, nh, 0)
+        f = S.mmp83(chi)
+        E_ph, h = m.heating(f, False)
+        n, de = m.energy_ev.size, m.de_ev
+        edges = (np.arange(n + 1) - 0.5) * de
+        cum = np.concatenate([[0.0], np.cumsum(0.5 * (h[1:] + h[:-1]) * np.diff(E_ph))])
+        jump = np.diff(np.interp(np.clip(edges, E_ph[0], E_ph[-1]), E_ph, cum))
+        jump[0] = 0.0
+        G = np.zeros((n, n))
+        for i in range(n):
+            G[i + 1:, i] += jump[1:n - i]
+            G[n - 1, i] += jump[n - i:].sum()
+        cool = m.p_ir / de
+        cool[0] = 0.0
+        G[np.arange(n - 1), np.arange(1, n)] += cool[1:]
+        G[np.arange(n), np.arange(n)] -= G.sum(axis=0)
+        A = G.copy()
+        A[0] = 1.0
+        b = np.zeros(n)
+        b[0] = 1.0
+        dense = np.clip(np.linalg.solve(A, b), 0.0, None)
+        dense /= dense.sum()
+        p, _ = m.distribution(f)
+        assert np.max(np.abs(p - dense)) < 1e-10 * dense.max()
+
+
 # --- p(E) ---------------------------------------------------------------------
 
 @pytest.mark.parametrize("chi", [1.0, 1e3])

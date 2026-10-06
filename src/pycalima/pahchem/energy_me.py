@@ -41,6 +41,63 @@ import scipy.sparse.linalg
 from pycalima.pahchem import cooling, dos
 
 
+def stationary_banded(band, lo, up, row0_extra=None):
+    """Stationary p (Q p = 0, sum p = 1) of a banded rate matrix.
+
+    ``band`` holds Q in LAPACK banded storage, Q[i, j] (rate j -> i) at
+    ``band[up + i - j, j]``, with ``lo`` sub- and ``up`` super-diagonals.
+    ``row0_extra`` adds a dense row 0 (re-injection into bin 0 from bins
+    outside row 0's band): Q = band + e_0 v^T. The columns of Q sum to zero.
+
+    One balance equation is redundant; it is replaced by sum p = 1 over the
+    band of that row, and p is normalised afterwards.
+    - With a dense row 0, that row is the one replaced, so the dense part
+      never enters. Back-substitution then keeps the far tail of p (where
+      dissociation rates are large) accurate to relative precision; a
+      Sherman-Morrison correction would subtract O(1) vectors and bury a
+      tail ~1e-25 below the peak in rounding.
+    - Without one, the row is chosen so that its band covers the peak of p
+      (from a first pass with row 0): a row of nearly empty bins (row 0 in
+      an intense field) would scale the solution by the inverse of their
+      tiny population and amplify rounding.
+    Returns None if the system is singular.
+    """
+    n = band.shape[1]
+
+    def solve(row):
+        ab = band.copy()
+        j = np.arange(max(0, row - lo), min(n, row + up + 1))
+        ab[up + row - j, j] = 1.0
+        rhs = np.zeros(n)
+        rhs[row] = 1.0
+        try:
+            y = scipy.linalg.solve_banded((lo, up), ab, rhs, check_finite=False)
+        except np.linalg.LinAlgError:
+            return None
+        if not np.all(np.isfinite(y)) or y.sum() <= 0:
+            return None
+        y = np.clip(y, 0.0, None)
+        return y / y.sum()
+
+    p = solve(0)
+    if row0_extra is not None and np.any(row0_extra):
+        return p
+    # First pass: row 0, or, if that overflows (bins 0-1 empty in an intense
+    # field, e.g. a 20 A grain at chi = 1e4), rows spread over the grid
+    first = 0
+    for first in (0, n - 1, n // 2, n // 4, (3 * n) // 4):
+        p = solve(first) if first else p
+        if p is not None:
+            break
+    if p is None:
+        return None
+    row = int(min(n - 1, np.argmax(p) + lo // 2))
+    if row == first:
+        return p
+    refined = solve(row)
+    return refined if refined is not None else p
+
+
 def _split(position, n):
     """Lower bin, upper bin and upper weight for a fractional bin position."""
     lo = np.floor(position).astype(int)
@@ -170,16 +227,15 @@ class CascadeModel:
         return self._steady_state_result(P, r, names, K)
 
     def _solve_banded(self, r, k_out):
-        """P from Q P = 0, sum P = 1, as a banded LU plus a rank-1 correction.
+        """P from Q P = 0, sum P = 1, by a banded LU (``stationary_banded``).
 
         Q has the IR down-jumps (at most ``self._up`` bins) above the diagonal
         and the photon up-jumps (``r.size - 1`` bins, clamped to the top bin,
         which stays inside the band) below it. Dissociation re-injects into
-        bin 0, but row 0 is replaced by the normalisation, so only the loss on
-        the diagonal enters. Row 0 = ones splits into its in-band part (kept in
-        B) and the rest, w: A = B + e_0 w^T (Sherman-Morrison). Same solution
-        as the general sparse solve to ~1e-14, ~100x faster for a 1800-bin
-        grid. Returns None if B is singular.
+        bin 0: the in-band part of that row is in the band, the rest goes to
+        ``stationary_banded`` as a rank-1 term. Same solution as the general
+        sparse solve (equivalence gate), ~100x faster for an 1800-bin grid.
+        Returns None if singular.
         """
         n, up = self.n, self._up
         lo = max(1, int(np.max(np.nonzero(r)[0], initial=0)))
@@ -194,22 +250,11 @@ class CascadeModel:
         j = cols[n - 1 - cols <= lo]                                    # columns that can overshoot
         ab[up + (n - 1 - j), j] += tail[np.minimum(n - j, tail.size - 1)]
         ab[up] -= self.k_ir + r.sum() + k_out                          # diagonal: all losses
-        # Row 0 -> ones: in band for j <= up (band row up - j), the rest goes to w
-        ab[up - np.arange(min(up, n - 1) + 1), np.arange(min(up, n - 1) + 1)] = 1.0
-        w = np.zeros(n)
-        w[up + 1:] = 1.0
-        rhs = np.zeros((n, 2))
-        rhs[0] = 1.0                                     # b = e_0, and z solves B z = e_0
-        try:
-            yz = scipy.linalg.solve_banded((lo, up), ab, rhs, check_finite=False)
-        except np.linalg.LinAlgError:
-            return None
-        y, z = yz[:, 0], yz[:, 1]
-        P = y - z * (w @ y) / (1.0 + w @ z)
-        if not np.all(np.isfinite(P)):
-            return None
-        P = np.clip(P, 0.0, None)
-        return P / P.sum()
+        # Cold re-injection Q[0, j] += k_out[j]: in band for j <= up, the rest is the dense row
+        j0 = np.arange(min(up, n - 1) + 1)
+        ab[up - j0, j0] += k_out[j0]
+        extra = np.where(cols > up, k_out, 0.0)
+        return stationary_banded(ab, lo, up, extra)
 
     def _steady_state_result(self, P, r, names, K):
         n, cols = self.n, np.arange(self.n)

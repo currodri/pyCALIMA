@@ -110,13 +110,60 @@ def dl01_modes(nc, nh):
     return np.sort(np.concatenate([op, ip, ch]))
 
 
+def _stationary_banded(jump, cool):
+    """Stationary p of G p = 0, sum p = 1, for up-jumps i -> i + k at jump[k]
+    (k >= 1; jumps past the top bin land in it) and continuous cooling
+    i -> i - 1 at cool[i].
+
+    G is banded (lower bandwidth = the largest k with jump[k] > 0, upper 1)
+    and solved by ``energy_me.stationary_banded``; same solution as the
+    dense solve it replaces, without the O(n^3).
+    """
+    from pycalima.pahchem.energy_me import stationary_banded
+
+    n = cool.size
+    nz = np.nonzero(jump[1:])[0]
+    lo = int(max(1, nz.max() + 1 if nz.size else 1))
+    up = 1
+    ab = np.zeros((up + lo + 1, n))
+    for k in range(1, lo + 1):                       # Q[j + k, j] = jump[k]
+        ab[up + k, : n - k] += jump[k]
+    tail = np.concatenate([np.cumsum(jump[::-1])[::-1], [0.0]])      # tail[m] = sum_{k >= m} jump[k]
+    j = np.arange(max(0, n - 1 - lo), n)
+    ab[up + (n - 1 - j), j] += tail[np.minimum(n - j, tail.size - 1)]   # clamped into the top bin
+    ab[up - 1, 1:] += cool[1:]                       # Q[i - 1, i] = cool[i]
+    ab[up] -= jump[1:].sum() + cool                  # diagonal: all losses
+    p = stationary_banded(ab, lo, up)
+    if p is None:
+        raise np.linalg.LinAlgError("singular stationary system")
+    return p
+
+
+_T_GRID = np.logspace(0.0, 5.0, 4000)
+
+
+@lru_cache(maxsize=512)
+def _u_of_set(freqs_bytes):
+    """U(T) [cm^-1] of a set of modes on _T_GRID (keyed on the frequency bytes)."""
+    return dos.thermal_energy(np.frombuffer(freqs_bytes, dtype=float), _T_GRID)
+
+
 class Temperature:
     """T_m(E) of DL01 eq. 32 for one mode set, by inverting U(T) on a log grid."""
 
     def __init__(self, modes_cm):
         self.modes = np.sort(np.asarray(modes_cm, float))
-        self._T = np.logspace(0.0, 5.0, 4000)
-        self._U = dos.thermal_energy(self.modes, self._T) / dos.CM_PER_EV          # eV
+        self._T = _T_GRID
+        # U(T) = sum over distinct frequencies of multiplicity x U_f(T). The DL01
+        # C-H modes are 3 frequencies x N_H and the C-C set depends on N_C only,
+        # so both parts are cached: a rate table over N_H at fixed N_C pays for
+        # its C-C modes once.
+        freqs, mult = np.unique(self.modes, return_counts=True)
+        single = freqs[mult == 1]
+        U = _u_of_set(single.tobytes()) if single.size else np.zeros(_T_GRID.size)
+        for f, m in zip(freqs[mult > 1], mult[mult > 1]):
+            U = U + m * _u_of_set(np.array([f]).tobytes())
+        self._U = U / dos.CM_PER_EV                                                  # eV
         self.e20_ev = self.modes[min(19, self.modes.size - 1)] / dos.CM_PER_EV
         self.t_low = self.modes[0] / (dos.KB_CM * np.log(2.0))
 
@@ -163,9 +210,11 @@ def k_arrhenius_te(energy_ev, E0_ev, dS_cal, t_m, te_correction=True):
 @lru_cache(maxsize=None)
 def _ld01(nc, charge):
     from pycalima.models.PAH_radiation.pah_oppacity import interpolate_pah_cross_sections_2d
+    from pycalima.pahchem.photo import _li_draine_table
 
     kind = "iPAH" if charge != 0 else "nPAH"
-    _, wav_cm, _, c_abs, _ = interpolate_pah_cross_sections_2d(kind, radius_cm(nc) * 1e4)
+    _, wav_cm, _, c_abs, _ = interpolate_pah_cross_sections_2d(kind, radius_cm(nc) * 1e4,
+                                                               data_table=_li_draine_table(kind))
     order = np.argsort(wav_cm)
     return np.asarray(wav_cm)[order], np.asarray(c_abs)[order]
 
@@ -183,13 +232,44 @@ def _planck_lambda(T, wav_cm):
         return 2.0 * H_ERG_S * C_CM_S**2 / wav_cm[None, :] ** 5 / np.expm1(np.minimum(x, 700.0))
 
 
-def ir_rates(nc, charge, temperature_k):
-    """(k_IR [photons s^-1], P_IR [eV s^-1]) of the thermal approximation at T."""
+def _ir_rates_exact(nc, charge, T):
     wav_cm, c = _ld01(nc, charge)
-    T = np.atleast_1d(np.asarray(temperature_k, float))
     B = _planck_lambda(T, wav_cm) * 4.0 * np.pi * c[None, :]                       # erg s^-1 cm^-1
     p = np.trapezoid(B, wav_cm, axis=1) / EV_ERG
     k = np.trapezoid(B * wav_cm[None, :] / (H_ERG_S * C_CM_S), wav_cm, axis=1)
+    return k, p
+
+
+_IR_LOG_T = np.linspace(np.log(2.0), np.log(1e5), 3000)
+
+
+@lru_cache(maxsize=None)
+def _ir_spline(nc, charge):
+    """Cubic splines of ln k_IR and ln P_IR in ln T, 2-1e5 K, for one (N_C, Z)."""
+    from scipy.interpolate import CubicSpline
+
+    k, p = _ir_rates_exact(nc, charge, np.exp(_IR_LOG_T))
+    return CubicSpline(_IR_LOG_T, np.log(k)), CubicSpline(_IR_LOG_T, np.log(p))
+
+
+def ir_rates(nc, charge, temperature_k):
+    """(k_IR [photons s^-1], P_IR [eV s^-1]) of the thermal approximation at T.
+
+    The Planck integral over the LD01 C_abs depends on (N_C, Z, T) only, so it
+    is tabulated once per (N_C, Z) and evaluated by cubic splines in
+    ln k - ln T (measured relative error 5e-10 against the direct integral;
+    gate in tests/test_pahchem_shiva.py); temperatures outside 2-1e5 K use
+    the direct integral.
+    """
+    T = np.atleast_1d(np.asarray(temperature_k, float))
+    inside = (T >= 2.0) & (T <= 1e5)
+    k, p = np.empty_like(T), np.empty_like(T)
+    if inside.any():
+        sk, sp = _ir_spline(nc, charge)
+        lt = np.log(T[inside])
+        k[inside], p[inside] = np.exp(sk(lt)), np.exp(sp(lt))
+    if (~inside).any():
+        k[~inside], p[~inside] = _ir_rates_exact(nc, charge, T[~inside])
     return k, p
 
 
@@ -260,24 +340,10 @@ class ShivaMolecule:
         cum = np.concatenate([[0.0], np.cumsum(0.5 * (h[1:] + h[:-1]) * np.diff(E_ph))])
         jump = np.diff(np.interp(np.clip(edges, E_ph[0], E_ph[-1]), E_ph, cum))
         jump[0] = 0.0
-        G = np.zeros((n, n))
-        for i in range(n):
-            up = jump[1:n - i]                       # i -> i + k, k >= 1
-            G[i + 1:, i] += up
-            G[n - 1, i] += jump[n - i:].sum()        # absorptions above the grid land in the top bin
         cool = self.p_ir / de
         cool[0] = 0.0
-        G[np.arange(n - 1), np.arange(1, n)] += cool[1:]
-        G[np.arange(n), np.arange(n)] -= G.sum(axis=0)
-        A = G.copy()
-        A[0] = 1.0
-        b = np.zeros(n)
-        b[0] = 1.0
-        p = np.clip(np.linalg.solve(A, b), 0.0, None)
-        p /= p.sum()
-        post = np.zeros(n)
-        for i in range(n):
-            post[i + 1:] += p[i] * jump[1:n - i]
+        p = _stationary_banded(jump, cool)
+        post = np.convolve(p, jump)[:n]              # p_post[i + k] += p[i] jump[k], truncated at the top
         post /= post.sum()
         return p, post
 

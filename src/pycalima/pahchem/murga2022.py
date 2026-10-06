@@ -172,9 +172,16 @@ def photo_loss_on_grid(nc, j, zc, temperature="dl01", chi_grid=CHI_GRID):
 
 
 def _cache_path(temperature):
+    """The on-disk table, keyed on the source of shiva.py and this module: any
+    edit to the code that computes it invalidates the cache."""
+    import hashlib
+    from pathlib import Path
+
+    src = Path(shiva.__file__).read_bytes() + Path(__file__).read_bytes()
+    key = hashlib.sha1(src).hexdigest()[:12]
     d = _paths.get_dataset_cache_dir() / "pahchem" / "murga2022"
     d.mkdir(parents=True, exist_ok=True)
-    return d / f"pahchem_photo_loss_{temperature}.npz"
+    return d / f"pahchem_photo_loss_{temperature}_{key}.npz"
 
 
 def photo_loss_table(a_cm, temperature="dl01", cache=True, progress=None):
