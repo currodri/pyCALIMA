@@ -93,6 +93,14 @@ def pah_states(model_data):
     return states
 
 
+def _anion(states, formula):
+    """The PAHdb anion modes the statistical neutral sticking needs."""
+    path = states / f"{formula}_-1.dat"
+    if not path.exists():
+        pytest.skip(f"model_data/PAH_states/ has no {path.name}")
+    return PAHSpecies.from_states_file(path)
+
+
 @pytest.mark.parametrize("freqs", [
     [1000],
     [300, 410, 520, 777, 900, 1013, 1250, 1600],
@@ -746,7 +754,8 @@ def test_every_state_of_a_baseline_network_is_balanced(pah_states):
     3e-16), so the tiny populations are physical."""
     from pycalima.pahchem.baseline import BaselineModel, Environment, Params
 
-    model = BaselineModel("C54", PAHSpecies.from_states_file(pah_states / "C54H18_0.dat"), Params())
+    model = BaselineModel("C54", PAHSpecies.from_states_file(pah_states / "C54H18_0.dat"), Params(),
+                          _anion(pah_states, "C54H18"))
     pr = model.photo_rates(Environment("t", 0.1, 1.0, 1.0, 100.0, teff_k=None))
     net = model.network(pr, Environment("t", 0.1, 100.0, 1e-2, 100.0, teff_k=None))
     f = net.steady_state().ravel()
@@ -910,7 +919,7 @@ def test_baseline_rates_are_physical_and_respond_to_g0(pah_states):
     from pycalima.pahchem.baseline import BaselineModel, Environment, Params
 
     sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
-    model = BaselineModel("C54", sp, Params(de_cm=600.0, e_max_ev=40.0))
+    model = BaselineModel("C54", sp, Params(de_cm=600.0, e_max_ev=40.0), _anion(pah_states, "C54H18"))
     low = Environment("low", 1e3, 1e4, 4.0, 400.0)
     high = replace(low, g0=1e5)
     pr = model.photo_rates(high)
@@ -987,7 +996,7 @@ def test_pahchem_carbon_loss_falls_with_density(pah_states):
 
     sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
     bare = PAHSpecies.from_states_file(pah_states / "C54_0.dat")
-    model = BaselineModel("C54", sp, Params(de_cm=600.0, e_max_ev=40.0))
+    model = BaselineModel("C54", sp, Params(de_cm=600.0, e_max_ev=40.0), _anion(pah_states, "C54H18"))
     axes = {"log_g0": np.array([4.0]), "log_nh": np.array([1.0, 2.0, 4.0]),
             "log_t": np.array([2.0]), "log_xe": np.array([-4.0])}
     log_k, aux = compute_bin_table(model, bare, axes, progress=lambda *_: None)

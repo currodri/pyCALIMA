@@ -58,9 +58,9 @@ from pycalima.models.grain_size_config import (get_bins, get_export_parameters, 
 
 DEFAULT_AXES = {"log_g0": (-1.0, 6.0, 0.5), "log_nh": (-1.0, 6.0, 0.5),
                 "log_t": (1.0, 4.0, 0.5), "log_xe": (-5.0, -1.0, 1.0)}
-PARENT_FILES = {24: ("C24", "C24H12_0.dat", "C24_0.dat"),
-                54: ("C54", "C54H18_0.dat", "C54_0.dat"),
-                96: ("C96", "C96H24_0.dat", "C96_0.dat")}
+PARENT_FILES = {24: ("C24", "C24H12_0.dat", "C24_0.dat", "C24H12_-1.dat"),
+                54: ("C54", "C54H18_0.dat", "C54_0.dat", "C54H18_-1.dat"),
+                96: ("C96", "C96H24_0.dat", "C96_0.dat", "C96H24_-1.dat")}
 FLOOR = -100.0
 
 
@@ -135,10 +135,11 @@ def _bin_table(task):
     from pycalima.pahchem.baseline import BaselineModel, Params
     from pycalima.pahchem.molecule import PAHSpecies
 
-    key, parent_file, bare_file, params, axes = task
+    key, parent_file, bare_file, anion_file, params, axes = task
     species = PAHSpecies.from_states_file(parent_file)
     bare = PAHSpecies.from_states_file(bare_file) if bare_file else None
-    model = BaselineModel(key, species, params or Params())
+    anion = PAHSpecies.from_states_file(anion_file) if anion_file else None
+    model = BaselineModel(key, species, params or Params(), anion)
     return compute_bin_table(model, bare, axes, progress=lambda message: None)
 
 
@@ -168,14 +169,15 @@ def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=N
         if parent is None:
             print(f"[{b['id']}] N_C = {nc}: no PAHdb parent; skipped (cluster bins: see pahchem-spec.md)")
             continue
-        key, fparent, fbare = PARENT_FILES[parent]
+        key, fparent, fbare, fanion = PARENT_FILES[parent]
         if not (states / fparent).exists():
             print(f"[{b['id']}] missing {states / fparent}; skipped")
             continue
         species = PAHSpecies.from_states_file(states / fparent)
         bare = PAHSpecies.from_states_file(states / fbare) if (states / fbare).exists() else None
         print(f"[{b['id']}] N_C = {nc} -> {species.formula} (bare: {bare.formula if bare else 'stripped'})")
-        task = (key, states / fparent, states / fbare if bare else None, params, axes)
+        anion = states / fanion if (states / fanion).exists() else None
+        task = (key, states / fparent, states / fbare if bare else None, anion, params, axes)
         jobs.append((b, nc, species, bare, task))
 
     n_workers = min(len(jobs), os.cpu_count() or 1) if workers is None else max(1, int(workers))

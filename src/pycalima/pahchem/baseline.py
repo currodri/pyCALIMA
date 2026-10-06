@@ -16,9 +16,9 @@ and their sources are in ``method_cards/pahchem_baseline.toml``.
   cation -> dication with Wenzel+20 where it applies (N_C >= 32); ionising
   photons deposit nothing.
 - **Charge and H chemistry.** Table A.1 IP/EA of Andrews+16 with 0.1 eV per
-  missing H; BT94 electron capture with the literature-default sticking
-  (cations 1, C54/C96 neutrals 1); the Andrews+16 H addition, associative
-  detachment and Eley-Rideal.
+  missing H; BT94 electron capture, with sticking 1 for cations and the
+  statistical s_e of ``attachment`` for neutrals; the Andrews+16 H addition,
+  associative detachment and Eley-Rideal.
 
 ``Params`` holds every knob. ``sensitivity`` perturbs them one at a time.
 """
@@ -54,7 +54,7 @@ class Params:
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
-    sticking_neutral: float = 1.0
+    sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # hydrogen chemistry
     addition_cation: float = 1.4e-10         # cm^3 s^-1
     addition_neutral_scale: float = 1.0
@@ -97,14 +97,52 @@ ORION_BAR_ATOMIC = Environment("Orion Bar atomic PDR", 2.0e4, 5.0e4, 7.0, 500.0,
 
 
 class BaselineModel:
-    """pahchem baseline for one parent ("C24", "C54" or "C96")."""
+    """pahchem baseline for one parent ("C24", "C54" or "C96").
 
-    def __init__(self, parent, species, params=Params()):
-        self.parent, self.species, self.p = parent, species, params
+    ``anion`` is the parent anion's PAHSpecies, needed by the statistical
+    neutral sticking (``Params.sticking_neutral = "statistical"``).
+    """
+
+    def __init__(self, parent, species, params=Params(), anion=None):
+        self.parent, self.species, self.p, self.anion = parent, species, params, anion
         self.nc, self.nh0, self.n_solo = PARENTS[parent]
         self.charges = tuple(sorted(IONISATION[parent]))            # Z with a Table A.1 IP, plus none above
         self.nh_values = tuple(range(0, self.nh0 + 5))
         self._cm = {}
+        self._sticking = {}
+
+    def sticking_neutral(self, temperature_k):
+        """Electron sticking coefficient of the neutral at gas temperature T.
+
+        A number in ``Params.sticking_neutral`` is used as given. With
+        "statistical" it is ``attachment.Attachment`` for the parent and its
+        anion (PAHdb modes, EA of Andrews+16 Table A.1), the neutral's internal
+        energy being its radiative P(E) under the Draine field at G0 = 1; that
+        P(E) changes s_e by < 10 % up to G0 = 1e4 (pahchem-spec.md, M4). Every
+        N_H takes the parent's value.
+        """
+        s = self.p.sticking_neutral
+        if not isinstance(s, str):
+            return float(s)
+        if s != "statistical":
+            raise ValueError(f"sticking_neutral must be a number or 'statistical', not {s!r}")
+        if self.anion is None:
+            raise ValueError("statistical neutral sticking needs the anion's modes (BaselineModel(anion=...))")
+        key = round(float(temperature_k), 6)
+        if key not in self._sticking:
+            if "attachment" not in self._cm:
+                from pycalima.pahchem.attachment import Attachment
+
+                at = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
+                                chemistry.disc_radius_cm(self.nc), e_excess_cm=8000.0)
+                cm = energy_me.CascadeModel(self.species.freqs_cm, self.species.einstein_a,
+                                            e_max_cm=16.0 * dos.CM_PER_EV, de_cm=10.0, grain_cm=1.0)
+                sigma = photo.sigma_li_draine(self.nc, 0, E_PH)
+                _, h = self._absorption(fields.draine1978(g0=1.0), sigma, 0, self.nh0)
+                self._cm["attachment"] = (at, cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
+            at, e_n, p_n = self._cm["attachment"]
+            self._sticking[key] = at.sticking(temperature_k, e_n, p_n)
+        return self._sticking[key]
 
     # -- per-state molecular inputs ------------------------------------------
     def _modes(self, nh):
@@ -234,7 +272,7 @@ class BaselineModel:
         net.add("H loss", get("H"), dnh=-1)
         net.add("H2 loss", get("H2"), dnh=-2, h2_released=1)
         net.add("photoionisation", np.where(Z < top_z, get("ion"), 0.0), dz=+1)
-        per_z = np.array([chemistry.electron_capture(self.nc, z, T, sticking=p.sticking_neutral if z == 0 else 1.0)
+        per_z = np.array([chemistry.electron_capture(self.nc, z, T, sticking=self.sticking_neutral(T) if z == 0 else 1.0)
                           for z in self.charges])                      # independent of N_H
         capture = np.repeat(per_z[:, None], len(self.nh_values), axis=1) * p.capture_scale
         net.add("electron capture", np.where(Z > min(self.charges), capture * env.n_e, 0.0), dz=-1)
@@ -292,9 +330,9 @@ CHEMISTRY_ONLY = {"electron capture x/6.5 (range)", "neutral sticking 1e-2", "ca
                   "neutral H addition x/3", "Eley-Rideal sigma x/3"}
 
 
-def sensitivity(parent, species, env, base=Params(), keys=None):
+def sensitivity(parent, species, env, base=Params(), keys=None, anion=None):
     """{perturbation: (summary_low, summary_high)} plus "baseline"."""
-    model = BaselineModel(parent, species, base)
+    model = BaselineModel(parent, species, base, anion)
     base_pr = model.photo_rates(env)
     out = {"baseline": model.summary(env, base_pr)}
     for name in (keys or PERTURBATIONS):
@@ -303,7 +341,7 @@ def sensitivity(parent, species, env, base=Params(), keys=None):
             if over is None:
                 pair.append(None)
                 continue
-            m = BaselineModel(parent, species, replace(base, **over))
+            m = BaselineModel(parent, species, replace(base, **over), anion)
             pair.append(m.summary(env, base_pr if name in CHEMISTRY_ONLY else None))
         out[name] = tuple(pair)
     return out

@@ -339,8 +339,6 @@ Gates:
 - H$_2$ formation equals H$_2$ loss plus Eley–Rideal.
 
 Still open:
-- a physical electron sticking coefficient for neutrals (it is 1 by default;
-  the legacy fits to the target figures must not return);
 - cross-checking the charge balance against the WD01 solver in `dust_charge`
   for the same rates;
 - per-state photo-rates from `energy_me` assembled for every (Z,
@@ -566,10 +564,55 @@ published since. Recent models reuse a classic law plus the
     C$_{60}$ attaches at ~Langevin, and circumcoronene binds a non-valence
     anion state that acts as a capture doorway (Voora & Jordan 2015; Mulvey &
     Jordan 2024). Range down to $10^{-2}$.
-- **First-principles option.** Compute $s_e^0 = \langle k_{\rm IR}/(k_{\rm IR}
-  + k_{\rm autodetach})\rangle$ with `energy_me` at $E = {\rm EA} + \epsilon$,
-  and calibrate on the anthracene (~$10^{-9}$) and C$_{60}$ (~$10^{-6}$)
-  attachment rates. That needs the T1 electron affinities.
+
+**Statistical neutral sticking: implemented and gated** (2026-10-06;
+{mod}`pycalima.pahchem.attachment`, `tests/test_pahchem_attachment.py`).
+- **The model.** A captured electron leaves the anion at
+  $E = {\rm EA} + E_n + \epsilon$. The anion either autodetaches or radiates
+  below EA, and $s_e$ is the probability of radiating, averaged over the
+  capture flux.
+  - $k_d(E)$ follows from the capture cross section by detailed balance
+    (Klots), with no free parameter. The cross section is the one behind
+    `chemistry.electron_capture`, so $s_e$ multiplies that capture rate
+    consistently.
+  - IR stabilisation is the harmonic cascade of the anion's PAHdb modes.
+  - Recurrent fluorescence is not included. It could stabilise anions with
+    bound excited states much faster (C$_6^-$: Chandrasekaran+17).
+- **Gate (exact).** For a 30-mode molecule the thermal average of $k_d$
+  equals the capture rate times the Saha-like equilibrium constant to
+  $6\times10^{-4}$. Densities are averaged over a window as for the IR rates;
+  without that, a sparse comb of states loses up to 70 % of the flux.
+- **Results.** In the ISM the neutral sits at its radiative P(E), with
+  $\langle E\rangle$ = 60 cm$^{-1}$ for coronene at $G_0 = 1$. The baseline
+  takes the P(E) at $G_0 = 1$, which lowers $s_e$ by ≤ 9 % up to $10^4$.
+  - C$_{24}$H$_{12}$ (EA 0.47 eV): $s_e = 6.0\times10^{-3}$,
+    $3.5\times10^{-3}$ and $3.8\times10^{-4}$ at 30, 100 and 1000 K. This
+    brackets the literature: {cite:t}`Carelli2013`'s ratio is
+    ~$4\times10^{-3}$, and a 300 K thermal neutral gives $5\times10^{-6}$,
+    the "statistical" $10^{-5}$ of Andrews+16.
+  - C$_{54}$H$_{18}$ (1.44 eV): $s_e = 1$ to $10^{-3}$ up to 3000 K, which
+    replaces the assumed value. C$_{96}$H$_{24}$ at Andrews' 0.56 eV is
+    ≥ 0.97 below 1000 K.
+  - **Impact on the baseline.** For C$_{24}$ in the CNM ($G_0 = 1$,
+    $n_{\rm H} = 30$, 100 K) the anion fraction falls from 0.40 to 0.002;
+    $f_+$ is unchanged. C$_{54}$ is unchanged.
+- **The laboratory data cannot calibrate it directly.**
+  - Every measured attachment rate is at ≥ 1 Torr (FALP, CRESU, swarms),
+    where collisions stabilise the anion. They measure the formation of the
+    transient anion, $\eta\,k_{\rm cap}$, not IR-stabilised attachment.
+  - Anthracene gives $\eta \approx$ 2–6$\times10^{-3}$ of Langevin, and C$_{60}$
+    gives $\eta \approx 1$ (Viggiano+10).
+  - Detailed balance makes $k_d \propto \eta$. So where autodetachment wins
+    (C$_{24}$ and smaller), the interstellar rate $\eta k_{\rm cap} k_{\rm IR}/
+    (\eta k_d)$ does not depend on $\eta$. Where $s_e \to 1$ (C$_{54}$,
+    C$_{96}$), the rate is $\eta k_{\rm cap}$, and $\eta = 1$ is taken from
+    C$_{60}$.
+- **Autodetachment lifetimes** (Khatymov+11, near-0 eV electrons) are a
+  consistency check, not a gate: the decays are non-exponential, and τ
+  depends on the observation window.
+  - Tetracene$^-$ (371 K): 3–5 ms against 12 ms measured.
+  - Pyrene$^-$ (391 K): 4 ns at $\eta = 1$ against 29 µs; $\eta \approx
+    2\times10^{-4}$ from its laboratory rate would bring it to ~20 µs.
 
 **M6, RAMSES tables** ({mod}`pycalima.pahchem.export_pah_tables`, export
 stage `pahchem_dissociation_tables`, solver key

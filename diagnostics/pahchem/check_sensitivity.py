@@ -34,8 +34,9 @@ def main():
     ap.add_argument("--states-dir", type=Path, default=_paths.get_model_data_dir() / "PAH_states")
     args = ap.parse_args()
     sp = PAHSpecies.from_states_file(args.states_dir / "C54H18_0.dat")
+    anion = PAHSpecies.from_states_file(args.states_dir / "C54H18_-1.dat")
 
-    results = {env.name: sensitivity("C54", sp, env) for env in (NGC7023_EDGE, ORION_BAR_ATOMIC)}
+    results = {env.name: sensitivity("C54", sp, env, anion=anion) for env in (NGC7023_EDGE, ORION_BAR_ATOMIC)}
     names = [n for n in next(iter(results.values())) if n != "baseline"]
     for env, res in results.items():
         b = res["baseline"]

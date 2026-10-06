@@ -349,7 +349,8 @@ def fig_sensitivity(args, out):
         results = json.loads(cache.read_text())
     else:
         sp = PAHSpecies.from_states_file(args.states_dir / "C54H18_0.dat")
-        results = {env.name: sensitivity("C54", sp, env) for env in (NGC7023_EDGE, ORION_BAR_ATOMIC)}
+        anion = PAHSpecies.from_states_file(args.states_dir / "C54H18_-1.dat")
+        results = {env.name: sensitivity("C54", sp, env, anion=anion) for env in (NGC7023_EDGE, ORION_BAR_ATOMIC)}
         cache.write_text(json.dumps(results, default=float, indent=1))
     dlog = lambda a, b: np.log10(max(a, 1e-30) / max(b, 1e-30))
     names = [n for n in next(iter(results.values())) if n != "baseline"]

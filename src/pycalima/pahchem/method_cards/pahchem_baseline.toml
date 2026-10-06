@@ -45,7 +45,7 @@ ip_ladder = "Andrews+16 Table A.1 + 0.1 eV per missing H"
 [electrons]
 capture = "BT94 with DS87 J~, a = 0.9 sqrt(N_C) A, x0.82"
 sticking_cation = { value = 1.0, source = "extrapolation of C6-C16 recombination data (pah_electron_recombination.csv)", confidence = "D" }
-sticking_neutral_C54 = { value = 1.0, source = "C60 attachment ~ Langevin; non-valence anion of circumcoronene (pahchem-spec.md)", confidence = "D" }
+sticking_neutral = { value = "statistical", source = "pahchem.attachment: detailed-balance autodetachment vs harmonic IR stabilisation, PAHdb parent and anion modes, EA of Andrews+16 Table A.1, neutral at its radiative P(E) at G0 = 1; C24H12 3.5e-3 at 100 K, C54H18 and C96H24 1. Capture efficiency eta = 1 (C60, Viggiano+10); where autodetachment dominates the rate does not depend on eta", confidence = "C" }
 
 [hydrogen]
 cation_addition = { value = 1.4e-10, unit = "cm^3 s^-1", source = "Betts+06 coronene+ (as Andrews+16)", confidence = "A" }
