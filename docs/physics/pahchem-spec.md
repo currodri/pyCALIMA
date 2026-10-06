@@ -582,6 +582,16 @@ Open items:
 - **Cluster bins.** The cluster approach in pyCALIMA needs revision before
   its bins can get pahchem tables. PAHdb has theoretical cluster data
   (`pahdb-complete-clusters_theoretical`), including for C$_{24}$H$_{12}$.
+- **Precision floor of the network solve** (found 2026-10-05).
+  - Populations below ~$10^{-16}$ of the peak are rounding noise in any
+    double-precision global solve. Both the sparse and a banded solve leave
+    local balance residuals of order 1 there.
+  - So where the bare fraction $f(Z, N_{\rm H} = 0)$ should be far smaller
+    (low $G_0$ or high $n_{\rm H}$), the table holds noise at
+    ~$10^{-16}\,k_{\rm C_2}$ or the −100 floor. The physical rates there
+    are negligible (destruction times $\gg$ a Hubble time), but the corner
+    is non-monotonic.
+  - Fix: solve the chain in log space or by ratio recursion from the peak.
 - **Gate not yet run.** The planned gate is an end-to-end check: the
   `calima-run` rates with `photolysis_model = "pahchem"` should match the
   engine, followed by a RAMSES single-cell test.
