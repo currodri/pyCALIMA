@@ -333,9 +333,60 @@ C$_{48}$H$_{20}^+$. Their Zenodo record is bundled as
   - Switching from Jochims moves $f_+$ by ≤ 0.011 and $f_{\rm dehydro}$ by
     ≤ 0.08 dex (C$_{54}$ and C$_{96}$, NGC 7023 and the Orion Bar).
 
+**M3d: recurrent fluorescence (RF) is in** (2026-10-06;
+`cooling.recurrent_fluorescence_rates`, `CascadeModel(electronic=...)`,
+`tests/test_pahchem_recurrent_fluorescence.py`).
+- **The rate.** $k_n(E) = 0.667\,\tilde\nu_n^2 f_{0n}\,\rho(E-E_n)/\rho(E)$
+  s$^{-1}$ ($\tilde\nu$ in cm$^{-1}$), with the excited state taking the
+  ground-state density. This is the form of Léger+88 and of
+  {cite:t}`Subramani2025`; the degeneracies cancel through the absorption
+  oscillator strength.
+  - The levels are radiative down-jumps of the cascade, so the steady state,
+    the per-photon yields and the Monte Carlo all include them.
+- **Gates:**
+  - detailed balance $\langle k_n\rangle_T = A_n (g_n/g_0) e^{-E_n/kT}$ to
+    $2\times10^{-3}$ at 600–2000 K;
+  - energy closure with the optical channel;
+  - the Monte Carlo dissociation yield.
+- **Against {cite:t}`Borja2026`** (Fig. 8: Np$^+$, An$^+$, Py$^+$; their
+  Table I gaps and $f$, PAHdb cation modes; method card `borja2026.toml`):
+
+  | States | Agreement at 4–13 eV |
+  |---|---|
+  | Allowed (D2, D3) | within 0.18 dex |
+  | Forbidden D1 (pure Herzberg–Teller) | −0.14 to +0.49 dex |
+
+  Their full treatment adds the excited states' own modes, Duschinsky
+  rotation and the Herzberg–Teller dipoles.
+- **In the baseline** (`baseline.RF_LEVELS`, `Params.recurrent_fluorescence`,
+  default on):
+  - **The levels.** C$_{24}$H$_{12}^+$ uses the bands of the bundled
+    {cite:t}`Malloci2007` TD-DFT cross section below 3.2 eV: (0.60 eV,
+    $f$ = 0.0018), (1.70, 0.062), (2.10, 0.026) and (2.85, 0.086).
+    - These are equilibrium-geometry values. Subramani+25 and Stockett+23
+      find that equilibrium $f$ underestimates measured RF, so these are a
+      lower bound.
+  - **Coverage.** No data exist for the C$_{54}$ and C$_{96}$ cations or
+    for dications (T3 requests), so RF is off there. Neutrals have no
+    low-lying excited states and get no RF. RF is not applied to the bare
+    skeleton's carbon loss.
+  - **Effects at the NGC 7023 edge:**
+    - the C$_{24}$H$_{12}^+$ H-loss rate falls 3.1× (2× at the Orion Bar,
+      where the absorption is multiphoton);
+    - fully hydrogenated C$_{24}$H$_{12}^+$ sends 49 % of its absorbed power
+      out as RF photons (59 % at the Orion Bar);
+    - its 3.29/6.2 falls from 0.063 to 0.036.
+    - The family's dehydrogenated fraction does not move: C$_{24}$ is fully
+      dehydrogenated in these environments through its neutrals.
+  - **Cost.** RF widens the cascade's band from 16 to 115 bins, so a cation
+    solve takes 0.66 s instead of 0.09 s (C$_{24}$, de = 200 cm$^{-1}$). This
+    is worth optimising before the C$_{24}$ RAMSES tables are regenerated.
+- **Not yet done:** a storage-ring benchmark. The measured cooling rates
+  (Martin+13 anthracene$^+$, Bernard+23 tetracene$^+$, Subramani+25
+  C$_{12}$H$_8^+$) need a decay-curve model and the authors' inputs, which
+  are behind paywalls. No RF measurement exists for coronene$^+$.
+
 Still open:
-- recurrent fluorescence, which needs TD-DFT inputs (T3) and a storage-ring
-  benchmark;
 - **photodetachment of anions.** The baseline still uses the Jochims ramp with
   IP = EA. No laboratory yield exists for PAH anions.
 

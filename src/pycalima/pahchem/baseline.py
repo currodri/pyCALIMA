@@ -61,6 +61,8 @@ class Params:
     eley_rideal_a2: float = 0.06
     # carbon loss of the bare skeleton (a key of CARBON_LOSS)
     carbon_loss: str = "leger89"
+    # recurrent fluorescence of the charges in RF_LEVELS (H-bearing states; not the bare skeleton)
+    recurrent_fluorescence: bool = True
     # numerics
     de_cm: float = 200.0
     e_max_ev: float = 45.0
@@ -85,6 +87,13 @@ class Environment:
 #: - "c60_cage": C2 loss of C60+ (Matt+01): the slow bound if bare flakes fold into cages first.
 #: - "micelotta10b": C2H2 loss from small cations raised to a 1e8 yr lifetime (Micelotta+10b, as
 #:   Murga & Wiebe 2022 "Arrh. 2"), RRKM; not a bare-skeleton value, the fast bound (grade D).
+#: Recurrent-fluorescence levels: parent -> {Z: [(E_n [eV], f_0n)]}.
+#: C24H12+: the bands of the Malloci+07 TD-DFT cross section (malloci_coronene_cation_sigma.dat)
+#: below 3.2 eV, f integrated over 0-1, 1-2, 2-2.6, 2.6-3.2 eV, at the band peaks. Equilibrium-
+#: geometry values, which Subramani+25 find underestimate measured RF: a lower bound. No data
+#: exist yet for the C54 and C96 cations (pahchem-data-requests, T3), so RF is off there.
+RF_LEVELS = {"C24": {1: [(0.60, 0.0018), (1.70, 0.0616), (2.10, 0.0260), (2.85, 0.0858)]}}
+
 CARBON_LOSS = {
     "leger89": ("ilt", {"C": (1, 6.2e15, 7.37), "C2": (2, 3.5e17, 8.49), "C3": (3, 1.5e18, 7.97)}),
     "c60_cage": ("ilt", {"C2": (2, 5.0e19, 10.0)}),
@@ -150,12 +159,21 @@ class BaselineModel:
             return self.species.stripped(nh)
         return self.species
 
-    def _cascade(self, nh):
+    def rf_levels(self, z):
+        """Recurrent-fluorescence levels [(E_n cm^-1, f)] of charge z, or () (``RF_LEVELS``)."""
+        if not self.p.recurrent_fluorescence:
+            return ()
+        return tuple((e * dos.CM_PER_EV, f) for e, f in RF_LEVELS.get(self.parent, {}).get(z, ()))
+
+    def _cascade(self, nh, z=None):
+        """Cascade of state N_H; with ``z``, including that charge's RF levels."""
         sp = self._modes(nh)
-        key = sp.n_modes if self.p.modes == "stripped" else "parent"
+        levels = self.rf_levels(z) if z is not None else ()
+        key = (sp.n_modes if self.p.modes == "stripped" else "parent", levels)
         if key not in self._cm:
             cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a * self.p.ir_scale,
-                                        e_max_cm=self.p.e_max_ev * dos.CM_PER_EV, de_cm=self.p.de_cm)
+                                        e_max_cm=self.p.e_max_ev * dos.CM_PER_EV, de_cm=self.p.de_cm,
+                                        electronic=levels)
             E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
             self._cm[key] = (sp, cm, E, counts, {})
         return self._cm[key]
@@ -206,7 +224,7 @@ class BaselineModel:
             for nh in self.nh_values:
                 y, h = self._absorption(field, sigma, z, nh)
                 ch = self._channels(nh, z)
-                rec = dict(self._cascade(nh)[1].steady_state(E_PH, h, ch).rates) if ch else {}
+                rec = dict(self._cascade(nh, z)[1].steady_state(E_PH, h, ch).rates) if ch else {}
                 rec["ion"] = photo.ionisation_rate(field, sigma, y, E_PH)
                 out[(z, nh)] = rec
         return out
@@ -316,6 +334,7 @@ PERTURBATIONS = {
     "mode set: stripped per state": ({"modes": "stripped"}, None),
     "UV cross section x0.5 / x2": ({"sigma_scale": 0.5}, {"sigma_scale": 2.0}),
     "IR cooling x1 / x3 (RF proxy)": (None, {"ir_scale": 3.0}),
+    "recurrent fluorescence off": ({"recurrent_fluorescence": False}, None),
     "ionisation yield: Le Page": ({"yield_model": "lepage"}, None),
     "cation ionisation yield: Jochims": ({"yield_cation": "jochims"}, None),
     "ionising photons heat": ({"ionising_photons_heat": True}, None),

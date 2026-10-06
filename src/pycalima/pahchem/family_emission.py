@@ -105,14 +105,21 @@ class FamilyEmission:
         return sp.stripped(n) if kind == "stripped" else sp
 
     def _cascade(self, z, nh):
-        key = self._mode_key(z, nh)
+        levels = self.model.rf_levels(z)
+        key = self._mode_key(z, nh) + (levels,)
         if key not in self._cascades:
             sp = self.state_species(z, nh)
-            self._cascades[key] = (sp, energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, self.e_max_cm, self.de_cm))
+            self._cascades[key] = (sp, energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, self.e_max_cm,
+                                                              self.de_cm, electronic=levels))
         return self._cascades[key]
 
     def state_emission(self, env):
-        """{(Z, N_H): (freqs_cm, band photon rates R_i [s^-1], absorbed heating power [cm^-1 s^-1])}."""
+        """{(Z, N_H): (freqs_cm, IR band photon rates R_i [s^-1], absorbed heating power,
+        power carried off by recurrent fluorescence [cm^-1 s^-1])}.
+
+        IR plus RF power equals the absorbed power; the RF levels are the
+        baseline's (``BaselineModel.rf_levels``).
+        """
         field = env.field()
         out = {}
         for z in self.model.charges:
@@ -121,7 +128,9 @@ class FamilyEmission:
                 sp, cm = self._cascade(z, nh)
                 _, h = self.model._absorption(field, sigma, z, nh)
                 ss = cm.steady_state(E_PH, h, {})
-                out[(z, nh)] = (sp.freqs_cm, emission.steady_state_emission(cm, ss), ss.absorbed_power)
+                rates = emission.steady_state_emission(cm, ss)
+                rf_power = float(cm.freqs_cm[cm.n_ir:] @ rates[cm.n_ir:])
+                out[(z, nh)] = (sp.freqs_cm, rates[:cm.n_ir], ss.absorbed_power, rf_power)
         return out
 
     def fractions(self, env, photo_rates=None):
@@ -143,7 +152,7 @@ class FamilyEmission:
         for key, w in f.items():
             if w <= 0.0:
                 continue
-            freqs, rates, p_abs = states[key]
+            freqs, rates, p_abs, _ = states[key]
             s += w * emission.spectrum(freqs, freqs * rates, grid_cm, fwhm_cm, shift_cm)
             absorbed += w * p_abs
         return s, absorbed
