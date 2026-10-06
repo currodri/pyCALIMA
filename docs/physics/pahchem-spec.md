@@ -1032,6 +1032,63 @@ figure `family_emission`).
   temperature-dependent band shifts and widths; the comparison with
   observations (M7c).
 
+**M7c, first comparison with the PDRs4All Orion Bar** (2026-10-06;
+`diagnostics/pahchem/compare_pdrs4all.py`, observed ratios in
+`pdrs4all_orionbar_band_ratios.csv`).
+- **Observed.** The Van De Putte+25 combined templates were measured here
+  with one recipe: Chown+24 continuum anchors, then windows (Khan+26 for
+  6.2–11.2 µm). No per-template mid-IR fluxes are published. 3.4/3.29 is
+  taken from Peeters+24 (Gaussian decomposition).
+- **Model.** The baseline C$_{54}$ and C$_{96}$ families (charge ladders,
+  super-H modes, RF) under a 40 000 K Kurucz field, measured with the same
+  windows. No per-template conditions are published, so the environments are
+  representative:
+
+  | Template | $G_0$ | $n_{\rm H}$ (cm$^{-3}$) | $T$ (K) | $n_e = 1.4\times10^{-4}\,n_{\rm H}$ (cm$^{-3}$) |
+  |---|---|---|---|---|
+  | Atomic PDR | $4\times10^4$ | $5\times10^4$ | 700 | 7 |
+  | DF | $3\times10^3$ | $10^5$ | 500 | 14 |
+
+- **Scorecard:**
+
+  | Ratio | Observed atomic PDR | Observed DF1–3 | Model DF (C$_{96}$ / C$_{54}$) | Model atomic PDR (C$_{96}$ / C$_{54}$) |
+  |---|---|---|---|---|
+  | 6.2/11.2 | 0.96 | 0.91–1.03 | 1.03 / 0.79 | 16 / 36 |
+  | 7.7/11.2 | 2.16 | 1.9–2.4 | 1.4 / 1.3 | 27 / 38 |
+  | 8.6/11.2 | 0.87 | 0.60–0.88 | 0.84 / 0.48 | 17 / 9 |
+  | 11.0/11.2 | 0.12 | 0.07–0.10 | 0.10 / 0.06 | 0.66 / 0.50 |
+  | 12.7/11.2 | 0.52 | 0.56–0.59 | 0.23 / 0.20 | 0.77 / 0.53 |
+  | 3.3/11.2 | 0.29 | 0.31–0.35 | 0.37 / 0.90 | 0.33 / 0.83 |
+  | 3.4/3.29 | 0.09 | 0.10–0.18 | 0.19 / 0.18 | 0.03 / 0.03 |
+
+- **What fails, in order:**
+  1. **The atomic PDR is over-ionised** (cation fraction 0.95–0.98; C$_{54}$
+     also 71 % dehydrogenated), so its C–C/C–H ratios are 15–40× too high.
+     - It comes from the assumed $\gamma = G_0\sqrt{T}/n_e \approx 10^5$.
+       The observed 6.2/11.2 needs $\gamma \approx 5\times10^3$–$10^4$
+       ($n_e \approx 100$–200 cm$^{-3}$), and Maragkoudakis+26 infer
+       $\gamma = 5.5\times10^4$.
+     - The model's charge balance itself is close to theirs: $f_+ = 0.5$
+       at $\gamma \approx 1.2$–$2\times10^4$, against $n_+/n_0 = 1$ at
+       $2.7\times10^4$.
+  2. **The ratios are far too charge-sensitive.** A compact cation has
+     6.2/11.2 ≈ 5–6 against 0.34 for the neutral, a 15× contrast. So at
+     matched $\gamma$ the model is still 3–4× high, while the observed ratio
+     varies only ~1.5× across the Bar. A size and structure mix (irregular
+     edges, more PAHs with solo H) would damp the contrast; two compact
+     parents cannot.
+  3. **The intrinsic band strengths are off.** 7.7 is too weak relative to
+     6.2 (6.2/7.7 = 0.6–0.95 against 0.43–0.57). 12.7/11.2 is 2.5× too low
+     in the DFs: C$_{54}$/C$_{96}$ have only solo and duo H and no trio.
+  4. **3.3/11.2** is right for C$_{96}$ and 3× too high for C$_{54}$, so it
+     tracks size as expected; the observed values sit between the two.
+  5. **3.4/3.29 rises from the PDR to the DFs as observed** (0.03 to 0.18–0.33
+     against 0.09 to 0.10–0.18), here through super-hydrogenation.
+     Chown+24 and Pasquini+24 argue the Bar's 3.4 band is methyl groups,
+     not super-H.
+- **What matches.** The DF ratios with C$_{96}$ are within ~1.5×, except
+  12.7/11.2.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
