@@ -194,7 +194,8 @@ def test_thermal_energy_matches_tielens_table_per_mode(pah_states):
     """Tielens (2005) E-T relation for circumcoronene is energy per mode.
 
     The legacy pah_temperature.py scaled it by N_C (54) instead of the number
-    of modes (210). Measured agreement with U(T)/(3N-6): 2-7 %.
+    of modes (210). Measured: U(T)/(3N-6) is 1-12 % below the table (it was
+    2-7 % with the legacy loader's double-scaled frequencies, 2.1 % too low).
     """
     from pycalima._paths import get_external_data_path
 
@@ -203,7 +204,7 @@ def test_thermal_energy_matches_tielens_table_per_mode(pah_states):
         "E-Trelation_neutral_circumcoronene_Tielens2005.csv"), delimiter=",")
     T, e_per_mode_ev = table[table[:, 0] >= 150.0].T
     ours = dos.thermal_energy(sp.freqs_cm, T) / sp.n_modes / dos.CM_PER_EV
-    assert np.all(np.abs(ours / e_per_mode_ev - 1.0) < 0.10)
+    assert np.all(np.abs(ours / e_per_mode_ev - 1.0) < 0.13)
 
 
 # ===========================================================================
@@ -282,12 +283,27 @@ def test_rrk_tends_to_the_prefactor():
     assert rates.rrk(1e12, 100, 3e16, 4.6 * EV) == pytest.approx(3e16, rel=1e-4)
 
 
-def test_effective_temperature_form_matches_legacy(pah_states):
-    """Same physics as models.PAH_photophysics.pah_mol_data."""
+def _legacy_modes_file(path, tmp_path):
+    """A copy of a PAHdb mode file with SCALE = 1, so that the legacy loader (which
+    multiplies the already-scaled FREQUENCY by SCALE again) reads the same modes."""
+    lines = []
+    for line in path.read_text().splitlines():
+        t = line.split()
+        if t and line.lstrip()[0] not in "\\|" and len(t) >= 4:
+            t[3] = "1.0000"
+            line = " ".join(t)
+        lines.append(line)
+    out = tmp_path / path.name
+    out.write_text("\n".join(lines) + "\n")
+    return out
+
+
+def test_effective_temperature_form_matches_legacy(pah_states, tmp_path):
+    """Same physics as models.PAH_photophysics.pah_mol_data, on the same modes."""
     from pycalima.models.PAH_photophysics.pah_mol_data import compute_rrkm_dissociation_rate
 
-    path = pah_states / "C54H18_0.dat"
-    sp = PAHSpecies.from_states_file(path)
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    path = _legacy_modes_file(pah_states / "C54H18_0.dat", tmp_path)
     for e_ev in (6.0, 10.0, 20.0):
         ours = rates.arrhenius_effective_temperature(sp.freqs_cm, e_ev * EV, 4.6 * EV, 44.8)
         assert ours == pytest.approx(compute_rrkm_dissociation_rate(str(path), e_ev, 4.6, 44.8), rel=1e-5)
@@ -313,14 +329,21 @@ def test_montillaud13_fig3_coronene(pah_states):
     assert np.ptp(dex) < 0.2, dex                  # shape: offset, not slope
 
 
-@pytest.mark.parametrize("name", ["C24H12", "C54H18", "C96H24"])
+_C96_FIG5 = pytest.mark.xfail(strict=True, reason=(
+    "C96H24 sits uniformly ~0.4 dex above Andrews+16 Fig. 5 (median 0.37 H loss, 0.32 H2 loss). It was "
+    "~0.2 dex with the legacy loader's double-scaled frequencies, which were 2.1 % too low by accident. "
+    "PAHdb v2.00 modes (B3LYP/4-31G x 0.958, the level the card states) give 0.03-0.06 dex more, so the mode "
+    "set is not the cause; their C96 T(E) or modes are not published."))
+
+
+@pytest.mark.parametrize("name", ["C24H12", "C54H18", pytest.param("C96H24", marks=_C96_FIG5)])
 @pytest.mark.parametrize("channel, E_act, dS", [("H-loss", 4.6, 44.8), ("H2-loss", 3.52, -53.1)])
 def test_andrews16_fig5_rates(pah_states, name, channel, E_act, dS):
     """Andrews+16 Table 2 parameters with the T_e form, against Fig. 5.
 
     Points within 1.5 eV of E_act are dropped: the curves are steep there and
-    a small digitising error in E is a large one in k. Measured elsewhere:
-    median |dex| <= 0.22 (C96 sits uniformly ~0.2 dex high), max 0.51.
+    a small digitising error in E is a large one in k. Measured elsewhere
+    (C24, C54): median |dex| 0.05-0.17, max 0.58, at the threshold end.
     """
     from pycalima._paths import get_external_data_path
 
@@ -329,7 +352,7 @@ def test_andrews16_fig5_rates(pah_states, name, channel, E_act, dS):
     d = d[d[:, 0] > E_act + 1.5]
     k = rates.arrhenius_effective_temperature(sp.freqs_cm, d[:, 0] * EV, E_act * EV, dS)
     dex = np.abs(np.log10(k / d[:, 1]))
-    assert np.median(dex) < 0.25 and dex.max() < 0.55, np.round(dex, 2)
+    assert np.median(dex) < 0.25 and dex.max() < 0.6, np.round(dex, 2)
 
 
 # ===========================================================================
@@ -566,12 +589,12 @@ def test_steady_state_reduces_to_single_photon_yields_at_low_g0(toy_cascade):
         assert ss.rates["X"] <= np.trapezoid(h, E_PH)
 
 
-def test_cooling_tends_to_the_thermal_approximation(pah_states):
+def test_cooling_tends_to_the_thermal_approximation(pah_states, tmp_path):
     """Measured for C24H12: P_micro/P_thermal = 0.95 at 1 eV, 0.999 at 40 eV."""
     from pycalima.models.PAH_photophysics.pah_mol_data import compute_thermal_ir_rate
 
-    path = pah_states / "C24H12_0.dat"
-    sp = PAHSpecies.from_states_file(path)
+    sp = PAHSpecies.from_states_file(pah_states / "C24H12_0.dat")
+    path = _legacy_modes_file(pah_states / "C24H12_0.dat", tmp_path)
     E, counts = dos.beyer_swinehart(sp.freqs_cm, 41.0 * EV, 2.0)
     at = np.array([1.0, 3.0, 8.0, 20.0, 40.0]) * EV
     micro = cooling.cooling_rate(sp.freqs_cm, cooling.mode_emission_rates(

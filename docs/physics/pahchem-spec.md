@@ -130,6 +130,26 @@ for figure comparisons.
 
 ### Status
 
+**Correction: mode frequencies (2026-10-06).** PAHdb stores its frequencies
+already scaled; the SCALE column only records the factor that was applied.
+- Coronene's duo C–H out-of-plane bend is 861.4 cm$^{-1}$ in PAHdb v4.00,
+  against 857 in matrix isolation.
+- The legacy loader `pah_mol_data.load_pah_modes`, which
+  `PAHSpecies.from_states_file` used until this date, multiplies by SCALE a
+  second time. So every PAHdb mode in pahchem was 2.1 % too low (C–H
+  stretches 4.0 %), and every Einstein A 4–8 % too low.
+- `PAHSpecies.from_states_file` now parses the files itself. The legacy
+  loader is unchanged and still double-scales.
+- What moved: the gates of this ladder were re-run. Those that moved:
+  - the Tielens E–T table, 2–7 % → 1–12 %;
+  - Andrews Fig. 5 C$_{96}$, now a strict xfail;
+  - coronene sticking, −30 %.
+
+  Every other test passed unchanged within its recorded tolerance. Numbers in
+  this page measured before the correction and not re-quoted here (the
+  sensitivity ranking, the M5 offsets, the M6 spot check) carry that ~2 %
+  frequency error.
+
 **M1 (statistical mechanics) passes** (`tests/test_pahchem.py`;
 {mod}`pycalima.pahchem.dos`, {mod}`pycalima.pahchem.molecule`):
 
@@ -145,7 +165,8 @@ for figure comparisons.
   $\approx 1.1/s$ at 20 eV for C$_{24}$H$_{12}$, C$_{54}$H$_{18}$ and
   C$_{96}$H$_{24}$, as the classical $1/(s-1)$ predicts.
 - **Thermal energy vs Tielens:** $U(T)/(3N-6)$ for C$_{54}$H$_{18}$ matches
-  the Tielens E–T table to 2–7 %, which confirms that the table is energy per
+  the Tielens E–T table to 1–12 % (it was 2–7 % before the frequency
+  correction above), which confirms that the table is energy per
   mode.
 
 **M2 (unimolecular rates): level 0–1 passes; the laboratory gates are
@@ -169,10 +190,16 @@ What passes:
   $E_0 = 4.8$ eV). The curve is matched to within a near-constant −0.11 to
   −0.26 dex. The offset is expected: they used Malloci modes, we use PAHdb
   neutral modes.
-- **Andrews Fig. 5** (H and H$_2$ loss, C$_{24}$, C$_{54}$, C$_{96}$). The
-  median $|\Delta| \le 0.22$ dex and the maximum is 0.51 dex, at more than
-  1.5 eV above threshold. C$_{96}$ sits uniformly ~0.2 dex high. The values
-  agree with the legacy `pah_mol_data` to $10^{-6}$ dex.
+- **Andrews Fig. 5** (H and H$_2$ loss, C$_{24}$, C$_{54}$, C$_{96}$), more
+  than 1.5 eV above threshold:
+  - C$_{24}$ and C$_{54}$: median $|\Delta|$ = 0.05–0.17 dex, maximum 0.58.
+  - C$_{96}$ sits uniformly ~0.4 dex high (strict xfail). It was ~0.2 dex
+    before the frequency correction, an accident of modes that were 2.1 %
+    too low.
+  - PAHdb v2.00 modes (B3LYP/4-31G × 0.958, the level the card states) give
+    0.03–0.06 dex more, so the mode version is not the cause.
+  - On the same modes the values agree with the legacy `pah_mol_data` to
+    $10^{-6}$ dex.
 
 The same $(E_0, \Delta S)$ gives very different $k(E)$ depending on the form.
 For coronene H loss ($E_0 = 4.6$ eV, $\Delta S = 44.8$ J K$^{-1}$
@@ -585,16 +612,16 @@ published since. Recent models reuse a classic law plus the
 - **Results.** In the ISM the neutral sits at its radiative P(E), with
   $\langle E\rangle$ = 60 cm$^{-1}$ for coronene at $G_0 = 1$. The baseline
   takes the P(E) at $G_0 = 1$, which lowers $s_e$ by ≤ 9 % up to $10^4$.
-  - C$_{24}$H$_{12}$ (EA 0.47 eV): $s_e = 6.0\times10^{-3}$,
-    $3.5\times10^{-3}$ and $3.8\times10^{-4}$ at 30, 100 and 1000 K. This
+  - C$_{24}$H$_{12}$ (EA 0.47 eV): $s_e = 4.2\times10^{-3}$,
+    $2.5\times10^{-3}$ and $2.7\times10^{-4}$ at 30, 100 and 1000 K. This
     brackets the literature: {cite:t}`Carelli2013`'s ratio is
-    ~$4\times10^{-3}$, and a 300 K thermal neutral gives $5\times10^{-6}$,
+    ~$4\times10^{-3}$, and a 300 K thermal neutral gives $4.6\times10^{-6}$,
     the "statistical" $10^{-5}$ of Andrews+16.
   - C$_{54}$H$_{18}$ (1.44 eV): $s_e = 1$ to $10^{-3}$ up to 3000 K, which
     replaces the assumed value. C$_{96}$H$_{24}$ at Andrews' 0.56 eV is
-    ≥ 0.97 below 1000 K.
+    ≥ 0.97 at and below 1000 K.
   - **Impact on the baseline.** For C$_{24}$ in the CNM ($G_0 = 1$,
-    $n_{\rm H} = 30$, 100 K) the anion fraction falls from 0.40 to 0.002;
+    $n_{\rm H} = 30$, 100 K) the anion fraction falls from 0.40 to 0.001;
     $f_+$ is unchanged. C$_{54}$ is unchanged.
 - **The laboratory data cannot calibrate it directly.**
   - Every measured attachment rate is at ≥ 1 Torr (FALP, CRESU, swarms),

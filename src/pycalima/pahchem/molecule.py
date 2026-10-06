@@ -13,9 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pycalima.models.PAH_photophysics.pah_mol_data import load_pah_modes
-
-_HC_EV_CM = 1.23984193e-4          # h c [eV cm]
+_EINSTEIN_A_PER_KM_MOL = 1.2512e-7  # A [s^-1] = this x nu^2 [cm^-2] x I [km/mol]
 _STATES_NAME = re.compile(r"^C(\d+)(?:H(\d+))?_(-?\d+)$")
 
 
@@ -93,12 +91,31 @@ class PAHSpecies:
 
         These are the files ``models.PAH_photophysics.pah_db_lookup``
         extracts into ``model_data/PAH_states/``.
+
+        The FREQUENCY column is used as written: PAHdb stores frequencies
+        already scaled, and the SCALE column only records the factor applied
+        (coronene's duo C-H out-of-plane bend is 861.4 cm^-1 there, the
+        matrix-isolation band 857). The legacy ``pah_mol_data.load_pah_modes``
+        multiplies by SCALE again, which puts every mode 2.1 % low (C-H
+        stretches 4.0 %); it is not used here. Einstein A = 1.2512e-7 nu^2 I
+        [s^-1] for nu in cm^-1 and I in km/mol.
         """
         path = Path(path)
         m = _STATES_NAME.match(path.stem)
         if not m:
             raise ValueError(f"{path.name}: expected C<nc>[H<nh>]_<Z>.dat")
         nc, nh, charge = int(m[1]), int(m[2] or 0), int(m[3])
-        freq_ev, einstein_a = load_pah_modes(str(path))
-        return cls(nc=nc, nh=nh, charge=charge, freqs_cm=freq_ev / _HC_EV_CM,
-                   einstein_a=einstein_a, source=f"PAHdb transitions file {path.name}")
+        freq, intensity = [], []
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                tokens = line.split()
+                if not tokens or line.lstrip()[0] in "\\|":
+                    continue
+                freq.append(float(tokens[1]))
+                intensity.append(float(tokens[2]))
+        if not freq:
+            raise ValueError(f"{path.name}: no transitions")
+        freq = np.array(freq)
+        return cls(nc=nc, nh=nh, charge=charge, freqs_cm=freq,
+                   einstein_a=_EINSTEIN_A_PER_KM_MOL * freq**2 * np.array(intensity),
+                   source=f"PAHdb transitions file {path.name}")

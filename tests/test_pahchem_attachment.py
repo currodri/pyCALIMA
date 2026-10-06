@@ -57,10 +57,10 @@ def _pair(model_data, formula):
 
 
 def test_coronene_sticking_in_the_ism(model_data):
-    """C24H12 (EA 0.47 eV), neutral at its radiative P(E): s_e = 6.0e-3, 3.5e-3,
-    3.8e-4 at 30, 100, 1000 K (G0 = 1). Autodetachment wins over IR emission, so
+    """C24H12 (EA 0.47 eV), neutral at its radiative P(E): s_e = 4.2e-3, 2.5e-3,
+    2.7e-4 at 30, 100, 1000 K (G0 = 1). Autodetachment wins over IR emission, so
     s_e << 1 and falls with T; P(E) at G0 = 1e4 lowers it by 9 %. A 300 K thermal
-    neutral (a laboratory cell) gives 5e-6, as the "statistical" 1e-5 of Andrews+16."""
+    neutral (a laboratory cell) gives 4.6e-6, as the "statistical" 1e-5 of Andrews+16."""
     from pycalima.pahchem.chemistry import disc_radius_cm
 
     neutral, anion = _pair(model_data, "C24H12")
@@ -74,9 +74,9 @@ def test_coronene_sticking_in_the_ism(model_data):
                                    photo_grid)
         p = cm.steady_state(photo_grid, h, {}).probability
         s[g0] = [at.sticking(T, cm.energy_cm, p) for T in (30.0, 100.0, 1000.0)]
-    assert s[1.0] == pytest.approx([6.0e-3, 3.5e-3, 3.8e-4], rel=0.05)
+    assert s[1.0] == pytest.approx([4.2e-3, 2.5e-3, 2.7e-4], rel=0.05)
     assert np.all(np.array(s[1e4]) / s[1.0] > 0.88)
-    assert at.sticking(300.0) == pytest.approx(5.3e-6, rel=0.1)
+    assert at.sticking(300.0) == pytest.approx(4.6e-6, rel=0.1)
 
 
 def test_circumcoronene_sticks_every_electron(model_data):
