@@ -143,6 +143,11 @@ An earlier draft put H addition first.
   (Gaussian `freq=(FC,HT)` on the D$_0$/D$_n$ pair), or $f$ averaged along MD
   at 2–10 eV of vibrational energy, for at least coronene$^+$. For degenerate
   (Jahn–Teller) D$_0$ states, report the degeneracies as well.
+- **Excited states of dehydrogenated cations.** The same lowest ~10 doublet
+  (or singlet/triplet) states and $f$ for coronene$^+$ with 2, 4, 6 and 12 H
+  removed. In the model the Extended Red Emission hinges on them: coronene$^+$
+  at 1.70 eV emits at 730 nm, but the family is almost fully dehydrogenated
+  where ERE is seen ({doc}`pahchem-spec`, ERE test).
 - **UV absorption.** $\sigma(E)$ up to 13.6 eV for species not covered by
   {cite:t}`Malloci2007`: C$_{96}$H$_{24}$ and the hydrogenation ladders.
 

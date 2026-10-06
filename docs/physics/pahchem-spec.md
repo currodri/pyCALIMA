@@ -1032,6 +1032,51 @@ figure `family_emission`).
   temperature-dependent band shifts and widths; the comparison with
   observations (M7c).
 
+**The Extended Red Emission test (preliminary, 2026-10-06;
+`diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
+- **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
+  Witt & Vijh 2004):
+  - a band at 540–900 nm peaking at 600–800 nm;
+  - photon efficiency ≥ 10 % in the diffuse ISM, falling ~100× with U in
+    reflection nebulae (IC 63 4.7 %, NGC 7023 0.2–0.6 %, Orion 0.4–1.3 %);
+  - ERE/mid-IR ≲ 6 %;
+  - no emission at 350–500 nm;
+  - in NGC 7023 the ERE follows the neutrals (Berné+08), in IC 63 the
+    cations (Lai+17).
+- **The model (C$_{24}$ family):**
+  - only coronene$^+$'s 1.70 eV (730 nm) level falls in the band;
+  - C$_{54}^+$ emits at 1.18 µm and gives none, consistent with the
+    ≲ 36 C carriers of Léger+88 and Duley 09;
+  - blue/ERE ≈ 0.2–0.35 %, so no blue emission, as observed.
+
+  | Environment | Model η (per absorbed PAH heating photon) | Observed η | Model ERE/IR | Observed ERE/IR |
+  |---|---|---|---|---|
+  | Diffuse ISM | 0.35 % | ≥ 10 % | 0.08 % | – |
+  | IC 63-like ($G_0 = 650$) | 22 % | 4.7 % | 4.8 % | – |
+  | NGC 7023 edge | 9 % | 0.2–0.6 % | 2.3 % | 1.6 % (N) |
+  | Orion Bar | 100 % | 0.4–1.3 % | 29 % | ≲ 6 % |
+
+- **The verdict: the wrong trend.**
+  - Model η follows the cation fraction, so it rises with U where the
+    observed one falls. This also contradicts NGC 7023, where ERE goes with
+    the neutrals.
+  - The magnitudes are of the right order at intermediate U. The observed η
+    is per photon absorbed by all dust, so the model's would be diluted by
+    the PAH share of the absorption.
+- **It all rests on one unknown.** In these environments the C$_{24}$ family
+  is almost fully dehydrogenated, and every N$_{\rm H}$ takes the parent
+  cation's levels. With RF only for $N_{\rm H} \ge N_{\rm H0}$, η < $10^{-4}$
+  everywhere.
+  - So whether PAH-cation RF can make the ERE depends on the low-lying
+    excited states of dehydrogenated cations, which no data constrain (T3
+    request).
+  - It also depends on the baseline's coronene dehydrogenation itself.
+- **Not modelled:**
+  - the RF band shapes and their Stokes shift, so the observed peak shift
+    with U cannot be tested;
+  - cation absorption below 5 eV, which also heats;
+  - the dust share of the UV absorption.
+
 **Benchmark figures** (`diagnostics/pahchem/plot_benchmarks.py`, 2026-10-05).
 The script makes one PNG per benchmark, in `<plots dir>/pahchem/`, and runs
 the same calculations as the gated tests:
