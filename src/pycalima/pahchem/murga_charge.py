@@ -66,6 +66,40 @@ def _field(model):
     return nu, J, lam
 
 
+#: Murga+2022 Sect. 3.2: "We add photons with energy exceeding 13.6 eV, and with photon flux
+#: corresponding to an O6-type star" in the HII region (spectrum and normalisation not stated).
+EUV_STAR_TEFF = 40000          # the bundled Kurucz atmosphere closest to an O6 V star
+#: EUV scale inferred from the Figshare HII f(a, Z): the Kurucz EUV/FUV ratio, FUV matched to the
+#: field at chi = 1, times this factor (check_murga_charge.py; an inference, confidence E)
+EUV_FACTOR_HII = 4.0
+
+
+@lru_cache(maxsize=None)
+def _field_with_euv(model, euv_factor):
+    """``_field(model)`` plus the Kurucz EUV above 13.6 eV, scaled so that the
+    Kurucz 6-13.6 eV photon flux equals the field's, times ``euv_factor``."""
+    from pycalima._paths import get_external_data_path
+
+    nu, J, lam = _field(model)
+    k = np.loadtxt(get_external_data_path(f"kp00_{EUV_STAR_TEFF}"), skiprows=3)   # lambda [nm], F_lambda
+    lam_k = k[:, 0] * 1e-7
+    nu_k = C_CGS / lam_k
+    J_k = k[:, 1] * 1e7 * lam_k**2 / C_CGS / (H_CGS * nu_k)                     # photons per Hz (shape)
+    o = np.argsort(nu_k)
+    nu_k, J_k = nu_k[o], J_k[o]
+
+    def photons(n, j, e0, e1):
+        e = H_CGS * n / EV_ERG
+        m = (e >= e0) & (e <= e1)
+        return np.trapezoid(j[m], n[m])
+
+    scale = photons(nu, J, 6.0, 13.6) / photons(nu_k, J_k, 6.0, 13.6)
+    euv = H_CGS * nu_k / EV_ERG > 13.6
+    nu2 = np.concatenate([nu, nu_k[euv]])
+    J2 = np.concatenate([J, J_k[euv] * scale * euv_factor])
+    return nu2, J2, C_CGS / nu2
+
+
 @lru_cache(maxsize=None)
 def _optics(a_cm, cabs, lam_key):
     from pycalima.models.dust_charge.dust_charging import PATH_OPTICS
@@ -112,10 +146,12 @@ def _sticking(kind):
 
 
 def f_wd01(a_cm, chi, temperature_k, n_e, n_cplus=0.0, field="Draine", cabs="nPAH", z_range=None,
-           z_min="int", sticking="wd01", fold=True):
+           z_min="int", sticking="wd01", fold=True, euv_factor=0.0):
     """WD01 equilibrium charge distribution of a carbonaceous grain of radius ``a_cm``.
 
     Returns (Z, f) on Z_min..Z_max (WD01 eqs. 22-24), f normalised.
+    - ``euv_factor`` > 0 adds photons above 13.6 eV (``_field_with_euv``), as
+      Murga+2022 do in the HII region.
     - The birth-death chain is solved here, in log space, from pyCALIMA's
       rate functions (``compute_Rpe_vectorized`` with the WD01 graphite yield
       and photodetachment, ``collisional_rates_electrons_vector``,
@@ -136,7 +172,7 @@ def f_wd01(a_cm, chi, temperature_k, n_e, n_cplus=0.0, field="Draine", cabs="nPA
                                                             collisional_rates_ions_vector,
                                                             most_positive_allowed_charge)
 
-    nu, J1, lam = _field(field)
+    nu, J1, lam = _field_with_euv(field, float(euv_factor)) if euv_factor > 0 else _field(field)
     C, im_perp, im_par = _optics(float(a_cm), cabs, tuple(lam))
     params = {"material": "graphite", "W": graphite_work_function, "le": electron_escape_length,
               "Imperp": im_perp, "Impar": im_par, "wav": lam}

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from pycalima.pahchem import murga_charge as C
+from pycalima.pahchem import murga_data as M
 
 
 def _dataset(name):
@@ -86,11 +87,42 @@ def test_m22_requires_unit_electron_sticking():
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "M22 HII points: <Z> -0.97 median below the Figshare f. M22 add EUV photons from an O6 star "
-    "there (Sect. 3.2) with no stated spectrum; f_wd01 stops at 13.6 eV."))
+    "M22 HII points without EUV: <Z> -0.97 median below the Figshare f. M22 add photons above 13.6 eV "
+    "'with photon flux corresponding to an O6-type star' there (Sect. 3.2), spectrum and normalisation "
+    "not stated; with them the HII f is reproduced (test_m22_hii_region_with_o6_euv)."))
 def test_m22_hii_region():
     t = _m22()
     assert abs(t[t.region == "HII"].dz.median()) < 0.1
+
+
+def test_m22_hii_region_with_o6_euv():
+    """With the EUV of a 40 000 K Kurucz atmosphere above 13.6 eV, matched to the field
+    at 6-13.6 eV and scaled by EUV_FACTOR_HII = 4 (the one inferred number), every size
+    up to 14.2 A has median <Z> within 0.06 of the Figshare f in the HII region
+    (19.9 A +0.20, 50 A +0.52; max |df| 0.11). One factor fitting all sizes is the
+    test: the sizes respond to the EUV very differently. A lower n_e cannot do it
+    (n_e/8 leaves 19.9 A at -1.1 while n_e/16 puts 6-12 A at +0.3-0.4)."""
+    import pandas as pd
+
+    from pycalima._paths import get_external_data_path
+
+    _dataset("murga2022-figshare")
+    d = M.read_model_2022("b")
+    p = pd.read_csv(get_external_data_path("pahchem/murga2022_fig6_profile.csv"), comment="#")
+    order = np.argsort(d["z"])
+    zg = d["z"][order].astype(int)
+    hii = np.where(p.chi.to_numpy() >= 3.99e4)[0]
+    for m, a in enumerate(d["a_cm"]):
+        if a > 1.5e-7:
+            continue
+        dz = []
+        for loc in hii:
+            Z, f = C.f_wd01(a, p.chi[loc], p.t_gas[loc], p.n_e[loc], z_range=C.Z_GRID_2022,
+                            euv_factor=C.EUV_FACTOR_HII, **C.MURGA2022)
+            fm = d["f"][loc, :, 0, 0, m][order]
+            dz.append(float(Z @ f - zg @ fm))
+            assert np.abs(f - fm).max() < 0.15
+        assert abs(np.median(dz)) < 0.1, (a, np.median(dz))
 
 
 # --- gate 2: Murga+2020 Fig. 3 --------------------------------------------------

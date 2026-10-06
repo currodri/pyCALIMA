@@ -623,20 +623,28 @@ def fig_murga2022_charge(args, out):
     _checks()
     import check_murga_charge as CC
 
+    from pycalima.pahchem import murga_charge as C
+
     t = CC.m22_table()
     p = pd.read_csv(EXT("pahchem/murga2022_fig6_profile.csv"), comment="#")
     t["distance"] = p.distance_arcsec.to_numpy()[t["loc"].to_numpy()]
+    hii = p.chi.to_numpy() >= 3.99e4
     fig, ax = plt.subplots(figsize=(9, 5.5))
     for i, a in enumerate((3.3, 5.0, 7.8, 11.7, 19.9)):
         g = t[np.isclose(t.a_A, a)].sort_values("distance")
         ax.plot(g.distance, g.z_murga, color=f"C{i}", lw=4, alpha=0.35, label=f"Murga+22 Figshare, a = {a} A")
         ax.plot(g.distance, g.z_ours, "--", color=f"C{i}", label=f"pahchem (WD01, inferred config.), a = {a} A")
+        h = g[hii[g["loc"].to_numpy()]]
+        z_euv = [float(np.dot(*C.f_wd01(a * 1e-8, p.chi[l], p.t_gas[l], p.n_e[l], z_range=C.Z_GRID_2022,
+                                        euv_factor=C.EUV_FACTOR_HII, **C.MURGA2022))) for l in h["loc"]]
+        ax.plot(h.distance, z_euv, "o", ms=3, color=f"C{i}")
+    ax.plot([], [], "o", ms=3, color="0.3", label=f"HII with O6 EUV (Kurucz 40 kK x {C.EUV_FACTOR_HII:g})")
     for x, lab in ((113, "IF"), (130, "DF")):
         ax.axvline(x, color="0.6", lw=0.8)
         ax.text(x + 0.5, ax.get_ylim()[1] * 0.9, lab, fontsize=7, color="0.4")
     ax.set_xlabel("distance [arcsec]")
     ax.set_ylabel("$\\langle Z \\rangle$")
-    ax.set_title("Murga+2022: WD01 charge along the Orion Bar (HII region: EUV not modelled)", fontsize=9)
+    ax.set_title("Murga+2022: WD01 charge along the Orion Bar (dots: HII region with the O6 EUV added)", fontsize=9)
     ax.legend(fontsize=6, ncol=2)
     _save(fig, out, "murga2022_charge")
 

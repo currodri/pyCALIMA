@@ -56,6 +56,7 @@ chi_surface = { value = 4.4e4, unit = "Draine 1978 field, 91.2-200 nm", source =
 chi_hii_figshare = { value = 4.0e4, unit = "chi (Figshare header, locations in the HII region)", source = "Figshare result files", confidence = "C" }
 chi_definition_sect2 = "Sect. 2.1 describes the Orion Bar field as MMP83 scaled by chi, mean photon energy ~6 eV; which unit chi has in the PAH evolution is not stated (MARION uses Draine)"
 euv_added = "photons above 13.6 eV with the flux of an O6 star added for the HII-region points, because Kirsanova & Wiebe 2019 excluded them (Sect. 3.2); spectrum and normalisation not stated"
+euv_inferred = "the Figshare HII f(a, Z) is reproduced (median <Z> within 0.06 for a <= 14.2 A, max |df| 0.11) by a Kurucz 40000 K EUV above 13.6 eV, matched to the field at 6-13.6 eV and scaled x4 (pahchem.murga_charge.EUV_FACTOR_HII); one factor fits all ten sizes, which a lower n_e cannot. Inference, confidence E"
 attenuation = "from MARION: tau(5000 A) of the drifting dust distribution, A_V/N_H = 5.3e-22 cm^2 for the initial dust (Kirsanova & Wiebe 2019, Sect. 2); PAH evolution uses chi(position) only"
 spectral_shape_vs_depth = "not stated"
 chi_iso_slit = { value = 1.0e4, unit = "chi", source = "Sect. 2.1, item 3 (from Goicoechea+2015 FIR map)", confidence = "C" }

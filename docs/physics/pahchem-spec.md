@@ -819,8 +819,18 @@ on pyCALIMA's WD01 rate functions.
     - no C$^+$ collisions;
     - WD01 eq. 24 $Z_{\rm min}$ truncated as printed;
     - the chain truncated at $Z = -2..9$.
-  - **H II region:** −0.97 (strict xfail). The EUV of an O6 star is added
-    there with no stated spectrum.
+  - **H II region:** −0.97 without EUV (strict xfail). M22 Sect. 3.2 adds
+    photons above 13.6 eV "with photon flux corresponding to an O6-type
+    star", without stating the spectrum or the normalisation; our field
+    stopped at 13.6 eV.
+    - With a Kurucz 40 000 K EUV, matched at 6–13.6 eV and scaled ×4 (the
+      one inferred number), every size up to 14.2 Å is within 0.06 in ⟨Z⟩
+      (max $\lvert\Delta f\rvert$ 0.11; gate
+      `test_m22_hii_region_with_o6_euv`).
+    - One factor fitting all ten sizes is a real test, since the sizes
+      respond very differently to EUV. A lower $n_e$ alone cannot fit them
+      all: $n_e/8$ leaves 19.9 Å at −1.1, while $n_e/16$ puts 6–12 Å at
+      +0.3–0.4.
 - **M20 Fig. 3** (66 integer ⟨Z⟩): 48/66 with M22's configuration and at
   best 57/66 (strict xfail).
   - The Horsehead C$_{66}$H$_{20}$ anion needs the floor $Z_{\rm min}$,
