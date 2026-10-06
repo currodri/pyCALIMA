@@ -177,3 +177,26 @@ An earlier draft put H addition first.
   Their Table B is reproduced only if they are, and their Fig. 7
   hydrogenation needs a $k_{\rm IR}$ in eq. 8 ~$10^3$ smaller than the
   cooling-path value ({doc}`pahchem-spec`, M5).
+- **Murga/Wiebe:** for {cite:t}`Murga2020` and {cite:t}`Murga2022` (SHIVA);
+  each item is a strict xfail or an inferred choice in {doc}`pahchem-spec`, M5:
+  - the O6-star EUV added above 13.6 eV in the H II region of Murga+2022
+    (Sect. 3.2): which spectrum, and how it is normalised. Their H II charges
+    are reproduced with a 40 000 K Kurucz EUV matched at 6–13.6 eV and scaled
+    ×4; the factor of 4 is our inference;
+  - which $p(E)$ reading SHIVA uses, and whether it changed between the
+    papers: Murga+2020 Fig. 4 needs the time-averaged one, the Murga+2022
+    Figshare chains the post-absorption one;
+  - whether the H, H$_2$ and C$_2$H$_2$ channels compete (as in Murga+2019
+    eq. B2) or are independent;
+  - how the super-H threshold is applied when $N_{\rm H}$ is real-valued
+    (Murga+2020 Fig. 4 needs a super-H contribution $10^2$–$10^4$× below
+    eq. 6 as printed);
+  - the H-addition and super-H loss rates of Murga+2022, under which PAHs
+    $\ge$ 6 Å stay normally hydrogenated (with the Murga+2020 rates they end
+    60–90 % super-hydrogenated);
+  - the charge settings: the electron sticking coefficient, the
+    $Z_{\rm min}$ rounding, C$^+$ collisions, and the $\chi$ field shape.
+    The Murga+2022 files imply $s_e = 1$, eq. 24 truncated and no ions,
+    but Murga+2020 Fig. 3 needs the floor $Z_{\rm min}$;
+  - the $T(E)$ relation of Murga & Wiebe 2022, which behaves like Tielens'
+    rather than the DL01 relation of Murga+2020/2022.
