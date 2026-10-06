@@ -12,7 +12,8 @@ and their sources are in ``method_cards/pahchem_baseline.toml``.
 - **Cascade.** The microcanonical IR cascade and multiphoton steady state of
   ``energy_me``, **with** dissociation sinks: rates are physical, at most
   r_abs.
-- **Absorption.** Li & Draine sigma per charge; Jochims+96 yields; ionising
+- **Absorption.** Li & Draine sigma per charge; Jochims+96 yields, except
+  cation -> dication with Wenzel+20 where it applies (N_C >= 32); ionising
   photons deposit nothing.
 - **Charge and H chemistry.** Table A.1 IP/EA of Andrews+16 with 0.1 eV per
   missing H; BT94 electron capture with the literature-default sticking
@@ -49,6 +50,7 @@ class Params:
     sigma_scale: float = 1.0
     ir_scale: float = 1.0                    # proxy for recurrent fluorescence / anharmonic cooling
     yield_model: str = "jochims"             # or "lepage"
+    yield_cation: str = "wenzel"             # Z = +1 where Wenzel+20 applies (N_C >= 32, IP2 < 11.3); or "jochims"
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
@@ -166,6 +168,8 @@ class BaselineModel:
         ip = self.ionisation_energy(z, nh)
         if ip is None or ip >= 13.6:
             y = np.zeros_like(E_PH)
+        elif z == 1 and self.p.yield_cation == "wenzel" and self.nc >= 32 and ip < 11.3:
+            y = photo.yield_wenzel2020(E_PH, ip, self.nc)
         elif self.p.yield_model == "lepage":
             y = photo.yield_lepage2001(E_PH, ip)
         else:
@@ -254,6 +258,7 @@ PERTURBATIONS = {
     "UV cross section x0.5 / x2": ({"sigma_scale": 0.5}, {"sigma_scale": 2.0}),
     "IR cooling x1 / x3 (RF proxy)": (None, {"ir_scale": 3.0}),
     "ionisation yield: Le Page": ({"yield_model": "lepage"}, None),
+    "cation ionisation yield: Jochims": ({"yield_cation": "jochims"}, None),
     "ionising photons heat": ({"ionising_photons_heat": True}, None),
     "electron capture x/6.5 (range)": ({"capture_scale": 1 / 6.5}, {"capture_scale": 1.0}),
     "neutral sticking 1e-2": ({"sticking_neutral": 1e-2}, None),

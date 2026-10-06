@@ -35,7 +35,7 @@ recurrent_fluorescence = "not included (sensitivity: IR rates x3)"
 
 [photophysics]
 sigma = "Li & Draine 2001 at the LD01 radius, neutral tables for Z <= 0, ionised for Z > 0"
-yield = "Jochims+96 linear ramp; photodetachment with IP = EA"
+yield = "Jochims+96 linear ramp; cation -> dication: Wenzel+20 eqs. 4-5 where stated (N_C >= 32, IP2 < 11.3 eV), gated against their measured sigma_I to 0.09 dex rms (test_pahchem_wenzel2020.py); photodetachment with IP = EA"
 ionising_photons_heat = "no (sensitivity: yes)"
 ip_ladder = "Andrews+16 Table A.1 + 0.1 eV per missing H"
 

@@ -88,6 +88,26 @@ def yield_jochims1996(energy_ev, ip_ev) -> np.ndarray:
     return np.clip((np.asarray(energy_ev, dtype=float) - ip_ev) / 9.2, 0.0, 1.0)
 
 
+def yield_wenzel2020(energy_ev, ip_ev, nc, alpha=0.3) -> np.ndarray:
+    """Cation -> dication yield of Wenzel et al. (2020), eqs. 4-5.
+
+    Zero below IP2, a linear rise to the plateau alpha = 0.3 at 11.3 eV, flat
+    to 12.9 eV, a linear rise to beta(N_C) at 15 eV, then flat; beta =
+    0.59 + 8.1e-3 N_C (32 <= N_C < 50), 1 above. Fitted to their SOLEIL
+    yields of C30H14+ to C48H20+ and stated for N_C >= 32 (extendable to ~100,
+    their conclusions); undefined for IP2 >= 11.3 eV. Both raise.
+    """
+    if nc < 32:
+        raise ValueError(f"Wenzel+20 eq. 5 is stated for N_C >= 32, not {nc}")
+    if ip_ev >= 11.3:
+        raise ValueError(f"Wenzel+20 eq. 4 needs IP2 < 11.3 eV, not {ip_ev}")
+    E = np.asarray(energy_ev, dtype=float)
+    beta = 1.0 if nc >= 50 else 0.59 + 8.1e-3 * nc
+    return np.select([E < ip_ev, E < 11.3, E < 12.9, E < 15.0],
+                     [0.0, alpha * (E - ip_ev) / (11.3 - ip_ev), alpha,
+                      alpha + (beta - alpha) * (E - 12.9) / 2.1], beta)
+
+
 #: hc [eV um]: Le Page+01 eq. 14 takes every energy in um^-1
 EV_UM = 1.239842
 

@@ -270,11 +270,47 @@ two regimes:
 - **deep multiphoton** (8 eV barrier, rate $4\times10^5$ times the
   single-photon value): MC/ME = 0.95–0.99 ($z = -0.8$, $-0.1$).
 
+**M3c: the cation-ionisation gate passes** (2026-10-06;
+`tests/test_pahchem_wenzel2020.py`). {cite:t}`Wenzel2020` measured absolute
+ionisation cross sections $\sigma_I$ of four cations going to the dication:
+C$_{30}$H$_{14}^+$, C$_{32}$H$_{14}^+$, C$_{36}$H$_{18}^+$ and
+C$_{48}$H$_{20}^+$. Their Zenodo record is bundled as
+`wenzel2020_cation_ionisation.csv`.
+- **Their yield law.** `photo.yield_wenzel2020` (their eqs. 4–5) reproduces
+  every vertex of their vector Fig. 9 to $2\times10^{-3}$.
+  - Its $\beta$ equals the measured 20 eV branching ratio to 0.03.
+  - The Jochims curves they compare with are exactly
+    `yield_jochims1996` shifted to IP2.
+  - Their text gives the eq. 4 integral from IP2 to 13.6 eV as +19 % at
+    $N_{\rm C} = 34$ and −14 % at 60 against Jochims. Their plotted curves
+    integrate to +25 % and −11 %.
+- **The rate.** The gate compares $\int\sigma_{\rm LD01}\,Y\,F\,dE$ with the
+  measured $\int\sigma_I F\,dE$ (9.5–13.6 eV; Draine and Kurucz 15 000 and
+  40 000 K):
+
+  | Yield law | ours / measured | rms |
+  |---|---|---|
+  | Jochims ramp at IP2 (the Andrews+16 recipe) | 0.56–0.97 | 0.14 dex |
+  | Wenzel eq. 4 | 0.66–1.30 | 0.09 dex |
+
+  - The agreement is partly compensating. LD01 $\sigma$ is 1.1–1.5× their
+    TD-DFT $\sigma_{\rm abs}$, while eq. 4 integrates 8–18 % below their
+    Fig. 8 yields under 13.6 eV.
+  - Their measured $\sigma_{I+F}$ is only 0.3–0.5 of the TD-DFT absorption
+    below 13.6 eV. Most absorbed photons neither ionise nor fragment the
+    cation on the trap time scale, which is what our cascade assumes.
+- **Baseline.** The baseline now takes the Wenzel yield for $Z = +1$ where it
+  applies ($N_{\rm C} \ge 32$, IP2 < 11.3 eV), and Jochims elsewhere.
+  - Coronene$^+$ keeps Jochims: Andrews' IP2 = 11.50 eV is outside eq. 4, and
+    the {cite:t}`Zhen2016` coronene$^+$ yields exist only as a raster figure.
+  - Switching from Jochims moves $f_+$ by ≤ 0.011 and $f_{\rm dehydro}$ by
+    ≤ 0.08 dex (C$_{54}$ and C$_{96}$, NGC 7023 and the Orion Bar).
+
 Still open:
 - recurrent fluorescence, which needs TD-DFT inputs (T3) and a storage-ring
   benchmark;
-- the ionisation-branching gate against Zhen+2016 and Wenzel+2020, which needs
-  their tabulated yields.
+- **photodetachment of anions.** The baseline still uses the Jochims ramp with
+  IP = EA. No laboratory yield exists for PAH anions.
 
 **M4 (the (Z, N$_{\rm H}$) network) passes.**
 
@@ -481,6 +517,7 @@ the change in cation fraction:
 | Cation H addition ×0.5 / ×2 | +0.08 / −0.12 | +0.37 / −0.40 | – |
 | Rate form: Andrews Arrhenius-$T_e$ | +0.20 | −0.22 | – |
 | Le Page instead of Jochims yields | −0.17 | −0.04 | $\Delta f_+ \le 0.04$ |
+| Jochims instead of Wenzel cation yield (2026-10-06) | −0.01 | −0.02 | $\Delta f_+ \le 0.004$ |
 | Neutral $s_e = 10^{-2}$ | +0.05 | +0.01 | ≈ 0 |
 | Super-H $E_0$ ±0.3 eV; Eley–Rideal $\sigma$ ×/÷3 | 0 | 0 | 0 |
 
