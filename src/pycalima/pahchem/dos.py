@@ -26,7 +26,6 @@ zero-point level, so E = 0 is the vibrational ground state.
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import brentq
 from scipy.special import gammaln
 
 KB_CM = 0.695034800          # Boltzmann constant [cm^-1 K^-1]
@@ -187,15 +186,35 @@ def thermal_energy(freqs_cm, temperature_k):
 
 
 def canonical_temperature(freqs_cm, energy_cm):
-    """The T at which U(T) = E [K]; the inverse of ``thermal_energy``."""
+    """The T at which U(T) = E [K]; the inverse of ``thermal_energy``.
+
+    Vectorised over E: an initial guess from U on a log-T grid, then Newton
+    steps in ln T with the analytic heat capacity, dU/dT = sum f x / T /
+    (4 sinh^2(x/2)), x = f / kT. U is convex in ln T, so the iteration
+    converges quadratically; it stops at |d ln T| < 1e-14 (the scalar brentq
+    it replaces stopped at 2e-12). T is confined to 1 K - 1e6 K; E <= 0
+    gives 0.
+    """
     freqs = _frequencies(freqs_cm)
-
-    def solve(e):
-        if e <= 0:
-            return 0.0
-        return np.exp(brentq(lambda lt: thermal_energy(freqs, np.exp(lt)) - e,
-                             np.log(1.0), np.log(1e6)))
-
     E = np.asarray(energy_cm, dtype=float)
-    out = np.array([solve(e) for e in np.atleast_1d(E)])
+    e = np.atleast_1d(E).astype(float)
+    out = np.zeros(e.shape)
+    pos = e > 0
+    if pos.any():
+        lt_min, lt_max = 0.0, np.log(1e6)
+        grid = np.linspace(lt_min, lt_max, 400)
+        u_grid = thermal_energy(freqs, np.exp(grid))
+        target = e[pos]
+        lt = np.interp(np.log(target), np.log(np.maximum(u_grid, 1e-300)), grid)
+        f = freqs[:, None]
+        for _ in range(50):
+            T = np.exp(lt)
+            x = np.minimum(f / (KB_CM * T[None, :]), 700.0)
+            U = np.sum(f / np.expm1(x), axis=0)
+            dU_dlnT = np.sum(f * x / (4.0 * np.sinh(0.5 * x) ** 2), axis=0)    # T dU/dT
+            step = (U - target) / np.maximum(dU_dlnT, 1e-300)
+            lt = np.clip(lt - step, lt_min, lt_max)
+            if np.max(np.abs(step)) < 1e-14:
+                break
+        out[pos] = np.exp(lt)
     return out if E.ndim else out[0]
