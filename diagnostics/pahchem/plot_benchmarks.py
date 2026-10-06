@@ -785,13 +785,55 @@ def fig_rigopoulou2021_fig1(args, out):
     _save(f, out, "rigopoulou2021_fig1")
 
 
+def fig_family_emission(args, out):
+    """M7b: population-weighted spectra and band ratios of the C54 and C96 families."""
+    from pycalima.pahchem.baseline import NGC7023_EDGE, ORION_BAR_ATOMIC, BaselineModel, Environment
+    from pycalima.pahchem.family_emission import FamilyEmission, band_fluxes
+
+    grid = np.arange(500.0, 3500.0, 0.5)
+    fams = {}
+    for parent, formula, charges in (("C54", "C54H18", (-1, 0, 1, 2)), ("C96", "C96H24", (-1, 0, 1, 2, 3))):
+        sp = {z: PAHSpecies.from_states_file(args.states_dir / f"{formula}_{z}.dat") for z in charges}
+        fams[parent] = FamilyEmission(BaselineModel(parent, sp[0], anion=sp[-1]), sp)
+    f, axes = plt.subplots(1, 3, figsize=(16, 4.8), gridspec_kw={"width_ratios": [1.4, 1.4, 1]})
+    fam = fams["C54"]
+    for ax, env in zip(axes[:2], (NGC7023_EDGE, ORION_BAR_ATOMIC)):
+        fr = fam.fractions(env)
+        total, _ = fam.spectrum(env, grid, fr)
+        ax.plot(1e4 / grid, total * grid**2 / 1e4, "k", lw=1.2, label="family")
+        for z in fam.model.charges:
+            part = {k: (v if k[0] == z else 0.0) for k, v in fr.items()}
+            fz = sum(part.values())
+            s, _ = fam.spectrum(env, grid, part)
+            ax.plot(1e4 / grid, s * grid**2 / 1e4, lw=0.8, label=f"Z = {z:+d} (f = {fz:.2f})")
+        ax.set_xlim(3, 15)
+        ax.set_xlabel(r"$\lambda$ [$\mu$m]")
+        ax.set_ylabel(r"$dP/d\lambda$ per molecule [cm$^{-1}$ s$^{-1}$ $\mu$m$^{-1}$]")
+        ax.set_title(f"C$_{{54}}$H$_{{18}}$ family, {env.name}", fontsize=9)
+        ax.legend(fontsize=7)
+    g0s = np.logspace(1, 5, 9)
+    for parent, c in (("C54", "C0"), ("C96", "C3")):
+        r62, r33 = [], []
+        for g0 in g0s:
+            b = band_fluxes(grid, fams[parent].spectrum(Environment("t", g0, 1e4, 3.0, 300.0, teff_k=None), grid)[0])
+            r62.append(b["6.2"] / b["11.2"])
+            r33.append(b["3.3"] / b["11.2"])
+        axes[2].loglog(g0s, r62, "o-", color=c, label=f"{parent}: 6.2/11.2")
+        axes[2].loglog(g0s, r33, "s--", color=c, label=f"{parent}: 3.3/11.2")
+    axes[2].set_xlabel(r"$G_0$ ($n_{\rm H} = 10^4$, $n_e = 3$, $T = 300$ K)")
+    axes[2].set_ylabel("band ratio")
+    axes[2].set_title("family band ratios: charge, then dehydrogenation", fontsize=9)
+    axes[2].legend(fontsize=7)
+    _save(f, out, "family_emission")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
     fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7,
     fig_murga2019_shiva_inputs, fig_murga_wiebe22_shiva, fig_murga2020_fig3, fig_murga2020_fig4,
     fig_murga2022_charge, fig_murga2022_model_b, fig_emission_cascade, fig_maragkoudakis2020_fig2,
-    fig_rigopoulou2021_fig1)}
+    fig_rigopoulou2021_fig1, fig_family_emission)}
 
 
 def main():

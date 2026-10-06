@@ -862,6 +862,51 @@ dataset, never bundled).
   energy content is small. The published size diagnostics stand to a few per
   cent.
 
+**M7b, emission of a PAH family: passes** (2026-10-06;
+{mod}`pycalima.pahchem.family_emission`, `tests/test_pahchem_family_emission.py`,
+figure `family_emission`).
+- **The model.** `FamilyEmission` weights the emission of every
+  $(Z, N_{\rm H})$ state by its fraction $f$ from the baseline network.
+  - **Modes.** Each charge emits with its own PAHdb v4.00 modes: UIDs
+    29/18/19/31 (C$_{24}$H$_{12}$, −1 to +2), 46/37/38/44/45 (C$_{54}$H$_{18}$,
+    −1 to +3) and 114/108/111/112/113 (C$_{96}$H$_{24}$, −1 to +3). They are in
+    `model_data/PAH_states` as `<formula>_<Z>.dat`; dications are triplets.
+  - Below $N_{\rm H0}$ the C–H modes are stripped per missing H; super-H
+    states keep the parent modes (no 3.4 µm aliphatic band).
+  - **Heating.** Each state has its own multiphoton steady state under the
+    baseline's absorption: σ of charge $Z$, and ionising photons do not heat.
+  - The emission does not feed back on $f$.
+- **Gates (C$_{54}$H$_{18}$):**
+  - **Energy.** The family emits what it absorbs, to $6\times10^{-16}$.
+  - **Charge contrast.** Each charge alone at the NGC 7023 edge:
+
+    | Charge | 6.2/11.2 | 3.3/11.2 |
+    |---|---|---|
+    | Neutral | 0.34 | 0.72 |
+    | Cation | 5.2 | 0.28 |
+    | Dication | 9.5 | 0.07 |
+    | Anion | 20 | — |
+
+  - **G0 trend.** At $n_{\rm H} = 10^4$, $n_e = 3$, 300 K the family
+    6.2/11.2 is 0.57, 0.69 and 3.0 at $G_0 = 10^2$, $10^3$, $10^4$ (cation
+    fraction 0.01, 0.15, 0.72). At $10^5$ it is 249, because the family is
+    dehydrogenated and the stripped modes lose the C–H out-of-plane band.
+- **Family values:**
+  - **NGC 7023 edge:** C$_{54}$ 1.15 and C$_{96}$ 1.20 (6.2/11.2).
+  - **Orion Bar atomic PDR:** 5.9 and 5.6. The baseline puts 85 % (C$_{54}$)
+    and 92 % (C$_{96}$) of the family in cations and dications there. That is
+    the charge balance to test against observations (M7c).
+- **Two features of the model:**
+  - **Anions.** At low $G_0$ ($\le 30$ for C$_{54}$ at $n_e = 3$),
+    6.2/11.2 rises again: anions are frequent, and their PAHdb spectra carry
+    strong C–C bands, as cations do.
+  - **Coronene.** C$_{24}$H$_{12}$ has no solo H, so its C–H out-of-plane band
+    (~11.7–11.9 µm) falls outside the 10.5–11.6 µm window. Its "6.2/11.2" is
+    meaningless; Maragkoudakis+20 excluded such PAHs for this reason.
+- **Not yet in:** aliphatic bands of super-H states; per-state (DFT) modes
+  of dehydrogenated states (T1); temperature-dependent band shifts and
+  widths; the comparison with observations (M7c).
+
 **Benchmark figures** (`diagnostics/pahchem/plot_benchmarks.py`, 2026-10-05).
 The script makes one PNG per benchmark, in `<plots dir>/pahchem/`, and runs
 the same calculations as the gated tests:
