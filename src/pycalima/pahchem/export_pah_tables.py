@@ -126,8 +126,27 @@ def write_nd_table(path, axes, values, header_lines):
             fh.write(f"{v:.6f}\n")
 
 
-def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=None):
+def _bin_table(task):
+    """compute_bin_table for one bin, from picklable inputs (a process-pool task)."""
     from pycalima.pahchem.baseline import BaselineModel, Params
+    from pycalima.pahchem.molecule import PAHSpecies
+
+    key, parent_file, bare_file, params, axes = task
+    species = PAHSpecies.from_states_file(parent_file)
+    bare = PAHSpecies.from_states_file(bare_file) if bare_file else None
+    model = BaselineModel(key, species, params or Params())
+    return compute_bin_table(model, bare, axes, progress=lambda message: None)
+
+
+def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=None, workers=None):
+    """Write the tables of every free-PAH bin; bins run in parallel.
+
+    ``workers``: processes for the bins (default: one per bin, up to the CPU
+    count; 1 runs them in this process).
+    """
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
     from pycalima.pahchem.molecule import PAHSpecies
 
     if config_path:
@@ -136,7 +155,7 @@ def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=N
     out_dir = Path(output_dir) if output_dir else get_model_data_dir(create=True) / "PAH_dissociation_data"
     out_dir.mkdir(parents=True, exist_ok=True)
     states = Path(states_dir) if states_dir else _paths.get_model_data_dir() / "PAH_states"
-    written = []
+    jobs = []
     for b in get_bins(is_pah=True):
         a0_um = get_lognormal_parameters(b["id"], model_name="basic")["a0"]
         nc = int(418 * (a0_um * 1e4 / 10.0) ** 3)              # Draine+21 eq. 8
@@ -150,9 +169,19 @@ def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=N
             continue
         species = PAHSpecies.from_states_file(states / fparent)
         bare = PAHSpecies.from_states_file(states / fbare) if (states / fbare).exists() else None
-        model = BaselineModel(key, species, params or Params())
         print(f"[{b['id']}] N_C = {nc} -> {species.formula} (bare: {bare.formula if bare else 'stripped'})")
-        log_k, aux = compute_bin_table(model, bare, axes)
+        task = (key, states / fparent, states / fbare if bare else None, params, axes)
+        jobs.append((b, nc, species, bare, task))
+
+    n_workers = min(len(jobs), os.cpu_count() or 1) if workers is None else max(1, int(workers))
+    if n_workers > 1 and len(jobs) > 1:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            tables = list(pool.map(_bin_table, [job[-1] for job in jobs]))
+    else:
+        tables = [_bin_table(job[-1]) for job in jobs]
+
+    written = []
+    for (b, nc, species, bare, _), (log_k, aux) in zip(jobs, tables):
         header = get_header_lines(
             "pahchem C2-loss (photolysis) rate per molecule", "pahchem/export_pah_tables.py",
             bin_info=f"PAH Bin: {b['id']} (N_C = {nc}; molecule {species.formula}; "
@@ -172,5 +201,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--config", default=None)
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument("--workers", type=int, default=None, help="processes for the bins (default: one per bin)")
     args = ap.parse_args()
-    main(config_path=args.config, output_dir=args.output_dir)
+    main(config_path=args.config, output_dir=args.output_dir, workers=args.workers)

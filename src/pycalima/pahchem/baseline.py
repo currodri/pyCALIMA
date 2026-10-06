@@ -209,9 +209,9 @@ class BaselineModel:
         net.add("H loss", get("H"), dnh=-1)
         net.add("H2 loss", get("H2"), dnh=-2, h2_released=1)
         net.add("photoionisation", np.where(Z < top_z, get("ion"), 0.0), dz=+1)
-        capture = np.array([[chemistry.electron_capture(self.nc, z, T,
-                                                        sticking=p.sticking_neutral if z == 0 else 1.0)
-                             for _ in self.nh_values] for z in self.charges]) * p.capture_scale
+        per_z = np.array([chemistry.electron_capture(self.nc, z, T, sticking=p.sticking_neutral if z == 0 else 1.0)
+                          for z in self.charges])                      # independent of N_H
+        capture = np.repeat(per_z[:, None], len(self.nh_values), axis=1) * p.capture_scale
         net.add("electron capture", np.where(Z > min(self.charges), capture * env.n_e, 0.0), dz=-1)
         sigma_geo = CORONENE_GEOMETRIC_A2 * self.nc / 24.0
         barrier = np.select([NH == self.nh0, NH == self.nh0 + 2], [0.06, 0.035], 0.0)
