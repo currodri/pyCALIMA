@@ -26,8 +26,11 @@ h_loss_superh_Zle0 = { E_act = 1.40, dS_J_K_mol = 12.0, source = "Andrews+16 Tab
 h_loss_superh_Zgt0 = { E_act = 1.55, dS_J_K_mol = 12.0, source = "Andrews+16 Table 2; dS chosen", confidence = "C" }
 degeneracy = "N_H for aromatic H loss, 1 for the odd-H radical, 2 for H2, N_H - N_H0 for super-H (West+18 ESI k(E): sigma = 12 coronene+, 10 fluoranthene+, 1 for second H)"
 laboratory_systematic = "E0 thresholds of West+18 and Jochims+94 differ by 0.7-1.4 eV"
-c2_loss = { E_act = 4.6, dS_J_K_mol = 41.84, source = "Micelotta+10b; Murga & Wiebe 2022 Table 1 'Arrh. 2' (10 cal K^-1 mol^-1)", confidence = "D" }
-c2_loss_rate_form = "RRKM from the bare skeleton (PAHdb C24/C54/C96 modes; else stripped parent); TS = minus the mode nearest 1600 cm^-1, 5 lowest scaled; degeneracy 1. RAMSES table k = sum_Z f(Z, N_H=0) k_C2(Z) (export_pah_tables)"
+carbon_loss = { set = "leger89", C = [7.37, 6.2e15], C2 = [8.49, 3.5e17], C3 = [7.97, 1.5e18], unit = "[E0 eV, A s^-1], inverse-Laplace k = A rho(E - E0)/rho(E)", source = "Leger, d'Hendecourt, Boissel & Desert 1989, A&A 213, 351, Table 2: graphite sublimation (2000-4000 K) applied to dehydrogenated PAHs by assumption, as Visser+07 and Montillaud+13 (Sect. 7.2) do", confidence = "C" }
+carbon_loss_variants = "c60_cage: C2 of C60+, 10.0 eV and 5e19 s^-1 (Matt+01; Tomita+01 9.8 eV, 2e19): the slow bound if bare C54/C96 fold into cages first (folding 4.0 eV, 1e15 s^-1, Lebedeva+12); micelotta10b: 4.6 eV, dS 10 cal K^-1 mol^-1 RRKM, the fast bound"
+carbon_loss_history = "Until 2026-10-06 the default was micelotta10b. That pair is C2H2 loss from small cations (Ling & Lifshitz 98 dS; E0 3.65 eV fitted to Jochims+94 C2H2 appearance energies, raised to 4.6 eV for a 1e8 yr lifetime at N_C ~ 50; Micelotta+10b Sect. 4.1), which Micelotta+10b themselves say closes the bare-carbon channels and Murga+22 (MNRAS 517, 3732) call an upper limit. Grade D. It is 1e3-1e4x faster than leger89 for bare C24/C54 at G0 = 1e2-1e4"
+carbon_loss_rate_form = "Cascade sinks of the bare skeleton (PAHdb C24/C54/C96 modes; else stripped parent), all fragments competing. RAMSES table k = sum_Z f(Z, N_H=0) r_C(Z) / 2, r_C = sum n_C k_fragment (C2 units, as the solver converts with 2 m_C; export_pah_tables)"
+carbon_loss_caveats = "C24 and smaller bare skeletons isomerise to rings that lose C3 or break into C11-C15 rings (Ferrari+23; Panchagnula+24, where rings appear after 8 of 12 H are lost); C54/C96 flakes probably fold into cages first. No measured E0 exists for any bare planar C24-C96"
 
 [cascade]
 method = "energy_me microcanonical IR cascade with dissociation sinks, multiphoton steady state"

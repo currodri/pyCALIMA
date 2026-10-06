@@ -994,3 +994,20 @@ def test_pahchem_carbon_loss_falls_with_density(pah_states):
     k = log_k[0, :, 0, 0]
     assert np.all(np.diff(k) < 0), k
     assert aux["f_bare"][0, 0, 0, 0] > 0.9 > aux["f_bare"][0, 2, 0, 0]
+
+
+def test_pahchem_carbon_loss_parameter_sets(pah_states):
+    """Bare C54 at G0 = 1e4 (Draine, neutral), in carbon atoms per second.
+
+    Measured (de = 200 or 600 cm^-1 alike): Micelotta+10b 6.1e-8, Leger+89
+    C+C2+C3 1.5e-12, C60+ cage 5.2e-15. The default is Leger+89
+    (pahchem_baseline.toml)."""
+    from pycalima.pahchem.baseline import BaselineModel, Environment, Params
+
+    sp = PAHSpecies.from_states_file(pah_states / "C54H18_0.dat")
+    bare = PAHSpecies.from_states_file(pah_states / "C54_0.dat")
+    env = Environment("t", 1e4, 1.0, 1.0, 100.0, teff_k=None)
+    r = {name: BaselineModel("C54", sp, Params(carbon_loss=name, de_cm=600.0, e_max_ev=40.0))
+         .carbon_loss_rates(env, bare)[0] for name in ("micelotta10b", "leger89", "c60_cage")}
+    assert Params().carbon_loss == "leger89"
+    assert r["micelotta10b"] > 1e3 * r["leger89"] > 1e5 * r["c60_cage"] > 0, r

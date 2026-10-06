@@ -575,17 +575,56 @@ published since. Recent models reuse a classic law plus the
 stage `pahchem_dissociation_tables`, solver key
 `models.photolysis_model = "pahchem"`).
 
-Physics. The table holds the carbon-loss rate per molecule,
-$k = \sum_Z f(Z, N_{\rm H} = 0)\, k_{\rm C_2}(Z)$:
+Physics. The table holds the carbon-loss rate per molecule in C$_2$ units,
+$k = \tfrac12 \sum_Z f(Z, N_{\rm H} = 0)\, r_{\rm C}(Z)$. The solver and
+RAMSES convert it to mass with $2m_{\rm C}$.
 - $f$ is the steady state of the baseline $(Z, N_{\rm H})$ network.
-- $k_{\rm C_2}$ is RRKM C$_2$ loss from the bare skeleton, with the cascade
-  sinks:
-  - $E_0 = 4.6$ eV and $\Delta S^\ddagger = 10$ cal K$^{-1}$ mol$^{-1}$
-    (Micelotta+10b; the Murga & Wiebe "Arrh. 2" set), confidence **D**;
-  - the bare skeleton's own PAHdb modes (C$_{24}$, C$_{54}$, C$_{96}$),
-    otherwise the stripped parent.
-- C$_2$ loss is taken from the bare skeleton only: compact PAHs lose their
-  H before any carbon (Zhen+14). Carbon loss is not fed back into $f$.
+- $r_{\rm C}$ is the number of carbon atoms the bare skeleton loses per
+  second, $\sum n_{\rm C} k_{\rm frag}$. Its fragments are competing sinks of
+  the cascade (`baseline.CARBON_LOSS`), computed on the bare skeleton's own
+  PAHdb modes (C$_{24}$, C$_{54}$, C$_{96}$), otherwise on the stripped
+  parent.
+- Carbon is lost from the bare skeleton only: compact PAHs lose their H
+  first (Zhen+14). Carbon loss is not fed back into $f$.
+
+**Carbon-loss parameters (revised 2026-10-06).** The default is
+{cite:t}`Leger1989` Table 2: C, C$_2$ and C$_3$ loss with $(E_0, A)$ =
+(7.37 eV, $6.2\times10^{15}$ s$^{-1}$), (8.49, $3.5\times10^{17}$) and (7.97,
+$1.5\times10^{18}$), in inverse-Laplace form. These come from graphite
+sublimation and are applied to bare PAHs by assumption, as Visser+07 and
+Montillaud+13 (Sect. 7.2) do. Confidence **C**.
+- **Why the old default was dropped.** The previous set (4.6 eV, 10 cal
+  K$^{-1}$ mol$^{-1}$; Micelotta+10b, Murga & Wiebe "Arrh. 2") is not a
+  bare-skeleton value.
+  - It is C$_2$H$_2$ loss from small cations: the entropy is from Ling &
+    Lifshitz (1998), and $E_0$ = 3.65 eV is fitted to the Jochims+94 C$_2$H$_2$
+    appearance energies.
+  - Micelotta+10b then raised $E_0$ to 4.6 eV so that $N_{\rm C} \approx 50$
+    PAHs last $10^8$ yr. The same section says the bare-carbon channels are
+    "for all practical purposes closed".
+  - Murga+22 (MNRAS 517, 3732) call their rates from it an upper limit.
+  - It stays as the variant `micelotta10b`, the fast bound.
+- **The slow bound** is the variant `c60_cage`: C$_2$ loss of C$_{60}^+$,
+  10.0 eV and $5\times10^{19}$ s$^{-1}$ (Matt+01).
+  - Bare C$_{54}$ and C$_{96}$ flakes probably fold into cages first:
+    Lebedeva+12 find 4.0 eV and $10^{15}$ s$^{-1}$, with no C$_2$ shed while
+    folding.
+  - Bare C$_{24}$ instead isomerises to rings that lose C$_3$ (Ferrari+23,
+    Panchagnula+24).
+  - No $E_0$ has been measured for any bare planar C$_{24}$–C$_{96}$.
+- **Size of the choice.** Bare skeleton, neutral, Draine field, carbon atoms
+  s$^{-1}$:
+
+  | Set | C$_{24}$, $G_0 = 10^2$ | C$_{24}$, $10^4$ | C$_{54}$, $10^2$ | C$_{54}$, $10^4$ |
+  |---|---|---|---|---|
+  | `micelotta10b` (old default) | $1.2\times10^{-6}$ | $1.2\times10^{-4}$ | $2.6\times10^{-11}$ | $6.1\times10^{-8}$ |
+  | `leger89` (default) | $1.0\times10^{-10}$ | $4.1\times10^{-8}$ | $5.6\times10^{-17}$ | $1.5\times10^{-12}$ |
+  | `c60_cage` | $3.9\times10^{-13}$ | $3.9\times10^{-9}$ | $5.7\times10^{-21}$ | $5.2\times10^{-15}$ |
+
+  - With Léger the carbon loss is multiphoton: it scales as $G_0^2$ for
+    C$_{24}$ and $G_0^3$ for C$_{54}$, because $k = k_{\rm IR}$ is reached
+    only at 15.5 and 30.7 eV.
+  - C$_3$ dominates, as in graphite sublimation.
 
 Assumptions:
 - the field has the Draine 1978 shape, scaled by $G_0$ (Habing);
@@ -595,8 +634,8 @@ Assumptions:
 - bins outside $16 \le N_{\rm C} \le 150$, i.e. the cluster bins, are
   skipped.
 
-Spot check at $G_0 = 10^4$, $n_{\rm H} = 100$: $f_{\rm bare} = 0.99$ and
-$k = 10^{-7.2}$ s$^{-1}$. A companion `pahchem_state_<bin>.npz` stores, on
+Spot check (C$_{54}$, $G_0 = 10^4$, $n_{\rm H} = 100$): $f_{\rm bare} = 0.99$ and
+$k = 10^{-11.5}$ s$^{-1}$ (it was $10^{-7.2}$ with `micelotta10b`). A companion `pahchem_state_<bin>.npz` stores, on
 the same grid, $f_+$, $f_-$, $f_{\rm dehydro}$, $f_{\rm bare}$ and
 $R_{\rm H_2}$ per PAH.
 

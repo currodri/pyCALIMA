@@ -59,6 +59,8 @@ class Params:
     addition_cation: float = 1.4e-10         # cm^3 s^-1
     addition_neutral_scale: float = 1.0
     eley_rideal_a2: float = 0.06
+    # carbon loss of the bare skeleton (a key of CARBON_LOSS)
+    carbon_loss: str = "leger89"
     # numerics
     de_cm: float = 200.0
     e_max_ev: float = 45.0
@@ -78,8 +80,16 @@ class Environment:
                 else fields.draine1978(g0=self.g0))
 
 
-#: C2 loss from the bare carbon skeleton (Micelotta+10b; Murga & Wiebe 2022 "Arrh. 2").
-C2_LOSS = (4.6, 10.0 * 4.184)        # E0 [eV], dS [J K^-1 mol^-1]
+#: Carbon loss from the bare skeleton: name -> (rate form, {fragment: (n_C, A [s^-1] or dS [J/K/mol], E0 [eV])}).
+#: - "leger89": Leger+89 Table 2, from graphite sublimation, inverse-Laplace form (grade C; the default).
+#: - "c60_cage": C2 loss of C60+ (Matt+01): the slow bound if bare flakes fold into cages first.
+#: - "micelotta10b": C2H2 loss from small cations raised to a 1e8 yr lifetime (Micelotta+10b, as
+#:   Murga & Wiebe 2022 "Arrh. 2"), RRKM; not a bare-skeleton value, the fast bound (grade D).
+CARBON_LOSS = {
+    "leger89": ("ilt", {"C": (1, 6.2e15, 7.37), "C2": (2, 3.5e17, 8.49), "C3": (3, 1.5e18, 7.97)}),
+    "c60_cage": ("ilt", {"C2": (2, 5.0e19, 10.0)}),
+    "micelotta10b": ("rrkm", {"C2": (2, 10.0 * 4.184, 4.6)}),
+}
 
 
 NGC7023_EDGE = Environment("NGC 7023 NW edge (A_V ~ 0)", 4100.0, 1.35e4, 3.9, 470.0, 15000)
@@ -178,28 +188,39 @@ class BaselineModel:
         return y, photo.heating_spectrum(field, sigma, heat_y, E_PH)
 
     def carbon_loss_rates(self, env, bare=None):
-        """{Z: k_C2} [s^-1] of the bare skeleton (N_H = 0), with a sink cascade.
+        """{Z: carbon atoms lost per second} of the bare skeleton (N_H = 0).
 
-        ``bare`` is the PAHSpecies of the bare skeleton (e.g. PAHdb C54); if
-        None, ``species.stripped(0)``. The transition state removes the C-C
-        stretch nearest 1600 cm^-1 and scales the 5 lowest modes to C2_LOSS's
-        dS. Path degeneracy 1. The source and confidence are in the card.
+        Each fragment of ``CARBON_LOSS[params.carbon_loss]`` is a sink of the
+        cascade, so the channels compete with each other and with IR cooling;
+        the result is sum_fragment n_C k_fragment. ``bare`` is the PAHSpecies
+        of the bare skeleton (e.g. PAHdb C54); if None, ``species.stripped(0)``.
+        An RRKM entry builds its transition state by removing the C-C stretch
+        nearest 1600 cm^-1 and scaling the 5 lowest modes to its dS. Sources
+        and confidence are in the card.
         """
         sp = self.species.stripped(0) if bare is None else bare
+        form, fragments = CARBON_LOSS[self.p.carbon_loss]
         if "bare" not in self._cm:
             cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a * self.p.ir_scale,
                                         e_max_cm=self.p.e_max_ev * dos.CM_PER_EV, de_cm=self.p.de_cm)
             E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
-            ts = rates.transition_state_for_entropy(sp.freqs_cm, 1600.0, C2_LOSS[1], n_scaled=5)
-            k = rates.rrkm(E, counts, ts, C2_LOSS[0] * dos.CM_PER_EV)
-            self._cm["bare"] = (cm, k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)])
+            pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+            k = {}
+            for name, (_, a_or_ds, e0) in fragments.items():
+                if form == "ilt":
+                    k[name] = rates.inverse_laplace_arrhenius(E, counts, a_or_ds, e0 * dos.CM_PER_EV)[pick]
+                else:
+                    ts = rates.transition_state_for_entropy(sp.freqs_cm, 1600.0, a_or_ds, n_scaled=5)
+                    k[name] = rates.rrkm(E, counts, ts, e0 * dos.CM_PER_EV)[pick]
+            self._cm["bare"] = (cm, k)
         cm, k = self._cm["bare"]
         field = env.field()
         out = {}
         for z in self.charges:
             sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
             _, h = self._absorption(field, sigma, z, 0)
-            out[z] = cm.steady_state(E_PH, h, {"C2": k}).rates["C2"]
+            r = cm.steady_state(E_PH, h, k).rates
+            out[z] = float(sum(fragments[name][0] * r[name] for name in fragments))
         return out
 
     def network(self, photo_rates, env):

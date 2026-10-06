@@ -4,19 +4,23 @@
 For each PAH bin whose N_C maps onto a parent with PAHdb modes (C24H12,
 C54H18, C96H24 in ``model_data/PAH_states``), this writes
 ``model_data/<model>/PAH_dissociation_data/pahchem_dissociation_<bin>.dat``,
-the rate of C2-unit loss per molecule, log10 k [s^-1], on four axes:
+the carbon-loss rate per molecule in C2 units, log10 k [s^-1] (carbon atoms
+lost per second / 2, the unit the solver and RAMSES convert with 2 m_C), on
+four axes:
 log10 G0 (Habing; Draine 1978 shape), log10 nH [cm^-3], log10 T [K] and
 log10 x_e = n_e/nH.
 
 The physics is ``pahchem.baseline``:
 
-    k = sum_Z f(Z, N_H = 0) k_C2(Z),
+    k = sum_Z f(Z, N_H = 0) r_C(Z) / 2,
 
 - f comes from the (Z, N_H) network at steady state, with the H-bearing
   states' physical (sink) photo-rates;
-- k_C2 is RRKM C2 loss from the bare skeleton, which compact PAHs reach
-  before losing carbon (Zhen+14; Montillaud+13), using the bare skeleton's
-  own PAHdb modes where available;
+- r_C is the carbon atoms lost per second by the bare skeleton, which
+  compact PAHs reach before losing carbon (Zhen+14; Montillaud+13): C, C2
+  and C3 loss with the Leger+89 graphite parameters by default
+  (``baseline.CARBON_LOSS``), on the bare skeleton's own PAHdb modes where
+  available;
 - the atomic H density is taken as nH.
 
 Carbon loss does not feed back on f: it is slow compared with the
@@ -77,7 +81,7 @@ def parent_for(nc):
 
 
 def compute_bin_table(model, bare, axes, progress=print):
-    """log10 k_C2 and the companion fractions on the four axes."""
+    """log10 k (C2 units) and the companion fractions on the four axes."""
     from pycalima.pahchem.baseline import Environment
 
     shape = tuple(len(axes[k]) for k in ("log_g0", "log_nh", "log_t", "log_xe"))
@@ -89,7 +93,7 @@ def compute_bin_table(model, bare, axes, progress=print):
         t0 = time.time()
         env0 = Environment("table", 10**lg, 1.0, 1.0, 100.0, teff_k=None)
         pr = model.photo_rates(env0)
-        k_c2 = model.carbon_loss_rates(env0, bare)
+        r_c = model.carbon_loss_rates(env0, bare)
         for j, ln in enumerate(axes["log_nh"]):
             for t, lt in enumerate(axes["log_t"]):
                 for x, lx in enumerate(axes["log_xe"]):
@@ -97,7 +101,7 @@ def compute_bin_table(model, bare, axes, progress=print):
                     net = model.network(pr, env)
                     f = net.steady_state()
                     bare_z = f[:, 0]
-                    k = float(sum(bare_z[iz] * k_c2[z] for iz, z in enumerate(model.charges)))
+                    k = 0.5 * float(sum(bare_z[iz] * r_c[z] for iz, z in enumerate(model.charges)))
                     idx = (i, j, t, x)
                     log_k[idx] = np.log10(k) if k > 10**FLOOR else FLOOR
                     fz = f.sum(axis=1)
@@ -147,6 +151,7 @@ def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=N
     import os
     from concurrent.futures import ProcessPoolExecutor
 
+    from pycalima.pahchem.baseline import Params
     from pycalima.pahchem.molecule import PAHSpecies
 
     if config_path:
@@ -183,12 +188,12 @@ def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=N
     written = []
     for (b, nc, species, bare, _), (log_k, aux) in zip(jobs, tables):
         header = get_header_lines(
-            "pahchem C2-loss (photolysis) rate per molecule", "pahchem/export_pah_tables.py",
+            "pahchem carbon-loss (photolysis) rate per molecule", "pahchem/export_pah_tables.py",
             bin_info=f"PAH Bin: {b['id']} (N_C = {nc}; molecule {species.formula}; "
                      f"bare skeleton {bare.formula if bare else 'stripped modes'})",
-            val_desc="Values: log10(k_C2 [s^-1]); floor -100 = no carbon loss")
-        header += ["# Physics: pahchem.baseline defaults (method_cards/pahchem_baseline.toml); "
-                   "Draine 1978 field shape; n(H) = nH"]
+            val_desc="Values: log10(k [s^-1]), carbon atoms lost per second / 2; floor -100 = no carbon loss")
+        header += [f"# Physics: pahchem.baseline (method_cards/pahchem_baseline.toml), carbon loss "
+                   f"'{(params or Params()).carbon_loss}'; Draine 1978 field shape; n(H) = nH"]
         path = out_dir / f"pahchem_dissociation_{b['id']}.dat"
         write_nd_table(path, axes, log_k, header)
         np.savez(out_dir / f"pahchem_state_{b['id']}.npz", **axes, **aux)
