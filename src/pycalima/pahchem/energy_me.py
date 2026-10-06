@@ -137,16 +137,31 @@ class CascadeModel:
         Bin width of the master equation.
     grain_cm : float
         Grain of the underlying Beyer-Swinehart count for the IR rates.
+    electronic : sequence of (E_n [cm^-1], f_0n), optional
+        Electronic levels that cool by recurrent fluorescence
+        (``cooling.recurrent_fluorescence_rates``). They are appended to the
+        radiative "modes" as down-jumps of E_n: ``freqs_cm`` and ``k_modes``
+        then hold the IR modes first (``n_ir`` of them), then the levels, and
+        ``k_ir`` is the total radiative photon rate.
     """
 
-    def __init__(self, freqs_cm, einstein_a, e_max_cm, de_cm=50.0, grain_cm=2.0, window_cm=100.0):
-        self.freqs_cm = np.asarray(freqs_cm, dtype=float)
+    def __init__(self, freqs_cm, einstein_a, e_max_cm, de_cm=50.0, grain_cm=2.0, window_cm=100.0, electronic=()):
+        vib = np.asarray(freqs_cm, dtype=float)
+        self.n_ir = vib.size
         self.de_cm = float(de_cm)
         self.n = int(np.floor(e_max_cm / de_cm)) + 1
         self.energy_cm = np.arange(self.n) * self.de_cm
-        E, counts = dos.beyer_swinehart(self.freqs_cm, self.energy_cm[-1] + window_cm, grain_cm)
-        self.k_modes = cooling.mode_emission_rates(E, counts, self.freqs_cm, einstein_a,
+        E, counts = dos.beyer_swinehart(vib, self.energy_cm[-1] + window_cm, grain_cm)
+        self.k_modes = cooling.mode_emission_rates(E, counts, vib, einstein_a,
                                                    window_cm=window_cm, at_cm=self.energy_cm)
+        self.electronic = tuple((float(e), float(f)) for e, f in electronic)
+        if self.electronic:
+            e_n, f_n = np.array(self.electronic).T
+            k_rf = cooling.recurrent_fluorescence_rates(E, counts, e_n, f_n, window_cm=window_cm,
+                                                        at_cm=self.energy_cm)
+            self.k_modes = np.vstack([self.k_modes, k_rf])
+            vib = np.concatenate([vib, e_n])
+        self.freqs_cm = vib
         # Fractional down-jump positions, one row per mode
         pos = np.arange(self.n)[None, :] - self.freqs_cm[:, None] / self.de_cm
         self.k_modes[pos < 0] = 0.0                  # cannot emit more than E

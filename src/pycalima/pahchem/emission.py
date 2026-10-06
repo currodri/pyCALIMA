@@ -29,7 +29,9 @@ from pycalima.pahchem import dos
 def cascade_photons(model, channel_rates=None) -> np.ndarray:
     """N[i, j]: photons emitted in mode i from bin j of ``model`` (a CascadeModel).
 
-    ``channel_rates`` (name -> k_c on the grid) are dissociation sinks: a
+    Rows follow ``model.freqs_cm``: the IR modes, then any recurrent-
+    fluorescence levels (``model.n_ir`` IR rows; the rest are optical photons
+    of energy E_n). ``channel_rates`` (name -> k_c on the grid) are dissociation sinks: a
     molecule that dissociates stops emitting (the fragment is not followed).
     """
     names, K = model._channels(channel_rates or {})
@@ -103,7 +105,10 @@ class ThermalCascade:
 
 
 def steady_state_emission(model, steady) -> np.ndarray:
-    """R_i = sum_j P_j k_i(E_j): photon emission rate of each mode [s^-1]."""
+    """R_i = sum_j P_j k_i(E_j): photon emission rate of each mode [s^-1].
+
+    Rows follow ``model.freqs_cm`` (IR modes, then recurrent-fluorescence levels).
+    """
     return model.k_modes @ steady.probability
 
 

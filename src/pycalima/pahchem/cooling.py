@@ -62,6 +62,43 @@ def mode_emission_rates(energy_cm, counts, freqs_cm, einstein_a, window_cm=100.0
     return out
 
 
+#: 8 pi^2 e^2 / (m_e c) [cm^2 s^-1]: A_n0 = this x nu_n^2 [cm^-2] x f_0n x g_0 / g_n
+RF_A_PER_F = 8.0 * np.pi**2 * 4.80320471e-10**2 / (9.1093837e-28 * 2.99792458e10)
+
+
+def recurrent_fluorescence_rates(energy_cm, counts, levels_cm, oscillator_strengths, window_cm=100.0, at_cm=None):
+    """Recurrent-fluorescence rate of each electronic level, k_n(E) [s^-1].
+
+    A molecule at vibrational energy E (in the ground electronic state's
+    reckoning) is thermally in level n, E_n above, with probability
+    (g_n/g_0) rho(E - E_n)/rho(E), taking the excited state's vibrational
+    density as the ground state's (as Leger+88, Martin+13, Bernard+23). The
+    level emits at A_n0 = RF_A_PER_F nu_n^2 f_0n g_0/g_n, so the degeneracies
+    cancel:
+
+        k_n(E) = RF_A_PER_F nu_n^2 f_0n rho(E - E_n) / rho(E),
+
+    with f_0n the absorption oscillator strength. Each emission lowers E by
+    E_n. Densities are averaged over ``window_cm`` as in
+    ``mode_emission_rates``.
+    """
+    grain = energy_cm[1] - energy_cm[0]
+    half = max(int(round(0.5 * window_cm / grain)), 1)
+    n = counts.size
+    pick = (np.arange(n) if at_cm is None
+            else np.clip(np.rint(np.asarray(at_cm) / grain).astype(int), 0, n - 1))
+    rho_w = _window_sum(counts, half)
+    out = np.zeros((len(levels_cm), pick.size))
+    for m, (e_n, f) in enumerate(zip(levels_cm, oscillator_strengths)):
+        s = max(int(round(e_n / grain)), 1)
+        shifted = np.zeros(n)
+        shifted[s:] = rho_w[:n - s]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where(rho_w > 0, shifted / rho_w, 0.0)
+        out[m] = RF_A_PER_F * e_n**2 * f * ratio[pick]
+    return out
+
+
 def thermal_mode_rates(freqs_cm, einstein_a, temperature_k):
     """Thermal approximation k_i = A_i / (exp(h nu_i / kT) - 1) [s^-1]."""
     x = np.asarray(freqs_cm, dtype=float) / (dos.KB_CM * temperature_k)

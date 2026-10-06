@@ -214,3 +214,38 @@ An earlier draft put H addition first.
   - the CASSIS fit constraints behind 11.3/7.7: our window ratios for the
     small bin are 2–4× theirs;
   - the Table A1 UID corrections listed in the card.
+- **Borja, Calvo, Parneix & Falvo** (ISMO Orsay, LIPhy Grenoble): for
+  {cite:t}`Borja2026` (method card `borja2026.toml`). Their data and tools are
+  "available from the corresponding author upon reasonable request".
+  - **What we have done.** We fed their Table I inputs into the standard RF
+    rate, which uses the ground-state density of states and fixed $f$ with
+    PAHdb cation modes. Against their Fig. 8:
+    - allowed D2/D3 states: within 0.18 dex at 4–13 eV;
+    - symmetry-forbidden D1 states: within −0.14 to +0.49 dex.
+  - **What we would ask for**, for naphthalene$^+$, anthracene$^+$ and
+    pyrene$^+$:
+    1. the $k_{\rm RF}(E)$ of each state as tables: the Fig. 8 curves, and the
+       total RF rate;
+    2. the ωB97XD/cc-pVTZ frequencies of D0 and of each excited state
+       (D1–D3), with the Duschinsky matrices $J$ and shifts $K$;
+    3. the transition dipoles $d^0_e$ and their derivatives $d^1_e$ (the
+       Herzberg–Teller terms), or $f_{\rm HT}(T)$ on a temperature grid
+       rather than at 0 and 2000 K;
+    4. the emission spectra of Fig. 9 as tables.
+  - **Two questions:**
+    - whether "6.41 eV" (the Np$^+$ D1/D2 crossover in the text) or the
+      6.09 eV of the revised Fig. 8 is the published value;
+    - whether the coth($\beta\hbar\omega$) in their eqs. 28 and 30 should be
+      coth($\beta\hbar\omega/2$), the standard thermal result their App. E
+      uses.
+  - **What it would let us test.** With 1–2 we could check our
+    approximations one at a time against the same molecules:
+    - the excited state's own density of states;
+    - the Duschinsky rotation;
+    - the temperature dependence of $f_{\rm HT}$.
+
+    This would tell us where the simple RF rate is good enough for coronene-
+    to C$_{96}$-size cations, for which no such calculation exists.
+  - **A further question, if they are open to it:** whether they plan the
+    same treatment for larger cations (coronene$^+$ or bigger), the sizes our
+    RAMSES tables use.
