@@ -77,8 +77,25 @@ class Options:
       4 decides it: with "post" the normal C24H12 loses C2H2 at ~3 yr^-1 in
       the Horsehead at A_V = 0.1, against ~1e-3 molecules per 1e6 yr in Fig.
       4 (check_murga2020.py).
-    - ``compete``: False is eq. 4 as printed (each fragment against k_IR
-      alone); True puts all channels of the regime in the denominator.
+    - ``compete``: True puts all channels of the regime in the denominator:
+      the SHIVA definition, Murga+2019 eq. B2 ("k_diss = k_H + k_H2 +
+      k_C2H2"; the outcomes' probabilities "sum up to unity"), which M20
+      cite for the scheme ("according to the scheme presented in the works
+      of murga16a, murga19") and imply for the super-H set ("we do not
+      consider this channel [H2] as a competitor in the dissociation").
+      False (default) reads eq. 4 per fragment against k_IR alone. Fig. 4
+      cannot choose: competition brings the 140 partial-destruction points
+      from 2.5 to 1.2 dex rms (median +2.4 -> +0.1), but leaves the Orion
+      A_V = 0.1 neutrals with N_C >= 110 0.6-1.3 dex short of full
+      destruction within 1e6 yr (C150H30 sits at the maximum N_H and yields
+      3.9 of 75 C2H2, where Figshare C2H2 production ends at 1e4 yr;
+      check_murga2020.py). False keeps the full-destruction gates.
+    - ``one_minus_yion``: False (default) is eq. 6 as printed, Y_diss times
+      every 5-13.6 eV absorption; True counts only non-ionising ones (M19
+      eq. B2's [1 - Y_ion]; M20: the photon energy "either is spent to
+      ionization or converts to the internal energy"; ``rate_table``). With
+      competition it moves Fig. 4 by < 0.1 dex rms and costs a further 0.2
+      dex on the Orion A_V = 0.1 large neutrals.
     - ``atoms_per_molecule_event``: 2 counts one H2 / C2H2 event as 2 atoms
       in eq. 1 (R = events s^-1); 4 applies the text's "rates for molecules
       are multiplied by 2" on top of eq. 1's factor 2.
@@ -112,6 +129,7 @@ class Options:
     temperature: str = "dl01"
     p_reading: str = "time"
     compete: bool = False
+    one_minus_yion: bool = False
     atoms_per_molecule_event: float = 2.0
     low_nh: str = "c2"
     nh_max: str = "nc_plus_nh0"
@@ -202,13 +220,19 @@ def _nh_grid(nh_top):
 
 
 @lru_cache(maxsize=None)
-def rate_table(charge, chi, nc_max, nh_top, temperature="dl01", de_ev=0.1, e_max_ev=50.0):
+def rate_table(charge, chi, nc_max, nh_top, temperature="dl01", de_ev=0.1, e_max_ev=50.0, one_minus_yion=False):
     """log10 R [s^-1] on (N_C, N_H): array [nc, nh, superh(2), channel(3), variant(4)].
 
     variant: 0 post/independent, 1 post/compete, 2 time/independent,
     3 time/compete. Channels H, H2, C2H2 (H2 is absent in the super-H set:
     -300). Points with N_H > N_C + nh_top/... beyond the evaluated range take
     the last evaluated N_H of their N_C.
+
+    ``one_minus_yion``: the rate counts only the absorptions that do not
+    ionise, int_5^13.6 C_abs (1 - Y_ion) F dE (Murga+2019 eq. B2's
+    [1 - Y_ion]; M20 Sect. 2.1: "the photon energy either is spent to
+    ionization or converts to the internal energy"); False multiplies the
+    yield by all absorptions (M20 eq. 6 read alone).
     """
     field = shiva.mmp83(chi)
     nc_grid = np.unique(np.concatenate([np.arange(4.0, nc_max + 1.0, 4.0), [float(nc_max)]]))
@@ -223,7 +247,12 @@ def rate_table(charge, chi, nc_max, nh_top, temperature="dl01", de_ev=0.1, e_max
                 continue
             m = shiva.ShivaMolecule(int(nc), int(nh), charge, de_ev=de_ev, e_max_ev=e_max_ev, temperature=temperature)
             p_time, p_post = m.distribution(field)
-            r_abs = m.absorption_rate(field)
+            if one_minus_yion:
+                E_ph, h = m.heating(field, ionising_photons_heat=False)       # C_abs (1 - Y_ion) F
+                keep = E_ph >= shiva.E_DESTRUCTION_MIN
+                r_abs = float(np.trapezoid(h[keep], E_ph[keep]))
+            else:
+                r_abs = m.absorption_rate(field)
             for s, names in enumerate((("H", "H2", "C2H2"), (hs, None, "C2H2_superh"))):
                 # computed at every N_H (the lack of H atoms at N_H < 1, 2 is applied in the ODE,
                 # not here, so that log R interpolates smoothly)
@@ -251,7 +280,8 @@ class Rates:
         # one table per (Z, chi, T(E)) serves every parent: the grid spans the largest (C150H30)
         nc_max = max(TABLE_NC_MAX, int(nc0))
         nh_top = max(TABLE_NH_TOP, float(nc0 + nh0))
-        nc_grid, nh_grid, table = rate_table(charge, float(chi), nc_max, nh_top, opts.temperature)
+        nc_grid, nh_grid, table = rate_table(charge, float(chi), nc_max, nh_top, opts.temperature,
+                                             one_minus_yion=opts.one_minus_yion)
         self.nc_grid, self.nh_grid = nc_grid, nh_grid
         self.table = table[..., VARIANTS[(opts.p_reading, opts.compete)]]          # [nc, nh, regime, channel]
 

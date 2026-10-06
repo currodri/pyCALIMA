@@ -113,8 +113,9 @@ def test_tielens_temperature_destroys_c150_too_fast(profiles):
 
 @pytest.mark.xfail(strict=True, reason=(
     "Where destruction is partial (Orion A_V = 2, Horsehead, Orion cations) our C2H2 per molecule is "
-    "1-4 dex above Fig. 4 for every combination of the open choices tried (T(E), p(E), super-H threshold, "
-    "ion H2 addition, channel competition): the real-valued N_H drifts above X_H0 under any H addition and "
+    "1-4 dex above Fig. 4 with independent channels (the default, which keeps full destruction). Competing "
+    "channels (M19 eq. B2) bring it to 1.2 dex rms but leave the small PAHs +1 to +2 dex high and the large "
+    "neutrals 1-3 dex low (Horsehead C24H12 Z = 0 then passes, the other two do not). Independent: the real-valued N_H drifts above X_H0 under any H addition and "
     "opens the 2.0 eV super-H C2H2 channel. With the super-H path switched off the normal-state rates alone "
     "are 1-2 dex high for C16-C24 and 8-20 dex low for N_C >= 66, so Fig. 4's nearly size-independent "
     "1e-4-1e-3 for large PAHs needs a super-H contribution, 1e2-1e4 x smaller than ours "
@@ -124,3 +125,35 @@ def test_tielens_temperature_destroys_c150_too_fast(profiles):
 def test_fig4_partial_destruction(profiles, site, av, z, parent):
     tr = T.evolve(parent, T.environment(site, av), z)
     assert abs(np.log10(tr.total_c2h2 / _fig4(site, av, z, parent))) < 1.0
+
+
+# --- channel competition (Murga+2019 eq. B2) ---------------------------------------
+
+PROBE_PARENTS = ("C16H10", "C24H12", "C66H20", "C150H30")
+PROBE_CASES = (("orion_isochoric", 2.0), ("horsehead", 0.1), ("horsehead", 2.0), ("orion_isochoric", 0.1))
+
+
+def _probe_rms(opts):
+    d = [np.log10(T.evolve(p, T.environment(s, av), z, opts).total_c2h2 / _fig4(s, av, z, p))
+         for s, av in PROBE_CASES for z in (0, 1) for p in PROBE_PARENTS]
+    return float(np.sqrt(np.mean(np.square(d))))
+
+
+def test_channel_competition_halves_the_fig4_misfit(profiles):
+    """With the channels in one denominator (M19 eq. B2; M20: H2 is 'not a competitor'
+    in the super-H set) the 32 probe points of Fig. 4 go from 2.4 to 1.2 dex rms
+    (measured 2.36 -> 1.18; over all 140 partial points 2.53 -> 1.16, median
+    +2.45 -> +0.06). Independent channels are 1-4 dex high wherever destruction
+    is partial."""
+    assert _probe_rms(T.Options(compete=True)) < 1.3
+    assert _probe_rms(T.Options()) > 2.0
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "With competing channels the super-H H loss (1.4 eV) outpaces the 2.0 eV C2H2 channel, and the Orion "
+    "A_V = 0.1 neutrals with N_C >= 110 are not destroyed within 1e6 yr (C150H30 sits at the maximum N_H = 180 and "
+    "yields 3.9 of 75 C2H2, -1.3 dex, against the end of Figshare C2H2 production at 1e4 yr). No printed reading tried "
+    "fits both these and the partial-destruction points (check_murga2020.py)."))
+def test_channel_competition_keeps_full_destruction(profiles):
+    tr = T.evolve("C150H30", T.environment("orion_isochoric", 0.1), 0, T.Options(compete=True))
+    assert tr.total_c2h2 == pytest.approx(75.0, rel=1e-3)

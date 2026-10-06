@@ -95,6 +95,7 @@ emission_heating = "dP/dT from DustEM for the synthetic spectra (Sect. 3.2, eq. 
 rate_form = "not stated in 2022: rates 'depend on E_0 and Delta S' (Shiva, Murga+2020)"
 E0_meaning = "for super-H states E_0 is treated as a yield parameter, not an activation energy (Sect. 3.1)"
 channels = "H, H2, C2H2 or C2 loss (Sect. 3.1); R_H is the net H loss including H in H2 and C2H2"
+r_h_in_model_b = "R_H counts the 2 H of each C2H2 loss while model b keeps the carbon (B = 0): 'R_H is the net rate of detachment of all hydrogen atoms which might be detached from a PAH both separately and also inside hydrogen or acetylene molecules' (Sect. 3.1) with 'b) PAHs can lose hydrogen atoms but cannot lose carbon atoms'. With it the deep-MC step rate is 0.87-1.44x ours (1.5-2.5x without), the step ratio 1.257 (Figshare 1.250; 1.278 without), and every 3.3 A region within 0.03 of Figshare (pahchem.murga2022, 2026-10-06). Reading, confidence D"
 h_loss_normal_dehydro = { E_act = 4.3, dS_cal_K_mol = 11.8, unit = "eV", source = "Table 3, X_H <= X_H0, all Z; 'parameters adopted by Andrews+16' (Sect. 3.1), but Andrews' Table 2 has 4.6/4.1 eV, 10.7/13.3 cal; derivation not stated", confidence = "D" }
 h2_loss = { E_act = 3.52, dS_cal_K_mol = -12.69, unit = "eV", source = "Table 3, X_H <= X_H0 only (= Andrews+16, -53.1 J K^-1 mol^-1)", confidence = "D" }
 c2h2_loss_normal_dehydro = { E_act = 4.6, dS_cal_K_mol = 10.0, unit = "eV", source = "Table 3, X_H <= X_H0, all Z; Micelotta+2010 (Sect. 3.1)", confidence = "D" }
@@ -144,7 +145,17 @@ age = { value = 1.0e5, unit = "yr", source = "Sect. 4.1 (Salgado+2016, Kirsanova
 n_output_times_figshare = { value = 11, unit = "", source = "Figshare description", confidence = "E" }
 output_times = "not stated; in model c most locations change little after the first output time"
 output_times_inferred = "linear, 0, 1e4, ..., 1e5 yr: the pure-loss 3.3 A neutral chains of the deep MC (Figshare locations 134-151) fall by the same factor at every output (pahchem.murga2022, gate 1); inference, confidence D"
-temperature_relation_inferred = "DL01 T(E) with the post-absorption M20 yield: the second/first H-loss step ratio of the Figshare chains is 1.250 at every chi (DL01: 1.278; Tielens: 0.835); inference, confidence D"
+temperature_relation_inferred = "DL01 T(E) with the post-absorption M20 yield and independent channels: the second/first H-loss step ratio of the Figshare chains is 1.250 at every chi (DL01: 1.257; Tielens: 0.787; with the C2H2 hydrogen in R_H). The time-averaged p(E) gives rates 1e-12 x smaller there, and competing channels (M19 eq. B2) 3.2x smaller; inference, confidence D"
+stated_changes_vs_m20 = [
+  "super-H E0: 'we consider E_0 as a parameter describing the yield of destruction rather than the activation energy', linear in X_H/X_H0 (eq. 6, Table 3), calibrated on Rapacioli+2018 (replaces M20's fixed 1.4/1.55 eV H and 2.0 eV C2H2)",
+  "bin-to-bin network: 'A_ij = eps_ij / (m_Hb^ij+1 - m_Hb^ij)', eps = (mu_H/N_A) R_H, and B likewise for C (eqs. 1-5; M20 followed single molecules)",
+  "R_H: 'the net rate of detachment of all hydrogen atoms ... both separately and also inside hydrogen or acetylene molecules' (Sect. 3.1)",
+  "hydrogenation grid: 'N_mH = 5 bins, spanning a range from 0 to 2.5 X_H0' (Sect. 3.2); the Figshare labels (0.26-1.74 X_H0 centres) do not match uniform bins on [0, 2.5]",
+  "carbon-loss cases a-d, d: 'only PAHs with N_C < 60 can lose their carbon atoms' (Sect. 3.1, Table 4)",
+  "H2: 'In our model, PAHs do not interact with molecular hydrogen' (Sect. 4.3.4; M20 had 5e-13 n_H2 for ions)",
+  "emission: DL07 C_abs 'with modifications concerning the bands at 3.3, 3.4, and 11.2 um' (Sect. 3.2, App. A-B; spectra only)",
+]
+not_stated_as_changed = "charge (f_i(Z) from WD01, as M20 weighted by f(i, Z)), p(E) reading, channel branching, H-addition rates (H^ij 'given by murga20'), T(E), the 5-13.6 eV range, the field shape: any M20/M22 difference in these is a question for the authors"
 charge_classes_inferred = "every Z >= 1 evolves identically in the files, and so do Z = -1, -2: three charge classes (anion, neutral, cation) for the rates"
 solver = "not stated"
 source = "Sect. 3.1, 4.1"

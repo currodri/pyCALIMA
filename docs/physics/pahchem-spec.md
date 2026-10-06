@@ -878,17 +878,38 @@ What the Figshare data reveal:
 - **Output times:** linear, 0 to $10^5$ yr. The pure-loss chains of 3.3 Å
   neutrals in the deep MC fit exactly.
 - **$T(E)$:** DL01, as M20 states. Their second-to-first step ratio is 1.250
-  at every $\chi$; ours is 1.278 with DL01 and 0.835 with Tielens.
+  at every $\chi$; ours is 1.257 with DL01 and 0.787 with Tielens.
   - So MW22 (Tielens-like) and M20/M22 (DL01) used different $T(E)$
     relations within SHIVA.
   - The post-absorption yield reading is the right one. The time-averaged
     reading is ~12 dex off.
+- **$R_{\rm H}$ includes the hydrogen of C$_2$H$_2$ loss** (2026-10-06).
+  M22 Sect. 3.1: $R_{\rm H}$ is "the net rate of detachment of all hydrogen
+  atoms which might be detached ... both separately and also inside
+  hydrogen or acetylene molecules". Model b keeps the carbon. This reading
+  takes the deep-MC rate from 1.5–2.5× to 0.87–1.44× ours, and the step ratio
+  from 1.278 to 1.257.
+- **Channels are independent.** Competing channels (M19 eq. B2) would put
+  the Figshare deep-MC rate 2.8–4.6× above ours.
+- **What M22 say changed relative to M20,** and so what may differ between
+  the two configurations (`murga2022.toml`, `stated_changes_vs_m20`):
+  - the super-H $E_0$ law (Table 3);
+  - the bin-to-bin network;
+  - the $R_{\rm H}$ definition;
+  - the $X_{\rm H}$ grid;
+  - the carbon-loss cases a–d;
+  - no H$_2$ addition;
+  - the emission cross sections.
+
+  Not stated as changed: $p(E)$, branching, H addition, $T(E)$ and the field
+  shape.
 
 Gates:
-- **Deep-MC step rate:** theirs is 1.5–2.5× ours (DL01). The factor grows
-  with depth, which suggests a field shape that changes inward (not
-  stated).
-- **3.3 Å dehydrogenation** at $10^5$ yr: within 0.07 in every region.
+- **Deep-MC step rate:** theirs is 0.87–1.44× ours (DL01; 1.5–2.5× without
+  the C$_2$H$_2$ hydrogen). The factor grows with depth, which suggests a
+  field shape that changes inward (not stated).
+- **3.3 Å dehydrogenation** at $10^5$ yr: within 0.03 in every region (0.07
+  without the C$_2$H$_2$ hydrogen).
 - **PAHs ≥ 6 Å** end 60–90 % super-hydrogenated where Figshare keeps them
   normal (strict xfail).
   - The M20 H-addition rates as printed outrun the super-H photo-loss by
@@ -896,6 +917,10 @@ Gates:
   - The Figshare super-H steps are ~$2\times10^{-13}$ s$^{-1}$ whatever
     $n_{\rm H}$.
   - So M22's addition or super-H loss differs from M20 as printed.
+  - The one change M22 state there makes it worse. The Table 3 law puts
+    the neutral super-H H-loss $E_0$ at 3.3 eV at $X_{\rm H}/X_{\rm H0} =
+    1.37$, against 1.4 eV in M20.
+  - So no stated update explains it. **Open (authors).**
 - **Not attempted:** models c and d (C loss and addition), because model b's
   super-H balance is not in hand.
 
@@ -911,20 +936,31 @@ Euler is stable.
   - C$_{150}$H$_{30}$ dies at $1.6\times10^3$ yr with DL01, against the
     $10^4$ yr end of production in Figshare. Tielens gives 24 yr.
 - **Partial destruction:** Orion cations, Orion $A_V = 2$ and the Horsehead
-  are 1–4 dex above Fig. 4 for every combination of the open choices tried
-  (rms 2.6–4.6 dex; strict xfail).
+  are 1–4 dex above Fig. 4 with independent channels (140 points: rms 2.53
+  dex, median +2.45; strict xfail).
   - Under any H addition the real-valued $N_{\rm H}$ drifts above
     $X_{\rm H0}$ and opens the super-H channel, which runs ~$10^{12}$×
     faster than the normal channels.
   - Fig. 4 needs a super-H contribution $10^2$–$10^4$× smaller. M20's
     threshold handling is not published.
+- **Channel competition** (M19 eq. B2; 2026-10-06):
+  - It brings the 140 partial points to 1.16 dex rms (median +0.06).
+  - But the Orion $A_V = 0.1$ neutrals with $N_{\rm C} \ge 110$ then stop
+    short of full destruction by 0.6–1.3 dex (strict xfail).
+  - The M22 deep-MC chains also reject competition (above).
+  - The default stays independent. **Open (authors).**
+  - $[1 - Y_{\rm ion}]$ in the rate changes the Fig. 4 rms by < 0.1 dex;
+    eq. 6 as printed is kept.
 - **$p(E)$ verdicts conflict between the papers.**
   - M20 Fig. 4 needs the time-averaged reading: post-absorption makes the
     Horsehead coronene lose C$_2$H$_2$ ~$10^4$× too fast.
   - The M22 Figshare chains need the post-absorption yield: time-averaged is
     ~12 dex off.
   - Either SHIVA changed between the papers, or the two used a definition
-    neither states. **Open.**
+    neither states.
+  - Channel competition and $[1 - Y_{\rm ion}]$ do not move either verdict:
+    M20 time 1.16 dex against post 4.40 with competition.
+  - M22 state no change to SHIVA's $p(E)$. **Open (authors).**
 
 What the remaining targets need:
 - **Raster figures the user is digitising:**

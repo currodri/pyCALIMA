@@ -11,10 +11,16 @@ The pieces:
 - **Photo H loss.** ``pahchem.shiva`` (M20 eqs. 4-6, the post-absorption
   yield) in the MMP83 field scaled by chi (the unit the charge gate infers,
   ``murga_charge``):
-  - for X_H <= X_H0: H (4.3 eV, 11.8 cal/K) plus H2 (3.52 eV, -12.69 cal/K)
-    counted in atoms;
-  - for X_H > X_H0: E0 = a* (X_H/X_H0) + b* by charge class, 13.3 cal/K
-    (Table 3), plus Eley-Rideal abstraction 8.7e-13 sqrt(T/100) n_H (M20 eq. 10).
+  - for X_H <= X_H0: H (4.3 eV, 11.8 cal/K), H2 (3.52 eV, -12.69 cal/K) and
+    the H of C2H2 (4.6 eV, 10 cal/K), counted in atoms, each channel against
+    k_IR alone;
+  - for X_H > X_H0: H and C2H2 with E0 = a* (X_H/X_H0) + b* by charge class,
+    13.3 and 10 cal/K (Table 3), plus Eley-Rideal abstraction 8.7e-13
+    sqrt(T/100) n_H (M20 eq. 10).
+  - The C2H2 hydrogen: M22 Sect. 3.1, "R_H is the net rate of detachment of
+    all hydrogen atoms which might be detached from a PAH both separately
+    and also inside hydrogen or acetylene molecules"; model b keeps the
+    carbon.
 - **H addition (M20 Sect. 2.2).**
   - Neutrals: 0.5 (N_edge k_edge + N_core k_core) n_H, from Goumans 2011
     (``goumans2011_table3.csv``), N_edge = N_H0, N_core = N_C - N_H0.
@@ -46,22 +52,23 @@ files (``check_murga2022.py``):
 - **Goumans temperature range.** The fits are clamped below 40 K (they
   diverge there, Goumans Sect. 3) and extrapolated above 2000 K.
 
-Measured against the Figshare model b (2026-10-05, check_murga2022.py):
+Measured against the Figshare model b (2026-10-06, check_murga2022.py):
 - **Deep MC, 3.3 A neutrals** (locations 134-151; H addition negligible
   there, so these are pure loss chains, fitted exactly):
   - The step rate k(mid -> lowest)/k(normal -> mid) is 1.250 at every chi.
-    With DL01 our R(mid)/R(normal) is 1.278; with Tielens it is 0.835 (the
-    T(E) verdict).
-  - The absolute step rate is 1.5-2.5x ours (DL01). Tielens gives 13-21x.
+    With DL01 our R(mid)/R(normal) is 1.257 (1.278 without the C2H2
+    hydrogen); with Tielens it is 0.787 (the T(E) verdict).
+  - The absolute step rate is 0.87-1.44x ours (DL01; 1.5-2.5x without the
+    C2H2 hydrogen, 2.8-4.6x with the channels competing as in M19 eq. B2).
     The ratio rises monotonically with depth (chi 1.9e-3 -> 1.2e-5): their
     rate per unit chi grows inward, as a field shape that changes with depth
     (not stated) would make it.
 - **3.3 A at 1e5 yr** (f-weighted fraction in the lowest bin, ours /
   theirs):
-  - PDR 1: 0.96 / 0.95;
-  - PDR 2: 0.86 / 0.93;
+  - PDR 1: 0.98 / 0.95;
+  - PDR 2: 0.92 / 0.93;
   - DF: 1.00 / 1.00;
-  - MC: 0.83 / 0.86.
+  - MC: 0.85 / 0.86.
 - **>= 6 A outside the HII region.** Ours go super-hydrogenated (60-90 % in
   the top two bins; <X_H/X_H0> +0.3 to +0.5), where Figshare stays normal
   (80-100 %).
@@ -70,8 +77,11 @@ Measured against the Figshare model b (2026-10-05, check_murga2022.py):
   - The Figshare super-H populations do not behave as addition chains: the
     3 -> 4 step is ~2e-13 s^-1 whatever n_H.
   - So M22's addition (or super-H loss) differs from M20 as printed, in a
-    way the files do not reveal.
-- **Fig. 8 <X_H/X_H0>(distance)**: +0.10 (MC, DF, PDR 1) to +0.21 (PDR 2)
+    way the files do not reveal. M22's one stated change there, the Table 3
+    super-H law, makes it worse, not better: at X_H/X_H0 = 1.37 it puts the
+    neutral H-loss E0 at 3.3 eV, against M20's 1.4 eV. The C2H2 hydrogen
+    changes <X_H/X_H0> by < 0.01.
+- **Fig. 8 <X_H/X_H0>(distance)**: +0.09 (MC, PDR 1) to +0.18 (PDR 2)
   above the Figshare values, from the same super-H excess.
 - **HII region.** 6-7.8 A are dehydrogenated in the files and normal here:
   M22 add EUV photons there with no stated spectrum.
@@ -97,7 +107,9 @@ CLASSES = (-1, 0, 1)                                            # anion, neutral
 #: Table 3 super-H H loss: E0 = a* x + b*, dS = 13.3 cal/K, by charge class
 SUPERH = {-1: (-2.5, 6.8), 0: (-2.7, 7.0), 1: (-2.4, 6.7)}
 DS_SUPERH = 13.3
-H_LOSS, H2_LOSS = (4.3, 11.8), (3.52, -12.69)
+#: Table 3 super-H C2H2 loss: E0 = a* x + b*, dS = 10.0 cal/K, by charge class
+SUPERH_C2H2 = {-1: (-2.7, 7.3), 0: (-2.9, 7.5), 1: (-2.6, 7.2)}
+H_LOSS, H2_LOSS, C2H2_LOSS = (4.3, 11.8), (3.52, -12.69), (4.6, 10.0)
 K_ION_NORMAL, K_ION_DEHYDRO_CONST, K_ION_SUPERH = 1.4e-10, 5e-11, 1e-12
 K_ER = 8.7e-13
 NO_PHOTO_LOSS_NC = 20000
@@ -152,22 +164,30 @@ def h_addition(nc, j, z, temperature_k, n_h):
 # Photo H loss: tabulated on CHI_GRID per (size, bin, charge class)
 # ---------------------------------------------------------------------------
 
-def photo_loss_on_grid(nc, j, zc, temperature="dl01", chi_grid=CHI_GRID):
-    """H atoms lost per molecule per second [s^-1] on ``chi_grid`` (M20 eqs. 4-6)."""
+def photo_loss_on_grid(nc, j, zc, temperature="dl01", chi_grid=CHI_GRID, acetylene_h=True):
+    """H atoms lost per molecule per second [s^-1] on ``chi_grid`` (M20 eqs. 4-6).
+
+    ``acetylene_h``: R_H counts the two H of every C2H2 loss (M22 Sect. 3.1:
+    "R_H is the net rate of detachment of all hydrogen atoms which might be
+    detached from a PAH both separately and also inside hydrogen or
+    acetylene molecules"); model b keeps the carbon (B = 0). False counts H
+    and H2 only.
+    """
     if nc > NO_PHOTO_LOSS_NC:
         return np.zeros(len(chi_grid))
     m = shiva.ShivaMolecule(nc, nh=nh_of(nc, j), charge=zc, temperature=temperature)
     x = X_BINS[j]
+    k = lambda e0, ds: shiva.k_arrhenius_te(m.energy_ev, e0, ds, m.t_m)
     if x > 1.0:
-        a, b = SUPERH[zc]
-        ks = {"H": shiva.k_arrhenius_te(m.energy_ev, a * x + b, DS_SUPERH, m.t_m)}
+        (a, b), (ac, bc) = SUPERH[zc], SUPERH_C2H2[zc]
+        ks = {"H": k(a * x + b, DS_SUPERH), "C2H2": k(ac * x + bc, C2H2_LOSS[1])}
     else:
-        ks = {"H": shiva.k_arrhenius_te(m.energy_ev, *H_LOSS, m.t_m),
-              "H2": shiva.k_arrhenius_te(m.energy_ev, *H2_LOSS, m.t_m)}
+        ks = {"H": k(*H_LOSS), "H2": k(*H2_LOSS), "C2H2": k(*C2H2_LOSS)}
+    atoms = {"H": 1.0, "H2": 2.0, "C2H2": 2.0 if acetylene_h else 0.0}
     out = []
     for chi in chi_grid:
         r = m.rates(shiva.mmp83(chi), ks)
-        out.append(r["H"]["m20"] + 2.0 * r.get("H2", {"m20": 0.0})["m20"])
+        out.append(sum(atoms[c] * r[c]["m20"] for c in ks))
     return np.array(out)
 
 
