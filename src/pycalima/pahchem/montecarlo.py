@@ -33,7 +33,8 @@ class MonteCarlo:
 
         self.model = model
         self.names = list(channel_rates)
-        self.K = np.array([np.asarray(channel_rates[c], dtype=float) for c in self.names])
+        self.K = np.array([np.asarray(channel_rates[c], dtype=float) for c in self.names]).reshape(
+            len(self.names), model.n)
         self.rng = np.random.default_rng(seed)
         self.r_abs = 0.0
         if heating_spectrum is not None:
@@ -76,6 +77,28 @@ class MonteCarlo:
                     break
                 E -= self.model.freqs_cm[np.searchsorted(np.cumsum(k_modes), u - k_ch.sum())]
         return dict(zip(self.names, counts / n_molecules))
+
+    def cascade_photons(self, start_cm, n_molecules, e_stop_cm=0.0):
+        """Mean IR photons emitted per mode by molecules started at ``start_cm``.
+
+        Each cascade runs until no mode can emit, a channel fires, or E falls
+        below ``e_stop_cm``. This checks ``emission.cascade_photons``.
+        """
+        counts = np.zeros(self.model.freqs_cm.size)
+        for _ in range(n_molecules):
+            E = float(start_cm)
+            while E > e_stop_cm:
+                k_modes, k_ch = self._rates(E)
+                total = k_modes.sum() + k_ch.sum()
+                if total <= 0.0:
+                    break
+                u = self.rng.random() * total
+                if u < k_ch.sum():
+                    break
+                i = np.searchsorted(np.cumsum(k_modes), u - k_ch.sum())
+                counts[i] += 1
+                E -= self.model.freqs_cm[i]
+        return counts / n_molecules
 
     def steady_rates(self, n_photons, burn_in=200):
         """Dissociation rates [s^-1] of a molecule re-injected cold after each dissociation.

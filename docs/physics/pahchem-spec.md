@@ -751,6 +751,54 @@ Open items:
   `calima-run` rates with `photolysis_model = "pahchem"` should match the
   engine, followed by a RAMSES single-cell test.
 
+**M7a, IR emission of one molecule: passes** (2026-10-06;
+{mod}`pycalima.pahchem.emission`, `tests/test_pahchem_emission.py`, figure
+`emission_cascade`).
+- **The model.** The cascade of `energy_me` already holds every emission
+  rate $k_i(E)$; `emission` counts the photons.
+  - `cascade_photons` gives $N_i(E)$, the photons emitted per mode on the way
+    down from $E$. It is exact for the discrete cascade, split jumps
+    included, with optional dissociation sinks.
+  - `single_photon_emission` averages $N_i$ over a heating spectrum, for a
+    molecule cold before each absorption.
+  - `steady_state_emission` gives $R_i = \sum_j P_j k_i(E_j)$ for the
+    multiphoton steady state.
+  - `spectrum` broadens the bands with the PAHdb convention: Lorentzian,
+    FWHM 15 cm$^{-1}$, redshift 15 cm$^{-1}$.
+- **Gates:**
+  - **Energy.** $\sum_i h\nu_i N_i(E) = E$ less < 150 cm$^{-1}$ left when no
+    mode can emit (66 cm$^{-1}$ for C$_{24}$H$_{12}$ at 8 eV).
+  - **Steady state.** $\sum_i h\nu_i R_i$ equals the radiated power to
+    $10^{-9}$, and the absorbed power to $10^{-3}$.
+  - **Monte Carlo.** 3000 Gillespie cascades of C$_{24}$H$_{12}$ from 6 eV
+    give every band's photon count within 1.5 % (`MonteCarlo.cascade_photons`).
+  - **AmesPAHdb suite.** `Transitions.cascade(E)`, its thermal-approximation
+    emission model, was run on the same PAHdb v4.00 modes; the frequencies
+    agree to 0.005 cm$^{-1}$ after the correction above. Its band fractions
+    (not the PAHdb modes, which are never bundled) are
+    `amespahdb_cascade_band_fractions.csv`.
+    - At 4–12 eV every band but 3.3 µm agrees to 1 % (far-IR 4 %).
+    - At 3.3 µm the exact cascade is below the thermal one and converges to
+      it as $E$ grows:
+
+      | Species | 2 eV | 4 eV | 8 eV | 12 eV |
+      |---|---|---|---|---|
+      | C$_{24}$H$_{12}$ | 0.84 | 0.96 | 0.99 | 0.995 |
+      | C$_{54}$H$_{18}$ | 0.75 | 0.90 | 0.97 | 0.99 |
+
+      The thermal approximation overestimates high-frequency emission from a
+      small energy content. This is the expected physical difference, not a
+      tolerance.
+- **Not yet in.**
+  - The emission spectrum of each $(Z, N_{\rm H})$ state, weighted by the
+    network populations (M7b). Its prerequisite is per-charge modes: the
+    baseline uses the neutral parent's modes for every charge, but the
+    cation's C–C bands are ~10× stronger, which is what makes 6.2/11.2 trace
+    charge.
+  - Temperature-dependent band shifts and widths (anharmonicity).
+  - Recurrent fluorescence.
+  - The comparison with observations (M7c).
+
 **Benchmark figures** (`diagnostics/pahchem/plot_benchmarks.py`, 2026-10-05).
 The script makes one PNG per benchmark, in `<plots dir>/pahchem/`, and runs
 the same calculations as the gated tests:

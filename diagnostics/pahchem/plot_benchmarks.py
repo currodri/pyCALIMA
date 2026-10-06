@@ -691,12 +691,48 @@ def fig_murga2022_model_b(args, out):
     _save(fig, out, "murga2022_model_b")
 
 
+def fig_emission_cascade(args, out):
+    """Per-photon IR emission: the exact cascade against the AmesPAHdb thermal cascade."""
+    from pycalima.pahchem import emission
+
+    ref = pd.read_csv(EXT("pahchem/amespahdb_cascade_band_fractions.csv"), comment="#")
+    grid = np.linspace(500.0, 3300.0, 5601)
+    wl = 1e4 / grid
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7), gridspec_kw={"width_ratios": [2.2, 1]})
+    for row, formula in zip(axes, ("C24H12", "C54H18")):
+        sp = PAHSpecies.from_states_file(args.states_dir / f"{formula}_0.dat")
+        cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, e_max_cm=13 * dos.CM_PER_EV, de_cm=20.0)
+        N = emission.cascade_photons(cm)
+        r = ref[ref.species == formula]
+        bands = list(dict.fromkeys(r.band))
+        for e, c in ((2.0, "C0"), (8.0, "C3")):
+            j = int(round(e * dos.CM_PER_EV / cm.de_cm))
+            ours = sp.freqs_cm * N[:, j] / cm.energy_cm[j]
+            row[0].plot(wl, emission.spectrum(sp.freqs_cm, ours, grid) * grid**2 / 1e4, color=c, lw=1.2,
+                        label=f"{e:.0f} eV")
+            rb = r[r.e_ev == e].set_index("band")
+            ob = [ours[(sp.freqs_cm >= rb.lo_cm[b]) & (sp.freqs_cm < rb.hi_cm[b])].sum() for b in bands]
+            row[1].plot(bands, np.array(ob) / rb.energy_fraction[bands].to_numpy(), "o-", color=c, label=f"{e:.0f} eV")
+        row[0].set_ylabel(r"$(dE/d\lambda)\,/\,E$ [$\mu$m$^{-1}$]")
+        row[0].set_title(f"{formula}: per-photon emission, exact cascade", fontsize=10)
+        row[0].set_xlim(3, 20)
+        row[0].legend(fontsize=8)
+        row[1].axhline(1.0, color="k", lw=0.8)
+        row[1].set_ylabel("pahchem / AmesPAHdb")
+        row[1].set_title("band fraction vs the thermal cascade", fontsize=10)
+        row[1].set_ylim(0.7, 1.1)
+        row[1].legend(fontsize=8)
+    axes[1, 0].set_xlabel(r"$\lambda$ [$\mu$m]")
+    axes[1, 1].set_xlabel("band [$\\mu$m]")
+    _save(fig, out, "emission_cascade")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
     fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7,
     fig_murga2019_shiva_inputs, fig_murga_wiebe22_shiva, fig_murga2020_fig3, fig_murga2020_fig4,
-    fig_murga2022_charge, fig_murga2022_model_b)}
+    fig_murga2022_charge, fig_murga2022_model_b, fig_emission_cascade)}
 
 
 def main():
