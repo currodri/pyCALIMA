@@ -20,6 +20,12 @@ the check_*.py scripts, whose docstrings record the measured numbers.
 | allain96_fig10 | hydrogenation coefficient vs N_C, Orion Bar (by charge) and NGC 7027 (II Fig. 10) | M5 | ~30 s |
 | lepage01_fig10 | H-loss photodissociation rate vs N_C, six classes (Le Page+01 Fig. 10) | M5 | ~1 min |
 | lepage03_fig6_7 | C2 / C2H2 / H loss vs N_C, dehydrogenated and normal PAHs (LP03 Figs. 6-7) | M5 | ~1 min |
+| murga2019_shiva_inputs | SHIVA's T(E) (DL01 Fig. 7) and Y_ion (Murga+2019 Fig. 2) | M5 | s |
+| murga_wiebe22_shiva | MW22 Fig. 1, H and C loss, with SHIVA's DL01 and Tielens T(E) | M5 | ~1 min |
+| murga2020_fig3 | mean charge vs A_V, Orion Bar and Horsehead | M5 | s |
+| murga2020_fig4 | C2H2 per molecule for the 20 parents, independent vs competing channels | M5 | minutes |
+| murga2022_charge | <Z> vs distance by size against the Figshare f(a, Z) | M5 | ~1 min |
+| murga2022_model_b | <X_H/X_H0> and the hydrogenation bins vs distance, model b | M5 | ~1 min |
 
 Inputs that are not shipped:
 - ``--west-esi``: the West+18 ESI workbook (default: the west2018-esi dataset);
@@ -494,10 +500,194 @@ def fig_lepage03_fig6_7(args, out):
     _save(fig, out, "lepage03_fig6_7")
 
 
+# --- Murga et al. (SHIVA): the figures reuse the calculations of the check_* scripts ---
+
+def _checks():
+    import sys
+
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+
+
+def fig_murga2019_shiva_inputs(args, out):
+    from pycalima.pahchem import shiva as S
+
+    t = pd.read_csv(EXT("pahchem/shiva_dl01_fig7_temperature.csv"), comment="#")
+    y = pd.read_csv(EXT("pahchem/murga2019_fig2_yion.csv"), comment="#")
+    fig, (a, b) = plt.subplots(1, 2, figsize=(12, 4.8))
+    for i, nc in enumerate(sorted(t.n_c.unique())):
+        g = t[t.n_c == nc].sort_values("energy_cm")
+        a.loglog(g.energy_cm, g.temperature_k, color=f"C{i}", lw=4, alpha=0.35, label=f"DL01 Fig. 7, N_C = {nc}")
+        E = np.logspace(np.log10(g.energy_cm.min()), np.log10(g.energy_cm.max()), 200)
+        a.loglog(E, S.Temperature(S.dl01_modes(int(nc), S.dl01_nh(int(nc))))(E / dos.CM_PER_EV), "--",
+                 color=f"C{i}", label=f"pahchem.shiva, N_C = {nc}")
+    a.set_xlabel("$E$ [cm$^{-1}$]")
+    a.set_ylabel("$T_m$ [K]")
+    a.set_title("SHIVA's T(E): Draine & Li 2001 synthetic modes", fontsize=9)
+    a.legend(fontsize=6)
+    for z in sorted(y.z.unique()):
+        g = y[y.z == z].sort_values("energy_eV")
+        b.plot(g.energy_eV, g.y_ion, color=f"C{z}", lw=4, alpha=0.35, label=f"Murga+19 Fig. 2, Z = {z}")
+        E = np.linspace(g.energy_eV.min(), g.energy_eV.max(), 300)
+        b.plot(E, S.y_ion_wd01(E, 3.3e-8, int(z)), "--", color=f"C{z}", label=f"WD01a (pyCALIMA), Z = {z}")
+    b.set_xlabel("$h\\nu$ [eV]")
+    b.set_ylabel("$Y_{\\rm ion}$")
+    b.set_title("Photoelectric yield, a = 3.3 A (Murga+2019 Fig. 2)", fontsize=9)
+    b.legend(fontsize=6)
+    _save(fig, out, "murga2019_shiva_inputs")
+
+
+def fig_murga_wiebe22_shiva(args, out):
+    _checks()
+    import check_shiva as CS
+    from pycalima.pahchem import shiva as S
+
+    mw = pd.read_csv(EXT("pahchem/murga_wiebe22_fig1.csv"), comment="#")
+    chi = 10 ** np.arange(0.0, 5.01, 0.5)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
+    for temp, ls in (("dl01", ":"), ("tielens", "--")):
+        m = S.ShivaMolecule(66, 20, 0, temperature=temp)
+        forms = CS.mw22_forms(m, args.c66_modes)
+        p = [m.distribution(S.mmp83(c), ionising_photons_heat=True)[0] for c in chi]
+        for ax, prod in zip(axes, ("H", "C")):
+            for i, (name, k) in enumerate(forms[prod].items()):
+                ax.plot(np.log10(chi), [np.log10(pp @ k * CS.YR + 1e-300) for pp in p], ls, color=f"C{i}",
+                        label=f"SHIVA, {name}, T(E) {temp}")
+    for ax, prod in zip(axes, ("H", "C")):
+        for i, name in enumerate(("Arrh. 1", "Arrh. 2", "RRK", "Laplace")):
+            g = mw[(mw["product"] == prod) & (mw.method == name)].sort_values("chi")
+            ax.plot(np.log10(g.chi), np.log10(g.rate_per_yr), "s-", lw=4, alpha=0.35, color=f"C{i}",
+                    label=f"MW22 Fig. 1, {name}")
+        ax.set_xlabel("$\\log \\chi$ (MMP83)")
+        ax.set_title(f"C$_{{66}}$H$_{{20}}$, {'H loss' if prod == 'H' else 'C-skeleton loss'}", fontsize=9)
+        ax.set_ylim(-12, 7)
+    axes[0].set_ylabel("$\\log R$ [yr$^{-1}$]")
+    axes[0].legend(fontsize=5.5, ncol=2)
+    fig.suptitle("Murga & Wiebe 2022 Fig. 1 (exact) against SHIVA's own pieces: DL01 vs Tielens T(E)", fontsize=10)
+    _save(fig, out, "murga_wiebe22_shiva")
+
+
+def fig_murga2020_fig3(args, out):
+    _checks()
+    import check_murga_charge as CC
+
+    res = CC.m20_fig3()
+    av = np.array([0.1] + list(np.arange(0.5, 5.01, 0.5)))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+    for ax, site in zip(axes, ("orion_isochoric", "horsehead")):
+        for i, mol in enumerate(("C24H12", "C66H20", "C128H28")):
+            theirs, rounded, _mode = res[(site, mol)]
+            off = (i - 1) * 0.04
+            ax.plot(av + off, theirs + off, "o", ms=9, mfc="none", color=f"C{i}", label=f"Murga+20 Fig. 3, {mol}")
+            ax.plot(av - off, rounded - off, "x", ms=7, color=f"C{i}", label=f"pahchem (WD01, M22 config.), {mol}")
+        ax.set_xlabel("$A_V$")
+        ax.set_title(site.replace("_", " "), fontsize=9)
+    axes[0].set_ylabel("$\\langle Z \\rangle$ (rounded; markers offset for clarity)")
+    axes[0].legend(fontsize=7)
+    fig.suptitle("Murga+2020 Fig. 3: mean charge (48/66 points agree; the two papers used different conventions)",
+                 fontsize=10)
+    _save(fig, out, "murga2020_fig3")
+
+
+def fig_murga2020_fig4(args, out):
+    _checks()
+    import check_murga2020 as C20
+    from pycalima.pahchem import murga2020 as T
+
+    variants = (("independent channels (default)", T.Options()), ("competing channels", T.Options(compete=True)))
+    res = {label: C20.compare(T.PARENTS, opts, verbose=False) for label, opts in variants}
+    x = np.arange(len(T.PARENTS))
+    fig, axes = plt.subplots(2, 1, figsize=(13, 9))
+    styles = {(0.1, 0): ("C3", "s"), (2.0, 0): ("C0", "o"), (0.1, 1): ("C2", "D"), (2.0, 1): ("k", "x")}
+    for ax, site in zip(axes, ("orion_isochoric", "horsehead")):
+        for (av, z), (color, mk) in styles.items():
+            theirs = [res[variants[0][0]][(site, av, z, p)][1] for p in T.PARENTS]
+            ax.semilogy(x, theirs, mk, ms=7, mfc="none", color=color, label=f"Murga+20 Fig. 4, A_V = {av}, Z = {z}")
+            for (label, _), ls in zip(variants, ("-", ":")):
+                ours = [max(res[label][(site, av, z, p)][0], 1e-20) for p in T.PARENTS]
+                ax.semilogy(x, ours, ls, color=color, lw=1.2)
+        for (label, _), ls in zip(variants, ("-", ":")):
+            ax.plot([], [], ls, color="0.3", label=f"pahchem, {label} (colour = case)")
+        ax.set_xticks(x, T.PARENTS, rotation=60, fontsize=7)
+        ax.set_ylabel("C$_2$H$_2$ per molecule in $10^6$ yr")
+        ax.set_title(site.replace("_", " "), fontsize=9)
+        ax.legend(fontsize=6, ncol=3)
+    fig.suptitle("Murga+2020 Fig. 4: full destruction (Orion A_V = 0.1, Z = 0) is exact; partial destruction is not",
+                 fontsize=10)
+    fig.tight_layout()
+    _save(fig, out, "murga2020_fig4")
+
+
+def fig_murga2022_charge(args, out):
+    _checks()
+    import check_murga_charge as CC
+
+    t = CC.m22_table()
+    p = pd.read_csv(EXT("pahchem/murga2022_fig6_profile.csv"), comment="#")
+    t["distance"] = p.distance_arcsec.to_numpy()[t["loc"].to_numpy()]
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    for i, a in enumerate((3.3, 5.0, 7.8, 11.7, 19.9)):
+        g = t[np.isclose(t.a_A, a)].sort_values("distance")
+        ax.plot(g.distance, g.z_murga, color=f"C{i}", lw=4, alpha=0.35, label=f"Murga+22 Figshare, a = {a} A")
+        ax.plot(g.distance, g.z_ours, "--", color=f"C{i}", label=f"pahchem (WD01, inferred config.), a = {a} A")
+    for x, lab in ((113, "IF"), (130, "DF")):
+        ax.axvline(x, color="0.6", lw=0.8)
+        ax.text(x + 0.5, ax.get_ylim()[1] * 0.9, lab, fontsize=7, color="0.4")
+    ax.set_xlabel("distance [arcsec]")
+    ax.set_ylabel("$\\langle Z \\rangle$")
+    ax.set_title("Murga+2022: WD01 charge along the Orion Bar (HII region: EUV not modelled)", fontsize=9)
+    ax.legend(fontsize=6, ncol=2)
+    _save(fig, out, "murga2022_charge")
+
+
+def fig_murga2022_model_b(args, out):
+    _checks()
+    import check_murga2022 as C22
+    from pycalima.pahchem import murga2022 as N
+    from pycalima.pahchem import murga_data as MD
+
+    d = MD.read_model_2022("b")
+    prof = pd.read_csv(EXT("pahchem/murga2022_fig6_profile.csv"), comment="#")
+    R = N.photo_loss_table(d["a_cm"])
+    ours = N.run_model_b(d, prof, R)
+    n0 = d["n"][:, :, 0].sum(axis=2)
+    w = d["f"][:, :, 0, 0, :] * n0                                       # loc, Z, size
+    th = C22.fractions(d["n"][:, :, -1])
+    xb = N.X_BINS[None, None, :, None]
+    ours_x = (ours[:, :, -1] * xb * w[:, :, None, :]).sum(axis=(1, 2, 3)) / w.sum(axis=(1, 2))
+    their_x = (th * xb * w[:, :, None, :]).sum(axis=(1, 2, 3)) / w.sum(axis=(1, 2))
+    dist = prof.distance_arcsec.to_numpy()
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 5))
+    a1.plot(dist, their_x, color="k", lw=4, alpha=0.35, label="Murga+22 model b (Figshare)")
+    a1.plot(dist, ours_x, "--", color="k", label="pahchem.murga2022 model b")
+    a1.set_xlabel("distance [arcsec]")
+    a1.set_ylabel("$\\langle X_{\\rm H}/X_{\\rm H0} \\rangle$ (n f-weighted, Fig. 8 quantity)")
+    a1.set_title("Mean hydrogenation at 1e5 yr", fontsize=9)
+    a1.legend(fontsize=7)
+    for i, (m, a) in enumerate(((0, 3.3), (3, 7.0), (6, 11.7))):
+        ww = w[:, :, m][:, :, None]
+        o = (ours[:, :, -1, :, m] * ww).sum(axis=1) / ww.sum(axis=1)       # loc, bin
+        t = (th[:, :, :, m] * ww).sum(axis=1) / ww.sum(axis=1)
+        for j, ls in ((0, "-"), (2, "--"), (3, ":")):
+            a2.plot(dist, t[:, j], ls, color=f"C{i}", lw=3, alpha=0.35)
+            a2.plot(dist, o[:, j], ls, color=f"C{i}", lw=1,
+                    label=f"{a} A, bin X_H/X_H0 = {N.X_BINS[j]:.2f} (thick: Figshare)")
+    a2.set_xlabel("distance [arcsec]")
+    a2.set_ylabel("fraction in bin")
+    a2.set_title("Bins: lowest (solid), normal (dashed), first super-H (dotted)", fontsize=9)
+    a2.legend(fontsize=6)
+    fig.suptitle("Murga+2022 model b (H loss only): small PAHs reproduced; >= 6 A over-super-hydrogenated (open)",
+                 fontsize=10)
+    _save(fig, out, "murga2022_model_b")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
-    fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7)}
+    fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7,
+    fig_murga2019_shiva_inputs, fig_murga_wiebe22_shiva, fig_murga2020_fig3, fig_murga2020_fig4,
+    fig_murga2022_charge, fig_murga2022_model_b)}
 
 
 def main():
