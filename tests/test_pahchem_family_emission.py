@@ -29,11 +29,11 @@ def c54(model_data):
 
 
 def test_family_emits_what_it_absorbs(c54):
-    """sum_states f sum_i h nu_i R_i = sum_states f r_heat at the NGC 7023 edge (measured
-    6e-16): every state's steady state radiates its absorbed heating power."""
+    """sum_states f (sum_i h nu_i R_i + RF power) = sum_states f r_heat at the NGC 7023 edge
+    (measured 6e-16): every state's steady state radiates its absorbed heating power."""
     fr = c54.fractions(NGC7023_EDGE)
     states = c54.state_emission(NGC7023_EDGE)
-    emitted = sum(w * states[k][0] @ states[k][1] for k, w in fr.items())
+    emitted = sum(w * (states[k][0] @ states[k][1] + states[k][3]) for k, w in fr.items())   # IR + RF
     absorbed = sum(w * states[k][2] for k, w in fr.items())
     assert emitted == pytest.approx(absorbed, rel=2e-3)
     assert sum(fr.values()) == pytest.approx(1.0)

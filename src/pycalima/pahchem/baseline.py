@@ -87,12 +87,14 @@ class Environment:
 #: - "c60_cage": C2 loss of C60+ (Matt+01): the slow bound if bare flakes fold into cages first.
 #: - "micelotta10b": C2H2 loss from small cations raised to a 1e8 yr lifetime (Micelotta+10b, as
 #:   Murga & Wiebe 2022 "Arrh. 2"), RRKM; not a bare-skeleton value, the fast bound (grade D).
-#: Recurrent-fluorescence levels: parent -> {Z: [(E_n [eV], f_0n)]}.
-#: C24H12+: the bands of the Malloci+07 TD-DFT cross section (malloci_coronene_cation_sigma.dat)
-#: below 3.2 eV, f integrated over 0-1, 1-2, 2-2.6, 2.6-3.2 eV, at the band peaks. Equilibrium-
-#: geometry values, which Subramani+25 find underestimate measured RF: a lower bound. No data
-#: exist yet for the C54 and C96 cations (pahchem-data-requests, T3), so RF is off there.
-RF_LEVELS = {"C24": {1: [(0.60, 0.0018), (1.70, 0.0616), (2.10, 0.0260), (2.85, 0.0858)]}}
+#: Recurrent fluorescence: parent -> {Z: Malloci+07 TD-DFT cross-section file of that cation}.
+#: The levels are its bands below 3.1 eV, one per band at the peak, with the integrated f
+#: (photo.rf_levels_from_cross_section): C24H12+ (1.70 eV, 0.068), (2.10, 0.008), (2.85, 0.068);
+#: C54H18+ (1.05, 0.076), (2.40, 1.08). Equilibrium-geometry values, which Subramani+25 find
+#: underestimate measured RF: a lower bound. No spectrum exists for C96H24+ or the dications
+#: (pahchem-data-requests, T3), so RF is off there.
+RF_SPECTRA = {"C24": {1: "malloci_coronene_cation_sigma.dat"},
+              "C54": {1: "pahchem/malloci2007_circumcoronene_cation_sigma.dat"}}
 
 CARBON_LOSS = {
     "leger89": ("ilt", {"C": (1, 6.2e15, 7.37), "C2": (2, 3.5e17, 8.49), "C3": (3, 1.5e18, 7.97)}),
@@ -160,10 +162,11 @@ class BaselineModel:
         return self.species
 
     def rf_levels(self, z):
-        """Recurrent-fluorescence levels [(E_n cm^-1, f)] of charge z, or () (``RF_LEVELS``)."""
-        if not self.p.recurrent_fluorescence:
+        """Recurrent-fluorescence levels [(E_n cm^-1, f)] of charge z, or () (``RF_SPECTRA``)."""
+        path = RF_SPECTRA.get(self.parent, {}).get(z)
+        if not self.p.recurrent_fluorescence or path is None:
             return ()
-        return tuple((e * dos.CM_PER_EV, f) for e, f in RF_LEVELS.get(self.parent, {}).get(z, ()))
+        return tuple((e * dos.CM_PER_EV, f) for e, f in photo.malloci_rf_levels(path))
 
     def _cascade(self, nh, z=None):
         """Cascade of state N_H; with ``z``, including that charge's RF levels."""

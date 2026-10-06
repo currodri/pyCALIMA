@@ -151,8 +151,9 @@ files = ["west2018_table1.csv", "jochims94_table1.csv", "jochims94_table2.csv", 
          "shiva_dl01_fig7_temperature.csv",
          "wenzel2020_cation_ionisation.csv", "wenzel2020_fig9_yield_fit.csv", "amespahdb_cascade_band_fractions.csv",
          "maragkoudakis2020_sample_uids.csv", "maragkoudakis2020_fig2.csv", "maragkoudakis2020_size_fits.csv",
-         "rigopoulou2021_fig1.csv", "borja2026_table1.csv", "borja2026_fig8_krf.csv"]
-size_bytes = 250_000
+         "rigopoulou2021_fig1.csv", "borja2026_table1.csv", "borja2026_fig8_krf.csv",
+         "malloci2007_circumcoronene_cation_sigma.dat"]
+size_bytes = 270_000
 citation = "West et al. (2018), PCCP 20, 7195, Table 1; Jochims et al. (1994), ApJ 420, 307, Tables 1-2; PAH-cation recombination compiled by Bierbaum, Le Page & Snow (2011); Malloci, Joblin & Mulas (2007) TD-DFT absorption cross sections (Cagliari PAH database), for the Allain+96 runner; Wenzel et al. (2020), A&A 641, A98 (Zenodo 10.5281/zenodo.3899775, CC-BY-4.0); AmesPAHdb suite cascade() output on PAHdb v4.00 (Bauschlicher et al. 2018, ApJS 234, 32); Maragkoudakis, Peeters & Ricca (2020), MNRAS 494, 642 (Tables H1-H3, 4, F9-F12, Fig. 2); Rigopoulou et al. (2021), MNRAS 504, 5287 (Fig. 1); Borja et al. (2026), J. Chem. Phys. 164, 134106 (Table I, Fig. 8)"
 url_status = "none"
 notes = """Hand-transcribed laboratory tables for the pahchem M2 gates: iPEPICO E0 and

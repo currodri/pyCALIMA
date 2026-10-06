@@ -75,6 +75,41 @@ def sigma_li_draine(nc, charge, energy_ev) -> np.ndarray:
     return _SIGMA_CACHE[key].copy()
 
 
+def rf_levels_from_cross_section(energy_ev, sigma_cm2, e_max_ev=3.1, e_min_ev=0.5, f_min=1e-4):
+    """Recurrent-fluorescence levels [(E_peak [eV], f)] read off an absorption cross section.
+
+    Each band between two successive minima of sigma below ``e_max_ev`` becomes
+    one level, at its peak, with f = (m_e c / pi e^2) int sigma dnu. A band cut
+    by ``e_max_ev`` is dropped, and so are bands with f < ``f_min`` or a peak
+    below ``e_min_ev``. Below 0.5 eV (4000 cm^-1) an electronic state sits among
+    the fundamental vibrations, where a broadened TD-DFT spectrum is not
+    reliable. Taking one level per band keeps the line broadening from moving
+    strength to low E_n, where rho(E - E_n)/rho(E) makes RF most sensitive.
+    A weak low-lying band still matters: in coronene+ the 0.6 eV band
+    (f = 5e-4) carries most of the RF power at low internal energy.
+    """
+    E = np.asarray(energy_ev, dtype=float)
+    s = np.clip(np.asarray(sigma_cm2, dtype=float), 0.0, None)
+    keep = E <= e_max_ev
+    E, s = E[keep], s[keep]
+    minima = [0] + [i for i in range(1, E.size - 1) if s[i] <= s[i - 1] and s[i] < s[i + 1]]
+    f_per = 9.1093837e-28 * 2.99792458e10 / (np.pi * 4.80320471e-10**2) / 4.135667696e-15   # per cm^2 eV
+    levels = []
+    for a, b in zip(minima[:-1], minima[1:]):
+        seg = slice(a, b + 1)
+        f = f_per * np.trapezoid(s[seg], E[seg])
+        peak = float(E[seg][np.argmax(s[seg])])
+        if f >= f_min and peak >= e_min_ev:
+            levels.append((peak, float(f)))
+    return levels
+
+
+def malloci_rf_levels(path, **kwargs):
+    """``rf_levels_from_cross_section`` of a bundled Malloci+07 cross-section file (Mb)."""
+    data = np.loadtxt(_paths.get_external_data_path(path), comments="#")
+    return rf_levels_from_cross_section(data[:, 0], data[:, 1] * 1e-18, **kwargs)
+
+
 def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
     """Absorption cross section of the AmesPAHdb suites' ISRF/stellar convolution [cm^2].
 

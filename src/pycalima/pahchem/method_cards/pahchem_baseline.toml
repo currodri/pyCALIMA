@@ -34,8 +34,8 @@ carbon_loss_caveats = "C24 and smaller bare skeletons isomerise to rings that lo
 
 [cascade]
 method = "energy_me microcanonical IR cascade with dissociation sinks, multiphoton steady state"
-recurrent_fluorescence = { value = "C24H12+ only: Malloci+07 TD-DFT bands (0.60, 0.0018), (1.70, 0.062), (2.10, 0.026), (2.85, 0.086) [eV, f]", source = "baseline.RF_LEVELS; rate form of Leger+88 / Subramani+25, gated against Borja+26 (allowed states within 0.18 dex)", confidence = "C" }
-recurrent_fluorescence_gaps = "equilibrium-geometry f, a lower bound (Subramani+25); no data for C54 and C96 cations or dications, RF off there; sensitivity: off, and IR x3"
+recurrent_fluorescence = { value = "Malloci+07 TD-DFT bands, one level per band 0.5-3.1 eV: C24H12+ (0.60, 0.0005), (1.70, 0.068), (2.10, 0.008), (2.85, 0.068); C54H18+ (1.05, 0.076), (2.40, 1.08) [eV, f]", source = "baseline.RF_LEVELS; rate form of Leger+88 / Subramani+25, gated against Borja+26 (allowed states within 0.18 dex)", confidence = "C" }
+recurrent_fluorescence_gaps = "equilibrium-geometry f, a lower bound (Subramani+25); no spectrum for C96H24+ or dications, RF off there; sensitivity: off, and IR x3"
 
 [photophysics]
 sigma = "Li & Draine 2001 at the LD01 radius, neutral tables for Z <= 0, ionised for Z > 0"

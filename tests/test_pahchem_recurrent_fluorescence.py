@@ -69,10 +69,11 @@ def test_rf_suppresses_dissociation_and_matches_the_monte_carlo(coronene):
 
 
 def test_rf_in_the_baseline_cools_coronene_cations(model_data):
-    """Baseline RF (Malloci+07 coronene+ bands, baseline.RF_LEVELS) at the NGC 7023 edge:
-    - the cation's H-loss rate falls 3.1x (N_H = 12);
-    - fully hydrogenated C24H12+ carries 49 % of its absorbed power off as RF photons;
-    - its 3.29/6.2 falls from 0.063 to 0.036;
+    """Baseline RF (Malloci+07 coronene+ bands, baseline.RF_SPECTRA) at the NGC 7023 edge:
+    - the cation's H-loss rate falls 2.3x (N_H = 12);
+    - fully hydrogenated C24H12+ carries 32 % of its absorbed power off as RF photons
+      (10 % without the weak 0.6 eV band: the lowest state dominates at low energy);
+    - its 3.29/6.2 falls from 0.063 to 0.046;
     - IR + RF power closes on the absorbed power (1e-15)."""
     from pycalima.pahchem.baseline import NGC7023_EDGE, BaselineModel, Params
     from pycalima.pahchem.family_emission import FamilyEmission, band_fluxes
@@ -91,9 +92,25 @@ def test_rf_in_the_baseline_cools_coronene_cations(model_data):
         b = band_fluxes(grid, fam.spectrum(NGC7023_EDGE, grid, {(z, n): float((z, n) == (1, 12))
                                                                  for z in model.charges for n in model.nh_values})[0])
         out[rf] = (model.photo_rates(NGC7023_EDGE)[(1, 12)]["H"], rf_power / absorbed, b["3.29"] / b["6.2"])
-    assert out[False][1] == 0.0 and 0.4 < out[True][1] < 0.6
+    assert out[False][1] == 0.0 and 0.25 < out[True][1] < 0.4
     assert out[True][0] < out[False][0] / 2
-    assert out[True][2] < 0.7 * out[False][2]
+    assert out[True][2] < 0.8 * out[False][2]
+
+
+def test_rf_suppresses_circumcoronene_cation_h_loss(model_data):
+    """C54H18+ (Malloci+07 bands 1.05 eV, f = 0.076; 2.40 eV, f = 1.08) at the NGC 7023 edge: its
+    H loss needs multiphoton energies, where RF through the strong 2.4 eV band is fast.
+    Measured (de = 200 cm^-1): k_H falls 68x at N_H = 18 (50x at the Orion Bar, where the
+    family's dehydrogenated fraction halves, 0.115 -> 0.052)."""
+    from pycalima.pahchem.baseline import NGC7023_EDGE, BaselineModel, Params
+
+    files = {z: model_data / "PAH_states" / f"C54H18_{z}.dat" for z in (-1, 0)}
+    if not all(p.exists() for p in files.values()):
+        pytest.skip("model_data/PAH_states/ lacks C54H18 -1/0")
+    sp = {z: PAHSpecies.from_states_file(p) for z, p in files.items()}
+    k = {rf: BaselineModel("C54", sp[0], Params(recurrent_fluorescence=rf, de_cm=400.0), anion=sp[-1])
+         .photo_rates(NGC7023_EDGE)[(1, 18)]["H"] for rf in (False, True)}
+    assert k[True] < k[False] / 10, k
 
 
 _BORJA = {"Np+": "C10H8_1", "An+": "C14H10_1", "Py+": "C16H10_1"}

@@ -358,29 +358,50 @@ C$_{48}$H$_{20}^+$. Their Zenodo record is bundled as
 
   Their full treatment adds the excited states' own modes, Duschinsky
   rotation and the Herzberg–Teller dipoles.
-- **In the baseline** (`baseline.RF_LEVELS`, `Params.recurrent_fluorescence`,
+- **In the baseline** (`baseline.RF_SPECTRA`, `Params.recurrent_fluorescence`,
   default on):
-  - **The levels.** C$_{24}$H$_{12}^+$ uses the bands of the bundled
-    {cite:t}`Malloci2007` TD-DFT cross section below 3.2 eV: (0.60 eV,
-    $f$ = 0.0018), (1.70, 0.062), (2.10, 0.026) and (2.85, 0.086).
+  - **The levels** come from the {cite:t}`Malloci2007` TD-DFT cross sections of
+    the cations, via `photo.rf_levels_from_cross_section`. Each band between
+    successive minima of σ from 0.5 to 3.1 eV becomes one level, at its peak,
+    with its integrated $f$ ($f \ge 10^{-4}$). One level per band keeps the
+    spectrum's line broadening from moving strength to low $E_n$.
+
+    | Cation | Levels ($E_n$ eV, $f$) |
+    |---|---|
+    | C$_{24}$H$_{12}^+$ | (0.60, 0.0005), (1.70, 0.068), (2.10, 0.008), (2.85, 0.068) |
+    | C$_{54}$H$_{18}^+$ (circumcoronene$^+$ spectrum, fetched from the Cagliari database and bundled) | (1.05, 0.076), (2.40, 1.08) |
+
     - These are equilibrium-geometry values. Subramani+25 and Stockett+23
       find that equilibrium $f$ underestimates measured RF, so these are a
       lower bound.
-  - **Coverage.** No data exist for the C$_{54}$ and C$_{96}$ cations or
-    for dications (T3 requests), so RF is off there. Neutrals have no
-    low-lying excited states and get no RF. RF is not applied to the bare
-    skeleton's carbon loss.
-  - **Effects at the NGC 7023 edge:**
-    - the C$_{24}$H$_{12}^+$ H-loss rate falls 3.1× (2× at the Orion Bar,
-      where the absorption is multiphoton);
-    - fully hydrogenated C$_{24}$H$_{12}^+$ sends 49 % of its absorbed power
-      out as RF photons (59 % at the Orion Bar);
-    - its 3.29/6.2 falls from 0.063 to 0.036.
-    - The family's dehydrogenated fraction does not move: C$_{24}$ is fully
-      dehydrogenated in these environments through its neutrals.
+    - **The weakest, lowest state matters most.** Without the 0.60 eV band,
+      coronene$^+$'s RF share of the absorbed power falls from 32 % to 10 %:
+      $\rho(E - E_n)/\rho(E)$ favours low $E_n$ at low internal energy.
+  - **Coverage.**
+    - No spectrum exists for C$_{96}$H$_{24}^+$ or for the dications (T3
+      requests), so RF is off there.
+    - Neutrals have no low-lying excited states and get no RF.
+    - RF is not applied to the bare skeleton's carbon loss.
+  - **Effects:**
+
+    | Quantity | C$_{24}^+$, NGC 7023 edge | C$_{24}^+$, Orion Bar | C$_{54}^+$, NGC 7023 edge | C$_{54}^+$, Orion Bar |
+    |---|---|---|---|---|
+    | H-loss rate (fully hydrogenated) | 2.3× slower | 1.7× slower | 68× slower | 50× slower |
+    | RF share of absorbed power | 32 % | 43 % | 6 % | 15 % |
+    | 3.29/6.2 | 0.063 → 0.046 | — | 0.051 → 0.046 | — |
+
+    - C$_{54}$ needs multiphoton energies to lose H, and there the strong
+      2.4 eV band makes RF fast. Most of the energy is still radiated in the
+      IR at lower internal energy.
+    - **Family effects:**
+      - the C$_{54}$ dehydrogenated fraction at the Orion Bar halves
+        (0.115 → 0.052);
+      - C$_{54}$ 6.2/11.2 goes 5.86 → 5.05 at the Orion Bar and 1.15 → 1.09
+        at NGC 7023;
+      - C$_{24}$ stays fully dehydrogenated through its neutrals.
   - **Cost.** RF widens the cascade's band from 16 to 115 bins, so a cation
     solve takes 0.66 s instead of 0.09 s (C$_{24}$, de = 200 cm$^{-1}$). This
-    is worth optimising before the C$_{24}$ RAMSES tables are regenerated.
+    is worth optimising before the RAMSES tables are regenerated.
 - **Not yet done:** a storage-ring benchmark. The measured cooling rates
   (Martin+13 anthracene$^+$, Bernard+23 tetracene$^+$, Subramani+25
   C$_{12}$H$_8^+$) need a decay-curve model and the authors' inputs, which
