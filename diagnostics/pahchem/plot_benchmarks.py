@@ -727,12 +727,71 @@ def fig_emission_cascade(args, out):
     _save(fig, out, "emission_cascade")
 
 
+def fig_maragkoudakis2020_fig2(args, out):
+    """Maragkoudakis+20 Fig. 2 (ISRF): their markers, their model (thermal) and pahchem (exact)."""
+    from pycalima.pahchem import maragkoudakis2020 as M
+    from pycalima.pahchem import ames_pahdb as pahdb
+
+    species = pahdb.read_ascii(pahdb.ascii_path(), M.sample().uid)
+    rows = []
+    for uid, sp in species.items():
+        for model in ("thermal", "exact"):
+            b = M.band_fluxes(sp, model, energies_ev=())["isrf"]
+            rows.append(dict(nc=sp.nc, charge=sp.charge, model=model, ratio=b["11.2"] / b["3.3"]))
+    t = pd.DataFrame(rows)
+    fig2 = pd.read_csv(EXT("pahchem/maragkoudakis2020_fig2.csv"), comment="#")
+    f, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    for ax, panel in zip(axes, ("left", "right")):
+        for z, group, c in ((0, "neutral_11.2/3.3", "C0"), (1, "cation_CHoop/3.3", "C3"), (-1, "anion_CHoop/3.3", "C2")):
+            g = fig2[(fig2.panel == panel) & (fig2.group == group)]
+            if g.empty:
+                continue
+            ax.plot(g.nc, g.ratio, "o", mfc="none", color=c, ms=7, label=f"{group.split('_')[0]}: paper")
+            for model, mk in (("thermal", "+"), ("exact", "x")):
+                o = t[(t.charge == z) & (t.model == model)]
+                ax.plot(o.nc, o.ratio, mk, color=c, ms=5, label=f"{group.split('_')[0]}: pahchem {model}")
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel(r"$N_{\rm C}$")
+        ax.legend(fontsize=7)
+    axes[0].set_ylabel("11.2/3.3 (neutral), CH$_{oop}$/3.3 (ions)")
+    f.suptitle("Maragkoudakis+20 Fig. 2 (ISRF): + their thermal model, x pahchem exact cascade", fontsize=10)
+    _save(f, out, "maragkoudakis2020_fig2")
+
+
+def fig_rigopoulou2021_fig1(args, out):
+    """Rigopoulou+21 Fig. 1: UID 742 at 5 and 12.4 eV."""
+    from pycalima.pahchem import ames_pahdb as pahdb
+    from pycalima.pahchem import emission
+    from pycalima.pahchem import rigopoulou2021 as R
+
+    sp = pahdb.read_ascii(pahdb.ascii_path(), [R.FIG1_UID])[R.FIG1_UID]
+    dig = R.fig1_digitised()
+    th = emission.ThermalCascade(sp.freqs_cm, sp.einstein_a)
+    grid = R.GRID_CM
+    f, ax = plt.subplots(figsize=(10, 5))
+    spectra = {k: emission.spectrum(sp.freqs_cm, th.energy_per_mode(e * dos.CM_PER_EV), grid, 15.0, 0.0)
+               for k, e in R.FIG1_ENERGIES_EV.items()}
+    scale = dig[dig.curve == "12eV"].intensity.max() / spectra["12eV"].max()
+    for k, c in (("5eV", "C0"), ("12eV", "C3")):
+        g = dig[dig.curve == k]
+        ax.plot(g.lambda_um, g.intensity, color=c, lw=2.5, alpha=0.35, label=f"paper, {k}")
+        ax.plot(1e4 / grid, spectra[k] * scale, color=c, lw=0.9, label=f"thermal cascade, FWHM 15 cm$^{{-1}}$, {k}")
+    ax.set_xlim(3, 14)
+    ax.set_xlabel(r"$\lambda$ [$\mu$m]")
+    ax.set_ylabel("relative intensity (per cm$^{-1}$)")
+    ax.set_title("Rigopoulou+21 Fig. 1: PAHdb UID 742 (C$_{210}$H$_{36}$), one common scale", fontsize=10)
+    ax.legend(fontsize=8)
+    _save(f, out, "rigopoulou2021_fig1")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
     fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7,
     fig_murga2019_shiva_inputs, fig_murga_wiebe22_shiva, fig_murga2020_fig3, fig_murga2020_fig4,
-    fig_murga2022_charge, fig_murga2022_model_b, fig_emission_cascade)}
+    fig_murga2022_charge, fig_murga2022_model_b, fig_emission_cascade, fig_maragkoudakis2020_fig2,
+    fig_rigopoulou2021_fig1)}
 
 
 def main():

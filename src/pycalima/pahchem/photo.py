@@ -75,6 +75,33 @@ def sigma_li_draine(nc, charge, energy_ev) -> np.ndarray:
     return _SIGMA_CACHE[key].copy()
 
 
+def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
+    """Absorption cross section of the AmesPAHdb suites' ISRF/stellar convolution [cm^2].
+
+    ``Transitions.absorption_cross_section`` of the AmesPAHdb Python suite,
+    transcribed: the two UV Drude terms and exponential of Draine & Li (2007),
+    times the visible/near-IR cutoff of Mattioda et al. (2005, eq. 4; Salama et
+    al. 1996), plus, for any Z != 0, the ion near-IR continuum and Gaussian
+    bands of Mattioda et al. (2005). It is the cross section Maragkoudakis+20
+    state ("Draine & Li 2007 and Mattioda 2005"). As in the suite, it is not
+    multiplied by N_C: N_C enters only through the cutoff.
+    """
+    wave = HC_EV_UM / np.asarray(energy_ev, dtype=float)               # um
+    A = np.array([7.97e-17, 1.23e-17, 20e-21, 14e-21, 80e-24, 84e-24, 46e-24, -322e-24])
+    W = np.array([0.195, 0.217, 0.0805, 0.20, 0.0370, 0.0450, 0.0150, 0.135])
+    C = np.array([0.0722, 0.2175, 1.05, 1.23, 1.66, 1.745, 1.885, 1.90])
+    y = 1.0 / (0.889 + 2.282 / np.sqrt(0.4 * nc)) / wave
+    w = wave[None, :]
+    drude = np.sum((W[:2] * C[:2] * A[:2])[:, None]
+                   / ((w / C[:2, None] - C[:2, None] / w) ** 2 + W[:2, None] ** 2), axis=0)
+    sigma = (np.arctan(1e3 * (y - 1.0) ** 3 / y) / np.pi + 0.5) * (3458e-20 * 10.0 ** (-3.431 * wave)
+                                                                    + 2.0 / np.pi * drude)
+    if charge != 0:
+        sigma = sigma + np.exp(-0.1 / wave**2) * 1.5e-19 * 10.0 ** (-wave) + np.sqrt(2.0 / np.pi) * np.sum(
+            (A[2:] / W[2:])[:, None] * np.exp(-2.0 * (w - C[2:, None]) ** 2 / W[2:, None] ** 2), axis=0)
+    return sigma
+
+
 def sigma_malloci_coronene(charge, energy_ev) -> np.ndarray:
     """Malloci et al. (2007) C24H12 cross section [cm^2]; zero outside 0-30 eV."""
     if charge not in _MALLOCI:

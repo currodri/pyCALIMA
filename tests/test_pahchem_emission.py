@@ -82,6 +82,22 @@ def test_cascade_against_the_pahdb_thermal_cascade(model_data, formula):
     assert np.all(np.diff(r33) > 0) and r33[-1] > 0.98 and max(r33) < 1.0, r33
 
 
+@pytest.mark.parametrize("formula", ["C24H12", "C54H18"])
+def test_thermal_cascade_is_the_pahdb_suite_model(model_data, formula):
+    """emission.ThermalCascade (the suites' model, Maragkoudakis+20 eqs. A1-A4) against
+    Transitions.cascade at 2-12 eV: every band with > 0.5 % of E within 1e-3 (measured
+    5e-4), and the energy closes."""
+    sp = _species(model_data, formula)
+    ref = pd.read_csv(get_external_data_path("pahchem/amespahdb_cascade_band_fractions.csv"), comment="#")
+    th = emission.ThermalCascade(sp.freqs_cm, sp.einstein_a)
+    for e, r in ref[ref.species == formula].groupby("e_ev"):
+        em = th.energy_per_mode(e * EV)
+        assert em.sum() == pytest.approx(e * EV, rel=1e-9)
+        ours = _bands(sp.freqs_cm, em / em.sum())
+        for _, row in r[r.energy_fraction > 0.005].iterrows():
+            assert ours[row.band] == pytest.approx(row.energy_fraction, rel=1e-3), (e, row.band)
+
+
 def test_cascade_photons_match_the_monte_carlo(model_data):
     """C24H12 from 6 eV, 3000 Gillespie cascades on the same rates: every band's
     photon count within 3 % (measured <= 1.5 %)."""

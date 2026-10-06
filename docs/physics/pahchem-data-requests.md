@@ -200,3 +200,17 @@ An earlier draft put H addition first.
     but Murga+2020 Fig. 3 needs the floor $Z_{\rm min}$;
   - the $T(E)$ relation of Murga & Wiebe 2022, which behaves like Tielens'
     rather than the DL01 relation of Murga+2020/2022.
+- **Rigopoulou group:** for {cite:t}`Rigopoulou2021` (method card
+  `rigopoulou2021.toml`). Their Fig. 1 is reproduced exactly with the thermal
+  cascade and FWHM 15 cm$^{-1}$; the binned diagnostics are not. The
+  questions:
+  - the spectra of the 17 molecules computed independently, and whether they
+    were scaled;
+  - the code and the band FWHM actually used: 15 cm$^{-1}$ fits Fig. 1,
+    against the 30 cm$^{-1}$ stated;
+  - the bin edges and how the neutral–cation mixtures of Figs. 8–11 were
+    built;
+  - how "ISRF" and "$10^3\times$ISRF" were turned into photon energies;
+  - the CASSIS fit constraints behind 11.3/7.7: our window ratios for the
+    small bin are 2–4× theirs;
+  - the Table A1 UID corrections listed in the card.

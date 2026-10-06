@@ -65,6 +65,43 @@ def single_photon_emission(model, photon_energy_ev, heating_spectrum, channel_ra
     return np.trapezoid(h * ((1.0 - w) * N[:, lo] + w * N[:, lo + 1]), photon_energy_ev, axis=1) / weights
 
 
+class ThermalCascade:
+    """The thermal-approximation cascade of the AmesPAHdb suites (Bauschlicher+18).
+
+    A molecule given energy E reaches T_max with int_{2.73}^{T_max} C(T) dT = E
+    (harmonic C), then cools through T, mode i radiating the fraction
+    I_i nu_i^3 n_i(T) / sum_j I_j nu_j^3 n_j(T) of C(T) dT, with n the Planck
+    occupation and I the band intensity (A_i / nu_i^2). It is the model of
+    ``Transitions.cascade`` and of Maragkoudakis+20 eqs. A1-A4; pahchem's own
+    physics is ``cascade_photons``. ``energy_per_mode(E)`` [cm^-1] sums to E.
+    """
+
+    def __init__(self, freqs_cm, einstein_a, t_min=2.73, t_max=6000.0, n_t=4000):
+        nu = np.asarray(freqs_cm, dtype=float)
+        intensity = np.asarray(einstein_a, dtype=float) / nu**2
+        T = np.geomspace(t_min, t_max, n_t)
+        x = nu[None, :] / (dos.KB_CM * T[:, None])
+        with np.errstate(over="ignore"):
+            occ = 1.0 / np.expm1(np.minimum(x, 700.0))
+            heat = np.sum(x**2 * occ * (1.0 + occ), axis=1) * dos.KB_CM                    # C(T) [cm^-1/K]
+        w = intensity * nu**3 * occ
+        total = w.sum(axis=1, keepdims=True)
+        frac = np.divide(w, total, out=np.zeros_like(w), where=total > 0)
+        dT = np.diff(T)
+        mid = 0.5 * (heat[1:, None] * frac[1:] + heat[:-1, None] * frac[:-1]) * dT[:, None]
+        self.freqs_cm, self.temperature = nu, T
+        self.cumulative = np.vstack([np.zeros(nu.size), np.cumsum(mid, axis=0)])   # [n_t, modes]
+        self.energy = self.cumulative.sum(axis=1)                                 # U(T) - U(t_min)
+
+    def energy_per_mode(self, energy_cm):
+        """Energy emitted in each mode [cm^-1] after absorbing ``energy_cm``."""
+        if energy_cm > self.energy[-1]:
+            raise ValueError("energy beyond the temperature grid; raise t_max")
+        k = np.searchsorted(self.energy, energy_cm)
+        f = (energy_cm - self.energy[k - 1]) / (self.energy[k] - self.energy[k - 1])
+        return (1 - f) * self.cumulative[k - 1] + f * self.cumulative[k]
+
+
 def steady_state_emission(model, steady) -> np.ndarray:
     """R_i = sum_j P_j k_i(E_j): photon emission rate of each mode [s^-1]."""
     return model.k_modes @ steady.probability

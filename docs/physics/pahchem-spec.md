@@ -799,6 +799,69 @@ Open items:
   - Recurrent fluorescence.
   - The comparison with observations (M7c).
 
+**M7a, published emission models recovered** (2026-10-06). Two papers'
+results were reproduced from their stated inputs, each with a method card;
+the PAHdb v3.20 species are read by {mod}`pycalima.pahchem.ames_pahdb` (manual
+dataset, never bundled).
+
+- **Their model.** Both papers use the thermal-approximation cascade of the
+  AmesPAHdb suites. {mod}`pycalima.pahchem.emission` has it as
+  `ThermalCascade`, equal to the Python suite's `Transitions.cascade` to
+  $5\times10^{-4}$ per band.
+- **{cite:t}`Maragkoudakis2020`** ({mod}`pycalima.pahchem.maragkoudakis2020`,
+  `tests/test_pahchem_maragkoudakis2020.py`, figure `maragkoudakis2020_fig2`):
+  - **The inputs.** Their 308 species (Tables H1–H3); single photons of
+    6–12 eV, or the Mathis ISRF; Lorentzian bands with FWHM 15 cm$^{-1}$ and
+    no shift; band fluxes summed in the Table 1 wavebands.
+  - **Fig. 2, molecule by molecule** (ISRF, every marker read from the
+    vector figure): 120 neutrals, 116 cations and 35 anions, median
+    $\log$(ours/paper) = +0.001 each, at most 0.002–0.004.
+    - This needs the suite's own cross section (`photo.sigma_amespahdb`:
+      Draine & Li 2007 UV terms, Mattioda+05 cutoff and ion near-IR bands),
+      which is what they state.
+    - With the Li & Draine 2001 tables the ratios are 0.03–0.05 dex higher,
+      and weighting by absorbed energy instead of photon number gives
+      −0.12 dex. So both were ruled out.
+  - **Size calibrations** (eq. 3, Tables F9–F12). Our per-molecule
+    11.2/3.3 at 6–12 eV sits −0.007 to −0.028 dex (median, $N_{\rm C} \ge 50$)
+    from their fits of binned data.
+  - **Not reproduced:** the charge–size grid and the binned points, whose
+    bin edges and mixture weighting are not stated.
+  - **Figure-side issues.** Fig. 2 has a cation at $N_{\rm C} = 28$, which is
+    not in the sample, and one C$_{22}$ cation at 2.23 where the sample's
+    give 0.9–1.2.
+- **{cite:t}`Rigopoulou2021`** ({mod}`pycalima.pahchem.rigopoulou2021`,
+  `tests/test_pahchem_rigopoulou2021.py`, figure `rigopoulou2021_fig1`):
+  - **Fig. 1** (PAHdb UID 742, C$_{210}$H$_{36}$, at 5 and 12.4 eV) is the
+    thermal cascade on the stored modes with FWHM **15** cm$^{-1}$. That
+    fits the 12 band peaks to 1.6 % rms; the 30 cm$^{-1}$ the text states
+    gives 12.8 %.
+  - **The binned diagnostics (Figs. 5–11) cannot be reproduced** from what
+    is stated:
+    - the bands come from CASSIS Lorentzian fits;
+    - the bins differ between figures;
+    - Table A1 has wrong UIDs;
+    - 17 spectra are unpublished DFT;
+    - the figures contradict each other (method card).
+  - **A window-based check of Fig. 8:**
+    - small-bin 11.3/3.3 agrees (0.64/0.43/0.33/0.27 against
+      0.68/0.52/0.35/0.27 at 6–12 eV);
+    - small-bin 11.3/7.7 is 2–4× theirs;
+    - the large bin is off by factors 0.75–3.
+  - The questions for the authors are in the card and in
+    {doc}`pahchem-data-requests`.
+- **The physics difference.** pahchem's exact microcanonical cascade on the
+  same inputs:
+  - **Maragkoudakis ISRF ratios:** 11.2/3.3 (and CH$_{\rm oop}$/3.3) are
+    raised by +0.016 to +0.020 dex (4–5 %) for every charge. At
+    $N_{\rm C} \approx 100$ that moves the eq. 3 size by ~2–3 C.
+  - **Rigopoulou Fig. 1:** 4.8 % rms instead of 1.6 %, through a lower
+    3.3 µm band at 5 eV.
+
+  Both come from the thermal approximation over-emitting at 3.3 µm when the
+  energy content is small. The published size diagnostics stand to a few per
+  cent.
+
 **Benchmark figures** (`diagnostics/pahchem/plot_benchmarks.py`, 2026-10-05).
 The script makes one PNG per benchmark, in `<plots dir>/pahchem/`, and runs
 the same calculations as the gated tests:
