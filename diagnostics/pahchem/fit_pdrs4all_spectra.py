@@ -53,6 +53,17 @@ KNOTS = (1.0, 1.5, 2.5)
 BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3.0, fwhm_ch=40.0, fwhm_rest=8.0)
 
 
+#: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
+RESULT_VERSION = 2
+
+
+def _result_key(args):
+    """Cache key of a run: every argument plus the versions of the code that produce the result."""
+    stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k != "plot"}
+    stamp.update(result=RESULT_VERSION, basis=population.BASIS_VERSION, masks=repr(spectral_fit.MASKED_UM),
+                 broad=repr(BROAD_START))
+    return hashlib.sha1(json.dumps(stamp, sort_keys=True).encode()).hexdigest()[:12]
+
 def observed_on_grid(lam, fnu, grid):
     s1 = (lam > 2.95) & (lam < 3.8)
     l1, f1 = C._clean(lam[s1], fnu[s1], 0.012)
@@ -62,8 +73,7 @@ def observed_on_grid(lam, fnu, grid):
 
 
 def run(args):
-    key = hashlib.sha1(json.dumps({k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot",)},
-                                  sort_keys=True).encode()).hexdigest()[:12]
+    key = _result_key(args)
     cache = _paths.get_results_dir() / f"pahchem_spectral_fit_{key}.pkl"
     if cache.exists():
         with open(cache, "rb") as fh:
@@ -148,8 +158,7 @@ def _cells(card, t):
 
 def run_shape(args, knot=1.5, iterations=2):
     """Band shape fitted per template and profile, then the conditions scan with that shape (see --fit-shape)."""
-    key = hashlib.sha1(json.dumps({k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot",)},
-                                  sort_keys=True).encode()).hexdigest()[:12]
+    key = _result_key(args)
     cache = _paths.get_results_dir() / f"pahchem_spectral_shape_{key}.pkl"
     if cache.exists():
         with open(cache, "rb") as fh:

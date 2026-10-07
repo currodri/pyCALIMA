@@ -1431,6 +1431,43 @@ review_B).
     Lorentzian for every band. Δχ² ranges are meaningless with structured
     residuals like these.
 
+**Temperature-dependent band profiles: Mai et al. 2025 assessed (2026-10-07;
+analysis scripts in the session scratchpad, mai2025/).**
+- **What it is.** X. Mai, Z. Wang et al., MNRAS 541, 3073 (2025;
+  arXiv:2503.05120).
+  - Machine-learning MD (NeuralIL force field plus a dipole network, trained
+    on B3LYP/4-31G, PAHdb v3.20 geometries).
+  - Absorption spectra from dipole autocorrelations at 50, 300 and 600 K for
+    1704 **neutral** PAHs.
+  - Frequencies scaled by 0.9578; quantum correction D = 1.
+  - Data: Zenodo 10.5281/zenodo.15771437, peak-normalised spectra,
+    CC BY-NC-SA 4.0.
+  - The paper gives no per-band numbers. The shifts and widths below are
+    fitted to their data (600 K and 300 K against 50 K):
+    - CH stretch: −0.07 cm⁻¹/K, FWHM +0.06 /K;
+    - 6.2 µm: ≈ −0.06 /K;
+    - 7.7 µm: −0.03 to −0.05 /K;
+    - 11.2 µm (compact, N_C ≥ 50): −0.01 /K, FWHM +0.01 /K.
+  - Pyrene 11.9 µm agrees with the de Bentzmann+26 lab slopes to ~25 %.
+- **What it means for the fitted band shape.**
+  - The CH-stretch shift (−28 cm⁻¹, FWHM 37–47) and the oop shift (−3 to +1,
+    FWHM 7–11) are consistent with these classical T ≈ 300–600 K laws.
+  - The CC **blue** shift (+15 to +18) cannot be thermal: MLMD shifts the CC
+    bands red, and v4.00 neutrals are within +2.5 cm⁻¹ of matrix. It points
+    to the carriers (cations, N substitution), as in the long-standing 6.2 µm
+    position problem.
+- **Why it cannot replace the fitted shape.**
+  - Neutrals only.
+  - The absolute CH-stretch positions sit +26 cm⁻¹ off matrix data (4-31G).
+  - Intensities are biased by D = 1.
+  - Classical equipartition: 600 K classical holds the thermal energy of a
+    ~1150 K quantum PAH, so the temperature mapping is uncertain by ~2×.
+  - Rotation is not removed, and the 600 K spectra are noisy.
+- **Use.** As a prior on the temperature-dependent part only: per-band
+  δ(T), w(T) added to the PAHdb v4.00 positions in the cascade, bracketed by
+  T-matching and E-matching. To be cross-checked against CosmicPAH-IRDB lab
+  slopes. Questions for the authors are in the data requests.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

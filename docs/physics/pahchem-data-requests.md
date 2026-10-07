@@ -181,6 +181,21 @@ An earlier draft put H addition first.
     Toulouse).
   - Also the dication (Z = +2 → +1) coefficient for one of them, which pahchem
     now sets with the same factor.
+- **Temperature-dependent anharmonic spectra (Mai, Z. Wang et al. 2025,
+  MNRAS 541, 3073; Z. Wang is in the Rigopoulou group's circle).** Their
+  ML-MD neutral spectra already constrain the thermal band shifts and widths
+  ({doc}`pahchem-spec`, "Temperature-dependent band profiles"). What would
+  make them usable directly:
+  - the models or spectra for **cations and dications**;
+  - runs at 800–1500 K, or NVE runs at fixed internal energy (the
+    classical-temperature mapping is the largest uncertainty);
+  - several trajectories per molecule, with rotation removed;
+  - unnormalised cross-sections or the raw dipole autocorrelations, so the
+    quantum correction can be applied here (D = 1 in the release);
+  - per-mode shifts and widths;
+  - a retrain at 6-31G* on PAHdb v4.00 geometries;
+  - whether derived per-band tables may be redistributed (the data are
+    CC BY-NC-SA).
 - **CH-stretch intensities of large PAHs (Rigopoulou group, T1 item 3, or the
   laboratory).** Against 35 matrix-isolation neutrals (PAHdb experimental
   v3.10, N_C ≤ 50), B3LYP/6-31G* puts 2× too much intensity in the CH stretch
