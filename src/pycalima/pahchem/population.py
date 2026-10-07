@@ -310,7 +310,7 @@ def charge_fractions(mol, env, params=Params()):
         if z == -1:
             up += 7.8e-10 * env.n_h                                   # associative detachment
         s = neutral_sticking(mol, T) if z + 1 == 0 else 1.0
-        down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * params.capture_scale * env.n_e
+        down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * _capture_factor(mol, z + 1, params) * env.n_e
         f[z + 1] = f[z] * up / down
     total = sum(f.values())
     return {z: v / total for z, v in f.items()}
@@ -372,9 +372,33 @@ class StateBasis:
         return np.exp(np.interp(np.log(g), np.log(K_H_G0_GRID), lk))
 
 
+#: CH stretch modes scaled by ``Params.stretch_scale`` [cm^-1]
+CH_STRETCH_CM = (2900.0, 3200.0)
+#: lab / DFT ratio of the CH stretch to CH oop intensity: -0.29 dex, the median of 35 neutrals
+#: (check_lab_band_strengths.py: PAHdb v4.00 6-31G* against PAHdb experimental v3.10, matrix isolation)
+LAB_STRETCH_SCALE = 10.0 ** -0.29
+
+
+def _einstein_a(sp, params):
+    if params.stretch_scale == 1.0:
+        return sp.einstein_a
+    f = sp.freqs_cm
+    return sp.einstein_a * np.where((f >= CH_STRETCH_CM[0]) & (f <= CH_STRETCH_CM[1]), params.stretch_scale, 1.0)
+
+
+def _capture_factor(mol, z, params):
+    """Factor on BT94 capture by charge z: the lab trend for cations and dications (``Params.capture_model``)."""
+    f = params.capture_scale
+    if z >= 1 and params.capture_model == "lab_trend":
+        f *= float(chemistry.lab_recombination_factor(mol.nc, params.capture_cap))
+    elif params.capture_model not in ("bt94", "lab_trend"):
+        raise ValueError(f"capture_model must be 'bt94' or 'lab_trend', not {params.capture_model!r}")
+    return f
+
+
 def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
     sp = mol.species[z]
-    return dict(freqs=sp.freqs_cm, einstein_a=sp.einstein_a, nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
+    return dict(freqs=sp.freqs_cm, einstein_a=_einstein_a(sp, params), nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
                 sigma_scale=params.sigma_scale)
 
@@ -445,8 +469,10 @@ class Population:
         self._capture = {}
 
     # -- bases -----------------------------------------------------------------------------------
-    def _ckey(self, shape, z):
-        return ("basis", shape, z, self.de_cm, self.e_max_cm, tuple(self.p.h_even), self.p.sigma_scale)
+    def _ckey(self, shape, z, mol=None):
+        """Memory-cache key: everything a basis can depend on (the disk cache keys on the inputs themselves)."""
+        th = tuple(sorted(mol.ionisation_ev.items())) if mol is not None else ()
+        return ("basis", shape, z, self.de_cm, self.e_max_cm, self.p, th)
 
     def _load(self, key):
         f = None if self.cache_dir is None else self.cache_dir / f"{key}.npz"
@@ -466,7 +492,7 @@ class Population:
         todo = []
         for mol in self.library:
             for z in mol.charges:
-                ck = self._ckey(shape, z)
+                ck = self._ckey(shape, z, mol)
                 if ck in mol._cache:
                     continue
                 inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
@@ -492,7 +518,7 @@ class Population:
 
     def basis(self, mol, z, shape):
         """``StateBasis`` of ``mol`` at charge z under ``shape``."""
-        ck = self._ckey(shape, z)
+        ck = self._ckey(shape, z, mol)
         if ck not in mol._cache:
             inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
             key = _basis_key(inp)
@@ -530,7 +556,7 @@ class Population:
                 for z in mol.charges[1:]:
                     st = neutral_sticking(mol, temperature_k) if z == 0 else 1.0
                     a[s, z - self.zmin] = chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) \
-                        * self.p.capture_scale
+                        * _capture_factor(mol, z, self.p)
             self._capture[t] = a
         return self._capture[t]
 

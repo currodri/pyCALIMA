@@ -298,3 +298,44 @@ def test_unit_detachment_leaves_an_anion_nothing_to_emit():
     pop = population.Population([mol], WINDOWS, params=Params(detachment="unity"))
     b = pop.basis(mol, -1, ("kurucz", 40000))
     assert b.absorbed == 0.0 and not b.emitted.any() and b.k_up > 0.0
+
+
+def test_lab_recombination_factor_is_the_falp_power_law():
+    from pycalima.pahchem import chemistry
+
+    a, b, n = chemistry.lab_recombination_fit()
+    assert n == 10 and b == pytest.approx(1.15, abs=0.1)
+    f = chemistry.lab_recombination_factor([6, 16, 54, 100])
+    assert f[0] < 0.2 and 0.1 < f[1] < 0.4 and np.all(np.diff(f) > 0)
+    assert chemistry.lab_recombination_factor(1000, cap=3.0) == 3.0
+
+
+def test_lab_capture_slows_small_and_speeds_large_cation_recombination():
+    from pycalima.pahchem.baseline import Params
+
+    lib = population.library_m20(_ascii(), all_anions=True)
+    small = next(m for m in lib if m.nc <= 30)
+    large = next(m for m in lib if m.nc >= 130)
+    env = Environment("t", 2e4, 5e4, 30.0, 700.0, 40000)
+    for mol, more_ionised in ((small, True), (large, False)):
+        f0 = population.charge_fractions(mol, env)[1]
+        f1 = population.charge_fractions(mol, env, Params(capture_model="lab_trend"))[1]
+        assert (f1 > f0) == more_ionised
+
+
+def test_stretch_scale_moves_power_out_of_the_ch_stretch_only():
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
+    wins = {"3.3": (3.2, 3.36), "all": (1.0, 1e4)}
+    base = population.Population([mol], wins)
+    lab = population.Population([mol], wins, params=Params(stretch_scale=population.LAB_STRETCH_SCALE))
+    for z in mol.charges:
+        b0, b1 = base.state_band_fluxes(mol, z, env), lab.state_band_fluxes(mol, z, env)
+        assert b1[1] == pytest.approx(b0[1], rel=0.01)                      # same total power
+        assert 0.4 < b1[0] / b0[0] < 0.75                                    # the 3.3 um band roughly halves
+    a = population._einstein_a(mol.species[0], Params(stretch_scale=0.5))
+    f = mol.species[0].freqs_cm
+    s = (f >= 2900) & (f <= 3200)
+    assert np.allclose(a[s], 0.5 * mol.species[0].einstein_a[s]) and np.allclose(a[~s], mol.species[0].einstein_a[~s])

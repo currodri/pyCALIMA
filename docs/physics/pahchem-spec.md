@@ -1332,6 +1332,46 @@ with `--ip-shift/--yield-model/--detachment/--capture-scale`).**
     convention, and leave the plateau metric unchanged (≤ 0.03) as cold
     spectra.
 
+**Stated inputs for CH stretch and recombination (2026-10-07).**
+- **CH stretch.** `Params.stretch_scale = population.LAB_STRETCH_SCALE`
+  (10^−0.29) scales the Einstein A of the 2900–3200 cm⁻¹ modes by the lab
+  stretch/oop ratio (above). The cascade conserves energy, so the power
+  leaves through the other modes (test).
+- **Recombination.** `Params.capture_model = "lab_trend"` multiplies BT94
+  capture by cations and dications by
+  `chemistry.lab_recombination_factor` = 10^−2.09 N_C^1.15. That is the power
+  law fitted to the 10 FALP measurements: 0.79 at C54, 1.5 at C96, 2.5 at
+  C150. `capture_cap` bounds it; capture by neutrals is unchanged.
+- **Scans** (v4.00, IPs calibrated, spline continuum; ⟨N_C⟩ carbon-weighted):
+
+  | inputs | χ² (5 templates) | best γ | allowed γ (Δχ² < 9) | ⟨N_C⟩ |
+  |---|---|---|---|---|
+  | IPs calibrated | 0.6–16 | 5–9e3 | ≲ 1–3e4 | 106–118 |
+  | … without 3.3 µm | 0.3–5 | 5–8e3 | ≲ 1–3e4 | 51–110 |
+  | + stretch correction | 0.3–9 | 5–8e3 | ≲ 1–3e4 | 90–112 |
+  | + stretch, without 3.3 µm | 0.3–5 | 5–8e3 | ≲ 1–3e4 | 52–111 |
+  | + lab recombination trend | 0.8–14 | 5e3–1.9e4 | ≲ 1.8–5.5e4 | 111–117 |
+  | + lab trend and stretch | 0.4–8 | 5e3–1.3e4 | ≲ 1.5–3e4 | 87–96 |
+  | + capture × 3 and stretch | 0.3–8 | 6e3–2.4e4 | ≲ 3–10e4 | 90–110 |
+
+- **Findings.**
+  - The stretch correction improves every fit and lowers ⟨N_C⟩ by up to 16
+    (most in DF2, DF3), but does not remove the 3.3 µm pull. In DF3 the
+    population is C52 without 3.3 and C90 with it. Either the corrected 3.3
+    is still too strong per molecule at N_C ~ 50, or the DF3 3.3/11.2 needs a
+    component pahchem does not have (super-H, aliphatics).
+  - The lab recombination trend alone moves the Atomic and DF1 fits into the
+    interior. Their allowed γ then reaches 4–5.5e4, M26's values there. DF2
+    and DF3 stay at the low edge unless capture is ≈ 3× BT94.
+  - Without 3.3 µm, pahchem's sizes against M26 (emission-weighted, no 3.3):
+    HII 78 / 70, Atomic 111 / 71, DF1 100 / 69, DF2 86 / 63, DF3 52 / 62.
+    The Atomic and DF1 excess remains, and it comes from the
+    physics-constrained charges (D1–D3 above).
+- A memory-cache key in ``Population`` omitted the yield, detachment and
+  stretch settings, so two populations sharing molecules could reuse each
+  other's bases. It is fixed. All the scans above ran one setting per
+  process and were not affected.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

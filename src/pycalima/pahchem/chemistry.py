@@ -10,6 +10,9 @@ Multiply by the partner's density to get a rate in s^-1.
   PAH of charge Z, s_e pi a^2 v_e J~(Z) (Draine & Sutin 1987 J~). Defaults:
   a = 0.9 sqrt(N_C) A and the 0.82 disc factor of Verstraete et al. (1990), as
   in Andrews et al. (2016, eq. A.1).
+- ``lab_recombination_factor``: the measured PAH-cation recombination
+  coefficient over BT94, as a power law in N_C fitted to the FALP data
+  (pah_electron_recombination.csv, N_C 6-16, 300 K).
 """
 
 from __future__ import annotations
@@ -45,3 +48,37 @@ def electron_capture(nc, charge, temperature_k, sticking=1.0, disc_factor=0.82, 
     a = disc_radius_cm(nc) if radius_cm is None else radius_cm
     J = J_function_DS87(int(charge), -1, a, float(temperature_k))
     return disc_factor * sticking * np.pi * a**2 * thermal_speed(temperature_k, ME_G) * J
+
+
+_LAB_FIT = {}
+
+
+def lab_recombination_fit():
+    """(a, b, n) of log10(k_measured / k_BT94) = a + b log10(N_C) over the FALP data at 300 K.
+
+    Every measurement in pah_electron_recombination.csv counts once (the two
+    naphthalene values, 3x apart, both). BT94 is ``electron_capture`` with
+    sticking 1 at 300 K.
+    """
+    if not _LAB_FIT:
+        import pandas as pd
+
+        from pycalima._paths import get_external_data_path
+
+        t = pd.read_csv(get_external_data_path("pahchem/pah_electron_recombination.csv"), comment="#")
+        bt = np.array([electron_capture(n, 1, 300.0) for n in t.n_c])
+        b, a = np.polyfit(np.log10(t.n_c.to_numpy(float)), np.log10(t.k_cm3_s.to_numpy() / bt), 1)
+        _LAB_FIT.update(a=float(a), b=float(b), n=int(len(t)))
+    return _LAB_FIT["a"], _LAB_FIT["b"], _LAB_FIT["n"]
+
+
+def lab_recombination_factor(nc, cap=None):
+    """k_measured / k_BT94 at N_C from ``lab_recombination_fit``, optionally capped at ``cap``.
+
+    The fit spans N_C 6-16 only. Beyond that it is an extrapolation (about 2
+    at N_C = 100), and ``cap`` bounds it. The factor is T-independent: the data
+    are at 300 K.
+    """
+    a, b, _ = lab_recombination_fit()
+    f = 10.0 ** (a + b * np.log10(np.asarray(nc, dtype=float)))
+    return np.minimum(f, cap) if cap is not None else f

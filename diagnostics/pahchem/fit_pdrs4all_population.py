@@ -142,15 +142,17 @@ def _grid(lo, hi, n):
     return np.geomspace(lo, hi, n) if hi > lo else np.array([lo])
 
 
-def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20", params=None, shifts=None):
+def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20", params=None, shifts=None, drop=()):
     """chi^2 and the implied population over a grid inside each template's stated ranges.
 
     The grid is G0 x n_H x (n_e, or x_e where the card gives x_e), log-spaced
     between the card's bounds. Molecules are kept by their intact fraction at
     the template's most-ionising corner, as in ``run``. Returns
     {template: list of cells}, each cell
-    {g0, n_h, n_e, gamma, continuum: {chi2, mean_nc, f_anion, f_cation, solo/duo, ...}},
-    where f_anion and f_cation are shares of the population's carbon.
+    {g0, n_h, n_e, gamma, continuum: {chi2, mean_nc, mean_nc_carbon, f_anion, f_cation, solo/duo, ...}},
+    where f_anion and f_cation are shares of the population's carbon and
+    mean_nc_carbon is the carbon-weighted N_C (the analogue of an emission-weighted
+    one). Bands in ``drop`` are left out of the fit.
     """
     if cache is not None and Path(cache).exists():
         with open(cache, "rb") as fh:
@@ -165,7 +167,9 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20", para
     params = Params() if params is None else params
     pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE,
                                      params=params) for c in CONTINUA}
-    obs = {c: observed(c) for c in CONTINUA}
+    used = [b for b in WINDOWS if b not in drop]
+    cols = [list(WINDOWS).index(b) for b in used]
+    obs = {c: {t: {b: v[b] for b in used} for t, v in observed(c).items()} for c in CONTINUA}
     nc = np.array([m.nc for m in lib], dtype=float)
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
@@ -185,13 +189,14 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20", para
                     cell = {"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne}
                     for c in CONTINUA:
                         F, fz = pops[c].band_fluxes(env)
-                        r = population.fit_abundances(F[keep], obs[c][t], REFERENCE)
+                        r = population.fit_abundances(F[keep][:, cols], obs[c][t], REFERENCE)
                         w = np.zeros(len(lib))
                         w[keep] = r["weights"]
                         wc = w * nc / (w @ nc)
                         cell[c] = {"chi2": r["chi2"], "weights": w,
                                    "f_anion": float(sum(wc[i] * fz[m.name].get(-1, 0.0) for i, m in enumerate(lib))),
                                    "f_cation": float(sum(wc[i] * fz[m.name].get(1, 0.0) for i, m in enumerate(lib))),
+                                   "mean_nc_carbon": population.population_statistics(lib, w, by="carbon")["mean_nc"],
                                    **population.population_statistics(lib, w)}
                     cells.append(cell)
                     print(f"{t} G0 {g0:.2g} n_H {n_h:.2g} n_e {ne:.2g} gamma {cell['gamma']:.2g}: "
@@ -217,7 +222,8 @@ def summarise_scan(res):
             edge = "low edge" if b["gamma"] <= g.min() * 1.0001 else ("high edge" if b["gamma"] >= g.max() * 0.9999 else "interior")
             print(f"{t:6s} {c:6s} chi2 {chi.min():5.1f}; best gamma {b['gamma']:.2g} ({edge}); "
                   f"allowed {g[ok].min():.2g}-{g[ok].max():.2g} of {g.min():.2g}-{g.max():.2g}; "
-                  f"<N_C> {b[c]['mean_nc']:.0f}, carbon shares f-/f+ {b[c]['f_anion']:.2f}/{b[c]['f_cation']:.2f}")
+                  f"<N_C> {b[c]['mean_nc']:.0f} (carbon-weighted {b[c].get('mean_nc_carbon', np.nan):.0f}), "
+                  f"carbon shares f-/f+ {b[c]['f_anion']:.2f}/{b[c]['f_cation']:.2f}")
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -233,15 +239,21 @@ def main():
     ap.add_argument("--detachment", choices=("jochims", "unity"), default="jochims")
     ap.add_argument("--capture-scale", type=float, default=1.0)
     ap.add_argument("--tag", default="", help="suffix of the scan cache name")
+    ap.add_argument("--capture-model", choices=("bt94", "lab_trend"), default="bt94")
+    ap.add_argument("--capture-cap", type=float, default=None)
+    ap.add_argument("--stretch-scale", default="1", help="Einstein A factor of the CH stretch modes, or 'lab'")
+    ap.add_argument("--drop", nargs="*", default=[], help="bands left out of the fit, e.g. 3.3")
     args = ap.parse_args()
     if args.scan:
         from pycalima.pahchem.baseline import Params
 
         suffix = ("" if args.library == "m20" else f"_{args.library}") + (f"_{args.tag}" if args.tag else "")
         shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
-        params = Params(yield_model=args.yield_model, detachment=args.detachment, capture_scale=args.capture_scale)
+        stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
+        params = Params(yield_model=args.yield_model, detachment=args.detachment, capture_scale=args.capture_scale,
+                        capture_model=args.capture_model, capture_cap=args.capture_cap, stretch_scale=stretch)
         res = scan(cache=_paths.get_results_dir() / f"pahchem_population_scan{suffix}.pkl", lib_name=args.library,
-                   params=params, shifts=shifts)
+                   params=params, shifts=shifts, drop=tuple(args.drop))
         summarise_scan(res)
         return
     if args.write_bands:

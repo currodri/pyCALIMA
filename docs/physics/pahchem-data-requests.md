@@ -164,6 +164,33 @@ An earlier draft put H addition first.
 
 ## Asked of others
 
+- **Electron recombination of large PAH cations (experimental groups).** This
+  is the input that now decides the PDR charge balance ({doc}`pahchem-spec`,
+  "Charge inputs").
+  - The data: measured PAH⁺ + e⁻ coefficients stop at pyrene (N_C = 16).
+    There they are 0.03–0.37 of the BT94 capture theory, and the ratio rises
+    as N_C^1.15 (`chemistry.lab_recombination_factor`).
+  - The constraint: the PDRs4All population fits fall inside the stated
+    conditions only if capture by N_C ≈ 100 cations is ≈ 3× BT94. The lab
+    power law gives 1.5× there; extrapolated, it is a guess.
+  - The ask: one or two coefficients for a compact cation with N_C ≥ 24, at
+    100–1000 K. Coronene⁺ is the minimum, circumcoronene⁺ the ideal.
+  - Who could measure it: FALP or CRESU flow tubes (Biennier and Rowe,
+    Rennes, who measured the small PAHs); cryogenic storage rings with merged
+    electron beams (DESIREE Stockholm, CSR Heidelberg); ion traps (PIRENEA
+    Toulouse).
+  - Also the dication (Z = +2 → +1) coefficient for one of them, which pahchem
+    now sets with the same factor.
+- **CH-stretch intensities of large PAHs (Rigopoulou group, T1 item 3, or the
+  laboratory).** Against 35 matrix-isolation neutrals (PAHdb experimental
+  v3.10, N_C ≤ 50), B3LYP/6-31G* puts 2× too much intensity in the CH stretch
+  relative to the CH out-of-plane bands. pahchem applies the lab ratio as a
+  stated input (`population.LAB_STRETCH_SCALE`).
+  - The ask: whether this holds at N_C ~ 100, and for cations (3 lab cations
+    only). Anharmonic (VPT2) or ML-MD spectra of two or three compact PAHs
+    with N_C ≥ 54 would show it.
+  - Why it matters: 3.3/11.2 drives the inferred size.
+
 - **Joblin/Montillaud:** the mode sets (and whether they were scaled) and the
   Monte Carlo $k_{\rm IR}(E)$, $e_{\rm IR}(E)$ used in {cite:t}`Montillaud2013`.
   With their published $A$ and $E_0$ and PAHdb modes we get $E_{\rm th}$ =

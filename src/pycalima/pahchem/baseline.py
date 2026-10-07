@@ -55,6 +55,9 @@ class Params:
     # charge
     capture_scale: float = 1.0
     detachment: str = "jochims"              # anion photodetachment yield: Jochims at the EA, or "unity" above it
+    capture_model: str = "bt94"              # cation capture: BT94, or "lab_trend" (chemistry.lab_recombination_factor)
+    capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
+    stretch_scale: float = 1.0               # Einstein A of 2900-3200 cm^-1 modes (population only; lab CH stretch)
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # hydrogen chemistry
     addition_cation: float = 1.4e-10         # cm^3 s^-1
