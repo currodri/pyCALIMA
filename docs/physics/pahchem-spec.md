@@ -1129,6 +1129,75 @@ What follows for pahchem:
   broad/total; Van De Putte+25) need anharmonic band shifts and widths and
   a VSG or cluster continuum, which pahchem does not have yet.
 
+**M7d: which PAH population explains the Orion Bar bands (preliminary,
+2026-10-06; {mod}`pycalima.pahchem.population`,
+`diagnostics/pahchem/fit_pdrs4all_population.py`; figures `population_fit`,
+`population_structure`).**
+- **Set-up.**
+  - Library: the 133 Maragkoudakis+20 PAHdb v3.20 molecules (N_C 22–216, the
+    Ricca+18 species included), 38 with their anion.
+  - IP and EA from DFT total energies at one level of theory (120 molecules).
+    The other 13 have pairs at different levels and take a fit,
+    IP = a + b/√N_C.
+  - Charge (−1/0/+1) and the first H loss come from the conditions card at
+    both corners; only the abundances are fitted.
+  - The fit is NNLS in ratio space on 9 band ratios to 11.2 (15 % and 0.01
+    of 11.2 in quadrature), with a 200-draw bootstrap.
+- **The library's own data needed fixing.**
+  - 17 Table H1 cation UIDs in `maragkoudakis2020_sample_uids.csv` were
+    rotated by one within a column. They are corrected, and a test now ties
+    every row to its v3.20 formula. The M20 reproduction is unaffected,
+    since the set of 308 is the same.
+  - PAHdb mixes levels of theory between charge states (B3LYP/6-31G* neutral
+    against a 4-31G cation; BP86 entries), so total-energy differences are
+    taken only within one level.
+- **New observed bands.** 12.0, 13.5 and 14.2 µm, measured with pahchem's
+  windows after Hony+01 (`pdrs4all_orionbar_bands.csv`), each over two
+  continua:
+  - the Chown+24 spline, which counts the 10–15 µm plateau in;
+  - a local line across each out-of-plane window, which takes it off.
+  The two differ by ~1.7× in every ratio to 11.2. The model is measured the
+  same way.
+- **Results.**
+  - **The stated conditions are not all allowed.** At the least-ionising
+    corner (γ ≈ 5–6×10³) the population fits the PDR templates with
+    χ² = 6–31 for 9 ratios (spline continuum). At the most-ionising corner
+    (γ ≈ 1–3×10⁵) χ² rises to 32–148. There the cation fraction is ≈ 0.9 and
+    6.2/11.2 and 7.7/11.2 come out too strong for any mix. This is the first
+    constraint on the charge balance from the data, but it is conditional on
+    the library and the yields.
+  - **The size is robust.** Carbon-weighted ⟨N_C⟩ ≈ 90–110 in every template
+    and continuum at the least-ionising corner. The weight sits in
+    C98–C142 molecules, many of them the Ricca+18 species (UIDs 32xx–33xx),
+    plus 10–25 % in C48.
+  - **Misses that persist.**
+    - 12.7/11.2 is under-predicted by 1.3–2×, and by ~3× with the local
+      continuum.
+    - 8.6/11.2 is over-predicted by 10–35 %.
+    - 3.3/11.2 runs 10–25 % high (spline) and 40–80 % high (local).
+  - **The edge structure disagrees with Khan+25.** The fitted populations
+    have solo/duo ≈ 0.6–1.2, solo/trio ≈ 4–9, solo/quartet ≳ 5. Khan+25
+    infer 14–17, 1.5 and 22–46. Part of this is the band assignment: in
+    PAHdb, compact PAHs put their duo out-of-plane intensity mostly inside
+    the 11.2 window. Of the 650–1000 cm⁻¹ intensity, the share in the 11.2
+    window against the 12.0 window is:
+    - ovalene (12 duo, 2 solo): 51 % against 25 %;
+    - C54H18: 58 % against 4 %.
+
+    So "11.2 = solo, 12.0 = duo" does not hold for this library, and edge
+    ratios inferred band by band are model-dependent. The comparison of edge
+    statistics is therefore open, not a contradiction.
+- **Limits.**
+  - The chain stops at +1 (no dications in the sample).
+  - No dehydrogenated or super-H states beyond the first-step intact
+    fraction: 116–121 of 133 molecules pass ≥ 0.5 at the most-ionising
+    corner.
+  - No RF (no spectra for the library).
+  - Harmonic positions with the fixed −15 cm⁻¹ shift; no plateau or
+    continuum carrier.
+  - NNLS returns ≤ 9 species, so individual species are not conclusions;
+    only ⟨N_C⟩ and the edge statistics are.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

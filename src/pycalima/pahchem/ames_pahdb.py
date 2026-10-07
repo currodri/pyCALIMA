@@ -83,14 +83,23 @@ def read_metadata(path, uids) -> dict:
     """{uid: {field: value}} of the header fields in ``_META_FIELDS`` (TOTAL_E in hartree).
 
     The edge-hydrogen counts (N_SOLO ... N_QUINTET) count H atoms, as in PAHdb.
+    BASIS is the basis set named in the first Gaussian route line of COMMENTS
+    ("4-31G", "6-31G*", ...), or "?" where none is named (e.g. "chkbas").
+    Total energies are comparable only at one functional (METHOD without its
+    R/U prefix) and basis.
     """
-    wanted, out, uid = set(int(u) for u in uids), {}, None
+    wanted, out, uid, routed = set(int(u) for u in uids), {}, None, set()
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             if line.startswith("UID:"):
                 uid = int(line.split()[1])
                 if uid in wanted:
-                    out[uid] = {}
+                    out[uid] = {"BASIS": "?"}
+            elif uid in wanted and line.startswith("#    # ") and uid not in routed:
+                routed.add(uid)
+                basis = line[7:].split()[0].partition("/")[2] if line[7:].strip() else ""
+                if re.fullmatch(r"\d-\d+\+*G[*()dp,]*", basis):
+                    out[uid]["BASIS"] = basis
             elif uid in wanted and ":" in line and not line.startswith("#"):
                 key, _, value = line.partition(":")
                 if key.strip() in _META_FIELDS and value.strip():

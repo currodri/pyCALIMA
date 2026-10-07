@@ -26,6 +26,15 @@ the check_*.py scripts, whose docstrings record the measured numbers.
 | murga2020_fig4 | C2H2 per molecule for the 20 parents, independent vs competing channels | M5 | minutes |
 | murga2022_charge | <Z> vs distance by size against the Figshare f(a, Z) | M5 | ~1 min |
 | murga2022_model_b | <X_H/X_H0> and the hydrogenation bins vs distance, model b | M5 | ~1 min |
+| emission_cascade | exact cascade against the AmesPAHdb thermal cascade, band fractions | M7a | ~1 min |
+| maragkoudakis2020_fig2 | M20 band ratios vs N_C from their stated inputs (needs PAHdb v3.20) | M7a | minutes |
+| rigopoulou2021_fig1 | R21 band peaks (needs PAHdb v3.20) | M7a | s |
+| family_emission | C54/C96 family spectra weighted by f(Z, N_H), with super-H | M7b | minutes |
+| rf_borja2026 | RF rates against Borja+26 | M3d | s |
+| ere | ERE photon yield and ERE/IR from C24-family RF against observed | M7b | minutes |
+| pdrs4all_scorecard | PDRs4All band ratios against the C54/C96 families over the stated conditions | M7c | minutes |
+| population_fit | NNLS PAHdb-population fit of the PDRs4All bands, two continua (needs PAHdb v3.20) | M7d | ~10 min, cached |
+| population_structure | the fitted populations' N_C and edge-H ratios against Khan+25 | M7d | cached |
 
 Inputs that are not shipped:
 - ``--west-esi``: the West+18 ESI workbook (default: the west2018-esi dataset);
@@ -940,13 +949,115 @@ def fig_pdrs4all_scorecard(args, out):
     _save(fig, out, "pdrs4all_scorecard")
 
 
+
+def _population_fit(args):
+    _checks()
+    import fit_pdrs4all_population as F
+
+    cache = _paths.get_results_dir() / "pahchem_population_fit.pkl"
+    if args.recompute and cache.exists():
+        cache.unlink()
+    return F, F.run(cache=cache)
+
+
+def fig_population_fit(args, out):
+    """Observed PDRs4All bands against the NNLS PAHdb population, both corners, both continua."""
+    F, res = _population_fit(args)
+    bands = [b for b in F.WINDOWS if b != F.REFERENCE]
+    bands.sort(key=float)
+    x = np.arange(len(bands))
+    fig, axes = plt.subplots(len(F.CONTINUA), len(F.C.TEMPLATES), figsize=(20, 7.5), sharey="row")
+    for i, c in enumerate(F.CONTINUA):
+        for j, t in enumerate(F.C.TEMPLATES):
+            ax = axes[i, j]
+            o = np.array([res[(t, "least ionising", c)]["observed"][b] for b in bands])
+            err = np.hypot(0.15 * o, 0.01)
+            ax.errorbar(x, o, yerr=err, fmt="ks", ms=5, label="observed (15 % + 0.01)")
+            for corner, col, dx in (("least ionising", "C0", -0.12), ("most ionising", "C3", 0.12)):
+                r = res[(t, corner, c)]
+                ax.plot(x + dx, [r["fit"]["ratios"][b] for b in bands], "o", color=col, ms=5,
+                        label=f"fit, {corner} (chi2 {r['fit']['chi2']:.0f}, {r['stats']['n_species']} species)")
+                best = r["best_single"]
+                if corner == "least ionising":
+                    s = [m[0] for m in res["library"]].index(best[1])
+                    Fs = r["F"][s] / r["F"][s][list(F.WINDOWS).index(F.REFERENCE)]
+                    ax.plot(x, [Fs[list(F.WINDOWS).index(b)] for b in bands], "_", color="0.5", ms=12, mew=2,
+                            label=f"best single: {best[1]} (chi2 {best[0]:.0f})")
+            ax.set_yscale("log")
+            ax.set_ylim(3e-3, 8)
+            ax.set_xticks(x)
+            ax.set_xticklabels(bands, rotation=90, fontsize=8)
+            ax.set_title(f"{t}, {c} continuum", fontsize=9)
+            ax.legend(fontsize=6, loc="lower left")
+        axes[i, 0].set_ylabel("band / 11.2")
+    fig.suptitle("PDRs4All Orion Bar bands against a PAHdb population (M20 library, 133 molecules): charge and "
+                 "first H loss from the stated conditions, only abundances fitted", fontsize=10)
+    fig.tight_layout()
+    _save(fig, out, "population_fit")
+
+
+def fig_population_structure(args, out):
+    """Carbon-weighted N_C distribution and edge-H ratios of the fitted populations, against Khan+25."""
+    F, res = _population_fit(args)
+    lib = res["library"]
+    nc = np.array([m[1] for m in lib], dtype=float)
+    bins = np.array([20, 30, 40, 50, 60, 80, 100, 130, 170, 220])
+    fig, axes = plt.subplots(1, 4, figsize=(20, 4.6))
+    styles = {"spline": "-", "local": "--"}
+    for j, t in enumerate(F.C.TEMPLATES):
+        for c in F.CONTINUA:
+            r = res[(t, "least ionising", c)]
+            w = r["weights"] * nc
+            h, _ = np.histogram(nc, bins=bins, weights=w / w.sum())
+            axes[0].step(bins[:-1], h, where="post", color=f"C{j}", ls=styles[c], label=f"{t} ({c})")
+    axes[0].set_xscale("log")
+    axes[0].set_xlabel("N_C")
+    axes[0].set_ylabel("fraction of PAH carbon (least ionising corner)")
+    axes[0].legend(fontsize=6, ncol=2)
+    for k, (ratio, (lo, hi)) in enumerate(F.KHAN25.items()):
+        ax = axes[k + 1]
+        ax.axhspan(lo * 0.9, hi * 1.1, color="0.85", label="Khan+25 Table 2")
+        for j, t in enumerate(F.C.TEMPLATES):
+            for i, (c, corner) in enumerate([(c, k2) for c in F.CONTINUA for k2 in ("least ionising", "most ionising")]):
+                r = res[(t, corner, c)]
+                vals = np.array([b[ratio] for b in r["boot_stats"]])
+                vals = vals[np.isfinite(vals)]
+                xx = j + (i - 1.5) * 0.15
+                col = "C0" if c == "spline" else "C1"
+                mk = "o" if corner == "least ionising" else "^"
+                v = r["stats"][ratio]
+                if vals.size:
+                    lo16, hi84 = np.percentile(vals, [16, 84])
+                    ax.vlines(xx, lo16, hi84, color=col, alpha=0.6)
+                ax.plot(xx, v if np.isfinite(v) else 1e3, mk, color=col, ms=5,
+                        label=f"{c}, {corner}" if j == 0 else None)
+        for name in ("C54H18 (37)", "C96H24 (108)"):
+            m = next(m for m in lib if m[0] == name)
+            e = m[3]
+            den = e[ratio.split("/")[1]]
+            if den:
+                ax.axhline(e["solo"] / den, color="k", ls=":", lw=0.8)
+                ax.text(4.4, e["solo"] / den, name.split()[0], fontsize=7, va="bottom", ha="right")
+        ax.set_yscale("log")
+        ax.set_ylim(0.05, 1e3)
+        ax.set_xticks(range(len(F.C.TEMPLATES)))
+        ax.set_xticklabels(F.C.TEMPLATES)
+        ax.set_title(f"{ratio} (edge H atoms); 1e3 = none of the denominator", fontsize=9)
+        if k == 0:
+            ax.legend(fontsize=6)
+    fig.suptitle("Fitted populations: bars are the 16-84 % bootstrap range over the 15 % (+0.01) band uncertainties",
+                 fontsize=10)
+    fig.tight_layout()
+    _save(fig, out, "population_structure")
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
     fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7,
     fig_murga2019_shiva_inputs, fig_murga_wiebe22_shiva, fig_murga2020_fig3, fig_murga2020_fig4,
     fig_murga2022_charge, fig_murga2022_model_b, fig_emission_cascade, fig_maragkoudakis2020_fig2,
-    fig_rigopoulou2021_fig1, fig_family_emission, fig_rf_borja2026, fig_ere, fig_pdrs4all_scorecard)}
+    fig_rigopoulou2021_fig1, fig_family_emission, fig_rf_borja2026, fig_ere, fig_pdrs4all_scorecard,
+    fig_population_fit, fig_population_structure)}
 
 
 def main():
@@ -958,7 +1069,7 @@ def main():
     ap.add_argument("--c66-modes", type=Path, default=None, help="C66H20_0.dat")
     ap.add_argument("--out", type=Path, default=None, help="default: <plots dir>/pahchem")
     ap.add_argument("--quick", action="store_true", help="montillaud13_fig10: parent modes only")
-    ap.add_argument("--recompute", action="store_true", help="sensitivity: ignore the cached json")
+    ap.add_argument("--recompute", action="store_true", help="sensitivity, population_*: ignore the cached results")
     args = ap.parse_args()
     unknown = set(args.figures) - set(FIGURES)
     if unknown:
