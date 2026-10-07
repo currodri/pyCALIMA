@@ -126,7 +126,7 @@ def test_library_m20_pairs_and_dft_energetics():
 def test_all_anions_extends_but_keeps_the_table_h3_anions():
     lib, ext = _library(), population.library_m20(_ascii(), all_anions=True)
     assert [m.name for m in lib] == [m.name for m in ext]
-    assert sum(m.ea_ev is not None for m in ext) == 81
+    assert sum(m.ea_ev is not None for m in ext) == 94          # anions matched by bond graph
     for a, b in zip(lib, ext):
         if -1 in a.uids:
             assert b.uids[-1] == a.uids[-1]
@@ -150,8 +150,25 @@ def test_emitted_band_energy_equals_absorbed_heating():
     pop = population.Population([mol], {"all": (1.0, 1e4)})
     env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
     for z in mol.charges:
-        absorbed = env.g0 * pop.basis(mol, z, population.field_shape(env)).absorbed
+        b = pop.basis(mol, z, population.field_shape(env))
+        absorbed = env.g0 * (b.absorbed + b.recombination)                  # photons plus recombination heating
         assert pop.state_band_fluxes(mol, z, env)[0] == pytest.approx(absorbed, rel=0.01)
+
+
+def test_recombination_heating_deposits_the_threshold_at_the_ionisation_rate():
+    from pycalima.pahchem import dos
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")
+    shape = ("kurucz", 40000)
+    on = population.Population([mol], {"all": (1.0, 1e4)})
+    off = population.Population([mol], {"all": (1.0, 1e4)}, params=Params(recombination_heating=False))
+    b0, b1 = on.basis(mol, 0, shape), on.basis(mol, 1, shape)
+    assert b0.recombination == pytest.approx(b0.k_up * mol.ionisation_ev[0] * dos.CM_PER_EV)
+    assert b1.recombination == 0.0                                          # the top of the chain
+    assert off.basis(mol, 0, shape).recombination == 0.0
+    assert b0.emitted.sum() == pytest.approx(b0.absorbed + b0.recombination, rel=0.01)
+    assert b0.emitted.sum() > 1.2 * off.basis(mol, 0, shape).emitted.sum()  # neutrals: tens of per cent more power
 
 
 def test_vectorised_charges_equal_the_scalar_chain():
@@ -201,11 +218,18 @@ def test_basis_disk_cache_round_trips(tmp_path):
 
 
 def test_large_compact_pahs_stay_intact_in_the_orion_bar():
+    """C96H24 stays intact at the Atomic most-ionising corner; C54H18, near threshold, does not (the network
+    gives 0.000 for C54H18 there); the chain never exceeds the single first-step ratio."""
     from pycalima.pahchem import conditions
 
-    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    lib = _library()
+    c54 = next(m for m in lib if m.name == "C54H18 (37)")
+    c96 = next(m for m in lib if m.name == "C96H24 (108)")
     env = conditions.bracketing_environments("orion_bar", "Atomic")["most ionising"]
-    assert population.Population([mol], WINDOWS).intact_fraction(mol, env) > 0.9
+    pop = population.Population([c54, c96], WINDOWS)
+    chain, single = pop.intact_fractions(env), pop.intact_fractions(env, method="single")
+    assert chain[1] > 0.9 and chain[0] < chain[1]
+    assert np.all(chain <= single + 1e-9)
 
 
 # -- PAHdb XML and the v4.00 library ----------------------------------------------------------------
@@ -281,9 +305,9 @@ def test_charge_inputs_move_the_charge_balance_the_right_way():
     env = Environment("t", 2e4, 5e4, 30.0, 700.0, 40000)
     base = population.Population(mol, WINDOWS).charge_matrix(env)
     hi_ip = population.Population(population.shift_thresholds(mol, {0: 0.6}), WINDOWS).charge_matrix(env)
-    fast = population.Population(mol, WINDOWS, params=Params(capture_scale=3.0)).charge_matrix(env)
+    slow = population.Population(mol, WINDOWS, params=Params(capture_scale=0.5)).charge_matrix(env)
     i0, i1 = 1, 2                                     # slots of Z = 0, +1 (zs = -1, 0, 1)
-    assert (hi_ip[:, i1] < base[:, i1]).all() and (fast[:, i1] < base[:, i1]).all()
+    assert (hi_ip[:, i1] < base[:, i1]).all() and (slow[:, i1] > base[:, i1]).all()
     assert (hi_ip[:, i0] > base[:, i0]).all()
     shifted = population.shift_thresholds(mol, {0: 0.6, -1: 0.3})
     for a, b in zip(mol, shifted):
@@ -295,9 +319,13 @@ def test_unit_detachment_leaves_an_anion_nothing_to_emit():
     from pycalima.pahchem.baseline import Params
 
     mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
-    pop = population.Population([mol], WINDOWS, params=Params(detachment="unity"))
+    pop = population.Population([mol], WINDOWS, params=Params(detachment="unity", recombination_heating=False))
     b = pop.basis(mol, -1, ("kurucz", 40000))
     assert b.absorbed == 0.0 and not b.emitted.any() and b.k_up > 0.0
+    # with recombination heating the anion still emits what electron attachment deposits (EA per event)
+    hot = population.Population([mol], WINDOWS, params=Params(detachment="unity"))
+    bh = hot.basis(mol, -1, ("kurucz", 40000))
+    assert bh.absorbed == 0.0 and bh.emitted.sum() == pytest.approx(bh.recombination, rel=0.01) and bh.recombination > 0
 
 
 def test_lab_recombination_factor_is_the_falp_power_law():
@@ -323,6 +351,15 @@ def test_lab_capture_slows_small_and_speeds_large_cation_recombination():
         assert (f1 > f0) == more_ionised
 
 
+def test_capture_cannot_exceed_the_classical_limit():
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in population.library_m20(_ascii()) if m.nc >= 130)
+    assert population._capture_factor(mol, 1, Params(capture_model="lab_trend")) <= population.CAPTURE_MAX
+    with pytest.raises(ValueError, match="classical limit"):
+        population._capture_factor(mol, 1, Params(capture_scale=3.0))
+
+
 def test_stretch_scale_moves_power_out_of_the_ch_stretch_only():
     from pycalima.pahchem.baseline import Params
 
@@ -339,3 +376,32 @@ def test_stretch_scale_moves_power_out_of_the_ch_stretch_only():
     f = mol.species[0].freqs_cm
     s = (f >= 2900) & (f <= 3200)
     assert np.allclose(a[s], 0.5 * mol.species[0].einstein_a[s]) and np.allclose(a[~s], mol.species[0].einstein_a[~s])
+
+
+def test_chain_reproduces_the_baseline_network_given_its_rates():
+    """The dehydrogenation chain solver, fed the baseline's own (Z, N_H) rates, gives the network's f(N_H0)."""
+    from pycalima._paths import get_model_data_dir
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2, PARENTS
+    from pycalima.pahchem.baseline import BaselineModel, Params
+    from pycalima.pahchem.molecule import PAHSpecies
+
+    d = get_model_data_dir() / "PAH_states"
+    if not (d / "C54H18_0.dat").exists():
+        pytest.skip("PAH_states not generated")
+    sp = {z: PAHSpecies.from_states_file(d / f"C54H18_{z}.dat") for z in (-1, 0)}
+    base = BaselineModel("C54", sp[0], Params(), anion=sp[-1])
+    nc, nh0, n_solo = PARENTS["C54"]
+    for env, expected in ((Environment("Atomic most", 7.1e4, 5e4, 10.0, 722.0, 40000), 0.000),
+                          (Environment("DF3 most", 5e3, 3.5e3, 0.49, 661.0, 40000), 0.650)):
+        pr = base.photo_rates(env)
+        net = base.network(pr, env)
+        fss = net.steady_state()
+        fz = net.charge_fractions(fss)
+        lh = sum(fz[z] * np.array([pr[(z, nh0 - k)].get("H", 0.0) for k in range(4)]) for z in base.charges)
+        lh2 = sum(fz[z] * np.array([pr[(z, nh0 - k)].get("H2", 0.0) for k in range(4)]) for z in base.charges)
+        neutral = 0.07 * chemistry.cross_section_rate(env.temperature_k, CORONENE_GEOMETRIC_A2 * nc / 24.0)
+        k_add = sum(fz[z] * (1.4e-10 if z > 0 else neutral) * env.n_h for z in base.charges)
+        f_net = net.hydrogenation_fractions(fss)[nh0]
+        assert f_net == pytest.approx(expected, abs=0.01)
+        assert population._chain_intact(nh0, n_solo, lh, lh2, k_add) == pytest.approx(f_net, abs=0.02)

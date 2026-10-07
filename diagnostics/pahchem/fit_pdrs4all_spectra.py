@@ -9,11 +9,12 @@ I_nu = sum_s w_s P_s(conditions) + continuum (cubic B-splines in lambda, knots
 ``--knots`` um apart, per segment), with w, c >= 0.
 - Observed: the Van De Putte+25 combined templates, gas lines removed with
   running medians (0.012 um at 3.3 um, 0.025 um in the MRS), binned at
-  2.5 cm^-1 over 3.1-3.65 and 5-15 um, Chown+24 artefacts masked.
+  2.5 cm^-1 over 3.1-3.65 and 5-15 um, Chown+24 artefacts and the strong gas
+  lines masked (spectral_fit.MASKED_UM).
 - Model: ``Population`` with the stated inputs of fit_pdrs4all_population
   (library, IP shifts, capture, stretch scale), charges at each cell of the
-  conditions grid, molecules kept by the intact filter at the most-ionising
-  corner. The filter is to be replaced (review finding 3).
+  conditions grid, molecules kept where the dehydrogenation chain
+  (``Population.intact_fractions``) leaves them intact at that cell.
 - Per cell: sse, rms (residual / mean intensity), the population (N_C by number
   and by carbon; charge shares of the emitted power, dications counted with
   the cations), the derived band ratios of the PAH component, and the
@@ -32,6 +33,7 @@ scan repeated. Band ratios are then measured on the fitted PAH spectrum.
     fit_pdrs4all_spectra.py --templates .../orionbar.dat --library v400 --ip-shift=-1:0.37,0:0.6,1:0.64,2:0.64 --stretch-scale lab
 """
 import argparse
+import dataclasses
 import hashlib
 import json
 import pickle
@@ -46,6 +48,9 @@ from pycalima.pahchem import conditions, population, spectral_fit
 from pycalima.pahchem.baseline import Environment, Params
 
 KNOTS = (1.0, 1.5, 2.5)
+#: second start of the band-shape fit: the broad-CH-stretch branch found in DF2 (the default start can end
+#: in a narrow-band, cation-dominated branch with ~2x the residual; spec, step 1)
+BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3.0, fwhm_ch=40.0, fwhm_rest=8.0)
 
 
 def observed_on_grid(lam, fnu, grid):
@@ -88,16 +93,15 @@ def run(args):
     for t in C.TEMPLATES:
         y = observed_on_grid(lam, tmpl[t], grid)
         e = card[t]
-        envs = conditions.bracketing_environments("orion_bar", t)
-        keep = pop.intact_fractions(envs["most ionising"]) >= args.intact_min
         temp = conditions.bounds(e["t_gas"])[0]
         cells = []
-        for g0 in FP._grid(*conditions.bounds(e["g0"]), 4):
+        for g0 in FP._grid(*(v / conditions.g0_conversion(e["g0"], teff) for v in conditions.bounds(e["g0"])), 4):
             for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
                 el = e["n_e"] if "n_e" in e else e["x_e"]
                 for v in FP._grid(*conditions.bounds(el), 4):
                     ne = v if "n_e" in e else v * n_h
                     env = Environment(f"{t}", g0, n_h, ne, temp, teff)
+                    keep = pop.intact_fractions(env) >= args.intact_min           # hydrogenation chain, per cell
                     P = pop.spectra(env, grid.nu)[keep].T
                     F, _ = pop.band_fluxes(env)
                     f = pop.charge_matrix(env)
@@ -133,7 +137,8 @@ def _cells(card, t):
     e = card[t]
     temp = conditions.bounds(e["t_gas"])[0]
     out = []
-    for g0 in FP._grid(*conditions.bounds(e["g0"]), 4):
+    teff = int(card["region"]["field_teff_k"]["value"])
+    for g0 in FP._grid(*(v / conditions.g0_conversion(e["g0"], teff) for v in conditions.bounds(e["g0"])), 4):
         for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
             el = e["n_e"] if "n_e" in e else e["x_e"]
             for v in FP._grid(*conditions.bounds(el), 4):
@@ -172,8 +177,6 @@ def run_shape(args, knot=1.5, iterations=2):
     out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib], "grid": grid, "args": vars(args), "knot": knot}
     for t in C.TEMPLATES:
         y = observed_on_grid(lam, tmpl[t], grid)
-        envs = conditions.bracketing_environments("orion_bar", t)
-        keep = pop.intact_fractions(envs["most ionising"]) >= args.intact_min
         cells = _cells(card, t)
         out[t] = {"observed": y}
         for profile in ("lorentzian", "gaussian"):
@@ -182,11 +185,15 @@ def run_shape(args, knot=1.5, iterations=2):
             history = []
             for it in range(iterations):
                 env = Environment(t, ref[0], ref[1], ref[2], ref[3], teff)
-                shape, _, _ = spectral_fit.fit_band_shape(y, grid, pop, env, keep, C_, start=shape)
+                keep = pop.intact_fractions(env) >= args.intact_min
+                starts = [shape] + ([dataclasses.replace(BROAD_START, profile=profile)] if it == 0 else [])
+                trials = [spectral_fit.fit_band_shape(y, grid, pop, env, keep, C_, start=s) for s in starts]
+                shape = min(trials, key=lambda tr: tr[1].sse)[0]          # several starts: two solution branches exist
                 S = spectral_fit.shaped_state_spectra(pop, fshape, grid.nu, shape)
                 rows = []
                 for g0, n_h, ne, temp in cells:
                     env = Environment(t, g0, n_h, ne, temp, teff)
+                    keep = pop.intact_fractions(env) >= args.intact_min       # hydrogenation chain, per cell
                     f = pop.charge_matrix(env)
                     P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
                     fit = spectral_fit.fit_spectrum(y, P, C_)

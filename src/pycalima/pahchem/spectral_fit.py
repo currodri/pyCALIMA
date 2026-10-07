@@ -35,6 +35,14 @@ import numpy as np
 SEGMENTS_UM = ((3.1, 3.65), (5.0, 15.0))
 #: MRS artefacts listed by Chown+24 (12.2, 13.7-13.95, 14.3 um), masked [um]
 ARTEFACTS_UM = ((12.17, 12.23), (13.70, 13.95), (14.27, 14.33))
+#: gas lines masked on top of the running-median cleaning [um] (vacuum wavelengths):
+#: H2 0-0 S(7)-S(2), [Fe II] 5.340, [Ni II] 6.636, [Ar II] 6.985, H I Pf-alpha 7.460, [Ar III] 8.991,
+#: [S IV] 10.511, H I Hu-alpha 12.372, [Ne II] 12.814; H I Pf-delta 3.297 and H2 1-0 O(5) 3.235.
+GAS_LINES_UM = (5.511, 6.109, 6.910, 8.025, 9.665, 12.279, 5.340, 6.636, 6.985, 7.460, 8.991, 10.511, 12.372, 12.814)
+GAS_LINES_NIR_UM = (3.297, 3.235)
+LINE_HALF_UM, LINE_HALF_NIR_UM = 0.010, 0.002
+MASKED_UM = ARTEFACTS_UM + tuple((x - LINE_HALF_UM, x + LINE_HALF_UM) for x in GAS_LINES_UM) \
+    + tuple((x - LINE_HALF_NIR_UM, x + LINE_HALF_NIR_UM) for x in GAS_LINES_NIR_UM)
 
 
 @dataclass(frozen=True)
@@ -46,7 +54,7 @@ class Grid:
     step_cm: float
 
     @classmethod
-    def build(cls, segments_um=SEGMENTS_UM, step_cm=2.5, masked_um=ARTEFACTS_UM):
+    def build(cls, segments_um=SEGMENTS_UM, step_cm=2.5, masked_um=MASKED_UM):
         nus, segs = [], []
         for k, (lo, hi) in enumerate(segments_um):
             nu = np.arange(1e4 / hi + 0.5 * step_cm, 1e4 / lo, step_cm)

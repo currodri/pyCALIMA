@@ -65,6 +65,28 @@ class RadiationField:
         return float(np.trapezoid(np.asarray(sigma_cm2) * self.flux_at(E), E))
 
 
+#: flat-F_nu equivalent of Habing G0 = 1, 1.6e-3 erg cm^-2 s^-1 over 6-13.6 eV [erg cm^-2 s^-1 Hz^-1] (Peeters+24 App. A)
+HABING_FNU = 8.7e-19
+H_EV_S = 4.135667696e-15
+
+
+def fnu_g0_ratio(field, lam_angstrom=(1027.0, 1040.0), smooth_ev=0.15):
+    """F_nu at ``lam_angstrom`` (mean over the lines) of ``field`` per unit Habing G0, over ``HABING_FNU``.
+
+    A G0 defined as F_nu(lambda) / 8.7e-19, as Peeters+24 measure it from the
+    O I 1.129 / 1.317 um fluorescence pumped at 1027 / 1040 A, equals this
+    ratio times the Habing G0 of the same field. F_nu is the median within
+    +-``smooth_ev`` of each line, to smooth over model-atmosphere line structure.
+    """
+    out = []
+    for lam in lam_angstrom:
+        E = HC_EV_NM * 10.0 / lam
+        win = (field.energy_ev > E - smooth_ev) & (field.energy_ev < E + smooth_ev)
+        fnu = E * EV_ERG * np.median(field.photon_flux[win]) * H_EV_S
+        out.append(fnu / HABING_FNU)
+    return float(np.mean(out) / field.g0())
+
+
 def _grid(e_min, e_max, n):
     return np.linspace(e_min, e_max, n)
 

@@ -19,13 +19,13 @@ templates = ["HII", "Atomic", "DF1", "DF2", "DF3"]
 
 [HII]
 note = "AIB emission of this template comes from the face-on background PDR (Chown+24), whose conditions are not stated: the Atomic PDR ranges are used"
-g0 = { range = [2.2e4, 7.1e4], source = "assumed equal to the Atomic PDR (background face-on PDR; Chown+24)", confidence = "E", stated = false }
+g0 = { range = [2.2e4, 7.1e4], definition = "fnu_1030A", source = "assumed equal to the Atomic PDR (background face-on PDR; Chown+24)", confidence = "E", stated = false }
 n_h = { range = [5e4, 1e5], source = "assumed equal to the Atomic PDR", confidence = "E", stated = false }
 t_gas = { value = 659, source = "H2 rotational T1* 659 +- 54 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
 n_e = { range = [10.0, 100.0], source = "assumed equal to the Atomic PDR (carbon and sulfur recombination lines; Berne+22)", confidence = "D", stated = false }
 
 [Atomic]
-g0 = { range = [2.2e4, 7.1e4], source = "at the ionisation front from O I 1.317 um fluorescence, median 5.9e4, inclination 4 deg (Peeters+24 Sect. 5.3.1); x4 for 1 deg, /2 for 8 deg", confidence = "B", stated = true }
+g0 = { range = [2.2e4, 7.1e4], definition = "fnu_1030A", source = "at the ionisation front from O I 1.317 um fluorescence, median 5.9e4, inclination 4 deg (Peeters+24 Sect. 5.3.1); x4 for 1 deg, /2 for 8 deg. Defined as F_nu(1027/1040 A) / 8.7e-19 erg cm^-2 s^-1 Hz^-1 (their App. A), not the 6-13.6 eV integral", confidence = "B", stated = true }
 n_h = { range = [5e4, 1e5], source = "from the decay of the AIB emission (Habart+24); the Meudon H2 fit of this template gives 1e3-3.5e3 (Peeters+24), inconsistent with it", confidence = "B", stated = true }
 t_gas = { value = 722, source = "H2 rotational T1* 722 +- 50 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
 n_e = { range = [10.0, 100.0], source = "carbon and sulfur radio recombination lines of the atomic PDR, n_e ~ 10-100 cm^-3 (Berne+22 Sect. 2, citing Wyrowski+97, Cuadrado+19, Goicoechea+21); not the 2-3e3 cm^-3 of the ionised gas at the IF", confidence = "B", stated = true }

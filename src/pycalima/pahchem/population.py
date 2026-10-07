@@ -25,13 +25,25 @@ the molecules' abundances are fitted. In outline:
   The chain stops at the highest charge in the library (+1 for PAHdb v3.20,
   which has no dications): that state holds the higher charges, emitting as
   itself, and absorbs without ionising.
-- **Hydrogenation** (``intact_fraction``). The first step only:
-  k_add / (k_add + k_H). k_H is the photo-rate of the first H loss from the
-  intact molecule; it uses RRKM with the baseline's West+18 (E0, dS) on the
-  molecule's own modes and the cascade with that sink. k_add is the
-  baseline's H addition to the singly dehydrogenated state. The fit uses only
-  molecules whose intact fraction passes a threshold, so hydrogenation is
-  tied to the conditions without modes for each dehydrogenated state.
+- **Hydrogenation** (``intact_fractions``). A dehydrogenation chain per
+  molecule, N_H = N_H0 ... 0, with H loss (one step), H2 loss (two steps) and
+  H addition, solved in steady state at each environment; f(N_H0) is the
+  intact fraction. The baseline's rules apply:
+  - H loss uses West+18 even-H (E0, dS) with degeneracy N_H for even N_H, and
+    the odd-H radical values with degeneracy 1;
+  - H2 loss (degeneracy 2) applies for even N_H above the solo count;
+  - H addition is 1.4e-10 n_H for cations and 0.07 of the geometric rate for
+    neutrals.
+  The rates are RRKM on the molecule's own modes for N_H0, and on
+  ``PAHSpecies.stripped`` modes for N_H0-1 ... N_H0-3, each with its own
+  multiphoton cascade (tabulated on ``K_H_G0_GRID``). Deeper even (odd)
+  states take the N_H0-2 (N_H0-3) rates, the even-H degeneracy scaled by N_H.
+  Rates are averaged over the intact molecule's charge fractions. Missing:
+  super-hydrogenated states, and the IP shift of dehydrogenated states. The
+  single first-step ratio k_add / (k_add + k_H) of earlier versions
+  (``intact_fractions(method="single")``) misses the radical runaway near
+  threshold (review B: 0.87 against 0.00 for C54H18 at the Atomic
+  most-ionising corner).
 - **Emission** (``Population.band_fluxes``). The exact microcanonical cascade
   of each charge state for one absorbed photon (``emission.cascade_photons``),
   folded with that state's heating spectrum. Single-photon heating holds for
@@ -44,7 +56,16 @@ the molecules' abundances are fitted. In outline:
   power, each G0 times its basis value. H loss is not linear in G0: for small
   PAHs two photons within one cooling time dominate it. So the basis
   tabulates k_H(G0) from the full multiphoton steady state on
-  ``K_H_G0_GRID`` and interpolates in log-log. Bases are built once (in parallel, ``Population.prepare``) and kept
+  ``K_H_G0_GRID`` and interpolates in log-log.
+- **Recombination heating** (``Params.recombination_heating``). In steady state
+  each ionisation (or detachment) out of state z is balanced by a recombination
+  (or attachment) into z, which leaves the threshold energy (IP, or EA) in
+  vibrations. So state z is also heated at rate k_up(z) with that energy, and
+  its cascade adds k_up(z) x (emission after an energy deposit IP_z) to the IR
+  power. This too is linear in G0. Not included: the electron's kinetic energy
+  (~kT), the energy the ion keeps after photoionisation (E - IP - KE), and
+  H loss driven by the recombination energy (the k_H table is photon-driven
+  only). Bases are built once (in parallel, ``Population.prepare``) and kept
   on disk (``cache_dir``), keyed by a hash of their inputs. An environment
   then costs a few vectorised array operations over the whole library.
 - **Fit** (``fit_abundances``). Non-negative least squares on the band fluxes
@@ -108,13 +129,13 @@ class Molecule:
 def library_m20(path=None, min_nc=0, all_anions=False):
     """[Molecule] of the Maragkoudakis+20 sample with N_C >= ``min_nc``.
 
-    The cation is the neutral's partner row in their Tables H1-H2 (checked to
-    have the same formula and edge-H counts). An anion (Table H3) is attached
-    when exactly one neutral has its formula and edge-H counts; isomers that
-    share both leave the anion out. With ``all_anions`` the anions are looked
-    up in the whole of PAHdb v3.20, not only Table H3: 81 molecules against
-    38 (Table H3's anion first where isomers share formula and edge counts). ``path`` is the PAHdb v3.20 ASCII file (default
-    ``ames_pahdb.ascii_path()``).
+    Charge states are matched by bond graph (``ames_pahdb.read_ascii_graphs``),
+    not by formula and edge-H counts, which isomers share (review A).
+    - The cation is the sample cation with the neutral's bond graph. This
+      corrects one M20 row pairing, C66H18 (714).
+    - The anion is the anion with that graph: from Table H3, or with
+      ``all_anions`` from the whole of PAHdb v3.20, Table H3's first.
+    ``path`` is the PAHdb v3.20 ASCII file (default ``ames_pahdb.ascii_path()``).
     """
     from pycalima.pahchem import ames_pahdb, maragkoudakis2020
 
@@ -123,29 +144,57 @@ def library_m20(path=None, min_nc=0, all_anions=False):
     if all_anions:
         with open(path, encoding="utf-8", errors="replace") as fh:
             every = [int(line.split()[1]) for line in fh if line.startswith("UID:")]
-        meta = ames_pahdb.read_metadata(path, every)
-        pool = [u for u, m in meta.items() if m.get("CHARGE") == -1 and _FORMULA_CH.fullmatch(m.get("FORMULA", ""))]
-        meta = {u: meta[u] for u in set(sample.uid) | set(pool)}
+        full_meta = ames_pahdb.read_metadata(path, every)
+        pool = [u for u, m in full_meta.items() if m.get("CHARGE") == -1 and _FORMULA_CH.fullmatch(m.get("FORMULA", ""))]
+        meta = {u: full_meta[u] for u in set(sample.uid) | set(pool)}
     else:
+        full_meta = None
         meta = ames_pahdb.read_metadata(path, sample.uid)
         pool = list(sample[sample.charge == -1].uid)
     sp = ames_pahdb.read_ascii(path, sample.uid)
     key = lambda u: (meta[u]["FORMULA"].rstrip("+-"),) + tuple(meta[u][f"N_{e.upper()}"] for e in EDGES)
-    pairs = sample[sample.charge >= 0].uid.to_numpy().reshape(-1, 2)
+    pairs = sample[sample.charge >= 0].uid.to_numpy().reshape(-1, 2).copy()
     for u0, u1 in pairs:
         if meta[u0]["CHARGE"] != 0 or meta[u1]["CHARGE"] != 1 or key(u0) != key(u1):
             raise ValueError(f"PAHdb UIDs {u0}, {u1} are not a neutral-cation pair")
-    by_key = {}
-    for u0, _ in pairs:
-        by_key.setdefault(key(u0), []).append(u0)
-    anions_by_key = {}
+    graph = ames_pahdb.read_ascii_graphs(path, set(sample.uid) | set(pool))
+    cations = {}
+    for u in sample[sample.charge == 1].uid:
+        cations.setdefault(graph[u], []).append(u)
+    fixed = []
+    for i, (u0, u1) in enumerate(pairs):
+        match = cations.get(graph[u0], [])
+        if u1 not in match and len(match) == 1:
+            pairs[i, 1] = match[0]
+            fixed.append((int(u0), int(u1), int(match[0])))
+    unmatched = [i for i, (u0, u1) in enumerate(pairs) if graph[u1] != graph[u0]]
+    if unmatched:                                    # the partner is not in the sample: search all v3.20 cations
+        if full_meta is None:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                every = [int(line.split()[1]) for line in fh if line.startswith("UID:")]
+            full_meta = ames_pahdb.read_metadata(path, every)
+        allmeta = full_meta
+        extra = [u for u, m in allmeta.items() if m.get("CHARGE") == 1 and _FORMULA_CH.fullmatch(m.get("FORMULA", ""))]
+        g_extra = ames_pahdb.read_ascii_graphs(path, extra)
+        for i in unmatched:
+            u0, u1 = pairs[i]
+            match = [u for u in extra if g_extra[u] == graph[u0]]
+            if len(match) == 1:
+                pairs[i, 1] = match[0]
+                graph[match[0]] = g_extra[match[0]]
+                meta[match[0]] = allmeta[match[0]]
+                fixed.append((int(u0), int(u1), int(match[0])))
+    anions_by_graph = {}
     for u in pool:
-        anions_by_key.setdefault(key(u), []).append(u)
+        anions_by_graph.setdefault(graph[u], []).append(u)
     h3 = set(sample[sample.charge == -1].uid)
     pick = lambda us: us if len(us) == 1 else [u for u in us if u in h3]       # Table H3 first among isomers
-    anion = {by_key[k][0]: pick(us)[0] for k, us in anions_by_key.items()
-             if len(by_key.get(k, ())) == 1 and len(pick(us)) == 1}
-    sp |= ames_pahdb.read_ascii(path, [u for u in anion.values() if u not in sp])
+    anion = {}
+    for u0, _ in pairs:
+        us = pick(anions_by_graph.get(graph[u0], []))
+        if len(us) == 1:
+            anion[u0] = us[0]
+    sp |= ames_pahdb.read_ascii(path, [u for u in set(anion.values()) | set(pairs[:, 1]) if u not in sp])
     level = lambda u: (meta[u]["METHOD"].lstrip("RU").upper(), meta[u]["BASIS"].replace("?", "4-31G"))
     same = lambda a, b: level(a) == level(b)
     de = lambda a, b: (meta[b]["TOTAL_E"] - meta[a]["TOTAL_E"]) * HARTREE_EV
@@ -306,7 +355,8 @@ def charge_fractions(mol, env, params=Params()):
     zs = mol.charges
     f = {zs[0]: 1.0}
     for z in zs[:-1]:
-        up = photo.ionisation_rate(field_, photo.sigma_li_draine(mol.nc, z, E_PH), _yield(mol, z, params), E_PH)
+        sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * params.sigma_scale
+        up = photo.ionisation_rate(field_, sigma, _yield(mol, z, params), E_PH)
         if z == -1:
             up += 7.8e-10 * env.n_h                                   # associative detachment
         s = neutral_sticking(mol, T) if z + 1 == 0 else 1.0
@@ -361,7 +411,10 @@ class StateBasis:
     emitted: np.ndarray          # IR power per mode at G0 = 1 [cm^-1 s^-1]
     k_up: float                  # photo-ionisation or detachment rate at G0 = 1 [s^-1]
     k_h: np.ndarray              # first-H-loss photo-rate at each K_H_G0_GRID [s^-1]
-    absorbed: float              # heating power at G0 = 1 [cm^-1 s^-1]
+    absorbed: float              # photon heating power at G0 = 1 [cm^-1 s^-1]
+    recombination: float = 0.0   # recombination heating power at G0 = 1 [cm^-1 s^-1] (included in emitted)
+    ladder_h: np.ndarray | None = None    # (4, K_H_G0_GRID): H-loss rates of N_H0 ... N_H0-3 [s^-1]
+    ladder_h2: np.ndarray | None = None   # (4, K_H_G0_GRID): H2-loss rates of the same states [s^-1]
 
     def k_h_at(self, g0):
         """k_H [s^-1] at ``g0`` (array), log-log interpolated; rates below 1e-300 s^-1 count as zero."""
@@ -386,25 +439,54 @@ def _einstein_a(sp, params):
     return sp.einstein_a * np.where((f >= CH_STRETCH_CM[0]) & (f <= CH_STRETCH_CM[1]), params.stretch_scale, 1.0)
 
 
+#: classical upper limit of the factor on BT94 capture. BT94 with sticking 1 already holds the Coulomb
+#: focusing and the image potential (Draine & Sutin J~), so only the 0.82 disc factor can rise to 1 (review B).
+CAPTURE_MAX = 1.0 / 0.82
+
+
 def _capture_factor(mol, z, params):
-    """Factor on BT94 capture by charge z: the lab trend for cations and dications (``Params.capture_model``)."""
+    """Factor on BT94 capture by charge z: the lab trend for cations and dications (``Params.capture_model``).
+
+    The lab trend is capped at ``CAPTURE_MAX`` (and at ``capture_cap`` if
+    lower). A ``capture_scale`` that alone exceeds the classical limit raises.
+    """
+    if params.capture_scale > CAPTURE_MAX * (1 + 1e-12):
+        raise ValueError(f"capture_scale {params.capture_scale} exceeds the classical limit {CAPTURE_MAX:.3f}")
     f = params.capture_scale
     if z >= 1 and params.capture_model == "lab_trend":
-        f *= float(chemistry.lab_recombination_factor(mol.nc, params.capture_cap))
+        cap = CAPTURE_MAX if params.capture_cap is None else min(params.capture_cap, CAPTURE_MAX)
+        f *= float(chemistry.lab_recombination_factor(mol.nc, cap))
     elif params.capture_model not in ("bt94", "lab_trend"):
         raise ValueError(f"capture_model must be 'bt94' or 'lab_trend', not {params.capture_model!r}")
-    return f
+    return min(f, CAPTURE_MAX)
 
 
 def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
     sp = mol.species[z]
+    top = z == max(mol.charges)
+    recomb = float(mol.ionisation_ev[z]) if (params.recombination_heating and not top) else 0.0
+    ladder = []
+    for k in range(4):
+        n = mol.nh - k
+        if n < 1:
+            break
+        s_ = sp if k == 0 else sp.stripped(n)
+        ladder.append((s_.freqs_cm, _einstein_a(s_, params), n, bool(n % 2 == 0 and n > mol.edges.get("solo", 0))))
     return dict(freqs=sp.freqs_cm, einstein_a=_einstein_a(sp, params), nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
-                sigma_scale=params.sigma_scale)
+                sigma_scale=params.sigma_scale, recomb_ev=recomb, ladder=tuple(ladder),
+                h_odd=tuple(params.h_odd), h2=tuple(params.h2))
+
+
+#: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key)
+BASIS_VERSION = 4
 
 
 def _basis_key(inp):
     h = hashlib.sha1()
+    h.update(f"v{BASIS_VERSION}".encode())
+    h.update(np.ascontiguousarray(E_PH).tobytes())
+    h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
     for k in sorted(inp):
         v = inp[k]
         h.update(k.encode())
@@ -412,13 +494,58 @@ def _basis_key(inp):
     return h.hexdigest()[:20]
 
 
-def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale):
-    """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes."""
+#: energy grid of the multiphoton loss cascades (the baseline's): two-photon states reach ~27 eV, and the
+#: 16 eV emission grid cut that tail off, underestimating k_H by orders of magnitude near threshold.
+#: Where the state counts overflow (the largest PAHs), the ceiling drops to the next value: two 13.6 eV
+#: photons need 27.2 eV, and three-photon events are negligible at that size.
+LOSS_E_MAX_EV, LOSS_DE_CM = (45.0, 30.0, 20.0), 200.0
+
+
+def _loss_grid(freqs, einstein_a):
+    """(CascadeModel, E, counts) on the highest ``LOSS_E_MAX_EV`` ceiling whose state counts stay finite."""
+    for e_ev in LOSS_E_MAX_EV:
+        try:
+            with np.errstate(over="ignore", invalid="ignore"):
+                cm = energy_me.CascadeModel(freqs, einstein_a, e_ev * dos.CM_PER_EV, LOSS_DE_CM)
+                E, counts = dos.beyer_swinehart(freqs, cm.energy_cm[-1] + 200.0)
+        except OverflowError:
+            continue
+        if np.isfinite(counts).all() and np.isfinite(cm.k_modes).all():
+            return cm, E, counts
+    raise ValueError("state counts overflow even on the lowest loss-cascade ceiling")
+
+
+def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2):
+    """(k_H, k_H2) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade."""
+    cm, E, counts = _loss_grid(freqs, einstein_a)
+    pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+    (e0, ds), deg = (h_even, nh) if nh % 2 == 0 else (h_odd, 1)
+    ch = {"H": rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5),
+                          e0 * dos.CM_PER_EV, degeneracy=deg)[pick]}
+    if h2_ok:
+        ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h2[1], n_scaled=5),
+                              h2[0] * dos.CM_PER_EV, degeneracy=2)[pick]
+    kh, kh2 = [], []
+    for g in K_H_G0_GRID:
+        r = cm.steady_state(E_PH, g * h, ch).rates
+        kh.append(r["H"])
+        kh2.append(r.get("H2", 0.0))
+    return np.array(kh), np.array(kh2)
+
+
+def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
+                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0)):
+    """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
+
+    ``recomb_ev`` is the energy each recombination (attachment) into this state
+    deposits; the heating rate is this state's own k_up (steady state).
+    """
     field1 = _unit_field(shape)
     sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
     h = photo.heating_spectrum(field1, sigma, yield_, E_PH)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
-    if not np.any(h > 0.0):                          # every absorption ionises or detaches: nothing to emit
+    recomb_power = k_up * recomb_ev * dos.CM_PER_EV
+    if not np.any(h > 0.0) and recomb_power <= 0.0:   # every absorption ionises or detaches: nothing to emit
         return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
                           np.zeros(K_H_G0_GRID.size), 0.0)
     cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
@@ -427,14 +554,20 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     j = np.floor(e).astype(int)
     w = e - j
     emitted = freqs * np.trapezoid(h * ((1.0 - w) * N[:, j] + w * N[:, j + 1]), E_PH, axis=1)
-    E, counts = dos.beyer_swinehart(freqs, cm.energy_cm[-1] + 200.0)
+    if recomb_power > 0.0:
+        x = recomb_ev * dos.CM_PER_EV / cm.de_cm
+        i0 = int(np.floor(x))
+        emitted = emitted + k_up * freqs * ((1.0 - (x - i0)) * N[:, i0] + (x - i0) * N[:, i0 + 1])
+    cl, E, counts = _loss_grid(freqs, einstein_a)
     ts = rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5)
     k = rates.rrkm(E, counts, ts, h_even[0] * dos.CM_PER_EV, degeneracy=nh)
-    k = k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)]
-    k_h = np.array([cm.steady_state(E_PH, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
-    out = StateBasis(np.asarray(freqs, dtype=float), emitted,
-                     float(photo.ionisation_rate(field1, sigma, yield_, E_PH)), k_h,
-                     float(np.trapezoid(h * E_PH * dos.CM_PER_EV, E_PH)))
+    k = k[np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)]
+    k_h = np.array([cl.steady_state(E_PH, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
+    lh, lh2 = np.zeros((4, K_H_G0_GRID.size)), np.zeros((4, K_H_G0_GRID.size))
+    for k, (f_, a_, n_, ok_) in enumerate(ladder):
+        lh[k], lh2[k] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2)
+    out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
+                     float(np.trapezoid(h * E_PH * dos.CM_PER_EV, E_PH)), float(recomb_power), lh, lh2)
     if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
             and np.isfinite([out.k_up, out.absorbed]).all()):
         raise ValueError(f"basis of N_C {nc}, Z {z} is not finite")
@@ -479,13 +612,17 @@ class Population:
         if f is None or not f.exists():
             return None
         d = np.load(f)
-        return StateBasis(d["freqs_cm"], d["emitted"], float(d["k_up"]), d["k_h"], float(d["absorbed"]))
+        return StateBasis(d["freqs_cm"], d["emitted"], float(d["k_up"]), d["k_h"], float(d["absorbed"]),
+                          float(d["recombination"]) if "recombination" in d else 0.0,
+                          d["ladder_h"] if "ladder_h" in d else None, d["ladder_h2"] if "ladder_h2" in d else None)
 
     def _save(self, key, b):
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             np.savez(self.cache_dir / f"{key}.npz", freqs_cm=b.freqs_cm, emitted=b.emitted, k_up=b.k_up,
-                     k_h=b.k_h, absorbed=b.absorbed)
+                     k_h=b.k_h, absorbed=b.absorbed, recombination=b.recombination,
+                     ladder_h=b.ladder_h if b.ladder_h is not None else np.zeros((4, K_H_G0_GRID.size)),
+                     ladder_h2=b.ladder_h2 if b.ladder_h2 is not None else np.zeros((4, K_H_G0_GRID.size)))
 
     def prepare(self, shape, workers=None):
         """Give every state its basis under ``shape``: from memory, the disk cache, or built in parallel."""
@@ -608,26 +745,86 @@ class Population:
         b = self.basis(mol, z, field_shape(env))
         return env.g0 * (b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local))
 
-    def intact_fractions(self, env):
-        """Charge-weighted k_add / (k_add + k_H) of the first H loss, for every molecule."""
-        _, lkh, _ = self._stack(field_shape(env))
-        f = self.charge_matrix(env)
-        if not K_H_G0_GRID[0] <= env.g0 <= K_H_G0_GRID[-1]:
-            raise ValueError(f"G0 {env.g0:g} outside the k_H table")
-        x = np.log(env.g0)
-        i = min(np.searchsorted(np.log(K_H_G0_GRID), x), K_H_G0_GRID.size - 1)
-        i = max(i, 1)
+    def _interp_g0(self, table, g0):
+        """Log-log interpolation of rate tables (..., K_H_G0_GRID) at ``g0``."""
+        if not K_H_G0_GRID[0] <= g0 <= K_H_G0_GRID[-1]:
+            raise ValueError(f"G0 {g0:g} outside the k_H table")
+        lt = np.log(np.maximum(table, 1e-300))
+        x = np.log(g0)
+        i = max(min(np.searchsorted(np.log(K_H_G0_GRID), x), K_H_G0_GRID.size - 1), 1)
         lo, hi = np.log(K_H_G0_GRID[i - 1]), np.log(K_H_G0_GRID[i])
-        k_h = np.exp(lkh[..., i - 1] + (lkh[..., i] - lkh[..., i - 1]) * (x - lo) / (hi - lo))
+        return np.exp(lt[..., i - 1] + (lt[..., i] - lt[..., i - 1]) * (x - lo) / (hi - lo))
+
+    def intact_fractions(self, env, method="chain"):
+        """f(N_H0) of every molecule at ``env`` (module docstring, Hydrogenation).
+
+        ``method="single"`` gives the old first-step ratio k_add / (k_add + k_H).
+        """
+        f = self.charge_matrix(env)
         z = np.array(self.zs)[None, :]
         neutral = 0.07 * self.p.addition_neutral_scale * chemistry.cross_section_rate(
             env.temperature_k, CORONENE_GEOMETRIC_A2 * self.nc[:, None] / 24.0)
-        k_add = np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
-        return np.sum(f * k_add / (k_add + k_h), axis=1)
+        k_add_z = np.where(z > 0, self.p.addition_cation, neutral) * env.n_h            # (s, slot)
+        fs = field_shape(env)
+        if method == "single":
+            _, lkh, _ = self._stack(fs)
+            k_h = self._interp_g0(np.exp(lkh), env.g0)
+            return np.sum(f * k_add_z / (k_add_z + k_h), axis=1)
+        if method != "chain":
+            raise ValueError(f"method must be 'chain' or 'single', not {method!r}")
+        self.prepare(fs)
+        out = np.zeros(len(self.library))
+        for s, mol in enumerate(self.library):
+            lh = np.zeros(4)
+            lh2 = np.zeros(4)
+            for zz in mol.charges:
+                b = self.basis(mol, zz, fs)
+                w = f[s, zz - self.zmin]
+                lh += w * self._interp_g0(b.ladder_h, env.g0)
+                lh2 += w * self._interp_g0(b.ladder_h2, env.g0)
+            k_add = float(f[s] @ k_add_z[s])
+            out[s] = _chain_intact(mol.nh, mol.edges.get("solo", 0), lh, lh2, k_add)
+        return out
 
     def intact_fraction(self, mol, env):
         return float(self.intact_fractions(env)[self._index[id(mol)]])
 
+
+
+def _chain_intact(nh0, n_solo, lh, lh2, k_add):
+    """Steady-state f(N_H0) of the chain N_H0 ... 0 (H loss, H2 loss, H addition up to N_H0).
+
+    ``lh``, ``lh2``: H and H2 loss rates of N_H0 ... N_H0-3. Deeper states:
+    even (odd) N_H take the N_H0-2 (N_H0-3) rates, H loss scaled by N_H when
+    even (degeneracy N_H). H2 loss only for even N_H above the solo count.
+    """
+    n = nh0 + 1
+    kH, kH2 = np.zeros(n), np.zeros(n)
+    for m in range(nh0 + 1):                     # m = number of H
+        k = nh0 - m
+        if k < 4:
+            kH[m], kH2[m] = lh[k], lh2[k]
+        else:
+            ref = 2 if (nh0 - 2) % 2 == m % 2 else 3
+            ref_n = nh0 - ref
+            kH[m] = lh[ref] * (m / ref_n if m % 2 == 0 and ref_n > 0 else 1.0)
+            kH2[m] = lh2[ref] if (m % 2 == 0 and m > n_solo) else 0.0
+    kH[0] = kH2[0] = 0.0
+    kH2[1] = 0.0
+    Q = np.zeros((n, n))
+    for m in range(n):
+        if m >= 1:
+            Q[m, m - 1] += kH[m]
+        if m >= 2:
+            Q[m, m - 2] += kH2[m]
+        if m < nh0:
+            Q[m, m + 1] += k_add
+        Q[m, m] = -Q[m].sum()
+    A = np.vstack([Q.T, np.ones(n)])
+    b = np.zeros(n + 1)
+    b[-1] = 1.0
+    p = np.linalg.lstsq(A, b, rcond=None)[0]
+    return float(np.clip(p[nh0], 0.0, 1.0))
 
 # -- fitting -----------------------------------------------------------------------------------
 def fit_abundances(F, observed, reference, rel_err=0.15, floor=0.01, stiffness=1e4):

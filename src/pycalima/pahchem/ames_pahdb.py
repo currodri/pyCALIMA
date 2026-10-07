@@ -80,6 +80,38 @@ def read_ascii(path, uids) -> dict:
     return out
 
 
+def read_ascii_graphs(path, uids) -> dict:
+    """{uid: ``bond_graph_hash``} from the GEOMETRY blocks of the ASCII export (one per requested UID)."""
+    wanted, out, uid = set(int(u) for u in uids), {}, None
+    types, xyz, in_geo = [], [], False
+
+    def flush():
+        if uid in wanted and types:
+            out[uid] = bond_graph_hash(types, xyz)
+
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if line.startswith("UID:"):
+                flush()
+                uid, types, xyz, in_geo = int(line.split()[1]), [], [], False
+            elif uid not in wanted:
+                continue
+            elif line.startswith("# GEOMETRY:"):
+                in_geo = True
+            elif in_geo and line.startswith("#"):
+                if "POSITION" not in line:
+                    in_geo = False
+            elif in_geo and line.strip():
+                t = line.split()
+                xyz.append((float(t[1]), float(t[2]), float(t[3])))
+                types.append(int(t[4]))
+        flush()
+    missing = wanted - set(out)
+    if missing:
+        raise ValueError(f"no geometry for PAHdb UIDs {sorted(missing)[:10]}")
+    return out
+
+
 #: header fields of the ASCII export read by ``read_metadata``
 _META_FIELDS = {"FORMULA": str, "CHARGE": int, "METHOD": str, "TOTAL_E": float, "N_SOLO": int, "N_DUO": int,
                 "N_TRIO": int, "N_QUARTET": int, "N_QUINTET": int, "N_CH2": int, "N_CHX": int}
@@ -134,14 +166,16 @@ def _basis_from_route(text):
     return _normal_basis(basis) if _BASIS.fullmatch(basis) else "?"
 
 
-def bond_graph_hash(types, xyz, rounds=6, cc_max=1.75, ch_max=1.25):
+def bond_graph_hash(types, xyz, cc_max=1.75, ch_max=1.25, max_rounds=None):
     """A Weisfeiler-Lehman hash of the bond graph of one structure.
 
     Atoms are bonded below ``cc_max`` (heavy atoms) or ``ch_max`` (to H) [A].
     The graph, not the geometry, is hashed, so every charge state of one
     molecule shares it while isomers (same formula and edge counts, other
     rings) do not. Molecules of a van der Waals cluster are not bonded to each
-    other.
+    other. The refinement runs until the partition into distinct labels stops
+    growing; that round is itself a graph invariant. A fixed 6 rounds merged
+    114 non-isomorphic pairs of PAHdb v4.00 (review A).
     """
     import hashlib
 
@@ -150,11 +184,16 @@ def bond_graph_hash(types, xyz, rounds=6, cc_max=1.75, ch_max=1.25):
     d = np.sqrt(((x[:, None, :] - x[None, :, :]) ** 2).sum(-1))
     either_h = (t[:, None] == 1) | (t[None, :] == 1)
     bonded = (d < np.where(either_h, ch_max, cc_max)) & ~np.eye(len(t), dtype=bool) & ~((t[:, None] == 1) & (t[None, :] == 1))
+    nbrs = [np.flatnonzero(bonded[i]) for i in range(len(t))]
     labels = [str(v) for v in t]
-    for _ in range(rounds):
-        labels = [hashlib.sha1((labels[i] + "|" + ",".join(sorted(labels[j] for j in np.flatnonzero(bonded[i])))
-                                ).encode()).hexdigest()[:16] for i in range(len(t))]
-    return hashlib.sha1(",".join(sorted(labels)).encode()).hexdigest()[:20]
+    n_distinct = len(set(labels))
+    for _ in range(max_rounds or len(t)):
+        new = [hashlib.sha1((labels[i] + "|" + ",".join(sorted(labels[j] for j in nbrs[i]))).encode()).hexdigest()[:16]
+               for i in range(len(t))]
+        if len(set(new)) == n_distinct:
+            break
+        labels, n_distinct = new, len(set(new))
+    return hashlib.sha1((f"{len(t)}:" + ",".join(sorted(labels))).encode()).hexdigest()[:20]
 
 
 def read_xml(path, select=None, geometry_hash=True):
@@ -224,7 +263,7 @@ def read_xml(path, select=None, geometry_hash=True):
 
 
 #: bump when read_xml changes what it returns, so cached indexes are rebuilt
-_XML_INDEX_VERSION = 2
+_XML_INDEX_VERSION = 3
 
 
 def xml_index(path, cache_dir=None):
