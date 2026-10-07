@@ -828,13 +828,125 @@ def fig_family_emission(args, out):
     _save(f, out, "family_emission")
 
 
+def fig_rf_borja2026(args, out):
+    """Recurrent fluorescence: pahchem's rate with Borja+26 Table I inputs against their Fig. 8."""
+    t = pd.read_csv(EXT("pahchem/borja2026_table1.csv"), comment="#")
+    curves = pd.read_csv(EXT("pahchem/borja2026_fig8_krf.csv"), comment="#")
+    files = {"Np+": "C10H8_1", "An+": "C14H10_1", "Py+": "C16H10_1"}
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), sharey=True)
+    e_ev = np.linspace(2.0, 13.5, 116)
+    for ax, (mol, fname) in zip(axes, files.items()):
+        sp = PAHSpecies.from_states_file(args.states_dir / f"{fname}.dat")
+        E, counts = dos.beyer_swinehart(sp.freqs_cm, 15 * dos.CM_PER_EV, 2.0)
+        rows = t[t.molecule == mol].set_index("state")
+        d0 = rows.loc["D0", "transition_energy_exp_eV"]
+        T = dos.canonical_temperature(sp.freqs_cm, e_ev * dos.CM_PER_EV)
+        for k, state in enumerate(s for s in rows.index if s != "D0"):
+            r = rows.loc[state]
+            f_fc = 0.0 if np.isnan(r.fFC_x1e3) else r.fFC_x1e3 * 1e-3
+            f = f_fc + 1e-3 * (r.fHT_0K_x1e3 + (r.fHT_2000K_x1e3 - r.fHT_0K_x1e3) * np.minimum(T, 2000.0) / 2000.0)
+            k_rf = [cooling.recurrent_fluorescence_rates(E, counts, [(r.transition_energy_exp_eV - d0) * dos.CM_PER_EV],
+                                                         [fi], window_cm=50.0, at_cm=[ei * dos.CM_PER_EV])[0, 0]
+                    for ei, fi in zip(e_ev, f)]
+            c = curves[(curves.molecule == mol) & (curves.state == state)]
+            col = f"C{k}"
+            ax.semilogy(c.e_ev, 10 ** c.log10_k_rf, color=col, lw=2.5, alpha=0.4,
+                        label=f"{state}: Borja+26 ({'allowed' if f_fc else 'HT only'})")
+            ax.semilogy(e_ev, k_rf, "--", color=col, lw=1.2, label=f"{state}: pahchem")
+        ax.set_title(mol, fontsize=10)
+        ax.set_xlabel("internal energy [eV]")
+        ax.set_ylim(1e-2, 1e5)
+        ax.legend(fontsize=7)
+    axes[0].set_ylabel(r"$k_{\rm RF}$ [s$^{-1}$]")
+    fig.suptitle("Recurrent fluorescence: k = 0.667 nu^2 f rho(E-E_n)/rho(E) with their Table I inputs, "
+                 "against their full Herzberg-Teller/Duschinsky treatment", fontsize=10)
+    _save(fig, out, "rf_borja2026")
+
+
+def fig_ere(args, out):
+    """Extended Red Emission test: RF photon efficiency and ERE/IR power against observations."""
+    _checks()
+    import check_ere as E
+
+    from pycalima.pahchem.baseline import BaselineModel
+    from pycalima.pahchem.family_emission import FamilyEmission
+
+    sp = {z: PAHSpecies.from_states_file(args.states_dir / f"C24H12_{z}.dat") for z in (-1, 0, 1)}
+    fam = FamilyEmission(BaselineModel("C24", sp[0], anion=sp[-1]), sp)
+    names = [e.name for e in E.ENVIRONMENTS]
+    res = [E.ere_observables(fam, env) for env in E.ENVIRONMENTS]
+    obs_eta = {"diffuse ISM": (0.10, 1.0), "IC 63-like (G0=650)": (0.047, 0.047),
+               "NGC 7023 NW edge (A_V ~ 0)": (0.002, 0.006), "Orion Bar atomic PDR": (0.004, 0.013)}
+    x = np.arange(len(names))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    axes[0].semilogy(x, [r["eta"] for r in res], "o-", color="C3", label="pahchem: C24 family RF at 540-900 nm")
+    for i, n in enumerate(names):
+        lo, hi = obs_eta[n]
+        axes[0].plot([i, i], [lo, hi], color="k", lw=6, alpha=0.4, solid_capstyle="butt",
+                     label="observed (Gordon+98; Smith & Witt 02)" if i == 0 else None)
+    axes[0].set_ylabel("ERE photons per absorbed UV photon")
+    axes[0].set_title("ERE efficiency: model rises with U, observed falls", fontsize=10)
+    axes[1].semilogy(x, [r["ere_over_ir"] for r in res], "o-", color="C3", label="pahchem")
+    axes[1].axhspan(0.0035, 0.06, color="k", alpha=0.15, label="observed ERE/mid-IR (Berne+08: 0.35-1.6 %, <~ 6 %)")
+    axes[1].set_ylabel("ERE / IR power")
+    for ax in axes:
+        ax.set_xticks(x)
+        ax.set_xticklabels([n.split(" (")[0] for n in names], rotation=20, fontsize=8)
+        ax.legend(fontsize=7)
+    _save(fig, out, "ere_test")
+
+
+def fig_pdrs4all_scorecard(args, out):
+    """PDRs4All Orion Bar: observed band ratios against the model range over the stated conditions."""
+    _checks()
+    import compare_pdrs4all as P
+
+    from pycalima.pahchem import conditions
+    from pycalima.pahchem.baseline import BaselineModel
+    from pycalima.pahchem.family_emission import FamilyEmission, load_superh_species
+
+    obs = pd.read_csv(EXT("pahchem/pdrs4all_orionbar_band_ratios.csv"), comment="#").set_index("ratio")
+    grid = np.arange(500.0, 3500.0, 0.5)
+    ratios = ["3.3/11.2", "6.2/11.2", "7.7/11.2", "8.6/11.2", "11.0/11.2", "12.7/11.2", "3.4/3.29"]
+    fams = {}
+    for parent, (formula, charges) in P.FAMILIES.items():
+        sp = {z: PAHSpecies.from_states_file(args.states_dir / f"{formula}_{z}.dat") for z in charges}
+        fams[parent] = FamilyEmission(BaselineModel(parent, sp[0], anion=sp[-1]), sp,
+                                      load_superh_species(args.states_dir / "superh", formula))
+    model = {}
+    for t in P.TEMPLATES:
+        for parent, fam in fams.items():
+            for corner, env in conditions.bracketing_environments("orion_bar", t).items():
+                b = P.model_bands(grid, fam.spectrum(env, grid)[0])
+                model[(t, parent, corner)] = {r: b[r.split("/")[0]] / b[r.split("/")[1]] for r in ratios}
+    fig, axes = plt.subplots(1, len(ratios), figsize=(19, 4.2))
+    x = np.arange(len(P.TEMPLATES))
+    for ax, r in zip(axes, ratios):
+        ax.plot(x, obs.loc[r, list(P.TEMPLATES)].to_numpy(float), "ks", ms=7, label="observed")
+        for dx, (parent, c) in zip((-0.15, 0.15), (("C54", "C0"), ("C96", "C3"))):
+            lo = np.array([model[(t, parent, "least ionising")][r] for t in P.TEMPLATES])
+            hi = np.array([model[(t, parent, "most ionising")][r] for t in P.TEMPLATES])
+            ax.vlines(x + dx, np.minimum(lo, hi), np.maximum(lo, hi), color=c, lw=3, alpha=0.6,
+                      label=f"{parent}: range over stated conditions")
+            ax.plot(x + dx, lo, "o", color=c, ms=4)
+        ax.set_yscale("log")
+        ax.set_xticks(x)
+        ax.set_xticklabels(P.TEMPLATES, rotation=45, fontsize=8)
+        ax.set_title(r, fontsize=10)
+    h, lab = axes[0].get_legend_handles_labels()
+    fig.legend(h, lab, loc="lower center", ncol=3, fontsize=8, bbox_to_anchor=(0.5, -0.06))
+    fig.suptitle("PDRs4All Orion Bar templates (squares) vs pahchem families; dots: least-ionising corner "
+                 "(environments/orion_bar.toml)", fontsize=10)
+    _save(fig, out, "pdrs4all_scorecard")
+
+
 FIGURES = {f.__name__[4:]: f for f in (
     fig_west18, fig_jochims94, fig_montillaud13_fig3, fig_andrews16_fig5, fig_andrews16_tableB,
     fig_montillaud13_fig10, fig_andrews16_ngc7023, fig_murga_wiebe22_fig1, fig_sensitivity,
     fig_allain96_fig7, fig_allain96_fig10, fig_lepage01_fig10, fig_lepage03_fig6_7,
     fig_murga2019_shiva_inputs, fig_murga_wiebe22_shiva, fig_murga2020_fig3, fig_murga2020_fig4,
     fig_murga2022_charge, fig_murga2022_model_b, fig_emission_cascade, fig_maragkoudakis2020_fig2,
-    fig_rigopoulou2021_fig1, fig_family_emission)}
+    fig_rigopoulou2021_fig1, fig_family_emission, fig_rf_borja2026, fig_ere, fig_pdrs4all_scorecard)}
 
 
 def main():

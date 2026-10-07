@@ -72,3 +72,30 @@ def read_ascii(path, uids) -> dict:
     if missing:
         raise ValueError(f"PAHdb UIDs not found: {sorted(missing)[:10]}")
     return out
+
+
+#: header fields of the ASCII export read by ``read_metadata``
+_META_FIELDS = {"FORMULA": str, "CHARGE": int, "METHOD": str, "TOTAL_E": float, "N_SOLO": int, "N_DUO": int,
+                "N_TRIO": int, "N_QUARTET": int, "N_QUINTET": int, "N_CH2": int, "N_CHX": int}
+
+
+def read_metadata(path, uids) -> dict:
+    """{uid: {field: value}} of the header fields in ``_META_FIELDS`` (TOTAL_E in hartree).
+
+    The edge-hydrogen counts (N_SOLO ... N_QUINTET) count H atoms, as in PAHdb.
+    """
+    wanted, out, uid = set(int(u) for u in uids), {}, None
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if line.startswith("UID:"):
+                uid = int(line.split()[1])
+                if uid in wanted:
+                    out[uid] = {}
+            elif uid in wanted and ":" in line and not line.startswith("#"):
+                key, _, value = line.partition(":")
+                if key.strip() in _META_FIELDS and value.strip():
+                    out[uid][key.strip()] = _META_FIELDS[key.strip()](value.split()[0])
+    missing = wanted - set(out)
+    if missing:
+        raise ValueError(f"PAHdb UIDs not found: {sorted(missing)[:10]}")
+    return out
