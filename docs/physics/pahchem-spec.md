@@ -1262,6 +1262,76 @@ What follows for pahchem:
   - PAHdb v4.00 holds 1522 skeletons with a neutral and a dication but no
     cation. pyPAHdb fits them freely; a charge chain cannot reach them.
 
+**Charge inputs, lab band strengths and plateau carriers (2026-10-07;
+`diagnostics/pahchem/calibrate_charge_inputs.py`, `check_lab_band_strengths.py`,
+`check_plateau_carriers.py`, `fit_pdrs4all_population.py --scan --library v400`
+with `--ip-shift/--yield-model/--detachment/--capture-scale`).**
+- **IPs and EAs** (PAHdb v4.00 against the Cagliari database, Malloci+07 and measured):
+  - IP1: v4.00 − Malloci adiabatic = −0.22 eV, with scatter 0.01 over the
+    unambiguous molecules (coronene, circumcoronene, circumpyrene, hexacene).
+    v4.00 − measured = −0.62 eV (−0.48 to −0.70) over 16 molecules.
+  - EA: v4.00 − measured = −0.39 eV (−0.35 against Malloci).
+  - IP2 (cation → dication): v4.00 − Malloci = −0.14 eV, and Malloci −
+    measured ≈ −0.5 eV (wide scatter).
+  - Calibrated shifts: +0.37 (EA), +0.60 (IP1), +0.64 (IP2, IP3)
+    (``population.shift_thresholds``). 6-31G* without diffuse functions
+    underbinds the electron, as expected.
+- **Recombination.** Measured PAH⁺ + e⁻ coefficients at 300 K are 0.03–0.37
+  of BT94 (median 0.15; N_C ≤ 16). The ratio rises as N_C^1.15 and would
+  reach ~2 at N_C ≈ 100 if extrapolated; no measurement exists there.
+- **What moves the charge balance** (v4.00 scans, spline continuum; best γ,
+  and the Δχ² < 9 range):
+
+  | input | best γ (Atomic, DF1) | allowed γ, all templates |
+  |---|---|---|
+  | as before | 5–6e3 (low edge) | ≲ 1–3e4 |
+  | IPs calibrated (+0.6 eV; +1 eV alike) | 8–9e3 (interior) | ≲ 1.5–3e4 |
+  | + Le Page+01 yields | low edge | unchanged |
+  | + unit photodetachment | as calibrated | unchanged |
+  | + capture × 0.3 (the small-PAH lab trend) | low edge, χ² worse | ≲ 0.5–1e4 |
+  | + **capture × 3** | **1.8–2.7e4** | **≲ 3–10e4** |
+
+  - The γ tension is a recombination question. Capture about 3× faster than
+    BT94 for N_C ~ 100 puts every fit inside the stated ranges and reaches
+    M26's γ ≈ 4e4.
+  - The lab size trend points that way, but it stops at N_C = 16. A measured
+    recombination coefficient for a large PAH cation would settle it.
+  - IPs and yields are second order.
+- **Cation band strengths** (DFT v4.00 against matrix isolation, experimental
+  v3.10, 59 species matched by bond graph; ratios within a spectrum):
+  - CC/oop: DFT/lab = 1.2× (neutrals, n 35) and 1.3× (cations, n 19).
+  - The cation/neutral contrast of CC/oop agrees to −0.02 dex (19 pairs).
+  - CH in-plane / CC (1100–1500 cm⁻¹) relative to oop is 0.16 dex weaker in
+    DFT cations.
+  - The CH stretch / oop ratio is **2× too strong in DFT** (+0.29 dex, all
+    neutrals). So the model's 3.3/11.2 is ~2× high per molecule, which pushes
+    fits that use 3.3 µm towards larger PAHs: a candidate for pahchem's
+    ⟨N_C⟩ > M26's.
+  - DFT cations are not too bright at 6–9 µm, so band strengths do not
+    explain the γ tension.
+- **Plateau carriers.** The metric is the share of 10.9–14.45 µm PAH power
+  under a grey opening (0.3 / 0.4 / 0.6 µm). It is applied to the
+  spline-subtracted templates and to model spectra alike:
+
+  | | 0.3 µm | 0.4 µm | 0.6 µm |
+  |---|---|---|---|
+  | templates | 0.70–0.84 | 0.62–0.77 | 0.57–0.70 |
+  | best-fit v4.00 populations | 0.89–0.91 | 0.84–0.85 | 0.68–0.74 |
+  | the whole v4.00 library | 0.93 | 0.89 | 0.80 |
+  | clusters mixed (4 monomers) | 0.97 | 0.93 | 0.82 |
+
+  - Harmonic PAH mixtures with 15 cm⁻¹ Lorentzians already carry at least as
+    much broad emission as observed, so no plateau carrier is missing at
+    10–15 µm.
+  - Clusters (neutral, Ricca+13) only smooth the spectrum further.
+  - The local-continuum misfits are therefore band positions against window
+    edges, not a missing continuum.
+  - Anharmonic spectra (PAHdb anharmonic v1.00, C10–C18) move 19–36 % of the
+    intensity into overtones and combinations. They shift fundamental
+    centroids by −5 to −15 cm⁻¹ in neutrals, consistent with the −15 cm⁻¹
+    convention, and leave the plateau metric unchanged (≤ 0.03) as cold
+    spectra.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

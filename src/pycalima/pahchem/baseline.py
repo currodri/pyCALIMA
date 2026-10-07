@@ -54,6 +54,7 @@ class Params:
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
+    detachment: str = "jochims"              # anion photodetachment yield: Jochims at the EA, or "unity" above it
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # hydrogen chemistry
     addition_cation: float = 1.4e-10         # cm^3 s^-1

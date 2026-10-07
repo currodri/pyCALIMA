@@ -239,16 +239,40 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
 
 
 # -- charge ----------------------------------------------------------------------------------------
-def _yield(mol, z):
-    """Ionisation (or detachment) yield out of charge z on E_PH; zero at the top of the chain."""
+def _yield(mol, z, params=Params()):
+    """Ionisation (or detachment) yield out of charge z on E_PH; zero at the top of the chain.
+
+    As the baseline (``Params``): Jochims+96 (or ``yield_model="lepage"``, Le
+    Page+01 eq. 14 as printed), and Wenzel+20 from the cation up where it
+    applies (``yield_cation``). Anions detach with the same yield at the EA,
+    or with unit yield above it (``detachment="unity"``).
+    """
     if z == max(mol.charges):
         return np.zeros_like(E_PH)
     threshold = mol.ionisation_ev[z]
     if threshold >= 13.6:
         return np.zeros_like(E_PH)
-    if z >= 1 and mol.nc >= 32 and threshold < 11.3:
+    if z == -1 and params.detachment == "unity":
+        return (E_PH >= threshold).astype(float)
+    if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
         return photo.yield_wenzel2020(E_PH, threshold, mol.nc)
+    if params.yield_model == "lepage":
+        return photo.yield_lepage2001(E_PH, threshold, form="lepage01")
     return photo.yield_jochims1996(E_PH, threshold)
+
+
+def shift_thresholds(library, shifts_ev):
+    """Copies of the molecules with each step z -> z+1 raised by ``shifts_ev[z]`` [eV] (fresh caches).
+
+    For calibrating DFT thresholds (diagnostics/pahchem/calibrate_charge_inputs.py).
+    """
+    from dataclasses import replace
+
+    out = []
+    for m in library:
+        th = {z: v + shifts_ev.get(z, 0.0) for z, v in m.ionisation_ev.items()}
+        out.append(replace(m, ionisation_ev=th, ip_ev=th[0], ea_ev=th.get(-1), _cache={}))
+    return out
 
 
 def neutral_sticking(mol, temperature_k):
@@ -275,18 +299,18 @@ def neutral_sticking(mol, temperature_k):
     return done[t]
 
 
-def charge_fractions(mol, env):
+def charge_fractions(mol, env, params=Params()):
     """{Z: f} of the chain -1/0/+1 at ``env`` (a ``baseline.Environment``)."""
     field_ = env.field()
     T = env.temperature_k
     zs = mol.charges
     f = {zs[0]: 1.0}
     for z in zs[:-1]:
-        up = photo.ionisation_rate(field_, photo.sigma_li_draine(mol.nc, z, E_PH), _yield(mol, z), E_PH)
+        up = photo.ionisation_rate(field_, photo.sigma_li_draine(mol.nc, z, E_PH), _yield(mol, z, params), E_PH)
         if z == -1:
             up += 7.8e-10 * env.n_h                                   # associative detachment
         s = neutral_sticking(mol, T) if z + 1 == 0 else 1.0
-        down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * env.n_e
+        down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * params.capture_scale * env.n_e
         f[z + 1] = f[z] * up / down
     total = sum(f.values())
     return {z: v / total for z, v in f.items()}
@@ -350,7 +374,7 @@ class StateBasis:
 
 def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
     sp = mol.species[z]
-    return dict(freqs=sp.freqs_cm, einstein_a=sp.einstein_a, nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z),
+    return dict(freqs=sp.freqs_cm, einstein_a=sp.einstein_a, nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
                 sigma_scale=params.sigma_scale)
 
@@ -369,6 +393,10 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     field1 = _unit_field(shape)
     sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
     h = photo.heating_spectrum(field1, sigma, yield_, E_PH)
+    k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
+    if not np.any(h > 0.0):                          # every absorption ionises or detaches: nothing to emit
+        return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
+                          np.zeros(K_H_G0_GRID.size), 0.0)
     cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
     N = emission.cascade_photons(cm)
     e = E_PH * dos.CM_PER_EV / cm.de_cm
@@ -501,7 +529,8 @@ class Population:
             for s, mol in enumerate(self.library):
                 for z in mol.charges[1:]:
                     st = neutral_sticking(mol, temperature_k) if z == 0 else 1.0
-                    a[s, z - self.zmin] = chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st)
+                    a[s, z - self.zmin] = chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) \
+                        * self.p.capture_scale
             self._capture[t] = a
         return self._capture[t]
 

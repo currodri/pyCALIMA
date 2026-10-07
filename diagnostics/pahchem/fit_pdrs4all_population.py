@@ -142,7 +142,7 @@ def _grid(lo, hi, n):
     return np.geomspace(lo, hi, n) if hi > lo else np.array([lo])
 
 
-def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20"):
+def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20", params=None, shifts=None):
     """chi^2 and the implied population over a grid inside each template's stated ranges.
 
     The grid is G0 x n_H x (n_e, or x_e where the card gives x_e), log-spaced
@@ -157,9 +157,14 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20"):
             return pickle.load(fh)
     from pycalima.pahchem.baseline import Environment
 
+    from pycalima.pahchem.baseline import Params
+
     lib = library(lib_name)
-    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE)
-            for c in CONTINUA}
+    if shifts:
+        lib = population.shift_thresholds(lib, shifts)
+    params = Params() if params is None else params
+    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE,
+                                     params=params) for c in CONTINUA}
     obs = {c: observed(c) for c in CONTINUA}
     nc = np.array([m.nc for m in lib], dtype=float)
     card = conditions.load("orion_bar")
@@ -199,6 +204,21 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20"):
             pickle.dump(out, fh)
     return out
 
+
+def summarise_scan(res):
+    """Best cell and the Delta chi^2 < 9 range of gamma per template and continuum, with the implied shares."""
+    for t in C.TEMPLATES:
+        cells = res[t]
+        g = np.array([x["gamma"] for x in cells])
+        for c in CONTINUA:
+            chi = np.array([x[c]["chi2"] for x in cells])
+            ok = chi < chi.min() + 9.0
+            b = cells[int(chi.argmin())]
+            edge = "low edge" if b["gamma"] <= g.min() * 1.0001 else ("high edge" if b["gamma"] >= g.max() * 0.9999 else "interior")
+            print(f"{t:6s} {c:6s} chi2 {chi.min():5.1f}; best gamma {b['gamma']:.2g} ({edge}); "
+                  f"allowed {g[ok].min():.2g}-{g[ok].max():.2g} of {g.min():.2g}-{g.max():.2g}; "
+                  f"<N_C> {b[c]['mean_nc']:.0f}, carbon shares f-/f+ {b[c]['f_anion']:.2f}/{b[c]['f_cation']:.2f}")
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--templates", type=Path, help="orionbar.dat; with --write-bands, re-measure the bands")
@@ -208,10 +228,21 @@ def main():
     ap.add_argument("--cache", type=Path, default=_paths.get_results_dir() / "pahchem_population_fit.pkl")
     ap.add_argument("--scan", action="store_true", help="chi^2 over the stated (G0, n_H, n_e) ranges instead")
     ap.add_argument("--library", choices=("m20", "v400"), default="m20")
+    ap.add_argument("--ip-shift", default="", help="threshold shifts per step, e.g. '-1:0.37,0:0.6,1:0.64,2:0.64'")
+    ap.add_argument("--yield-model", choices=("jochims", "lepage"), default="jochims")
+    ap.add_argument("--detachment", choices=("jochims", "unity"), default="jochims")
+    ap.add_argument("--capture-scale", type=float, default=1.0)
+    ap.add_argument("--tag", default="", help="suffix of the scan cache name")
     args = ap.parse_args()
     if args.scan:
-        suffix = "" if args.library == "m20" else f"_{args.library}"
-        scan(cache=_paths.get_results_dir() / f"pahchem_population_scan{suffix}.pkl", lib_name=args.library)
+        from pycalima.pahchem.baseline import Params
+
+        suffix = ("" if args.library == "m20" else f"_{args.library}") + (f"_{args.tag}" if args.tag else "")
+        shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
+        params = Params(yield_model=args.yield_model, detachment=args.detachment, capture_scale=args.capture_scale)
+        res = scan(cache=_paths.get_results_dir() / f"pahchem_population_scan{suffix}.pkl", lib_name=args.library,
+                   params=params, shifts=shifts)
+        summarise_scan(res)
         return
     if args.write_bands:
         write_bands(args.templates, args.write_bands)

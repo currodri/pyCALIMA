@@ -270,3 +270,31 @@ def test_v400_library_charge_ladders_and_thresholds():
     assert c54.charges == (-1, 0, 1, 2, 3)
     assert c54.ionisation_ev[0] == pytest.approx(6.14, abs=0.4)          # Andrews+16 Table A.1 (Malloci+07)
     assert c54.ionisation_ev[1] == pytest.approx(8.91, abs=0.4)
+
+
+# -- charge-input options -------------------------------------------------------------------------
+def test_charge_inputs_move_the_charge_balance_the_right_way():
+    from pycalima.pahchem.baseline import Params
+
+    lib = population.library_m20(_ascii(), all_anions=True)
+    mol = [m for m in lib if m.ea_ev is not None and m.nc >= 40][:3]
+    env = Environment("t", 2e4, 5e4, 30.0, 700.0, 40000)
+    base = population.Population(mol, WINDOWS).charge_matrix(env)
+    hi_ip = population.Population(population.shift_thresholds(mol, {0: 0.6}), WINDOWS).charge_matrix(env)
+    fast = population.Population(mol, WINDOWS, params=Params(capture_scale=3.0)).charge_matrix(env)
+    i0, i1 = 1, 2                                     # slots of Z = 0, +1 (zs = -1, 0, 1)
+    assert (hi_ip[:, i1] < base[:, i1]).all() and (fast[:, i1] < base[:, i1]).all()
+    assert (hi_ip[:, i0] > base[:, i0]).all()
+    shifted = population.shift_thresholds(mol, {0: 0.6, -1: 0.3})
+    for a, b in zip(mol, shifted):
+        assert b.ip_ev == pytest.approx(a.ip_ev + 0.6) and b.ea_ev == pytest.approx(a.ea_ev + 0.3)
+        assert b._cache == {} and a.ionisation_ev[0] == a.ip_ev       # the input is not modified
+
+
+def test_unit_detachment_leaves_an_anion_nothing_to_emit():
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
+    pop = population.Population([mol], WINDOWS, params=Params(detachment="unity"))
+    b = pop.basis(mol, -1, ("kurucz", 40000))
+    assert b.absorbed == 0.0 and not b.emitted.any() and b.k_up > 0.0
