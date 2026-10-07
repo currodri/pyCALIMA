@@ -1198,6 +1198,70 @@ What follows for pahchem:
   - NNLS returns ≤ 9 species, so individual species are not conclusions;
     only ⟨N_C⟩ and the edge statistics are.
 
+**Maragkoudakis+26 recovered, and why pahchem differed (2026-10-07;
+{mod}`pycalima.pahchem.maragkoudakis2026`, method card `maragkoudakis2026.toml`,
+`diagnostics/pahchem/check_maragkoudakis2026.py`, `explore_maragkoudakis2026.py`).**
+- **Their pipeline, from public pieces.**
+  - pyPAHdb's NNLS (GitHub source) with the public v4.00-alpha matrix, on the
+    MIRI v2 additive templates.
+  - The continuum is pybaselines morphological then imodpoly. Its unstated
+    half-window and order are inferred as 0.8 µm and 3, from their own
+    digitised band ratios (rms 0.046 dex).
+  - Against Table 1: f_neut within 0.04, f_cat 0.03–0.07 low, N̄_C within 1–5.
+    Table 1 averages per-pixel fits over zones, while the templates are pixel
+    averages, so this is as close as the templates allow.
+- **What their numbers are.**
+  - Every matrix column integrates to 7 eV: one molecule after one absorbed
+    7 eV photon. The weight fractions are therefore shares of the emitted
+    energy, and N̄_C is emission-weighted. pahchem's earlier "cation fraction
+    ≈ 0.3" was a share of carbon; as an emission share it is 0.4–0.5.
+  - "Cation" means charge > 0. Dications and trications carry 11–18 % of the
+    emission.
+  - The matrix mixes levels of theory. Of 40 random columns, pahchem rebuilds
+    20 exactly from PAHdb v3.20 (4-31G) spectra and 9 from final v4.00
+    (6-31G*, newest species). The other 11, mostly dications, match neither.
+    pahchem's 7 eV thermal cascade, Gaussian profile and XML reader reproduce
+    the columns to < 1e-3 of the peak (`test_a_v320_column_is_rebuilt_by_pahchem`).
+- **One choice at a time** (emission shares; templates; cube-like sampling):
+
+  | change from their pipeline | f_cat | f_an | N̄_C | fit error |
+  |---|---|---|---|---|
+  | none (R0) | 0.42–0.56 | 0.06–0.23 | 56–68 | 0.23–0.37 |
+  | no dications (R1) | −0.08 to −0.11 | **+0.06 to +0.14** | ≈ | ≈ |
+  | final v4.00, 6-31G* (R2) | −0.16 to +0.01 | +0.07 to +0.23 | +6 to +12 | ≈ |
+  | pahchem's 133-molecule v3.20 library (R3) | −0.2 to −0.3 | **+0.3 to +0.4** | ≈ | **×2** |
+  | exact cascade; Kurucz-field heating (R4, R5) | ≤ 0.03 | ≤ 0.03 | ≤ 1 | ≈ |
+  | Lorentzian, −15 cm⁻¹ (R6, with v4.00) | +0.1 to +0.3 | **−0.2 to −0.4** | −5 to −10 | +0.1 |
+  | Chown+24 spline continuum (R7) | −0.07 to −0.21 | −0.05 to −0.18 | ±5 | ≈ |
+
+- **Findings.**
+  - **No bug in pahchem's emission physics.** The exact cascade and
+    field heating change nothing at 5–15 µm.
+  - **The library was pahchem's main defect.** The 133 v3.20 molecules have no
+    dications, and they double the full-spectrum fit error. With PAHdb v4.00
+    (``population.library_v400``: 1396 molecules, −1 to +3, 6-31G*) the
+    error matches pyPAHdb's. The physics-constrained band-ratio fits
+    reach χ² = 0.6–7 for 8 ratios (D3).
+  - **Free fits use anions as spectral fillers.** Removing dications, or
+    using a smaller library, moves weight into anion columns. The anion share
+    also depends on the band profile (Lorentzian −15 cm⁻¹ removes most of it).
+    At the stated conditions the charge balance allows ≤ 3 % of the emission
+    from anions, so Table 1's 11–17 % anions in the DFs is not supported by
+    the physics. It is a degeneracy of the free decomposition.
+  - **Cation shares agree; the γ calibration does not.** Constrained, pahchem
+    finds cations 0.36–0.51 of the emission, as M26 does (0.47–0.60). But
+    pahchem's charge balance reaches that at γ ≈ 5×10³, the low edge of the
+    stated ranges (the v4.00 scan, Δχ² < 9: γ ≲ 1–3×10⁴). M26's Eq. 1 maps it
+    to γ ≈ 4×10⁴. The disagreement is in how ionising a given γ is: the
+    adiabatic B3LYP IPs (coronene 6.79 eV against ≈ 7.2 measured), the yields,
+    and BT94 capture are the candidates.
+  - The continuum remains the largest observational systematic (R7), as in
+    the band-ratio comparison.
+- **Data notes.**
+  - The M20 sample file had 17 rotated cation UIDs, now fixed.
+  - PAHdb v4.00 holds 1522 skeletons with a neutral and a dication but no
+    cation. pyPAHdb fits them freely; a charge chain cannot reach them.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

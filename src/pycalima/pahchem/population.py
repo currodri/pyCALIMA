@@ -164,6 +164,80 @@ def library_m20(path=None, min_nc=0, all_anions=False):
     return out
 
 
+def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cache_dir=None):
+    """[Molecule] of PAHdb v4.00: every pure C/H skeleton with a neutral and a cation.
+
+    - **Grouping.** Charge states are grouped by ``ames_pahdb.bond_graph_hash``
+      (one bond graph is one molecule). Where PAHdb holds two entries of one
+      graph and charge, the lower UID is kept.
+    - **Charges.** The contiguous ladder around Z = 0, from -1 up to +3.
+    - **Thresholds.** Step z -> z+1 is E(z+1) - E(z) from TOTAL_E where both
+      states share a functional and basis (6-31G* for nearly all). Otherwise a
+      fit a + b / sqrt(N_C) of that step over the consistent molecules is used,
+      and the molecule records it in ``ip_source`` ("fit" if any step needed it).
+    - **Selection.** min_nc <= N_C <= max_nc, H-bearing; super-hydrogenated
+      species (CH2/CH3) only with ``include_superh`` (they are separate
+      molecules: their bond graph differs).
+    - **Dropped.** Molecules whose thresholds do not rise with charge (three in
+      v4.00: C127H31 and C277H45 with IP2 < IP1, C212H44 with EA > IP), and the
+      1522 skeletons with a neutral and a dication but no cation, which the
+      charge chain cannot reach.
+
+    ``records`` defaults to ``ames_pahdb.xml_index`` of the v4.00 dataset
+    (cached in ``cache_dir``).
+    """
+    from pycalima.pahchem import ames_pahdb
+
+    if records is None:
+        records = ames_pahdb.xml_index(ames_pahdb.xml_path("pahdb-theoretical-v4-00"), cache_dir)
+    keep = [r for r in records if r["pure_ch"] and min_nc <= r["nc"] <= max_nc and r["nh"] > 0
+            and (include_superh or (r["n_ch2"] == 0 and r["n_ch3"] == 0)) and -1 <= r["charge"] <= 3]
+    groups = {}
+    for r in sorted(keep, key=lambda r: r["uid"]):
+        groups.setdefault(r["graph"], {}).setdefault(r["charge"], r)
+    level = lambda r: (str(r["method"]).lstrip("RU").upper(), r["basis"])
+    # per-step fits over consistent pairs
+    steps = {}
+    for g in groups.values():
+        for z in range(-1, 3):
+            if z in g and z + 1 in g and level(g[z]) == level(g[z + 1]) and g[z]["basis"] != "?":
+                steps.setdefault(z, []).append((g[z]["nc"], (g[z + 1]["total_e"] - g[z]["total_e"]) * HARTREE_EV))
+    coef = {z: np.polyfit(np.array(v)[:, 0] ** -0.5, np.array(v)[:, 1], 1) for z, v in steps.items() if len(v) > 10}
+    out = []
+    for g in groups.values():
+        if 0 not in g or 1 not in g:
+            continue
+        lo = 0
+        while lo - 1 in g:
+            lo -= 1
+        hi = 1
+        while hi + 1 in g:
+            hi += 1
+        zs = range(lo, hi + 1)
+        neu = g[0]
+        thresholds, fitted = {}, False
+        for z in zs[:-1]:
+            a, b = g[z], g[z + 1]
+            if level(a) == level(b) and a["basis"] != "?":
+                thresholds[z] = (b["total_e"] - a["total_e"]) * HARTREE_EV
+            elif z in coef:
+                thresholds[z] = float(np.polyval(coef[z], neu["nc"] ** -0.5))
+                fitted = True
+            else:
+                break
+        zs = [z for z in zs if z == min(zs) or z - 1 in thresholds]
+        th = [thresholds[z] for z in zs[:-1]]
+        if any(b <= a for a, b in zip(th, th[1:])):
+            continue                                     # non-physical ladder (module docstring)
+        species = {z: ames_pahdb.species_from_record(g[z], f"PAHdb v4.00 UID {g[z]['uid']}") for z in zs}
+        formula = re.sub(r"[+-]\d*$", "", neu["formula"])
+        out.append(Molecule(f"{formula} ({neu['uid']})", neu["nc"], neu["nh"],
+                            {e: neu[f"n_{e}"] for e in EDGES}, species, {z: g[z]["uid"] for z in zs},
+                            thresholds[0], thresholds.get(-1), "fit" if fitted else "dft",
+                            {z: thresholds[z] for z in zs[:-1]}, "pahdb-v4.00"))
+    return sorted(out, key=lambda m: (m.nc, m.nh, m.uids[0]))
+
+
 # -- charge ----------------------------------------------------------------------------------------
 def _yield(mol, z):
     """Ionisation (or detachment) yield out of charge z on E_PH; zero at the top of the chain."""

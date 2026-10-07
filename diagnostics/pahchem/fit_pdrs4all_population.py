@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Which PAH population explains the PDRs4All Orion Bar bands, at the stated conditions (M7d).
 
-Library: the 133 Maragkoudakis+20 PAHdb molecules (``population.library_m20``).
+Library (``--library``): the 133 Maragkoudakis+20 PAHdb v3.20 molecules
+(``population.library_m20``, all v3.20 anions), or PAHdb v4.00
+(``population.library_v400``: 1396 molecules, charges -1 to +3, 6-31G*).
 Charge and the first H loss follow from the conditions card
 (environments/orion_bar.toml, both corners of each template); only the
 abundances are fitted (``population.fit_abundances``, NNLS, 15 % per ratio).
@@ -89,12 +91,19 @@ def observed(continuum):
     return {tpl: {b: float(t.loc[b, tpl]) for b in WINDOWS} for tpl in C.TEMPLATES}
 
 
-def run(min_nc=0, intact_min=0.5, n_boot=200, cache=None, all_anions=True):
+def library(name="m20", min_nc=0):
+    """The population library: "m20" (PAHdb v3.20, Maragkoudakis+20) or "v400" (PAHdb v4.00)."""
+    if name == "m20":
+        return population.library_m20(min_nc=min_nc, all_anions=True)
+    return population.library_v400(min_nc=max(min_nc, 21), cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+
+
+def run(min_nc=0, intact_min=0.5, n_boot=200, cache=None, lib_name="m20"):
     """{(template, corner, continuum): result dict}; ``cache`` a pickle path to reuse."""
     if cache is not None and Path(cache).exists():
         with open(cache, "rb") as fh:
             return pickle.load(fh)
-    lib = population.library_m20(min_nc=min_nc, all_anions=all_anions)
+    lib = library(lib_name, min_nc)
     pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE)
             for c in CONTINUA}
     obs = {c: observed(c) for c in CONTINUA}
@@ -133,7 +142,7 @@ def _grid(lo, hi, n):
     return np.geomspace(lo, hi, n) if hi > lo else np.array([lo])
 
 
-def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, all_anions=True):
+def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20"):
     """chi^2 and the implied population over a grid inside each template's stated ranges.
 
     The grid is G0 x n_H x (n_e, or x_e where the card gives x_e), log-spaced
@@ -148,7 +157,7 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, all_anions=True):
             return pickle.load(fh)
     from pycalima.pahchem.baseline import Environment
 
-    lib = population.library_m20(all_anions=all_anions)
+    lib = library(lib_name)
     pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE)
             for c in CONTINUA}
     obs = {c: observed(c) for c in CONTINUA}
@@ -198,15 +207,18 @@ def main():
     ap.add_argument("--intact-min", type=float, default=0.5)
     ap.add_argument("--cache", type=Path, default=_paths.get_results_dir() / "pahchem_population_fit.pkl")
     ap.add_argument("--scan", action="store_true", help="chi^2 over the stated (G0, n_H, n_e) ranges instead")
+    ap.add_argument("--library", choices=("m20", "v400"), default="m20")
     args = ap.parse_args()
     if args.scan:
-        scan(cache=_paths.get_results_dir() / "pahchem_population_scan.pkl")
+        suffix = "" if args.library == "m20" else f"_{args.library}"
+        scan(cache=_paths.get_results_dir() / f"pahchem_population_scan{suffix}.pkl", lib_name=args.library)
         return
     if args.write_bands:
         write_bands(args.templates, args.write_bands)
         print("wrote", args.write_bands)
         return
-    res = run(args.min_nc, args.intact_min, cache=args.cache)
+    cache = args.cache if args.library == "m20" else args.cache.with_name(args.cache.stem + f"_{args.library}.pkl")
+    res = run(args.min_nc, args.intact_min, cache=cache, lib_name=args.library)
     lib = res["library"]
     for key, r in res.items():
         if key == "library":

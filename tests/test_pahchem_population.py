@@ -206,3 +206,67 @@ def test_large_compact_pahs_stay_intact_in_the_orion_bar():
     mol = next(m for m in _library() if m.name == "C54H18 (37)")
     env = conditions.bracketing_environments("orion_bar", "Atomic")["most ionising"]
     assert population.Population([mol], WINDOWS).intact_fraction(mol, env) > 0.9
+
+
+# -- PAHdb XML and the v4.00 library ----------------------------------------------------------------
+def _benzene(scale=1.0, jitter=0.0, seed=0):
+    rng = np.random.default_rng(seed)
+    a = np.arange(6) * np.pi / 3
+    c = np.c_[1.39 * np.cos(a), 1.39 * np.sin(a), np.zeros(6)] * scale
+    h = np.c_[2.47 * np.cos(a), 2.47 * np.sin(a), np.zeros(6)] * scale
+    xyz = np.vstack([c, h]) + jitter * rng.standard_normal((12, 3))
+    return [6] * 6 + [1] * 6, xyz
+
+
+def test_bond_graph_hash_ignores_geometry_but_not_connectivity():
+    from pycalima.pahchem import ames_pahdb
+
+    t, x = _benzene()
+    h0 = ames_pahdb.bond_graph_hash(t, x)
+    assert ames_pahdb.bond_graph_hash(*_benzene(scale=1.02, jitter=0.02, seed=3)) == h0   # a charge state's geometry
+    t2, x2 = list(t), x.copy()
+    x2[6] = x2[0] + (x2[1] - x2[0]) * 0.5 + np.array([0.0, 0.0, 1.09])  # move one H onto a C-C bond: other graph
+    assert ames_pahdb.bond_graph_hash(t2, x2) != h0
+
+
+def _v400():
+    from pycalima._datasets import DatasetUnavailable
+    from pycalima.pahchem import ames_pahdb
+
+    if "v400" not in _CACHE:
+        try:
+            path = ames_pahdb.xml_path("pahdb-theoretical-v4-00")
+        except DatasetUnavailable:
+            pytest.skip("PAHdb v4.00 not installed")
+        recs = ames_pahdb.xml_index(path)                       # no cache_dir: tests do not write to model data
+        _CACHE["v400"] = (recs, population.library_v400(recs))
+    return _CACHE["v400"]
+
+
+def test_v400_xml_frequencies_are_used_as_written():
+    from pycalima._paths import get_model_data_dir
+    from pycalima.pahchem.molecule import PAHSpecies
+
+    recs, _ = _v400()
+    rec = next(r for r in recs if r["uid"] == 37)
+    f = get_model_data_dir() / "PAH_states" / "C54H18_0.dat"
+    if not f.exists():
+        pytest.skip("PAH_states not generated")
+    ref = PAHSpecies.from_states_file(f)
+    assert rec["formula"] == "C54H18" and rec["basis"] == "6-31G*"
+    assert np.allclose(np.sort(rec["freqs_cm"]), np.sort(ref.freqs_cm))
+
+
+def test_v400_library_charge_ladders_and_thresholds():
+    _, lib = _v400()
+    assert len(lib) > 1300
+    assert sum(2 in m.charges for m in lib) > 700
+    for m in lib:
+        zs = m.charges
+        assert zs == tuple(range(zs[0], zs[-1] + 1)) and 0 in zs and 1 in zs
+        th = [m.ionisation_ev[z] for z in zs[:-1]]
+        assert all(b > a for a, b in zip(th, th[1:])), m.name
+    c54 = next(m for m in lib if m.name == "C54H18 (37)")
+    assert c54.charges == (-1, 0, 1, 2, 3)
+    assert c54.ionisation_ev[0] == pytest.approx(6.14, abs=0.4)          # Andrews+16 Table A.1 (Malloci+07)
+    assert c54.ionisation_ev[1] == pytest.approx(8.91, abs=0.4)

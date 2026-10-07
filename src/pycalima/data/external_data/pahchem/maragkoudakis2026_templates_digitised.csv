@@ -1,0 +1,11 @@
+# Maragkoudakis et al. (2026), PDRs4All XVIII: template values DIGITISED here from the vector figure PDFs of
+# the arXiv source (not tabulated by the authors). gamma from their gamma map; band ratios from the ratio
+# maps (windows 6.2: 6.0-6.6, 7.7: 7.0-8.2, 8.6: 8.2-9.15, 11.2: 11.1-11.7 um, over a pybaselines
+# continuum); N_C and 3.3/11.2 from Fig. 11 (3.3 from Schefter et al. in prep.). Their Fig. 12 markers are
+# 5-10 % lower in the ratios, unexplained in the paper.
+template,gamma_1e4,r62_112,r77_112,r86_112,n_c,r33_112
+HII,2.923,1.031,2.580,0.856,69.64,0.3038
+Atomic,5.446,1.575,3.730,1.485,70.87,0.3269
+DF1,5.249,1.765,4.248,1.528,69.10,0.3354
+DF2,3.549,1.686,3.954,1.342,63.24,0.3932
+DF3,3.562,1.863,4.292,1.350,61.45,0.4471
