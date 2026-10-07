@@ -13,16 +13,18 @@ the molecules' abundances are fitted. In outline:
   basis). Pairs computed at different levels take the IP
   of a fit a + b / sqrt(N_C) to the consistent pairs (``ip_source = "fit"``)
   and drop the anion. Its edge-H counts (solo, duo, trio, quartet) are PAHdb's.
-- **Charge** (``charge_fractions``). A chain over Z = -1 (where the anion is in
-  the library), 0, +1. The ingredients are the baseline's:
+- **Charge** (``charge_fractions``). A chain over the molecule's charge states
+  (``Molecule.ionisation_ev`` holds the threshold of each step z -> z+1). The
+  ingredients are the baseline's:
   - Li & Draine sigma;
-  - Jochims+96 yields at the DFT IP, and for photodetachment at the EA;
+  - Jochims+96 yields at the DFT threshold (photodetachment at the EA), and
+    Wenzel+20 from the cation up where it applies (N_C >= 32, IP < 11.3 eV);
   - BT94 electron capture, with sticking 1 for cations and the statistical s_e
     of ``attachment`` for neutrals;
   - associative detachment of anions with H.
-  The chain stops at +1, since PAHdb v3.20 has no dications of the sample: the
-  cation fraction holds any dications, emitting as cations, and the cation
-  absorbs without ionising.
+  The chain stops at the highest charge in the library (+1 for PAHdb v3.20,
+  which has no dications): that state holds the higher charges, emitting as
+  itself, and absorbs without ionising.
 - **Hydrogenation** (``intact_fraction``). The first step only:
   k_add / (k_add + k_H). k_H is the photo-rate of the first H loss from the
   intact molecule; it uses RRKM with the baseline's West+18 (E0, dS) on the
@@ -35,9 +37,16 @@ the molecules' abundances are fitted. In outline:
   folded with that state's heating spectrum. Single-photon heating holds for
   these sizes at G0 <~ 1e5. The bands use the PAHdb Lorentzian (FWHM 15 cm^-1,
   redshift 15 cm^-1), integrated analytically over the caller's wavelength
-  windows, which should be the windows of the observations. The basis is
-  computed once per molecule and charge; each environment then costs one
-  integral.
+  windows, which should be the windows of the observations.
+- **Cost.** Heating is single-photon and every field is a fixed shape times G0,
+  so per charge state and field shape a ``StateBasis`` at G0 = 1 holds the IR
+  power per mode, the photo-ionisation (or detachment) rate and the absorbed
+  power, each G0 times its basis value. H loss is not linear in G0: for small
+  PAHs two photons within one cooling time dominate it. So the basis
+  tabulates k_H(G0) from the full multiphoton steady state on
+  ``K_H_G0_GRID`` and interpolates in log-log. Bases are built once (in parallel, ``Population.prepare``) and kept
+  on disk (``cache_dir``), keyed by a hash of their inputs. An environment
+  then costs a few vectorised array operations over the whole library.
 - **Fit** (``fit_abundances``). Non-negative least squares on the band fluxes
   relative to a reference band, each weighted by its relative uncertainty.
   With fewer bands than molecules the solution is not unique: NNLS returns at
@@ -49,12 +58,16 @@ the molecules' abundances are fitted. In outline:
 
 from __future__ import annotations
 
+import functools
+import hashlib
+import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
-from pycalima.pahchem import chemistry, dos, emission, energy_me, photo, rates
+from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, photo, rates
 from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2
 from pycalima.pahchem.baseline import E_PH, Params
 
@@ -76,7 +89,16 @@ class Molecule:
     ip_ev: float                   # neutral -> cation
     ea_ev: float | None = None     # anion -> neutral, if the anion is in the library
     ip_source: str = "dft"         # or "fit" (module docstring)
+    ionisation_ev: dict | None = None   # {z: threshold of z -> z+1 [eV]}; default from ip_ev, ea_ev
+    source: str = "pahdb-v3.20"
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self):
+        if self.ionisation_ev is None:
+            self.ionisation_ev = {0: self.ip_ev} | ({-1: self.ea_ev} if self.ea_ev is not None else {})
+        zs = self.charges
+        if zs and zs != tuple(range(zs[0], zs[-1] + 1)):
+            raise ValueError(f"{self.name}: charge states {zs} are not contiguous")
 
     @property
     def charges(self):
@@ -147,7 +169,11 @@ def _yield(mol, z):
     """Ionisation (or detachment) yield out of charge z on E_PH; zero at the top of the chain."""
     if z == max(mol.charges):
         return np.zeros_like(E_PH)
-    threshold = mol.ea_ev if z == -1 else mol.ip_ev
+    threshold = mol.ionisation_ev[z]
+    if threshold >= 13.6:
+        return np.zeros_like(E_PH)
+    if z >= 1 and mol.nc >= 32 and threshold < 11.3:
+        return photo.yield_wenzel2020(E_PH, threshold, mol.nc)
     return photo.yield_jochims1996(E_PH, threshold)
 
 
@@ -214,82 +240,245 @@ def _band_matrix(freqs_cm, windows_um, local=(), fwhm_cm=15.0, shift_cm=-15.0):
     return M
 
 
+@functools.lru_cache(maxsize=None)
+def _unit_field(shape):
+    """The field of ``shape`` at G0 = 1: ("kurucz", T_eff) or ("draine",)."""
+    return fields.kurucz(shape[1], 1.0) if shape[0] == "kurucz" else fields.draine1978(g0=1.0)
+
+
+def field_shape(env):
+    """The field-shape key of a ``baseline.Environment``."""
+    return ("kurucz", int(env.teff_k)) if env.teff_k is not None else ("draine",)
+
+
+#: G0 at which ``StateBasis.k_h`` is tabulated (the multiphoton steady state at each)
+K_H_G0_GRID = np.geomspace(1.0, 1e6, 13)
+
+
+@dataclass(frozen=True)
+class StateBasis:
+    """One charge state under one field shape; rates at G0 = 1, except k_h on ``K_H_G0_GRID``."""
+
+    freqs_cm: np.ndarray
+    emitted: np.ndarray          # IR power per mode at G0 = 1 [cm^-1 s^-1]
+    k_up: float                  # photo-ionisation or detachment rate at G0 = 1 [s^-1]
+    k_h: np.ndarray              # first-H-loss photo-rate at each K_H_G0_GRID [s^-1]
+    absorbed: float              # heating power at G0 = 1 [cm^-1 s^-1]
+
+    def k_h_at(self, g0):
+        """k_H [s^-1] at ``g0`` (array), log-log interpolated; rates below 1e-300 s^-1 count as zero."""
+        g = np.asarray(g0, dtype=float)
+        if (g < K_H_G0_GRID[0]).any() or (g > K_H_G0_GRID[-1]).any():
+            raise ValueError(f"G0 outside the k_H table {K_H_G0_GRID[0]:g}-{K_H_G0_GRID[-1]:g}")
+        lk = np.log(np.maximum(self.k_h, 1e-300))
+        return np.exp(np.interp(np.log(g), np.log(K_H_G0_GRID), lk))
+
+
+def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
+    sp = mol.species[z]
+    return dict(freqs=sp.freqs_cm, einstein_a=sp.einstein_a, nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z),
+                shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
+                sigma_scale=params.sigma_scale)
+
+
+def _basis_key(inp):
+    h = hashlib.sha1()
+    for k in sorted(inp):
+        v = inp[k]
+        h.update(k.encode())
+        h.update(np.ascontiguousarray(v).tobytes() if isinstance(v, np.ndarray) else repr(v).encode())
+    return h.hexdigest()[:20]
+
+
+def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale):
+    """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes."""
+    field1 = _unit_field(shape)
+    sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
+    h = photo.heating_spectrum(field1, sigma, yield_, E_PH)
+    cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
+    N = emission.cascade_photons(cm)
+    e = E_PH * dos.CM_PER_EV / cm.de_cm
+    j = np.floor(e).astype(int)
+    w = e - j
+    emitted = freqs * np.trapezoid(h * ((1.0 - w) * N[:, j] + w * N[:, j + 1]), E_PH, axis=1)
+    E, counts = dos.beyer_swinehart(freqs, cm.energy_cm[-1] + 200.0)
+    ts = rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5)
+    k = rates.rrkm(E, counts, ts, h_even[0] * dos.CM_PER_EV, degeneracy=nh)
+    k = k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)]
+    k_h = np.array([cm.steady_state(E_PH, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
+    out = StateBasis(np.asarray(freqs, dtype=float), emitted,
+                     float(photo.ionisation_rate(field1, sigma, yield_, E_PH)), k_h,
+                     float(np.trapezoid(h * E_PH * dos.CM_PER_EV, E_PH)))
+    if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
+            and np.isfinite([out.k_up, out.absorbed]).all()):
+        raise ValueError(f"basis of N_C {nc}, Z {z} is not finite")
+    return out
+
+
+def _build(inp):
+    return build_state_basis(**inp)
+
+
 class Population:
-    """Band fluxes of every library molecule at an environment, from cached single-photon bases.
+    """Band fluxes, charge and intact fractions of a library at an environment (module docstring).
 
     ``windows_um`` is {band: (lo, hi)} in um, the windows of the observations;
     the bands in ``local`` take off a linear baseline across their window, as
-    the observations did (``_band_matrix``).
+    the observations did (``_band_matrix``). ``cache_dir`` keeps the state
+    bases on disk (None: memory only).
     """
 
-    def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=16.0, params=Params()):
+    def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=16.0, params=Params(), cache_dir=None):
         self.library, self.windows, self.p = list(library), dict(windows_um), params
         self.local = tuple(local)
         self.bands = tuple(self.windows)
         self.de_cm, self.e_max_cm = float(de_cm), e_max_ev * dos.CM_PER_EV
+        self.cache_dir = None if cache_dir is None else Path(cache_dir)
+        self.zmin = min(min(m.charges) for m in self.library)
+        self.zs = tuple(range(self.zmin, max(max(m.charges) for m in self.library) + 1))
+        self.present = np.array([[z in m.species for z in self.zs] for m in self.library])
+        self.nc = np.array([m.nc for m in self.library], dtype=float)
+        self._index = {id(m): s for s, m in enumerate(self.library)}
+        self._arrays = {}
+        self._capture = {}
 
-    def _state(self, mol, z):
-        """(CascadeModel, basis B[b, j] = band energy [cm^-1] emitted per photon absorbed into bin j)."""
-        ckey = ("cascade", z, self.de_cm, self.e_max_cm)
-        if ckey not in mol._cache:
-            sp = mol.species[z]
-            cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, self.e_max_cm, self.de_cm)
-            mol._cache[ckey] = (cm, emission.cascade_photons(cm))
-        cm, N = mol._cache[ckey]
-        key = ckey + (tuple(self.windows.items()), self.local)
-        if key not in mol._cache:
-            sp = mol.species[z]
-            mol._cache[key] = (_band_matrix(sp.freqs_cm, self.windows, self.local) * sp.freqs_cm[:, None]).T @ N
-        return cm, mol._cache[key]
+    # -- bases -----------------------------------------------------------------------------------
+    def _ckey(self, shape, z):
+        return ("basis", shape, z, self.de_cm, self.e_max_cm, tuple(self.p.h_even), self.p.sigma_scale)
 
-    def _heating(self, mol, z, field_):
-        sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * self.p.sigma_scale
-        return photo.heating_spectrum(field_, sigma, _yield(mol, z), E_PH)
+    def _load(self, key):
+        f = None if self.cache_dir is None else self.cache_dir / f"{key}.npz"
+        if f is None or not f.exists():
+            return None
+        d = np.load(f)
+        return StateBasis(d["freqs_cm"], d["emitted"], float(d["k_up"]), d["k_h"], float(d["absorbed"]))
 
-    def state_band_fluxes(self, mol, z, env, field_=None):
-        """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
-        cm, B = self._state(mol, z)
-        h = self._heating(mol, z, env.field() if field_ is None else field_)
-        e = E_PH * dos.CM_PER_EV / cm.de_cm
-        j = np.floor(e).astype(int)
-        w = e - j
-        return np.trapezoid(h * ((1.0 - w) * B[:, j] + w * B[:, j + 1]), E_PH, axis=1)
+    def _save(self, key, b):
+        if self.cache_dir is not None:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            np.savez(self.cache_dir / f"{key}.npz", freqs_cm=b.freqs_cm, emitted=b.emitted, k_up=b.k_up,
+                     k_h=b.k_h, absorbed=b.absorbed)
+
+    def prepare(self, shape, workers=None):
+        """Give every state its basis under ``shape``: from memory, the disk cache, or built in parallel."""
+        todo = []
+        for mol in self.library:
+            for z in mol.charges:
+                ck = self._ckey(shape, z)
+                if ck in mol._cache:
+                    continue
+                inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
+                key = _basis_key(inp)
+                b = self._load(key)
+                if b is None:
+                    todo.append((mol, ck, key, inp))
+                else:
+                    mol._cache[ck] = b
+        if not todo:
+            return
+        workers = workers if workers is not None else (os.cpu_count() or 1)
+        if workers > 1 and len(todo) > 4:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                built = list(ex.map(_build, [t[3] for t in todo], chunksize=1))
+        else:
+            built = [_build(t[3]) for t in todo]
+        for (mol, ck, key, _), b in zip(todo, built):
+            mol._cache[ck] = b
+            self._save(key, b)
+
+    def basis(self, mol, z, shape):
+        """``StateBasis`` of ``mol`` at charge z under ``shape``."""
+        ck = self._ckey(shape, z)
+        if ck not in mol._cache:
+            inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
+            key = _basis_key(inp)
+            b = self._load(key)
+            if b is None:
+                b = _build(inp)
+                self._save(key, b)
+            mol._cache[ck] = b
+        return mol._cache[ck]
+
+    def _stack(self, shape):
+        """(k_up at G0 = 1, log k_H on K_H_G0_GRID, band power B[s, slot, band] at G0 = 1); 0 where absent."""
+        key = (shape, tuple(self.windows.items()), self.local)
+        if key not in self._arrays:
+            self.prepare(shape)
+            n, m = len(self.library), len(self.zs)
+            k_up, B = np.zeros((n, m)), np.zeros((n, m, len(self.bands)))
+            lkh = np.full((n, m, K_H_G0_GRID.size), np.log(1e-300))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    b = self.basis(mol, z, shape)
+                    i = z - self.zmin
+                    k_up[s, i] = b.k_up
+                    lkh[s, i] = np.log(np.maximum(b.k_h, 1e-300))
+                    B[s, i] = b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local)
+            self._arrays[key] = (k_up, lkh, B)
+        return self._arrays[key]
+
+    def _capture_rates(self, temperature_k):
+        """alpha[s, slot]: electron capture coefficient of each state [cm^3 s^-1] (0 for a lowest state)."""
+        t = round(float(temperature_k), 6)
+        if t not in self._capture:
+            a = np.zeros((len(self.library), len(self.zs)))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges[1:]:
+                    st = neutral_sticking(mol, temperature_k) if z == 0 else 1.0
+                    a[s, z - self.zmin] = chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st)
+            self._capture[t] = a
+        return self._capture[t]
+
+    # -- an environment --------------------------------------------------------------------------
+    def charge_matrix(self, env):
+        """f[s, slot]: the charge fractions of every molecule over ``self.zs``."""
+        k_up, _, _ = self._stack(field_shape(env))
+        up = env.g0 * k_up
+        if self.zmin == -1:
+            up[:, 0] += 7.8e-10 * env.n_h                           # associative detachment of anions
+        down = self._capture_rates(env.temperature_k) * env.n_e
+        both = self.present[:, :-1] & self.present[:, 1:]
+        logr = np.zeros_like(up[:, :-1])
+        logr[both] = np.log(up[:, :-1][both]) - np.log(down[:, 1:][both])
+        logf = np.concatenate([np.zeros((len(self.library), 1)), np.cumsum(logr, axis=1)], axis=1)
+        logf = np.where(self.present, logf, -np.inf)
+        f = np.exp(logf - logf.max(axis=1, keepdims=True))
+        return f / f.sum(axis=1, keepdims=True)
 
     def band_fluxes(self, env):
         """(F[s, b] charge-weighted band power per molecule, {name: {Z: f}}) for the whole library."""
-        field_ = env.field()
-        F = np.zeros((len(self.library), len(self.bands)))
-        fz = {}
-        for s, mol in enumerate(self.library):
-            fz[mol.name] = charge_fractions(mol, env)
-            for z, f in fz[mol.name].items():
-                F[s] += f * self.state_band_fluxes(mol, z, env, field_)
+        _, _, B = self._stack(field_shape(env))
+        f = self.charge_matrix(env)
+        F = env.g0 * np.einsum("sz,szb->sb", f, B)
+        fz = {m.name: {z: float(f[s, z - self.zmin]) for z in m.charges} for s, m in enumerate(self.library)}
         return F, fz
 
-    def intact_fraction(self, mol, env, fz=None):
-        """Charge-weighted k_add / (k_add + k_H) of the first H loss (module docstring)."""
-        fz = charge_fractions(mol, env) if fz is None else fz
-        field_ = env.field()
-        T = env.temperature_k
-        sigma_geo = CORONENE_GEOMETRIC_A2 * mol.nc / 24.0
-        out = 0.0
-        for z, f in fz.items():
-            cm, _ = self._state(mol, z)
-            kkey = ("k_H", z, self.de_cm, self.e_max_cm)
-            if kkey not in mol._cache:
-                sp = mol.species[z]
-                e0, ds = self.p.h_even
-                E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
-                ts = rates.transition_state_for_entropy(sp.freqs_cm, 3050.0, ds, n_scaled=5)
-                k = rates.rrkm(E, counts, ts, e0 * dos.CM_PER_EV, degeneracy=mol.nh)
-                mol._cache[kkey] = k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)]
-            k_h = cm.steady_state(E_PH, self._heating(mol, z, field_), {"H": mol._cache[kkey]}).rates["H"]
-            if not np.isfinite(k_h):
-                raise ValueError(f"{mol.name} Z={z}: H-loss rate is not finite")
-            k_add = (self.p.addition_cation if z > 0 else
-                     0.07 * self.p.addition_neutral_scale * chemistry.cross_section_rate(T, sigma_geo)) * env.n_h
-            out += f * k_add / (k_add + k_h)
-        return float(out)
+    def state_band_fluxes(self, mol, z, env):
+        """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
+        b = self.basis(mol, z, field_shape(env))
+        return env.g0 * (b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local))
+
+    def intact_fractions(self, env):
+        """Charge-weighted k_add / (k_add + k_H) of the first H loss, for every molecule."""
+        _, lkh, _ = self._stack(field_shape(env))
+        f = self.charge_matrix(env)
+        if not K_H_G0_GRID[0] <= env.g0 <= K_H_G0_GRID[-1]:
+            raise ValueError(f"G0 {env.g0:g} outside the k_H table")
+        x = np.log(env.g0)
+        i = min(np.searchsorted(np.log(K_H_G0_GRID), x), K_H_G0_GRID.size - 1)
+        i = max(i, 1)
+        lo, hi = np.log(K_H_G0_GRID[i - 1]), np.log(K_H_G0_GRID[i])
+        k_h = np.exp(lkh[..., i - 1] + (lkh[..., i] - lkh[..., i - 1]) * (x - lo) / (hi - lo))
+        z = np.array(self.zs)[None, :]
+        neutral = 0.07 * self.p.addition_neutral_scale * chemistry.cross_section_rate(
+            env.temperature_k, CORONENE_GEOMETRIC_A2 * self.nc[:, None] / 24.0)
+        k_add = np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
+        return np.sum(f * k_add / (k_add + k_h), axis=1)
+
+    def intact_fraction(self, mol, env):
+        return float(self.intact_fractions(env)[self._index[id(mol)]])
 
 
 # -- fitting -----------------------------------------------------------------------------------

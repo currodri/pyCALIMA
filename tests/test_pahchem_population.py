@@ -150,9 +150,54 @@ def test_emitted_band_energy_equals_absorbed_heating():
     pop = population.Population([mol], {"all": (1.0, 1e4)})
     env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
     for z in mol.charges:
-        h = pop._heating(mol, z, env.field())
-        absorbed = np.trapezoid(h * E_PH * dos.CM_PER_EV, E_PH)
+        absorbed = env.g0 * pop.basis(mol, z, population.field_shape(env)).absorbed
         assert pop.state_band_fluxes(mol, z, env)[0] == pytest.approx(absorbed, rel=0.01)
+
+
+def test_vectorised_charges_equal_the_scalar_chain():
+    lib = population.library_m20(_ascii(), all_anions=True)
+    pop = population.Population(lib, WINDOWS)
+    for env in (Environment("a", 2e4, 1e5, 100.0, 700.0, 40000), Environment("b", 7e4, 5e4, 10.0, 700.0, 40000),
+                Environment("c", 1e3, 3e4, 5.0, 700.0, None)):
+        _, fz = pop.band_fluxes(env)
+        for m in lib[::7]:
+            ref = population.charge_fractions(m, env)
+            for z in m.charges:
+                assert fz[m.name][z] == pytest.approx(ref[z], rel=1e-9, abs=1e-14)
+
+
+def test_k_h_table_interpolates_the_multiphoton_steady_state():
+    from pycalima.pahchem import energy_me, photo, rates
+
+    mol = next(m for m in _library() if m.nc <= 24)
+    pop = population.Population([mol], WINDOWS)
+    shape = ("kurucz", 40000)
+    b = pop.basis(mol, 1, shape)
+    assert np.all(np.diff(b.k_h / population.K_H_G0_GRID) >= -1e-12 * b.k_h[1:] / population.K_H_G0_GRID[1:])
+    g0 = np.sqrt(population.K_H_G0_GRID[8] * population.K_H_G0_GRID[9])
+    sp = mol.species[1]
+    sigma = photo.sigma_li_draine(mol.nc, 1, E_PH)
+    h = photo.heating_spectrum(population._unit_field(shape), sigma, population._yield(mol, 1), E_PH)
+    cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, pop.e_max_cm, pop.de_cm)
+    E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
+    ts = rates.transition_state_for_entropy(sp.freqs_cm, 3050.0, pop.p.h_even[1], n_scaled=5)
+    k = rates.rrkm(E, counts, ts, pop.p.h_even[0] * dos.CM_PER_EV, degeneracy=mol.nh)
+    k = k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)]
+    direct = cm.steady_state(E_PH, g0 * h, {"H": k}).rates["H"]
+    assert b.k_h_at(g0) == pytest.approx(direct, rel=0.05)
+
+
+def test_basis_disk_cache_round_trips(tmp_path):
+    mol = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")   # fresh: no memory cache
+    env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
+    first = population.Population([mol], WINDOWS, cache_dir=tmp_path)
+    F1, _ = first.band_fluxes(env)
+    assert len(list(tmp_path.glob("*.npz"))) == len(mol.charges)
+    mol2 = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")
+    second = population.Population([mol2], WINDOWS, cache_dir=tmp_path)
+    F2, _ = second.band_fluxes(env)
+    assert np.array_equal(F1, F2)
+    assert second.intact_fraction(mol2, env) == first.intact_fraction(mol, env)
 
 
 def test_large_compact_pahs_stay_intact_in_the_orion_bar():

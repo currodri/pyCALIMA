@@ -39,6 +39,8 @@ OOP = ("11.0", "11.2", "12.0", "12.7", "13.5", "14.2")
 REFERENCE = "11.2"
 CONTINUA = ("spline", "local")
 BANDS_CSV = "pahchem/pdrs4all_orionbar_bands.csv"
+#: state bases of population.Population (G0 = 1), kept between runs
+BASIS_CACHE = _paths.get_model_data_dir() / "pahchem_population_basis"
 #: Khan+25 (PDRs4All XIV) Table 2: number ratios of edge H from the 11-14 um bands
 KHAN25 = {"solo/duo": (14.0, 17.0), "solo/trio": (1.5, 1.5), "solo/quartet": (22.0, 46.0)}
 
@@ -93,12 +95,13 @@ def run(min_nc=0, intact_min=0.5, n_boot=200, cache=None, all_anions=True):
         with open(cache, "rb") as fh:
             return pickle.load(fh)
     lib = population.library_m20(min_nc=min_nc, all_anions=all_anions)
-    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else ()) for c in CONTINUA}
+    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE)
+            for c in CONTINUA}
     obs = {c: observed(c) for c in CONTINUA}
     out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib]}
     for t in C.TEMPLATES:
         envs = conditions.bracketing_environments("orion_bar", t)
-        intact = np.array([pops["spline"].intact_fraction(m, envs["most ionising"]) for m in lib])
+        intact = pops["spline"].intact_fractions(envs["most ionising"])
         keep = intact >= intact_min
         for corner, env in envs.items():
             for c in CONTINUA:
@@ -146,7 +149,8 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, all_anions=True):
     from pycalima.pahchem.baseline import Environment
 
     lib = population.library_m20(all_anions=all_anions)
-    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else ()) for c in CONTINUA}
+    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE)
+            for c in CONTINUA}
     obs = {c: observed(c) for c in CONTINUA}
     nc = np.array([m.nc for m in lib], dtype=float)
     card = conditions.load("orion_bar")
@@ -155,7 +159,7 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, all_anions=True):
     for t in C.TEMPLATES:
         e = card[t]
         envs = conditions.bracketing_environments("orion_bar", t)
-        keep = np.array([pops["spline"].intact_fraction(m, envs["most ionising"]) for m in lib]) >= intact_min
+        keep = pops["spline"].intact_fractions(envs["most ionising"]) >= intact_min
         temp = conditions.bounds(e["t_gas"])[0]
         cells = []
         for g0 in _grid(*conditions.bounds(e["g0"]), n_g0):
