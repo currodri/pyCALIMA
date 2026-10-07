@@ -1094,6 +1094,41 @@ figure `family_emission`).
     against 0.09). In the DFs, super-hydrogenation gives the observed rise.
     Chown+24 and Pasquini+24 attribute the Bar's 3.4 band to methyl groups.
 
+**PDRs4All: what the papers give for a model comparison** (reviewed
+2026-10-06; arXiv sources or the HAL PDF, since aanda.org blocks automated
+access).
+
+| Paper | PAH band data | Local conditions | Theory |
+|---|---|---|---|
+| Khan+25, XIV, A&A 699, A133 (10–15 µm CH oop) | maps and a cut, windows and Gaussian sub-components; only mosaic means tabulated; no uncertainties | none (quotes $G_0$ and $n_{\rm H}$) | DFT band strengths per CH group (Bauschlicher+09) give the number ratios of edge H: solo/duo ≈ 14–17, solo/trio ≈ 1.5, solo/quartet 22–46 (Table 2) |
+| Van De Putte+25, XVI, A&A 701, A111 | PAHFIT "PDR pack" (CDS Table B.1; v2 YAML on the drvdputt/pahfit `pdrpack` branch); profile diagnostics in figures only | none | qualitative: broadening as small hot PAHs and anharmonicity; 7.7 broad component as VSGs or clusters |
+| Maragkoudakis+26, XVIII, A&A 709, A38 | windows 6.2/7.7/8.6/11.2; the CDS maps (J/A+A/709/A38) are only colour-map PDFs, with no FITS or WCS | none: γ is inferred as 2.66 $f_{\rm cat}/f_{\rm neut}$ from the fit itself | pyPAHdb on PAHdb v4.00-α (cascade at 7 eV, 15 cm$^{-1}$ Gaussians, 5–15 µm): cations 47–63 % of the emission, anions up to 17 %, $\bar N_{\rm C}$ 61–71 (Table 1) |
+| Khan+26, XIX, A&A 709, A39 (6–9 µm) | maps and a cut; windows in Table A.1; nothing tabulated; no uncertainties | none | qualitative: 8.6 and 11.0 from large compact cations; 6.2/11.2 the best charge tracer |
+
+What follows for pahchem:
+- **No paper measures local conditions.** They stay those of
+  `environments/orion_bar.toml`.
+  - Maragkoudakis+26's γ comes from their own pyPAHdb charge fractions, so
+    it cannot serve as an input to test a charge balance.
+- **The continuum dominates the observed ratios.** On the same templates:
+  - atomic PDR 6.2/11.2 is 0.96 (Chown+24 anchors, here), 1.24 (Khan+26
+    local spline) and 1.58 (Maragkoudakis+26 pybaselines, from their
+    figures);
+  - DF3 8.6/11.2 runs from 0.28 to 1.35 between baselines.
+  - So the comparison applies one recipe to both the model and the
+    templates, and a ~30 % (×5 for 8.6) continuum systematic belongs on the
+    observed side.
+- **The model's edge structure is wrong.** Our parents have solo/duo = 0.5
+  (C$_{54}$H$_{18}$) and 1 (C$_{96}$H$_{24}$) and no trio H, while
+  Khan+25 infer solo/duo ≈ 15 and solo/trio ≈ 1.5. This, not the charge
+  balance, explains the robust misses in 12.7/11.2 and 7.7/6.2. The remedy
+  is a PAHdb population with that edge structure, built with the machinery
+  of the Maragkoudakis+20 reproduction, rather than tuning the coronene
+  family.
+- **Sub-band diagnostics** (3.3A, 3.4B, 5.7A/B/C, 6.2 FWHM, 7.7
+  broad/total; Van De Putte+25) need anharmonic band shifts and widths and
+  a VSG or cluster continuum, which pahchem does not have yet.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
