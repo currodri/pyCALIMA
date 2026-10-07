@@ -1043,3 +1043,19 @@ def test_pahchem_carbon_loss_parameter_sets(pah_states):
          .carbon_loss_rates(env, bare)[0] for name in ("micelotta10b", "leger89", "c60_cage")}
     assert Params().carbon_loss == "leger89"
     assert r["micelotta10b"] > 1e3 * r["leger89"] > 1e5 * r["c60_cage"] > 0, r
+
+
+def test_conditions_card_has_sources_and_brackets():
+    """environments/orion_bar.toml: every quantity has a source, an A-E confidence and
+    `stated`; the least-ionising corner has the lower G0 sqrt(T)/n_e."""
+    from pycalima.pahchem import conditions
+
+    card = conditions.load("orion_bar")
+    for t in card["region"]["templates"]:
+        for q in ("g0", "n_h", "t_gas"):
+            e = card[t][q]
+            assert e["source"] and e["confidence"] in "ABCDE" and isinstance(e["stated"], bool), (t, q)
+        assert ("n_e" in card[t]) != ("x_e" in card[t]), t
+        env = conditions.bracketing_environments("orion_bar", t)
+        gamma = {k: v.g0 * np.sqrt(v.temperature_k) / v.n_e for k, v in env.items()}
+        assert gamma["least ionising"] < gamma["most ionising"], t

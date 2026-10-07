@@ -147,6 +147,7 @@ pycalima = [
     "data/optical_props/*/*/*",
     "models/*.json",
     "pahchem/method_cards/*.toml",
+    "pahchem/environments/*.toml",
     "solvers/configs/*.json",
     "solvers/ramses_source/*.f90",
     "solvers/ramses_source/*.md",

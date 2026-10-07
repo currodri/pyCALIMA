@@ -1,0 +1,50 @@
+# Input conditions of the PDRs4All Orion Bar templates, for pahchem's emission comparison.
+#
+# pahchem does not compute these: they are inputs of the PAH network and its emission.
+# Each quantity is a value or a [low, high] range with its `source` and an A-E `confidence`
+# (as the method cards). `stated = false` marks values no paper gives for that template; their
+# range is pahchem's assumption, with the reason in `source`.
+#
+# The electron density is given as n_e [cm^-3] where it is measured, else as x_e = n_e/n_H, bounded
+# by the gas-phase C+ and S+ abundances.
+#
+# The template apertures are Peeters+24 Table B.1. G0 is in Habing units (6-13.6 eV). The field
+# shape is theta1 Ori C (O7V, Teff ~ 39 000 K; Zannese+26, Simon-Diaz+06), here a 40 000 K
+# Kurucz atmosphere.
+
+[region]
+name = "Orion Bar (PDRs4All templates)"
+field_teff_k = { value = 40000, source = "theta1 Ori C, Teff 39 000 K (Zannese+26 Table 1); Kurucz 40 000 K grid point", confidence = "B", stated = true }
+templates = ["HII", "Atomic", "DF1", "DF2", "DF3"]
+
+[HII]
+note = "AIB emission of this template comes from the face-on background PDR (Chown+24), whose conditions are not stated: the Atomic PDR ranges are used"
+g0 = { range = [2.2e4, 7.1e4], source = "assumed equal to the Atomic PDR (background face-on PDR; Chown+24)", confidence = "E", stated = false }
+n_h = { range = [5e4, 1e5], source = "assumed equal to the Atomic PDR", confidence = "E", stated = false }
+t_gas = { value = 659, source = "H2 rotational T1* 659 +- 54 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
+n_e = { range = [10.0, 100.0], source = "assumed equal to the Atomic PDR (carbon and sulfur recombination lines; Berne+22)", confidence = "D", stated = false }
+
+[Atomic]
+g0 = { range = [2.2e4, 7.1e4], source = "at the ionisation front from O I 1.317 um fluorescence, median 5.9e4, inclination 4 deg (Peeters+24 Sect. 5.3.1); x4 for 1 deg, /2 for 8 deg", confidence = "B", stated = true }
+n_h = { range = [5e4, 1e5], source = "from the decay of the AIB emission (Habart+24); the Meudon H2 fit of this template gives 1e3-3.5e3 (Peeters+24), inconsistent with it", confidence = "B", stated = true }
+t_gas = { value = 722, source = "H2 rotational T1* 722 +- 50 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
+n_e = { range = [10.0, 100.0], source = "carbon and sulfur radio recombination lines of the atomic PDR, n_e ~ 10-100 cm^-3 (Berne+22 Sect. 2, citing Wyrowski+97, Cuadrado+19, Goicoechea+21); not the 2-3e3 cm^-3 of the ionised gas at the IF", confidence = "B", stated = true }
+
+[DF1]
+note = "strongly contaminated by foreground atomic-PDR emission (Chown+24)"
+g0 = { range = [1e3, 5e3], source = "not stated for DF1; Chown+24: PAH-ionising flux ~40x lower at the DFs than at the surface; the DF3 range of Zannese+26 is used", confidence = "D", stated = false }
+n_h = { range = [1e4, 3.5e4], source = "Meudon isochoric fits to H2, all lines / 1-0 S(1)/2-1 S(1) (Peeters+24), inclination 4 deg (x2.85 for 8 deg)", confidence = "C", stated = true }
+t_gas = { value = 706, source = "H2 rotational T1* 706 +- 35 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
+x_e = { range = [1.4e-4, 1.6e-4], source = "not measured; bounded by C+ plus S+", confidence = "C", stated = false }
+
+[DF2]
+g0 = { range = [1e3, 5e3], source = "not stated for DF2; as DF1", confidence = "D", stated = false }
+n_h = { range = [1e4, 3.5e4], source = "Meudon fits to H2 (Peeters+24)", confidence = "C", stated = true }
+t_gas = { value = 666, source = "H2 rotational T1* 666 +- 36 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
+x_e = { range = [1.4e-4, 1.6e-4], source = "not measured; bounded by C+ plus S+", confidence = "C", stated = false }
+
+[DF3]
+g0 = { range = [1.3e3, 5e3], source = "Zannese+26 (hydrodynamic PDR model, G0(IF) = 2e4, A_V ~ 1-2, R_V = 5.5; < 1e3 for R_V = 3.1)", confidence = "C", stated = true }
+n_h = { range = [3.5e3, 3.5e4], source = "Meudon fits to H2, both line sets (Peeters+24)", confidence = "C", stated = true }
+t_gas = { value = 661, source = "H2 rotational T1* 661 +- 40 K (Van De Putte+24 Table 4)", confidence = "B", stated = true }
+x_e = { range = [1.4e-4, 1.6e-4], source = "not measured; bounded by C+ plus S+", confidence = "C", stated = false }
