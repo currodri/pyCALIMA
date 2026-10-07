@@ -79,3 +79,31 @@ def test_band_fluxes_of_the_fitted_spectrum_are_the_model_bands():
         m = (nu >= 1e4 / hi) & (nu <= 1e4 / lo)
         num = P[:, m].sum(axis=1) * 0.25
         assert num == pytest.approx(F[:, list(WINDOWS).index(b)], rel=1.5e-2)    # Riemann sum vs analytic window
+
+
+def test_default_band_shape_is_the_previous_profile():
+    from pycalima.pahchem import emission
+
+    f = np.array([3050.0, 1600.0, 880.0, 450.0])
+    s = np.array([1.0, 2.0, 3.0, 0.5])
+    nu = np.arange(300.0, 3300.0, 1.0)
+    assert np.allclose(spectral_fit.shaped_spectrum(f, s, nu), emission.spectrum(f, s, nu))
+
+
+def test_fit_band_shape_recovers_shifts_and_widths():
+    pop = _setup()
+    g = spectral_fit.Grid.build()
+    env = Environment("t", 2e4, 5e4, 50.0, 700.0, 40000)
+    true = spectral_fit.BandShape(shift_ch=-35.0, shift_cc=-8.0, shift_oop=-4.0, fwhm_ch=35.0, fwhm_rest=12.0)
+    idx = [1, 4, 9]
+    w = np.array([2.0, 1.0, 0.5])
+    pah = w @ spectral_fit.molecule_spectra(pop, env, g.nu, true, idx)
+    cont = 0.2 * pah.max() * (g.lam_um / 10.0) ** 2 * (g.segment == 1)
+    C = spectral_fit.continuum_basis(g, knot_um=1.5)
+    keep = np.zeros(len(pop.library), bool)
+    keep[idx] = True
+    shape, fit, active = spectral_fit.fit_band_shape(pah + cont, g, pop, env, keep, C)
+    assert shape.shift_ch == pytest.approx(-35.0, abs=2.0) and shape.fwhm_ch == pytest.approx(35.0, abs=3.0)
+    assert shape.shift_cc == pytest.approx(-8.0, abs=2.0) and shape.shift_oop == pytest.approx(-4.0, abs=2.0)
+    assert shape.fwhm_rest == pytest.approx(12.0, abs=2.0)
+    assert fit.rms < 0.01

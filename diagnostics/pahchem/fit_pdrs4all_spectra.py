@@ -22,6 +22,13 @@ I_nu = sum_s w_s P_s(conditions) + continuum (cubic B-splines in lambda, knots
   p the number of non-zero coefficients. This is an approximate scale; the
   statistics are step 3.
 
+With ``--fit-shape`` the band profile is fitted as well: shifts for the CH
+stretch, CC and CH oop modes, and FWHMs for the CH stretch and the rest, shared
+by all molecules (``spectral_fit.fit_band_shape``), Lorentzian and Gaussian
+each. Per template the shape is fitted at the middle cell, the conditions are
+scanned with that shape, and the shape is refitted at the best cell and the
+scan repeated. Band ratios are then measured on the fitted PAH spectrum.
+
     fit_pdrs4all_spectra.py --templates .../orionbar.dat --library v400 --ip-shift=-1:0.37,0:0.6,1:0.64,2:0.64 --stretch-scale lab
 """
 import argparse
@@ -122,6 +129,148 @@ def run(args):
     return out
 
 
+def _cells(card, t):
+    e = card[t]
+    temp = conditions.bounds(e["t_gas"])[0]
+    out = []
+    for g0 in FP._grid(*conditions.bounds(e["g0"]), 4):
+        for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
+            el = e["n_e"] if "n_e" in e else e["x_e"]
+            for v in FP._grid(*conditions.bounds(el), 4):
+                out.append((g0, n_h, v if "n_e" in e else v * n_h, temp))
+    return out
+
+
+def run_shape(args, knot=1.5, iterations=2):
+    """Band shape fitted per template and profile, then the conditions scan with that shape (see --fit-shape)."""
+    key = hashlib.sha1(json.dumps({k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot",)},
+                                  sort_keys=True).encode()).hexdigest()[:12]
+    cache = _paths.get_results_dir() / f"pahchem_spectral_shape_{key}.pkl"
+    if cache.exists():
+        with open(cache, "rb") as fh:
+            return pickle.load(fh)
+    lib = FP.library(args.library)
+    shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
+    if shifts:
+        lib = population.shift_thresholds(lib, shifts)
+    stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
+    params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model, stretch_scale=stretch)
+    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
+    grid = spectral_fit.Grid.build()
+    C_ = spectral_fit.continuum_basis(grid, knot)
+    lam, tmpl = C.load_templates(args.templates)
+    card = conditions.load("orion_bar")
+    teff = int(card["region"]["field_teff_k"]["value"])
+    fshape = ("kurucz", teff)
+    pop.prepare(fshape)
+    nc = np.array([m.nc for m in lib], dtype=float)
+    zs = np.array(pop.zs)
+    absorbed = np.zeros((len(lib), len(zs)))
+    for s, m in enumerate(lib):
+        for z in m.charges:
+            absorbed[s, z - pop.zmin] = pop.basis(m, z, fshape).absorbed
+    out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib], "grid": grid, "args": vars(args), "knot": knot}
+    for t in C.TEMPLATES:
+        y = observed_on_grid(lam, tmpl[t], grid)
+        envs = conditions.bracketing_environments("orion_bar", t)
+        keep = pop.intact_fractions(envs["most ionising"]) >= args.intact_min
+        cells = _cells(card, t)
+        out[t] = {"observed": y}
+        for profile in ("lorentzian", "gaussian"):
+            ref = cells[len(cells) // 2]
+            shape = spectral_fit.BandShape(profile=profile)
+            history = []
+            for it in range(iterations):
+                env = Environment(t, ref[0], ref[1], ref[2], ref[3], teff)
+                shape, _, _ = spectral_fit.fit_band_shape(y, grid, pop, env, keep, C_, start=shape)
+                S = spectral_fit.shaped_state_spectra(pop, fshape, grid.nu, shape)
+                rows = []
+                for g0, n_h, ne, temp in cells:
+                    env = Environment(t, g0, n_h, ne, temp, teff)
+                    f = pop.charge_matrix(env)
+                    P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
+                    fit = spectral_fit.fit_spectrum(y, P, C_)
+                    w = np.zeros(len(lib))
+                    w[keep] = fit.weights
+                    power = w[:, None] * f * absorbed
+                    tot = power.sum()
+                    wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
+                    rows.append({"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
+                                 "rms": fit.rms, "n": int(np.isfinite(y).sum()),
+                                 "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
+                                 "mean_nc_carbon": float((w * nc) @ nc / (w @ nc)) if w.sum() > 0 else np.nan,
+                                 "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
+                                 "e_dication": float(power[:, zs >= 2].sum() / tot),
+                                 "ratios": {b: v / wf["11.2"] for b, v in wf.items()},
+                                 "cont_share": float(fit.cont[grid.segment == 1].sum() / max(
+                                     fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum(), 1e-300)),
+                                 "pah": fit.pah, "cont": fit.cont})
+                best = min(rows, key=lambda r: r["sse"])
+                history.append((shape, best["gamma"], best["rms"]))
+                ref = (best["g0"], best["n_h"], best["n_e"], cells[0][3])
+            out[t][profile] = {"shape": shape, "history": history, "cells": rows}
+            print(f"{t} {profile}: " + " -> ".join(f"[rms {h[2]:.3f}, gamma {h[1]:.2g}]" for h in history)
+                  + f"; shape {shape}", flush=True)
+    with open(cache, "wb") as fh:
+        pickle.dump(out, fh)
+    return out
+
+
+def summarise_shape(res):
+    for t in C.TEMPLATES:
+        for profile in ("lorentzian", "gaussian"):
+            r = res[t][profile]
+            cells = r["cells"]
+            g = np.array([c["gamma"] for c in cells])
+            sse = np.array([c["sse"] for c in cells])
+            i = int(sse.argmin())
+            b = cells[i]
+            s2 = sse.min() / max(b["n"] - b["p"], 1)
+            ok = (sse - sse.min()) / s2 < 9.0
+            edge = "low edge" if g[i] <= g.min() * 1.0001 else ("high edge" if g[i] >= g.max() * 0.9999 else "interior")
+            sh = r["shape"]
+            q = b["ratios"]
+            print(f"{t:6s} {profile:10s} rms {b['rms']:.3f}; shifts CH/CC/oop {sh.shift_ch:+.0f}/{sh.shift_cc:+.0f}/{sh.shift_oop:+.0f}, "
+                  f"FWHM CH/rest {sh.fwhm_ch:.0f}/{sh.fwhm_rest:.0f}; best gamma {g[i]:.2g} ({edge}), allowed "
+                  f"{g[ok].min():.2g}-{g[ok].max():.2g}; <N_C>_C {b['mean_nc_carbon']:.0f}; emission f-/f+ "
+                  f"{b['e_anion']:.2f}/{b['e_cation']:.2f} (Z>=2 {b['e_dication']:.2f}); cont {b['cont_share']:.2f}; "
+                  f"PAH 3.3/11.2 {q['3.3']:.2f} 6.2 {q['6.2']:.2f} 7.7 {q['7.7']:.2f} 12.7 {q['12.7']:.2f}")
+
+
+def plot_shape(res, out_dir):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    grid = res["grid"]
+    fig, axes = plt.subplots(len(C.TEMPLATES), 2, figsize=(16, 3.2 * len(C.TEMPLATES)),
+                             gridspec_kw={"width_ratios": [1, 3]})
+    for row, t in zip(axes, C.TEMPLATES):
+        y = res[t]["observed"]
+        prof = min(("lorentzian", "gaussian"), key=lambda p: min(c["sse"] for c in res[t][p]["cells"]))
+        b = min(res[t][prof]["cells"], key=lambda c: c["sse"])
+        sh = res[t][prof]["shape"]
+        for ax, seg in zip(row, (0, 1)):
+            m = grid.segment == seg
+            lam = grid.lam_um[m]
+            o = np.argsort(lam)
+            ax.plot(lam[o], y[m][o], "k", lw=0.8, label="observed")
+            ax.plot(lam[o], (b["pah"] + b["cont"])[m][o], "C3", lw=0.8, label="PAH + continuum")
+            ax.plot(lam[o], b["cont"][m][o], "C0", lw=0.8, label="continuum")
+            ax.plot(lam[o], b["pah"][m][o], "C2", lw=0.6, alpha=0.8, label="PAH population")
+            ax.plot(lam[o], (y - b["pah"] - b["cont"])[m][o], "0.5", lw=0.5, label="residual")
+        row[1].set_title(f"{t} ({prof}): rms {b['rms']:.3f}, gamma {b['gamma']:.2g}, <N_C>_C {b['mean_nc_carbon']:.0f}; "
+                         f"shifts {sh.shift_ch:+.0f}/{sh.shift_cc:+.0f}/{sh.shift_oop:+.0f}, FWHM {sh.fwhm_ch:.0f}/{sh.fwhm_rest:.0f}",
+                         fontsize=9)
+        row[1].legend(fontsize=7, ncol=5)
+    fig.tight_layout()
+    path = Path(out_dir) / "population_spectral_fit_shape.png"
+    fig.savefig(path, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote", path)
+
+
 def summarise(res):
     for t in C.TEMPLATES:
         cells = res[t]["cells"]
@@ -182,7 +331,15 @@ def main():
     ap.add_argument("--stretch-scale", default="1")
     ap.add_argument("--intact-min", type=float, default=0.5)
     ap.add_argument("--plot", action="store_true")
+    ap.add_argument("--fit-shape", action="store_true",
+                    help="fit the global band shape (shifts per mode class, two widths, Lorentzian or Gaussian) per template")
     args = ap.parse_args()
+    if args.fit_shape:
+        res = run_shape(args)
+        summarise_shape(res)
+        if args.plot:
+            plot_shape(res, _paths.get_plots_dir("pahchem"))
+        return
     res = run(args)
     summarise(res)
     if args.plot:

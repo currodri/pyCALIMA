@@ -98,6 +98,134 @@ def continuum_basis(grid, knot_um=1.5, segments_um=SEGMENTS_UM):
     return np.stack(cols, axis=1)
 
 
+#: mode classes by harmonic frequency [cm^-1]; modes outside them take the CC shift and the "rest" width
+MODE_CLASSES = {"ch": (2800.0, 3300.0), "cc": (1000.0, 1800.0), "oop": (600.0, 1000.0)}
+
+
+@dataclass(frozen=True)
+class BandShape:
+    """Global band profile: shifts per mode class [cm^-1], FWHM of the CH stretch and of the rest, profile.
+
+    The default is pahchem's previous convention (one -15 cm^-1 shift, 15 cm^-1
+    Lorentzians). Shifts and widths stand for the anharmonic red-shift and
+    broadening at the emission temperature, shared by every molecule.
+    """
+
+    shift_ch: float = -15.0
+    shift_cc: float = -15.0
+    shift_oop: float = -15.0
+    fwhm_ch: float = 15.0
+    fwhm_rest: float = 15.0
+    profile: str = "lorentzian"
+
+    def per_mode(self, freqs_cm):
+        f = np.asarray(freqs_cm, dtype=float)
+        ch = (f >= MODE_CLASSES["ch"][0]) & (f < MODE_CLASSES["ch"][1])
+        oop = (f >= MODE_CLASSES["oop"][0]) & (f < MODE_CLASSES["oop"][1])
+        shift = np.where(ch, self.shift_ch, np.where(oop, self.shift_oop, self.shift_cc))
+        fwhm = np.where(ch, self.fwhm_ch, self.fwhm_rest)
+        return shift, fwhm
+
+
+def shaped_spectrum(freqs_cm, strength, nu_cm, shape=BandShape()):
+    """Sum of unit-area bands of ``strength`` at the shifted positions, per cm^-1 on ``nu_cm``."""
+    shift, fwhm = shape.per_mode(freqs_cm)
+    x = np.asarray(nu_cm, dtype=float)[None, :] - (np.asarray(freqs_cm, dtype=float) + shift)[:, None]
+    w = fwhm[:, None]
+    if shape.profile == "lorentzian":
+        g = 0.5 * w / np.pi / (x**2 + (0.5 * w) ** 2)
+    elif shape.profile == "gaussian":
+        s = w / np.sqrt(8.0 * np.log(2.0))
+        g = np.exp(-0.5 * (x / s) ** 2) / (s * np.sqrt(2.0 * np.pi))
+    else:
+        raise ValueError(f"profile must be 'lorentzian' or 'gaussian', not {shape.profile!r}")
+    return np.asarray(strength, dtype=float) @ g
+
+
+def window_fluxes(grid, spectrum, windows_um):
+    """{band: integral of ``spectrum`` over the window} on the grid (masked bins excluded)."""
+    lam = grid.lam_um
+    return {b: float(spectrum[(lam >= lo) & (lam <= hi)].sum() * grid.step_cm) for b, (lo, hi) in windows_um.items()}
+
+
+def molecule_spectra(pop, env, nu_cm, shape=BandShape(), index=None):
+    """P[s, i] for the molecules ``index`` of a ``population.Population`` (all if None), with ``shape``."""
+    from pycalima.pahchem.population import field_shape
+
+    fs = field_shape(env)
+    f = pop.charge_matrix(env)
+    idx = range(len(pop.library)) if index is None else index
+    out = np.zeros((len(idx), np.size(nu_cm)))
+    for k, s in enumerate(idx):
+        mol = pop.library[s]
+        for z in mol.charges:
+            b = pop.basis(mol, z, fs)
+            out[k] += f[s, z - pop.zmin] * shaped_spectrum(b.freqs_cm, b.emitted, nu_cm, shape)
+    return env.g0 * out
+
+
+def shaped_state_spectra(pop, fshape, nu_cm, shape=BandShape()):
+    """S[s, slot, i]: every state's IR power per cm^-1 at G0 = 1 with ``shape`` (independent of the cell)."""
+    pop.prepare(fshape)
+    S = np.zeros((len(pop.library), len(pop.zs), np.size(nu_cm)))
+    for s, mol in enumerate(pop.library):
+        for z in mol.charges:
+            b = pop.basis(mol, z, fshape)
+            S[s, z - pop.zmin] = shaped_spectrum(b.freqs_cm, b.emitted, nu_cm, shape)
+    return S
+
+
+#: bounds of the BandShape parameters fitted by ``fit_band_shape`` [cm^-1]
+SHAPE_BOUNDS = {"shift_ch": (-70.0, 20.0), "shift_cc": (-50.0, 20.0), "shift_oop": (-50.0, 20.0),
+                "fwhm_ch": (5.0, 80.0), "fwhm_rest": (5.0, 60.0)}
+
+
+def fit_band_shape(observed, grid, pop, env, keep, continuum_columns, start=BandShape(), max_rounds=4):
+    """(BandShape, SpectralFit, active molecule indices): the band shape that minimises the joint-fit residual.
+
+    The weights are linear, so the shape is profiled:
+    1. NNLS over all kept molecules at the current shape gives the active set;
+    2. bounded least squares on the shape parameters (variable projection): the
+       residual of the NNLS fit restricted to that set, which is smooth in the
+       shape;
+    3. repeat until the active set is stable (or ``max_rounds``).
+    The profile kind (``start.profile``) is held fixed.
+    """
+    from scipy.optimize import least_squares
+
+    names = list(SHAPE_BOUNDS)
+    lo = np.array([SHAPE_BOUNDS[k][0] for k in names])
+    hi = np.array([SHAPE_BOUNDS[k][1] for k in names])
+    kept = np.flatnonzero(keep)
+    shape = start
+    active_prev = None
+    for _ in range(max_rounds):
+        P = molecule_spectra(pop, env, grid.nu, shape, kept).T
+        fit = fit_spectrum(observed, P, continuum_columns)
+        active = kept[fit.weights > 0]
+        if active_prev is not None and set(active) == set(active_prev):
+            break
+        active_prev = active
+        ok = np.isfinite(observed)
+
+        def residual(x):
+            sh = BandShape(**dict(zip(names, x)), profile=start.profile)
+            Pa = molecule_spectra(pop, env, grid.nu, sh, active).T
+            f_ = fit_spectrum(observed, Pa, continuum_columns)
+            return (observed - f_.pah - f_.cont)[ok] / np.mean(observed[ok])
+
+        x0 = np.clip(np.array([getattr(shape, k) for k in names], dtype=float), lo + 1e-6, hi - 1e-6)
+        res = least_squares(residual, x0, bounds=(lo, hi), diff_step=1e-3, x_scale=np.full(len(names), 5.0),
+                            max_nfev=200)
+        shape = BandShape(**dict(zip(names, res.x)), profile=start.profile)
+    P = molecule_spectra(pop, env, grid.nu, shape, kept).T
+    fit = fit_spectrum(observed, P, continuum_columns)
+    w = np.zeros(len(pop.library))
+    w[kept] = fit.weights
+    fit.weights = w
+    return shape, fit, kept[fit.weights[kept] > 0]
+
+
 @dataclass
 class SpectralFit:
     weights: np.ndarray          # per molecule (numbers, in the units of the observation per model unit)
