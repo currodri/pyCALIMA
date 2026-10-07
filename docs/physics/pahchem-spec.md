@@ -1372,6 +1372,65 @@ with `--ip-shift/--yield-model/--detachment/--capture-scale`).**
   other's bases. It is fixed. All the scans above ran one setting per
   process and were not affected.
 
+**Review findings and withdrawn conclusions (2026-10-07).** Two independent
+reviews of pahchem were run, one on software and numerics and one on the
+physics (reports and scripts in the session scratchpad, review_A and
+review_B).
+- **C1, measurement mismatch** (confirmed).
+  - The band-ratio population fits compared observed bands over the Chown+24
+    spline (every band below 10 µm, and all bands in "spline" mode) with raw
+    model windows.
+  - Put through the same spline, the model keeps 24 % of its 6.2 µm flux and
+    37–51 % at 7.7–8.6 µm. 1274 of 1396 molecules get a negative band, the
+    fits become exact in every cell, and γ is unconstrained.
+  - **Withdrawn:** every γ result of the band-ratio fits:
+    - "best γ at the low edge";
+    - "the stated conditions are not all allowed";
+    - "the γ tension is a recombination question", and capture ×3;
+    - the lab-trend and IP-calibration γ tables;
+    - D1–D3 of the M26 comparison;
+    - the band-ratio ⟨N_C⟩.
+- **Also withdrawn:** "harmonic mixtures already have the plateau". The
+  opening metric scores a single Lorentzian line at 0.48, so it counts line
+  wings as plateau.
+- **Open items from the reviews**, to be fixed in order:
+  - the single-step intact filter (wrong near threshold: C54H18 0.87 against
+    0.00 from the network);
+  - recombination heating, missing (neutral band power +40–48 %);
+  - the G0 normalisation (the Kurucz shape scaled to 6–13.6 eV is 1.24× the
+    Peeters+24 F_ν(1027/1040 Å) definition);
+  - capture above the classical limit (the lab trend extrapolated);
+  - an uncalibrated error model;
+  - ⟨N_C⟩ degeneracy;
+  - bond-graph hash collisions (114 non-isomorphic pairs);
+  - M20 partner isomers;
+  - result caches keyed without their inputs;
+  - dications missing from reported cation shares;
+  - recurrent fluorescence and photons below 5 eV, absent from the population.
+- **Step 1, the observable** ({mod}`pycalima.pahchem.spectral_fit`,
+  `diagnostics/pahchem/fit_pdrs4all_spectra.py`).
+  - The templates are now fitted as spectra: I_ν = Σ w_s P_s(conditions) +
+    a cubic B-spline continuum in λ (knots 1.0 / 1.5 / 2.5 µm, per segment).
+  - Fitted over 3.1–3.65 and 5–15 µm on a 2.5 cm⁻¹ grid, Chown+24 artefacts
+    masked, all coefficients ≥ 0. Data and model are treated alike, and a
+    synthetic population plus continuum is recovered to 3 % in band ratios
+    (tests).
+  - Results with the current inputs (v4.00, IPs calibrated, lab stretch,
+    BT94, the old intact filter):
+    - The best cells lie at γ ≈ 5e4–2e5, at or near the upper edge in the
+      Atomic PDR and DF1.
+    - Cations (Z ≥ 1) carry 0.89–0.97 of the PAH emission and anions 0.
+    - Carbon-weighted ⟨N_C⟩ is 75–86, the same for all knot spacings.
+  - The fits are poor (rms 15–32 %) with structured residuals:
+    - the model 3.3 µm band peaks ~25 cm⁻¹ blue of 3.29 µm and is too weak;
+    - 11.2 and 12.7 µm are too weak and too broad, and the continuum takes a
+      third to two thirds of the 10–15 µm power;
+    - 6–9 µm fits well, and it drives the cation share.
+  - With a consistent observable, the conditions inference is controlled by
+    the band-profile model: one fixed −15 cm⁻¹ shift and one 15 cm⁻¹
+    Lorentzian for every band. Δχ² ranges are meaningless with structured
+    residuals like these.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

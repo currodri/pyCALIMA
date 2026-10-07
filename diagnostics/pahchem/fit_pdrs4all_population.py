@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """Which PAH population explains the PDRs4All Orion Bar bands, at the stated conditions (M7d).
 
+SUPERSEDED (review 2026-10-07, finding C1). The observed bands below 10 um
+(and every band in "spline" mode) are integrals over the Chown+24 spline,
+while the model bands are raw window integrals. Put through the same spline,
+the model loses 50-75 % of its 6.2-8.6 um flux, and its gamma constraint
+disappears. The gamma and N_C results of this script are therefore not
+valid. Use fit_pdrs4all_spectra.py (``spectral_fit``), which treats data and
+model alike. Kept for the record and for the observed band table (--write-bands).
+
 Library (``--library``): the 133 Maragkoudakis+20 PAHdb v3.20 molecules
 (``population.library_m20``, all v3.20 anions), or PAHdb v4.00
 (``population.library_v400``: 1396 molecules, charges -1 to +3, 6-31G*).

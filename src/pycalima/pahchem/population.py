@@ -584,6 +584,25 @@ class Population:
         fz = {m.name: {z: float(f[s, z - self.zmin]) for z in m.charges} for s, m in enumerate(self.library)}
         return F, fz
 
+    def state_spectra(self, shape, nu_cm, fwhm_cm=15.0, shift_cm=-15.0):
+        """S[s, slot, i]: IR power per cm^-1 of every state at G0 = 1 on ``nu_cm`` (``emission.spectrum`` profile)."""
+        nu = np.asarray(nu_cm, dtype=float)
+        key = ("spectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm)
+        if key not in self._arrays:
+            self.prepare(shape)
+            S = np.zeros((len(self.library), len(self.zs), nu.size))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    b = self.basis(mol, z, shape)
+                    S[s, z - self.zmin] = emission.spectrum(b.freqs_cm, b.emitted, nu, fwhm_cm, shift_cm)
+            self._arrays[key] = S
+        return self._arrays[key]
+
+    def spectra(self, env, nu_cm, **profile):
+        """P[s, i]: the spectrum of every molecule, its charges at ``env`` [cm^-1 s^-1 per cm^-1]."""
+        S = self.state_spectra(field_shape(env), nu_cm, **profile)
+        return env.g0 * np.einsum("sz,szi->si", self.charge_matrix(env), S)
+
     def state_band_fluxes(self, mol, z, env):
         """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
         b = self.basis(mol, z, field_shape(env))
