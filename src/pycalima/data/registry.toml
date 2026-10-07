@@ -221,6 +221,78 @@ pahdb-complete-theoretical-v3.20_pIN3f5.ascii or register it with:
     calima-fetch-data import pahdb-theoretical-v3-20 /path/to/downloaded.ascii
 """
 
+[datasets.pahdb-clusters-theoretical-v1-00]
+kind = "manual"
+dest = "pahdb"
+files = ["pahdb-complete-clusters_theoretical-v1.00.xml"]
+size_bytes = 12_394_764
+citation = "NASA Ames PAHdb, theoretical cluster library v1.00 (Ricca, Bauschlicher & Allamandola 2013, ApJ 776, 31)"
+url = "https://www.astrochemistry.org/pahdb/"
+url_status = "unconfirmed"
+env_override = "CALIMA_PAHDB_DIR"
+instructions = """103 computed spectra of neutral clusters (monomer to decamer) of pyrene,
+coronene, ovalene and tribenzoperopyrene, B3LYP/4-31G. Only pahchem's population
+fits read it, and skip without it. Register (free) at
+https://www.astrochemistry.org/pahdb/, download the clusters/theoretical library
+(XML), and put it in $CALIMA_PAHDB_DIR as
+pahdb-complete-clusters_theoretical-v1.00.xml (drop the download token), or:
+
+    calima-fetch-data import pahdb-clusters-theoretical-v1-00 /path/to/downloaded.xml
+"""
+
+[datasets.pahdb-clusters-experimental-v1-10]
+kind = "manual"
+dest = "pahdb"
+files = ["pahdb-complete-clusters_experimental-v1.10.xml"]
+size_bytes = 3_457_545
+citation = "NASA Ames PAHdb, laboratory cluster library v1.10 (matrix isolation in Ar at 5 K; e.g. Roser et al.)"
+url = "https://www.astrochemistry.org/pahdb/"
+url_status = "unconfirmed"
+env_override = "CALIMA_PAHDB_DIR"
+instructions = """9 laboratory spectra of PAH clusters (anthracene, coronene,
+hexabenzocoronene, ...) at several matrix concentrations; a check of the computed
+cluster band shifts. Download the clusters/experimental library (XML) from
+https://www.astrochemistry.org/pahdb/ and put it in $CALIMA_PAHDB_DIR as
+pahdb-complete-clusters_experimental-v1.10.xml, or:
+
+    calima-fetch-data import pahdb-clusters-experimental-v1-10 /path/to/downloaded.xml
+"""
+
+[datasets.pahdb-experimental-v3-10]
+kind = "manual"
+dest = "pahdb"
+files = ["pahdb-complete-experimental-v3.10.xml"]
+size_bytes = 6_980_395
+citation = "NASA Ames PAHdb, laboratory library v3.10 (Mattioda et al. 2020, ApJS 251, 22)"
+url = "https://www.astrochemistry.org/pahdb/"
+url_status = "unconfirmed"
+env_override = "CALIMA_PAHDB_DIR"
+instructions = """84 matrix-isolation spectra (50 neutral, 28 cation, 6 anion) of small PAHs
+and PANHs; a check of the DFT band strengths per charge. Download the
+experimental library (XML) from https://www.astrochemistry.org/pahdb/ and put it
+in $CALIMA_PAHDB_DIR as pahdb-complete-experimental-v3.10.xml, or:
+
+    calima-fetch-data import pahdb-experimental-v3-10 /path/to/downloaded.xml
+"""
+
+[datasets.pahdb-anharmonic-v1-00]
+kind = "manual"
+dest = "pahdb"
+files = ["pahdb-complete-anharmonic-v1.00.xml"]
+size_bytes = 10_080_649
+citation = "NASA Ames PAHdb, anharmonic library v1.00 (45 spectra, C6H6-C18H12, B3LYP/N07D)"
+url = "https://www.astrochemistry.org/pahdb/"
+url_status = "unconfirmed"
+env_override = "CALIMA_PAHDB_DIR"
+instructions = """45 computed anharmonic spectra (fundamentals, overtones and combination
+bands) of small PAHs and N-substituted PAHs; a check of the harmonic shift and
+width convention. Download the anharmonic library (XML) from
+https://www.astrochemistry.org/pahdb/ and put it in $CALIMA_PAHDB_DIR as
+pahdb-complete-anharmonic-v1.00.xml, or:
+
+    calima-fetch-data import pahdb-anharmonic-v1-00 /path/to/downloaded.xml
+"""
+
 [datasets.west2018-esi]
 kind = "manual"
 dest = "lab/west2018"

@@ -122,6 +122,17 @@ def test_library_m20_pairs_and_dft_energetics():
     assert np.corrcoef(np.log(nc), ip)[0, 1] < -0.5
 
 
+
+def test_all_anions_extends_but_keeps_the_table_h3_anions():
+    lib, ext = _library(), population.library_m20(_ascii(), all_anions=True)
+    assert [m.name for m in lib] == [m.name for m in ext]
+    assert sum(m.ea_ev is not None for m in ext) == 81
+    for a, b in zip(lib, ext):
+        if -1 in a.uids:
+            assert b.uids[-1] == a.uids[-1]
+        if b.ea_ev is not None:
+            assert 0.0 < b.ea_ev < b.ip_ev and b.species[-1].charge == -1 and b.species[-1].nc == b.nc
+
 def test_charge_balance_follows_the_conditions():
     lib = _library()
     mol = next(m for m in lib if m.ea_ev is not None and m.nc >= 40)

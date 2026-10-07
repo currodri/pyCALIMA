@@ -87,12 +87,12 @@ def observed(continuum):
     return {tpl: {b: float(t.loc[b, tpl]) for b in WINDOWS} for tpl in C.TEMPLATES}
 
 
-def run(min_nc=0, intact_min=0.5, n_boot=200, cache=None):
+def run(min_nc=0, intact_min=0.5, n_boot=200, cache=None, all_anions=True):
     """{(template, corner, continuum): result dict}; ``cache`` a pickle path to reuse."""
     if cache is not None and Path(cache).exists():
         with open(cache, "rb") as fh:
             return pickle.load(fh)
-    lib = population.library_m20(min_nc=min_nc)
+    lib = population.library_m20(min_nc=min_nc, all_anions=all_anions)
     pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else ()) for c in CONTINUA}
     obs = {c: observed(c) for c in CONTINUA}
     out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib]}
@@ -125,6 +125,67 @@ def run(min_nc=0, intact_min=0.5, n_boot=200, cache=None):
     return out
 
 
+
+def _grid(lo, hi, n):
+    return np.geomspace(lo, hi, n) if hi > lo else np.array([lo])
+
+
+def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, all_anions=True):
+    """chi^2 and the implied population over a grid inside each template's stated ranges.
+
+    The grid is G0 x n_H x (n_e, or x_e where the card gives x_e), log-spaced
+    between the card's bounds. Molecules are kept by their intact fraction at
+    the template's most-ionising corner, as in ``run``. Returns
+    {template: list of cells}, each cell
+    {g0, n_h, n_e, gamma, continuum: {chi2, mean_nc, f_anion, f_cation, solo/duo, ...}},
+    where f_anion and f_cation are shares of the population's carbon.
+    """
+    if cache is not None and Path(cache).exists():
+        with open(cache, "rb") as fh:
+            return pickle.load(fh)
+    from pycalima.pahchem.baseline import Environment
+
+    lib = population.library_m20(all_anions=all_anions)
+    pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else ()) for c in CONTINUA}
+    obs = {c: observed(c) for c in CONTINUA}
+    nc = np.array([m.nc for m in lib], dtype=float)
+    card = conditions.load("orion_bar")
+    teff = int(card["region"]["field_teff_k"]["value"])
+    out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib]}
+    for t in C.TEMPLATES:
+        e = card[t]
+        envs = conditions.bracketing_environments("orion_bar", t)
+        keep = np.array([pops["spline"].intact_fraction(m, envs["most ionising"]) for m in lib]) >= intact_min
+        temp = conditions.bounds(e["t_gas"])[0]
+        cells = []
+        for g0 in _grid(*conditions.bounds(e["g0"]), n_g0):
+            for n_h in _grid(*conditions.bounds(e["n_h"]), n_nh):
+                electron = e["n_e"] if "n_e" in e else e["x_e"]
+                for v in _grid(*conditions.bounds(electron), n_e):
+                    ne = v if "n_e" in e else v * n_h
+                    env = Environment(f"{t} scan", g0, n_h, ne, temp, teff)
+                    cell = {"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne}
+                    for c in CONTINUA:
+                        F, fz = pops[c].band_fluxes(env)
+                        r = population.fit_abundances(F[keep], obs[c][t], REFERENCE)
+                        w = np.zeros(len(lib))
+                        w[keep] = r["weights"]
+                        wc = w * nc / (w @ nc)
+                        cell[c] = {"chi2": r["chi2"], "weights": w,
+                                   "f_anion": float(sum(wc[i] * fz[m.name].get(-1, 0.0) for i, m in enumerate(lib))),
+                                   "f_cation": float(sum(wc[i] * fz[m.name].get(1, 0.0) for i, m in enumerate(lib))),
+                                   **population.population_statistics(lib, w)}
+                    cells.append(cell)
+                    print(f"{t} G0 {g0:.2g} n_H {n_h:.2g} n_e {ne:.2g} gamma {cell['gamma']:.2g}: "
+                          + "  ".join(f"{c} chi2 {cell[c]['chi2']:.1f} <N_C> {cell[c]['mean_nc']:.0f} "
+                                      f"f-/f+ {cell[c]['f_anion']:.2f}/{cell[c]['f_cation']:.2f}" for c in CONTINUA),
+                          flush=True)
+        out[t] = cells
+    if cache is not None:
+        with open(cache, "wb") as fh:
+            pickle.dump(out, fh)
+    return out
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--templates", type=Path, help="orionbar.dat; with --write-bands, re-measure the bands")
@@ -132,7 +193,11 @@ def main():
     ap.add_argument("--min-nc", type=int, default=0)
     ap.add_argument("--intact-min", type=float, default=0.5)
     ap.add_argument("--cache", type=Path, default=_paths.get_results_dir() / "pahchem_population_fit.pkl")
+    ap.add_argument("--scan", action="store_true", help="chi^2 over the stated (G0, n_H, n_e) ranges instead")
     args = ap.parse_args()
+    if args.scan:
+        scan(cache=_paths.get_results_dir() / "pahchem_population_scan.pkl")
+        return
     if args.write_bands:
         write_bands(args.templates, args.write_bands)
         print("wrote", args.write_bands)

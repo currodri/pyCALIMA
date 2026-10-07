@@ -49,15 +49,17 @@ the molecules' abundances are fitted. In outline:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
 
-from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, photo, rates
+from pycalima.pahchem import chemistry, dos, emission, energy_me, photo, rates
 from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2
 from pycalima.pahchem.baseline import E_PH, Params
 
 HARTREE_EV = 27.211386
+_FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
 EDGES = ("solo", "duo", "trio", "quartet")
 
 
@@ -81,20 +83,30 @@ class Molecule:
         return tuple(sorted(self.species))
 
 
-def library_m20(path=None, min_nc=0):
+def library_m20(path=None, min_nc=0, all_anions=False):
     """[Molecule] of the Maragkoudakis+20 sample with N_C >= ``min_nc``.
 
     The cation is the neutral's partner row in their Tables H1-H2 (checked to
     have the same formula and edge-H counts). An anion (Table H3) is attached
     when exactly one neutral has its formula and edge-H counts; isomers that
-    share both leave the anion out. ``path`` is the PAHdb v3.20 ASCII file
-    (default ``ames_pahdb.ascii_path()``).
+    share both leave the anion out. With ``all_anions`` the anions are looked
+    up in the whole of PAHdb v3.20, not only Table H3: 81 molecules against
+    38 (Table H3's anion first where isomers share formula and edge counts). ``path`` is the PAHdb v3.20 ASCII file (default
+    ``ames_pahdb.ascii_path()``).
     """
     from pycalima.pahchem import ames_pahdb, maragkoudakis2020
 
     path = ames_pahdb.ascii_path() if path is None else path
     sample = maragkoudakis2020.sample()
-    meta = ames_pahdb.read_metadata(path, sample.uid)
+    if all_anions:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            every = [int(line.split()[1]) for line in fh if line.startswith("UID:")]
+        meta = ames_pahdb.read_metadata(path, every)
+        pool = [u for u, m in meta.items() if m.get("CHARGE") == -1 and _FORMULA_CH.fullmatch(m.get("FORMULA", ""))]
+        meta = {u: meta[u] for u in set(sample.uid) | set(pool)}
+    else:
+        meta = ames_pahdb.read_metadata(path, sample.uid)
+        pool = list(sample[sample.charge == -1].uid)
     sp = ames_pahdb.read_ascii(path, sample.uid)
     key = lambda u: (meta[u]["FORMULA"].rstrip("+-"),) + tuple(meta[u][f"N_{e.upper()}"] for e in EDGES)
     pairs = sample[sample.charge >= 0].uid.to_numpy().reshape(-1, 2)
@@ -104,8 +116,14 @@ def library_m20(path=None, min_nc=0):
     by_key = {}
     for u0, _ in pairs:
         by_key.setdefault(key(u0), []).append(u0)
-    anion = {by_key[key(u)][0]: u for u in sample[sample.charge == -1].uid
-             if len(by_key.get(key(u), ())) == 1}
+    anions_by_key = {}
+    for u in pool:
+        anions_by_key.setdefault(key(u), []).append(u)
+    h3 = set(sample[sample.charge == -1].uid)
+    pick = lambda us: us if len(us) == 1 else [u for u in us if u in h3]       # Table H3 first among isomers
+    anion = {by_key[k][0]: pick(us)[0] for k, us in anions_by_key.items()
+             if len(by_key.get(k, ())) == 1 and len(pick(us)) == 1}
+    sp |= ames_pahdb.read_ascii(path, [u for u in anion.values() if u not in sp])
     level = lambda u: (meta[u]["METHOD"].lstrip("RU").upper(), meta[u]["BASIS"].replace("?", "4-31G"))
     same = lambda a, b: level(a) == level(b)
     de = lambda a, b: (meta[b]["TOTAL_E"] - meta[a]["TOTAL_E"]) * HARTREE_EV
@@ -134,23 +152,26 @@ def _yield(mol, z):
 
 
 def neutral_sticking(mol, temperature_k):
-    """Statistical s_e of the neutral (``attachment``), its P(E) radiative at Draine G0 = 1 as in the baseline."""
+    """Statistical s_e of the neutral (``attachment``), the neutral in its vibrational ground state.
+
+    The baseline instead uses the neutral's radiative P(E) under the Draine
+    field at G0 = 1. That steady state costs ~7 s per molecule, has a mean
+    energy of 5-11 cm^-1, and gives the same s_e as the ground state (checked
+    for C26H16, C72H22 and C216H36 of the library). Between photons an
+    interstellar PAH is cold.
+    """
     if mol.ea_ev is None:
         raise ValueError(f"{mol.name}: no anion in the library, so no neutral sticking")
     if "attachment" not in mol._cache:
         from pycalima.pahchem.attachment import Attachment
 
-        neu = mol.species[0]
-        at = Attachment(neu, mol.species[-1], mol.ea_ev, chemistry.disc_radius_cm(mol.nc), e_excess_cm=8000.0)
-        cm = energy_me.CascadeModel(neu.freqs_cm, neu.einstein_a, e_max_cm=16.0 * dos.CM_PER_EV, de_cm=10.0,
-                                    grain_cm=1.0)
-        sigma = photo.sigma_li_draine(mol.nc, 0, E_PH)
-        h = photo.heating_spectrum(fields.draine1978(g0=1.0), sigma, _yield(mol, 0), E_PH)
-        mol._cache["attachment"] = (at, cm.energy_cm, cm.steady_state(E_PH, h, {}).probability, {})
-    at, e_n, p_n, done = mol._cache["attachment"]
+        at = Attachment(mol.species[0], mol.species[-1], mol.ea_ev, chemistry.disc_radius_cm(mol.nc),
+                        e_excess_cm=8000.0)
+        mol._cache["attachment"] = (at, {})
+    at, done = mol._cache["attachment"]
     t = round(float(temperature_k), 6)
     if t not in done:
-        done[t] = at.sticking(temperature_k, e_n, p_n)
+        done[t] = at.sticking(temperature_k, np.array([0.0]), np.array([1.0]))
     return done[t]
 
 
