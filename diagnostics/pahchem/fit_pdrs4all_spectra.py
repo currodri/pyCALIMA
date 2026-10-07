@@ -54,7 +54,7 @@ BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3
 
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
-RESULT_VERSION = 2
+RESULT_VERSION = 4
 
 
 def _result_key(args):
@@ -188,45 +188,59 @@ def run_shape(args, knot=1.5, iterations=2):
         y = observed_on_grid(lam, tmpl[t], grid)
         cells = _cells(card, t)
         out[t] = {"observed": y}
+        keeps = [pop.intact_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
+
+        def scan(shape):
+            S = spectral_fit.shaped_state_spectra(pop, fshape, grid.nu, shape)
+            rows = []
+            for (g0, n_h, ne, temp), keep in zip(cells, keeps):
+                env = Environment(t, g0, n_h, ne, temp, teff)
+                f = pop.charge_matrix(env)
+                P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
+                fit = spectral_fit.fit_spectrum(y, P, C_)
+                w = np.zeros(len(lib))
+                w[keep] = fit.weights
+                power = w[:, None] * f * absorbed
+                tot = power.sum()
+                wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
+                rows.append({"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
+                             "rms": fit.rms, "n": int(np.isfinite(y).sum()),
+                             "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
+                             "mean_nc_carbon": float((w * nc) @ nc / (w @ nc)) if w.sum() > 0 else np.nan,
+                             "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
+                             "e_dication": float(power[:, zs >= 2].sum() / tot),
+                             "ratios": {b: v / wf["11.2"] for b, v in wf.items()},
+                             "cont_share": float(fit.cont[grid.segment == 1].sum() / max(
+                                 fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum(), 1e-300)),
+                             "pah": fit.pah, "cont": fit.cont})
+            return rows
+
         for profile in ("lorentzian", "gaussian"):
-            ref = cells[len(cells) // 2]
-            shape = spectral_fit.BandShape(profile=profile)
-            history = []
-            for it in range(iterations):
-                env = Environment(t, ref[0], ref[1], ref[2], ref[3], teff)
-                keep = pop.intact_fractions(env) >= args.intact_min
-                starts = [shape] + ([dataclasses.replace(BROAD_START, profile=profile)] if it == 0 else [])
-                trials = [spectral_fit.fit_band_shape(y, grid, pop, env, keep, C_, start=s) for s in starts]
-                shape = min(trials, key=lambda tr: tr[1].sse)[0]          # several starts: two solution branches exist
-                S = spectral_fit.shaped_state_spectra(pop, fshape, grid.nu, shape)
-                rows = []
-                for g0, n_h, ne, temp in cells:
-                    env = Environment(t, g0, n_h, ne, temp, teff)
-                    keep = pop.intact_fractions(env) >= args.intact_min       # hydrogenation chain, per cell
-                    f = pop.charge_matrix(env)
-                    P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
-                    fit = spectral_fit.fit_spectrum(y, P, C_)
-                    w = np.zeros(len(lib))
-                    w[keep] = fit.weights
-                    power = w[:, None] * f * absorbed
-                    tot = power.sum()
-                    wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
-                    rows.append({"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
-                                 "rms": fit.rms, "n": int(np.isfinite(y).sum()),
-                                 "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
-                                 "mean_nc_carbon": float((w * nc) @ nc / (w @ nc)) if w.sum() > 0 else np.nan,
-                                 "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
-                                 "e_dication": float(power[:, zs >= 2].sum() / tot),
-                                 "ratios": {b: v / wf["11.2"] for b, v in wf.items()},
-                                 "cont_share": float(fit.cont[grid.segment == 1].sum() / max(
-                                     fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum(), 1e-300)),
-                                 "pah": fit.pah, "cont": fit.cont})
-                best = min(rows, key=lambda r: r["sse"])
-                history.append((shape, best["gamma"], best["rms"]))
-                ref = (best["g0"], best["n_h"], best["n_e"], cells[0][3])
-            out[t][profile] = {"shape": shape, "history": history, "cells": rows}
-            print(f"{t} {profile}: " + " -> ".join(f"[rms {h[2]:.3f}, gamma {h[1]:.2g}]" for h in history)
-                  + f"; shape {shape}", flush=True)
+            runs = []
+            # each start goes through the whole alternation: shape and gamma are coupled, and a start
+            # compared only at one cell can pick the wrong branch (two exist; spec, step 1)
+            for start in (spectral_fit.BandShape(profile=profile), dataclasses.replace(BROAD_START, profile=profile)):
+                # the first shape fit is made at the best cell of a scan with the start shape itself: fitted at a
+                # fixed (high-gamma) cell, every start fell into the narrow branch
+                ref, shape, history = int(np.argmin([r["sse"] for r in scan(start)])), start, []
+                for it in range(iterations):
+                    g0, n_h, ne, temp = cells[ref]
+                    shape, _, _ = spectral_fit.fit_band_shape(y, grid, pop, Environment(t, g0, n_h, ne, temp, teff),
+                                                              keeps[ref], C_, start=shape)
+                    rows = scan(shape)
+                    ref = int(np.argmin([r["sse"] for r in rows]))
+                    history.append((shape, rows[ref]["gamma"], rows[ref]["rms"]))
+                runs.append({"shape": shape, "history": history, "cells": rows, "start": start,
+                             "best_sse": rows[ref]["sse"]})
+            best = min(runs, key=lambda r: r["best_sse"])
+            out[t][profile] = best | {"alternatives": [{k: r[k] for k in ("shape", "history", "best_sse", "start")}
+                                                       for r in runs]}
+            for r in runs:
+                tag = "*" if r is best else " "
+                print(f"{t} {profile} {tag} start {r['start'].shift_ch:+.0f}/{r['start'].fwhm_ch:.0f}: "
+                      + " -> ".join(f"[rms {h[2]:.3f}, gamma {h[1]:.2g}]" for h in r["history"])
+                      + f"; shape CH {r['shape'].shift_ch:+.0f}/{r['shape'].fwhm_ch:.0f}, CC {r['shape'].shift_cc:+.0f}, "
+                      f"oop {r['shape'].shift_oop:+.0f}, rest FWHM {r['shape'].fwhm_rest:.0f}", flush=True)
     with open(cache, "wb") as fh:
         pickle.dump(out, fh)
     return out

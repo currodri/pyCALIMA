@@ -1431,6 +1431,53 @@ review_B).
     Lorentzian for every band. Δχ² ranges are meaningless with structured
     residuals like these.
 
+**Step 2 corrections and the corrected spectral fits (2026-10-07;
+`fit_pdrs4all_spectra.py --fit-shape`, figure `population_spectral_fit_shape.png`).**
+- **Corrections in place:**
+  - recombination heating;
+  - G0 definitions per card entry (Peeters+24 F_ν(1027/1040 Å), 1.236× the
+    Habing integral for 40 kK);
+  - capture capped at the classical limit;
+  - the dehydrogenation chain per cell, replacing the one-step filter;
+  - multiphoton loss cascades to 45 eV, where the 16 eV grid had cut the
+    two-photon tail off;
+  - the stable-partition bond-graph hash (v4.00: 1431 molecules) and
+    graph-matched M20 partners;
+  - gas-line masks;
+  - result caches keyed on the code version.
+- **Shape fitting.** Each start (default, broad CH) goes through the whole
+  alternation, and its first shape fit is made at the best cell of a scan
+  with the start shape. Fitted at a fixed high-γ cell, every start fell into
+  the narrow-band branch (rms 0.10–0.23).
+- **Result** (v4.00, IPs calibrated, lab CH-stretch scale, BT94; Gaussian
+  profile best):
+
+  | | HII | Atomic | DF1 | DF2 | DF3 |
+  |---|---|---|---|---|---|
+  | rms | 0.048 | 0.102 | 0.091 | 0.067 | 0.055 |
+  | best γ | 9.8e3 | 1.0e4 | 1.0e4 | 9.9e3 | 1.1e4 |
+  | cation emission share (Z ≥ 2) | 0.55–0.61 (0.05) | | | | |
+  | ⟨N_C⟩, carbon-weighted | 85 | 87 | 85 | 81 | 83 |
+  | CH shift / FWHM | −28 / 40 | −29 / 35 | −29 / 36 | −28 / 35 | −28 / 34 |
+  | CC shift | +15 | +17 | +18 | +17 | +19 |
+  | oop shift / rest FWHM | −1 / 7 | 0 / 6 | 0 / 7 | −3 / 9 | +1 / 12 |
+
+  Lorentzian fits agree (rms 0.049–0.109).
+- **Reading.**
+  - The band shape is the same in all five templates.
+  - The best γ is ≈ 1e4 everywhere, inside every template's stated range.
+  - Cations (mostly +1) carry ≈ 0.55–0.6 of the PAH emission, anions ≤ 0.01.
+  - The continuum takes 0.5–0.6 of the 5–15 µm power.
+  - The γ and ⟨N_C⟩ uncertainties are not yet calibrated (step 3). The
+    Δχ² < 9 ranges use the fit's own residual scale and are narrow because
+    the residuals are structured.
+- **Remaining residuals.**
+  - The 3.40 µm aliphatic band, everywhere: there are no super-H or
+    aliphatic species in the library.
+  - A 3.25 µm shoulder.
+  - The Atomic 8.6 µm band.
+  - Atomic is the worst fit (rms 0.10).
+
 **Temperature-dependent band profiles: Mai et al. 2025 assessed (2026-10-07;
 analysis scripts in the session scratchpad, mai2025/).**
 - **What it is.** X. Mai, Z. Wang et al., MNRAS 541, 3073 (2025;
