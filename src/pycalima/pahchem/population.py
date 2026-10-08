@@ -224,9 +224,13 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
       states share a functional and basis (6-31G* for nearly all). Otherwise a
       fit a + b / sqrt(N_C) of that step over the consistent molecules is used,
       and the molecule records it in ``ip_source`` ("fit" if any step needed it).
-    - **Selection.** min_nc <= N_C <= max_nc, H-bearing; super-hydrogenated
-      species (CH2/CH3) only with ``include_superh`` (they are separate
-      molecules: their bond graph differs).
+    - **Selection.** min_nc <= N_C <= max_nc, H-bearing; species with H off
+      the aromatic edges (super-hydrogenated, methylated, side chains) only
+      with ``include_superh`` (they are separate molecules: their bond graph
+      differs). Such H are those beyond PAHdb's solo...quintet counts, or
+      tagged CH2/CH3: the tags miss the extra H of seven C96H25 isomers
+      (UIDs 684-690). ``edges`` then also holds "aliphatic", the number of
+      those H (vinyl H included), and "ch3", PAHdb's count of H in CH3 groups.
     - **Dropped.** Molecules whose thresholds do not rise with charge (three in
       v4.00: C127H31 and C277H45 with IP2 < IP1, C212H44 with EA > IP), and the
       1522 skeletons with a neutral and a dication but no cation, which the
@@ -239,8 +243,10 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
 
     if records is None:
         records = ames_pahdb.xml_index(ames_pahdb.xml_path("pahdb-theoretical-v4-00"), cache_dir)
+    off_edge = lambda r: r["nh"] - sum(r[f"n_{e}"] for e in (*EDGES, "quintet"))
     keep = [r for r in records if r["pure_ch"] and min_nc <= r["nc"] <= max_nc and r["nh"] > 0
-            and (include_superh or (r["n_ch2"] == 0 and r["n_ch3"] == 0)) and -1 <= r["charge"] <= 3]
+            and (include_superh or (r["n_ch2"] == 0 and r["n_ch3"] == 0 and off_edge(r) == 0))
+            and -1 <= r["charge"] <= 3]
     groups = {}
     for r in sorted(keep, key=lambda r: r["uid"]):
         groups.setdefault(r["graph"], {}).setdefault(r["charge"], r)
@@ -280,8 +286,9 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
             continue                                     # non-physical ladder (module docstring)
         species = {z: ames_pahdb.species_from_record(g[z], f"PAHdb v4.00 UID {g[z]['uid']}") for z in zs}
         formula = re.sub(r"[+-]\d*$", "", neu["formula"])
-        out.append(Molecule(f"{formula} ({neu['uid']})", neu["nc"], neu["nh"],
-                            {e: neu[f"n_{e}"] for e in EDGES}, species, {z: g[z]["uid"] for z in zs},
+        edges = {e: neu[f"n_{e}"] for e in EDGES} | (
+            {"aliphatic": off_edge(neu), "ch3": neu["n_ch3"]} if include_superh else {})
+        out.append(Molecule(f"{formula} ({neu['uid']})", neu["nc"], neu["nh"], edges, species, {z: g[z]["uid"] for z in zs},
                             thresholds[0], thresholds.get(-1), "fit" if fitted else "dft",
                             {z: thresholds[z] for z in zs[:-1]}, "pahdb-v4.00"))
     return sorted(out, key=lambda m: (m.nc, m.nh, m.uids[0]))
@@ -425,8 +432,9 @@ class StateBasis:
         return np.exp(np.interp(np.log(g), np.log(K_H_G0_GRID), lk))
 
 
-#: CH stretch modes scaled by ``Params.stretch_scale`` [cm^-1]
-CH_STRETCH_CM = (2900.0, 3200.0)
+#: CH stretch modes scaled by ``Params.stretch_scale`` [cm^-1]. The aliphatic CH2/CH3 stretches (2700-3000) are
+#: included: the scale is measured on aromatic stretches only, and is assumed to hold for them as well
+CH_STRETCH_CM = (2600.0, 3200.0)
 #: lab / DFT ratio of the CH stretch to CH oop intensity: -0.29 dex, the median of 35 neutrals
 #: (check_lab_band_strengths.py: PAHdb v4.00 6-31G* against PAHdb experimental v3.10, matrix isolation)
 LAB_STRETCH_SCALE = 10.0 ** -0.29

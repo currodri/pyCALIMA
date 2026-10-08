@@ -1473,7 +1473,7 @@ review_B).
     the residuals are structured.
 - **Remaining residuals.**
   - The 3.40 µm aliphatic band, everywhere: there are no super-H or
-    aliphatic species in the library.
+    aliphatic species in the library (see "The 3.4 µm aliphatic complex").
   - A 3.25 µm shoulder.
   - The Atomic 8.6 µm band.
   - Atomic is the worst fit (rms 0.10).
@@ -1514,6 +1514,127 @@ analysis scripts in the session scratchpad, mai2025/).**
   δ(T), w(T) added to the PAHdb v4.00 positions in the cascade, bracketed by
   T-matching and E-matching. To be cross-checked against CosmicPAH-IRDB lab
   slopes. Questions for the authors are in the data requests.
+
+**The 3.4 µm aliphatic complex (2026-10-07;
+`diagnostics/pahchem/fit_34um_profiles.py`, `fit_pdrs4all_spectra.py
+--aliphatic free`; figures `aliphatic_34um_survey`,
+`cascade_profile_prototype`, `refit_3um_twostep_<template>`).** Can PAHdb
+carriers and pahchem's emission physics give the complex?
+- **What is observed.**
+  - Components (Peeters+24 Table G.1, Gaussian): 3.395, 3.403, 3.424,
+    3.465, 3.516 and 3.561 µm on a plateau ({cite:t}`Peeters2024`).
+  - The 3.40 band is asymmetric, with a steep blue edge and a red wing.
+  - Over a linear continuum through 3.10–3.17 and 3.60–3.66 µm,
+    (3.36–3.60)/(3.20–3.36) is 0.37 (HII), 0.35 (Atomic), 0.38 (DF1), 0.44
+    (DF2) and 0.51 (DF3).
+- **Library changes.**
+  - The aromatic v4.00 library held seven C$_{96}$H$_{25}$ super-H isomers
+    (UIDs 684–690): PAHdb's edge tags miss their extra H. The default library
+    now keeps only molecules whose H all sit on aromatic edges (1424).
+  - `include_superh=True` adds the species with off-edge H: 28 with a
+    neutral and a cation at N_C ≥ 21, the seven C$_{96}$H$_{25}$ among them.
+    Most carry 1–3 such H; C$_{96}$H$_{28}$
+    (8 CH$_2$ H) is the most aliphatic. `edges` holds "aliphatic" and "ch3".
+  - The lab CH-stretch scale now covers 2600–3200 cm⁻¹, so the aliphatic
+    stretches take it too. This is an assumption: the scale was measured on
+    aromatic stretches only. The CH mode class of `BandShape` is
+    2600–3300 cm⁻¹.
+- **Where PAHdb puts the stretches.**
+  - Below the aromatic stretch: isolated CH$_2$ ~170 cm⁻¹ (3.48 µm after the
+    fitted −28 cm⁻¹); adjacent CH$_2$ pairs (asymmetric, ~2962) ~100 cm⁻¹
+    (3.41 µm); methyl peaks at ~3.46 µm.
+  - The anharmonic indene of PAHdb anharmonic v1.00 agrees on the CH$_2$
+    offset (171 against 170 cm⁻¹ harmonic) and is 1.5× stronger.
+  - Per CH bond, neutral CH$_2$ and CH$_3$ carry 0.6–1.3× the aromatic
+    stretch. In cations the CH$_2$ stretch nearly vanishes.
+- **The full fit with the aliphatic species free (`--aliphatic free`, no
+  hydrogenation constraint)** gives them no weight: off-edge H ≤ 0.3 %, the
+  3.36–3.62 µm residual unchanged (0.20–0.33 of the mean). Two traps make the
+  segment unfit for this question, and the intermediate aliphatic fractions
+  (3–23 % of H) found on the way are withdrawn:
+  - the segment's continuum (one cubic of four non-negative B-splines) sags
+    under the 3.3–3.5 µm bands and takes part of the complex; it also lets the
+    full fit's 3.29 band run ~20 % above what a straight continuum through the
+    band-free edges allows;
+  - fitted alone on 3.1–3.65 µm, NNLS lets the neutral aliphatic molecules
+    carry the 3.29 band, because the cation-dominated population has weak CH
+    stretches.
+- **What the physics allows (baseline network, coronene family, at the
+  corners of each template's stated conditions).** The extra-H share of
+  C$_{54}$/C$_{96}$:
+
+  | | HII | Atomic | DF1 | DF2 | DF3 |
+  |---|---|---|---|---|---|
+  | least ionising | 0.014–0.018 | 0.016–0.020 | 0.11–0.15 | 0.11–0.15 | 0.09–0.12 |
+  | most ionising | ≤ 1e-4 | ≤ 1e-4 | 4–7e-4 | 4–7e-4 | ≤ 1e-4 |
+
+  The super-H loss rate (~3e-5 to 3e-3 s⁻¹) sits close to H addition, so the
+  share spans up to five dex inside one template: the stated conditions
+  neither require nor exclude super-H. C$_{24}$ keeps none.
+- **Band profiles from the cascade.** `emission.emission_by_energy` splits
+  each mode's photons by the cascade bin they leave from (exact against
+  `cascade_photons`; energy closes to 0.1 %). Each photon then takes
+  ν$_i$ + χ$_1'$T(E) and FWHM χ$_0''$ + χ$_1''$T(E).
+  - This gives the observed asymmetry: a steep blue edge at the cold
+    position and a red wing from hot emission.
+  - With the Mai+25 classical laws, the classical T(E) = E/(s k) puts the
+    3.29 band near the fitted −28 cm⁻¹; the quantum (canonical) T doubles the
+    shift.
+  - Lab laws of {cite:t}`Demyk2026` (Table 4, gas phase, rotation removed):
+    aromatic CH −0.0216 cm⁻¹/K (pyrene), asymmetric CH$_2$ −0.0115
+    (6H-pyrene, 523–673 K), so aliphatic bands shift half as fast. PAHdb
+    pyrene and 6H-pyrene sit ~6 cm⁻¹ above their 0 K intercepts for both
+    classes; that offset is applied as a stated input.
+- **Two-step refit of 3.1–3.65 µm.** (1) The aromatic population of the full
+  fit (weights and charges of the best Gaussian cell) as one column with a
+  free scale, plus a linear continuum, on 3.1–3.36 and 3.60–3.65 µm; (2) the
+  aliphatic species by NNLS on the whole residual, so they pay for their own
+  3.29 emission. 3.36–3.60 µm residual / mean, aromatic only → with the
+  aliphatic species (off-edge H):
+
+  | Law | HII | Atomic | DF1 | DF2 | DF3 |
+  |---|---|---|---|---|---|
+  | symmetric −28/37 | 0.37 → 0.30 (4.2 %) | 0.56 → 0.46 (3.5 %) | 0.63 → 0.50 (4.0 %) | 0.68 → 0.56 (4.7 %) | 0.67 → 0.54 (5.3 %) |
+  | Mai+25, classical T | 0.34 → 0.27 (1.3 %) | 0.49 → 0.37 (1.2 %) | 0.58 → 0.46 (1.2 %) | 0.67 → 0.57 (1.2 %) | 0.65 → 0.54 (1.4 %) |
+  | Demyk+26 lab laws | 0.28 → 0.24 (1.1 %) | 0.41 → 0.34 (1.0 %) | 0.48 → 0.41 (1.0 %) | 0.56 → 0.50 (1.0 %) | 0.56 → 0.50 (1.1 %) |
+  | Demyk, aromatic law for all | 0.28 → 0.24 (1.1 %) | 0.41 → 0.34 (1.0 %) | 0.48 → 0.42 (1.0 %) | 0.56 → 0.49 (2.1 %) | 0.56 → 0.48 (2.6 %) |
+
+  The aliphatic species carry 9–18 % of the 3.2–3.36 µm window.
+- **The library's ceiling.** Charge-weighted at the DF3 cell, the aliphatic
+  molecules give (3.36–3.60)/(3.20–3.36) of 0.008 (median, lab laws; 0.02
+  symmetric). Only C$_{96}$H$_{28}$ (0.64), C$_{22}$H$_{16}$ (0.39) and
+  C$_{25}$H$_{14}$ (0.32) reach the observed 0.35–0.51, and the aromatic
+  population, fixed by the 5–15 µm bands, gives almost nothing there. The
+  complex would need most of the emitting PAHs to be strongly aliphatic.
+- **Reading.**
+  - **The carriers are missing.** PAHdb v4.00 has few large PAHs with
+    methyl or longer side groups, or with several CH$_2$, that also have a
+    cation, and its per-bond aliphatic intensities are about half of
+    {cite:t}`Yang2020`'s. This, not the band profile, bounds the fit.
+  - **The cascade gives the asymmetry,** and the aromatic population alone
+    fills more of 3.36–3.60 µm with it (lab laws: DF3 residual 0.56 against
+    0.67 symmetric).
+  - **The pyrene laws do not transfer to the population.** They make the
+    3.29 band ~11 cm⁻¹ too blue and too narrow (the observed FWHM is
+    37–42 cm⁻¹, Peeters+24), so the segment rms is worse than symmetric.
+  - **The 3.42–3.56 µm structure** is Fermi-resonance bands, which harmonic
+    spectra miss ({cite:t}`Maltseva2018`).
+  - **Unresolved:** {cite:t}`Mackie2018` find anharmonic cascade peaks
+    unshifted from their 0 K positions, with red wings only; the
+    temperature-law approach of Pech+02 and {cite:t}`Demyk2026` shifts them.
+  - **Context.** {cite:t}`Thatte2026` split the band into 3.395 µm
+    (robust, tracks 3.3) and 3.405 µm (fragile, tracks H$_2$; shielded gas),
+    and find with harmonic B3LYP coronene + methyl/ethyl/vinyl cascades that
+    methyl and ethyl groups move the peak to 3.405. Side-group bond energies
+    4.14 (CH$_3$), 3.94 (ethyl), 4.51 eV (vinyl). Chown+24 and Pasquini+24
+    attribute the band to methyl groups; neither models a profile.
+- **Next.** Emit side groups from the population itself: each methyl or
+  CH$_2$ group on a molecule radiates with that molecule's cascade
+  temperatures, at the lab 0 K positions ({cite:t}`Maltseva2018`,
+  {cite:t}`Demyk2026`) with the aliphatic laws and a per-bond A(3.4)/A(3.3)
+  from DFT. One parameter, the aliphatic H fraction, then has a physical
+  meaning, and 3.395/3.405 can be separated. The carrier spectra to ask for
+  are in {doc}`pahchem-data-requests`.
 
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?

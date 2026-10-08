@@ -205,6 +205,27 @@ An earlier draft put H addition first.
     only). Anharmonic (VPT2) or ML-MD spectra of two or three compact PAHs
     with N_C ≥ 54 would show it.
   - Why it matters: 3.3/11.2 drives the inferred size.
+- **Aliphatic carriers of the 3.4 µm complex (Rigopoulou group: Thatte,
+  Kerkeni; {cite:t}`Thatte2026`).** The PAHdb v4.00 aliphatic species cannot
+  give the observed 3.4/3.29 ({doc}`pahchem-spec`, "The 3.4 µm aliphatic
+  complex"): 28 molecules with N_C ≥ 21 have both a neutral and a cation, and
+  most carry 1–3 off-edge H. What would close the gap:
+  - their coronene + methyl / ethyl / vinyl spectra (B3LYP/6-311++G(d,p),
+    harmonic) as frequency and intensity tables, and the cascade emission
+    behind their Fig. 3;
+  - the same side groups on larger compact PAHs (circumcoronene) and on the
+    cations, several groups per molecule, and CH2 rings (super-H) at the
+    same level;
+  - the per-bond A(3.4)/A(3.3) at that level against PAHdb's 6-31G* (PAHdb
+    neutrals give 0.6–1.3 per CH, {cite:t}`Yang2020`-type values ~2);
+  - anharmonic (VPT2 with Fermi polyads) spectra of one or two of them: the
+    3.42–3.56 µm structure is Fermi resonances that harmonic spectra miss
+    ({cite:t}`Maltseva2018`).
+- **Demyk, Joblin et al. ({cite:t}`Demyk2026`).** Their Table 4 laws are for
+  pyrene-sized molecules. With PAHdb modes of a C ~ 80 population they make
+  the 3.29 band ~11 cm⁻¹ too blue and too narrow. The ask: whether the
+  CosmicPAH-IRDB holds (or will hold) shift and width laws for larger PAHs,
+  for a methylated large PAH, and the cascade code behind their 6H-pyrene fit.
 
 - **Joblin/Montillaud:** the mode sets (and whether they were scaled) and the
   Monte Carlo $k_{\rm IR}(E)$, $e_{\rm IR}(E)$ used in {cite:t}`Montillaud2013`.

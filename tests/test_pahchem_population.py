@@ -296,6 +296,20 @@ def test_v400_library_charge_ladders_and_thresholds():
     assert c54.ionisation_ev[1] == pytest.approx(8.91, abs=0.4)
 
 
+def test_v400_aromatic_library_holds_only_edge_h():
+    """Every H of the default library sits on an aromatic edge; super-H isomers whose PAHdb tags miss
+    the extra H (C96H25, UIDs 684-690) are aliphatic and come in only with include_superh."""
+    recs, lib = _v400()
+    assert all(sum(m.edges[e] for e in population.EDGES) == m.nh for m in lib)
+    assert not {684, 685, 686, 687, 688, 689, 690} & {m.uids[0] for m in lib}
+    full = population.library_v400(recs, include_superh=True)
+    extra = [m for m in full if m.edges["aliphatic"] > 0]
+    assert len(full) == len(lib) + len(extra)
+    assert {684, 682, 190} <= {m.uids[0] for m in extra}
+    assert all(sum(m.edges[e] for e in population.EDGES) + m.edges["aliphatic"] == m.nh for m in full)
+    assert all(m.edges["ch3"] <= m.edges["aliphatic"] for m in full)
+
+
 # -- charge-input options -------------------------------------------------------------------------
 def test_charge_inputs_move_the_charge_balance_the_right_way():
     from pycalima.pahchem.baseline import Params

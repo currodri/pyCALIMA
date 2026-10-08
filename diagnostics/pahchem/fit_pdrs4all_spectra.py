@@ -48,13 +48,15 @@ from pycalima.pahchem import conditions, population, spectral_fit
 from pycalima.pahchem.baseline import Environment, Params
 
 KNOTS = (1.0, 1.5, 2.5)
+#: the 3.4 um complex (3.40, 3.46, 3.51, 3.56 um; Peeters+24), measured against the 3.3 um window
+ALIPHATIC_UM = (3.36, 3.62)
 #: second start of the band-shape fit: the broad-CH-stretch branch found in DF2 (the default start can end
 #: in a narrow-band, cation-dominated branch with ~2x the residual; spec, step 1)
 BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3.0, fwhm_ch=40.0, fwhm_rest=8.0)
 
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
-RESULT_VERSION = 4
+RESULT_VERSION = 5
 
 
 def _result_key(args):
@@ -163,7 +165,12 @@ def run_shape(args, knot=1.5, iterations=2):
     if cache.exists():
         with open(cache, "rb") as fh:
             return pickle.load(fh)
-    lib = FP.library(args.library)
+    if args.aliphatic == "none":
+        lib = FP.library(args.library)
+    elif args.library == "v400":
+        lib = population.library_v400(include_superh=True, cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+    else:
+        raise SystemExit("--aliphatic needs --library v400")
     shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
     if shifts:
         lib = population.shift_thresholds(lib, shifts)
@@ -172,6 +179,11 @@ def run_shape(args, knot=1.5, iterations=2):
     pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
     grid = spectral_fit.Grid.build()
     C_ = spectral_fit.continuum_basis(grid, knot)
+    n_ali = np.array([m.edges.get("aliphatic", 0) for m in lib], dtype=float)       # H off the aromatic edges
+    nh = np.array([m.nh for m in lib], dtype=float)
+    aliphatic = n_ali > 0
+    w34 = (grid.lam_um >= ALIPHATIC_UM[0]) & (grid.lam_um < ALIPHATIC_UM[1])
+    w33 = (grid.lam_um >= C.WINDOWS["3.3"][0]) & (grid.lam_um < C.WINDOWS["3.3"][1])
     lam, tmpl = C.load_templates(args.templates)
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
@@ -189,6 +201,11 @@ def run_shape(args, knot=1.5, iterations=2):
         cells = _cells(card, t)
         out[t] = {"observed": y}
         keeps = [pop.intact_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
+        if args.aliphatic == "free":
+            # the chain knows only aromatic H loss; the aliphatic species are let in at every cell, so their
+            # weights are what the spectrum asks for, not what the conditions allow
+            keeps = [k | aliphatic for k in keeps]
+        ok = np.isfinite(y)
 
         def scan(shape):
             S = spectral_fit.shaped_state_spectra(pop, fshape, grid.nu, shape)
@@ -203,7 +220,14 @@ def run_shape(args, knot=1.5, iterations=2):
                 power = w[:, None] * f * absorbed
                 tot = power.sum()
                 wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
-                rows.append({"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
+                pah_ali = P[:, aliphatic[keep]] @ fit.weights[aliphatic[keep]]
+                band = y - fit.cont
+                r34 = lambda v: float(v[w34 & ok].sum() / v[w33 & ok].sum())
+                rows.append({"ali_h": float(w @ n_ali / (w @ nh)) if w.sum() > 0 else np.nan,
+                             "r34_obs": r34(band), "r34_pah": r34(fit.pah), "r34_ali": r34(pah_ali),
+                             "rms34": float(np.sqrt(np.mean((band - fit.pah)[w34 & ok] ** 2)) / y[w34 & ok].mean()),
+                             "pah_ali": pah_ali,
+"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
                              "rms": fit.rms, "n": int(np.isfinite(y).sum()),
                              "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
                              "mean_nc_carbon": float((w * nc) @ nc / (w @ nc)) if w.sum() > 0 else np.nan,
@@ -264,7 +288,9 @@ def summarise_shape(res):
                   f"FWHM CH/rest {sh.fwhm_ch:.0f}/{sh.fwhm_rest:.0f}; best gamma {g[i]:.2g} ({edge}), allowed "
                   f"{g[ok].min():.2g}-{g[ok].max():.2g}; <N_C>_C {b['mean_nc_carbon']:.0f}; emission f-/f+ "
                   f"{b['e_anion']:.2f}/{b['e_cation']:.2f} (Z>=2 {b['e_dication']:.2f}); cont {b['cont_share']:.2f}; "
-                  f"PAH 3.3/11.2 {q['3.3']:.2f} 6.2 {q['6.2']:.2f} 7.7 {q['7.7']:.2f} 12.7 {q['12.7']:.2f}")
+                  f"PAH 3.3/11.2 {q['3.3']:.2f} 6.2 {q['6.2']:.2f} 7.7 {q['7.7']:.2f} 12.7 {q['12.7']:.2f}; "
+                  f"3.4/3.3 obs {b['r34_obs']:.3f} PAH {b['r34_pah']:.3f} (aliphatic species {b['r34_ali']:.3f}), "
+                  f"rms 3.36-3.62 {b['rms34']:.3f}, H off-edge {b['ali_h']:.3f}")
 
 
 def plot_shape(res, out_dir):
@@ -289,13 +315,16 @@ def plot_shape(res, out_dir):
             ax.plot(lam[o], (b["pah"] + b["cont"])[m][o], "C3", lw=0.8, label="PAH + continuum")
             ax.plot(lam[o], b["cont"][m][o], "C0", lw=0.8, label="continuum")
             ax.plot(lam[o], b["pah"][m][o], "C2", lw=0.6, alpha=0.8, label="PAH population")
+            if b["pah_ali"].any():
+                ax.plot(lam[o], (b["pah_ali"] + b["cont"])[m][o], "C1", lw=0.6, label="aliphatic species + continuum")
             ax.plot(lam[o], (y - b["pah"] - b["cont"])[m][o], "0.5", lw=0.5, label="residual")
         row[1].set_title(f"{t} ({prof}): rms {b['rms']:.3f}, gamma {b['gamma']:.2g}, <N_C>_C {b['mean_nc_carbon']:.0f}; "
                          f"shifts {sh.shift_ch:+.0f}/{sh.shift_cc:+.0f}/{sh.shift_oop:+.0f}, FWHM {sh.fwhm_ch:.0f}/{sh.fwhm_rest:.0f}",
                          fontsize=9)
         row[1].legend(fontsize=7, ncol=5)
     fig.tight_layout()
-    path = Path(out_dir) / "population_spectral_fit_shape.png"
+    tag = "" if res["args"].get("aliphatic", "none") == "none" else f"_aliphatic_{res['args']['aliphatic']}"
+    path = Path(out_dir) / f"population_spectral_fit_shape{tag}.png"
     fig.savefig(path, dpi=130, bbox_inches="tight")
     plt.close(fig)
     print("wrote", path)
@@ -360,6 +389,9 @@ def main():
     ap.add_argument("--capture-model", choices=("bt94", "lab_trend"), default="bt94")
     ap.add_argument("--stretch-scale", default="1")
     ap.add_argument("--intact-min", type=float, default=0.5)
+    ap.add_argument("--aliphatic", choices=("none", "free"), default="none",
+                    help="with --fit-shape: add the v4.00 species with H off the aromatic edges; 'free' lets them in "
+                         "at every cell (no hydrogenation constraint)")
     ap.add_argument("--plot", action="store_true")
     ap.add_argument("--fit-shape", action="store_true",
                     help="fit the global band shape (shifts per mode class, two widths, Lorentzian or Gaussian) per template")

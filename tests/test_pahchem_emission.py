@@ -133,3 +133,17 @@ def test_spectrum_bands_carry_their_strength(profile):
     tol = 1e-6 if profile == "gaussian" else 5e-3          # Lorentzian wings beyond the grid
     assert np.trapezoid(s, grid) == pytest.approx(3.5, rel=tol)
     assert grid[np.argmax(s)] == pytest.approx(1600.0 - 15.0, abs=0.05)
+
+
+def test_emission_by_energy_splits_the_cascade_photons():
+    """Summed over emission bins, the energy-resolved photons are the cascade's, for any start distribution;
+    photons come only from bins at or below the start."""
+    rng = np.random.default_rng(3)
+    freqs = np.sort(rng.uniform(150.0, 3100.0, 40))
+    model = energy_me.CascadeModel(freqs, rng.uniform(0.1, 20.0, 40), e_max_cm=6.0 * EV, de_cm=50.0)
+    start = np.zeros(model.n)
+    start[[60, 200, 400]] = (0.2, 0.5, 0.3)
+    X = emission.emission_by_energy(model, start)
+    N = emission.cascade_photons(model)
+    assert np.allclose(X.sum(axis=1), N @ start, rtol=1e-10, atol=1e-14)
+    assert not X[:, 401:].any()

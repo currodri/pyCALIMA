@@ -107,7 +107,7 @@ def continuum_basis(grid, knot_um=1.5, segments_um=SEGMENTS_UM):
 
 
 #: mode classes by harmonic frequency [cm^-1]; modes outside them take the CC shift and the "rest" width
-MODE_CLASSES = {"ch": (2800.0, 3300.0), "cc": (1000.0, 1800.0), "oop": (600.0, 1000.0)}
+MODE_CLASSES = {"ch": (2600.0, 3300.0), "cc": (1000.0, 1800.0), "oop": (600.0, 1000.0)}
 
 
 @dataclass(frozen=True)

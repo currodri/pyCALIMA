@@ -14,6 +14,10 @@ module counts the photons:
 - ``steady_state_emission``: R_i = sum_j P_j k_i(E_j) [photons s^-1] from a
   multiphoton ``energy_me.SteadyState``; sum_i h nu_i R_i is its radiated
   power.
+- ``emission_by_energy``: the photons of each mode split by the bin they are
+  emitted from, for a start distribution over bins (no sinks). With T(E) it
+  gives temperature-dependent band profiles: each photon takes the position
+  and width of its emission temperature (Pech+02-style; spec, 3.4 um study).
 - ``spectrum``: bands of a given width and shift on a wavenumber grid.
 
 Energies and frequencies are in cm^-1.
@@ -48,6 +52,31 @@ def cascade_photons(model, channel_rates=None) -> np.ndarray:
         hi_part = np.where(hi < j, w * km, 0.0)
         N[:, j] = (km + N[:, lo] @ lo_part + N[:, hi] @ hi_part) / denom
     return N
+
+
+def emission_by_energy(model, start) -> np.ndarray:
+    """X[i, j]: photons emitted in IR mode i while at bin j, for ``start`` molecules placed over the bins.
+
+    The arrivals in each bin are followed down the cascade of ``model`` (a
+    CascadeModel without sinks), split jumps included, so sum_j X[:, j] equals
+    ``cascade_photons`` weighted by ``start``. Recurrent-fluorescence levels,
+    if any, carry their share of the down-jumps but are not returned.
+    """
+    A = np.array(start, dtype=float)
+    X = np.zeros((model.n_ir, model.n))
+    for j in range(model.n - 1, 0, -1):
+        if A[j] <= 0.0:
+            continue
+        km = model.k_modes[:, j]
+        lo, hi, w = model._lo[:, j], model._hi[:, j], model._w[:, j]
+        to_self = km * ((1.0 - w) * (lo == j) + w * (hi == j))
+        denom = km.sum() - to_self.sum()
+        if denom <= 0.0:
+            continue                                   # cannot emit: the cascade ends here
+        X[:, j] = A[j] * km[:model.n_ir] / denom
+        np.add.at(A, lo, np.where(lo < j, (1.0 - w) * km, 0.0) * A[j] / denom)
+        np.add.at(A, hi, np.where(hi < j, w * km, 0.0) * A[j] / denom)
+    return X
 
 
 def single_photon_emission(model, photon_energy_ev, heating_spectrum, channel_rates=None) -> np.ndarray:
