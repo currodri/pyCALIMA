@@ -2,9 +2,9 @@
 
 A particle of charge z, speed beta c and kinetic energy T crossing a PAH
 excites its electrons. The model is the Bethe theory written over the
-molecule's own optical oscillator strength df/dW. It is the delta-oscillator
-model of Liljequist (1983) and Ashley (1988): each oscillator of energy W
-takes part in two kinds of collision.
+molecule's own optical oscillator strength df/dW. It is a delta-oscillator
+model in the manner of Liljequist (1983): each oscillator of energy W takes
+part in two kinds of collision.
 
 - **Distant (dipole) collisions** with momentum transfer below the
   oscillator's. The field of the passing charge acts as a pulse of virtual
