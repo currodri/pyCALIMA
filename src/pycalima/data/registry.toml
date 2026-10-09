@@ -161,6 +161,22 @@ notes = """Hand-transcribed laboratory tables for the pahchem M2 gates: iPEPICO 
 dS(1000 K) for 25 PAH-cation reactions, and photoion appearance potentials and
 RRK thresholds. Each file's header records its source and transcription checks."""
 
+[datasets.pahchem-impact-tables]
+kind = "bundled"
+dest = "external_data/pahchem"
+files = ["henke1993_carbon_f2.csv", "henke1993_hydrogen_f2.csv",
+         "nist_pstar_polystyrene.csv", "nist_astar_polystyrene.csv", "nist_estar_polystyrene.csv",
+         "nist_pstar_hydrogen.csv", "nist_astar_hydrogen.csv", "nist_estar_hydrogen.csv"]
+size_bytes = 68_000
+citation = "Henke, Gullikson & Davis (1993), ADNDT 54, 181 (CXRO atomic scattering factors f2 of C and H); Berger, Coursey, Zucker & Chang, NIST SRD 124 (PSTAR, ASTAR, ESTAR for polystyrene and H2 gas; public domain)"
+url = "https://physics.nist.gov/Star"
+url_status = "confirmed"
+notes = """Inputs of pahchem.impact and pahchem.cosmic_rays (cosmic-ray collisions with PAHs):
+the C and H photoabsorption above 40 eV for the PAH oscillator strength, the measured
+stopping of polystyrene (the aromatic CH reference for the low-speed correction) and of H2
+(CSDA attenuation). Retrieved 2026-10-08 from henke.lbl.gov/optical_constants and the NIST
+STAR forms; each file's header records its source."""
+
 [datasets.digitised-figures]
 kind = "bundled"
 dest = "external_data"
