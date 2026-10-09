@@ -179,17 +179,39 @@ def ir_spectra(states_dir, out_dir, spectra):
     h = h_uv[0]
     print("IR band ratios of C54H18 (neutral and cation cascades, dissociating molecules stop emitting)")
     print("    excitation                              " + "  ".join(f"{b}/11.2" for b in ("3.3", "6.2", "7.7", "8.6")))
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]})
+    spec_n, ratios = {}, {}
     for label, (n_i, freqs, norm) in rows.items():
         s = emission.spectrum(freqs, n_i * freqs, grid)
         s = s / np.trapezoid(s, grid)
+        spec_n[label] = s
         b = band_fluxes(grid, s, BANDS_UM)
+        ratios[label] = b
         print(f"    {label:40s} " + "  ".join(f"{b[k] / b['11.2']:8.3f}" for k in ("3.3", "6.2", "7.7", "8.6")))
-        ax.plot(1e4 / grid, s, label=label)
-    ax.set_xlim(3, 15)
-    ax.set_xlabel("wavelength [um]")
-    ax.set_ylabel("normalised power per cm$^{-1}$")
-    ax.legend(fontsize=8)
+    bands = ("3.3", "6.2", "7.7", "8.6", "12.7")
+    for col, (z, tag) in enumerate(((0, "neutral products"), (1, "ionised products"))):
+        ref = f"ISRF photons, Z = {z}"
+        ax = axes[0, col]
+        ax.plot(1e4 / grid, spec_n[ref], "k", lw=1.2, label=f"UV (Draine ISRF), Z = {z}")
+        for m, c in (("L", "C0"), ("H", "C3")):
+            ax.plot(1e4 / grid, spec_n[f"CR {m}: {tag}"], color=c, lw=0.9, ls="--",
+                    label=f"CR passages, Padovani+18 {m}, N(H$_2$) = 1e22")
+        ax.set_xlim(3, 15)
+        ax.set_title(f"C54H18, {tag} (Z = {z})")
+        ax.set_xlabel("wavelength [um]")
+        ax.legend(fontsize=7)
+        ax = axes[1, col]
+        x = np.arange(len(bands))
+        for k, (m, c) in enumerate((("L", "C0"), ("H", "C3"))):
+            b, r = ratios[f"CR {m}: {tag}"], ratios[ref]
+            ax.bar(x + (k - 0.5) * 0.38, [(b[q] / b["11.2"]) / (r[q] / r["11.2"]) for q in bands], 0.38,
+                   color=c, label=f"{m}")
+        ax.axhline(1.0, color="k", lw=0.8)
+        ax.set_xticks(x, [f"{q}/11.2" for q in bands])
+        ax.set_ylabel("CR / UV band ratio")
+        ax.set_ylim(0.8, 1.5)
+        ax.legend(fontsize=7)
+    axes[0, 0].set_ylabel("normalised power per cm$^{-1}$")
     fig.tight_layout()
     fig.savefig(Path(out_dir) / "cr_impact_ir_spectra.png", dpi=120)
     plt.close(fig)
