@@ -142,7 +142,13 @@ def lifetimes(states_dir, out_dir):
 
 
 def ir_spectra(states_dir, out_dir, spectra):
-    """C54H18: IR band ratios after CR passages and after ISRF photons, per unit deposited energy."""
+    """C54H18: IR band ratios after CR passages and after ISRF photons, per unit radiated energy.
+
+    A deposit above the dissociation onset sheds fragments until the last
+    daughter can cool; that daughter radiates ``FragmentationChain.residual(E*)``
+    (about 16-17 eV for C54H18 whatever E*), with the cascade of the charge it
+    has. Passages that explode or leave the grid are not followed.
+    """
     nc, nh = 54, 18
     grid = np.arange(500.0, 3300.0, 1.0)
     rows = {}
@@ -150,34 +156,34 @@ def ir_spectra(states_dir, out_dir, spectra):
     for z in (0, 1):
         sp = PAHSpecies.from_states_file(Path(states_dir) / f"C54H18_{z}.dat")
         cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, e_max_cm=40.0 * dos.CM_PER_EV, de_cm=50.0)
-        ec = cm.energy_cm / dos.CM_PER_EV
-        sinks = {c.name: np.interp(ec, ec, impact.rrkm_whitten_rabinovitch(sp.freqs_cm, c, ec))
-                 for c in channels(nh, C_LOSS["Micelotta+10b C2"])}
-        cms[z] = (cm, emission.cascade_photons(cm, sinks), sinks)
+        chain = impact.FragmentationChain(sp, channels(nh, C_LOSS["Micelotta+10b C2"]))
+        cms[z] = (cm, emission.cascade_photons(cm), chain)
     field = fields.draine1978(g0=1.0)
     h_uv = {}
     for z in (0, 1):
-        cm, _, sinks = cms[z]
+        cm, _, chain = cms[z]
         ip = IONISATION["C54"][z]
         y = photo.yield_wenzel2020(E_PH, ip, nc) if z == 1 else photo.yield_jochims1996(E_PH, ip)
         h = photo.heating_spectrum(field, photo.sigma_li_draine(nc, z, E_PH), y, E_PH)
         h_uv[z] = h
-        n_uv = emission.single_photon_emission(cm, E_PH, h, sinks)
+        n_uv = emission.single_photon_emission(cm, E_PH, h)
         rows[f"ISRF photons, Z = {z}"] = (n_uv[:cm.n_ir], cm.freqs_cm[:cm.n_ir], 0.0)
     for label, spec in spectra.items():
         for z, rowsel, tag in ((0, slice(0, 1), "neutral products"), (1, slice(1, None), "ionised products")):
-            cmz, N, _ = cms[z]
+            cmz, N, chain = cms[z]
+            q_ce = int(np.ceil(impact.COULOMB_CHARGE_PER_C * nc))
             tot_n = np.zeros(cmz.n_ir)
             for ps in spec.values():
-                pe = (ps.P * ps.de)[rowsel].sum(axis=0)
-                bins = np.rint(ps.e * dos.CM_PER_EV / cmz.de_cm).astype(int)
-                ok = bins < cmz.n
-                tot_n += N[:cmz.n_ir][:, bins[ok]] @ pe[ok]
+                rows_z = (ps.P * ps.de)[rowsel]
+                rows_z = rows_z[: max(q_ce - z, 0)] if z == 0 else rows_z[: max(q_ce - 1, 0)]
+                pe = rows_z.sum(axis=0)
+                bins = np.rint(chain.residual(ps.e) * dos.CM_PER_EV / cmz.de_cm).astype(int)
+                tot_n += N[:cmz.n_ir][:, np.clip(bins, 0, cmz.n - 1)] @ pe
             rows[f"CR {label.split(',')[0][-1]}: {tag}"] = (tot_n, cmz.freqs_cm[:cmz.n_ir], 0.0)
         frac = sum((ps.P * ps.de)[1:].sum() for ps in spec.values()) / sum((ps.P * ps.de).sum() for ps in spec.values())
         print(f"    {label}: {100 * frac:.0f}% of the passages with a collision ionise")
     h = h_uv[0]
-    print("IR band ratios of C54H18 (neutral and cation cascades, dissociating molecules stop emitting)")
+    print("IR band ratios of C54H18 (neutral and cation cascades; above the onset the last daughter radiates)")
     print("    excitation                              " + "  ".join(f"{b}/11.2" for b in ("3.3", "6.2", "7.7", "8.6")))
     fig, axes = plt.subplots(2, 2, figsize=(12, 7), gridspec_kw={"height_ratios": [2, 1]})
     spec_n, ratios = {}, {}
@@ -209,7 +215,7 @@ def ir_spectra(states_dir, out_dir, spectra):
         ax.axhline(1.0, color="k", lw=0.8)
         ax.set_xticks(x, [f"{q}/11.2" for q in bands])
         ax.set_ylabel("CR / UV band ratio")
-        ax.set_ylim(0.8, 1.5)
+        ax.set_ylim(0.8, 2.0)
         ax.legend(fontsize=7)
     axes[0, 0].set_ylabel("normalised power per cm$^{-1}$")
     fig.tight_layout()

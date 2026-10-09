@@ -171,3 +171,16 @@ def test_fragmentation_chain_is_monotone_and_starts_above_the_barriers():
     assert np.all(np.diff(total) >= -1e-9)
     # each loss removes at least its barrier: steps <= E / min(E0)
     assert np.all(total <= fc.e / 4.41 + 1e-9)
+
+
+def test_radiated_energy_is_the_deposit_below_onset_and_bounded_above():
+    from types import SimpleNamespace
+    freqs = np.linspace(150.0, 3100.0, 90)
+    sp = SimpleNamespace(freqs_cm=freqs, einstein_a=np.full(freqs.size, 5.0))
+    ch = [im.Channel("H", 4.41, 12.0, 10.0, 3050.0, 0, 1)]
+    fc = im.FragmentationChain(sp, ch, e_max_ev=120.0, de_ev=0.1, e_cascade_ev=30.0, de_cm=100.0)
+    low = fc.e < 4.41
+    assert np.allclose(fc.radiated[low], fc.e[low])
+    assert np.all(fc.radiated <= fc.e + 1e-9)
+    onset = fc.e[np.argmax(fc.p_diss > 0.5)]
+    assert fc.residual(110.0) < 1.5 * onset

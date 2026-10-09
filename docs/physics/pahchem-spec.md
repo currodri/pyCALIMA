@@ -2195,18 +2195,37 @@ are bracketed by the two C-loss channels:
 - **Impact ionisation** of C$_{54}$H$_{18}$: 4×10⁻¹⁵ (L) to 4×10⁻¹⁴ s⁻¹ (H)
   at N(H$_2$) = 10$^{22}$.
 
-**IR emission.** Excited this way, a neutral PAH emits the UV band ratios
-(C$_{54}$H$_{18}$, 3.3/11.2 = 0.86 against 0.83). The difference lies in
-what is emitting:
-- About three quarters of the excited molecules are cations made by the
-  collision.
-- They are hotter than UV-excited cations: 3.3/11.2 is 0.44–0.47 against
-  0.34; 6.2/11.2 and 7.7/11.2 are the same.
+**IR emission.** Most collisions are UV-like. Bethe's f(W)/W weighting puts
+them at the 5–20 eV resonances: the mean deposit is ~10 eV, though the
+projectile loses ~37 eV per collision, mostly to the δ electron. Half the
+deposited energy, however, arrives in the 15 % of passages that leave more
+than 13.6 eV, and 20 % of it arrives above 40 eV (C$_{54}$H$_{18}$,
+N(H$_2$) = 10$^{22}$).
 
-So CR-excited emission carries a cation signature even where the PAH
-population is neutral or anionic. The heating is 5×10⁻¹⁴ (L) to 5×10⁻¹³
-eV s⁻¹ (H) per C$_{54}$H$_{18}$ at N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the
-same molecule absorbs ~10⁻⁷ eV s⁻¹.
+Those deposits fragment until the last daughter can cool, and that daughter
+radiates `FragmentationChain.residual(E*)`. For C$_{54}$H$_{18}$ this is
+16–17 eV whatever E*: fragmentation is a thermostat, the evaporative-ensemble
+ceiling.
+
+The yield caps the neutral products: it reaches 1 at IP + 9 eV, so every hot
+deposit ends as an ion. With CR/UV band ratios taken at the same charge:
+- **Neutral products** keep the UV ratios: 3.3/11.2 is ×1.04–1.06, the others
+  are within 2 %.
+- **The products the collisions ionise** are about three quarters of the
+  excited molecules. Their 3.3/11.2 is ×1.65–1.78 (0.56–0.60 against 0.335),
+  6.2/11.2 ×1.09–1.13 and 7.7/11.2 ×1.04–1.07.
+
+So CR-excited emission carries a hot-cation signature, a cation spectrum with
+a strong 3.3 µm band, even where the PAH population is neutral or anionic.
+
+An earlier version stopped the emission at the first dissociation and dropped
+deposits above 40 eV. That removed the hot tail and gave only ×1.3–1.4. The
+"uniform" ionisation-energy partition is the middle case: with "all" the ions
+are hotter still.
+
+The heating is 5×10⁻¹⁴ (L) to 5×10⁻¹³ eV s⁻¹ (H) per C$_{54}$H$_{18}$ at
+N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the same molecule absorbs
+~10⁻⁷ eV s⁻¹.
 
 **Next.**
 - The secondary-electron spectrum.

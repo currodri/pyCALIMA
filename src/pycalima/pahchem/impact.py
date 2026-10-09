@@ -601,8 +601,17 @@ class FragmentationChain:
         X(E) = [1 - survival(E)] sum_c b_c(E) [x_c + X(E - E0_c - k T(E))]
 
     is solved upward on a grid. It gives C(E) and H(E), the expected carbon
-    and hydrogen atoms lost. The daughters keep the parent's modes and rates,
-    an assumption that matters once many H are gone.
+    and hydrogen atoms lost, and ``radiated``: the internal energy R(E) the
+    last daughter keeps and radiates in the IR,
+
+        R(E) = survival(E) E + [1 - survival(E)] sum_c b_c(E) R(E - E0_c - k T(E)).
+
+    Above the onset R(E) saturates near the onset energy, about 16-17 eV for
+    C54H18 (the evaporative-ensemble ceiling). Photons emitted on the way down,
+    before each loss, are neglected: k_diss >> k_IR there. A mixture of
+    outcomes at one E is represented by its mean residual energy. The daughters
+    keep the parent's modes and rates, an assumption that matters once many H
+    are gone.
     """
 
     def __init__(self, species, channels, e_max_ev: float = 512.0, de_ev: float = 0.05,
@@ -625,15 +634,17 @@ class FragmentationChain:
         with np.errstate(divide="ignore", invalid="ignore"):
             kt_ev = 1.0 / (np.gradient(log_rho, self.e * dos.CM_PER_EV) * dos.CM_PER_EV)
         self.kt_ev = np.nan_to_num(kt_ev, nan=0.0, posinf=0.0, neginf=0.0)
-        self.carbon, self.hydrogen = self._solve()
+        self.carbon, self.hydrogen, self.radiated = self._solve()
 
     def _solve(self):
         n = self.e.size
         de = self.e[1] - self.e[0]
-        out = np.zeros((2, n))
-        x = np.array([[c.carbon for c in self.channels], [c.hydrogen for c in self.channels]], dtype=float)
+        out = np.zeros((3, n))
+        x = np.array([[c.carbon for c in self.channels], [c.hydrogen for c in self.channels],
+                      [0.0 for _ in self.channels]], dtype=float)
         e0 = np.array([c.e0_ev for c in self.channels])
         for i in range(n):
+            out[2, i] = (1.0 - self.p_diss[i]) * self.e[i]
             if self.p_diss[i] <= 0.0:
                 continue
             rest = self.e[i] - e0 - self.kt_ev[i]
@@ -641,13 +652,17 @@ class FragmentationChain:
             frac = np.clip(rest / de - j, 0.0, 1.0)
             later = out[:, j] * (1.0 - frac) + out[:, np.minimum(j + 1, i - 1 if i > 0 else 0)] * frac
             later = np.where(rest >= 0.0, later, 0.0)
-            out[:, i] = self.p_diss[i] * ((x + later) * self.branching[:, i]).sum(axis=1)
-        return out[0], out[1]
+            out[:, i] += self.p_diss[i] * ((x + later) * self.branching[:, i]).sum(axis=1)
+        return out[0], out[1], out[2]
 
     def lost(self, energy_ev):
         """(carbon, hydrogen) expected loss after a deposit E* [eV]."""
         E = np.asarray(energy_ev, dtype=float)
         return np.interp(E, self.e, self.carbon), np.interp(E, self.e, self.hydrogen)
+
+    def residual(self, energy_ev):
+        """Internal energy radiated by the last daughter after a deposit E* [eV]."""
+        return np.interp(np.asarray(energy_ev, dtype=float), self.e, self.radiated)
 
 
 #: Coulomb explosion when charge / N_C exceeds 4/60 (Chabot et al. 2020, multifragmentation
