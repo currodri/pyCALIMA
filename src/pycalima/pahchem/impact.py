@@ -46,6 +46,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from scipy.special import gammainc, gammaln
+
 from pycalima import _paths
 from pycalima.pahchem import photo
 
@@ -474,3 +476,254 @@ def passage_multiplicity(coll: Collisions, nc: int) -> float:
     r = disc_radius_cm(nc)
     area = 2.0 * np.pi * r * r + 2.0 * np.pi * r * DISC_THICKNESS_CM
     return coll.total / (area / 4.0)
+
+
+
+
+@dataclass(frozen=True)
+class Passages:
+    """Outcomes of passages through the molecule, per unit intensity j [per sr].
+
+    ``P[dz, k]`` [cm^2 sr eV^-1] is the rate density of passages that end at
+    total charge change dz with total internal energy ``e[k]``. ``beyond`` is
+    the passage rate with E* >= e_max or dz > dz_max [cm^2 sr]: destruction
+    by any reading. ``passages`` [cm^2 sr] counts every crossing, including
+    those without a collision. ``collisions`` [cm^2 sr] is 4 pi sigma_tot.
+    Multiply by j(T) and integrate over T for rates.
+    """
+
+    e: np.ndarray
+    de: float
+    P: np.ndarray
+    beyond: float
+    passages: float
+    collisions: float
+
+
+def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yield_, de: float = 1.0,
+                     e_max: float = 512.0, dz_max: int = 15, n_theta: int = 24, tol: float = 1e-12,
+                     **kwargs) -> Passages:
+    """Several collisions in one passage, summed.
+
+    The geometry is Micelotta+11's disc. A passage at angle theta to the normal
+    crosses the projected area sigma_g = pi R^2 cos theta + 2 R d sin theta.
+    It makes Poisson(nu) collisions, nu = sigma_tot / sigma_g (a uniform
+    electron column over the projection). Passages from an isotropic intensity
+    are weighted by sigma_g sin theta. One collision's (dz, E*) follows
+    ``deposition``.
+
+    The n-fold sums p^{*n} are built once by linear 2-D convolution and
+    truncated to the grid; the mass that leaves the grid goes to ``beyond``.
+    The Poisson mixture over theta is then exact up to ``tol``. No circular
+    FFT wrap is involved, so arbitrarily large nu (slow heavy nuclei) is fine.
+    """
+    one = deposition(coll, ip_ev, ip2_ev, yield_, e_max=e_max, de=de, **kwargs)
+    n_e = one.e.size
+    p = np.zeros((dz_max + 1, n_e))
+    lost1 = 0.0
+    for dz, r in one.rates.items():
+        p[dz] = r * de
+        lost1 += one.overflow[dz]
+    sigma_tot = p.sum() + lost1
+    r_disc, d = disc_radius_cm(nc), DISC_THICKNESS_CM
+    th = (np.arange(n_theta) + 0.5) * (0.5 * np.pi / n_theta)
+    sg = np.pi * r_disc**2 * np.cos(th) + 2.0 * r_disc * d * np.sin(th)
+    w_th = 4.0 * np.pi * sg * np.sin(th) * (0.5 * np.pi / n_theta)     # dOmega over both hemispheres
+    passages = float(w_th.sum())
+    if sigma_tot <= 0.0:
+        return Passages(one.e, de, np.zeros_like(p), 0.0, passages, 0.0)
+    p, lost1 = p / sigma_tot, lost1 / sigma_tot
+    nu = sigma_tot / sg
+    shape = (2 * (dz_max + 1), 2 * n_e)
+    p_hat = np.fft.rfft2(p, s=shape)
+    out = np.zeros_like(p)
+    beyond = 0.0
+    cur = p
+    for n in range(1, 1_000_000):
+        if n > 1:
+            cur = np.clip(np.fft.irfft2(np.fft.rfft2(cur, s=shape) * p_hat, s=shape), 0.0, None)[:dz_max + 1, :n_e]
+        w_n = float((w_th * np.exp(n * np.log(nu) - nu - gammaln(n + 1))).sum())   # Poisson(n; nu(theta))
+        in_grid = float(cur.sum())
+        out += w_n * cur
+        beyond += w_n * (1.0 - in_grid)
+        tail = float((w_th * gammainc(n + 1, nu)).sum())                # passages with more than n collisions
+        if in_grid < tol or (n > nu.max() and tail < tol * passages):
+            beyond += tail                                              # they end beyond, or are negligible
+            break
+    return Passages(one.e, de, out / de, beyond, passages, 4.0 * np.pi * sigma_tot)
+
+
+# --- what the deposited energy does: sequential statistical fragmentation ---
+
+@dataclass(frozen=True)
+class Channel:
+    """One unimolecular loss channel: barrier, activation entropy at 1000 K, path degeneracy,
+    the mode removed as reaction coordinate, and the C and H atoms it takes away."""
+
+    name: str
+    e0_ev: float
+    ds_j_mol_k: float
+    degeneracy: float
+    coordinate_cm: float
+    carbon: int
+    hydrogen: int
+
+
+def rrkm_whitten_rabinovitch(freqs_cm, channel: Channel, energy_ev) -> np.ndarray:
+    """RRKM k(E) [s^-1] with Whitten-Rabinovitch sums and densities.
+
+    It is usable far above the range of a Beyer-Swinehart count, which
+    overflows float64 near 100 eV for N_C ~ 50. The transition state is
+    ``rates.transition_state_for_entropy`` (n_scaled = 5, West+18).
+    """
+    from pycalima.pahchem import dos, rates
+
+    E = np.asarray(energy_ev, dtype=float) * dos.CM_PER_EV
+    ts = rates.transition_state_for_entropy(freqs_cm, channel.coordinate_cm, channel.ds_j_mol_k, n_scaled=5)
+    e0 = channel.e0_ev * dos.CM_PER_EV
+    _, log_rho = dos.whitten_rabinovitch(freqs_cm, E)
+    above = E > e0
+    log_n = np.full_like(E, -np.inf)
+    log_n[above] = dos.whitten_rabinovitch(ts, E[above] - e0)[0]
+    return np.where(above, channel.degeneracy * rates.C_CM_S * np.exp(log_n - log_rho), 0.0)
+
+
+class FragmentationChain:
+    """Expected atoms lost after a deposit of internal energy E*.
+
+    Above the dissociation onset, a hot PAH loses one fragment after another,
+    each loss chosen with branching k_c / sum k. Each loss removes its barrier
+    plus a kinetic release ~ k T_micro (Klots), until the remainder cools by
+    IR emission first. ``survival(E)`` is the probability of no loss before
+    cooling. It comes from the IR cascade (``energy_me.CascadeModel.photon_yields``
+    with the same k_c) up to ``e_cascade_ev`` and is 0 above. The recursion
+
+        X(E) = [1 - survival(E)] sum_c b_c(E) [x_c + X(E - E0_c - k T(E))]
+
+    is solved upward on a grid. It gives C(E) and H(E), the expected carbon
+    and hydrogen atoms lost. The daughters keep the parent's modes and rates,
+    an assumption that matters once many H are gone.
+    """
+
+    def __init__(self, species, channels, e_max_ev: float = 512.0, de_ev: float = 0.05,
+                 e_cascade_ev: float = 40.0, de_cm: float = 100.0):
+        from pycalima.pahchem import dos, energy_me
+
+        self.channels = tuple(channels)
+        self.e = np.arange(0.0, e_max_ev + 0.5 * de_ev, de_ev)
+        freqs = species.freqs_cm
+        k = np.array([rrkm_whitten_rabinovitch(freqs, c, self.e) for c in self.channels])
+        k_tot = k.sum(axis=0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            self.branching = np.where(k_tot > 0, k / k_tot, 0.0)
+        cm = energy_me.CascadeModel(freqs, species.einstein_a, e_max_cm=e_cascade_ev * dos.CM_PER_EV, de_cm=de_cm)
+        ec = cm.energy_cm / dos.CM_PER_EV
+        y = cm.photon_yields({c.name: np.interp(ec, self.e, kc) for c, kc in zip(self.channels, k)})
+        p_diss = np.clip(sum(y.values()), 0.0, 1.0)
+        self.p_diss = np.where(self.e <= ec[-1], np.interp(self.e, ec, p_diss), 1.0)
+        _, log_rho = dos.whitten_rabinovitch(freqs, np.maximum(self.e, 1e-3) * dos.CM_PER_EV)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            kt_ev = 1.0 / (np.gradient(log_rho, self.e * dos.CM_PER_EV) * dos.CM_PER_EV)
+        self.kt_ev = np.nan_to_num(kt_ev, nan=0.0, posinf=0.0, neginf=0.0)
+        self.carbon, self.hydrogen = self._solve()
+
+    def _solve(self):
+        n = self.e.size
+        de = self.e[1] - self.e[0]
+        out = np.zeros((2, n))
+        x = np.array([[c.carbon for c in self.channels], [c.hydrogen for c in self.channels]], dtype=float)
+        e0 = np.array([c.e0_ev for c in self.channels])
+        for i in range(n):
+            if self.p_diss[i] <= 0.0:
+                continue
+            rest = self.e[i] - e0 - self.kt_ev[i]
+            j = np.clip(np.floor(rest / de).astype(int), 0, i - 1 if i > 0 else 0)
+            frac = np.clip(rest / de - j, 0.0, 1.0)
+            later = out[:, j] * (1.0 - frac) + out[:, np.minimum(j + 1, i - 1 if i > 0 else 0)] * frac
+            later = np.where(rest >= 0.0, later, 0.0)
+            out[:, i] = self.p_diss[i] * ((x + later) * self.branching[:, i]).sum(axis=1)
+        return out[0], out[1]
+
+    def lost(self, energy_ev):
+        """(carbon, hydrogen) expected loss after a deposit E* [eV]."""
+        E = np.asarray(energy_ev, dtype=float)
+        return np.interp(E, self.e, self.carbon), np.interp(E, self.e, self.hydrogen)
+
+
+#: Coulomb explosion when charge / N_C exceeds 4/60 (Chabot et al. 2020, multifragmentation
+#: of PAHs by heavy CRs); confidence D
+COULOMB_CHARGE_PER_C = 4.0 / 60.0
+
+
+def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float, spectra, yield_,
+                     n_t: int = 48, w=None, **kwargs) -> dict:
+    """{projectile name: Passages} with rates per molecule: P [s^-1 eV^-1], and beyond,
+    passages and collisions [s^-1], from int j(T) Passages(T) dT.
+
+    ``spectra``: [(Projectile, j(T))] as for ``impact_rates``; ``kwargs`` go to
+    ``passage_outcomes``.
+    """
+    w = w_grid() if w is None else w
+    df = oscillator_strength(nc, nh, charge, w)
+    out = {}
+    for proj, j in spectra:
+        if proj.is_electron:
+            t = np.geomspace(1.0e3, 1.0e12, n_t)
+        else:
+            t = np.geomspace(T_MIN_PER_U_EV * proj.nucleons, 1.0e11 * proj.nucleons, n_t)
+        wt = _trapezoid_weights(np.log(t)) * t * np.asarray(j(t), dtype=float)
+        acc = None
+        for ti, wi in zip(t, wt):
+            if wi <= 0.0:
+                continue
+            c = collisions(proj, ti, df, w, correction=low_speed_correction(proj, ti), ip_ev=ip_ev)
+            ps = passage_outcomes(c, nc, ip_ev, ip2_ev, yield_, **kwargs)
+            ps = Passages(ps.e, ps.de, wi * ps.P, wi * ps.beyond, wi * ps.passages, wi * ps.collisions)
+            acc = ps if acc is None else Passages(ps.e, ps.de, acc.P + ps.P, acc.beyond + ps.beyond,
+                                                  acc.passages + ps.passages, acc.collisions + ps.collisions)
+        out[proj.name] = acc
+    return out
+
+
+def destruction_rates(spectrum: dict, nc: int, nh: int, charge: int, chain: FragmentationChain,
+                      coulomb_charge_per_c: float = COULOMB_CHARGE_PER_C) -> dict:
+    """Per projectile: the rates [s^-1 per molecule] of what passages do to C_{nc}H_{nh}^Z.
+
+    ``spectrum`` is a ``passage_spectrum`` result. The keys are:
+
+    - ``collisions``, ``passages``: rates of collisions and of crossings.
+    - ``ionised``: passages ending at charge Z + dz with dz >= 1.
+    - ``heat``: internal energy deposited [eV s^-1], counting in-grid passages only.
+    - ``carbon``, ``hydrogen``: atoms lost per second by statistical fragmentation
+      (``chain``), from passages that neither explode nor go beyond the grid.
+    - ``exploded``: passages ending at charge >= ``coulomb_charge_per_c`` x N_C
+      (Chabot+20 by default; this makes C24H12 dications explode, which needs
+      a laboratory anchor).
+    - ``beyond``: passages with E* beyond the grid.
+    - ``destroyed``: exploded + beyond + those whose statistical loss reaches
+      N_C / 3 (Micelotta+11's criterion).
+    """
+    q_ce = int(np.ceil(coulomb_charge_per_c * nc))
+    out = {}
+    for name, ps in spectrum.items():
+        P = ps.P * ps.de
+        dz = np.arange(P.shape[0])[:, None]
+        boom = (charge + dz) >= q_ce
+        Cl, Hl = chain.lost(ps.e)
+        gone = (Cl >= nc / 3.0)[None, :]
+        keep = np.where(boom, 0.0, P)
+        exploded = float(np.where(boom, P, 0.0).sum())
+        out[name] = {"collisions": ps.collisions, "passages": ps.passages, "ionised": float(P[1:].sum()),
+                     "heat": float((P.sum(axis=0) * ps.e).sum()),
+                     "carbon": float((keep * np.where(gone, 0.0, Cl[None, :])).sum()),
+                     "hydrogen": float((keep * np.where(gone, 0.0, np.minimum(Hl, nh)[None, :])).sum()),
+                     "exploded": exploded, "beyond": ps.beyond,
+                     "destroyed": exploded + ps.beyond + float((keep * gone).sum())}
+    return out
+
+
+def lifetime_yr(rates: dict, nc: int) -> float:
+    """1 / (destroyed + carbon / (N_C / 3)) in years: Micelotta's 1/3-of-the-carbon criterion,
+    applied to the gradual loss, plus the passages that destroy outright."""
+    r = sum(v["destroyed"] + v["carbon"] / (nc / 3.0) for v in rates.values())
+    return float(1.0 / r / 3.15576e7) if r > 0 else np.inf

@@ -117,3 +117,57 @@ def test_pdg_nuclei_are_normalised_to_hydrogen():
     ab = {p.name: a for p, a in cr.nuclei()}
     assert ab["He"] == pytest.approx(34.0 / 550.0)
     assert ab["Fe-Ni"] == pytest.approx(0.12 / 550.0)
+
+
+@pytest.mark.parametrize("tu", [1e7, 3e5])
+def test_passages_conserve_crossings_and_collisions(tu):
+    """Every crossing has 0, 1, 2 ... collisions; the mixture's mean is sigma_tot."""
+    nc, nh, ip = 54, 18, 6.14
+    yf = lambda E: photo.yield_jochims1996(E, ip)  # noqa: E731
+    c = im.impact_collisions(im.ALPHA, tu * im.ALPHA.nucleons, nc, nh, 0, ip_ev=ip)
+    ps = im.passage_outcomes(c, nc, ip, 8.91, yf)
+    th = (np.arange(24) + 0.5) * (0.5 * np.pi / 24)
+    r, d = im.disc_radius_cm(nc), im.DISC_THICKNESS_CM
+    sg = np.pi * r * r * np.cos(th) + 2 * r * d * np.sin(th)
+    w_th = 4 * np.pi * sg * np.sin(th) * (0.5 * np.pi / 24)
+    none = float((w_th * np.exp(-c.total / sg)).sum())
+    assert ps.P.sum() * ps.de + ps.beyond + none == pytest.approx(ps.passages, rel=1e-6)
+    assert ps.collisions == pytest.approx(4 * np.pi * c.total, rel=1e-9)
+    # Cauchy: the mean projected area of a convex body is S/4
+    S = 2 * np.pi * r * r + 2 * np.pi * r * d
+    assert ps.passages == pytest.approx(4 * np.pi * S / 4, rel=0.01)
+
+
+def test_slow_iron_passages_all_end_beyond_the_grid():
+    """Fe at 10 MeV/u makes ~60 collisions crossing C54: always destroyed (Coulomb explosion)."""
+    nc, nh, ip = 54, 18, 6.14
+    fe = im.nucleus("Fe", 26, 56.0)
+    c = im.impact_collisions(fe, 1e7 * fe.nucleons, nc, nh, 0, ip_ev=ip)
+    assert im.passage_multiplicity(c, nc) > 20
+    ps = im.passage_outcomes(c, nc, ip, 8.91, lambda E: photo.yield_jochims1996(E, ip))
+    assert ps.beyond == pytest.approx(ps.passages, rel=1e-3)
+
+
+def test_rrkm_whitten_rabinovitch_agrees_with_beyer_swinehart():
+    from pycalima.pahchem import dos, rates
+    freqs = np.linspace(200.0, 3100.0, 60)
+    ch = im.Channel("H", 4.4, 12.0, 6.0, 3050.0, 0, 1)
+    e_ev = np.array([8.0, 12.0, 16.0])
+    E, counts = dos.beyer_swinehart(freqs, 17.0 * dos.CM_PER_EV, 10.0)
+    ts = rates.transition_state_for_entropy(freqs, 3050.0, 12.0, n_scaled=5)
+    k_bs = rates.rrkm(E, counts, ts, 4.4 * dos.CM_PER_EV, degeneracy=6.0)
+    ref = np.interp(e_ev * dos.CM_PER_EV, E, k_bs)
+    assert np.allclose(im.rrkm_whitten_rabinovitch(freqs, ch, e_ev), ref, rtol=0.25)
+
+
+def test_fragmentation_chain_is_monotone_and_starts_above_the_barriers():
+    from types import SimpleNamespace
+    freqs = np.linspace(150.0, 3100.0, 90)
+    sp = SimpleNamespace(freqs_cm=freqs, einstein_a=np.full(freqs.size, 5.0))
+    ch = [im.Channel("H", 4.41, 12.0, 10.0, 3050.0, 0, 1), im.Channel("C2", 4.6, 41.84, 1.0, 1600.0, 2, 0)]
+    fc = im.FragmentationChain(sp, ch, e_max_ev=120.0, de_ev=0.1, e_cascade_ev=30.0, de_cm=100.0)
+    assert np.all(fc.carbon[fc.e < 4.41] == 0.0) and np.all(fc.hydrogen[fc.e < 4.41] == 0.0)
+    total = fc.carbon / 2 + fc.hydrogen
+    assert np.all(np.diff(total) >= -1e-9)
+    # each loss removes at least its barrier: steps <= E / min(E0)
+    assert np.all(total <= fc.e / 4.41 + 1e-9)

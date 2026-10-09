@@ -226,6 +226,30 @@ An earlier draft put H addition first.
   the 3.29 band ~11 cm⁻¹ too blue and too narrow. The ask: whether the
   CosmicPAH-IRDB holds (or will hold) shift and width laws for larger PAHs,
   for a methylated large PAH, and the cascade code behind their 6H-pyrene fit.
+- **Cosmic-ray collisions** ({doc}`pahchem-spec`, "Cosmic-ray collisions").
+  The fast-particle part is calibrated on NIST stopping. Four inputs are
+  missing:
+  - **The secondary-electron spectrum** per unit ζ at N(H$_2$) =
+    10$^{21}$–10$^{23}$, 1 eV – 10 keV, from Ivlev et al. (2021, ApJ 909,
+    107) or Padovani et al. (2024), as tables or digitised curves.
+    CRISpy's degradation spectrum would serve once it is exported.
+  - **Electron-impact ionisation cross sections** of PAHs from threshold to
+    1 keV: measured, or BEB. These are gate G2; only benzene (NIST BEB) is
+    within reach. Possible sources: the acene BEB tables of Appl. Sci. 15,
+    9562 (2025), Phys. Scr. (2024, doi:10.1088/1402-4896/ad640a) and J.
+    Phys. Chem. A (2020, doi:10.1021/acs.jpca.0c05589). The Rigopoulou group
+    could give the orbital binding and kinetic energies (B, U, N) that BEB
+    needs from any of their DFT runs, for coronene and circumcoronene. That
+    is a small addition to T1.
+  - **Double photoionisation yields** of PAHs at 20–100 eV (the 2+/1+ ratio),
+    which set the multiple-ionisation branching of distant collisions.
+  - **A laboratory Coulomb-explosion threshold for compact PAHs.** The
+    C$_{60}$-scaled Q/N$_C$ = 4/60 of Chabot et al. (2020) makes coronene
+    dications explode, and they are stable. Storage-ring (DESIREE) or
+    swift-ion data on C$_{24}$H$_{12}^{q+}$ and C$_{54}$H$_{18}^{q+}$ would
+    fix it.
+  - **For T3:** σ(E) up to ~100 eV for the coronene family. The distant
+    collisions use df/dW to 30 keV; above 40 eV it is atomic Henke C + H.
 
 - **Joblin/Montillaud:** the mode sets (and whether they were scaled) and the
   Monte Carlo $k_{\rm IR}(E)$, $e_{\rm IR}(E)$ used in {cite:t}`Montillaud2013`.

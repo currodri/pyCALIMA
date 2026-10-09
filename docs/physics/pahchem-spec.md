@@ -2070,6 +2070,150 @@ conditions ranks the uncertain inputs by their effect on $f(N_{\rm H})$ and
 $f(Z)$. That ranking decides the second round of requests in
 {doc}`pahchem-data-requests`.
 
+## Cosmic-ray collisions
+
+This section covers PAH excitation, ionisation and destruction by direct
+cosmic-ray (CR) collisions: the primary nuclei and electrons, and later their
+secondary electrons. The model and results are dated 2026-10-08.
+
+Two things are left for later:
+- **The CR-induced UV field.** By the estimate in the plan it out-heats direct
+  impacts about 30× at any ζ.
+- **H$_2$ line shielding of PAHs**, the shielded regime of {cite:t}`Thatte2026`.
+
+So direct collisions matter for **destruction and ionisation**, which only
+large single deposits do, and not for the IR brightness.
+
+**Inputs (sourced, not tuned).**
+- **Interstellar spectra.** {cite:t}`Padovani2018` L and H protons and their
+  electrons, with nuclei in the {cite:t}`PDG2022` ratios at fixed energy per
+  nucleon, in groups He … Fe–Ni.
+- **Attenuation.** Continuous slowing down through N(H$_2$), with the NIST
+  {cite:p}`NISTSTAR` loss functions for H$_2$.
+- **Secondary electrons are not in yet.** Their spectrum per ζ is requested
+  ({doc}`pahchem-data-requests`).
+
+**Energy transfer** ({mod}`pycalima.pahchem.impact`). Bethe theory is written
+over the PAH's own optical oscillator strength df/dW, in the manner of
+{cite:t}`Liljequist1983`, with two kinds of collision:
+- **distant collisions:** a virtual photon of energy W, whose outcome is that
+  of an absorbed photon;
+- **close collisions:** an ionisation, with a δ electron that leaves and a
+  hole of energy max(W, IP) that is kept.
+
+df/dW is Li & Draine below 40 eV and {cite:t}`Henke1993` atomic C + H above.
+It meets the TRK sum rule to 1–4 % (C$_{14}$–C$_{96}$) and gives I = 59 eV.
+
+**Gate G1 passes.** With no correction, the stopping per electron is within
+1–7 % of NIST polystyrene, the measured aromatic CH stopping:
+- 1–100 MeV/u for protons and alphas;
+- 10 keV – 1 GeV for electrons, against ESTAR with the condensed-medium density
+  effect removed.
+
+Two corrections, both from measurements, apply only where Bethe fails:
+- **Below 1 MeV/u**, multiply by the polystyrene STAR/Bethe ratio (0.93 at
+  0.3 MeV). The model stops at 0.1 MeV/u.
+- **For electrons below 10 keV**, apply {cite:t}`Kim2001`'s binary-encounter
+  factor T/(T + IP + W). Stopping is then within 15 % of Joy (1995) carbon
+  above 80 eV, 1.35× at 50 eV and 2.3× at 30 eV (confidence D).
+
+**Gate G2 (electron-impact ionisation of PAHs) is open.** The only data within
+reach are benzene BEB values (NIST), which scale only crudely to coronene. On
+that scaling the model is 1.5–2× above at 30–100 eV. The measured or BEB
+cross sections of PAHs are requested.
+
+**Collision outcomes.** Each collision is mapped to a charge change and to the
+internal energy E* left in the product:
+- Ionising distant collisions follow the photoionisation yield. The ion keeps
+  E* uniform on [0, W − IP], bracketed by 0 and by W − IP (`partition`).
+- K-shell holes decay by Auger to dz = +2, with E* = 27 eV − IP₁ − IP₂.
+
+Several collisions in one passage are summed:
+- Poisson statistics across the disc of {cite:t}`Micelotta2011`;
+- n-fold convolutions truncated to the grid, so there is no wrap;
+- tested to conserve crossings and collisions.
+
+Iron at 10 MeV/u makes about 60 collisions crossing C$_{54}$H$_{18}$ and always
+ends beyond any survivable charge (Coulomb explosion, {cite}`Chabot2020`).
+Per passage with a collision, protons and electrons leave a mean of about
+9 eV (19 eV at 0.3 MeV), with a power-law tail. CNO and the Fe group extend
+to hundreds of eV (`cr_impact_deposition.png`). About 76 % of passages with a
+collision ionise the molecule.
+
+**Fragmentation.** E* goes into a sequential statistical fragmentation chain:
+- Whitten–Rabinovitch RRKM rates for H, H$_2$ and C-loss channels, branching
+  k_c/Σk, and a Klots kinetic release;
+- the survival probability from the IR cascade below 40 eV.
+
+The dissociation onset, where P(diss) = 0.5, is 10.5, 19.4 and 31 eV for
+C$_{24}$H$_{12}$, C$_{54}$H$_{18}$ and C$_{96}$H$_{24}$. Two C-loss channels
+bracket the carbon loss:
+- Micelotta+10b C$_2$ (4.6 eV, 41.8 J K⁻¹ mol⁻¹);
+- West+18 acenaphthylene$^+$ C$_2$H$_2$ (5.21 eV, 46 J K⁻¹ mol⁻¹).
+
+Benzenoid PAH cations show no C$_2$H$_2$ channel at iPEPICO energies. Daughter
+molecules keep the parent's modes, so the H loss is an upper limit at very
+high E*.
+
+**Destruction.** A molecule is destroyed when any of these happens:
+- its charge reaches 4 N$_C$/60 (Chabot+20, scaled from C$_{60}$);
+- its E* leaves the grid (512 eV);
+- its expected carbon loss reaches N$_C$/3, Micelotta's criterion. Gradual
+  carbon loss counts towards that third.
+
+The Chabot criterion makes C$_{24}$H$_{12}$ dications explode, and lab
+coronene dications are stable. That threshold needs a laboratory anchor.
+
+**Gate G4 passes.** {mod}`pycalima.pahchem.micelotta2011`, run from
+`method_cards/micelotta2011.toml`, reproduces both of their testable numbers:
+- The CR-versus-shock crossover sizes of their Sect. 7.1: N$_C$ = 152 for
+  f = 0.5 (stated ~150), and 319 for f = 1 (stated ~280).
+- Their Table 2 electron lifetimes, to 4 %, but only without the 0.5
+  orientation factor printed in their eq. 31. That is recorded as a card
+  discrepancy.
+
+**Results (primary CRs, neutral parents; `check_cr_impact.py`).** Lifetimes
+are bracketed by the two C-loss channels:
+
+| | unattenuated, L | unattenuated, H | N(H$_2$) = 10$^{22}$, L | N(H$_2$) = 10$^{22}$, H |
+|---|---|---|---|---|
+| C$_{24}$H$_{12}$ | 3–5 Myr | 0.5–0.6 Myr | 150–220 Myr | 12–16 Myr |
+| C$_{54}$H$_{18}$ | 16–60 Myr | 0.8–1.0 Myr | 300–450 Myr | 25–35 Myr |
+| C$_{96}$H$_{24}$ | 35–180 Myr | 1.4–1.7 Myr | 460–650 Myr | 37–50 Myr |
+
+- **Against Micelotta+11** (their spectra, f = 1): 20 Myr at C$_{54}$ and
+  40 Myr at C$_{96}$.
+- **Against {cite:t}`Chabot2020`.** They count Coulomb explosion by heavy CRs
+  alone, scaling the C$_{60}$ threshold Q/N$_C$ = 4/60 to every size, and
+  find "billions of years" for C$_{54}$. Here explosions alone give
+  C$_{54}$H$_{18}$ 5×10⁸ yr (L, N(H$_2$) = 10$^{22}$). Most of the shorter
+  total lifetime is the statistical carbon loss of the sub-explosion deposits.
+- **Which projectiles matter.** At the cloud edge, primary electrons dominate
+  for spectrum L. That rests on the extrapolation of the Padovani+18 electron
+  spectrum to keV energies, where it is unmeasured. Deeper in, the Fe group
+  and CNO dominate for L; protons, He and CNO for H.
+- **Impact ionisation** of C$_{54}$H$_{18}$: 4×10⁻¹⁵ (L) to 4×10⁻¹⁴ s⁻¹ (H)
+  at N(H$_2$) = 10$^{22}$.
+
+**IR emission.** Excited this way, a neutral PAH emits the UV band ratios
+(C$_{54}$H$_{18}$, 3.3/11.2 = 0.86 against 0.83). The difference lies in
+what is emitting:
+- About three quarters of the excited molecules are cations made by the
+  collision.
+- They are hotter than UV-excited cations: 3.3/11.2 is 0.44–0.47 against
+  0.34; 6.2/11.2 and 7.7/11.2 are the same.
+
+So CR-excited emission carries a cation signature even where the PAH
+population is neutral or anionic. The heating is 5×10⁻¹⁴ (L) to 5×10⁻¹³
+eV s⁻¹ (H) per C$_{54}$H$_{18}$ at N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the
+same molecule absorbs ~10⁻⁷ eV s⁻¹.
+
+**Next.**
+- The secondary-electron spectrum.
+- The CR-UV field, as a radiation field with H$_2$ line blanketing.
+- The aliphatic side groups of the 3.4 µm work under the same deposits.
+- Charge-resolved modes for the dications and above.
+
 ## Process specification
 
 | Process | Rate | Parameters | Best current source | Conf. | Gap | Owner | Priority |
@@ -2086,6 +2230,9 @@ $f(Z)$. That ranking decides the second round of requests in
 | H abstraction (Eley–Rideal) | $\sigma_{\rm er} v n_{\rm H}$ | $\sigma_{\rm er}$, barriers | {cite:t}`Mennella2012` | A | site and charge | T2 | 1 |
 | Recombination, attachment | DS87 $\tilde J$ capture | $s_e$, EA, product branching | {cite:t}`BakesTielens1994` | B | products after recombination | RRKM on the neutral | 1 |
 | Mutual neutralisation | Langevin | — | — | E | — | us | 2 |
+| CR collisions: energy transfer | Bethe over df/dW, distant + close | df/dW to 30 keV, IP | Li & Draine + {cite:t}`Henke1993`; NIST STAR (G1) | B | slow electrons (< 100 eV); PAH EII | literature, lab | 2 |
+| CR collisions: fragmentation | sequential RRKM | $E_0$, $\Delta S^\ddagger$ of C loss; Coulomb limit | {cite:t}`West2018`, Micelotta+10b, {cite}`Chabot2020` | D | C loss of benzenoid PAHs; $q_{\rm CE}$ | T2, lab | 2 |
+| CR spectra at the PAH | CSDA through N(H$_2$) | L/H, nuclei, secondaries | {cite:t}`Padovani2018`, {cite:t}`PDG2022` | C | secondary e⁻ spectrum | literature | 2 |
 
 ## Literature reviewed, and what it is used for
 
