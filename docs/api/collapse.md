@@ -20,5 +20,9 @@ two-collector Smoluchowski scheme.
    pycalima.collapse.velocities
    pycalima.collapse.charge
    pycalima.collapse.tracks
+   pycalima.collapse.materials
+   pycalima.collapse.optics
+   pycalima.collapse.gas_grain
+   pycalima.collapse.dust_temperature
    pycalima.collapse._jit
 ```
