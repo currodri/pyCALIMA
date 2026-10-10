@@ -86,9 +86,11 @@ def _upsilon(i, j, c, m_lo, eta, beta, mean_m, wts):
 
 
 @njit(cache=True)
-def _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, scale, drho, loss):
+def _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, scale, drho, loss, tr_g, dtr):
     """Add every pair's mass transfer rate, times ``min(scale_i, scale_j)``, to
     ``drho``, and each pair's net removal from a bin to that bin's ``loss``.
+    A passive component of ``tr_g`` per grain (e.g. ice) moves with the grains
+    into ``dtr``, split between the collector bins like the core mass.
     Returns the overflow rate."""
     nb = n.size
     overflow = 0.0
@@ -112,14 +114,26 @@ def _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, scale, drho, loss):
             d_j = -mean_m[j] * rate
             d_c = ups * mt
             d_c1 = (1.0 - ups) * mt
+            tt = (tr_g[i] + tr_g[j]) * rate
+            e_i, e_j, e_c, e_c1 = -tr_g[i] * rate, -tr_g[j] * rate, ups * tt, (1.0 - ups) * tt
             if c == i:
                 d_i += d_c
                 d_c = 0.0
+                e_i += e_c
+                e_c = 0.0
             if i == j:
                 d_i += d_j
                 d_j = 0.0
+                e_i += e_j
+                e_j = 0.0
             drho[i] += d_i
             drho[j] += d_j
+            dtr[i] += e_i
+            dtr[j] += e_j
+            if c < nb:
+                dtr[c] += e_c
+            if c + 1 < nb:
+                dtr[c + 1] += e_c1
             if d_i < 0.0:
                 loss[i] -= d_i
             if d_j < 0.0:
@@ -142,8 +156,9 @@ def coagulation_rates(grid, rho, K, weights="turbulent"):
     mean_m = bin_means(grid.m_lo, grid.eta, beta, 1.0)
     n = np.where(rho > 0.0, rho / mean_m, 0.0)
     drho, loss = np.zeros(grid.n_bins), np.zeros(grid.n_bins)
+    nb = grid.n_bins
     over = _transfer(n, grid.m_lo, grid.eta, beta, mean_m, K, collector_bins(grid.m_edges),
-                     _weights(weights), np.ones(grid.n_bins), drho, loss)
+                     _weights(weights), np.ones(nb), drho, loss, np.zeros(nb), np.zeros(nb))
     return drho, over
 
 
@@ -152,12 +167,21 @@ def _weights(weights):
 
 
 def advance(grid, rho, t_end, kernel, weights="turbulent", eps=0.01, tail=1e-8,
-            max_steps=1_000_000):
+            max_steps=1_000_000, tracer=None):
     """Coagulate ``rho`` over a time ``t_end``.
 
     ``kernel(mean_m, mean_a) -> K`` gives the symmetric kernel matrix [cm^3 s^-1]
     at the current bin means; it is re-evaluated every step, since the means
     move with the in-bin slopes. Returns ``(rho, overflow_mass, n_steps)``.
+
+    ``tracer``: mass per bin of a passive component carried by the grains (the
+    ice mantles of Guillet et al. 2020, Sect. 2.4), which does not enter the
+    bin masses: each collision moves the tracer of both grains to the product,
+    with the core mass's split between the collector bins, so a bin loses the
+    same fraction of its tracer as of its cores and the tracer stays positive
+    and conserved (but for the overflow). The kernel is then called as
+    ``kernel(mean_m, mean_a, tracer)`` and ``(rho, tracer, overflow_mass,
+    n_steps)`` is returned; ``tracer`` there is the tracer mass per grain of each bin.
 
     Step size: a relative net change ``eps`` in every bin holding more than a
     fraction ``tail`` of the mass (Marchand+21, Eq. 91). Bins below that are
@@ -176,6 +200,7 @@ def advance(grid, rho, t_end, kernel, weights="turbulent", eps=0.01, tail=1e-8,
     a_lo = grid.a_edges[:-1]
     nb = grid.n_bins
     ones = np.ones(nb)
+    trc = None if tracer is None else np.array(tracer, dtype=float)
     t = 0.0
     overflow = 0.0
     steps = 0
@@ -186,9 +211,10 @@ def advance(grid, rho, t_end, kernel, weights="turbulent", eps=0.01, tail=1e-8,
         mean_m = bin_means(m_lo, eta, beta, 1.0)
         mean_a = a_lo * bin_means(ones, eta, beta, 1.0 / 3.0)
         n = np.where(rho > 0.0, rho / mean_m, 0.0)
-        K = kernel(mean_m, mean_a)
-        drho, loss = np.zeros(nb), np.zeros(nb)
-        dover = _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, ones, drho, loss)
+        tr_g = np.zeros(nb) if trc is None else np.where(n > 0.0, trc / np.where(n > 0.0, n, 1.0), 0.0)
+        K = kernel(mean_m, mean_a) if trc is None else kernel(mean_m, mean_a, tr_g)
+        drho, loss, dtr = np.zeros(nb), np.zeros(nb), np.zeros(nb)
+        dover = _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, ones, drho, loss, tr_g, dtr)
         ctrl = (drho != 0.0) & (rho > tail * rho.sum())
         if not ctrl.any():
             break
@@ -197,13 +223,18 @@ def advance(grid, rho, t_end, kernel, weights="turbulent", eps=0.01, tail=1e-8,
         lim = loss * dt > 0.5 * rho
         if lim.any():
             scale[lim] = 0.5 * rho[lim] / (loss[lim] * dt)
-            drho[:], loss[:] = 0.0, 0.0
-            dover = _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, scale, drho, loss)
+            drho[:], loss[:], dtr[:] = 0.0, 0.0, 0.0
+            dover = _transfer(n, m_lo, eta, beta, mean_m, K, collector, wts, scale, drho, loss, tr_g, dtr)
         rho += drho * dt
         np.maximum(rho, 0.0, out=rho)   # round-off only
+        if trc is not None:
+            trc += dtr * dt
+            np.maximum(trc, 0.0, out=trc)
         overflow += dover * dt
         t += dt
         steps += 1
+    if trc is not None:
+        return rho, trc, overflow, steps
     return rho, overflow, steps
 
 

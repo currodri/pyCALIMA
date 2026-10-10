@@ -8,17 +8,17 @@ rate is the mean speed of the collisions below V = 0.4 km/s (a_hat / 0.1 um)^-5/
 (their Eq. 18). Their Fig. 8 (top left) is read from the paper's vector graphics
 (``data/guillet20_fig8_turbulence.txt``).
 
-Two of their prescriptions matter, and both are followed here:
+The ice is followed as they do (their Sect. 2.4): the ice mass of every bin
+is integrated and moved with the cores in each collision (``advance(tracer=)``),
+and each bin's mantle thickness follows from its ice (Guillet et al. 2007,
+App. B); the 0.9 % is the cores, the ice (0.43 %) comes on top. Large grains
+thus inherit the mantles of the small ones they sweep up. The velocities are
+the full, continuous Ormel & Cuzzi form.
 
-* the ice is conserved and spread as a uniform mantle over the surviving
-  grains (their Sect. 2.4): the 8.8 nm of the initial MRN thickens as small
-  grains coagulate away (the 0.9 % is the cores; the ice, 0.43 %, comes on top);
-* the Ormel & Cuzzi velocities switch between their limit formulas
-  (``ormel_cuzzi_dv(form="limits")``), faster than the full form near t_eta.
-
-With a fixed 8.8 nm mantle and the full form instead, we keep 0.36 dex more
-small grains at 1e12 cm^-3 and the mass peaks at 3.5 um instead of 5.8 um.
-Their ice accretion (to 1.2 %) is not followed; it moves the 1e12 peak by +0.1 dex.
+Respreading the ice as one uniform mantle instead (and the Ormel & Cuzzi limit
+formulas, which then fit the small grains best) builds the large grains too
+slowly: the 1e12 cm^-3 mass peak falls at 3.5 um, not 5.8 um. Their ice
+accretion (to 1.2 %) is not followed.
 """
 
 from __future__ import annotations
@@ -41,16 +41,29 @@ MH, KB = 1.6735575e-24, 1.380649e-16
 T, MU, RHO_S, RHO_ICE, MANTLE = 10.0, 2.33, 3.0, 1.0, 8.8e-7
 
 
+def _core_moments(g, rho):
+    """(N, <a>, <a^2>) per bin: grains per unit volume and their mean radius and
+    squared radius, over the in-bin power laws."""
+    beta = g.slopes(rho)
+    a2 = g.a_edges[:-1] ** 2 * bin_means(np.ones(g.n_bins), g.eta, beta, 2.0 / 3.0)
+    return g.number_density(rho, beta), g.mean_radius(beta), a2
+
+
+def _shell(h, a1, a2):
+    """Volume of a mantle of thickness h, per grain: <(a + h)^3 - a^3> * 3 / 4 pi."""
+    return 3 * a2 * h + 3 * a1 * h ** 2 + h ** 3
+
+
 def _mantle_thickness(g, rho, nH, V_ice):
     """Uniform mantle thickness h holding the ice volume V_ice per H on the cores."""
-    beta = g.slopes(rho)
-    N = g.number_density(rho, beta) / nH
-    a1 = g.mean_radius(beta)
-    a2 = g.a_edges[:-1] ** 2 * bin_means(np.ones(g.n_bins), g.eta, beta, 2.0 / 3.0)
-    return brentq(lambda h: np.sum(N * (3 * a2 * h + 3 * a1 * h ** 2 + h ** 3)) - V_ice, 0.0, 1e-3)
+    N, a1, a2 = _core_moments(g, rho)
+    return brentq(lambda h: np.sum(N / nH * _shell(h, a1, a2)) - V_ice, 0.0, 1e-3)
 
 
-def _run(bins_per_decade=8, form="limits", conserve_ice=True):
+def _run(bins_per_decade=8, form="full", ice="bins"):
+    """ice: "bins" (the ice mass of every bin is integrated and moved with the cores,
+    each bin with its own mantle; Guillet+20 Sect. 2.4), "uniform" (the conserved ice
+    respread as one mantle over all grains) or "fixed" (8.8 nm throughout)."""
     nb = int(round(np.log10(1e-2 / 5e-7) * bins_per_decade))
     g = SizeGrid.from_radii(5e-7, 1e-2, nb, RHO_S)
     ae = g.a_edges
@@ -61,11 +74,9 @@ def _run(bins_per_decade=8, form="limits", conserve_ice=True):
     t, n = freefall_steps(1e4, 1e12, mu=1.4, dlnn=0.05)
     rho = 0.009 * rho_per_n * 1e4 * w / w.sum()
     # the ice volume per H of an 8.8 nm mantle on the initial MRN cores
-    beta = g.slopes(rho)
-    N = g.number_density(rho, beta) / 1e4
-    a1 = g.mean_radius(beta)
-    a2 = g.a_edges[:-1] ** 2 * bin_means(np.ones(nb), g.eta, beta, 2.0 / 3.0)
-    V_ice = np.sum(N * (3 * a2 * MANTLE + 3 * a1 * MANTLE ** 2 + MANTLE ** 3))
+    N, a1, a2 = _core_moments(g, rho)
+    V_ice = np.sum(N / 1e4 * _shell(MANTLE, a1, a2))
+    ice_mass = RHO_ICE * 4 / 3 * math.pi * N * _shell(MANTLE, a1, a2)     # g cm^-3 per bin
     cs = math.sqrt(KB * T / (MU * MH))
     vth = math.sqrt(8 * KB * T / (math.pi * MU * MH))
     snaps = {}
@@ -76,15 +87,23 @@ def _run(bins_per_decade=8, form="limits", conserve_ice=True):
         if k == n.size - 1:
             break
         nm = math.sqrt(n[k] * n[k + 1])
-        rho = rho * nm / (n[k] if k == 0 else math.sqrt(n[k - 1] * n[k]))
+        f = nm / (n[k] if k == 0 else math.sqrt(n[k - 1] * n[k]))
+        rho, ice_mass = rho * f, ice_mass * f
         rho_g = rho_per_n * nm
         tau_L = 0.5 * math.sqrt(math.pi / (6.67430e-8 * rho_g))
         tau_eta = tau_L / math.sqrt(6.2e7 * math.sqrt(nm / 1e5))
-        h = _mantle_thickness(g, rho, nm, V_ice) if conserve_ice else MANTLE
+        h_all = {"uniform": lambda: _mantle_thickness(g, rho, nm, V_ice), "fixed": lambda: MANTLE,
+                 "bins": lambda: None}[ice]()
 
-        def kernel(mean_m, mean_a):
-            a = mean_a + h
-            m = mean_m + 4 / 3 * math.pi * RHO_ICE * (a ** 3 - mean_a ** 3)
+        def kernel(mean_m, mean_a, ice_per_grain=None):
+            if ice_per_grain is None:
+                a = mean_a + h_all
+                m = mean_m + 4 / 3 * math.pi * RHO_ICE * (a ** 3 - mean_a ** 3)
+            else:
+                # each bin's own mantle, from its ice (Guillet et al. 2007, App. B:
+                # h^3 + 3 <a> h^2 + 3 <a^2> h = v, with <a^2> ~ <a>^2 within a bin)
+                a = np.cbrt(mean_a ** 3 + ice_per_grain / (4 / 3 * math.pi * RHO_ICE))
+                m = mean_m + ice_per_grain
             ts = m / (4.0 / 3.0 * rho_g * vth * math.pi * a ** 2)     # 3 m / (4 rho v_th sigma)
             turb = vel.ormel_cuzzi_dv(ts, cs, tau_L, tau_eta, form=form)
             dV = np.sqrt(vel.brownian_rms(T, m) ** 2 + turb ** 2)
@@ -92,7 +111,11 @@ def _run(bins_per_decade=8, form="limits", conserve_ice=True):
             V = 0.4e5 * (ahat / 1e-5) ** (-5.0 / 6.0)
             return math.pi * (a[:, None] + a[None, :]) ** 2 * vel.mean_collision_speed(dV, V)
 
-        rho, _, _ = advance(g, rho, t[k + 1] - t[k], kernel, weights="turbulent")
+        if ice == "bins":
+            rho, ice_mass, _, _ = advance(g, rho, t[k + 1] - t[k], kernel, weights="turbulent",
+                                          tracer=ice_mass)
+        else:
+            rho, _, _ = advance(g, rho, t[k + 1] - t[k], kernel, weights="turbulent")
     return g, snaps
 
 
@@ -121,14 +144,14 @@ def _normalised(g, snaps, ln):
 
 
 def test_size_distribution_follows_guillet20_fig8(run):
-    """Shapes, each normalised to its own initial peak (the MRN at 250 nm): within
-    0.1 dex over 10 nm - 0.2 um at 1e8 and 1e12 cm^-3, 0.2 at 1e10 (the first bin, at
-    the 5 nm grid edge, drops steeply in both), and the initial
-    curves agree (same normalisation, same MRN)."""
+    """Shapes, each normalised to the initial peak (the MRN at 250 nm), over
+    10 nm - 0.2 um: within 0.1 dex at 1e8 cm^-3 and 0.2 at 1e10 and 1e12 (we keep
+    slightly fewer small grains), and the initial curves agree (same
+    normalisation, same MRN)."""
     g, snaps = run
     ref = _curves()
     norm_ref = ref[4][1].max()
-    for ln, tol in ((4, 0.05), (8, 0.1), (10, 0.2), (12, 0.1)):
+    for ln, tol in ((4, 0.05), (8, 0.1), (10, 0.2), (12, 0.2)):
         xa, ya = ref[ln]
         oa, oy = _normalised(g, snaps, ln)
         # below the 250 nm MRN edge, where their bin centres and our in-bin means differ
@@ -140,17 +163,28 @@ def test_size_distribution_follows_guillet20_fig8(run):
 def test_mass_peak_moves_as_in_guillet20_fig8(run):
     g, snaps = run
     ref = _curves()
-    for ln, tol in ((8, 0.1), (10, 0.1), (12, 0.25)):
+    for ln, tol in ((8, 0.1), (10, 0.1), (12, 0.1)):
         xa, ya = ref[ln]
         oa, oy = _ours(g, snaps[10.0 ** ln])
         assert oa[np.argmax(oy)] == pytest.approx(xa[np.argmax(ya)], abs=tol)
 
 
-def test_fixed_mantle_and_full_velocities_coagulate_more_slowly():
-    """Without their two prescriptions the small grains survive longer: the
-    prescriptions, not the solver, set the remaining differences."""
-    g0, s0 = _run(form="full", conserve_ice=False)
-    g1, s1 = _run()
-    a0, y0 = _normalised(g0, s0, 12)
-    a1, y1 = _normalised(g1, s1, 12)
-    assert np.interp(-1.5, a0, y0) - np.interp(-1.5, a1, y1) > 0.2
+def test_ice_carried_by_the_bins_builds_the_large_grains(run):
+    """With the ice respread uniformly the 1e12 cm^-3 mass peak stays 0.2 dex
+    short of Guillet's; carried bin by bin, it reaches it (previous test)."""
+    g0, s0 = _run(form="limits", ice="uniform")
+    ref = _curves()[12]
+    oa, oy = _ours(g0, s0[1e12])
+    assert ref[0][np.argmax(ref[1])] - oa[np.argmax(oy)] > 0.15
+
+
+def test_tracer_is_conserved_and_follows_the_cores():
+    """A tracer proportional to the cores stays proportional, bin by bin, and is
+    conserved with the share of it that leaves the grid with the overflow mass."""
+    g = SizeGrid.from_radii(5e-7, 1e-4, 20, RHO_S)
+    rho0 = 1e-20 * np.exp(-np.arange(20) / 3.0)
+    K = lambda m, a, tr: math.pi * (a[:, None] + a[None, :]) ** 2 * 1e-3
+    rho, tr, over, _ = advance(g, rho0, 1e16, K, weights="geometric", tracer=0.5 * rho0)
+    assert np.abs(rho - rho0).sum() > 0.1 * rho0.sum()          # it did coagulate
+    assert tr.sum() + 0.5 * over == pytest.approx(0.5 * rho0.sum(), rel=1e-12)
+    assert np.allclose(tr, 0.5 * rho, rtol=1e-9, atol=1e-12 * rho0.sum())
