@@ -1341,19 +1341,16 @@ def _compute_shattered_fragments(
     if m_ej <= 0.0:
         return chi_frag, chi_pah, chi_dest
 
-    # Fragment power-law mass distribution:  dN/dm ∝ m^{-α},  α = slope+1
-    # Integrate: ∫ m × m^{-α} dm = m^{1-α}/(1-α)
-    # → cumulative mass ∝ m^{1-α} / (1-α) = m^β / β  with β = 1-α = 1 - (1+slope)
-    # RAMSES uses  dM/dm ∝ m^{-slope}  (mass-weighted power law)
-    # ∫_{m1}^{m2} m^{-slope} dm = [m^{1-slope}/(1-slope)]
-    # We use α = state.slope_frag_func (= 1.3/3 ≈ 0.433)
-    alpha = state.slope_frag_func   # exponent in dM/dm ∝ m^{-alpha}
-    beta = 1.0 - alpha              # integration exponent
+    # Fragment mass distribution: cumulative mass M(<m) ∝ m^beta with
+    # beta = state.slope_frag_func, as RAMSES uses it (dust_rates.f90). This
+    # mirror used beta = 1 - slope_frag_func, i.e. n(a) ∝ a^-2.3 where the
+    # Fortran gives a^-2.7; the default slope (0.7/3) is Jones+96's a^-3.3.
+    beta = state.slope_frag_func
 
     m_max_frag = 0.02 * m_ej
     m_min_frag = 1.0e-6 * max(m_max_frag, 1.0e-100)
 
-    # Normalization: ∫_{m_min}^{m_max} m^{-alpha} dm = [m^beta/beta]
+    # Normalisation of M(<m) ∝ m^beta over [m_min_frag, m_max_frag]
     norm_denom = (m_max_frag ** beta - m_min_frag ** beta) / beta
     if abs(norm_denom) < 1.0e-100:
         return chi_frag, chi_pah, chi_dest
@@ -1439,8 +1436,7 @@ def turbulent_shattering_rate(
     nH = state.local_nH
     mu = state.local_mu
     model = state.dust_velocity_model
-    alpha = state.slope_frag_func
-    beta = 1.0 - alpha
+    beta = state.slope_frag_func   # cumulative fragment-mass exponent (see _compute_shattered_fragments)
 
     for ii1, ii2 in _composition_groups(state.dust_bins):
         for jj in range(ii1, ii2 + 1):

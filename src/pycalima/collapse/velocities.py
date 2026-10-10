@@ -54,8 +54,16 @@ def epstein_stopping_time(a, rho_s, T, rho_gas, mu):
 
 
 def brownian_dv(T, m):
+    """Mean relative thermal speed of every pair, (8 k T / pi m_red)^1/2."""
     m = np.asarray(m, dtype=float)
     return np.sqrt(8.0 * KB_CGS * T * (m[:, None] + m[None, :]) / (math.pi * m[:, None] * m[None, :]))
+
+
+def brownian_rms(T, m):
+    """rms relative thermal velocity of every pair, (3 k T / m_red)^1/2: combine
+    this (not the mean speed) in quadrature with other rms velocities."""
+    m = np.asarray(m, dtype=float)
+    return np.sqrt(3.0 * KB_CGS * T * (m[:, None] + m[None, :]) / (m[:, None] * m[None, :]))
 
 
 def ormel_cuzzi_y_star(St):
@@ -74,7 +82,7 @@ def ormel_cuzzi_y_star(St):
     return 0.5 * (lo + hi)
 
 
-def ormel_cuzzi_dv(t_s, v_g, tau_L, tau_eta, y_star="exact"):
+def ormel_cuzzi_dv(t_s, v_g, tau_L, tau_eta, y_star="exact", form="full"):
     """Turbulent relative velocity of every pair, from the full closed-form
     expression of Ormel & Cuzzi (2007, Eqs. 16-18), continuous in the stopping
     times, with V_g**2 = 3/2 v_g**2 (as ``_ormel2007``):
@@ -89,8 +97,22 @@ def ormel_cuzzi_dv(t_s, v_g, tau_L, tau_eta, y_star="exact"):
     regime formulas (Eqs. 26-29) are the limits St12* = Re**-1/2, the fully
     intermediate regime, and St12* = 1; switching between them, as
     ``_ormel2007`` once did, leaves jumps of up to x2.4 at the boundaries.
+
+    form="limits" switches between those limit formulas instead (tightly coupled
+    Eq. 27 for t1 < t_eta, intermediate Eq. 28 below t_L, heavy Eq. 29 above), as
+    Guillet et al. (2020) and the previous RAMSES do: needed to reproduce their
+    results, it runs up to x2.4 faster than the full form near t_eta.
     """
     t_s = np.asarray(t_s, dtype=float)
+    if form == "limits":
+        t1 = np.maximum(t_s[:, None], t_s[None, :])
+        t2 = np.minimum(t_s[:, None], t_s[None, :])
+        St1, St2 = t1 / tau_L, t2 / tau_L
+        x = np.where(St1 > 0.0, St2 / np.where(St1 > 0.0, St1, 1.0), 0.0)
+        tight = (tau_L / tau_eta) * (St1 - St2) ** 2
+        inter = (3.2 - (1.0 + x) + 2.0 / (1.0 + x) * (1.0 / 2.6 + x ** 3 / (1.6 + x))) * St1
+        heavy = 1.0 / (1.0 + St1) + 1.0 / (1.0 + St2)
+        return np.sqrt(1.5 * v_g ** 2 * np.where(t1 < tau_eta, tight, np.where(t1 < tau_L, inter, heavy)))
     St = t_s / tau_L
     Se = tau_eta / tau_L
     ys = ormel_cuzzi_y_star(St) if y_star == "exact" else np.full_like(St, 1.6)
@@ -105,6 +127,55 @@ def ormel_cuzzi_dv(t_s, v_g, tau_L, tau_eta, y_star="exact"):
     cls2 = lambda S: S12 - Se + S ** 2 / (S + S12) - S ** 2 / (S + Se)
     dII = cls2(St1) + cls2(St2)
     return np.sqrt(1.5 * v_g ** 2 * np.maximum(dI + dII, 0.0))
+
+
+def mean_collision_speed(dV, V_lim=np.inf, mu=0.0):
+    """Mean relative speed of the collisions that stick, <dv> = int_0^V v f(v) dv
+    (Guillet et al. 2020, Eqs. 18-19 and Appendix C; Flower et al. 2005).
+
+    The relative velocity is a Gaussian of rms dV (variance dV^2 / 3 per axis)
+    shifted by a systematic drift mu (e.g. ambipolar), so its speed follows the
+    skewed Maxwellian f(v) = (alpha / sqrt(pi) mu) v [exp(-alpha^2 (v - mu)^2)
+    - exp(-alpha^2 (v + mu)^2)], alpha = (3/2)^1/2 / dV; collisions faster than
+    the sticking limit V_lim bounce. Limits: mu = 0 gives their Eq. 18,
+    (8 / 3 pi)^1/2 dV [1 - (1 + chi^2) exp(-chi^2)], chi = alpha V_lim; with
+    V_lim = inf and mu = 0, the Maxwellian mean speed (8 / 3 pi)^1/2 dV.
+    Arrays broadcast. The kernel is then K = sigma <dv>.
+    """
+    from scipy.special import erf
+
+    dV, V, mu = np.broadcast_arrays(np.asarray(dV, dtype=float), np.asarray(V_lim, dtype=float),
+                                    np.asarray(mu, dtype=float))
+    out = np.zeros(dV.shape)
+    ok = dV > 0.0
+    al = np.where(ok, math.sqrt(1.5) / np.where(ok, dV, 1.0), 0.0)
+    finite = np.isfinite(V)
+    # mu ~ 0: their Eq. 18 (no cancellation)
+    small = ok & (al * mu < 1e-3)
+    chi = np.where(finite, al * np.where(finite, V, 0.0), np.inf)
+    with np.errstate(over="ignore", invalid="ignore"):
+        eq18 = math.sqrt(8.0 / (3.0 * math.pi)) * dV * np.where(finite, 1.0 - (1.0 + chi ** 2) * np.exp(-chi ** 2), 1.0)
+    out = np.where(small, eq18, out)
+    # general case: <dv> = alpha / (sqrt(pi) mu) [I(mu) - I(-mu)],
+    # I(s) = int_{-s}^{V-s} (u + s)^2 exp(-alpha^2 u^2) du
+    gen = ok & ~small
+    if gen.any():
+        a, m, Vg = al[gen], mu[gen], V[gen]
+
+        def F(u, s):
+            e = np.exp(-(a * u) ** 2)
+            return (math.sqrt(math.pi) / (4.0 * a ** 3) * erf(a * u) - u * e / (2.0 * a ** 2)
+                    - s * e / a ** 2 + s ** 2 * math.sqrt(math.pi) / (2.0 * a) * erf(a * u))
+
+        def F_top(s):          # u -> V - s, or +inf
+            fin = np.isfinite(Vg)
+            u = np.where(fin, Vg - s, 0.0)
+            inf_val = math.sqrt(math.pi) / (4.0 * a ** 3) + s ** 2 * math.sqrt(math.pi) / (2.0 * a)
+            return np.where(fin, F(u, s), inf_val)
+
+        I = lambda s: F_top(s) - F(-s, s)
+        out[gen] = a / (math.sqrt(math.pi) * m) * (I(m) - I(-m))
+    return out
 
 
 def ambipolar_dv(t_s, m, Z, B, V_AD):

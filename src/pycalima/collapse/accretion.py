@@ -62,14 +62,21 @@ def formula_mass(formula):
     return sum(ATOMIC_AMU[e] * n for e, n in formula_atoms(formula).items()) * AMU_CGS
 
 
-def growth_rate(material, T, n_gas, alpha=1.0):
+# Key species taken to be absent from the gas: Si atoms are depleted onto SiO
+# (and C atoms onto CO, handled in the reservoir), so Si grains do not grow
+# (Chiaki et al. 2015, Fig. 7). ``growth_rate(..., absent=())`` lifts it.
+ABSENT_KEYS = ("Si",)
+
+
+def growth_rate(material, T, n_gas, alpha=1.0, absent=ABSENT_KEYS):
     """da/dt [cm s^-1] of a material: the slowest over its key species.
 
     n_gas: gas-phase number density [cm^-3] of each element in ``GAS_ELEMENTS``.
+    absent: key species with no gas-phase abundance (default: Si atoms, in SiO).
     """
     rates = []
     for k in get_material(material).keys:
-        n = max(n_gas[KEY_ELEMENT[k.gas]], 0.0)
+        n = 0.0 if k.gas in absent else max(n_gas[KEY_ELEMENT[k.gas]], 0.0)
         rates.append(alpha * 4.0 / 3.0 * math.pi * k.a0 ** 3
                      * math.sqrt(KB_CGS * T / (2.0 * math.pi * k.m_gas * AMU_CGS)) * n)
     return min(rates)
@@ -130,29 +137,43 @@ def accrete(populations, T, nH, y_gas, dt, alpha=1.0, n_sub=16):
     mats = [get_material(p["material"]) for p in populations]
     form = [formula_atoms(m.formula) for m in mats]
     mform = [formula_mass(m.formula) for m in mats]
-    mom = []
-    for p in populations:
+    npop = len(populations)
+    # the mass a shift da adds is (4 pi / 3) rho_s [3 da S2 + 3 da^2 S1 + da^3 S0]
+    # with S_k = sum_bins N <a^k>: three scalars per population
+    S = np.zeros((npop, 3))
+    for i, p in enumerate(populations):
         g, rho = p["grid"], p["rho"]
         beta = g.slopes(rho)
         N = g.number_density(rho, beta)
-        a1 = g.mean_radius(beta)
         a2 = g.a_edges[:-1] ** 2 * bin_means(np.ones(g.n_bins), g.eta, beta, 2.0 / 3.0)
-        mom.append((N, a1, a2))
+        S[i] = (N.sum(), np.sum(N * g.mean_radius(beta)), np.sum(N * a2))
+    c43 = np.array([4.0 / 3.0 * math.pi * p["grid"].rho_s for p in populations])
+    # nuclei of each element consumed per gram of each population's solid, per H
+    els = list(y_gas)
+    nu = np.array([[form[i].get(e, 0) / mform[i] / nH for e in els] for i in range(npop)])
+    y0 = np.array([y_gas[e] for e in els])
+    # growth rate coefficients per key species: da/dt = coef * n_key, key element index
+    vth = math.sqrt(KB_CGS * T / (2.0 * math.pi * AMU_CGS))
+    keys = []
+    for m in mats:
+        keys.append([(alpha * 4.0 / 3.0 * math.pi * k.a0 ** 3 * vth / math.sqrt(k.m_gas), els.index(KEY_ELEMENT[k.gas]),
+                      k.gas in ABSENT_KEYS) for k in m.keys])
+    alive = S[:, 0] > 0.0
+
+    def gas_vec(da):
+        dM = c43 * (3.0 * da * S[:, 2] + 3.0 * da ** 2 * S[:, 1] + da ** 3 * S[:, 0])
+        return y0 - dM @ nu
 
     def gas(da):
-        y = dict(y_gas)
-        for i, p in enumerate(populations):
-            dM = mass_gain(p["grid"].rho_s, *mom[i], da[i])
-            for e, nu in form[i].items():
-                if e in y:
-                    y[e] -= nu * dM / mform[i] / nH
-        return y
+        return dict(zip(els, gas_vec(da)))
 
     def rhs(da):
-        y = gas(da)
-        n_gas = {e: max(v, 0.0) * nH for e, v in y.items()}
-        return np.array([growth_rate(p["material"], T, n_gas, alpha) if mom[i][0].sum() > 0 else 0.0
-                         for i, p in enumerate(populations)])
+        n = np.maximum(gas_vec(da), 0.0) * nH
+        out = np.zeros(npop)
+        for i in range(npop):
+            if alive[i]:
+                out[i] = min(0.0 if absent else c * n[j] for c, j, absent in keys[i])
+        return out
 
     da = np.zeros(len(populations))
     h = dt / n_sub
@@ -165,7 +186,7 @@ def accrete(populations, T, nH, y_gas, dt, alpha=1.0, n_sub=16):
     # never consume more of an element than there is: scale back the growth of
     # every species that uses an exhausted element until it is exactly used up
     y = gas(da)
-    for e in GAS_ELEMENTS:
+    for e in els:
         if y[e] < 0.0:
             users = [i for i in range(len(populations)) if form[i].get(e, 0) > 0 and da[i] > 0]
             lo, hi = 0.0, 1.0

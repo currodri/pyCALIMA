@@ -102,6 +102,14 @@ class Track:
         dT = np.gradient(self.log_T, self.log_n)
         first_min = np.nonzero((dT[:-1] < 0.0) & (dT[1:] >= 0.0))[0]
         self.log_n_frag = self.log_n[first_min[0] + 1] if first_min.size else self.log_n[0]
+        # specific heat per H nucleus in units of k, and its log-slope along the track
+        f = 10.0 ** self.log_fH2
+        self.c_v = 1.5 * (1.0 - f) + 1.5 * Y_HE + 1.25 * f
+        lu = np.log10(self.c_v * 10.0 ** self.log_T)
+        self.dlnu = np.array([np.polyfit(self.log_n[w], lu[w], 1)[0] for w in
+                              (np.abs(self.log_n - x) <= GAMMA_HALF_WIDTH for x in self.log_n)])
+        self.dlnc = np.array([np.polyfit(self.log_n[w], np.log10(self.c_v[w]), 1)[0] for w in
+                              (np.abs(self.log_n - x) <= GAMMA_HALF_WIDTH for x in self.log_n)])
 
     @classmethod
     def omukai2005(cls, which="Z0"):
@@ -143,6 +151,22 @@ class Track:
     def compression_heating(self, nH):
         """Gamma_comp = p / t_col [erg cm^-3 s^-1]."""
         return self.pressure(nH) / self.t_col(nH)
+
+    def specific_heat(self, nH):
+        """(c_v, d ln c_v / d ln n_H) per H nucleus, c_v in units of k."""
+        lg = np.log10(nH)
+        return np.interp(lg, self.log_n, self.c_v), np.interp(lg, self.log_n, self.dlnc)
+
+    def implied_cooling(self, nH):
+        """Net non-dust cooling per H nucleus along the track [erg s^-1]:
+        lambda = [p / n_H - du/d ln n_H] / t_col, u = c_v k T, which makes the
+        energy equation du/dt = p / (n_H t_col) - lambda hold on the track. It
+        includes chemical heating (H2 formation) and can be negative."""
+        lg = np.log10(nH)
+        T = self.T(nH)
+        u = np.interp(lg, self.log_n, self.c_v) * KB_CGS * T
+        du = u * np.interp(lg, self.log_n, self.dlnu)
+        return (self.pressure(nH) / nH - du) / self.t_col(nH)
 
     def thermal_energy(self, nH):
         """e_th = sum_s n_s (f_s / 2) k T [erg cm^-3]: 3/2 kT for H and He, 5/2 kT for H2."""

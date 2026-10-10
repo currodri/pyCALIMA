@@ -137,3 +137,44 @@ def test_fig4_fragmentation_boundary_scales_as_their_map():
     slope = np.polyfit(np.arange(4, 13, 2), np.log10(bounds), 1)[0]
     assert slope == pytest.approx(1.0 / 8.0, rel=0.02)
     np.testing.assert_allclose(theirs / bounds, 1.25, rtol=0.1)
+
+
+# ---------------------------------------------------------------------------
+# collision speeds with a velocity distribution (Guillet+20, Eqs. 18-19, App. C)
+# ---------------------------------------------------------------------------
+
+def _numeric_mean_speed(dV, V, mu):
+    from scipy.integrate import quad
+    a = math.sqrt(1.5) / dV
+    if mu == 0.0:
+        f = lambda v: 4.0 / math.sqrt(math.pi) * a ** 3 * v * v * math.exp(-(a * v) ** 2)
+    else:
+        f = lambda v: a / (math.sqrt(math.pi) * mu) * v * (math.exp(-(a * (v - mu)) ** 2)
+                                                           - math.exp(-(a * (v + mu)) ** 2))
+    top = V if np.isfinite(V) else mu + 20.0 * dV
+    return quad(lambda v: v * f(v), 0.0, top, limit=400)[0]
+
+
+@pytest.mark.parametrize("mu", [0.0, 1e-4, 0.1, 1.0, 3.0])
+@pytest.mark.parametrize("V", [0.3, 1.0, 3.0, np.inf])
+def test_mean_collision_speed_matches_quadrature_of_the_skewed_maxwellian(mu, V):
+    ours = vel.mean_collision_speed(1.0, V, mu)[()]
+    assert ours == pytest.approx(_numeric_mean_speed(1.0, V, mu), rel=1e-6, abs=1e-12)
+
+
+def test_mean_collision_speed_limits():
+    """No limit, no drift: the Maxwellian mean speed (8/3 pi)^1/2 dV; their Eq. 18
+    with a limit; and the drift-dominated limit mu + dV^2 / (3 mu)."""
+    assert vel.mean_collision_speed(2.0)[()] == pytest.approx(math.sqrt(8 / (3 * math.pi)) * 2.0, rel=1e-12)
+    chi = math.sqrt(1.5) * 0.7
+    eq18 = math.sqrt(8 / (3 * math.pi)) * (1 - (1 + chi ** 2) * math.exp(-chi ** 2))
+    assert vel.mean_collision_speed(1.0, 0.7)[()] == pytest.approx(eq18, rel=1e-12)
+    assert vel.mean_collision_speed(1.0, np.inf, 30.0)[()] == pytest.approx(30 + 1 / 90, rel=1e-6)
+
+
+def test_brownian_rms_and_mean_are_consistent():
+    """Combining rms in quadrature and taking the mean speed recovers the
+    Brownian mean speed when there is no other motion."""
+    m = np.array([1e-17, 3e-16])
+    mean = vel.mean_collision_speed(vel.brownian_rms(30.0, m))
+    np.testing.assert_allclose(mean, vel.brownian_dv(30.0, m), rtol=1e-12)

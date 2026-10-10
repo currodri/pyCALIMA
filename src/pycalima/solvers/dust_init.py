@@ -602,7 +602,7 @@ def load_initial_conditions(
         cluster_evaporation_model=str(
             models_cfg.get("cluster_evaporation_model", "Montillaud2014")
         ),
-        slope_frag_func=float(models_cfg.get("slope_frag_func", 1.3 / 3.0)),
+        slope_frag_func=float(models_cfg.get("slope_frag_func", 0.7 / 3.0)),
         # Turbulent environment
         local_sigma=local_sigma,
         local_dx=local_dx,

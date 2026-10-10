@@ -304,8 +304,12 @@ class DustChemistryState:
     """Turbulence injection scale [cm]."""
 
     # ---- Shattering parameters ----
-    slope_frag_func: float = 1.3 / 3.0
-    """Power-law slope of the fragment mass distribution."""
+    slope_frag_func: float = 0.7 / 3.0
+    """Exponent s of the cumulative fragment mass, M(<m) ∝ m^s (as RAMSES
+    dust_init.f90 / dust_rates.f90 use it). A fragment size distribution
+    n(a) ∝ a^-alpha_f has s = (4 - alpha_f) / 3; Jones, Tielens & Hollenbach
+    (1996) give alpha_f = 3.3, so s = 0.7/3. (RAMSES's 1.3/3 = (3.3 - 2)/3
+    gives n(a) ∝ a^-2.7.)"""
 
     # ---- Optional metadata ----
     radiation_field_model: str = "habing"
