@@ -320,7 +320,8 @@ def turbulent_kernel(mach=1.0, sigma_neutral=2.0e-15, v_stick_01=None):
 def critical_dust_to_gas(make_populations, track, n_min=1e8, n_max=None, criterion="C",
                          lo=1e-12, hi=1e-4, rtol=0.01, scan_dex=None, **run_kw):
     """Smallest initial dust-to-gas ratio D0 for which the criterion reaches 1
-    for some n_H in [n_min, n_max] (default n_max: H2 90 % molecular).
+    for some n_H in [n_min, n_max] (default n_max: H2 90 % molecular, or the
+    peak of f_H2 on a track that never gets there).
 
     criterion: ``"C"`` (cooling time vs collapse time, the default), ``"R"``, or
     ``"frag"`` (``fragmentation`` of the energy-equation solution, any density;
@@ -340,17 +341,21 @@ def critical_dust_to_gas(make_populations, track, n_min=1e8, n_max=None, criteri
     if criterion == "frag":
         run_kw["energy"] = True
         run_kw.setdefault("n_end", 1e16)
-    else:
-        n_max = track.n_molecular(0.9) if n_max is None else n_max
-        run_kw.setdefault("n_end", 1.5 * n_max)    # the criterion does not look further
 
     def peak(D0):
         pops, y = make_populations(D0)
-        h, _ = run_collapse(track if isinstance(track, Track) else track(D0), pops, y_gas=y, **run_kw)
+        tr = track if isinstance(track, Track) else track(D0)
+        kw = dict(run_kw)
+        if criterion != "frag":
+            n_hi = tr.n_molecular(0.9) if n_max is None else n_max
+            if math.isinf(n_hi):       # never 90 % molecular (Grackle's dust-free gas): its peak f_H2
+                n_hi = 10.0 ** tr.log_n[int(np.argmax(tr.log_fH2))]
+            kw.setdefault("n_end", 1.5 * n_hi)     # the criterion does not look further
+        h, _ = run_collapse(tr, pops, y_gas=y, **kw)
         if criterion == "frag":
             return 2.0 if fragmentation(h) else 0.0
         a = h.arrays()
-        sel = (a["nH"] >= n_min) & (a["nH"] <= n_max)
+        sel = (a["nH"] >= n_min) & (a["nH"] <= n_hi)
         return a[criterion][sel].max()
 
     if scan_dex is not None:
