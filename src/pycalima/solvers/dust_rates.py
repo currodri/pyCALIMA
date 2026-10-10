@@ -26,6 +26,12 @@ import numpy as np
 from .chemistry_state import DustBinParams, DustChemistryState, PAHBinParams
 from .grain_dynamics import grain_relative_velocity, sticking_probability_from_velocity
 
+
+def _ion_fraction(state) -> float:
+    """n_e / n_H, capped at 1: the ionised fraction for the gas viscosity."""
+    return min(state.local_ne / max(state.local_nH, 1.0e-30), 1.0)
+
+
 # ---------------------------------------------------------------------------
 # Physical constants (CGS)
 # ---------------------------------------------------------------------------
@@ -1252,6 +1258,7 @@ def pah_freezing_rate(
                 model, Tk, rho_gas, nH, sigma, mu, inject_L,
                 pb.apah_cm, pb.spah, pb.mpah,
                 db.asize_cm, db.sgrain, db.mgrain,
+                x_ion=_ion_fraction(state),
             )
             coll_section = (
                 math.sqrt(8.0 / (3.0 * math.pi))
@@ -1316,6 +1323,7 @@ def _compute_shattered_fragments(
         sigma, state.local_mu, inject_L,
         db1.asize_cm, db1.sgrain, db1.mgrain,
         db2.asize_cm, db2.sgrain, db2.mgrain,
+        x_ion=_ion_fraction(state),
     )
 
     m1 = db1.mgrain
@@ -1446,6 +1454,7 @@ def turbulent_shattering_rate(
                 model, Tk, rho_gas, nH, sigma, mu, inject_L,
                 db.asize_cm, db.sgrain, db.mgrain,
                 db.asize_cm, db.sgrain, db.mgrain,
+                x_ion=_ion_fraction(state),
             )
             if v_rel <= 0.0:
                 continue
@@ -1549,6 +1558,7 @@ def turbulent_all_shattering_rate(
                     model, Tk, rho_gas, nH, sigma, mu, inject_L,
                     db_ii.asize_cm, db_ii.sgrain, db_ii.mgrain,
                     db_jj.asize_cm, db_jj.sgrain, db_jj.mgrain,
+                    x_ion=_ion_fraction(state),
                 )
                 if v_rel <= 0.0:
                     continue
@@ -1654,6 +1664,7 @@ def turbulent_coagulation_rate(
             model, Tk, rho_gas, nH, sigma, mu, inject_L,
             db.asize_cm, db.sgrain, db.mgrain,
             db.asize_cm, db.sgrain, db.mgrain,
+            x_ion=_ion_fraction(state),
         )
         p_stick = sticking_probability_from_velocity(v_rel, db.vthresh_coag)
 
@@ -1730,6 +1741,7 @@ def turbulent_all_coagulation_rate(
                     model, Tk, rho_gas, nH, sigma, mu, inject_L,
                     db_ii.asize_cm, db_ii.sgrain, db_ii.mgrain,
                     db_kk.asize_cm, db_kk.sgrain, db_kk.mgrain,
+                    x_ion=_ion_fraction(state),
                 )
                 # Use minimum of the two thresholds
                 v_coag = min(db_ii.vthresh_coag, db_kk.vthresh_coag)
