@@ -13,7 +13,11 @@ script writes, from a Grackle checkout at commit ``PINNED_COMMIT``:
 * ``collapse_tracks/grackle_ccsn{M}_n1_dustfree.txt``: dust-free collapse tracks
   (``grackle_freefall.py --dust-free``) on a [Z] grid, for ``Track.grackle``;
 * ``tests/data/grackle_ccsn_n1_zcr.txt``: Grackle's own [Z_cr] with its full
-  chemistry, without and with grain growth, by the same fragmentation criterion.
+  chemistry, without and with grain growth, by the same fragmentation criterion;
+* ``collapse_tracks/grackle_ccsn_n1_dusty_profiles.txt``: full-chemistry (dusty)
+  collapses at [Z/H] = -5, -4.5, -4: T, f_H2, x_e, xi (ion to electron current
+  ratio) and x(H2O), for the grain-charge and ice checks
+  (``--only profiles`` writes just these).
 
 Build (once; outside the project, e.g. in a scratch directory):
 
@@ -95,11 +99,11 @@ def _grackle(args, py, src, tmp):
         cmd += ["--grain-growth"] * growth + ["--dust-free"] * dust_free
         subprocess.run(cmd, check=True, capture_output=True)
     d = np.load(out)
-    return d["nH"], d["T"], d["mu"], d["fH2"]
+    return d["nH"], d["T"], d["mu"], d["fH2"], d["x_e"], d["xi"], d["x_H2O"]
 
 
 def _fragments(run):
-    nH, T, mu, _ = run
+    nH, T, mu = run[:3]
     p = nH / 0.76 / (mu * MH_CGS) * MH_CGS * KB_CGS * T      # rho / (mu m_H) k T, rho = n_H m_H / X_H
     return bool(fragmentation(SimpleNamespace(arrays=lambda: dict(nH=nH, T=T, mu=mu, p=p))))
 
@@ -152,7 +156,7 @@ def write_tracks(runs, commit):
     for k, M in PATHWAYS.items():
         lT, lf = [], []
         for z in LOG_Z:
-            nH, T, _, fH2 = runs[(z, k)]
+            nH, T, _, fH2 = runs[(z, k)][:4]
             ln = np.log10(nH)
             lT.append(np.interp(LOG_N, ln, np.log10(T)))
             lf.append(np.interp(LOG_N, ln, np.log10(np.maximum(fH2, 1e-30))))
@@ -179,6 +183,24 @@ def write_zcr(res, commit):
     (ROOT / "tests" / "data" / "grackle_ccsn_n1_zcr.txt").write_text(hdr + "\n".join(rows) + "\n")
 
 
+def write_profiles(runs, commit):
+    hdr = (f"# Full-chemistry (dusty, no grain growth) one-zone collapses with Grackle (newchem-cpp, commit\n"
+           f"# {commit}) for the N07 CCSN pathways (n_amb = 1 cm^-3), as diagnostics/collapse/grackle_freefall.py;\n"
+           f"# {date.today().isoformat()}, diagnostics/collapse/make_grackle_tables.py. [Z/H] with Z_sun = 0.02.\n"
+           f"# xi = sum over positive ions n_i (m_e / m_i)^1/2 / n_e (H+, He+, H2+, HeH+, D+, HD+, C+, CO+, O+,\n"
+           f"# OH+, H2O+, H3O+, O2+; Grackle has no Mg+, Fe+, Si+: those metals are followed as totals).\n"
+           f"# columns: progenitor mass [Msun], [Z/H], log10 n_H [cm^-3], log10 T [K], log10 f_H2, log10 x_e,\n"
+           f"# log10 xi, log10 x(H2O)\n")
+    rows = []
+    for (z, k), r in sorted(runs.items()):
+        nH, T, _, fH2, xe, xi, xw = r
+        ln = np.log10(nH)
+        cols = [np.interp(LOG_N, ln, np.log10(np.maximum(v, 1e-30))) for v in (T, fH2, xe, xi, xw)]
+        rows += [f"{PATHWAYS[k]:3d} {z:5.2f} {n:6.2f} " + " ".join(f"{c[i]:8.4f}" for c in cols)
+                 for i, n in enumerate(LOG_N)]
+    (EXT / "collapse_tracks" / "grackle_ccsn_n1_dusty_profiles.txt").write_text(hdr + "\n".join(rows) + "\n")
+
+
 def _name(sp):
     return {"SiM": "Si", "FeM": "Fe", "AC": "C"}.get(sp, sp)
 
@@ -188,10 +210,18 @@ def main():
     ap.add_argument("--grackle-src", required=True, help="Grackle checkout (newchem-cpp)")
     ap.add_argument("--grackle-python", required=True, help="python of the gracklepy install")
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--only", choices=["profiles"], help="write only these tables")
     a = ap.parse_args()
     commit = subprocess.check_output(["git", "-C", a.grackle_src, "rev-parse", "--short", "HEAD"], text=True).strip()
     if not commit.startswith(PINNED_COMMIT) and not PINNED_COMMIT.startswith(commit):
         print(f"warning: Grackle checkout at {commit}, tables were made at {PINNED_COMMIT}")
+    if a.only == "profiles" or a.only is None:
+        with tempfile.TemporaryDirectory() as tmp, ProcessPoolExecutor(a.workers) as ex:
+            run = partial(_grackle, py=a.grackle_python, src=a.grackle_src, tmp=tmp)
+            jobs = [(z, k, False, False) for z in (-5.0, -4.5, -4.0) for k in PATHWAYS]
+            write_profiles({(z, k): r for (z, k, _, _), r in zip(jobs, ex.map(run, jobs))}, commit)
+        if a.only == "profiles":
+            return
     raw = parse_raw_data(a.grackle_src)
     write_grains(raw, commit)
     write_opacity(raw, commit)

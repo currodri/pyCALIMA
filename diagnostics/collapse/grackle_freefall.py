@@ -7,6 +7,10 @@ Runs under a gracklepy install, not pyCALIMA's environment (see
     python grackle_freefall.py OUT.npz --log-z -4 --pathway 2 --data-dir DIR \
         [--grain-growth] [--dust-free]
 
+Saved: n_H, T, mu, f_H2 = 2 n(H2) / n_H, x_e = n_e / n_H, xi = sum_i n_i (m_e / m_i)^1/2 / n_e
+over the positive ions (the ratio of ion to electron currents onto a neutral
+grain; ``pycalima.collapse.charge``) and x(H2O) = n(H2O) / n_H.
+
 Physics: Grackle's chemistry, cooling and dust, from n_H = 0.1 cm^-3, 300 K,
 x_e = 1e-4 (Omukai et al. 2005) to 1e16 cm^-3, z = 0 CMB. ``--log-z`` is
 [Z/H] with Z_sun = 0.02 (the convention of Chiaki et al. 2015); the metals are
@@ -39,6 +43,10 @@ from gracklepy.utilities.physical_constants import (cm_per_mpc, gravitational_co
 
 X_H = 0.76          # Grackle's hydrogen mass fraction
 Z_SUN = 0.02        # Chiaki+15
+ME_OVER_MH = 5.4462e-4
+# positive ions and their mass numbers (HeIII, doubly charged and absent at these T, left out)
+IONS = {"HII": 1, "HeII": 4, "H2II": 2, "HeHII": 5, "DII": 2, "HDII": 3, "CII": 12, "COII": 28, "OII": 16,
+        "OHII": 17, "H2OII": 18, "H3OII": 19, "O2II": 32}
 
 
 def chemistry(pathway, grain_growth, dust_free, data_dir):
@@ -86,7 +94,7 @@ def collapse(fc, final_density, safety=0.01):
 
 
 def run(log_z, pathway, data_dir, grain_growth=False, dust_free=False, n_end=1e16):
-    """(n_H, T, mu, f_H2) along the collapse; f_H2 = 2 n(H2) / n_H."""
+    """{n_H, T, mu, fH2, x_e, xi, x_H2O} along the collapse (see the module docstring)."""
     c = chemistry(pathway, grain_growth, dust_free, data_dir)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         fc = setup_fluid_container(c, density=0.1 / X_H * MH, temperature=300.0, state="neutral",
@@ -96,9 +104,15 @@ def run(log_z, pathway, data_dir, grain_growth=False, dust_free=False, n_end=1e1
         fc["HI_density"][:] -= xe
         fc["e_density"][:] = xe
         d = collapse(fc, n_end / X_H * MH)
-    rho = np.asarray(d["density"])                 # g cm^-3: finalize_data returns cgs
-    fH2 = np.asarray(d["H2I_density"]) / (np.asarray(d["HI_density"]) + np.asarray(d["H2I_density"]))
-    return rho * X_H / MH, np.asarray(d["temperature"]), np.asarray(d["mean_molecular_weight"]), fH2
+    g = {k: np.asarray(v) for k, v in d.items()}
+    rho = g["density"]                              # g cm^-3: finalize_data returns cgs
+    nH = rho * X_H / MH
+    n_e = g["e_density"] / MH                      # Grackle stores the electrons as n_e m_H
+    xi = sum(g[f"{k}_density"] / (A * MH) * np.sqrt(ME_OVER_MH / A) for k, A in IONS.items()
+             if f"{k}_density" in g) / n_e
+    return dict(nH=nH, T=g["temperature"], mu=g["mean_molecular_weight"],
+                fH2=g["H2I_density"] / (g["HI_density"] + g["H2I_density"]), x_e=n_e / nH, xi=xi,
+                x_H2O=g["H2OI_density"] / (18.0 * MH) / nH if "H2OI_density" in g else np.zeros_like(nH))
 
 
 def main():
@@ -111,9 +125,9 @@ def main():
     ap.add_argument("--dust-free", action="store_true")
     a = ap.parse_args()
     t0 = time.time()
-    nH, T, mu, fH2 = run(a.log_z, a.pathway, a.data_dir, a.grain_growth, a.dust_free)
-    np.savez(a.out, nH=nH, T=T, mu=mu, fH2=fH2)
-    print(a.out, f"{time.time() - t0:.1f} s, {nH.size} steps")
+    r = run(a.log_z, a.pathway, a.data_dir, a.grain_growth, a.dust_free)
+    np.savez(a.out, **r)
+    print(a.out, f"{time.time() - t0:.1f} s, {r['nH'].size} steps")
 
 
 if __name__ == "__main__":

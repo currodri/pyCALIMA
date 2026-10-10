@@ -89,6 +89,8 @@ class History:
     S: list = field(default_factory=list)
     D: list = field(default_factory=list)
     y_gas: list = field(default_factory=list)
+    Td: list = field(default_factory=list)          # per population: area-weighted mean T_d [K]
+    n_grains: list = field(default_factory=list)    # grains per H nucleus, all populations
 
     @property
     def R(self):
@@ -125,11 +127,11 @@ def _gamma_trailing(hist):
 
 def run_collapse(track, populations, y_gas=None, n0=1e2, n_end=1e16, dlnn=0.05, T_rad=2.725,
                  accretion=False, coagulation=False, coag_kernel=None, alpha_T=1.0, sticking=1.0,
-                 energy=False, q_cool=2.0):
+                 energy=False, q_cool=2.0, accretion_focus=None):
     """Integrate the collapse; returns (History, populations at the end).
 
     y_gas: gas-phase nuclei per H of the growth elements (``accretion.GAS_ELEMENTS``),
-    required with ``accretion=True``.
+    required with ``accretion=True``. accretion_focus: ``accretion.accrete``'s ``focus``.
 
     energy: evolve T with du/dt = p / (n_H t_col) - lambda_other - lambda_gd per H
     nucleus (u = c_v k T), lambda_other the track's implied non-dust cooling
@@ -183,6 +185,9 @@ def run_collapse(track, populations, y_gas=None, n0=1e2, n_end=1e16, dlnn=0.05, 
         hist.S.append(area / dust_mass if dust_mass > 0 else 0.0)
         hist.D.append(dust_mass / rho_gas)
         hist.y_gas.append(dict(y) if y is not None else None)
+        hist.Td.append([float(np.sum(s[0] * s[2] * td) / np.sum(s[0] * s[2])) if np.sum(s[0]) > 0 else math.nan
+                        for s, td in zip(st, Td)])
+        hist.n_grains.append(sum(float(np.sum(s[0])) for s in st) / nH)
         if k == n_edges.size - 1:
             break
         # processes over the step to the next density, at mid-step conditions
@@ -196,7 +201,7 @@ def run_collapse(track, populations, y_gas=None, n0=1e2, n_end=1e16, dlnn=0.05, 
         T_mid = math.sqrt(T * T_sol) if energy else float(track.T(n_mid))
         if accretion:
             work = [dict(material=p.material, grid=p.grid, rho=p.x * n_mid) for p in pops]
-            y, da = accrete(work, T_mid, n_mid, y, dt, alpha=sticking)
+            y, da = accrete(work, T_mid, n_mid, y, dt, alpha=sticking, focus=accretion_focus)
             for p, d in zip(pops, da):
                 if d > 0.0:
                     rho = p.x * n_mid

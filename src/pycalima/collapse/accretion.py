@@ -126,8 +126,11 @@ def shift_remap(a_edges, rho, lam, rho_s, da):
     return out, overflow
 
 
-def accrete(populations, T, nH, y_gas, dt, alpha=1.0, n_sub=16):
+def accrete(populations, T, nH, y_gas, dt, alpha=1.0, n_sub=16, focus=None):
     """Grow every population over dt, depleting the shared gas-phase elements.
+
+    focus: {key gas species: factor} multiplying its collision rate, e.g. the
+    Coulomb focusing of ionised Mg and Fe onto negatively charged grains.
 
     populations: list of dicts with keys ``material``, ``grid`` (SizeGrid), ``rho``.
     y_gas: gas-phase nuclei per H of each element (updated copy returned).
@@ -156,8 +159,8 @@ def accrete(populations, T, nH, y_gas, dt, alpha=1.0, n_sub=16):
     vth = math.sqrt(KB_CGS * T / (2.0 * math.pi * AMU_CGS))
     keys = []
     for m in mats:
-        keys.append([(alpha * 4.0 / 3.0 * math.pi * k.a0 ** 3 * vth / math.sqrt(k.m_gas), els.index(KEY_ELEMENT[k.gas]),
-                      k.gas in ABSENT_KEYS) for k in m.keys])
+        keys.append([(alpha * (focus or {}).get(k.gas, 1.0) * 4.0 / 3.0 * math.pi * k.a0 ** 3 * vth / math.sqrt(k.m_gas),
+                      els.index(KEY_ELEMENT[k.gas]), k.gas in ABSENT_KEYS) for k in m.keys])
     alive = S[:, 0] > 0.0
 
     def gas_vec(da):

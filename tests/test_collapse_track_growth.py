@@ -164,3 +164,21 @@ def test_brownian_coagulation_follows_hirashita_omukai09(z0):
         n_coag = np.log10(ns[int(np.argmax(ns >= crit))])
         assert 0.5 < half[Z] - n_coag < 1.5
     assert half[1e-2] - half[1.0] == pytest.approx(4.0, abs=0.6)
+
+
+def test_accretion_focus_speeds_up_only_the_limiting_key_species():
+    """``focus`` multiplies a key species' collision rate: doubling it for Fe doubles
+    the growth of iron grains; for Mg it changes forsterite only where Mg, not
+    SiO, limits the growth."""
+    from pycalima.collapse.accretion import accrete
+    from pycalima.collapse.grid import SizeGrid
+    g = SizeGrid.from_radii(1e-7, 1e-4, 30, 7.87)
+    rho = np.exp(-0.5 * (np.log(np.sqrt(g.a_edges[1:] * g.a_edges[:-1]) / 1e-5)) ** 2) * 1e-30
+    y = {"C": 0.0, "O": 1e-8, "Mg": 1e-10, "Si": 1e-10, "Fe": 1e-10, "Al": 0.0, "S": 0.0}
+    pops = lambda: [dict(material="Fe", grid=g, rho=rho.copy())]
+    _, da1 = accrete(pops(), 500.0, 1e12, y, 1e3)
+    assert da1[0] > 0.0
+    _, da2 = accrete(pops(), 500.0, 1e12, y, 1e3, focus={"Fe": 2.0})
+    assert da2[0] == pytest.approx(2.0 * da1[0], rel=1e-3)
+    _, da3 = accrete(pops(), 500.0, 1e12, y, 1e3, focus={"Mg": 5.0})
+    assert da3[0] == pytest.approx(da1[0], rel=1e-12)

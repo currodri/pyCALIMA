@@ -249,8 +249,11 @@ def charge_balance(table, n_grains, T, nH, zeta, mu_i, k_rec=None):
     return dict(n_e=n_e, n_i=r * n_e, xi=10.0 ** lxi, Zmean=Z, sigma=sig, Jion=J)
 
 
-def marchand21_charge_balance(a, n_grains, T, nH, zeta, mu_i, s_e=0.5):
+def marchand21_charge_balance(a, n_grains, T, nH, zeta, mu_i, s_e=0.5, k_rec=None):
     """Marchand+21 analytic grain charges (Eqs. 45-47, root in psi).
+
+    ``k_rec``: gas-phase recombination coefficient [cm^3 s^-1] of the ion
+    (default: dissociative recombination of molecular ions, Marchand+21).
 
     Returns a dict: n_e, n_i, psi, Zmean, Jion (per bin).
     """
@@ -260,7 +263,7 @@ def marchand21_charge_balance(a, n_grains, T, nH, zeta, mu_i, s_e=0.5):
     alpha = np.sqrt(8.0 / (math.pi * tau))
     Theta = s_e * math.sqrt(mu_i * MH_CGS / ME_CGS)
     v_i = math.sqrt(8.0 * KB_CGS * T / (math.pi * mu_i * MH_CGS))
-    k = recombination_rate_coefficient(T)
+    k = recombination_rate_coefficient(T) if k_rec is None else k_rec
     S = zeta * nH
 
     def parts(psi):
