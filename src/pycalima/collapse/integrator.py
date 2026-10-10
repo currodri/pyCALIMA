@@ -45,7 +45,7 @@ from pycalima.collapse.materials import get_material
 from pycalima.collapse.optics import planck_table
 from scipy.optimize import brentq
 
-from pycalima.collapse.tracks import G_CGS, MH_CGS, Y_HE, omukai_f
+from pycalima.collapse.tracks import G_CGS, MH_CGS, Y_HE, Track, omukai_f
 
 KB_CGS = 1.380649e-16
 MSUN_G = 1.98847e33
@@ -318,7 +318,7 @@ def turbulent_kernel(mach=1.0, sigma_neutral=2.0e-15, v_stick_01=None):
 
 
 def critical_dust_to_gas(make_populations, track, n_min=1e8, n_max=None, criterion="C",
-                         lo=1e-12, hi=1e-4, rtol=0.01, **run_kw):
+                         lo=1e-12, hi=1e-4, rtol=0.01, scan_dex=None, **run_kw):
     """Smallest initial dust-to-gas ratio D0 for which the criterion reaches 1
     for some n_H in [n_min, n_max] (default n_max: H2 90 % molecular).
 
@@ -328,6 +328,13 @@ def critical_dust_to_gas(make_populations, track, n_min=1e8, n_max=None, criteri
     d ln n <= 0.1, e.g. [Z_cr] = -4.91, -4.95, -4.97 at 0.1, 0.05, 0.025 for
     N07M20n0, while 0.2 is too coarse for the energy step).
     make_populations(D0) -> (populations, y_gas). Bisection in log D0.
+    track: a ``Track``, or a function of D0 returning one (e.g. ``Track.grackle``
+    at the trial metallicity, when D0 is Z / Z_sun).
+    scan_dex: if given, first step up from ``lo`` by this many dex to the first D0
+    that passes, then bisect below it, instead of requiring ``hi`` to pass. For
+    ``"frag"`` with much dust (e.g. [Z] > -3.5 for the N07 CCSN dust) the gas
+    cools to the end of the run, gamma never returns above 0.97, and nothing is
+    found: the criterion is then not monotonic in D0.
     """
     run_kw = dict(run_kw)
     if criterion == "frag":
@@ -339,16 +346,24 @@ def critical_dust_to_gas(make_populations, track, n_min=1e8, n_max=None, criteri
 
     def peak(D0):
         pops, y = make_populations(D0)
-        h, _ = run_collapse(track, pops, y_gas=y, **run_kw)
+        h, _ = run_collapse(track if isinstance(track, Track) else track(D0), pops, y_gas=y, **run_kw)
         if criterion == "frag":
             return 2.0 if fragmentation(h) else 0.0
         a = h.arrays()
         sel = (a["nH"] >= n_min) & (a["nH"] <= n_max)
         return a[criterion][sel].max()
 
-    if peak(hi) < 1.0:
+    if scan_dex is not None:
+        steps = np.arange(math.log10(lo), math.log10(hi) + 1e-9, scan_dex)
+        first = next((x for x in steps if peak(10.0 ** x) >= 1.0), None)
+        if first is None:
+            return math.inf
+        if first == steps[0]:
+            return lo
+        lo, hi = 10.0 ** (first - scan_dex), 10.0 ** first
+    elif peak(hi) < 1.0:
         return math.inf
-    if peak(lo) >= 1.0:
+    elif peak(lo) >= 1.0:
         return lo
     llo, lhi = math.log(lo), math.log(hi)
     while lhi - llo > rtol:

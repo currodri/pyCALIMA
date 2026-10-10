@@ -13,6 +13,8 @@ compare against.
 from __future__ import annotations
 
 import math
+import re
+from functools import lru_cache
 
 import numpy as np
 from scipy.optimize import brentq
@@ -69,6 +71,15 @@ def omukai_f(gamma):
     return np.clip(f, 0.0, 0.95)
 
 
+@lru_cache(maxsize=None)
+def _grackle_table(path):
+    """(table, [Z/H] of its T columns) of a Grackle dust-free track file."""
+    with open(path) as fh:
+        head = "".join(ln for ln in fh if ln.startswith("#"))
+    lz = np.array([float(v) for v in re.search(r"\[Z/H\] = ([-\d., ]+),", head).group(1).split(",")])
+    return np.loadtxt(path), lz
+
+
 TRACK_COLUMNS = {"Z0": 1, "m6": 2, "m4": 3, "m2": 4, "0": 5}
 GAMMA_HALF_WIDTH = 0.25     # dex in n_H
 
@@ -118,6 +129,27 @@ class Track:
         from pycalima import _paths
         d = np.loadtxt(_paths.get_external_data_path("collapse_tracks", "omukai2005_dustfree.txt"))
         return cls(d[:, 0], d[:, TRACK_COLUMNS[which]], d[:, 6], name=f"Omukai+05 {which}")
+
+    @classmethod
+    def grackle(cls, progenitor_mass, Z_over_Zsun):
+        """Dust-free track with Grackle's primordial and metal chemistry (Chiaki & Wise
+        2019) for the gas-phase metals of an N07 CCSN of ``progenitor_mass`` (13, 20,
+        25 or 30 Msun; reverse shock into n_amb = 1 cm^-3), at Z / Z_sun (Z_sun = 0.02).
+        log T and log f_H2 are interpolated linearly in [Z/H] between the tabulated
+        tracks ([Z/H] = -7 to -2 by 0.25; clipped outside). Its Z = 0 gas is 1.4-1.8x
+        hotter than Omukai+05's above 1 cm^-3 (390 vs 217 K at 1e4 cm^-3), which
+        lowers [Z_cr] by 0.2-0.3 dex; see ``collapse_tracks/grackle_ccsn*_n1_dustfree.txt``."""
+        from pycalima import _paths
+        name = f"grackle_ccsn{int(round(progenitor_mass))}_n1_dustfree.txt"
+        path = _paths.get_external_data_path("collapse_tracks", name)
+        d, lz = _grackle_table(str(path))
+        n = lz.size
+        x = float(np.clip(math.log10(Z_over_Zsun), lz[0], lz[-1]))
+        k = min(int(np.searchsorted(lz, x, side="right")) - 1, n - 2)
+        w = (x - lz[k]) / (lz[k + 1] - lz[k])
+        lT = (1 - w) * d[:, 1 + k] + w * d[:, 2 + k]
+        lf = (1 - w) * d[:, 1 + n + k] + w * d[:, 2 + n + k]
+        return cls(d[:, 0], lT, lf, name=f"Grackle dust-free ccsn{int(round(progenitor_mass))} [Z/H] = {x:.2f}")
 
     def _n_tot(self, log_n):
         fH2 = 10.0 ** np.interp(log_n, self.log_n, self.log_fH2)

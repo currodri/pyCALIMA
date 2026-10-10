@@ -22,6 +22,7 @@ dust locks up; any shortfall (negative gas) is set to zero and reported.
 
 from __future__ import annotations
 
+import math
 from functools import lru_cache
 from pathlib import Path
 
@@ -99,6 +100,35 @@ def nozawa2007_destruction():
     return {(float(r[0]), float(r[1])): dict(zip(names, r[2:])) for r in np.loadtxt(path)}
 
 
+@lru_cache(maxsize=None)
+def grackle_grains():
+    """{progenitor mass: {species: (dust-to-metal mass fraction, <r>, <r^2>, <r^3>)}} of
+    Grackle's N07 CCSN pathways (reverse shock into n_amb = 1 cm^-3; Chiaki & Wise 2019),
+    ``collapse_ics/grackle_ccsn_n1_grains.txt``."""
+    out = {}
+    with open(_paths.get_external_data_path("collapse_ics", "grackle_ccsn_n1_grains.txt")) as fh:
+        for ln in fh:
+            if ln.startswith("#") or not ln.strip():
+                continue
+            M, sp, *v = ln.split()
+            out.setdefault(float(M), {})[sp] = tuple(float(x) for x in v)
+    return out
+
+
+def lognormal_from_moments(grid, r2, r3):
+    """Mass fraction per bin of the lognormal number distribution with <r^2> = r2 and
+    <r^3> = r3, which fix S = 3 <r^2> / (4 rho_s <r^3>): sigma^2 = (ln r3 - 1.5 ln r2) / 1.5,
+    mu = ln r2 / 2 - sigma^2 (from <r^k> = exp(k mu + k^2 sigma^2 / 2)), integrated over
+    each bin."""
+    s2 = max((math.log(r3) - 1.5 * math.log(r2)) / 1.5, 1e-6)
+    mu = 0.5 * math.log(r2) - s2
+    ae = grid.a_edges
+    # dM / d ln a of a lognormal in a is a lognormal with mean mu + 3 sigma^2
+    cdf = 0.5 * (1.0 + np.vectorize(math.erf)((np.log(ae) - mu - 3.0 * s2) / math.sqrt(2.0 * s2)))
+    w = np.diff(cdf)
+    return w / w.sum()
+
+
 def erode(population, survival):
     """Thin every grain of a population by the same Delta a (thermal sputtering
     erodes at a rate independent of size) so that the fraction ``survival`` of
@@ -137,7 +167,7 @@ def _distribution_on_grid(grid, species):
 
 
 def nozawa_ccsn(progenitor_mass, Z_over_Zsun, a_min=1e-8, a_max=1e-3, bins_per_decade=10,
-                species=None, carbon_in_co=True, n_amb=None):
+                species=None, carbon_in_co=True, n_amb=None, grains="nozawa"):
     """Populations and gas-phase metals of a cloud enriched by one N07 CCSN.
 
     n_amb: ambient density [cm^-3] of the reverse-shock model (0.1, 1 or 10;
@@ -149,6 +179,12 @@ def nozawa_ccsn(progenitor_mass, Z_over_Zsun, a_min=1e-8, a_max=1e-3, bins_per_d
     preferentially, so for N07M20n1 uniform erosion gives S_C = 4.1e4 cm^2/g
     where their Fig. 6b (``nozawa2007_m20_n1_sizes.txt``) and Chiaki+15 give 1.8e4
     and 2.0e4.
+    grains: ``"nozawa"`` (the above) or ``"grackle"`` (n_amb = 1 only): the grain
+    species and dust-to-metal fractions of Grackle's pathway for this progenitor
+    (Chiaki & Wise 2019, the same Nozawa+07 models), each a lognormal matching
+    its <r^2> and <r^3> (``lognormal_from_moments``), so S per species is theirs;
+    species below 1e-10 of the dust are left out. The cloud's element abundances
+    stay those of Chiaki+15, as for ``"nozawa"``.
     carbon_in_co: only carbon in excess of oxygen is free to grow carbon grains,
     the rest being locked in CO at the densities of interest (these ejecta are
     O-rich, so then none is; Chiaki+15 follow CO with their chemistry).
@@ -170,7 +206,26 @@ def nozawa_ccsn(progenitor_mass, Z_over_Zsun, a_min=1e-8, a_max=1e-3, bins_per_d
     n_bins = int(round(np.log10(a_max / a_min) * bins_per_decade))
     pops, locked = [], {e: 0.0 for e in GAS_ELEMENTS}
     dust_per_H = 0.0
-    for sp in (species or ylds):
+    if grains == "grackle":
+        if n_amb is None or float(n_amb) != 1.0:
+            raise ValueError("grains='grackle': Grackle's N07 pathways are the n_amb = 1 cm^-3 models")
+        gg = grackle_grains()[float(masses[k])]
+        f_tot = sum(v[0] for v in gg.values())
+        for sp, (frac, _, r2, r3) in gg.items():
+            if frac < 1e-10 * f_tot or (species and sp not in species):
+                continue
+            mat = get_material(sp)
+            g = SizeGrid.from_radii(a_min, a_max, n_bins, mat.rho_s)
+            x_tot = metal_per_H * frac
+            pops.append(Population(sp, g, x_tot * lognormal_from_moments(g, r2, r3)))
+            dust_per_H += x_tot
+            nf = x_tot / formula_mass(mat.formula)
+            for e, nu in formula_atoms(mat.formula).items():
+                if e in locked:
+                    locked[e] += nu * nf
+    elif grains != "nozawa":
+        raise ValueError(f"grains must be 'nozawa' or 'grackle', not {grains!r}")
+    for sp in (species or ylds) if grains == "nozawa" else ():
         Md = float(ylds[sp][k])
         if Md <= 0.0:
             continue
