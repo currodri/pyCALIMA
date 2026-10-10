@@ -20,6 +20,7 @@ Three subpackages do export a curated `__all__` — `solvers`,
 :maxdepth: 1
 
 solvers
+collapse
 pycalima
 models
 models.dust_radiation
