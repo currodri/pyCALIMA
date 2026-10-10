@@ -24,5 +24,7 @@ two-collector Smoluchowski scheme.
    pycalima.collapse.optics
    pycalima.collapse.gas_grain
    pycalima.collapse.dust_temperature
+   pycalima.collapse.accretion
+   pycalima.collapse.integrator
    pycalima.collapse._jit
 ```

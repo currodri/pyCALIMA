@@ -38,6 +38,11 @@ WEIGHTS = {
     "additive": np.array([[1.0, 1.0, 0.0], [1.0, 0.0, 1.0]]),
     # (m^1/3 + m'^1/3)^2 m^1/6: geometric cross-section times the Ormel &
     # Cuzzi (2007) intermediate-regime velocity, which scales with the larger grain
+    # (m^1/3 + m'^1/3)^2: the geometric cross-section alone (Brownian and other
+    # kernels whose velocity factor varies little across a bin pair)
+    "geometric": np.array([[1.0, 2.0 / 3.0, 0.0],
+                           [2.0, 1.0 / 3.0, 1.0 / 3.0],
+                           [1.0, 0.0, 2.0 / 3.0]]),
     "turbulent": np.array([[1.0, 5.0 / 6.0, 0.0],
                            [2.0, 0.5, 1.0 / 3.0],
                            [1.0, 1.0 / 6.0, 2.0 / 3.0]]),
