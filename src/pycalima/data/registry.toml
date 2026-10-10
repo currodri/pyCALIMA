@@ -199,6 +199,50 @@ pahdb-complete-theoretical-v3.20_pIN3f5.ascii or register it with:
 
 # ----------------------------------------------------------------- fetch ---
 
+# Optical constants of three Pop III supernova dust species that the bundled
+# Kitzmann & Heng (2018) compilation lacks; used by pycalima.collapse.optics
+# (data/external_data/collapse_materials.toml). One entry per file, so that
+# each is checksummed. Fetched rather than bundled: none carries a
+# redistribution licence except the CC0 refractiveindex.info file.
+
+[datasets.optical-zubko-1996-acar]
+kind = "fetch"
+dest = "optical_props/zubko_1996"
+files = ["nk.acar"]
+url = "https://web.archive.org/web/19991128130527id_/http://physics.technion.ac.il/~zubko/AC_opt/nk.acar"
+url_status = "confirmed"
+sha256 = "dacbd52b51da2dc047eccf10daeb04045cb725746b99e7cb9e3632b6d160a0f3"
+size_bytes = 42_502
+citation = "Zubko, Mennella, Colangeli & Bussoletti (1996), MNRAS 282, 1321: amorphous carbon, sample ACAR"
+notes = """Columns: wavelength [um], n, k; 0.040-1984 um. The author's page
+(physics.technion.ac.il/~zubko/nk.html) no longer answers; this is its Wayback
+Machine copy (raw bytes, 'id_'). Copyright V. Zubko 1996-1999; cite the paper."""
+
+[datasets.optical-franta-2017-si]
+kind = "fetch"
+dest = "optical_props/franta_2017_si"
+files = ["Franta-300K.yml"]
+url = "https://raw.githubusercontent.com/polyanskiy/refractiveindex.info-database/c5c2f188e848453def5970e347399d653df2ffc2/database/data/main/Si/nk/Franta-300K.yml"
+url_status = "confirmed"
+sha256 = "45e271e0e8d20aa9617da5e98522cbbf29867ab7294d382760188b4d1fa5f969"
+size_bytes = 190_560
+citation = "Franta et al. (2017), crystalline Si at 300 K, via refractiveindex.info (CC0)"
+notes = """YAML with a tabulated wavelength [um], n, k block; 0.031-310 um,
+pinned to a commit of the refractiveindex.info database mirror."""
+
+[datasets.optical-triaud-magnetite]
+kind = "fetch"
+dest = "optical_props/triaud_magnetite"
+files = ["mag_interp.dat"]
+url = "https://www2.astro.uni-jena.de/Laboratory/OCDB/data/oxide/mag_interp.dat"
+url_status = "confirmed"
+sha256 = "93bb440f4b7777aa2ed55233cd4c382981a445dfae33dc593a8fc7c58115c3b5"
+size_bytes = 10_302
+citation = "A. H. M. J. Triaud, unpublished; Jena Database of Optical Constants for Cosmic Dust: magnetite Fe3O4"
+notes = """Columns: wavelength [um], n, k, tab-separated; 0.1-1000 um. The
+DOCCD asks users to cite the original data; there is no paper, so cite the database."""
+
+
 [datasets.cagliari-pah]
 kind = "fetch"
 dest = "external_data"
