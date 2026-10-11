@@ -182,3 +182,17 @@ def test_accretion_focus_speeds_up_only_the_limiting_key_species():
     assert da2[0] == pytest.approx(2.0 * da1[0], rel=1e-3)
     _, da3 = accrete(pops(), 500.0, 1e12, y, 1e3, focus={"Mg": 5.0})
     assert da3[0] == pytest.approx(da1[0], rel=1e-12)
+
+
+def test_accretion_focus_may_depend_on_density(z0):
+    """A callable focus of (n_H, T) acts like the fixed one where it returns it, and
+    not at all where it returns nothing."""
+    from pycalima.collapse.ics import nozawa_ccsn
+    pops, y, _ = nozawa_ccsn(20, 1e-4, n_amb=1, grains="grackle")
+    run = lambda f: run_collapse(z0, pops, y_gas=y, n0=1e6, n_end=1e14, dlnn=0.1, accretion=True,
+                                 accretion_focus=f)[0]
+    fixed = {"Mg": 3.0, "Fe": 3.0}
+    D = lambda h: np.asarray(h.D)
+    assert np.array_equal(D(run(lambda n, T: fixed)), D(run(fixed)))
+    assert np.array_equal(D(run(lambda n, T: None)), D(run(None)))
+    assert D(run(fixed))[-1] > D(run(None))[-1]

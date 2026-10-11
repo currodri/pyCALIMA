@@ -131,7 +131,8 @@ def run_collapse(track, populations, y_gas=None, n0=1e2, n_end=1e16, dlnn=0.05, 
     """Integrate the collapse; returns (History, populations at the end).
 
     y_gas: gas-phase nuclei per H of the growth elements (``accretion.GAS_ELEMENTS``),
-    required with ``accretion=True``. accretion_focus: ``accretion.accrete``'s ``focus``.
+    required with ``accretion=True``. accretion_focus: ``accretion.accrete``'s ``focus``,
+    or a function of (n_H, T) returning it.
 
     energy: evolve T with du/dt = p / (n_H t_col) - lambda_other - lambda_gd per H
     nucleus (u = c_v k T), lambda_other the track's implied non-dust cooling
@@ -175,7 +176,8 @@ def run_collapse(track, populations, y_gas=None, n0=1e2, n_end=1e16, dlnn=0.05, 
         hist.Lambda_gd.append(Lgd)
         if energy:
             f = 0.0 if math.log10(nH) < track.log_n_frag else float(omukai_f(_gamma_trailing(hist)))
-            t_col = math.sqrt(3.0 * math.pi / (32.0 * G_CGS * rho_gas)) / math.sqrt(1.0 - f)
+            t_ff = math.sqrt(3.0 * math.pi / (32.0 * G_CGS * rho_gas))
+            t_col = track.t_col_factor * t_ff / math.sqrt(1.0 - f)
         else:
             t_col = float(track.t_col(nH))
         hist.Gamma_comp.append(n_tot * KB_CGS * T / t_col)
@@ -201,7 +203,8 @@ def run_collapse(track, populations, y_gas=None, n0=1e2, n_end=1e16, dlnn=0.05, 
         T_mid = math.sqrt(T * T_sol) if energy else float(track.T(n_mid))
         if accretion:
             work = [dict(material=p.material, grid=p.grid, rho=p.x * n_mid) for p in pops]
-            y, da = accrete(work, T_mid, n_mid, y, dt, alpha=sticking, focus=accretion_focus)
+            focus = accretion_focus(n_mid, T_mid) if callable(accretion_focus) else accretion_focus
+            y, da = accrete(work, T_mid, n_mid, y, dt, alpha=sticking, focus=focus)
             for p, d in zip(pops, da):
                 if d > 0.0:
                     rho = p.x * n_mid

@@ -62,6 +62,17 @@ def nozawa2003_sizes():
 
 
 @lru_cache(maxsize=None)
+def nozawa2007_m20_n1_sizes():
+    """(log10 r [cm], {species: log10 dN/dr (relative), nan where none}) of the dust
+    surviving the reverse shock of N07M20n1 (Nozawa+07 Fig. 6b)."""
+    path = _paths.get_external_data_path("collapse_ics", "nozawa2007_m20_n1_sizes.txt")
+    with open(path) as fh:
+        names = [ln for ln in fh if ln.startswith("# columns")][0].split("of")[-1].split()
+    d = np.loadtxt(path)
+    return d[:, 0] - 4.0, {n: d[:, i + 1] for i, n in enumerate(names)}
+
+
+@lru_cache(maxsize=None)
 def chiaki2015_models():
     """{progenitor mass: dict(log_A={el: log10 A_j at Z_sun}, f_dep, f_dep_C, S_C, f_dep_Sil,
     S_Sil, D0, Dcr_ng, Zcr_ng)} from Chiaki+15 (see the data file for units)."""
@@ -145,11 +156,14 @@ def erode(population, survival):
     return shift_remap(g.a_edges, x, lam, g.rho_s, -da)[0], da
 
 
-def _distribution_on_grid(grid, species):
-    """Mass fraction per bin of a species' Nozawa+03 size distribution."""
-    lr, logf = nozawa2003_sizes()
+def distribution_on_grid(grid, species, sizes=nozawa2003_sizes):
+    """Mass fraction per bin of a species' tabulated size distribution, ``sizes()``
+    being one of the loaders above (all zero if the table has none of it)."""
+    lr, logf = sizes()
     lf = logf[species]
     ok = np.isfinite(lf)
+    if ok.sum() < 2:
+        return np.zeros(grid.n_bins)
     r = 10.0 ** lr[ok]
     f = 10.0 ** lf[ok]
     w = np.zeros(grid.n_bins)
@@ -232,7 +246,7 @@ def nozawa_ccsn(progenitor_mass, Z_over_Zsun, a_min=1e-8, a_max=1e-3, bins_per_d
         mat = get_material(sp)
         g = SizeGrid.from_radii(a_min, a_max, n_bins, mat.rho_s)
         x_tot = metal_per_H * Md / M_met
-        pop = Population(sp, g, x_tot * _distribution_on_grid(g, sp))
+        pop = Population(sp, g, x_tot * distribution_on_grid(g, sp))
         if n_amb is not None:
             eps = nozawa2007_destruction()[(float(masses[k]), float(n_amb))][sp]
             x_new, _ = erode(pop, 1.0 - eps)

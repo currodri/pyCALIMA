@@ -89,13 +89,18 @@ def parse_raw_data(src):
     return out
 
 
-def _grackle(args, py, src, tmp):
-    """Run grackle_freefall.py; returns (n_H, T, mu, f_H2)."""
+def _grackle(args, py, src, tmp, zeta0=0.0, j21=0.0, redshift=0.0, delay=1.0):
+    """Run grackle_freefall.py (cosmic rays at ``zeta0`` [s^-1], attenuated; Lyman-Werner
+    background ``j21``; CMB at ``redshift``; collapse time x ``delay``); returns
+    (n_H, T, mu, f_H2, x_e, xi, x_H2O)."""
     log_z, pathway, growth, dust_free = args
-    out = Path(tmp) / f"p{pathway}_z{log_z:+.4f}_g{int(growth)}_d{int(dust_free)}.npz"
+    env = (f"_lw{j21:g}" if j21 else "") + (f"_zr{redshift:g}" if redshift else "") + \
+        (f"_tc{delay:g}" if delay != 1.0 else "")
+    out = Path(tmp) / f"p{pathway}_z{log_z:+.4f}_g{int(growth)}_d{int(dust_free)}_cr{zeta0:g}{env}.npz"
     if not out.exists():
         cmd = [py, str(HERE / "grackle_freefall.py"), str(out), "--log-z", str(log_z), "--pathway", str(pathway),
-               "--data-dir", str(Path(src) / "grackle_data_files" / "input")]
+               "--data-dir", str(Path(src) / "grackle_data_files" / "input"), "--zeta0", str(zeta0),
+               "--j21", str(j21), "--redshift", str(redshift), "--collapse-delay", str(delay)]
         cmd += ["--grain-growth"] * growth + ["--dust-free"] * dust_free
         subprocess.run(cmd, check=True, capture_output=True)
     d = np.load(out)
@@ -108,12 +113,12 @@ def _fragments(run):
     return bool(fragmentation(SimpleNamespace(arrays=lambda: dict(nH=nH, T=T, mu=mu, p=p))))
 
 
-def _zcr(case, py, src, tmp, step=0.25, tol=0.025):
+def _zcr(case, py, src, tmp, step=0.25, tol=0.025, zeta0=0.0):
     """Lowest [Z] that fragments: scanned up from -7 in ``step`` (above ~[Z] = -3.5
     the dust cools the gas to the end of the run, gamma never returns above 0.97
     and the criterion finds nothing, so it is not monotonic in Z), then bisected."""
     pathway, growth = case
-    frag = lambda z: _fragments(_grackle((round(z, 4), pathway, growth, False), py, src, tmp))
+    frag = lambda z: _fragments(_grackle((round(z, 4), pathway, growth, False), py, src, tmp, zeta0))
     first = next((z for z in np.arange(-7.0, -1.999, step) if frag(z)), None)
     if first is None:
         return case, math.inf
@@ -152,8 +157,13 @@ def write_opacity(raw, commit):
     (EXT / "collapse_ics" / "grackle_ccsn_n1_planck_opacity.txt").write_text(hdr + "\n".join(rows) + "\n")
 
 
-def write_tracks(runs, commit):
+def write_tracks(runs, commit, path=None, note="", masses=None):
+    """One dust-free track file per pathway (of ``masses``, default all); ``path(M)``
+    (default: the bundled ``collapse_tracks/grackle_ccsn{M}_n1_dustfree.txt``) and a
+    header ``note``."""
     for k, M in PATHWAYS.items():
+        if masses is not None and M not in masses:
+            continue
         lT, lf = [], []
         for z in LOG_Z:
             nH, T, _, fH2 = runs[(z, k)][:4]
@@ -163,14 +173,15 @@ def write_tracks(runs, commit):
         hdr = (f"# Dust-free one-zone collapse tracks with Grackle's chemistry (newchem-cpp, commit {commit}):\n"
                f"# primordial (with HD) and Chiaki & Wise (2019) metal chemistry, the gas-phase metals of\n"
                f"# injection pathway ccsn{M} (N07 {M} Msun CCSN, reverse shock into n_amb = 1 cm^-3), dust\n"
-               f"# module off; n_H = 0.1 cm^-3, 300 K, x_e = 1e-4 to 1e16 cm^-3, z = 0 CMB, Omukai+05 collapse\n"
+               f"# module off; n_H = 0.1 cm^-3, 300 K, x_e = 1e-4 to 1e16 cm^-3, z = 0 CMB and Omukai+05 collapse\n"
                f"# with consistent compressional heating (diagnostics/collapse/grackle_freefall.py --dust-free).\n"
+               f"{note}"
                f"# [Z/H] with Z_sun = 0.02. {date.today().isoformat()}, diagnostics/collapse/make_grackle_tables.py.\n"
                f"# columns: log10 n_H [cm^-3], log10 T at [Z/H] = {', '.join(f'{z:g}' for z in LOG_Z)},\n"
                f"# then log10 f_H2 (= 2 n(H2) / n_H) at the same [Z/H]\n")
         d = np.column_stack([LOG_N, *lT, *lf])
-        np.savetxt(EXT / "collapse_tracks" / f"grackle_ccsn{M}_n1_dustfree.txt", d, fmt="%.4f", header=hdr.rstrip("\n"),
-                   comments="")
+        out = path(M) if path else EXT / "collapse_tracks" / f"grackle_ccsn{M}_n1_dustfree.txt"
+        np.savetxt(out, d, fmt="%.4f", header=hdr.rstrip("\n"), comments="")
 
 
 def write_zcr(res, commit):

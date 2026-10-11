@@ -8,6 +8,7 @@
   low-mass fragmentation in primordial gas, and with the Schneider & Omukai
   (2010) criterion gives the critical metallicity of Chiaki+15 Table 3 for the
   unprocessed 20 Msun dust.
+* The digitised Nozawa+07 Fig. 6b carbon gives the S_C of N07M20n1 (Chiaki+15).
 * The solver's shattering fragments follow Jones et al. (1996), n(a) ∝ a^-3.3.
 """
 
@@ -18,9 +19,12 @@ import math
 import numpy as np
 import pytest
 
-from pycalima.collapse.ics import chiaki2015_models, nozawa_ccsn
+from pycalima.collapse.grid import SizeGrid
+from pycalima.collapse.ics import (chiaki2015_models, distribution_on_grid, nozawa2007_m20_n1_sizes,
+                                   nozawa_ccsn)
 from pycalima.collapse.integrator import (critical_dust_to_gas, fragmentation, lognormal_population,
                                           run_collapse)
+from pycalima.collapse.materials import get_material
 from pycalima.collapse.tracks import Track
 
 RHO_PER_H = (1 + 4 * 0.0833) * 1.6735575e-24
@@ -54,12 +58,38 @@ def test_ics_carbon_and_silicate_shares_match_chiaki15():
     assert (x["Mg2SiO4"] + x["MgSiO3"]) / m == pytest.approx(0.049, rel=0.05)
 
 
+def test_nozawa07_m20n1_carbon_sizes_give_chiaki15_cross_section():
+    """S_C = 3 <a^2> / (4 rho_s <a^3>) = 2.0e4 cm^2/g for N07M20n1 (Chiaki+15 Table 3)."""
+    g = SizeGrid.from_radii(1e-8, 1e-3, 50, get_material("C").rho_s)
+    w = distribution_on_grid(g, "C", nozawa2007_m20_n1_sizes)
+    assert w.sum() == pytest.approx(1.0)
+    beta = g.slopes(w)
+    S = float(np.sum(g.number_density(w, beta) * g.mean_area(beta)))
+    assert S == pytest.approx(2.0e4, rel=0.15)
+    # a table without the species gives nothing rather than failing
+    assert not distribution_on_grid(g, "Al2O3", nozawa2007_m20_n1_sizes).any()
+
+
 def test_energy_equation_reproduces_the_dust_free_track(z0):
     pop = lognormal_population("MgSiO3", 1e-14 * RHO_PER_H, a_peak=3e-6)
     h, _ = run_collapse(z0, [pop], n0=1e-1, n_end=1e16, dlnn=0.05, energy=True)
     a = h.arrays()
     assert np.max(np.abs(np.log10(a["T"] / z0.T(a["nH"])))) < 0.05
     assert fragmentation(h) == []          # primordial gas: no sub-solar fragments
+
+
+def test_slowed_collapse_scales_the_time_and_keeps_the_track(z0):
+    """t_col_factor stretches the collapse time; the energy equation, built from the same
+    t_col, still reproduces the track."""
+    slow = Track(z0.log_n, z0.log_T, z0.log_fH2, t_col_factor=2.0)
+    n = np.array([1e2, 1e8, 1e12])
+    assert np.allclose(slow.t_col(n), 2.0 * z0.t_col(n))
+    pop = lognormal_population("MgSiO3", 1e-14 * RHO_PER_H, a_peak=3e-6)
+    h, _ = run_collapse(slow, [pop], n0=1e-1, n_end=1e16, dlnn=0.05, energy=True)
+    a = h.arrays()
+    assert np.max(np.abs(np.log10(a["T"] / slow.T(a["nH"])))) < 0.05
+    h1, _ = run_collapse(z0, [pop], n0=1e-1, n_end=1e16, dlnn=0.05, energy=True)
+    assert a["t"][-1] == pytest.approx(2.0 * h1.arrays()["t"][-1], rel=0.05)
 
 
 def test_dust_cooling_lowers_the_temperature_and_fragments(z0):

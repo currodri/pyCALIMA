@@ -96,9 +96,12 @@ class Track:
     minimum after the initial heating, "before the clouds experience the first
     fragmentation" (their Sect. 2). Compressional heating per unit volume:
     Gamma_comp = p / t_col.
+    t_col_factor multiplies t_col: a collapse slowed by turbulent, rotational or
+    magnetic support; the track must have been computed with the same factor.
     """
 
-    def __init__(self, log_n, log_T, log_fH2, name=""):
+    def __init__(self, log_n, log_T, log_fH2, name="", t_col_factor=1.0):
+        self.t_col_factor = float(t_col_factor)
         ok = np.isfinite(log_T)
         self.log_n = np.asarray(log_n)[ok]
         self.log_T = np.asarray(log_T)[ok]
@@ -131,17 +134,20 @@ class Track:
         return cls(d[:, 0], d[:, TRACK_COLUMNS[which]], d[:, 6], name=f"Omukai+05 {which}")
 
     @classmethod
-    def grackle(cls, progenitor_mass, Z_over_Zsun):
+    def grackle(cls, progenitor_mass, Z_over_Zsun, path=None, t_col_factor=1.0):
         """Dust-free track with Grackle's primordial and metal chemistry (Chiaki & Wise
         2019) for the gas-phase metals of an N07 CCSN of ``progenitor_mass`` (13, 20,
         25 or 30 Msun; reverse shock into n_amb = 1 cm^-3), at Z / Z_sun (Z_sun = 0.02).
         log T and log f_H2 are interpolated linearly in [Z/H] between the tabulated
         tracks ([Z/H] = -7 to -2 by 0.25; clipped outside). Its Z = 0 gas is 1.4-1.8x
         hotter than Omukai+05's above 1 cm^-3 (390 vs 217 K at 1e4 cm^-3), which
-        lowers [Z_cr] by 0.2-0.3 dex; see ``collapse_tracks/grackle_ccsn*_n1_dustfree.txt``."""
+        lowers [Z_cr] by 0.2-0.3 dex; see ``collapse_tracks/grackle_ccsn*_n1_dustfree.txt``.
+        path: another table in the same format (``make_grackle_tables.write_tracks``),
+        e.g. with cosmic rays; t_col_factor: that of the table's collapse."""
         from pycalima import _paths
         name = f"grackle_ccsn{int(round(progenitor_mass))}_n1_dustfree.txt"
-        path = _paths.get_external_data_path("collapse_tracks", name)
+        if path is None:
+            path = _paths.get_external_data_path("collapse_tracks", name)
         d, lz = _grackle_table(str(path))
         n = lz.size
         x = float(np.clip(math.log10(Z_over_Zsun), lz[0], lz[-1]))
@@ -149,7 +155,8 @@ class Track:
         w = (x - lz[k]) / (lz[k + 1] - lz[k])
         lT = (1 - w) * d[:, 1 + k] + w * d[:, 2 + k]
         lf = (1 - w) * d[:, 1 + n + k] + w * d[:, 2 + n + k]
-        return cls(d[:, 0], lT, lf, name=f"Grackle dust-free ccsn{int(round(progenitor_mass))} [Z/H] = {x:.2f}")
+        return cls(d[:, 0], lT, lf, name=f"Grackle dust-free ccsn{int(round(progenitor_mass))} [Z/H] = {x:.2f}",
+                   t_col_factor=t_col_factor)
 
     def _n_tot(self, log_n):
         fH2 = 10.0 ** np.interp(log_n, self.log_n, self.log_fH2)
@@ -178,7 +185,8 @@ class Track:
     def t_col(self, nH):
         lg = np.log10(nH)
         f = np.where(lg < self.log_n_frag, 0.0, omukai_f(np.interp(lg, self.log_n, self.gamma)))
-        return math.sqrt(3.0 * math.pi / (32.0 * G_CGS)) / np.sqrt(self.rho(nH)) / np.sqrt(1.0 - f)
+        t_ff = math.sqrt(3.0 * math.pi / (32.0 * G_CGS)) / np.sqrt(self.rho(nH))
+        return self.t_col_factor * t_ff / np.sqrt(1.0 - f)
 
     def compression_heating(self, nH):
         """Gamma_comp = p / t_col [erg cm^-3 s^-1]."""
