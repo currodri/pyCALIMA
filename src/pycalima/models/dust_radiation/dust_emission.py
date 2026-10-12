@@ -2131,6 +2131,10 @@ def plot_eqtemp_tgas_density_grid(dust_bin,
 
     # 2. Cross sections for the selected bin from the exported optical-property files.
     a0, wavelengths, _, C_abs, _, composition = _read_precomputed_optical_properties(dust_bin)
+    # The tables are per gram of dust; the collisional heating below is per grain
+    from pycalima.models.grain_size_config import get_lognormal_parameters
+    cfg = get_lognormal_parameters(dust_bin)
+    C_abs = C_abs * (4.0 / 3.0 * np.pi * (cfg['a0'] * 1e-4) ** 3 * cfg['s'])
     C_abs_interp = np.interp(radiation_field[:, 0], wavelengths[::-1], C_abs[::-1])
 
     # Use the full wavelength range of the optical file for emission (covers 10 Å – 1 cm)
@@ -2347,9 +2351,9 @@ def plot_energy_Spitzer_luminosity(dust_types,optical_dir=None,output_dir=None):
         # Plot the results for this dust_type
         for j, filter_name in enumerate(filters.keys()):
             if i == 0:
-                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, label=filter_name, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+                ax.plot(T_grid, Lum_filter[filter_name], label=filter_name, linestyle=linestyles[i], color=filter_linecolors[filter_name])
             else:
-                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+                ax.plot(T_grid, Lum_filter[filter_name], linestyle=linestyles[i], color=filter_linecolors[filter_name])
         
     # 5. Final setup of the figure
     band_legend = ax.legend(frameon=False, loc='lower right', fontsize=14)
@@ -2444,9 +2448,9 @@ def plot_energy_Herschel_luminosity(dust_types,optical_dir=None,output_dir=None)
         # Plot the results for this dust_type
         for j, filter_name in enumerate(filters.keys()):
             if i == 0:
-                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, label=filter_name, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+                ax.plot(T_grid, Lum_filter[filter_name], label=filter_name, linestyle=linestyles[i], color=filter_linecolors[filter_name])
             else:
-                ax.plot(T_grid, Lum_filter[filter_name]/m_grain, linestyle=linestyles[i], color=filter_linecolors[filter_name])
+                ax.plot(T_grid, Lum_filter[filter_name], linestyle=linestyles[i], color=filter_linecolors[filter_name])
         
     # 5. Final setup of the figure
     band_legend = ax.legend(frameon=False, loc='lower right', fontsize=14)
