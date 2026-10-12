@@ -76,9 +76,9 @@ def fig1_kappa_LW():
         ("DustBin_04", 3.3, 0.10,  C_SIL,  "Silicate bin 2 ($a_0=0.10$ um)"),
     ]
     bin_kappas = {}
-    for bin_id, rho_gr, a0, *_ in calima_bins:
+    for bin_id, *_ in calima_bins:
         try:
-            bin_kappas[bin_id] = compute_kappa_LW_precomp(bin_id, rho_gr, a0)
+            bin_kappas[bin_id] = compute_kappa_LW_precomp(bin_id)
         except FileNotFoundError as e:
             print(f"  Warning: {e}")
             bin_kappas[bin_id] = None

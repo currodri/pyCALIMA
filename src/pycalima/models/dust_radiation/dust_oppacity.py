@@ -1571,7 +1571,9 @@ def _read_precomputed_cross_section_table(bin_id, optical_dir=None, pah_state='n
     Returns
     -------
     tuple of ndarray
-        wavelength_micron, C_abs, C_sca, C_rp
+        wavelength_micron, C_abs, C_sca, C_rp: cm^2 per gram of dust for a DustBin
+        (the export_dust_optical_properties convention, also what RAMSES reads),
+        cm^2 per molecule for a PAHBin
     """
     if optical_dir is None:
         optical_dir = _path_model_optical_output()
