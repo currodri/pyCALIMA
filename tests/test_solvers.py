@@ -288,13 +288,15 @@ def test_table_reader_rejects_a_missing_file(tmp_path):
 # solver classes
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("name", ["rk4", "rk54", "anninos"])
+@pytest.mark.parametrize("name", ["rk4", "rk54", "anninos", "mprk22"])
 def test_time_integrators_construct(name):
     from pycalima.solvers.anninos import AnninosSolver
+    from pycalima.solvers.mprk22 import MPRK22Solver
     from pycalima.solvers.rk4 import RK4Solver
     from pycalima.solvers.rk54 import RK54Solver
 
-    cls = {"rk4": RK4Solver, "rk54": RK54Solver, "anninos": AnninosSolver}[name]
+    cls = {"rk4": RK4Solver, "rk54": RK54Solver, "anninos": AnninosSolver,
+           "mprk22": MPRK22Solver}[name]
     solver = cls()
     from pycalima.solvers.solver_base import DustSolverBase
 
@@ -490,6 +492,7 @@ EXPECTED_SOLVERS = {
     "rk4": "RK4Solver",
     "rk54": "RK54Solver",
     "anninos": "AnninosSolver",
+    "mprk22": "MPRK22Solver",
     "newton_krylov": "NewtonKrylovEquilibriumSolver",
     "sparse_newton": "SparseNewtonEquilibriumSolver",
 }
@@ -971,11 +974,86 @@ def test_condensation_and_accretion_cannot_both_be_on(tmp_path):
             tmp_path, models={"condensation_balance": "pressur"}))
 
 
-def test_run_chemistry_warns_that_anninos_cannot_balance_condensation(tmp_path):
-    """Anninos (and the NewtonKrylov continuation built on it) creates mass
-    when sublimation and condensation nearly cancel."""
+@pytest.mark.parametrize("solver_type", ["anninos", "newton_krylov"])
+def test_run_chemistry_warns_against_solvers_that_cannot_balance_condensation(
+        tmp_path, solver_type):
     from pycalima.solvers.run_chemistry import run_chemistry
 
     path = _condensation_config(tmp_path)
-    with pytest.warns(UserWarning, match="does not conserve mass"):
-        run_chemistry(path, t_end_Myr=1e-9, verbose=False, solver_type="anninos")
+    with pytest.warns(UserWarning, match="does not reach the right equilibrium"):
+        run_chemistry(path, t_end_Myr=1e-9, verbose=False, solver_type=solver_type)
+
+
+# ---------------------------------------------------------------------------
+# MPRK22 and the Fortran-parity Anninos
+# ---------------------------------------------------------------------------
+
+def _element_totals(state, y_gas, y_dust):
+    from pycalima.solvers.equilibrium import _build_contribution_matrix
+
+    return y_gas + _build_contribution_matrix(state) @ y_dust
+
+
+def test_mprk22_reaches_the_saturated_density_in_a_few_steps(tmp_path):
+    """The case Anninos cannot do: sublimation and condensation in balance.
+    The gas relaxes to n_sat; MPRK22 is implicit in it and gets there in tens
+    of steps however long the run."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _condensation_config(tmp_path, T_dust=1600.0))
+    db = state.dust_bins[0]
+    eps = float(db.erosion_rate_interp(1600.0))
+    rho_sat = (4.0 * db.asize_cm * db.sgrain * eps * np.sqrt(_M_C)
+               / (0.1 * np.sqrt(8.0 * _KB * state.local_Tk / np.pi)))
+    for t_end in (1.0e10, 1.0e17):
+        g, d, diag = integrate_dust_ode(state, t_end, y_gas, y_dust,
+                                        build_process_list(state), MPRK22Solver(),
+                                        h_init=1.0, h_min=1.0e-6)
+        assert g[2] == pytest.approx(rho_sat, rel=1e-3)
+        assert diag["naccepted"] < 200
+        np.testing.assert_allclose(_element_totals(state, g, d),
+                                   _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+
+@pytest.mark.parametrize("config", ["example_ic", "all_processes_test"])
+def test_mprk22_conserves_each_element_and_matches_rk54(config, model_data):
+    from pycalima.solvers.dust_init import SEC2MYR, load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+    from pycalima.solvers.rk54 import RK54Solver
+
+    state, y_gas, y_dust = load_initial_conditions(resolve_solver_config_path(config))
+    procs = build_process_list(state)
+    kw = dict(h_init=1e10, h_min=1.0, h_max=SEC2MYR)
+    g, d, _ = integrate_dust_ode(state, 10 * SEC2MYR, y_gas, y_dust, procs,
+                                 MPRK22Solver(), **kw)
+    _, d_ref, _ = integrate_dust_ode(state, 10 * SEC2MYR, y_gas, y_dust, procs,
+                                     RK54Solver(errmax=1e-3), **kw)
+    M0 = _element_totals(state, y_gas, y_dust)
+    np.testing.assert_allclose(_element_totals(state, g, d), M0,
+                               rtol=1e-12, atol=1e-12 * M0.max())
+    big = d_ref > 1e-6 * d_ref.max()
+    np.testing.assert_allclose(d[big], d_ref[big], rtol=1e-2)
+
+
+def test_anninos_moves_the_actual_bin_change_into_the_gas(tmp_path):
+    """As the Fortran anninos_step: gas + dust is conserved per element in
+    every branch (the Euler gas update created mass when sources and sinks
+    nearly cancel)."""
+    from pycalima.solvers.anninos import AnninosSolver
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _condensation_config(tmp_path, T_dust=1600.0))
+    g, d, _ = integrate_dust_ode(state, 1.0e10, y_gas, y_dust,
+                                 build_process_list(state), AnninosSolver(),
+                                 h_init=1.0, h_min=1.0e-6)
+    np.testing.assert_allclose(_element_totals(state, g, d),
+                               _element_totals(state, y_gas, y_dust), rtol=1e-12)

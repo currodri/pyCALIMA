@@ -38,12 +38,17 @@ class DustProcess:
         True if the process can add mass to dust grains.
     sink : bool
         True if the process can remove mass from dust grains.
+    bin_local : bool
+        True if each bin trades mass only with the gas (never with another
+        bin), so the gas exchange can be attributed bin by bin. Used by the
+        MPRK22 solver.
     """
 
     name: str
     rate_fn: RateFn
     source: bool = False
     sink: bool = False
+    bin_local: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +91,8 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     # ---- Grain growth (accretion) ----
     if state.dust_accretion and state.ndust > 0:
         processes.append(
-            DustProcess("accretion", accretion_rate, source=True, sink=False)
+            DustProcess("accretion", accretion_rate, source=True, sink=False,
+                        bin_local=True)
         )
 
     # ---- Grain destruction (thermal sputtering) ----
@@ -98,19 +104,21 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
         else:
             _spu_fn = thermal_sputtering_rate  # Kirchschlager MB-integrated tables
         processes.append(
-            DustProcess("sputtering", _spu_fn, source=False, sink=True)
+            DustProcess("sputtering", _spu_fn, source=False, sink=True, bin_local=True)
         )
 
     # ---- Grain destruction (thermal sublimation, GD89) ----
     if state.dust_sublimation and state.ndust > 0:
         processes.append(
-            DustProcess("sublimation", sublimation_rate, source=False, sink=True)
+            DustProcess("sublimation", sublimation_rate, source=False, sink=True,
+                        bin_local=True)
         )
 
     # ---- Grain growth (recondensation, the reverse of sublimation) ----
     if state.dust_condensation and state.ndust > 0:
         processes.append(
-            DustProcess("condensation", condensation_rate, source=True, sink=False)
+            DustProcess("condensation", condensation_rate, source=True, sink=False,
+                        bin_local=True)
         )
 
     # ---- Grain coagulation (model-selected) ----
@@ -174,19 +182,22 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     # ---- PAH accretion ----
     if state.pah_accretion and state.npah > 0:
         processes.append(
-            DustProcess("pah_accretion", pah_accretion_rate, source=True, sink=False)
+            DustProcess("pah_accretion", pah_accretion_rate, source=True, sink=False,
+                        bin_local=True)
         )
 
     # ---- PAH photolysis ----
     if state.pah_photolysis and state.npah > 0:
         processes.append(
-            DustProcess("pah_photolysis", pah_photolysis_rate, source=False, sink=True)
+            DustProcess("pah_photolysis", pah_photolysis_rate, source=False, sink=True,
+                        bin_local=True)
         )
 
     # ---- PAH sputtering ----
     if state.pah_sputtering and state.npah > 0:
         processes.append(
-            DustProcess("pah_sputtering", pah_sputtering_rate, source=False, sink=True)
+            DustProcess("pah_sputtering", pah_sputtering_rate, source=False, sink=True,
+                        bin_local=True)
         )
 
     # ---- PAH coalescence (model-selected) ----

@@ -432,12 +432,11 @@ Mg$_2$SiO$_4$ units; a bin of another stoichiometry adds $m_X/f_X$ per $X$
 atom, which shifts the balance by that mass ratio (a few K in
 $T_\mathrm{sub}$).
 
-Integrate this pair with `rk4`, `rk54` or `sparse_newton`. The `anninos`
-solver updates each bin quasi-implicitly but the gas by an Euler step, and
-with a large source and sink in near balance the two disagree: in a closed
-box at 1800 K and $10^{10}$ cm$^{-3}$ it created 28% more carbon than it
-started with. `newton_krylov` starts from an `anninos` continuation and does
-not converge. `calima-run` warns about both.
+Integrate this pair with `mprk22` or `sparse_newton` (or `rk4`/`rk54`, which
+are accurate but need many steps). With the two in balance the stiff variable
+is the gas; `anninos` treats it explicitly and `newton_krylov` cannot meet its
+stationarity test, and `calima-run` warns about both
+({ref}`solver-types`).
 
 :::{note}
 `diagnostics/dust_radiation/check_recondensation_baskin_laor.py` solves for

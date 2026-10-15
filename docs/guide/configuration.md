@@ -116,7 +116,7 @@ together with `dust_accretion`.
 
 ### `solver`
 
-`type` selects the integrator (`rk4`, `rk54`, `anninos`, `newton_krylov`,
+`type` selects the integrator (`rk4`, `rk54`, `anninos`, `mprk22`, `newton_krylov`,
 `sparse_newton`); the other keys — `t_end_Myr`, step-size limits, tolerances
 and iteration caps — depend on it. {doc}`solvers` documents each solver and its
 keys.
