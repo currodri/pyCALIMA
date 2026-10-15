@@ -243,10 +243,27 @@ def correction_factor(material, a_cm, Td):
         return 0.0
     # log f_corr = b*ln((1+gamma)/gamma) + lnGamma(m+1) + lnGamma(m+f-b)
     #              - lnGamma(m-b+1) - lnGamma(m+f)
-    log_corr = (b * np.log((1. + gamma) / gamma)
-                + special.gammaln(args[0]) + special.gammaln(args[1])
-                - special.gammaln(args[2]) - special.gammaln(args[3]))
+    #            = b*ln(1+1/gamma) + D(m-b+1, b) - D(m+f-b, b),
+    # with D(x, b) = lnGamma(x+b) - lnGamma(x). For large grains the four
+    # lnGamma values reach ~1e13 and cancel to O(1), so D is evaluated in a
+    # form that never builds them (see _lngamma_difference).
+    log_corr = (b * np.log1p(1. / gamma)
+                + _lngamma_difference(m - b + 1., b)
+                - _lngamma_difference(m + f - b, b))
     return np.exp(log_corr)
+
+
+def _lngamma_difference(x, b):
+    """``lnGamma(x + b) - lnGamma(x)`` without cancellation for large ``x``.
+
+    Below ``x = 50`` the direct difference is accurate. Above it, Stirling's
+    series is subtracted term by term, with ``log1p`` for the leading part;
+    the first omitted term is ``O(x^-3) < 1e-8``.
+    """
+    if x < 50.0:
+        return special.gammaln(x + b) - special.gammaln(x)
+    return ((x - 0.5) * np.log1p(b / x) + b * np.log(x + b) - b
+            + (1. / (x + b) - 1. / x) / 12.)
 
 
 def sublimation_rate(material, a_cm, Td):
@@ -304,6 +321,33 @@ def sublimation_timescale(material, a_cm, Td):
     with np.errstate(divide='ignore', invalid='ignore'):
         tau = np.where(da_dt > 0.0, a_cm / da_dt, np.inf)
     return tau
+
+
+# Bulk sublimation constants of GD89 as quoted by Waxman & Draine (2000,
+# ApJ 537, 796, Sect. 3.1, after eq. 10): attempt frequency nu_0 [s^-1] and
+# binding energy B/k [K]. m is the mass of the unit that leaves: a C atom for
+# graphite, one Mg2SiO4 formula unit for silicate (WD00 quote the silicate
+# values "for Mg2SiO4" without saying which; per atom, (m/rho)^(1/3) would be
+# 1.9x smaller).
+WD00_GD89_CONSTANTS = {
+    'graphite': {'nu0': 2.0e14, 'B_over_k': 81200.0},
+    'silicate': {'nu0': 2.0e15, 'B_over_k': 68100.0},
+}
+
+
+def wd00_sublimation_timescale(material, a_cm, Td):
+    """Bulk sublimation timescale of Waxman & Draine (2000) eq. 10, in s.
+
+    ``da/dt = -(m/rho)^(1/3) nu_0 exp(-B/kT)`` with the GD89 constants in
+    ``WD00_GD89_CONSTANTS``, so ``tau = a / |da/dt|``. It has no size
+    correction to B and no microcanonical factor, so it is the reference for
+    large grains only (``sublimation_timescale`` tends to it for a >~ 0.01 um).
+    """
+    params = GD89_PARAMS[material]
+    const = WD00_GD89_CONSTANTS[material]
+    layer_cm = (params['mass_amu'] * _AMU / params['rho']) ** (1.0 / 3.0)
+    exponent = np.clip(const['B_over_k'] / np.asarray(Td, dtype=float), None, 700.0)
+    return a_cm / (layer_cm * const['nu0']) * np.exp(exponent)
 
 
 # ---------------------------------------------------------------------------
@@ -1524,14 +1568,8 @@ def plot_sublimation_rate_vs_temperature(config_path=None,
         ax.plot(T_grid, epsilon, color=color, linestyle=ls,
                 linewidth=2.0, label=label)
 
-        # Waxman & Draine (2000) reference formula for the same grain size:
-        a_5 = a0_cm / 1.0e-5
-        if material == 'silicate':
-            tau_wd = 6.36e3 * a_5 * np.exp(
-                np.clip(6.81e4 * (1.0 / T_grid - 1.0 / 1800.0), -700.0, 700.0))
-        else:  # graphite
-            tau_wd = 1.36 * a_5 * np.exp(
-                np.clip(8.12e4 * (1.0 / T_grid - 1.0 / 3000.0), -700.0, 700.0))
+        # Waxman & Draine (2000) eq. 10 with GD89 constants, same grain size:
+        tau_wd = wd00_sublimation_timescale(material, a0_cm, T_grid)
         eps_wd = np.where(tau_wd > 0.0, 1.0 / tau_wd, np.nan)  # [s^-1]
         # Label only the first graphite/silicate entry as WD00 reference to avoid legend clutter
         wd_label = f'WD2000 ({material})' if (idx_bin == 0 or idx_bin == 2) else None
@@ -2363,8 +2401,9 @@ def compare_large_grain_timescales_wd00(
     Computes CALIMA's full sublimation timescale t_sub = a / ``|da/dt|`` (which
     includes microcanonical/finite-system and surface tension/free-energy
     corrections) as a function of dust temperature T_dust and compares it
-    to the bulk analytical approximation formulas used in Waxman & Draine
-    (2000, WD00, Eqs. 3 and 4) for a range of grain sizes.
+    to the bulk rate of Waxman & Draine (2000, WD00, eq. 10) with the GD89
+    constants they quote (``wd00_sublimation_timescale``) for a range of
+    grain sizes.
 
     Parameters
     ----------
@@ -2416,18 +2455,16 @@ def compare_large_grain_timescales_wd00(
         for a_mu, color in zip(grain_sizes_micron, colors):
             a_mu = float(a_mu)
             a_cm = a_mu * 1e-4
-            a_5 = a_cm / 1e-5
 
             # Compute CALIMA timescales for each temperature
             t_calima = np.array([sublimation_timescale(mat, a_cm, t) for t in T_grid])
 
-            # WD00 analytical formulas
+            # WD00 eq. 10 with the GD89 constants
+            t_wd = wd00_sublimation_timescale(mat, a_cm, T_grid)
             if mat == 'silicate':
-                t_wd = 6.36e3 * a_5 * np.exp(68100.0 * (1.0 / T_grid - 1.0 / 1800.0))
                 # For printing, pick 1500 K and 1800 K
                 print_temps = [1500.0, 1800.0]
             else:  # graphite
-                t_wd = 1.36 * a_5 * np.exp(81200.0 * (1.0 / T_grid - 1.0 / 3000.0))
                 # For printing, pick 2400 K and 3000 K
                 print_temps = [2400.0, 3000.0]
 

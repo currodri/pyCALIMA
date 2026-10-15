@@ -575,6 +575,35 @@ class TestDustRadiation:
 
         assert hasattr(ds, "__doc__")
 
+    def test_microcanonical_correction_vanishes_for_large_grains(self):
+        """f_corr -> 1 for large grains. It used to be a difference of four
+        lnGamma values ~1e13, which returned 0.94 at 1 um and anything from 0
+        to 1e14 at 10 um (so 10 um grains never sublimated)."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        for material in ("graphite", "silicate"):
+            for a_cm in (1e-5, 1e-4, 3e-4, 1e-3):
+                for T in (1000.0, 1500.0, 2200.0, 3000.0):
+                    f = ds.correction_factor(material, a_cm, T)
+                    assert f == pytest.approx(1.0, abs=1e-4), (material, a_cm, T)
+
+    def test_large_grain_sublimation_tends_to_the_bulk_gd89_rate(self):
+        """For large grains the size and microcanonical corrections vanish, so
+        the GD89 model must reduce to the bulk rate of Waxman & Draine (2000)
+        eq. 10. Graphite agrees to ~1%. The silicate prefactor sits 1.7x below
+        the one WD00 quote (they leave the monomer unit ambiguous), so it is
+        only bounded here."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        for a_cm in (1e-5, 1e-4):
+            for T in (1500.0, 1850.0, 2200.0):
+                r = ds.sublimation_timescale("graphite", a_cm, T) / \
+                    ds.wd00_sublimation_timescale("graphite", a_cm, T)
+                assert r == pytest.approx(1.0, rel=0.03), (a_cm, T)
+                r = ds.sublimation_timescale("silicate", a_cm, T) / \
+                    ds.wd00_sublimation_timescale("silicate", a_cm, T)
+                assert 0.5 < r < 2.0, (a_cm, T)
+
 
 # ===========================================================================
 # models/dust_gas_collisions

@@ -16,7 +16,7 @@ $$ (eq-dgd-bookkeeping)
 
 where $f_e$ is the mass fraction of element $e$ in the grain material
 (`solvers/dust_rates.py:321`–`325` for accretion, `:396`–`400` for the
-tabulated sputtering, `:583`–`587` for sublimation). Mass is therefore
+tabulated sputtering, `:592`–`594` for sublimation). Mass is therefore
 conserved element by element.
 
 | Process | `physics` flag | `models` key | Kernel |
@@ -25,7 +25,7 @@ conserved element by element.
 | Thermal sputtering | `dust_sputtering` | `dust_sputtering_model` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` |
 | Thermal sublimation | `dust_sublimation` | none | `sublimation_rate` |
 
-All three flags default to `false` (`solvers/dust_init.py:583`–`585`). The
+All three flags default to `false` (`solvers/dust_init.py:633`–`635`). The
 processes are appended to the process list only if the flag is set and there
 is at least one dust bin (`solvers/rhs.py:86`–`107`).
 
@@ -312,22 +312,29 @@ simply becomes negligible in cold gas.
 `sublimation_rate` implements the grain-evaporation model of
 {cite:t}`GuhathakurtaDraine1989`. It reads a per-bin table
 `dust_sublimation/sublimation_rate_<bin_id>.dat` (falling back to
-`erosion_rate_<bin_id>.dat`) of $\varepsilon = |da/dt|/a$ [s$^{-1}$] against
-temperature (`solvers/dust_init.py:286`–`288`). The mass-loss rate is
+`erosion_rate_<bin_id>.dat`) of $\log_{10}\varepsilon$, with
+$\varepsilon = |da/dt|/a$ [s$^{-1}$], against the *dust* temperature
+(`solvers/dust_init.py:278`–`325`). The mass-loss rate is
 
 $$
-k_\mathrm{sub} = 3\,\varepsilon(T)
+k_\mathrm{sub} = 3\,\varepsilon(T_d)
 $$ (eq-dgd-sub)
 
-(`solvers/dust_rates.py:575`–`580`), since $m\propto a^3$. The interpolant is
-linear, returns 0 below the table and the last tabulated value above it
-(`solvers/dust_init.py:299`–`303`).
+(`solvers/dust_rates.py:582`–`587`), since $m\propto a^3$. $T_d$ is the bin's
+`dust_temperature_K`, or the environment's when the bin sets none; loading a
+configuration with `dust_sublimation` on and no dust temperature raises
+(`solvers/dust_init.py:590`). The gas temperature plays no role. The reader
+interpolates $\log_{10}\varepsilon$ linearly in $T_d$, returns 0 below the
+table and holds the last row above it. Tables without the `log10(epsilon`
+column header are older exports holding linear $\varepsilon$, and are read as
+such. The loader warns when a table was exported for a grain radius more than
+1% different from the solver bin's, since $\varepsilon \propto 1/a$.
 
 The tables come from `write_sublimation_rate_tables` in
 `models/dust_radiation/dust_sublimation.py`, run by `calima-export`. For the
 representative radius of each bin in the grain-size JSON, and on 300
 log-spaced dust temperatures $T_d$ from 200 to 4000 K
-(`dust_sublimation.py:1309`), it evaluates:
+(`dust_sublimation.py:1352`), it evaluates:
 
 $$
 J = \alpha_N\,P\,\exp\!\left[-\frac{B_\infty - \sigma N^{-1/3}}{T_d}\right],\qquad
@@ -335,13 +342,16 @@ J = \alpha_N\,P\,\exp\!\left[-\frac{B_\infty - \sigma N^{-1/3}}{T_d}\right],\qqu
 \left|\frac{da}{dt}\right| = \frac{m_\mathrm{mon}}{\rho_\mathrm{gr}}\,\frac{dN/dt}{4\pi a^2}
 $$ (eq-dgd-gd89)
 
-(`dust_sublimation.py:172`–`175`, `:260`, `:274`). The terms are:
+(`dust_sublimation.py:172`–`175`, `:277`, `:291`). The terms are:
 
 - $\alpha_N = 0.1$ (`dust_sublimation.py:87`);
 - $N$ is the number of monomers (C atoms for graphite, Mg$_2$SiO$_4$ units
   for silicate);
 - $f_\mathrm{corr}$ is the microcanonical correction, a ratio of Gamma
-  functions of the grain's internal energy (`dust_sublimation.py:240`–`250`).
+  functions of the grain's internal energy (`dust_sublimation.py:215`–`265`).
+  The lnΓ differences are evaluated with Stirling's series above argument 50,
+  so that $f_\mathrm{corr}\to1$ for large grains instead of losing all
+  precision.
 
 The material constants (`dust_sublimation.py:88`–`104`) are:
 
@@ -351,19 +361,21 @@ The material constants (`dust_sublimation.py:88`–`104`) are:
 | silicate | 68100 | 20000 | $7\times10^{30}$ | 140.69 | 3.5 |
 
 Only rows whose timescale $a/|da/dt|$ is at most 10 times
-$1.38\times10^{10}$ yr are written (`dust_sublimation.py:1358`–`1375`).
+$1.38\times10^{10}$ yr are written (`dust_sublimation.py:1402`–`1417`).
 
 :::{note}
-Two inconsistencies between the exporter and the solver affect this
-process as currently implemented:
+For large grains this reduces to the bulk rate
+$|da/dt| = (m/\rho)^{1/3}\nu_0 e^{-B/kT}$ of {cite:t}`WaxmanDraine2000`
+(their eq. 10), with the GD89 constants they quote
+(`wd00_sublimation_timescale`). Graphite agrees to 1%. Silicate lifetimes
+are 1.7 times longer than that formula with $m$ = one Mg$_2$SiO$_4$ unit, and
+10% shorter with $m$ = the mean atomic mass; WD00 do not say which. That is
+$\lesssim 20$ K in $T_\mathrm{sub}$. `diagnostics/dust_radiation/check_sublimation_radius_agn.py`
+compares the resulting sublimation radii in a quasar SED with Barvainis
+(1987), Kishimoto et al. (2007), Nenkova et al. (2008), Mor & Netzer (2012)
+and Baskin & Laor (2018).
 
-1. The exporter writes the second column as $\log_{10}\varepsilon$
-   (`dust_sublimation.py:1408`), but the solver loader reads it as linear
-   $\varepsilon$ (`solvers/dust_init.py:296`). Negative logarithms are then
-   discarded by the $\varepsilon \le 0$ test (`solvers/dust_rates.py:576`),
-   and positive ones are used as the rate itself. So sublimation is
-   suppressed wherever $\varepsilon < 1$ s$^{-1}$ and strongly underestimated
-   elsewhere.
-2. The tables are functions of the *dust* temperature $T_d$, but the solver
-   looks them up at the *gas* temperature (`solvers/dust_rates.py:575`).
+There is no recondensation term: $\varepsilon$ is the evaporation rate into
+vacuum, so $T_\mathrm{sub}$ does not depend on the gas density as in Baskin &
+Laor (2018, eqs. 32–33).
 :::
