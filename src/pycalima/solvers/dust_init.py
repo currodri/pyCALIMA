@@ -395,6 +395,8 @@ def load_initial_conditions(
     local_Tdust = (
         float(env["dust_temperature_K"]) if "dust_temperature_K" in env else None
     )
+    # Grain potential seen by condensing ions; a bin's own value overrides it.
+    local_Ugrain = float(env.get("grain_potential_V", 0.0))
 
     # ------------------------------------------------------------------
     # Elemental abundances → y_gas
@@ -483,6 +485,7 @@ def load_initial_conditions(
                 float(bd["dust_temperature_K"]) if "dust_temperature_K" in bd
                 else local_Tdust
             ),
+            grain_potential_V=float(bd.get("grain_potential_V", local_Ugrain)),
             charge_Z_interp=charge_Z_interp,
             charge_sigma_interp=charge_sigma_interp,
             nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
@@ -607,6 +610,33 @@ def load_initial_conditions(
             )
     solver_cfg = cfg.get("solver", {})
     models_cfg = cfg.get("models", {})
+    condensation_balance = str(models_cfg.get("condensation_balance", "flux"))
+    if phys.get("dust_condensation", False):
+        if phys.get("dust_accretion", False):
+            # Both are the same gas-grain collisions; together they double count.
+            raise ValueError(
+                "dust_condensation and dust_accretion are both enabled: they "
+                "count the same gas-grain collisions twice. Use accretion for "
+                "cold ISM grains and condensation (with dust_sublimation) for "
+                f"hot grains near their sublimation temperature ({config_path})."
+            )
+        if condensation_balance not in ("flux", "pressure"):
+            raise ValueError(
+                f"condensation_balance must be 'flux' or 'pressure', "
+                f"not {condensation_balance!r} ({config_path})."
+            )
+        if condensation_balance == "pressure" and any(
+                db.dust_temperature_K is None for db in dust_bins):
+            raise ValueError(
+                "condensation_balance 'pressure' needs a dust temperature: set "
+                f'"dust_temperature_K" in "environment" ({config_path}).'
+            )
+        if not phys.get("dust_sublimation", False):
+            warnings.warn(
+                "dust_condensation without dust_sublimation is one-way growth "
+                "with no evaporation to balance it.",
+                stacklevel=2,
+            )
     turb_cfg = cfg.get("turbulence", {})
 
     # Turbulent velocity and injection scale (convert from km/s and pc)
@@ -633,6 +663,7 @@ def load_initial_conditions(
         dust_accretion=bool(phys.get("dust_accretion", False)),
         dust_sputtering=bool(phys.get("dust_sputtering", False)),
         dust_sublimation=bool(phys.get("dust_sublimation", False)),
+        dust_condensation=bool(phys.get("dust_condensation", False)),
         dust_coagulation=bool(phys.get("dust_coagulation", False)),
         dust_shattering=bool(phys.get("dust_shattering", False)),
         pah_accretion=bool(phys.get("pah_accretion", False)),
@@ -653,6 +684,10 @@ def load_initial_conditions(
             models_cfg.get("cluster_evaporation_model", "Montillaud2014")
         ),
         slope_frag_func=float(models_cfg.get("slope_frag_func", 0.7 / 3.0)),
+        # Recondensation
+        condensation_coefficient=float(models_cfg.get("condensation_coefficient", 0.1)),
+        condensation_balance=condensation_balance,
+        condensation_ion_fraction=float(models_cfg.get("condensation_ion_fraction", 0.0)),
         # Turbulent environment
         local_sigma=local_sigma,
         local_dx=local_dx,

@@ -41,6 +41,7 @@ import argparse
 import json
 import sys
 import time
+import warnings
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -342,6 +343,17 @@ def run_chemistry(
     h_max_s     = h_max_Myr * SEC2MYR
 
     solver = _make_solver(solver_cfg)
+    if (state.dust_condensation and state.dust_sublimation
+            and solver.name in ("Anninos", "NewtonKrylov")):
+        # Anninos updates each bin quasi-implicitly but the gas by Euler; with
+        # a large source and sink in near balance the two disagree and mass is
+        # not conserved. NewtonKrylov starts from an Anninos continuation.
+        warnings.warn(
+            f"the {solver.name} solver does not conserve mass with "
+            "dust_sublimation and dust_condensation in near balance; use "
+            "rk4, rk54 or sparse_newton.",
+            stacklevel=2,
+        )
 
     # ---- Build active process list ----
     processes = build_process_list(state)

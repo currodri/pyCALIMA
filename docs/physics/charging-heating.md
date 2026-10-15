@@ -222,7 +222,7 @@ $$ (eq-coulomb)
 (`models/dust_charge/Coulomb_enhancement.py:39`–`43`). No export stage calls
 this module.
 
-On the solver side, `solvers/dust_init.py:419`–`431` loads
+On the solver side, `solvers/dust_init.py:421`–`433` loads
 `dust_charge_Z_vs_T_<bin_id>` and `dust_charge_sigma_vs_T_<bin_id>` for each
 bin through `build_charge_interpolator` (`solvers/table_io.py:301`). The mean
 charge is clamped to $[-60,60]$ and the width to $[0,20]$. The resulting
@@ -249,7 +249,7 @@ The charge tables are written as $n_\gamma$ rows of $n_T$ values
 (`solvers/table_io.py:337`–`346`). On the default square $100\times100$ grid,
 the table is therefore read transposed without any error. On a non-square grid
 the read fails, and `dust_init` quietly sets the interpolator to `None`
-(`solvers/dust_init.py:429`–`430`). Today this has no effect, because nothing
+(`solvers/dust_init.py:431`–`432`). Today this has no effect, because nothing
 uses the interpolator.
 :::
 
@@ -345,7 +345,7 @@ says erg cm$^3$ s$^{-1}$ (`models/dust_gas_collisions/dust_collisional_cooling.p
 |---|---|---|---|
 | `dust_photoelectric_heating_data/dust_rates_peh_<bin>.dat`, `dust_rates_rec_<bin>.dat` | `export_dust_photoelectric_heating` | 6 `#` lines; `nT nγ`; $\log T$; $\log\gamma$; $n_\gamma$ rows × $n_T$ of $\log_{10}$ rate [erg s$^{-1}$ per grain] | RAMSES Fortran only |
 | `dust_photoelectric_heating_data/heating_<bin>.npz` | same | `T`, `gamma`, `peh_rate`, `rec_rate`, `G0_grid`, `ne_grid`, `Zmean_grid`, `Zsigma_grid` ($n_T\times n_\gamma$) | `export_dust_charging_vs_gamma` |
-| `dust_charging_data/dust_charge_Z_vs_T_<bin>`, `dust_charge_sigma_vs_T_<bin>` | `export_dust_charging_vs_gamma` | same layout, $\langle Z\rangle$ and $\sigma_Z$ | `solvers/dust_init.py:419` (unused) |
+| `dust_charging_data/dust_charge_Z_vs_T_<bin>`, `dust_charge_sigma_vs_T_<bin>` | `export_dust_charging_vs_gamma` | same layout, $\langle Z\rangle$ and $\sigma_Z$ | `solvers/dust_init.py:421` (unused) |
 | `dust_ion_recombination_data/dust_rates_ion_recomb_<bin>.dat` | `export_dust_ion_recombination` | `nT nγ`; axes; $n_Tn_\gamma$ rows ($T$ outer) × 11 ions of $\log_{10}\alpha$ [cm$^3$ s$^{-1}$] | none in pyCALIMA |
 | `PAH_photoelectric_heating_data/peh_ISRF_<rad>_<opt>_<att>_<bin>.dat` | `export_PAH_photoelectric_heating_tables` | $\log\gamma$, $\log\epsilon$, $\log P_{\rm abs}$, $f_{-1}$, $f_0$, $f_1$, $f_2$ | none in the solver |
 | `collisional_cooling_data/cooling_<bin>_Z_<Zi>` | `export_collisional_cooling_bins` | `nT nφ`; $\phi$ [eV]; rows of $\log T$, $\log_{10}H$. `Z_0` is electrons; the ions are H, He, C, N, O, Ne, Mg, Si, S, Fe | `models/dust_radiation/dust_emission.py:966` |

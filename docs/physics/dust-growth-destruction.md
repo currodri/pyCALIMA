@@ -24,10 +24,11 @@ conserved element by element.
 | Accretion | `dust_accretion` | none | `accretion_rate` |
 | Thermal sputtering | `dust_sputtering` | `dust_sputtering_model` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` |
 | Thermal sublimation | `dust_sublimation` | none | `sublimation_rate` |
+| Recondensation | `dust_condensation` | `condensation_coefficient`, `condensation_balance`, `condensation_ion_fraction` | `condensation_rate` |
 
-All three flags default to `false` (`solvers/dust_init.py:633`–`635`). The
+All four flags default to `false` (`solvers/dust_init.py:663`–`666`). The
 processes are appended to the process list only if the flag is set and there
-is at least one dust bin (`solvers/rhs.py:86`–`107`).
+is at least one dust bin (`solvers/rhs.py:87`–`114`).
 
 ## Grain growth by accretion
 
@@ -72,7 +73,7 @@ $T > 1.8\times10^{5}$ K, where the gas is taken to be fully ionised
 (`solvers/dust_rates.py:209`–`211`). A bin is skipped when
 $n_\mathrm{H} >$ `nhmax_acc` (`solvers/dust_rates.py:269`). This per-bin
 ceiling is read from the bin's `nhmax_acc` key, defaulting to
-$10^4$ cm$^{-3}$ (`solvers/dust_init.py:457`). The code comment gives
+$10^4$ cm$^{-3}$ (`solvers/dust_init.py:459`). The code comment gives
 $10^3$ cm$^{-3}$ for carbon grains and $10^4$ cm$^{-3}$ for silicates in
 {cite:t}`Dubois2024` (`solvers/dust_rates.py:268`). The lower ceiling for
 carbon is how the docstring's "C is fully molecular (CO) for
@@ -96,7 +97,7 @@ $$ (eq-dgd-jeans)
 and $G = 6.674\times10^{-8}$ cm$^3$ g$^{-1}$ s$^{-2}$
 (`solvers/dust_rates.py:202`–`203`). The cell size $\Delta x$ comes from
 `turbulence.local_dx_pc`, converted with 1 pc $= 3.085677581\times10^{18}$ cm
-(`solvers/dust_init.py:563`–`565`). Every other cell is **resolved**.
+(`solvers/dust_init.py:566`–`568`). Every other cell is **resolved**.
 
 :::{note}
 `local_dx_pc` defaults to 0. With $\Delta x = 0$ the Jeans test is skipped
@@ -136,7 +137,7 @@ w = \ln\!\left[1 + (0.4\,\mathcal{M})^2\right]
 $$ (eq-dgd-mach)
 
 (`solvers/dust_rates.py:236`, `:244`–`245`). Here $\sigma$ [cm s$^{-1}$] is
-`turbulence.local_sigma_km_s` $\times10^5$ (`solvers/dust_init.py:564`),
+`turbulence.local_sigma_km_s` $\times10^5$ (`solvers/dust_init.py:567`),
 default 0. Then
 
 $$
@@ -185,8 +186,8 @@ treatment.
 ## Thermal sputtering
 
 The variant is selected by `models.dust_sputtering_model`
-(`solvers/rhs.py:93`–`98`). The default is `"kirchschlager"`
-(`solvers/dust_init.py:599`), and any unrecognised string also falls through
+(`solvers/rhs.py:94`–`99`). The default is `"kirchschlager"`
+(`solvers/dust_init.py:602`), and any unrecognised string also falls through
 to the tabulated kernel.
 
 | `dust_sputtering_model` | Kernel | Tables read |
@@ -323,7 +324,7 @@ $$ (eq-dgd-sub)
 (`solvers/dust_rates.py:582`–`587`), since $m\propto a^3$. $T_d$ is the bin's
 `dust_temperature_K`, or the environment's when the bin sets none; loading a
 configuration with `dust_sublimation` on and no dust temperature raises
-(`solvers/dust_init.py:590`). The gas temperature plays no role. The reader
+(`solvers/dust_init.py:593`). The gas temperature plays no role. The reader
 interpolates $\log_{10}\varepsilon$ linearly in $T_d$, returns 0 below the
 table and holds the last row above it. Tables without the `log10(epsilon`
 column header are older exports holding linear $\varepsilon$, and are read as
@@ -375,7 +376,77 @@ compares the resulting sublimation radii in a quasar SED with Barvainis
 (1987), Kishimoto et al. (2007), Nenkova et al. (2008), Mor & Netzer (2012)
 and Baskin & Laor (2018).
 
-There is no recondensation term: $\varepsilon$ is the evaporation rate into
-vacuum, so $T_\mathrm{sub}$ does not depend on the gas density as in Baskin &
-Laor (2018, eqs. 32–33).
+On its own $\varepsilon$ is the evaporation rate into vacuum, so
+$T_\mathrm{sub}$ does not depend on the gas density; `dust_condensation`
+(below) adds the reverse flux.
+:::
+
+## Recondensation
+
+`condensation_rate` is the reverse of sublimation: the gas-phase atoms that
+hit a hot grain and stick. With `dust_condensation` and `dust_sublimation`
+both on, the pair is the net evaporation–condensation exchange of a grain
+with its vapour, so the dust survives only where the gas is supersaturated
+and $T_\mathrm{sub}$ depends on the gas density {cite:p}`BaskinLaor2018`.
+
+The growth rate is the kinetic (Hertz–Knudsen) flux of the key species $X$,
+
+$$
+k_\mathrm{cond} = \alpha\,\frac{\pi a^2}{m_\mathrm{gr}}\,
+\sqrt{\frac{8k_BT}{\pi}}\;\min_e\frac{\rho_e}{f_e\sqrt{m_e}}
+\times C_\mathrm{Coul}\times C_\mathrm{bal},
+$$ (eq-dgd-cond)
+
+(`solvers/dust_rates.py:681`–`682`), i.e. $dm/dt = \alpha\pi a^2 n_X v_X (m_X/f_X)$ per grain, with $v_X$ at the
+*gas* temperature and $X$ the element whose arrival limits growth. It is the
+accretion kernel {eq}`eq-dgd-kacc` without the cold-ISM regime switches: no
+sub-grid branch, no $T_\mathrm{acc}=100$ K, no CO lock, no $1.8\times10^5$ K
+cut-off, and Le Bourlot sticking replaced by the condensation coefficient
+$\alpha$ (`condensation_coefficient`, default 0.1). Detailed balance needs
+the $\alpha_N$ the tables were built with: the evaporation flux
+$\alpha_N P e^{-B/kT_d}$ then cancels condensation at
+$n_\mathrm{sat}(T_d) = 4Pe^{-B/kT_d}/v_X(T_d)$, whatever $\alpha$ is. The
+two cannot be on together with `dust_accretion`, which would count the same
+collisions twice; loading such a configuration raises
+(`solvers/dust_init.py:614`–`621`).
+
+$C_\mathrm{bal}$ selects the balance condition (`condensation_balance`):
+
+- `flux` (default): $C_\mathrm{bal}=1$, so the balance is
+  $n_X v_X(T) = n_\mathrm{sat} v_X(T_d)$, the kinetic condition for a grain
+  at $T_d$ in gas at $T$;
+- `pressure`: $C_\mathrm{bal}=\sqrt{T/T_d}$, which turns it into
+  $n_X k_B T = n_\mathrm{sat} k_B T_d$, the equal-pressure condition of
+  {cite:t}`BaskinLaor2018` (their eq. 27; `solvers/dust_rates.py:678`).
+
+$C_\mathrm{Coul} = (1-x_i) + x_i D(Z)$, where $x_i$ is the fraction of $X$
+that arrives singly ionised (`condensation_ion_fraction`, default 0) and $D$
+is the {cite:t}`WeingartnerDraine1999` point-charge factor for a grain at
+potential $U$ (`grain_potential_V`, $Z = Ua/e$); a positive grain repels the
+ions as $e^{-eU/k_BT}$.
+
+The tables hold the rate of a grain of the bin's representative radius, and
+the bins have fixed sizes, so net growth or loss moves mass in and out of a
+bin but does not move it between bins. For silicate the tables count
+Mg$_2$SiO$_4$ units; a bin of another stoichiometry adds $m_X/f_X$ per $X$
+atom, which shifts the balance by that mass ratio (a few K in
+$T_\mathrm{sub}$).
+
+Integrate this pair with `rk4`, `rk54` or `sparse_newton`. The `anninos`
+solver updates each bin quasi-implicitly but the gas by an Euler step, and
+with a large source and sink in near balance the two disagree: in a closed
+box at 1800 K and $10^{10}$ cm$^{-3}$ it created 28% more carbon than it
+started with. `newton_krylov` starts from an `anninos` continuation and does
+not converge. `calima-run` warns about both.
+
+:::{note}
+`diagnostics/dust_radiation/check_recondensation_baskin_laor.py` solves for
+$T_\mathrm{sub}(n)$ with the solver kernels and runs closed boxes to
+equilibrium. For 0.1 µm graphite with `pressure` balance at $T = 10^4$ K it
+reproduces Baskin & Laor's eq. 27 to 1–2 K over $n = 10^2$–$10^{14}$ cm$^{-3}$;
+silicate (Si as key species) is 14–44 K cooler, since the GD89 silicate
+constants give a vapour pressure 5 times theirs. `flux` balance is 20–50 K
+cooler than `pressure`. Their sublimation time (eq. 36) takes the
+condensation flux as $n v 4\pi a^2$ with unit sticking; with the one-sided
+flux $n v\pi a^2$ and $\alpha = 0.1$ the grains here live 40 times longer.
 :::

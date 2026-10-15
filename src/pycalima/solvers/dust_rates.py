@@ -596,6 +596,103 @@ def sublimation_rate(
     return kmax
 
 
+def condensation_rate(
+    state: DustChemistryState,
+    y_gas: np.ndarray,
+    y_dust: np.ndarray,
+    dydt_gas: np.ndarray,
+    dydt_dust: np.ndarray,
+) -> float:
+    """Recondensation of gas-phase metals onto hot grains (reverse of sublimation).
+
+    The kinetic (Hertz–Knudsen) flux of the key species X onto the grain,
+
+        dm/dt = α π a² n_X v_X (m_X / f_X),   v_X = √(8 k T_gas / π m_X),
+
+    with X the element of smallest ρ_e / (f_e √m_e) (the one whose arrival
+    limits growth, as in accretion) and m_X / f_X the grain mass added per X
+    atom. Paired with ``sublimation_rate`` it gives the net
+    evaporation–condensation balance: the GD89 tables are an evaporation flux
+    α P e^{-B/kT_d}, so with the same α the two cancel when n_X reaches the
+    saturated density n_sat(T_d) = 4 P e^{-B/kT_d} / v_X(T_d), and T_sub
+    becomes a function of the gas density (Baskin & Laor 2018, eqs. 27–33).
+
+    Unlike ``accretion_rate`` (the cold-ISM limit, where n_sat = 0) there are
+    no regime switches: α is ``state.condensation_coefficient`` (default the
+    GD89 α_N = 0.1 the tables were built with), v_X is at the gas temperature,
+    and there is no temperature cut-off or CO lock.
+
+    ``state.condensation_balance``:
+      - ``'flux'`` (default): the kinetic balance above, n_X v_X(T_gas) =
+        n_sat v_X(T_d).
+      - ``'pressure'``: scales the flux by √(T_gas/T_d) so that the balance
+        is n_X k T_gas = n_sat k T_d, the equal-pressure condition of
+        Baskin & Laor (2018, eq. 27).
+
+    A fraction ``state.condensation_ion_fraction`` of X arrives singly
+    ionised and sees the grain potential ``db.grain_potential_V`` through the
+    Weingartner & Draine (1999) point-charge factor (``_coulomb_factor_WD99``);
+    a positively charged grain repels it as exp(-eU/kT).
+
+    Modified variables
+    ------------------
+    dydt_dust[idx]   += rate × y_dust[idx]
+    dydt_gas[el_idx] -= rate × y_dust[idx] × el_mfrac[e]
+    """
+    Tk = state.local_Tk
+    alpha = state.condensation_coefficient
+    x_ion = state.condensation_ion_fraction
+    pressure = state.condensation_balance == "pressure"
+    vth_prefactor = math.sqrt(8.0 * KB_CGS * Tk / math.pi)   # v_X √m_X [cm s⁻¹ g^½]
+
+    kmax = 0.0
+
+    for db in state.dust_bins:
+        idx = db.bin_index + state.npah
+
+        if not db.el_indices:
+            continue
+
+        # Key species: smallest ρ_e / (f_e √m_e), i.e. the smallest arriving
+        # flux of grain material
+        limit_rate = math.inf
+        for loc, el_idx in enumerate(db.el_indices):
+            m_e = state.el_atomic_mass_g[el_idx]
+            f_e = db.el_mfractions[loc]
+            rho_e = y_gas[el_idx]
+            if rho_e <= 0.0 or f_e <= 0.0:
+                limit_rate = 0.0
+                break
+            limit_rate = min(limit_rate, rho_e / (f_e * math.sqrt(m_e)))
+
+        if limit_rate <= 0.0 or not math.isfinite(limit_rate):
+            continue
+
+        coulomb = 1.0
+        if x_ion > 0.0:
+            # Z = U a / e, with U in statvolts (1 statV = 299.792458 V)
+            Z_grain = db.grain_potential_V / 299.792458 * db.asize_cm / _E_ESU
+            D = _coulomb_factor_WD99(Z_grain, 1.0, Tk, db.asize_cm)
+            coulomb = (1.0 - x_ion) + x_ion * D
+
+        balance = math.sqrt(Tk / db.dust_temperature_K) if pressure else 1.0
+
+        # π a² / m_grain = 3 / (4 a ρ_grain)
+        rate = (alpha * 3.0 / (4.0 * db.asize_cm * db.sgrain) * vth_prefactor
+                * limit_rate * coulomb * balance)   # [s⁻¹]
+        if rate <= 0.0:
+            continue
+
+        kmax = max(kmax, rate)
+        rate_rho = rate * y_dust[idx]   # [g cm⁻³ s⁻¹]
+
+        dydt_dust[idx] += rate_rho
+        for loc, el_idx in enumerate(db.el_indices):
+            dydt_gas[el_idx] -= rate_rho * db.el_mfractions[loc]
+
+    return kmax
+
+
 # ---------------------------------------------------------------------------
 # 4.  Grain coagulation  (Aoyama et al. 2017)
 # ---------------------------------------------------------------------------

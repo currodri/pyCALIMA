@@ -13,20 +13,20 @@ The code converts years with $1\,\mathrm{yr} = 3.1536\times10^{7}$ s
 
 `build_process_list` turns the `physics` flags and `models` strings into a
 list of kernels. It adds a collision process only when the flag is set and
-there are at least two dust bins (`solvers/rhs.py:110`, `solvers/rhs.py:143`).
+there are at least two dust bins (`solvers/rhs.py:117`, `solvers/rhs.py:150`).
 
 | `physics` flag | `models` key | value | kernel | code |
 |---|---|---|---|---|
-| `dust_coagulation` | `coagulation_model` | `Aoyama2017` (default) | `coagulation_rate` | `solvers/rhs.py:118` |
-| | | `Dubois2024` | `dubois_coagulation_rate` | `solvers/rhs.py:111` |
-| | | `turbulent` | `turbulent_coagulation_rate` | `solvers/rhs.py:122` |
-| | | `turbulent_all` | `turbulent_all_coagulation_rate` | `solvers/rhs.py:129` |
-| | | anything else | `coagulation_rate` | `solvers/rhs.py:136` |
-| `dust_shattering` | `shattering_model` | `Dubois2024` | `dubois_shattering_rate` | `solvers/rhs.py:144` |
-| | | `turbulent_all` | `turbulent_all_shattering_rate` | `solvers/rhs.py:151` |
-| | | `turbulent` (default) or anything else | `turbulent_shattering_rate` | `solvers/rhs.py:158` |
+| `dust_coagulation` | `coagulation_model` | `Aoyama2017` (default) | `coagulation_rate` | `solvers/rhs.py:125` |
+| | | `Dubois2024` | `dubois_coagulation_rate` | `solvers/rhs.py:118` |
+| | | `turbulent` | `turbulent_coagulation_rate` | `solvers/rhs.py:129` |
+| | | `turbulent_all` | `turbulent_all_coagulation_rate` | `solvers/rhs.py:136` |
+| | | anything else | `coagulation_rate` | `solvers/rhs.py:143` |
+| `dust_shattering` | `shattering_model` | `Dubois2024` | `dubois_shattering_rate` | `solvers/rhs.py:151` |
+| | | `turbulent_all` | `turbulent_all_shattering_rate` | `solvers/rhs.py:158` |
+| | | `turbulent` (default) or anything else | `turbulent_shattering_rate` | `solvers/rhs.py:165` |
 
-The defaults are read in `solvers/dust_init.py:595-597`. For the turbulent
+The defaults are read in `solvers/dust_init.py:598-600`. For the turbulent
 kernels, `dust_velocity_model` (default `Ormel2007`) picks the relative-velocity
 model.
 
@@ -34,24 +34,24 @@ model.
 
 | key | block | default | meaning | code |
 |---|---|---|---|---|
-| `coagulation_partner` | dust bin | none | id of the bin that receives coagulated mass (`Aoyama2017`, `turbulent`) | `solvers/dust_init.py:468-476` |
-| `nh_coa` | dust bin | 0.1 cm$^{-3}$ | minimum $n_\mathrm{H}$ for `Aoyama2017` | `solvers/dust_init.py:458` |
-| `amin_micron`, `amax_micron` | dust bin | $0.5a$, $2a$ | size range that sets the mass interval $[m_\mathrm{min}, m_\mathrm{max}]$ a bin accepts fragments into | `solvers/dust_init.py:433-438` |
-| `catastrophic_specific_energy_erg_g` | dust bin | $10^{7}$ erg g$^{-1}$ | $Q^\ast$ | `solvers/dust_init.py:459-461` |
-| `interact_pah` | dust bin | `false` | whether fragments can go into PAH bins | `solvers/dust_init.py:464` |
-| `vthresh_coag_cm_s` | dust bin | $10^{4}$ cm s$^{-1}$ | sticking threshold $v_\mathrm{coag}$ | `solvers/dust_init.py:465` |
-| `slope_frag_func` | `models` | $1.3/3$ | fragment slope $\alpha$ | `solvers/dust_init.py:605` |
-| `local_sigma_km_s`, `local_dx_pc` | `turbulence` | 0 | $\sigma$ and $\Delta x$ | `solvers/dust_init.py:564-565` |
+| `coagulation_partner` | dust bin | none | id of the bin that receives coagulated mass (`Aoyama2017`, `turbulent`) | `solvers/dust_init.py:470-478` |
+| `nh_coa` | dust bin | 0.1 cm$^{-3}$ | minimum $n_\mathrm{H}$ for `Aoyama2017` | `solvers/dust_init.py:460` |
+| `amin_micron`, `amax_micron` | dust bin | $0.5a$, $2a$ | size range that sets the mass interval $[m_\mathrm{min}, m_\mathrm{max}]$ a bin accepts fragments into | `solvers/dust_init.py:435-440` |
+| `catastrophic_specific_energy_erg_g` | dust bin | $10^{7}$ erg g$^{-1}$ | $Q^\ast$ | `solvers/dust_init.py:461-463` |
+| `interact_pah` | dust bin | `false` | whether fragments can go into PAH bins | `solvers/dust_init.py:466` |
+| `vthresh_coag_cm_s` | dust bin | $10^{4}$ cm s$^{-1}$ | sticking threshold $v_\mathrm{coag}$ | `solvers/dust_init.py:467` |
+| `slope_frag_func` | `models` | $1.3/3$ | fragment slope $\alpha$ | `solvers/dust_init.py:608` |
+| `local_sigma_km_s`, `local_dx_pc` | `turbulence` | 0 | $\sigma$ and $\Delta x$ | `solvers/dust_init.py:567-568` |
 
 ## Composition groups
 
 `_composition_groups` splits the ordered bin list into runs of consecutive
 bins that share a `composition` string. It returns the first and last index,
-$(i_1, i_2)$, of each run (`solvers/dust_rates.py:873-892`). The grouping
+$(i_1, i_2)$, of each run (`solvers/dust_rates.py:970-989`). The grouping
 assumes bins of one composition are contiguous and does not check it. The
 `Dubois2024` kernels only exchange mass between the first ("small") and last
 ("large") bin of each group, and skip any group with a single bin
-(`solvers/dust_rates.py:692`, `solvers/dust_rates.py:779`). The turbulent
+(`solvers/dust_rates.py:789`, `solvers/dust_rates.py:876`). The turbulent
 shattering kernels and `turbulent_all_coagulation_rate` loop over every bin in
 a group. `coagulation_rate` and `turbulent_coagulation_rate` instead use the
 explicit `coagulation_partner`.
@@ -64,7 +64,7 @@ These kernels follow {cite:t}`Dubois2024`, using the timescale form of
 ### Shattering
 
 The kernel takes the large bin $L$ of each group, with dust-to-gas ratio
-$D_L = \rho_L/\rho_\mathrm{gas}$ (`solvers/dust_rates.py:704`). It computes
+$D_L = \rho_L/\rho_\mathrm{gas}$ (`solvers/dust_rates.py:801`). It computes
 
 $$
 \frac{1}{t_\mathrm{sha}} =
@@ -75,16 +75,16 @@ $$
 \quad [\mathrm{s^{-1}}],
 $$ (eq-dubois-sha)
 
-(`solvers/dust_rates.py:709-710`). Since $5.41\times10^{5}\,\mathrm{yr}/0.01 = 54.1$ Myr, this is
+(`solvers/dust_rates.py:806-807`). Since $5.41\times10^{5}\,\mathrm{yr}/0.01 = 54.1$ Myr, this is
 $t_\mathrm{sha} = 54.1\,\mathrm{Myr}\,(a_L/0.1\,\mu\mathrm{m})(s_L/3)(D_L/0.01)^{-1} n_\mathrm{H}^{-p_\mathrm{sh}}$.
 
 The density exponent is $p_\mathrm{sh}=1$ for $n_\mathrm{H}<1$ cm$^{-3}$ and
-$p_\mathrm{sh}=1/3$ otherwise (`solvers/dust_rates.py:686`). Shattering is off
-for $n_\mathrm{H}\ge 10^{3}$ cm$^{-3}$ (`solvers/dust_rates.py:683`). There is
+$p_\mathrm{sh}=1/3$ otherwise (`solvers/dust_rates.py:783`). Shattering is off
+for $n_\mathrm{H}\ge 10^{3}$ cm$^{-3}$ (`solvers/dust_rates.py:780`). There is
 no temperature cut. A bin with $\rho_L$ at or below `smallr_dust`
-($10^{-40}$ g cm$^{-3}$) is skipped (`solvers/dust_rates.py:701`). The mass
+($10^{-40}$ g cm$^{-3}$) is skipped (`solvers/dust_rates.py:798`). The mass
 flux $\rho_L/t_\mathrm{sha}$ goes from bin $L$ to the small bin $S$
-(`solvers/dust_rates.py:716-719`).
+(`solvers/dust_rates.py:813-816`).
 
 ### Coagulation
 
@@ -99,12 +99,12 @@ $$
 \quad [\mathrm{s^{-1}}],
 $$ (eq-dubois-coa)
 
-(`solvers/dust_rates.py:796-797`). This is $t_\mathrm{coa}=0.542\,\mathrm{Myr}\,(a_S/0.005\,\mu\mathrm{m})(s_S/3)(D_S/0.01)^{-1}$, independent of density. The mass flux $\rho_S/t_\mathrm{coa}$ goes from $S$ to $L$ (`solvers/dust_rates.py:805-806`).
+(`solvers/dust_rates.py:893-894`). This is $t_\mathrm{coa}=0.542\,\mathrm{Myr}\,(a_S/0.005\,\mu\mathrm{m})(s_S/3)(D_S/0.01)^{-1}$, independent of density. The mass flux $\rho_S/t_\mathrm{coa}$ goes from $S$ to $L$ (`solvers/dust_rates.py:902-903`).
 
 Coagulation runs only if all three conditions hold:
 
 1. $T\le10^{4}$ K.
-2. $n_\mathrm{H}\ge0.1$ cm$^{-3}$ (`solvers/dust_rates.py:765`). This threshold
+2. $n_\mathrm{H}\ge0.1$ cm$^{-3}$ (`solvers/dust_rates.py:862`). This threshold
    is hard-coded; the per-bin `nh_coa` is not used here.
 3. The Jeans length does not exceed four cell sizes:
 
@@ -113,22 +113,22 @@ Coagulation runs only if all three conditions hold:
    $$
 
    with $G=6.674\times10^{-8}$, $m_\mathrm{H}=1.6726219\times10^{-24}$ g, and
-   $\Delta x$ = `local_dx` in cm (`solvers/dust_rates.py:758-774`). The test is
-   skipped entirely when $\Delta x=0$ (`solvers/dust_rates.py:771`), which is
+   $\Delta x$ = `local_dx` in cm (`solvers/dust_rates.py:855-871`). The test is
+   skipped entirely when $\Delta x=0$ (`solvers/dust_rates.py:868`), which is
    the case whenever the `turbulence` block has no `local_dx_pc`.
 
 :::{note}
 **Grain-density normalisation.** In both Dubois2024 kernels the bulk density
 $s$ (`sgrain`, g cm$^{-3}$) is divided by 3 exactly once, inside the kernel
-(`solvers/dust_rates.py:709`, `solvers/dust_rates.py:796`). This matches the
+(`solvers/dust_rates.py:806`, `solvers/dust_rates.py:893`). This matches the
 RAMSES Fortran, which divides `sgrain` by 3 once when it reads the namelist.
 Do not divide by 3 again when you prepare inputs.
 
 The `dubois_coagulation_rate` docstring differs from the code in two places:
 
-- It writes the timescale with a bare $s_i$ (`solvers/dust_rates.py:745`). The
+- It writes the timescale with a bare $s_i$ (`solvers/dust_rates.py:842`). The
   code uses $s_i/3$.
-- An inline comment quotes $0.27/F$ Myr (`solvers/dust_rates.py:793`). The code
+- An inline comment quotes $0.27/F$ Myr (`solvers/dust_rates.py:890`). The code
   uses $5.42\times10^{3}$ yr per unit $D_S/0.01$, which is 0.542 Myr.
 
 Equation {eq}`eq-dubois-coa` follows the code.
@@ -143,10 +143,10 @@ $$
 k_0^\mathrm{coa}=\sqrt{\frac{8}{3\pi}}\;\frac{\pi(2a_i)^{2}}{m_i},
 $$
 
-(`solvers/dust_rates.py:636`, `solvers/dust_init.py:189-190`). The mass flux
-is $\mathcal{R}\rho_i$ (`solvers/dust_rates.py:641-644`), from bin $i$ to its
-partner. The kernel is off for $T>10^{4}$ K (`solvers/dust_rates.py:624`) and
-for $n_\mathrm{H}<$ `nh_coa` (`solvers/dust_rates.py:630`). It follows
+(`solvers/dust_rates.py:733`, `solvers/dust_init.py:189-190`). The mass flux
+is $\mathcal{R}\rho_i$ (`solvers/dust_rates.py:738-741`), from bin $i$ to its
+partner. The kernel is off for $T>10^{4}$ K (`solvers/dust_rates.py:721`) and
+for $n_\mathrm{H}<$ `nh_coa` (`solvers/dust_rates.py:727`). It follows
 {cite:t}`Aoyama2017`.
 
 :::{note}
@@ -163,7 +163,7 @@ All four turbulent kernels need a velocity dispersion $\sigma$ and an
 injection scale $L$, taken from `_effective_sigma`. If both `local_sigma` and
 `local_dx` are positive, the code uses $(\sigma, L) = $ (`local_sigma`,
 `local_dx`). Otherwise it falls back to a CNM estimate for both
-(`solvers/dust_rates.py:907-913`):
+(`solvers/dust_rates.py:1004-1010`):
 
 $$
 \sigma = 5.67\times10^{5}\left(\frac{n_\mathrm{H}}{100}\right)^{-1/4}\ \mathrm{cm\,s^{-1}},\qquad
@@ -174,7 +174,7 @@ So `local_dx` serves as the Jeans-test cell size in `Dubois2024` coagulation
 and as the turbulent injection scale here.
 
 Both turbulent coagulation kernels are off for $T>10^{4}$ K
-(`solvers/dust_rates.py:1632`, `solvers/dust_rates.py:1698`). They weight each
+(`solvers/dust_rates.py:1729`, `solvers/dust_rates.py:1795`). They weight each
 collision by a sticking probability (`solvers/grain_dynamics.py:119-124`):
 
 $$
@@ -191,28 +191,28 @@ $$
 \quad[\mathrm{s^{-1}}]
 $$
 
-(`solvers/dust_rates.py:1660`), and the mass flux is $\mathcal{R}_i\rho_i$
-(`solvers/dust_rates.py:1665-1669`). There is no $n_\mathrm{H}$ threshold.
+(`solvers/dust_rates.py:1757`), and the mass flux is $\mathcal{R}_i\rho_i$
+(`solvers/dust_rates.py:1762-1766`). There is no $n_\mathrm{H}$ threshold.
 
 ### `turbulent_all_coagulation_rate`
 
 This kernel loops over pairs $(i,k)$ with $k\ge i$ inside a group. Bin $i$
-runs up to $i_2-1$ (`solvers/dust_rates.py:1715`), so the largest bin never
+runs up to $i_2-1$ (`solvers/dust_rates.py:1812`), so the largest bin never
 starts a pair. For each pair:
 
-- $K_{ik}=\sqrt{8/(3\pi)}\,\pi(a_i+a_k)^{2}\,v_\mathrm{rel}$ (`solvers/dust_rates.py:1738-1742`).
-- $v_\mathrm{coag} = \min(v_{\mathrm{coag},i}, v_{\mathrm{coag},k})$ (`solvers/dust_rates.py:1735`).
-- A symmetry factor 1/2 applies for $i=k$ (`solvers/dust_rates.py:1743`).
-- Bin $i$ loses $\tfrac12^{\delta_{ik}}K_{ik}\,(\rho_k/m_k)\,\rho_i\,p_\mathrm{stick}$, and bin $k$ loses the mirror term (`solvers/dust_rates.py:1746-1748`).
+- $K_{ik}=\sqrt{8/(3\pi)}\,\pi(a_i+a_k)^{2}\,v_\mathrm{rel}$ (`solvers/dust_rates.py:1835-1839`).
+- $v_\mathrm{coag} = \min(v_{\mathrm{coag},i}, v_{\mathrm{coag},k})$ (`solvers/dust_rates.py:1832`).
+- A symmetry factor 1/2 applies for $i=k$ (`solvers/dust_rates.py:1840`).
+- Bin $i$ loses $\tfrac12^{\delta_{ik}}K_{ik}\,(\rho_k/m_k)\,\rho_i\,p_\mathrm{stick}$, and bin $k$ loses the mirror term (`solvers/dust_rates.py:1843-1845`).
 
 The coagulated mass goes to the bin in the group whose $m$ is closest to
-$m_i+m_k$ (`solvers/dust_rates.py:1756-1770`).
+$m_i+m_k$ (`solvers/dust_rates.py:1853-1867`).
 
 ### Fragment distribution
 
 The shattering kernels share `_compute_shattered_fragments`. It first computes
 the impact energy and ejected mass from the target mass $m_1$ and projectile
-mass $m_2$ (`solvers/dust_rates.py:1323-1325`):
+mass $m_2$ (`solvers/dust_rates.py:1420-1422`):
 
 $$
 E_\mathrm{imp}=\tfrac12\frac{m_1m_2}{m_1+m_2}v_\mathrm{rel}^{2},\qquad
@@ -222,20 +222,20 @@ $$
 
 Fragments follow $\mathrm{d}M/\mathrm{d}m\propto m^{-\alpha}$ between
 $m_\mathrm{min}=10^{-6}m_\mathrm{max}$ and $m_\mathrm{max}=0.02\,m_\mathrm{ej}$
-(`solvers/dust_rates.py:1342-1346`). The normalisation integrates to
-$m_\mathrm{ej}$ (`solvers/dust_rates.py:1349-1352`). The fragments are then
+(`solvers/dust_rates.py:1439-1443`). The normalisation integrates to
+$m_\mathrm{ej}$ (`solvers/dust_rates.py:1446-1449`). The fragments are then
 shared out as follows:
 
 - Each bin in the group receives the integral over the overlap of its
   $[m_\mathrm{min}, m_\mathrm{max}]$ with the fragment range
-  (`solvers/dust_rates.py:1356-1363`).
+  (`solvers/dust_rates.py:1453-1460`).
 - If the target bin has `interact_pah`, PAH bins receive the same kind of
-  integral over their mass ranges (`solvers/dust_rates.py:1366-1375`).
+  integral over their mass ranges (`solvers/dust_rates.py:1463-1472`).
 - Fragments below the smallest tracked mass go back to the gas, split by the
-  target's elemental mass fractions (`solvers/dust_rates.py:1379-1388`,
-  `solvers/dust_rates.py:1494-1497`).
+  target's elemental mass fractions (`solvers/dust_rates.py:1476-1485`,
+  `solvers/dust_rates.py:1591-1594`).
 
-The fractions are then rescaled (`solvers/dust_rates.py:1391-1396`). Whatever
+The fractions are then rescaled (`solvers/dust_rates.py:1488-1493`). Whatever
 is left over, $\chi_\mathrm{rem}=1-\sum\chi_\mathrm{frag}-\sum\chi_\mathrm{PAH}-\chi_\mathrm{dest}$,
 is the remnant.
 
@@ -260,19 +260,19 @@ $$
 \quad[\mathrm{s^{-1}}]
 $$
 
-(`solvers/dust_rates.py:1453-1457`). It loses $\mathcal{R}_j\rho_j$. The
+(`solvers/dust_rates.py:1550-1554`). It loses $\mathcal{R}_j\rho_j$. The
 fragments are shared out as above. The remnant goes to the bin whose mass is
-closest to $(1-\chi_\mathrm{rem})\,m_j$ (`solvers/dust_rates.py:1470-1481`).
+closest to $(1-\chi_\mathrm{rem})\,m_j$ (`solvers/dust_rates.py:1567-1578`).
 With the normalisation issue above, that is usually the smallest bin in the
 group.
 
 ### `turbulent_all_shattering_rate`
 
 This kernel uses the same pair loop, $K_{ij}$ and 1/2 symmetry factor as
-`turbulent_all_coagulation_rate` (`solvers/dust_rates.py:1556-1564`), with no
+`turbulent_all_coagulation_rate` (`solvers/dust_rates.py:1653-1661`), with no
 sticking factor. It calls `_compute_shattered_fragments` twice, once with each
 bin as the target. The remnant goes back into the target bin itself
-(`solvers/dust_rates.py:1577-1579`), not to the bin nearest in mass.
+(`solvers/dust_rates.py:1674-1676`), not to the bin nearest in mass.
 
 ## Relative velocities
 

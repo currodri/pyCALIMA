@@ -42,6 +42,7 @@ takes the default shown.
 | `radiation_field_G0` | 1 | FUV field in Habing units |
 | `radiation_field_model` | `habing` | Label of the field shape |
 | `dust_temperature_K` | none | Grain temperature [K] at which the sublimation tables are read; required when `dust_sublimation` is on, unless every dust bin sets its own |
+| `grain_potential_V` | 0 | Grain potential [V] seen by condensing ions (`dust_condensation` with `condensation_ion_fraction` > 0); a bin may override it |
 | `mean_molecular_weight` | 1.4 | Mass per H nucleus, in $m_\mathrm{H}$ |
 | `gas_mass_density_gcm3` | $n_\mathrm{H}\,m_\mathrm{H}\,\mu$ | Gas mass density [g cm⁻³] |
 
@@ -70,6 +71,7 @@ locked in dust come on top of them through the bins' initial densities.
 | `interact_pah` | `false` | Whether shattering fragments of this bin can populate PAH bins |
 | `vthresh_coag_cm_s` | $10^4$ | Coagulation threshold velocity for self-collisions [cm s⁻¹] |
 | `dust_temperature_K` | `environment` value | Grain temperature of this bin for sublimation [K] |
+| `grain_potential_V` | `environment` value | Grain potential of this bin for condensing ions [V] |
 
 ### `pah_bins`
 
@@ -88,7 +90,7 @@ locked in dust come on top of them through the bins' initial densities.
 ### `physics`
 
 One boolean per process, all `false` by default: `dust_accretion`,
-`dust_sputtering`, `dust_sublimation`, `dust_coagulation`, `dust_shattering`,
+`dust_sputtering`, `dust_sublimation`, `dust_condensation`, `dust_coagulation`, `dust_shattering`,
 `pah_accretion`, `pah_photolysis`, `pah_sputtering`, `pah_coalescence`,
 `pah_cluster_evaporation`, `pah_freezing`. {doc}`/physics/index` describes each.
 
@@ -99,7 +101,11 @@ Variant selectors for the active processes: `dust_sputtering_model`,
 `coalescence_model`, `photolysis_model`, `pah_sputtering_model`,
 `cluster_evaporation_model`, plus `slope_frag_func` (power-law slope of the
 fragment mass distribution, default 1.3/3). The table in {doc}`/physics/index`
-lists the values each accepts and the defaults.
+lists the values each accepts and the defaults. Recondensation reads
+`condensation_coefficient` (default 0.1, the $\alpha_N$ of the sublimation
+tables), `condensation_balance` (`flux` or `pressure`) and
+`condensation_ion_fraction` (default 0); `dust_condensation` cannot be on
+together with `dust_accretion`.
 
 ### `turbulence`
 

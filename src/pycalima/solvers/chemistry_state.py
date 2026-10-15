@@ -111,6 +111,10 @@ class DustBinParams:
     """Grain temperature [K] at which ``erosion_rate_interp`` is evaluated.
     Taken from the bin's ``dust_temperature_K`` or, failing that, the
     environment's. Required when sublimation is enabled."""
+    grain_potential_V: float = 0.0
+    """Grain electrostatic potential [V] seen by condensing ions
+    (``condensation_rate``). Taken from the bin's ``grain_potential_V`` or,
+    failing that, the environment's."""
 
     nhmax_acc: float = 1.0e4
     nh_coa: float = 0.1
@@ -269,6 +273,7 @@ class DustChemistryState:
     dust_accretion: bool = False
     dust_sputtering: bool = False
     dust_sublimation: bool = False
+    dust_condensation: bool = False
     dust_coagulation: bool = False
     dust_shattering: bool = False
     pah_accretion: bool = False
@@ -300,6 +305,15 @@ class DustChemistryState:
     photolysis_model: str = "RM2026"
     pah_sputtering_model: str = "RM2026"
     cluster_evaporation_model: str = "Montillaud2014"
+
+    # ---- Recondensation (condensation_rate) ----
+    condensation_coefficient: float = 0.1
+    """Condensation coefficient α. Detailed balance with the sublimation
+    tables needs the α_N they were built with (GD89: 0.1)."""
+    condensation_balance: str = "flux"
+    """``'flux'`` (kinetic, default) | ``'pressure'`` (Baskin & Laor 2018)."""
+    condensation_ion_fraction: float = 0.0
+    """Fraction of the condensing key species that is singly ionised."""
 
     # ---- Turbulent environment ----
     local_sigma: float = 0.0

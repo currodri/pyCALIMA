@@ -59,6 +59,7 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     from .dust_rates import (
         accretion_rate,
         coagulation_rate,
+        condensation_rate,
         dubois_shattering_rate,
         dubois_coagulation_rate,
         pah_accretion_rate,
@@ -104,6 +105,12 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     if state.dust_sublimation and state.ndust > 0:
         processes.append(
             DustProcess("sublimation", sublimation_rate, source=False, sink=True)
+        )
+
+    # ---- Grain growth (recondensation, the reverse of sublimation) ----
+    if state.dust_condensation and state.ndust > 0:
+        processes.append(
+            DustProcess("condensation", condensation_rate, source=True, sink=False)
         )
 
     # ---- Grain coagulation (model-selected) ----

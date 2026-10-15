@@ -179,8 +179,8 @@ def print_comparison():
     for label, R in observed_radii().items():
         print(f"   {label:42s} {R:.3f} pc")
 
-    print("\n5. Gas-density dependence (not in pyCALIMA: no recondensation). "
-          "Baskin & Laor 18 eqs. 32-33:")
+    print("\n5. Gas-density dependence (vacuum rates here; with dust_condensation "
+          "see check_recondensation_baskin_laor.py). Baskin & Laor 18 eqs. 32-33:")
     for n in (1e5, 1e8, 1e11):
         print(f"   n = {n:.0e} cm^-3: T_sub(graphite) = "
               f"{baskin_laor_tsub('graphite', n):.0f} K, "

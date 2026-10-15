@@ -836,3 +836,146 @@ def test_bin_dust_temperature_overrides_the_environment(tmp_path, model_data):
     state, _, _ = load_initial_conditions(path)
     temps = [db.dust_temperature_K for db in state.dust_bins]
     assert temps[0] == 1500.0 and all(t == 100.0 for t in temps[1:])
+
+
+# ---------------------------------------------------------------------------
+# recondensation: the reverse of sublimation, balancing it at n_sat(T_d)
+# ---------------------------------------------------------------------------
+
+_KB = 1.3806488e-16
+_M_C = 12.011 * 1.66053906660e-24
+
+
+def _condensation_config(tmp_path, *, T_gas=1.0e4, T_dust=1700.0, nH=1.0e8,
+                         dust_frac=0.99, physics=None, models=None, env=None):
+    """One 0.1 um graphite bin holding 99% of the carbon, with a synthetic
+    sublimation table log10(epsilon) = -12 + 0.01 (T_d - 1500)."""
+    md = tmp_path / "md"
+    (md / "dust_sublimation").mkdir(parents=True, exist_ok=True)
+    T = np.linspace(1000.0, 3000.0, 201)
+    _write_sublimation_table(md / "dust_sublimation" / "sublimation_rate_DustBin_01.dat",
+                             T, -12.0 + 0.01 * (T - 1500.0))
+    rho = 1.4 * nH * 1.6726219e-24
+    x_C = 10.0 ** -3.44 * 12.011 / 1.4           # C mass fraction
+    cfg = {
+        "model_data_dir": str(md),
+        "environment": {"gas_temperature_K": T_gas,
+                        "hydrogen_number_density_cm3": nH,
+                        "dust_temperature_K": T_dust, **(env or {})},
+        "elemental_abundances": {"C": {"mass_fraction": x_C}},
+        "dust_bins": [{"id": "DustBin_01", "composition": "graphite",
+                       "grain_size_micron": 0.1, "grain_density_gcm3": 2.24,
+                       "elements": [{"name": "C", "mass_fraction": 1.0}],
+                       "initial_mass_density_gcm3": dust_frac * x_C * rho}],
+        "physics": physics or {"dust_sublimation": True, "dust_condensation": True},
+        "models": models or {},
+    }
+    path = tmp_path / "cond_ic.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+def _condensation_only(state, y_gas, y_dust):
+    from pycalima.solvers.dust_rates import condensation_rate
+
+    dgas, ddust = np.zeros_like(y_gas), np.zeros_like(y_dust)
+    condensation_rate(state, y_gas, y_dust, dgas, ddust)
+    return dgas, ddust
+
+
+def test_condensation_is_the_kinetic_flux_of_the_key_species(tmp_path):
+    """dm/dt = alpha pi a^2 n_C v_C(T_gas) m_C per grain, with the GD89 alpha."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(_condensation_config(tmp_path))
+    assert [p.name for p in build_process_list(state)] == ["sublimation", "condensation"]
+    assert state.condensation_coefficient == 0.1
+
+    db = state.dust_bins[0]
+    n_C = y_gas[2] / _M_C
+    v_C = np.sqrt(8.0 * _KB * state.local_Tk / (np.pi * _M_C))
+    dm_dt = 0.1 * np.pi * db.asize_cm ** 2 * n_C * v_C * _M_C
+    dgas, ddust = _condensation_only(state, y_gas, y_dust)
+    assert ddust[0] == pytest.approx(dm_dt / db.mgrain * y_dust[0], rel=1e-10)
+    assert dgas[2] == pytest.approx(-ddust[0], rel=1e-12)
+
+
+def test_sublimation_and_condensation_balance_at_the_saturated_density(tmp_path):
+    """Closed box: the gas-phase carbon relaxes to the density at which
+    condensation cancels the tabulated evaporation, and the dust keeps the
+    rest; hot enough that n_sat exceeds the carbon budget, the dust is gone."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+    from pycalima.solvers.rk54 import RK54Solver
+
+    def relax(T_dust):
+        state, y_gas, y_dust = load_initial_conditions(
+            _condensation_config(tmp_path, T_dust=T_dust))
+        g, d, _ = integrate_dust_ode(state, 1.0e10, y_gas, y_dust,
+                                     build_process_list(state), RK54Solver(errmax=0.01),
+                                     h_init=1.0, h_min=1.0e-6)
+        assert g.sum() + d.sum() == pytest.approx(y_gas.sum() + y_dust.sum(), rel=1e-10)
+        return state, g, d
+
+    # 3 epsilon = alpha (3 / 4 a rho) sqrt(8 k T / pi) rho_C / sqrt(m_C)
+    state, g, d = relax(1600.0)
+    db = state.dust_bins[0]
+    eps = float(db.erosion_rate_interp(1600.0))
+    rho_sat = (4.0 * db.asize_cm * db.sgrain * eps * np.sqrt(_M_C)
+               / (0.1 * np.sqrt(8.0 * _KB * state.local_Tk / np.pi)))
+    assert 0.0 < rho_sat < g[2] + d[0], "test point must keep some dust"
+    assert g[2] == pytest.approx(rho_sat, rel=1e-6)
+
+    _, g, d = relax(1800.0)
+    assert d[0] < 1e-6 * g[2]
+
+
+def test_pressure_balance_scales_the_flux_by_sqrt_gas_over_dust_temperature(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    def ddust(balance):
+        state, y_gas, y_dust = load_initial_conditions(_condensation_config(
+            tmp_path, T_gas=1.0e4, T_dust=1600.0,
+            models={"condensation_balance": balance}))
+        return _condensation_only(state, y_gas, y_dust)[1][0]
+
+    assert ddust("pressure") / ddust("flux") == pytest.approx(np.sqrt(1.0e4 / 1600.0))
+
+
+def test_condensing_ions_are_repelled_by_a_positive_grain(tmp_path):
+    """Singly charged ions onto a grain at +U: suppressed by exp(-eU/kT)."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    def ddust(x_ion, U):
+        state, y_gas, y_dust = load_initial_conditions(_condensation_config(
+            tmp_path, models={"condensation_ion_fraction": x_ion},
+            env={"grain_potential_V": U}))
+        return _condensation_only(state, y_gas, y_dust)[1][0]
+
+    kT_eV = _KB * 1.0e4 / 1.602176634e-12
+    neutral = ddust(0.0, 2.0)
+    assert ddust(1.0, 2.0) / neutral == pytest.approx(np.exp(-2.0 / kT_eV), rel=1e-4)
+    assert ddust(0.5, 2.0) / neutral == pytest.approx(0.5 + 0.5 * np.exp(-2.0 / kT_eV), rel=1e-4)
+
+
+def test_condensation_and_accretion_cannot_both_be_on(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    with pytest.raises(ValueError, match="twice"):
+        load_initial_conditions(_condensation_config(tmp_path, physics={
+            "dust_sublimation": True, "dust_condensation": True, "dust_accretion": True}))
+    with pytest.raises(ValueError, match="condensation_balance"):
+        load_initial_conditions(_condensation_config(
+            tmp_path, models={"condensation_balance": "pressur"}))
+
+
+def test_run_chemistry_warns_that_anninos_cannot_balance_condensation(tmp_path):
+    """Anninos (and the NewtonKrylov continuation built on it) creates mass
+    when sublimation and condensation nearly cancel."""
+    from pycalima.solvers.run_chemistry import run_chemistry
+
+    path = _condensation_config(tmp_path)
+    with pytest.warns(UserWarning, match="does not conserve mass"):
+        run_chemistry(path, t_end_Myr=1e-9, verbose=False, solver_type="anninos")
