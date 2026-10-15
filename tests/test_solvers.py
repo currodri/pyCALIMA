@@ -711,3 +711,128 @@ def test_table_lookup_tolerates_the_pah_bin_id_case_difference(tmp_path):
     # callers can treat it as "not exported yet".
     missing = _resolve_table(tmp_path, "sputtering_DustBin_77_Z_1")
     assert not missing.exists()
+
+
+# ---------------------------------------------------------------------------
+# thermal sublimation: the table is log10(epsilon) against *dust* temperature
+# ---------------------------------------------------------------------------
+
+def _write_sublimation_table(path, T, col2, log10=True, a_cm=1.0e-5):
+    unit = "log10(epsilon/[s^-1])" if log10 else "epsilon [s^-1]"
+    lines = [
+        f"# Dust bin: DustBin_01, Material: graphite, Grain radius "
+        f"(representative): {a_cm:.6e} cm",
+        f"# Columns: T_d [K] (dust temperature) | {unit}",
+    ]
+    lines += [f"{t:14.6E} {v:14.6E}" for t, v in zip(T, col2)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_sublimation_reader_decodes_log10_tables(tmp_path):
+    """The exporter writes log10(epsilon); reading it as linear epsilon made
+    every rate below 1 s^-1 negative, and so silently zero."""
+    from pycalima.solvers.dust_init import _load_erosion_rate_table
+
+    T = np.array([1000.0, 1500.0, 2000.0, 3000.0])
+    log_eps = np.array([-20.0, -12.0, -6.0, 0.5])
+    _write_sublimation_table(tmp_path / "sublimation_rate_DustBin_01.dat", T, log_eps)
+
+    interp, a_cm = _load_erosion_rate_table("DustBin_01", tmp_path)
+    assert a_cm == pytest.approx(1.0e-5)
+    np.testing.assert_allclose(interp(T), 10.0 ** log_eps, rtol=1e-12)
+    assert interp(500.0) == 0.0, "below the table the grain must not sublimate"
+    assert interp(5000.0) == pytest.approx(10.0 ** 0.5), "above it, hold the last row"
+    # log-linear between nodes, so the midpoint is the geometric mean
+    assert interp(1750.0) == pytest.approx(10.0 ** -9.0)
+
+
+def test_sublimation_reader_still_reads_old_linear_tables(tmp_path):
+    from pycalima.solvers.dust_init import _load_erosion_rate_table
+
+    T = np.array([1000.0, 2000.0])
+    eps = np.array([1.0e-20, 1.0e-6])
+    _write_sublimation_table(
+        tmp_path / "sublimation_rate_DustBin_01.dat", T, eps, log10=False
+    )
+    interp, _ = _load_erosion_rate_table("DustBin_01", tmp_path)
+    np.testing.assert_allclose(interp(T), eps, rtol=1e-12)
+
+
+def test_sublimation_tables_match_the_gd89_model(isolated_env, tmp_path):
+    """Export -> solver round trip: the solver's epsilon(T_d) must be the
+    model-layer |da/dt|/a for the radius the table was computed for."""
+    from pycalima.models.dust_radiation.dust_sublimation import (
+        _load_dust_bins, radius_loss_rate, write_sublimation_rate_tables)
+    from pycalima.solvers.dust_init import _load_erosion_rate_table
+
+    write_sublimation_rate_tables(output_dir=str(tmp_path), n_T=60)
+    for meta in _load_dust_bins():
+        interp, a_cm = _load_erosion_rate_table(meta["id"], tmp_path)
+        material = str(meta["composition"]).lower()
+        T_nodes = np.loadtxt(tmp_path / f"sublimation_rate_{meta['id']}.dat")[:, 0]
+        for T in T_nodes[::5]:
+            # the header and rows are printed to 7 significant figures
+            expected = radius_loss_rate(material, a_cm, float(T)) / a_cm
+            assert interp(T) == pytest.approx(expected, rel=1e-4), (meta["id"], T)
+
+
+def _sublimation_config(tmp_path, model_data, **env):
+    cfg = json.loads(resolve_solver_config_path("example_ic").read_text(encoding="utf-8"))
+    cfg["model_data_dir"] = str(model_data)
+    cfg["physics"] = {k: False for k in cfg.get("physics", {})}
+    cfg["physics"]["dust_sublimation"] = True
+    cfg["environment"].update(env)
+    path = tmp_path / "subl_ic.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+def test_sublimation_requires_a_dust_temperature(tmp_path, model_data):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    with pytest.raises(ValueError, match="dust_temperature_K"):
+        load_initial_conditions(_sublimation_config(tmp_path, model_data))
+
+
+def test_sublimation_follows_the_dust_not_the_gas_temperature(tmp_path, model_data):
+    """Hot gas around cold grains must not sublimate them (it used to destroy
+    every grain within seconds in any gas above ~4000 K), and hot grains in
+    cold gas must."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.rhs import build_process_list, compute_rhs
+
+    def rhs(T_gas, T_dust):
+        state, y_gas, y_dust = load_initial_conditions(_sublimation_config(
+            tmp_path, model_data, gas_temperature_K=T_gas, dust_temperature_K=T_dust))
+        if not any(db.erosion_rate_interp for db in state.dust_bins):
+            pytest.skip("no sublimation tables exported")
+        procs = build_process_list(state)
+        assert [p.name for p in procs] == ["sublimation"]
+        dgas, ddust = compute_rhs(state, y_gas, y_dust, procs)
+        return state, y_dust, dgas, ddust
+
+    _, _, dgas, ddust = rhs(T_gas=1.0e6, T_dust=50.0)
+    assert np.all(ddust == 0.0) and np.all(dgas == 0.0)
+
+    state, y_dust, dgas, ddust = rhs(T_gas=10.0, T_dust=1800.0)
+    for db in state.dust_bins:
+        if db.erosion_rate_interp is None:
+            continue
+        i = db.bin_index + state.npah
+        eps = float(db.erosion_rate_interp(1800.0))
+        assert eps > 0.0
+        assert ddust[i] == pytest.approx(-3.0 * eps * y_dust[i], rel=1e-12)
+    # mass leaves the grains and arrives in the gas
+    assert abs(dgas.sum() + ddust.sum()) <= 1e-10 * np.abs(ddust).sum()
+
+
+def test_bin_dust_temperature_overrides_the_environment(tmp_path, model_data):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    path = _sublimation_config(tmp_path, model_data, dust_temperature_K=100.0)
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    cfg["dust_bins"][0]["dust_temperature_K"] = 1500.0
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    state, _, _ = load_initial_conditions(path)
+    temps = [db.dust_temperature_K for db in state.dust_bins]
+    assert temps[0] == 1500.0 and all(t == 100.0 for t in temps[1:])

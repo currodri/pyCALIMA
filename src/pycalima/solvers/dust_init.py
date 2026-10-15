@@ -17,6 +17,8 @@ See ``configs/example_ic.json`` for a complete example::
             "electron_number_density_cm3": 1e-3,
             "radiation_field_G0": 1.0,
             "radiation_field_model": "habing",   // informational
+            "dust_temperature_K": 20.0,          // required by dust_sublimation;
+                                                 // a bin may override it
             "mean_molecular_weight": 1.4
         },
         "elemental_abundances": {
@@ -71,6 +73,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import warnings
 from pathlib import Path
 from typing import Tuple
 
@@ -274,37 +278,50 @@ def _load_pah_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
 def _load_erosion_rate_table(bin_id: str, data_dir: Path):
     """Load pre-computed GD89 sublimation/erosion-rate table for *bin_id*.
 
-    Returns a callable ``(T_K) -> epsilon [s^-1]`` that linearly
-    interpolates the table produced by
-    ``models.dust_radiation.dust_sublimation.write_sublimation_rate_tables``.
-    Returns ``None`` when the file does not exist or cannot be read.
+    Returns ``(interp, a_table_cm)``: a callable ``(T_dust_K) -> epsilon
+    [s^-1]`` interpolating the table produced by
+    ``models.dust_radiation.dust_sublimation.write_sublimation_rate_tables``,
+    and the grain radius the table was computed for (from its header; ``None``
+    if the header does not give it). Returns ``(None, None)`` when the file
+    does not exist or cannot be read.
 
     The expected file is ``<data_dir>/sublimation_rate_{bin_id}.dat`` (falling back to
-    ``erosion_rate_{bin_id}.dat``), with two columns (temperature [K], rate [s⁻¹]).
-    Lines starting with ``#`` are treated as comments and skipped.
+    ``erosion_rate_{bin_id}.dat``), with two columns: dust temperature [K] and
+    the rate. Current exporters write ``log10(epsilon/[s^-1])`` and say so in
+    the ``# Columns:`` header; tables without that header are older exports
+    holding linear epsilon. Lines starting with ``#`` are comments.
+
+    ``log10 epsilon`` is interpolated linearly in T (epsilon spans ~20
+    decades across the table). Below the first row epsilon is 0, since the
+    exporter drops rows whose timescale exceeds 10 Hubble times; above the
+    last row the last value is held.
     """
     fname = _resolve_table(data_dir, f"sublimation_rate_{bin_id}.dat")
     if not fname.exists():
         fname = _resolve_table(data_dir, f"erosion_rate_{bin_id}.dat")
     if not fname.exists():
-        return None
+        return None, None
     try:
+        with open(fname) as fh:
+            header = [line for line in fh if line.startswith("#")]
+        is_log10 = any("log10(epsilon" in line for line in header)
+        a_table_cm = None
+        for line in header:
+            m = re.search(r"Grain radius \(representative\): (\S+) cm", line)
+            if m:
+                a_table_cm = float(m.group(1))
         data = np.loadtxt(fname, comments="#")
         if data.ndim != 2 or data.shape[1] < 2:
-            return None
+            return None, None
         T_tab = data[:, 0]
-        eps_tab = data[:, 1]
-        # Return a simple linear-log interpolant (extrapolate as 0)
-        from scipy.interpolate import interp1d
-        interp = interp1d(
-            T_tab, eps_tab,
-            kind="linear",
-            bounds_error=False,
-            fill_value=(0.0, eps_tab[-1]),
-        )
-        return interp
+        log_eps_tab = data[:, 1] if is_log10 else np.log10(data[:, 1])
+
+        def interp(T_dust_K):
+            return 10.0 ** np.interp(T_dust_K, T_tab, log_eps_tab, left=-np.inf)
+
+        return interp, a_table_cm
     except Exception:
-        return None
+        return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +391,10 @@ def load_initial_conditions(
     )
     local_ne = float(env.get("electron_number_density_cm3", 1.0e-4 * local_nH))
     local_G0 = float(env.get("radiation_field_G0", 1.0))
+    # Grain temperature for sublimation; a bin's own value overrides it.
+    local_Tdust = (
+        float(env["dust_temperature_K"]) if "dust_temperature_K" in env else None
+    )
 
     # ------------------------------------------------------------------
     # Elemental abundances → y_gas
@@ -390,6 +411,7 @@ def load_initial_conditions(
     # ------------------------------------------------------------------
     dust_cfgs = cfg.get("dust_bins", [])
     dust_bins: list[DustBinParams] = []
+    subl_size_mismatch: list[str] = []
 
     for bd in dust_cfgs:
         bin_id = bd["id"]
@@ -414,7 +436,12 @@ def load_initial_conditions(
         k0_acc = _k0_accretion(asize_cm, sgrain, sticking)
         k0_coa = _k0_coagulation(asize_cm, sgrain)
         sput_interps = _load_sputtering_tables(bin_id, sputtering_dir)
-        erosion_interp = _load_erosion_rate_table(bin_id, sublimation_dir)
+        erosion_interp, erosion_a_cm = _load_erosion_rate_table(bin_id, sublimation_dir)
+        if (erosion_interp is not None and erosion_a_cm is not None
+                and abs(erosion_a_cm / asize_cm - 1.0) > 0.01):
+            subl_size_mismatch.append(
+                f"{bin_id} ({asize_um:g} um here, {erosion_a_cm * 1e4:g} um in the table)"
+            )
 
         # Grain charge tables (for Coulomb enhancement in accretion/sputtering)
         charge_Z_interp = None
@@ -452,6 +479,10 @@ def load_initial_conditions(
             k0_coa=k0_coa,
             sputtering_interps=sput_interps,
             erosion_rate_interp=erosion_interp,
+            dust_temperature_K=(
+                float(bd["dust_temperature_K"]) if "dust_temperature_K" in bd
+                else local_Tdust
+            ),
             charge_Z_interp=charge_Z_interp,
             charge_sigma_interp=charge_sigma_interp,
             nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
@@ -555,6 +586,25 @@ def load_initial_conditions(
     # Physics flags and solver settings
     # ------------------------------------------------------------------
     phys = cfg.get("physics", {})
+    if phys.get("dust_sublimation", False):
+        missing = [db.bin_id for db in dust_bins if db.dust_temperature_K is None]
+        if missing:
+            raise ValueError(
+                f"dust_sublimation is enabled but no dust temperature is set "
+                f"for {missing}. The sublimation tables are functions of the "
+                f"grain temperature, not the gas temperature: set "
+                f'"dust_temperature_K" in "environment" or in each dust bin '
+                f"of {config_path}."
+            )
+        if subl_size_mismatch:
+            # epsilon = |da/dt|/a scales as 1/a, so the rate is off by roughly
+            # the size ratio.
+            warnings.warn(
+                "sublimation tables were exported for a different grain size "
+                f"than the solver bin: {', '.join(subl_size_mismatch)}. "
+                "Re-export with a grain-size JSON that matches the solver config.",
+                stacklevel=2,
+            )
     solver_cfg = cfg.get("solver", {})
     models_cfg = cfg.get("models", {})
     turb_cfg = cfg.get("turbulence", {})

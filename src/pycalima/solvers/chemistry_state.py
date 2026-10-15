@@ -103,10 +103,14 @@ class DustBinParams:
     coag_partner_index: Optional[int] = None
     sputtering_interps: Dict[str, Any] = field(default_factory=dict)
     erosion_rate_interp: Optional[Any] = None
-    """Callable ``(T_K) -> epsilon [s^-1]`` for thermal sublimation erosion.
-    Built at initialisation from the pre-computed CALIMA erosion-rate table
-    (``model_data/dust_sublimation/erosion_rate_{bin_id}.dat``).
+    """Callable ``(T_dust_K) -> epsilon [s^-1]`` for thermal sublimation erosion.
+    Built at initialisation from the pre-computed CALIMA sublimation-rate table
+    (``model_data/dust_sublimation/sublimation_rate_{bin_id}.dat``).
     ``None`` when the table is absent or sublimation is disabled."""
+    dust_temperature_K: Optional[float] = None
+    """Grain temperature [K] at which ``erosion_rate_interp`` is evaluated.
+    Taken from the bin's ``dust_temperature_K`` or, failing that, the
+    environment's. Required when sublimation is enabled."""
 
     nhmax_acc: float = 1.0e4
     nh_coa: float = 0.1
