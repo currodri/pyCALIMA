@@ -25,8 +25,9 @@ conserved element by element.
 | Thermal sputtering | `dust_sputtering` | `dust_sputtering_model` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` |
 | Thermal sublimation | `dust_sublimation` | none | `sublimation_rate` |
 | Recondensation | `dust_condensation` | `condensation_coefficient`, `condensation_balance`, `condensation_ion_fraction` | `condensation_rate` |
+| Nucleation | `dust_nucleation` | `nucleation` list (top level) | `nucleation_rate` |
 
-All four flags default to `false` (`solvers/dust_init.py:663`–`666`). The
+All five flags default to `false` (`solvers/dust_init.py:663`–`666`). The
 processes are appended to the process list only if the flag is set and there
 is at least one dust bin (`solvers/rhs.py:87`–`114`).
 
@@ -448,4 +449,73 @@ constants give a vapour pressure 5 times theirs. `flux` balance is 20–50 K
 cooler than `pressure`. Their sublimation time (eq. 36) takes the
 condensation flux as $n v 4\pi a^2$ with unit sticking; with the one-sided
 flux $n v\pi a^2$ and $\alpha = 0.1$ the grains here live 40 times longer.
+:::
+
+## Nucleation
+
+`nucleation_rate` (`solvers/dust_rates.py:696`) forms new grains from the gas
+by steady-state classical nucleation in the key-species form of
+{cite:t}`KozasaHasegawa1987` and {cite:t}`Nozawa2003` (their eq. 6):
+
+$$
+J_s = \alpha\,\Omega_0\left(\frac{2\sigma}{\pi m_X}\right)^{1/2}
+(f_n n_X)^2 \exp\!\left[-\frac{4\mu^3}{27(\ln S)^2}\right],\qquad
+n_* = \left(\frac{2\mu}{3\ln S}\right)^3,
+$$ (eq-dgd-nuc)
+
+with $\Omega_0$ the volume per key species $X$, $f_n$ its neutral fraction
+and $\mu = 4\pi a_0^2\sigma/kT_c$. Nucleation shares the thermodynamics of
+sublimation and recondensation:
+
+- the supersaturation is the flux ratio those two balance at $S=1$,
+  $S = f_n n_X v_X(T_g)/[4P_0 e^{-B/kT_c}]$;
+- $\mu = \tfrac32\sigma_\mathrm{GD89}/T_c$, from the GD89 surface term of
+  $B(N) = B_\infty - \sigma N^{-1/3}$, so that $n_*$ is the size at which the
+  size-corrected evaporation of the sublimation tables balances growth. For
+  graphite this gives $\sigma \simeq 2000$ erg cm$^{-2}$ (Nozawa et al. 2003
+  list 1400).
+
+$T_c$ is the cluster temperature. By default it is the target bin's dust
+temperature, because near an AGN clusters are heated by the radiation field
+({cite:t}`Lazzati2008`); $T_g$ is the temperature of the nucleating gas.
+Where $n_*$ falls below ~2 the formula exceeds the rate at which monomers
+meet, so $J_s$ is capped at the dimer collision rate
+(`solvers/dust_rates.py:754`).
+
+Each cluster is counted as one grain of a designated target bin, so grain
+number is conserved and the bin gains $J_s m_\mathrm{grain}$ per unit volume
+from the gas (`solvers/dust_rates.py:757`). Growth from $n_*$ to the bin
+radius is assumed instantaneous; at $n_\mathrm{H}\sim10^{10}$ cm$^{-3}$ it
+takes days for nm bins, so the target should be a small bin.
+
+The `physics` flag is `dust_nucleation`. The constants come from a
+`nucleation` list in the configuration (`solvers/dust_init.py:328`), one entry
+per composition: `target_bin`, `key_element`, `evaporation_prefactor_cm2s`,
+`binding_energy_K`, `surface_energy_K`, `monomer_mass_amu`, and optionally
+`density_gcm3`, `alpha` (0.1), `neutral_fraction` (1), `gas_temperature_K`
+and `cluster_temperature_K`. `dust_sublimation.nucleation_parameters`
+(`models/dust_radiation/dust_sublimation.py:389`) returns them for graphite
+and silicate.
+
+:::{important}
+Classical nucleation assumes neutral gas. At $T_g\sim10^4$ K the key species
+(C, Si, Mg, Fe) are mostly singly ionised and the precursor molecules are
+photodissociated, so near an AGN nucleation can only proceed in shielded,
+neutral gas. `neutral_fraction` and `gas_temperature_K` make that an explicit
+assumption of the model rather than something it predicts.
+:::
+
+:::{note}
+`diagnostics/dust_radiation/check_nucleation_nozawa_kozasa2013.py` runs the
+steady-state model of {cite:t}`NozawaKozasa2013` for carbon grains in
+homologously cooling gas, with `classical_nucleation_rate`
+(`dust_sublimation.py:427`) and their thermodynamics. For
+$\Lambda_\mathrm{on} = \tau_\mathrm{sat}/\tau_\mathrm{coll}$ from 30 to
+$3\times10^6$ and $\gamma$ = 1.25 and 1.5, the final mean radius follows
+their eq. 64 to within 9%, and the condensation efficiency is 1 (their
+fitting formula is good to 5% against their non-steady model). For
+$c_{10}=10^8$ cm$^{-3}$ it gives $T_0 = 1994$ K, an onset at
+$x_\mathrm{on}=1.077$ and $\tau_\mathrm{sat}=10.5$ d (theirs: ~2000 K,
+1.08, ~10 d). Below $\Lambda_\mathrm{on}\simeq30$ the steady model gives
+too-small grains, as they found.
 :::

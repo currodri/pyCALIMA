@@ -65,6 +65,7 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
         accretion_rate,
         coagulation_rate,
         condensation_rate,
+        nucleation_rate,
         dubois_shattering_rate,
         dubois_coagulation_rate,
         pah_accretion_rate,
@@ -111,6 +112,13 @@ def build_process_list(state: DustChemistryState) -> List[DustProcess]:
     if state.dust_sublimation and state.ndust > 0:
         processes.append(
             DustProcess("sublimation", sublimation_rate, source=False, sink=True,
+                        bin_local=True)
+        )
+
+    # ---- Grain formation (steady-state nucleation) ----
+    if state.dust_nucleation and state.nucleation:
+        processes.append(
+            DustProcess("nucleation", nucleation_rate, source=True, sink=False,
                         bin_local=True)
         )
 

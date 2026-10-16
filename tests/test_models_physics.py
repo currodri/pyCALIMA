@@ -641,6 +641,56 @@ class TestDustRadiation:
                 ds.sublimation_temperature(material, 1e-5, 1e3 * yr)
 
 
+    def test_steady_nucleation_reproduces_nozawa_kozasa_2013(self):
+        """NK13 (ApJ 776, 24) steady model for C grains in homologously cooling
+        gas, c10 = 1e8 cm^-3, gamma = 1.25, t0 = 300 d, with their
+        thermodynamics (Nozawa+03 Table 2) and s = 1: the onset is at
+        x_on ~ 1.08 with tau_sat ~ 10 d, and the final radius follows their
+        fit (eq. 64, Table 1) for Lambda_on > 30 to their quoted 5%.
+        (Full scan: diagnostics/dust_radiation/check_nucleation_nozawa_kozasa2013.py.)"""
+        from scipy.integrate import solve_ivp
+        from scipy.optimize import brentq
+
+        from pycalima.models.dust_radiation.dust_sublimation import (
+            classical_nucleation_rate)
+
+        kB, day = 1.380649e-16, 86400.0
+        A, B, sigma, a0, m1 = 8.64726e4, 19.0422, 1400.0, 1.281e-8, 12.011 * 1.66053906660e-24
+        c10, gamma, t0 = 1e8, 1.25, 300 * day
+        lnS = lambda c, T: A / T - B + np.log(c * kB * T / 1e6)
+        T0 = brentq(lambda T: lnS(c10, T), 300.0, 1e4)
+        v = np.sqrt(kB / (2 * np.pi * m1))
+        omega0 = 4 * np.pi * a0 ** 3 / 3
+
+        def rhs(t, K):
+            x = t / t0
+            c_nom, T = c10 * x ** -3, T0 * x ** (-3 * (gamma - 1))
+            c1 = c_nom * max(1.0 - K[3], 0.0)
+            ls = lnS(c1, T) if c1 > 0 else -np.inf
+            J, n_star = classical_nucleation_rate(c1, ls, T, T, a0, sigma, m1)
+            I, nc = J / c_nom, (1.0 + n_star if np.isfinite(n_star) else 0.0)
+            g = omega0 * v * np.sqrt(T) * c1 * (1 - np.exp(-ls)) / a0 if ls > 0 else 0.0
+            return [I, I * nc ** (1 / 3) + g * K[0], I * nc ** (2 / 3) + 2 * g * K[1],
+                    I * nc + 3 * g * K[2]]
+
+        onset = lambda t, K: K[3] - 1e-10
+        sol = solve_ivp(rhs, (t0, 20 * t0), np.zeros(4), method="LSODA", rtol=1e-8,
+                        atol=1e-40, events=onset)
+        t_on = sol.t_events[0][0]
+        T_on, c_on = T0 * (t_on / t0) ** (-3 * (gamma - 1)), c10 * (t_on / t0) ** -3
+        tau_sat = 1 / (3 * (gamma - 1) / t_on * (A / T_on - gamma / (gamma - 1)))
+        lam = tau_sat * 4 * np.pi * a0 ** 2 * c_on * v * np.sqrt(T_on)
+        K = sol.y[:, -1]
+        a_ave_um = a0 * (K[3] / K[0]) ** (1 / 3) * 1e4
+        a_fit_um = 5.946e-4 * (1 + 10 ** (-1.21 + 0.854 * np.log10(lam)))
+
+        assert T0 == pytest.approx(2000.0, rel=0.02)            # NK13 Fig. 1
+        assert t_on / t0 == pytest.approx(1.08, abs=0.01)
+        assert tau_sat / day == pytest.approx(10.0, rel=0.1)
+        assert K[3] == pytest.approx(1.0, rel=1e-3)
+        assert a_ave_um == pytest.approx(a_fit_um, rel=0.05)
+
+
 class TestAGNHotDust:
     def test_skirtor_sed_integrates_to_the_bolometric_luminosity(self):
         from pycalima.models.dust_radiation.agn_hot_dust import skirtor_sed

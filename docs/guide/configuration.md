@@ -90,7 +90,7 @@ locked in dust come on top of them through the bins' initial densities.
 ### `physics`
 
 One boolean per process, all `false` by default: `dust_accretion`,
-`dust_sputtering`, `dust_sublimation`, `dust_condensation`, `dust_coagulation`, `dust_shattering`,
+`dust_sputtering`, `dust_sublimation`, `dust_condensation`, `dust_nucleation`, `dust_coagulation`, `dust_shattering`,
 `pah_accretion`, `pah_photolysis`, `pah_sputtering`, `pah_coalescence`,
 `pah_cluster_evaporation`, `pah_freezing`. {doc}`/physics/index` describes each.
 
@@ -106,6 +106,12 @@ lists the values each accepts and the defaults. Recondensation reads
 tables), `condensation_balance` (`flux` or `pressure`) and
 `condensation_ion_fraction` (default 0); `dust_condensation` cannot be on
 together with `dust_accretion`.
+
+### `nucleation`
+
+Only read with `dust_nucleation` on: a list with one entry per nucleating
+composition (`target_bin`, `key_element` and the GD89 constants), described in
+{doc}`/physics/dust-growth-destruction`.
 
 ### `turbulence`
 

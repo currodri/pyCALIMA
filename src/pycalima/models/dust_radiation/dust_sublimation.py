@@ -382,6 +382,95 @@ def sublimation_temperature(material, a_cm, t_exp_s, n_key=0.0, T_gas=1.0e4,
     return brentq(f, T_lo, T_hi, xtol=1e-3)
 
 
+# ---------------------------------------------------------------------------
+# Nucleation (steady-state classical nucleation with the GD89 thermodynamics)
+# ---------------------------------------------------------------------------
+
+def nucleation_parameters(material):
+    """Constants for nucleating ``material`` consistently with its GD89
+    sublimation model, in the form the solver's nucleation block takes.
+
+    Returns a dict with the evaporation-rate prefactor P0 [cm^-2 s^-1], the
+    bulk binding energy B/k and the GD89 surface term sigma/k [K] (from
+    B(N) = B_inf - sigma N^-1/3), the condensation coefficient alpha, the
+    monomer mass [amu] and bulk density [g cm^-3], and the key species and its
+    mass [amu].
+    """
+    params = GD89_PARAMS[material]
+    key, m_key = KEY_SPECIES[material]
+    return {'evaporation_prefactor_cm2s': params['evaporation_rate_prefactor'],
+            'binding_energy_K': params['B_saturation_temperature_K'],
+            'surface_energy_K': params['surface_free_energy_K'],
+            'alpha': alpha_N,
+            'monomer_mass_amu': params['mass_amu'],
+            'density_gcm3': params['rho'],
+            'key_element': key,
+            'key_mass_amu': m_key}
+
+
+def supersaturation(material, n_key, T_cluster, T_gas):
+    """Supersaturation S of the key species over the bulk solid.
+
+    The ratio of the condensation flux, alpha n_X v_X(T_gas) / 4 (one monomer
+    per key atom), to the bulk GD89 evaporation flux of a solid at T_cluster,
+    alpha P0 exp(-B_inf / T_cluster); alpha cancels. S = 1 is the
+    recondensation balance of ``saturated_key_density`` for a large grain.
+    """
+    params = GD89_PARAMS[material]
+    m_X = KEY_SPECIES[material][1] * _AMU
+    v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_X))
+    B = params['B_saturation_temperature_K']
+    flux_evap = params['evaporation_rate_prefactor'] * np.exp(-B / np.asarray(T_cluster))
+    return n_key * v_X / (4.0 * flux_evap)
+
+
+def classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0_cm, sigma_cgs, m_key_g,
+                              alpha=1.0):
+    """Steady-state classical nucleation rate J_s [cm^-3 s^-1] and n*.
+
+    Kozasa & Hasegawa (1987); Nozawa & Kozasa (2013, ApJ 776, 24, eq. 59)
+    for a single key species (Pi = 1):
+
+        J_s = alpha Omega_0 (2 sigma / pi m_1)^1/2 n_X^2 exp[-4 mu^3 / 27 (ln S)^2],
+        mu = 4 pi a_0^2 sigma / k T_cluster,   n* = (2 mu / 3 ln S)^3,
+
+    with Omega_0 = 4 pi a_0^3 / 3 the volume per key species. Where n* drops
+    below ~2 the formula exceeds the rate at which monomers meet, so J_s is
+    capped at the dimer collision rate alpha n_X^2 pi (2 a_0)^2 sqrt(2) v_X / 2,
+    v_X at T_gas. Returns (0, inf) for ln S <= 0.
+    """
+    if not np.isfinite(lnS) or lnS <= 0.0 or n_key <= 0.0:
+        return 0.0, np.inf
+    omega0 = 4.0 * np.pi * a0_cm ** 3 / 3.0
+    mu = 4.0 * np.pi * a0_cm ** 2 * sigma_cgs / (_KB * T_cluster)
+    J = (alpha * omega0 * np.sqrt(2.0 * sigma_cgs / (np.pi * m_key_g)) * n_key ** 2
+         * np.exp(-4.0 * mu ** 3 / (27.0 * lnS ** 2)))
+    v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_key_g))
+    J_coll = 0.5 * alpha * n_key ** 2 * np.pi * (2.0 * a0_cm) ** 2 * np.sqrt(2.0) * v_X
+    return min(J, J_coll), (2.0 * mu / (3.0 * lnS)) ** 3
+
+
+def steady_state_nucleation_rate(material, n_key, T_cluster, T_gas, alpha=alpha_N):
+    """Steady-state nucleation rate J_s [cm^-3 s^-1] and critical size n* of
+    ``material`` with its GD89 thermodynamics (``classical_nucleation_rate``).
+
+    S is ``supersaturation`` (the recondensation balance at S = 1) and the
+    surface tension is taken from the GD89 surface term, mu = (3/2)
+    sigma_GD89 / T_cluster, which makes n* the size at which the GD89
+    size-corrected evaporation of the sublimation tables balances growth
+    (S = exp(sigma_GD89 n*^-1/3 / T)). ``n_key`` should be the density of the
+    *neutral* key species able to build clusters.
+    """
+    params = GD89_PARAMS[material]
+    V_mon = params['mass_amu'] * _AMU / params['rho']
+    a0 = (3.0 * V_mon / (4.0 * np.pi)) ** (1.0 / 3.0)
+    m_X = KEY_SPECIES[material][1] * _AMU
+    S = supersaturation(material, n_key, T_cluster, T_gas)
+    lnS = np.log(S) if np.isfinite(S) and S > 0 else -np.inf
+    sigma = 1.5 * params['surface_free_energy_K'] * _KB / (4.0 * np.pi * a0 ** 2)
+    return classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0, sigma, m_X, alpha)
+
+
 # Bulk sublimation constants of GD89 as quoted by Waxman & Draine (2000,
 # ApJ 537, 796, Sect. 3.1, after eq. 10): attempt frequency nu_0 [s^-1] and
 # binding energy B/k [K]. m is the mass of the unit that leaves: a C atom for

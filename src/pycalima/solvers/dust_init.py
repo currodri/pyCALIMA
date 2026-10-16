@@ -95,6 +95,7 @@ from .chemistry_state import (
     N_ELEMENTS,
     DustBinParams,
     DustChemistryState,
+    NucleationParams,
     PAHBinParams,
 )
 from .table_io import (
@@ -322,6 +323,56 @@ def _load_erosion_rate_table(bin_id: str, data_dir: Path):
         return interp, a_table_cm
     except Exception:
         return None, None
+
+
+def _parse_nucleation(entries, dust_bins, config_path):
+    """Build NucleationParams from the config's ``nucleation`` list.
+
+    Each entry names the ``target_bin`` receiving the new grains, the
+    ``key_element``, and the GD89 constants of the composition
+    (``evaporation_prefactor_cm2s``, ``binding_energy_K``,
+    ``surface_energy_K``, ``monomer_mass_amu``; ``density_gcm3`` defaults to the
+    bin's grain density, ``alpha`` to 0.1). ``neutral_fraction`` (default 1),
+    ``gas_temperature_K`` and ``cluster_temperature_K`` (default: local gas
+    temperature and the target bin's dust temperature) are optional.
+    ``models.dust_radiation.dust_sublimation.nucleation_parameters`` returns
+    the constants for graphite and silicate.
+    """
+    by_id = {db.bin_id: db for db in dust_bins}
+    out = []
+    for e in entries:
+        db = by_id.get(e.get("target_bin"))
+        if db is None:
+            raise ValueError(f"nucleation target_bin {e.get('target_bin')!r} is not a "
+                             f"dust bin of {config_path}.")
+        key = e["key_element"]
+        if key not in db.el_names:
+            raise ValueError(f"nucleation key_element {key!r} is not in the elements "
+                             f"of {db.bin_id} ({config_path}).")
+        if e.get("cluster_temperature_K") is None and db.dust_temperature_K is None:
+            raise ValueError(
+                f"nucleation into {db.bin_id} needs a cluster temperature: set "
+                f'"cluster_temperature_K" or the bin\'s "dust_temperature_K" '
+                f"({config_path}).")
+        rho = float(e.get("density_gcm3", db.sgrain))
+        m_mon = float(e["monomer_mass_amu"]) * AU2G
+        key_index = ELEMENT_NAMES.index(key)
+        out.append(NucleationParams(
+            target_bin=db.bin_index,
+            key_index=key_index,
+            key_mass_g=ELEMENT_ATOMIC_MASSES_G[key_index],
+            evaporation_prefactor=float(e["evaporation_prefactor_cm2s"]),
+            binding_energy_K=float(e["binding_energy_K"]),
+            surface_energy_K=float(e["surface_energy_K"]),
+            monomer_volume_cm3=m_mon / rho,
+            alpha=float(e.get("alpha", 0.1)),
+            neutral_fraction=float(e.get("neutral_fraction", 1.0)),
+            gas_temperature_K=(None if e.get("gas_temperature_K") is None
+                               else float(e["gas_temperature_K"])),
+            cluster_temperature_K=(None if e.get("cluster_temperature_K") is None
+                                   else float(e["cluster_temperature_K"])),
+        ))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +662,13 @@ def load_initial_conditions(
     solver_cfg = cfg.get("solver", {})
     models_cfg = cfg.get("models", {})
     condensation_balance = str(models_cfg.get("condensation_balance", "flux"))
+    nucleation = []
+    if phys.get("dust_nucleation", False):
+        if not cfg.get("nucleation"):
+            raise ValueError(
+                f'dust_nucleation is enabled but {config_path} has no "nucleation" '
+                "list (target_bin, key_element and the GD89 constants).")
+        nucleation = _parse_nucleation(cfg["nucleation"], dust_bins, config_path)
     if phys.get("dust_condensation", False):
         if phys.get("dust_accretion", False):
             # Both are the same gas-grain collisions; together they double count.
@@ -664,6 +722,7 @@ def load_initial_conditions(
         dust_sputtering=bool(phys.get("dust_sputtering", False)),
         dust_sublimation=bool(phys.get("dust_sublimation", False)),
         dust_condensation=bool(phys.get("dust_condensation", False)),
+        dust_nucleation=bool(phys.get("dust_nucleation", False)),
         dust_coagulation=bool(phys.get("dust_coagulation", False)),
         dust_shattering=bool(phys.get("dust_shattering", False)),
         pah_accretion=bool(phys.get("pah_accretion", False)),
@@ -688,6 +747,7 @@ def load_initial_conditions(
         condensation_coefficient=float(models_cfg.get("condensation_coefficient", 0.1)),
         condensation_balance=condensation_balance,
         condensation_ion_fraction=float(models_cfg.get("condensation_ion_fraction", 0.0)),
+        nucleation=nucleation,
         # Turbulent environment
         local_sigma=local_sigma,
         local_dx=local_dx,

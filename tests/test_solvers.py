@@ -1078,3 +1078,133 @@ def test_mprk22_takes_grains_that_vanish_within_one_step(tmp_path):
     assert d[0] < 1e-6 * y_dust[0]
     np.testing.assert_allclose(_element_totals(state, g, d),
                                _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# nucleation: new grains from supersaturated gas
+# ---------------------------------------------------------------------------
+
+def _nucleation_config(tmp_path, *, dust_frac=0.0, physics=None, **entry):
+    from pycalima.models.dust_radiation.dust_sublimation import nucleation_parameters
+
+    path = _condensation_config(tmp_path, dust_frac=dust_frac, physics=physics or {
+        "dust_sublimation": True, "dust_condensation": True, "dust_nucleation": True},
+        **{k: entry.pop(k) for k in ("T_dust", "nH", "T_gas") if k in entry})
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    p = nucleation_parameters("graphite")
+    cfg["nucleation"] = [{"target_bin": "DustBin_01", "key_element": "C",
+                          "evaporation_prefactor_cm2s": p["evaporation_prefactor_cm2s"],
+                          "binding_energy_K": p["binding_energy_K"],
+                          "surface_energy_K": p["surface_energy_K"],
+                          "monomer_mass_amu": p["monomer_mass_amu"],
+                          "density_gcm3": p["density_gcm3"], **entry}]
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+def _kernel(fn, state, y_gas, y_dust):
+    dgas, ddust = np.zeros_like(y_gas), np.zeros_like(y_dust)
+    fn(state, y_gas, y_dust, dgas, ddust)
+    return dgas, ddust
+
+
+@pytest.mark.parametrize("T_dust", [1300.0, 1500.0, 1650.0])
+def test_nucleation_kernel_matches_the_model_rate(tmp_path, T_dust):
+    from pycalima.models.dust_radiation.dust_sublimation import steady_state_nucleation_rate
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.dust_rates import nucleation_rate
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _nucleation_config(tmp_path, T_dust=T_dust, nH=1e10))
+    n_C = y_gas[2] / _M_C
+    J, _ = steady_state_nucleation_rate("graphite", n_C, T_dust, state.local_Tk)
+    dgas, ddust = _kernel(nucleation_rate, state, y_gas, y_dust)
+    assert J > 0
+    assert ddust[0] == pytest.approx(J * state.dust_bins[0].mgrain, rel=1e-6)
+    assert dgas[2] == pytest.approx(-ddust[0], rel=1e-12)
+
+
+def test_critical_cluster_is_where_gd89_evaporation_balances_growth():
+    """n* = (2 mu / 3 ln S)^3 with mu = 1.5 sigma_GD89 / T, so that
+    S = exp(sigma_GD89 n*^-1/3 / T): the Kelvin balance of the sublimation
+    tables' B(N) = B - sigma N^-1/3."""
+    from pycalima.models.dust_radiation import dust_sublimation as ds
+
+    sig = ds.GD89_PARAMS["graphite"]["surface_free_energy_K"]
+    for T in (1400.0, 1600.0, 1700.0):
+        n = 10 ** -3.44 * 1e10
+        S = float(ds.supersaturation("graphite", n, T, 1e4))
+        _, n_star = ds.steady_state_nucleation_rate("graphite", n, T, 1e4)
+        assert S == pytest.approx(np.exp(sig * n_star ** (-1 / 3) / T), rel=1e-9)
+
+
+def test_nucleation_never_exceeds_the_monomer_collision_rate():
+    """However supersaturated, clusters cannot form faster than monomers
+    meet; where the critical cluster is more than a fraction of an atom
+    (T >~ 1000 K here) the rate rises steeply as the clusters cool."""
+    from pycalima.models.dust_radiation import dust_sublimation as ds
+
+    n, T_gas = 10 ** -3.44 * 1e10, 1e4
+    a0 = (3 * 12.011 * 1.66053906660e-24 / 2.24 / (4 * np.pi)) ** (1 / 3)
+    v = np.sqrt(8 * _KB * T_gas / (np.pi * _M_C))
+    J_coll = 0.5 * 0.1 * n ** 2 * np.pi * (2 * a0) ** 2 * np.sqrt(2) * v
+    J = [ds.steady_state_nucleation_rate("graphite", n, T, T_gas)[0]
+         for T in (300.0, 600.0, 1000.0, 1400.0, 1700.0)]
+    assert all(j <= J_coll * (1 + 1e-12) for j in J)
+    assert J[2] > J[3] > J[4]
+
+
+def test_no_nucleation_from_undersaturated_or_ionised_gas(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.dust_rates import nucleation_rate
+
+    for kw in ({"T_dust": 2500.0}, {"T_dust": 1500.0, "neutral_fraction": 0.0}):
+        state, y_gas, y_dust = load_initial_conditions(_nucleation_config(tmp_path, **kw))
+        _, ddust = _kernel(nucleation_rate, state, y_gas, y_dust)
+        assert ddust[0] == 0.0, kw
+
+
+def test_nucleation_config_is_validated(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    with pytest.raises(ValueError, match="target_bin"):
+        load_initial_conditions(_nucleation_config(tmp_path, target_bin="DustBin_99"))
+    with pytest.raises(ValueError, match="key_element"):
+        load_initial_conditions(_nucleation_config(tmp_path, key_element="Si"))
+    path = _condensation_config(tmp_path, physics={"dust_sublimation": True,
+                                                   "dust_nucleation": True})
+    with pytest.raises(ValueError, match='"nucleation"'):
+        load_initial_conditions(path)
+
+
+def test_dust_forms_from_pure_gas_and_settles_at_saturation(tmp_path):
+    """Closed box with no dust: nucleation seeds grains, condensation grows
+    them, and the gas ends at the saturated density, conserving carbon.
+    Without nucleation nothing happens. (At n_H = 1e10 and 1400 K the
+    critical cluster is ~1 atom; at 1e8 and 1600 K it is ~180 and nothing
+    nucleates.)"""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _nucleation_config(tmp_path, T_dust=1400.0, nH=1e10))
+    assert y_dust[0] == 0.0
+    g, d, _ = integrate_dust_ode(state, 1e9, y_gas, y_dust, build_process_list(state),
+                                 MPRK22Solver(), h_init=1e-3, h_min=1e-9)
+    db = state.dust_bins[0]
+    eps = float(db.erosion_rate_interp(1400.0))
+    rho_sat = (4.0 * db.asize_cm * db.sgrain * eps * np.sqrt(_M_C)
+               / (0.1 * np.sqrt(8.0 * _KB * state.local_Tk / np.pi)))
+    assert d[0] > 0.5 * y_gas[2]
+    assert g[2] == pytest.approx(rho_sat, rel=1e-2)
+    np.testing.assert_allclose(_element_totals(state, g, d),
+                               _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+    state, y_gas, y_dust = load_initial_conditions(_nucleation_config(
+        tmp_path, T_dust=1400.0, nH=1e10,
+        physics={"dust_sublimation": True, "dust_condensation": True}))
+    _, d, _ = integrate_dust_ode(state, 1e9, y_gas, y_dust, build_process_list(state),
+                                 MPRK22Solver(), h_init=1e-3, h_min=1e-9)
+    assert d[0] == 0.0

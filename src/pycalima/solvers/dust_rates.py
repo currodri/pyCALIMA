@@ -693,6 +693,76 @@ def condensation_rate(
     return kmax
 
 
+def nucleation_rate(
+    state: DustChemistryState,
+    y_gas: np.ndarray,
+    y_dust: np.ndarray,
+    dydt_gas: np.ndarray,
+    dydt_dust: np.ndarray,
+) -> float:
+    """Formation of new grains from the gas by steady-state nucleation.
+
+    For each entry of ``state.nucleation`` (Kozasa & Hasegawa 1987; Nozawa et
+    al. 2003, eq. 6):
+
+        S   = f_n n_X v_X(T_g) / (4 P0 exp(-B/k T_c)),
+        mu  = (3/2) sigma_GD89 / T_c,   sigma = mu k T_c / (4 pi a_0^2),
+        J_s = alpha Omega_0 (2 sigma / pi m_X)^1/2 (f_n n_X)^2
+              exp[-4 mu^3 / 27 (ln S)^2]                     [cm^-3 s^-1],
+
+    with f_n the neutral fraction of the key species X, T_g the temperature
+    of the nucleating gas and T_c the cluster temperature (by default the
+    target bin's dust temperature: clusters are heated by the radiation
+    field). S is the flux ratio that ``condensation_rate`` and
+    ``sublimation_rate`` balance at S = 1, and mu makes the critical size
+    n* = (2 mu / 3 ln S)^3 the size at which the GD89 size-corrected
+    evaporation balances growth. Where n* falls below ~2 the formula exceeds
+    the rate at which monomers meet, so J_s is capped at the dimer collision
+    rate alpha n_X^2 pi (2 a_0)^2 sqrt(2) v_X / 2.
+
+    Each cluster is counted as one grain of the target bin (grain number is
+    conserved; growth from n* to the bin radius is assumed fast, ~days at
+    n_H ~ 1e10 for nm bins), so the bin gains J_s m_grain per unit volume,
+    taken from the gas in the bin's composition.
+    """
+    kmax = 0.0
+    for nb in state.nucleation:
+        db = state.dust_bins[nb.target_bin]
+        idx = db.bin_index + state.npah
+        rho_X = y_gas[nb.key_index]
+        if rho_X <= 0.0:
+            continue
+        n_X = nb.neutral_fraction * rho_X / nb.key_mass_g
+        if n_X <= 0.0:
+            continue
+        T_g = nb.gas_temperature_K if nb.gas_temperature_K is not None else state.local_Tk
+        T_c = (nb.cluster_temperature_K if nb.cluster_temperature_K is not None
+               else db.dust_temperature_K)
+        v_X = math.sqrt(8.0 * KB_CGS * T_g / (math.pi * nb.key_mass_g))
+        # exp(-B/T_c) underflows for cold clusters: work with ln S
+        lnS = (math.log(n_X * v_X / (4.0 * nb.evaporation_prefactor))
+               + nb.binding_energy_K / T_c)
+        if lnS <= 0.0:
+            continue
+        a0 = (3.0 * nb.monomer_volume_cm3 / (4.0 * math.pi)) ** (1.0 / 3.0)
+        mu = 1.5 * nb.surface_energy_K / T_c
+        sigma = mu * KB_CGS * T_c / (4.0 * math.pi * a0 ** 2)
+        J = (nb.alpha * nb.monomer_volume_cm3
+             * math.sqrt(2.0 * sigma / (math.pi * nb.key_mass_g)) * n_X ** 2
+             * math.exp(-4.0 * mu ** 3 / (27.0 * lnS ** 2)))
+        J_coll = 0.5 * nb.alpha * n_X ** 2 * math.pi * (2.0 * a0) ** 2 * math.sqrt(2.0) * v_X
+        J = min(J, J_coll)
+        if J <= 0.0:
+            continue
+        rate_rho = J * db.mgrain                     # [g cm^-3 s^-1]
+        f_X = db.el_mfractions[db.el_indices.index(nb.key_index)]
+        kmax = max(kmax, rate_rho * f_X / rho_X)
+        dydt_dust[idx] += rate_rho
+        for loc, el_idx in enumerate(db.el_indices):
+            dydt_gas[el_idx] -= rate_rho * db.el_mfractions[loc]
+    return kmax
+
+
 # ---------------------------------------------------------------------------
 # 4.  Grain coagulation  (Aoyama et al. 2017)
 # ---------------------------------------------------------------------------

@@ -145,6 +145,36 @@ class DustBinParams:
     """Coagulation threshold velocity [cm s⁻¹] for self-collisions."""
 
 
+@dataclass
+class NucleationParams:
+    """Steady-state nucleation of one composition into a target dust bin.
+
+    The constants are those of the composition's GD89 sublimation model
+    (``models.dust_radiation.dust_sublimation.nucleation_parameters``), so that
+    nucleation, sublimation and recondensation share one thermodynamics.
+    """
+
+    target_bin: int
+    """Dust-bin index (into ``dust_bins``) that receives the new grains."""
+    key_index: int
+    """Element index of the key species in ``y_gas``."""
+    key_mass_g: float
+    evaporation_prefactor: float
+    """Bulk GD89 evaporation-rate prefactor P0 [cm^-2 s^-1]."""
+    binding_energy_K: float
+    """Bulk binding energy B/k [K]."""
+    surface_energy_K: float
+    """GD89 surface term sigma/k [K] of B(N) = B - sigma N^-1/3."""
+    monomer_volume_cm3: float
+    alpha: float = 0.1
+    neutral_fraction: float = 1.0
+    """Fraction of the key species neutral (and so able to build clusters)."""
+    gas_temperature_K: Optional[float] = None
+    """Temperature of the nucleating gas; None means ``local_Tk``."""
+    cluster_temperature_K: Optional[float] = None
+    """Cluster temperature; None means the target bin's dust temperature."""
+
+
 # ---------------------------------------------------------------------------
 # PAH bin parameters
 # ---------------------------------------------------------------------------
@@ -274,6 +304,7 @@ class DustChemistryState:
     dust_sputtering: bool = False
     dust_sublimation: bool = False
     dust_condensation: bool = False
+    dust_nucleation: bool = False
     dust_coagulation: bool = False
     dust_shattering: bool = False
     pah_accretion: bool = False
@@ -314,6 +345,9 @@ class DustChemistryState:
     """``'flux'`` (kinetic, default) | ``'pressure'`` (Baskin & Laor 2018)."""
     condensation_ion_fraction: float = 0.0
     """Fraction of the condensing key species that is singly ionised."""
+
+    # ---- Nucleation (nucleation_rate) ----
+    nucleation: List[NucleationParams] = field(default_factory=list)
 
     # ---- Turbulent environment ----
     local_sigma: float = 0.0
