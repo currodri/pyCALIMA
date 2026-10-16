@@ -662,3 +662,157 @@ def test_turbulent_shattering_and_sticking_run_smoothly_and_conserve_mass():
     assert r["n_steps"] < 200
     small = g.a_centres < 5e-7
     assert (r["M"][small].sum() + r["sink_M"]) > 0.01 * M.sum()
+
+
+# ---------------------------------------------------------------------------
+# charging
+# ---------------------------------------------------------------------------
+
+PC_CM = 3.086e18
+
+
+def _agn_photons(L_bol, r_pc, xray=True):
+    from pycalima.gsd.charging import PhotonGroups, xray_power_law
+    from pycalima.models.dust_radiation.agn_hot_dust import AGNIllumination
+
+    agn = AGNIllumination(L_bol, law="isotropic")
+    ph = PhotonGroups.from_flux_lambda(agn.lam_cm, agn.flux(r_pc * PC_CM))
+    if xray:
+        E, nE = xray_power_law(r_pc * PC_CM, L_bol / 30.0)
+        ph = ph + PhotonGroups.from_photon_density(E, nE)
+    return ph
+
+
+@pytest.fixture(scope="module")
+def silicate_charging():
+    from pycalima.gsd.charging import ChargingModel
+
+    return ChargingModel("silicate", np.geomspace(3e-8, 1e-4, 7))
+
+
+def test_agn_ionising_photon_density_matches_published_seds():
+    """n(>13.6 eV) = 2.0e6 (WDB06 eq. 34) - 2.6e6 (TIK20 eq. 2) L45 (r/pc)^-2."""
+    ph = _agn_photons(1e45, 1.0, xray=False)
+    n_ion = ph.N[ph.L0 >= 13.6].sum()
+    assert 1.8e6 < n_ion < 3.0e6
+
+
+def test_charge_state_reproduces_the_group_solver(silicate_charging):
+    """Per radius the state is RAMSES-CALIMA's solve; the charge points keep
+    <Z> and sigma, and the ion factor is <J~> over the exact P(Z)."""
+    from pycalima.models.dust_charge.shared_physics import DS87_J_function_vec
+
+    ph = _agn_photons(1e46, 3.0)
+    st = silicate_charging.solve(ph, T=1e4, n_e=1e2)
+    for k, gt in enumerate(silicate_charging.tables):
+        r = gt.solve(ph.N, 2.99792458e10, 1e4, 1e2, [(1e2, 1.0, 1.67262192e-24)], recomb=None)
+        assert st.Zmean[k] == pytest.approx(r["Zmean"], rel=1e-6, abs=1e-6)
+    Z, w = st.charge_points(st.a)
+    np.testing.assert_allclose(Z @ w, st.Zmean, rtol=1e-12)
+    np.testing.assert_allclose(np.sqrt(((Z - st.Zmean[:, None]) ** 2) @ w), st.Zsigma, rtol=1e-12)
+    J = st.ion_focusing()
+    k = 3
+    Zk, Pk = st.exact_distribution(k)
+    ref = P_ref = Pk @ DS87_J_function_vec(Zk, 1.0 + 0 * Zk, st.a[k] + 0 * Zk, 1e4 + 0 * Zk)
+    assert J[k] == pytest.approx(ref, rel=1e-12)
+    assert np.all(J[st.Zmean > 5] < 1e-3)       # positive grains repel ions
+
+
+def test_coulomb_explosion_follows_tazaki_ichikawa_kokubo_2020(silicate_charging):
+    """TIK20 (L45 = 10, T = 1e4 K, n_H = 1e2, S_max = 1e10): grains below
+    a_CE ~ 0.01-0.1 um explode; a_CE falls much more slowly than the
+    sublimation radius (r^-2) with distance."""
+    a_ce = []
+    for r_pc in (0.3, 3.0, 30.0):
+        st = silicate_charging.solve(_agn_photons(1e46, r_pc), T=1e4, n_e=1e2)
+        rate = st.explosion_rate(1e10)
+        a_ce.append(st.a[rate > 0].max())
+        assert np.all(rate[st.a > a_ce[-1]] == 0)
+        assert np.all(st.explosion_rate(1e11) <= rate + 1e-300)
+    assert 1e-6 < a_ce[1] < 1e-5
+    assert a_ce[0] >= a_ce[1] >= a_ce[2]
+    assert a_ce[0] / a_ce[2] < 100.0                 # vs 1e4 for an r^-2 law
+
+
+def test_destroy_removes_grains_exponentially():
+    from pycalima.gsd.charging import destroy
+
+    g = _grid()
+    N, M = _lognormal(g)
+    N1, M1, lost = destroy(g, N, M, lambda a: np.full_like(a, 2.0), 0.5)
+    np.testing.assert_allclose(N1, N * np.exp(-1.0), rtol=1e-12)
+    assert M1.sum() + lost == pytest.approx(M.sum(), rel=1e-12)
+
+
+def test_coulomb_rate_factor_matches_quadrature():
+    from scipy.integrate import quad
+
+    from pycalima.gsd.velocities import coulomb_rate_factor, mean_speed_normalised
+
+    def pdf(v, s):
+        if s < 1e-8:
+            return 4 / np.sqrt(np.pi) * v ** 2 * np.exp(-v ** 2)
+        return v / (np.sqrt(np.pi) * s) * (np.exp(-(v - s) ** 2) - np.exp(-(v + s) ** 2))
+
+    for s in (0.0, 0.5, 3.0):
+        mb = float(mean_speed_normalised(s))
+        for vC2 in (-4.0, 0.0, 0.5, 9.0):
+            for lo, hi in ((0.0, np.inf), (1.0, np.inf), (0.0, 2.0)):
+                def f(v):
+                    vi2 = v * v - vC2
+                    if v <= 0 or vi2 < lo * lo or vi2 > hi * hi:
+                        return 0.0
+                    return v * pdf(v, s) * (1 - vC2 / v ** 2)
+                pts = [np.sqrt(max(lo * lo + vC2, 0.0)), s]
+                if np.isfinite(hi):
+                    pts.append(np.sqrt(hi * hi + vC2))
+                ref = quad(f, 0, s + 30, points=pts, limit=500, epsrel=1e-11)[0] / mb
+                assert float(coulomb_rate_factor(1.0, s, vC2, lo, hi)) == pytest.approx(ref, rel=1e-9, abs=1e-14)
+
+
+def test_grain_charges_suppress_or_focus_sticking():
+    """Like charges cut the sticking rate of small grains, opposite charges
+    raise it; the pair table reproduces the direct evaluation."""
+    from pycalima.gsd.shattering import GrainCollisions
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    a = np.geomspace(3e-8, 1e-5, 20)
+    m = 4 / 3 * np.pi * a ** 3 * 3.3
+    base = dict(T=100.0, n_H=1e4, mu=2.3, v_turb=3e4, L=3e17)
+    def stick(Zfun, ppd=None):
+        rv = RelativeVelocity(**base, charges=Zfun)
+        model = GrainCollisions("silicate", rv, coagulation=True, table_ppd=ppd)
+        return model._fields(a, m)[2]
+    one = lambda q: (lambda x: (np.full(np.shape(x) + (3,), q), np.array([1, 4, 1]) / 6.0))
+    neutral, plus = stick(one(0.0)), stick(one(1.0))
+    assert np.all(plus[:5, :5] < 0.5 * neutral[:5, :5])
+    mixed = lambda x: (np.stack([np.full(np.shape(x), -1.0), np.zeros(np.shape(x)),
+                                 np.ones(np.shape(x))], -1), np.array([0.5, 0.0, 0.5]))
+    focused = stick(mixed)
+    assert focused[0, 0] > neutral[0, 0]
+    # the pair table: sticking rates through the square-root onset of the
+    # Ormel & Cuzzi relative velocity of similar grains (t* = t_eta) converge
+    # in the median only; shattering rates and impact speeds to ~1%
+    tab = stick(one(1.0), ppd=24)
+    big = plus > 1e-3 * plus.max()
+    assert np.median(np.abs(tab[big] / plus[big] - 1)) < 0.01
+    rv = _wim_velocity(charges=one(1.0))
+    direct = GrainCollisions("silicate", rv)._fields(a, m)
+    table = GrainCollisions("silicate", rv, table_ppd=24)._fields(a, m)
+    big = direct[0] > 1e-3 * direct[0].max()
+    np.testing.assert_allclose(table[0][big], direct[0][big], rtol=0.02)
+    np.testing.assert_allclose(table[1][:, big], direct[1][:, big], rtol=0.005)
+
+
+def test_ion_accretion_is_slowed_by_positive_grains():
+    """An ionised key species accretes onto positive grains at x_n + x_i <J~>."""
+    pop, gas, n_C = _carbon_box(1500.0, dust_frac=0.5)
+    a = pop.grid.a_centres
+    neutral = pop.adot(gas["C"], 1500.0)(a)
+    pop.neutral_fraction = 0.25
+    pop.ion_focusing = lambda x: np.full_like(np.asarray(x, float), 1e-3)
+    ionised = pop.adot(gas["C"], 1500.0)(a)
+    m = pop.model
+    grow_n = m.condensation_alpha(1500.0) * m.unit_volume_cm3 * gas["C"] * np.sqrt(
+        8 * 1.380649e-16 * 1500.0 / (np.pi * m.key_mass_amu * 1.66053906660e-24)) / (4 * m.key_per_unit)
+    np.testing.assert_allclose(ionised - neutral, (0.25 + 0.75e-3 - 1.0) * grow_n, rtol=1e-10)

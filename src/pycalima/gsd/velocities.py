@@ -89,6 +89,58 @@ def flux_above(u, s):
     return np.exp(log_flux_above(u, s))
 
 
+def _log_erfc_diff(u, s):
+    """ln [erfc(u - s) - erfc(u + s)], s > 0, stable in the tail."""
+    from scipy.special import erfc
+
+    L1, L2 = u - s, u + s
+    out = np.empty(np.broadcast(u, s).shape)
+    L1, L2 = np.broadcast_arrays(L1, L2)
+    pos = L1 >= 0.0
+    # both positive: erfc(L) = erfcx(L) e^{-L^2}
+    l1 = -L1[pos] ** 2 + np.log(erfcx(L1[pos]))
+    l2 = -L2[pos] ** 2 + np.log(erfcx(L2[pos]))
+    out[pos] = l1 + np.log1p(-np.minimum(np.exp(l2 - l1), 1.0 - 1e-16))
+    d = erfc(L1[~pos]) - erfc(L2[~pos])
+    out[~pos] = np.log(np.maximum(d, 1e-300))
+    return out
+
+
+def inverse_moment_above(u, s):
+    """(int_u^inf f(v)/v dv) / <v> in normalised units (alpha = 1), the term
+    of the Coulomb-focusing integral: 2 e^{-u^2} / (sqrt(pi) <u>) as s -> 0,
+    else [erfc(u - s) - erfc(u + s)] / (2 s <u>)."""
+    u, s = np.broadcast_arrays(np.maximum(np.asarray(u, float), 0.0),
+                               np.maximum(np.asarray(s, float), 0.0))
+    out = np.empty(u.shape)
+    small = s < 1e-4
+    mbar = mean_speed_normalised(s)
+    out[small] = 2.0 / _SQPI * np.exp(-u[small] ** 2) / mbar[small]
+    if (~small).any():
+        out[~small] = np.exp(_log_erfc_diff(u[~small], s[~small])) / (2.0 * s[~small] * mbar[~small])
+    return out
+
+
+def coulomb_rate_factor(alpha, s, vC2, v_lo, v_hi=np.inf):
+    """Fraction of the collision flux sigma <v> whose impact speed (at
+    contact) lies in [v_lo, v_hi], with Coulomb focusing (vC2 < 0,
+    attraction) or a barrier (vC2 > 0, repulsion) of point charges:
+    sigma_eff = sigma (1 - vC2 / v^2) and v_imp^2 = v^2 - vC2,
+    vC2 = 2 Z1 Z2 e^2 / ((a1 + a2) m_red). Arrays broadcast."""
+    alpha, s, vC2, v_lo, v_hi = np.broadcast_arrays(*(np.asarray(x, float)
+                                                      for x in (alpha, s, vC2, v_lo, v_hi)))
+    uC2 = alpha ** 2 * vC2
+    Ua = alpha * np.sqrt(np.maximum(v_lo ** 2 + vC2, 0.0))
+    fin = np.isfinite(v_hi)
+    Ub = np.where(fin, alpha * np.sqrt(np.maximum(np.where(fin, v_hi, 0.0) ** 2 + vC2, 0.0)), np.inf)
+    def part(U):
+        inf = ~np.isfinite(U)
+        Uf = np.where(inf, 0.0, U)
+        val = flux_above(Uf, s) - uC2 * inverse_moment_above(Uf, s)
+        return np.where(inf, 0.0, val)
+    return np.maximum(part(Ua) - part(Ub), 0.0)
+
+
 def mean_speed_normalised(s):
     """alpha <v> for normalised drift s (Maxwellian: 2 / sqrt(pi))."""
     s = np.asarray(s, float)
@@ -162,10 +214,14 @@ class RelativeVelocity:
     v_th / (3 n_H sigma). ``drift(a)``: systematic velocity of a grain of
     radius a along a common direction [cm/s]. ``y_star``: Ormel & Cuzzi's
     class boundary, ``"exact"`` (their eq. 21d) or ``"approx"`` (1.6).
+    ``charges(a)``: charge points and weights per radius (e.g.
+    ``charging.ChargeState.charge_points``) for Coulomb focusing and barriers
+    between grains (``coulomb_rate_factor``); None for neutral grains.
     """
 
     def __init__(self, T, n_H, mu=1.4, v_turb=0.0, L=0.0, sigma_neutral=2.0e-15,
-                 drift: Optional[Callable] = None, y_star="exact", brownian=True):
+                 drift: Optional[Callable] = None, y_star="exact", brownian=True,
+                 charges: Optional[Callable] = None):
         self.T, self.n_H, self.mu = float(T), float(n_H), float(mu)
         self.rho_gas = self.n_H * self.mu * cvel.MH_CGS
         self.v_turb, self.L = float(v_turb), float(L)
@@ -173,6 +229,7 @@ class RelativeVelocity:
         self.drift = drift
         self.y_star = y_star
         self.brownian = brownian
+        self.charges = charges
         if self.v_turb > 0.0 and self.L > 0.0:
             self.tau_L = self.L / self.v_turb
             nu = cvel.thermal_speed(self.T, self.mu) / (3.0 * self.n_H * sigma_neutral)

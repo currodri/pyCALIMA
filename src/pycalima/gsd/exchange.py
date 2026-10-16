@@ -65,7 +65,11 @@ class Population:
     ``model`` is a ``sublimation_kinetics.SublimationModel``; ``T_d`` the dust
     temperature per bin [K]; ``T_cluster`` the temperature of nucleating
     clusters (default: the smallest bin's T_d). ``overflow_N/M`` collect
-    grains grown past the top of the grid.
+    grains grown past the top of the grid. ``neutral_fraction`` of the key
+    species is neutral: only it nucleates, and if ``ion_focusing(a)`` (the
+    ion Coulomb factor, ``charging.ChargeState.ion_focusing_of``) is given
+    the ionised rest accretes with that factor (else all of it at the
+    geometric rate, as before).
     """
 
     model: object
@@ -76,6 +80,7 @@ class Population:
     T_cluster: Optional[float] = None
     nucleation: bool = True
     neutral_fraction: float = 1.0
+    ion_focusing: Optional[object] = None
     overflow_N: float = 0.0
     overflow_M: float = 0.0
     table_points: int = 2000
@@ -116,7 +121,7 @@ class Population:
         self._fcorr = (key, np.log(a_tab), f_tab)
         return np.log(a_tab), f_tab
 
-    def adot(self, n_key, T_gas, coulomb=1.0):
+    def adot(self, n_key, T_gas):
         """Vectorised da/dt(a) [cm s^-1] for key-species density n_key [cm^-3]."""
         m = self.model
         V = m.unit_volume_cm3
@@ -127,7 +132,11 @@ class Population:
         def rate(a):
             a = np.asarray(a, float)
             T = self.temperature_of_radius(a)
-            grow = m.condensation_alpha(T) * V * n_key * v_X * coulomb / (4.0 * m.key_per_unit)
+            # neutrals arrive at the geometric rate, ions with the Coulomb
+            # factor <J~> of the grains' charge distribution (charging.ChargeState)
+            x_n = self.neutral_fraction
+            coul = 1.0 if self.ion_focusing is None else x_n + (1.0 - x_n) * self.ion_focusing(a)
+            grow = m.condensation_alpha(T) * V * n_key * v_X * coul / (4.0 * m.key_per_unit)
             N_units = (4.0 / 3.0) * np.pi * np.maximum(a, 1e-30) ** 3 / V
             kelvin = (np.exp(np.minimum(m.theta * N_units ** (-1.0 / 3.0) / T, 700.0))
                   if self.kelvin else 1.0)

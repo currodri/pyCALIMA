@@ -55,7 +55,9 @@ from typing import Callable, Optional
 import numpy as np
 
 from .collisions import Channel
-from .velocities import RelativeVelocity, log_flux_above
+from .velocities import RelativeVelocity, coulomb_rate_factor, flux_quantile, log_flux_above
+
+_E2 = 4.80320471e-10 ** 2
 
 
 @dataclass(frozen=True)
@@ -152,13 +154,18 @@ class GrainCollisions:
     ``velocity``: a ``RelativeVelocity`` (continuous; recommended) or a
     callable (a1, a2) -> list of (weight, v) arrays (``hy09_directions``).
     ``n_speed``: flux-quantile channels for shattering with a
-    ``RelativeVelocity``.
+    ``RelativeVelocity``; with its ``charges``, rates include Coulomb
+    focusing/barriers averaged over the charge points of both grains, and
+    impact speeds the mean-charge barrier. ``table_ppd``: if set, the rates
+    and impact speeds are tabulated per environment on a log-radius grid with
+    this many points per decade and interpolated (call ``refresh()`` after
+    changing the gas, radiation or charges).
     ``a_frag_min`` [cm] is the smallest fragment (HK13: the grid minimum).
     ``collector``: ``"remove"`` (HK13) or ``"smallest"`` (HY09)."""
 
     def __init__(self, material, velocity, law="KT10", alpha_f=3.3, f_M=0.4,
                  a_frag_min=3e-8, collector="remove", coagulation=False, F_stick=10.0,
-                 v_shat: Optional[float] = None, n_speed=4):
+                 v_shat: Optional[float] = None, n_speed=4, table_ppd: Optional[float] = None):
         self.material = MATERIALS[material] if isinstance(material, str) else material
         self.velocity = velocity
         self.law = law
@@ -170,6 +177,8 @@ class GrainCollisions:
         self.F_stick = F_stick
         self.v_shat = self.material.v_shat if v_shat is None else float(v_shat)
         self.n_speed = int(n_speed)
+        self.table_ppd = table_ppd
+        self._table = None
 
     def _shatter_products(self, a1, m1, m2, v):
         mej = ejected_mass(self.material, m1, m2, v, self.law, self.f_M)
@@ -202,28 +211,110 @@ class GrainCollisions:
             out.append(Channel(np.zeros(lo.shape)))
         return out
 
-    def _distributed_channels(self, a, m):
-        """Channels from the speed distribution of every pair."""
+    def refresh(self):
+        """Drop the pair table (the environment changed)."""
+        self._table = None
+
+    def _pair_fields(self, a, m):
+        """Total shattering rate coefficient, impact speeds of the n_speed
+        flux-quantile channels, and sticking rate coefficient for all pairs."""
         vel = self.velocity
         A1, A2 = a[:, None], a[None, :]
         M1, M2 = m[:, None], m[None, :]
         sig = np.pi * (A1 + A2) ** 2
         dV, mu = vel.pair_statistics(a, m, self.material.rho)
-        v_mean, c_shat, v_q = vel.collision_speeds(dV, mu, self.v_shat, self.n_speed)
-        lo = np.full(sig.shape, self.a_frag_min)
+        alpha = np.sqrt(1.5) / np.maximum(dV, 1e-300)
+        s = alpha * mu
+        v_mean = vel.collision_speeds(dV, mu, 0.0, 1)[0]
+        m_red = M1 * M2 / (M1 + M2)
+        v_c = coagulation_threshold(self.material, A1, A2, self.F_stick) if self.coagulation else None
+        if vel.charges is None:
+            vC2m = np.zeros_like(sig)
+            f_shat = flux_above_(alpha * self.v_shat, s)
+            f_stick = -np.expm1(log_flux_above(alpha * v_c, s)) if self.coagulation else None
+        else:
+            Z, wz = vel.charges(a)
+            Zm = Z @ wz
+            vC2m = 2.0 * _E2 * Zm[:, None] * Zm[None, :] / ((A1 + A2) * m_red)
+            f_shat = np.zeros_like(sig)
+            f_stick = np.zeros_like(sig) if self.coagulation else None
+            for i, wi in enumerate(wz):
+                for j, wj in enumerate(wz):
+                    vC2 = 2.0 * _E2 * Z[:, i][:, None] * Z[:, j][None, :] / ((A1 + A2) * m_red)
+                    f_shat += wi * wj * coulomb_rate_factor(alpha, s, vC2, self.v_shat)
+                    if self.coagulation:
+                        # sticking on the relative speed at infinity, v < v_coag (as
+                        # collapse.velocities / Guillet+20), with the Coulomb factor:
+                        # the impact-speed window of v in [0, v_coag]
+                        lo_i = np.sqrt(np.maximum(-vC2, 0.0))
+                        hi_i = np.sqrt(np.maximum(v_c ** 2 - vC2, 0.0))
+                        f_stick += wi * wj * coulomb_rate_factor(alpha, s, vC2, lo_i, hi_i)
+        # channel speeds: equal-flux quantiles above the threshold, as impact speeds
+        Ua = alpha * np.sqrt(np.maximum(self.v_shat ** 2 + vC2m, 0.0))
+        lc = log_flux_above(Ua, s)
+        ks = (np.arange(self.n_speed) + 0.5) / self.n_speed
+        y = -(lc[None] + np.log1p(-ks)[:, None, None])
+        v_q = flux_quantile(np.broadcast_to(s, y.shape), y) / alpha
+        v_imp = np.sqrt(np.maximum(v_q ** 2 - vC2m, self.v_shat ** 2))
+        K_shat = sig * v_mean * f_shat
+        K_stick = sig * v_mean * f_stick if self.coagulation else None
+        return K_shat, v_imp, K_stick
+
+    def _fields(self, a, m):
+        """``_pair_fields``, or its interpolation from a pair table on a
+        log-radius grid, linear on the triangles of each cell split along its
+        diagonal: the turbulent relative velocity has a cusp at a1 = a2
+        (Ormel & Cuzzi's class I term ~ |St1 - St2|), which then lies on
+        triangle edges and is never interpolated across."""
+        if not self.table_ppd:
+            return self._pair_fields(a, m)
+        lo, hi = a.min(), a.max()
+        t = self._table
+        if t is None or lo < t["a"][0] or hi > t["a"][-1]:
+            n = max(int(np.ceil(np.log10(4.0 * hi / lo) * self.table_ppd)) + 1, 4)
+            at = np.geomspace(lo / 2.0, hi * 2.0, n)
+            K, v, Kc = self._pair_fields(at, 4.0 / 3.0 * np.pi * self.material.rho * at ** 3)
+            t = self._table = {"a": at, "lK": np.log(np.maximum(K, 1e-300)), "v": v,
+                               "lKc": None if Kc is None else np.log(np.maximum(Kc, 1e-300))}
+        la = np.log(t["a"])
+        f = np.clip((np.log(a) - la[0]) / (la[1] - la[0]), 0.0, la.size - 1 - 1e-9)
+        x, y = f[:, None] + 0 * f[None, :], f[None, :] + 0 * f[:, None]
+        i, j = x.astype(int), y.astype(int)
+        p, q = x - i, y - j
+        low = p >= q
+
+        def tri(T):
+            T00, T11 = T[..., i, j], T[..., i + 1, j + 1]
+            T10, T01 = T[..., i + 1, j], T[..., i, j + 1]
+            return np.where(low, T00 + p * (T10 - T00) + q * (T11 - T10),
+                            T00 + q * (T01 - T00) + p * (T11 - T01))
+
+        def pos(lT):
+            v_ = np.exp(tri(lT))
+            return np.where(v_ < 1e-299, 0.0, v_)
+
+        return pos(t["lK"]), tri(t["v"]), None if t["lKc"] is None else pos(t["lKc"])
+
+    def _distributed_channels(self, a, m):
+        """Channels from the speed distribution of every pair."""
+        A1, A2 = a[:, None], a[None, :]
+        M1, M2 = m[:, None], m[None, :]
+        K_shat, v_imp, K_stick = self._fields(a, m)
+        lo = np.full(K_shat.shape, self.a_frag_min)
         out = []
-        K = sig * v_mean * c_shat / self.n_speed
+        K = K_shat / self.n_speed
         if np.any(K > 0):
-            for v in v_q:
+            for v in v_imp:
                 r1, e1, h1 = self._shatter_products(A1, M1, M2, v)
                 r2, e2, h2 = self._shatter_products(A2, M2, M1, v)
                 out.append(Channel(K, rem1=r1, frag1=e1, a_hi1=h1, a_lo1=lo,
                                    rem2=r2, frag2=e2, a_hi2=h2, a_lo2=lo))
         if self.coagulation:
-            alpha = np.sqrt(1.5) / np.maximum(dV, 1e-300)
-            v_c = coagulation_threshold(self.material, A1, A2, self.F_stick)
-            stick = -np.expm1(log_flux_above(alpha * v_c, alpha * mu))   # flux below v_coag
-            out.append(Channel(sig * v_mean * stick, rem1=M1 + M2))
+            out.append(Channel(K_stick, rem1=M1 + M2))
         if not out:
-            out.append(Channel(np.zeros(sig.shape)))
+            out.append(Channel(np.zeros(K_shat.shape)))
         return out
+
+
+def flux_above_(u, s):
+    return np.exp(log_flux_above(u, s))

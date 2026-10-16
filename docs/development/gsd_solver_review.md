@@ -371,6 +371,16 @@ Characteristics are monotone, so the remap needs no CFL condition. Stability is 
    * NK13 non-steady nucleation: condensation efficiency f_con,∞ and average radius a_ave,∞ versus the cooling-time parameter, with gas depletion.
 9. **Regression against the current one-moment pyCALIMA solver** on accretion-only and coagulation-only problems.
 
+**Charging (phase 2e).** Each radius gets the RAMSES-CALIMA group solve, on groups extended to 10 keV and potentials to 30 kV.
+* **AGN photon field:** the SKIRTOR SED gives n_γ(>13.6 eV) = 2.5e6 L45 (r/pc)⁻². WDB06 quote 2.0e6 and TIK20 2.6e6.
+* **Coulomb explosion:** in TIK20's polar-dust gas (T = 1e4 K, n_e = 1e2) at L = 1e46, a_CE ≈ 0.07 µm for graphite at S_max = 1e9 and 0.02 µm for silicate at 1e10, at r = 3 L45^{1/2} pc. TIK20 find 0.01–0.1 µm. a_CE falls ∝ r^{−1/2}, far more slowly than the sublimation radius.
+* **Field emission:** at S_max = 1e11 ion field emission caps the charge first and nothing explodes (WD00 s. 4.2).
+* **Ion accretion:** positive grains at 10²–10³ V take up no ions (⟨J̃⟩ < 1e-37), so growth in photoionised gas runs on the neutral fraction alone.
+* **Caveats:**
+  * WDB06 covers only graphite and silicate; other materials are mapped onto them (`charging_material`).
+  * Grain-grain Coulomb uses point charges.
+  * The rim densities of 2f (n_H ≳ 1e8) are where electron capture should pull the potentials down. That needs checking there.
+
 **Status of the suite (`tests/test_gsd.py`).** Items 1-6, the steady-cascade part of item 7 and the NK13 and HK13 parts of item 8 pass.
 
 * **Steady cascade (item 7).** Mass is fed at the top and removed below 0.01 µm, with constant v = 1 km/s and Q*_D = 1e9 erg/g. KT10 ejecta come from the larger grain, the projectile is shattered, and fragments are a^{−α_f} up to (f/2)^{1/3}a_t.

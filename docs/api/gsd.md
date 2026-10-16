@@ -75,8 +75,33 @@ Dohnanyi/Tanaka steady cascade ($a^{-3.5}$ for any fragment slope), the
 HK13 worked example and their $P_1/t$ scaling
 (`diagnostics/gsd/check_shattering.py`).
 
-Status: transport, gas exchange, coagulation and shattering (phases 2a-2d
-of the plan). Per-bin charging follows.
+`charging` gives every radius its charge distribution with the RAMSES-CALIMA
+group solver (WDB06 photoemission including inner shells and Auger
+electrons, DS87 capture, hot-gas secondaries), on photon groups extended to
+10 keV and potentials to 30 kV for AGN illumination (`AGN_GROUPS`; tables
+cached on disk). `PhotonGroups` converts any spectrum, and
+`xray_power_law` adds the corona that the SKIRTOR SED lacks. The
+`ChargeState` provides:
+
+* $\langle Z\rangle$, $\sigma_Z$ and three Gauss-Hermite charge points,
+  for the Coulomb focusing or barrier of grain-grain collisions in
+  `velocities` (closed-form skewed-Maxwellian integrals with
+  $\sigma_{\rm eff} = \sigma(1 - v_C^2/v^2)$; shattering on the impact speed,
+  sticking on the relative speed at infinity, as Guillet et al. 2020);
+* the ion-capture factor $\langle\tilde J\rangle$ over the exact $P(Z)$, which
+  `exchange` applies to the ionised fraction of a key species;
+* Coulomb-explosion rates: the first-passage flux into the charge at which
+  $(U/a)^2/4\pi$ reaches the tensile strength (Waxman & Draine 2000;
+  Tazaki, Ichikawa & Kokubo 2020), zero where ion field emission caps the
+  charge first; `destroy` applies such a rate to a population.
+
+`GrainCollisions(table_ppd=...)` tabulates the collision rates per
+environment on a log-radius grid (linear on triangles split along the
+diagonal, where Ormel & Cuzzi's velocity has a cusp) and interpolates
+them, which matters once the rates are averaged over charge points.
+
+Status: transport, gas exchange, coagulation, shattering and per-size
+charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
 
 ## Modules
 
@@ -93,5 +118,6 @@ of the plan). Per-bin charging follows.
    pycalima.gsd.coagulation
    pycalima.gsd.shattering
    pycalima.gsd.velocities
+   pycalima.gsd.charging
    pycalima.gsd._kernels
 ```
