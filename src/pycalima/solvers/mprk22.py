@@ -21,7 +21,8 @@ MPRK22 (α = 1) is two such solves per step:
     stage 2:  z2 with the mean of the rates at z_old and z1, denominators z1.
 
 ``z2`` is second order and ``z1`` first order; their difference sizes the
-step, ``h_new = h × clip(0.9 √(errmax / err), 0.2, 5)``.
+step, ``h_new = h × clip(0.9 √(errmax / err), 0.2, 5)``, with each component
+scaled by the larger of its old and new value.
 
 Transfers are built from the per-process kernel outputs:
 
@@ -208,8 +209,12 @@ class MPRK22Solver(DustSolverBase):
         if z2.min() < 0.0:
             return y_gas.copy(), y_dust.copy(), 0.5 * h, False, False, 1e10
 
+        # scale by the larger of the old and new value, so a component that
+        # is emptied within the step (fast sublimation) is measured against
+        # what it held rather than against ~0
         floor = max(self._y_min, self._atol_frac * float(np.max(np.abs(z0))))
-        err = float(np.max(np.abs(z2 - z1) / np.maximum(np.abs(z2), floor)))
+        scale = np.maximum(np.maximum(np.abs(z2), np.abs(z0)), floor)
+        err = float(np.max(np.abs(z2 - z1) / scale))
         h_new = h * min(5.0, max(0.2, 0.9 * np.sqrt(self._errmax / max(err, 1e-12))))
         if err > self._errmax:
             return y_gas.copy(), y_dust.copy(), h_new, False, False, err

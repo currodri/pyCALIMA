@@ -1057,3 +1057,24 @@ def test_anninos_moves_the_actual_bin_change_into_the_gas(tmp_path):
                                  h_init=1.0, h_min=1.0e-6)
     np.testing.assert_allclose(_element_totals(state, g, d),
                                _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+
+def test_mprk22_takes_grains_that_vanish_within_one_step(tmp_path):
+    """Grains far above their sublimation temperature empty within the
+    shortest step; their relative error must not be measured against ~0
+    (every step used to be rejected until countmax)."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _condensation_config(tmp_path, T_dust=2900.0, nH=1e4))
+    g, d, diag = integrate_dust_ode(state, 3.0e7, y_gas, y_dust,
+                                    build_process_list(state), MPRK22Solver(),
+                                    h_init=3.0e6, h_min=1.0)
+    assert diag["tau"] == pytest.approx(3.0e7)
+    assert diag["naccepted"] < 100
+    assert d[0] < 1e-6 * y_dust[0]
+    np.testing.assert_allclose(_element_totals(state, g, d),
+                               _element_totals(state, y_gas, y_dust), rtol=1e-12)
