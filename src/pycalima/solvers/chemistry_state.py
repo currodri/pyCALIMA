@@ -107,6 +107,11 @@ class DustBinParams:
     Built at initialisation from the pre-computed CALIMA sublimation-rate table
     (``model_data/dust_sublimation/sublimation_rate_{bin_id}.dat``).
     ``None`` when the table is absent or sublimation is disabled."""
+    condensation_alpha: Optional[float] = None
+    """Condensation coefficient of the bin's material, read from its
+    sublimation table header (the dataset's evaporation coefficient, so
+    that ``condensation_rate`` balances ``sublimation_rate`` exactly). None
+    means ``DustChemistryState.condensation_coefficient``."""
     dust_temperature_K: Optional[float] = None
     """Grain temperature [K] at which ``erosion_rate_interp`` is evaluated.
     Taken from the bin's ``dust_temperature_K`` or, failing that, the

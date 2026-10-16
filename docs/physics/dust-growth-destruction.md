@@ -362,6 +362,20 @@ The material constants (`dust_sublimation.py:88`–`104`) are:
 | graphite | 81200 | 20000 | $4.6\times10^{30}$ | 12.011 | 2.24 |
 | silicate | 68100 | 20000 | $7\times10^{30}$ | 140.69 | 3.5 |
 
+These are the `GD89` dataset. Since the sublimation kinetics became
+material-general, the default is the `fiducial` dataset of
+`models/dust_radiation/sublimation_kinetics.py`, which holds laboratory and
+vacuum free-evaporation data for 28 materials (see
+{doc}`radiation` and `data/external_data/sublimation_kinetics/`). The
+functions of `dust_sublimation.py` take `dataset=` (`'GD89'`, `'fiducial'`,
+or an alternative such as `'W18'`, `'N03'`, `'vL14a'`), and
+`sublimation_kinetics.set_default_dataset` changes the default. For graphite
+the fiducial rate is 1.4 times GD89 at 2000 K; for silicate (forsterite
+kinetics) it is 12–34 times GD89 at 1500–2500 K, because GD89 computed the
+vapour pressure in a gas of cosmic O abundance rather than for evaporation
+into vacuum. The table header records the dataset and its condensation
+coefficient, which `condensation_rate` then uses for that bin.
+
 Only rows whose timescale $a/|da/dt|$ is at most 10 times
 $1.38\times10^{10}$ yr are written (`dust_sublimation.py:1402`–`1417`).
 
@@ -517,5 +531,19 @@ fitting formula is good to 5% against their non-steady model). For
 $c_{10}=10^8$ cm$^{-3}$ it gives $T_0 = 1994$ K, an onset at
 $x_\mathrm{on}=1.077$ and $\tau_\mathrm{sat}=10.5$ d (theirs: ~2000 K,
 1.08, ~10 d). Below $\Lambda_\mathrm{on}\simeq30$ the steady model gives
-too-small grains, as they found.
+too-small grains while keeping $f_\mathrm{con}\approx1$, as their Fig. 8
+(grey lines) shows.
+
+The script also runs their non-steady model (cluster rate equations up to
+$n_*=100$; their eqs. 7, 15, 39, 44–45 and 49), which is what eqs. 64–65 fit.
+It follows eq. 64 to 7.5% and eq. 65 to 0.21 dex for $f_\mathrm{con}>10^{-3}$,
+including the drop of $f_\mathrm{con}$ below $\Lambda_\mathrm{on}\sim10$,
+and for $c_{10}=10^5$ cm$^{-3}$ gives $a_\mathrm{ave,\infty}=0.0007$ µm and
+$f_\mathrm{con,\infty}=0.28$ (theirs: 0.0007 µm and ~0.3).
+
+`nucleation_rate` is the steady-state rate, valid for
+$\Lambda_\mathrm{on}\gtrsim30$. At an AGN dust rim ($n_\mathrm{H}\sim10^{10}$
+cm$^{-3}$, clusters at ~1500 K) the collision time of carbon is seconds while
+the supersaturation changes over days or longer, so
+$\Lambda_\mathrm{on}\gtrsim10^5$.
 :::

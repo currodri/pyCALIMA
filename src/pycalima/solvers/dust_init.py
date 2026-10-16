@@ -375,6 +375,22 @@ def _parse_nucleation(entries, dust_bins, config_path):
     return out
 
 
+def _table_condensation_alpha(bin_id: str, data_dir: Path):
+    """Condensation coefficient written in the header of the bin's
+    sublimation table (``# Condensation alpha (at 1500 K): x``), or None."""
+    fname = _resolve_table(data_dir, f"sublimation_rate_{bin_id}.dat")
+    if not fname.exists():
+        return None
+    with open(fname) as fh:
+        for line in fh:
+            if not line.startswith("#"):
+                break
+            m = re.search(r"Condensation alpha[^:]*:\s*(\S+)", line)
+            if m:
+                return float(m.group(1))
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Main loader
 # ---------------------------------------------------------------------------
@@ -532,6 +548,7 @@ def load_initial_conditions(
             k0_coa=k0_coa,
             sputtering_interps=sput_interps,
             erosion_rate_interp=erosion_interp,
+            condensation_alpha=_table_condensation_alpha(bin_id, sublimation_dir),
             dust_temperature_K=(
                 float(bd["dust_temperature_K"]) if "dust_temperature_K" in bd
                 else local_Tdust

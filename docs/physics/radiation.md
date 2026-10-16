@@ -366,7 +366,25 @@ grain heating by a quasar:
   the absorbed power scales as $f(\theta)/r^2$, so
   $R(T)\propto[f(\theta)L_\mathrm{bol}]^{1/2}$.
 
-The sublimation temperature of a grain follows from the GD89 kinetics with
+Sublimation kinetics for 28 materials (graphite, amorphous carbon,
+astronomical silicate, forsterite, enstatite, fayalite, ferrosilite, silica,
+SiO, Fe, Si, Cr, FeS, Al$_2$O$_3$, spinel, perovskite, TiO$_2$, MgO, FeO,
+Fe$_3$O$_4$, Fe$_2$O$_3$, SiC, TiC, NaCl, KCl, MnS, Na$_2$S and water ice) are
+in `models/dust_radiation/sublimation_kinetics.py`, read from
+`data/external_data/sublimation_kinetics/sublimation_models.toml`. That file
+is generated (`make_sublimation_models.py`) from a literature compilation in
+the same directory (`compilation.csv`, 107 rows, and
+`COMPILATION_NOTES.md`): vapour-pressure fits, evaporation coefficients
+(temperature dependent where measured, e.g. Fe), vapour channels (C$_1$,
+C$_2$, C$_3$ for graphite), surface energies and congruency flags, each with
+its source. `get_sublimation_model(material, dataset)` returns the bulk flux
+$J(T) = \sum_c n_c\alpha_c P_c/\sqrt{2\pi m_c kT}$ (or the GD89 form), the
+condensation coefficient and the small-grain term
+$\theta = (32\pi/3)^{1/3}(m/\rho)^{2/3}\sigma/k$. The `fiducial` dataset is
+the default; `GD89` is kept for graphite and silicate. Incongruent materials
+(FeS, enstatite, SiC, Fe oxides) carry a formal congruent row and a flag.
+
+The sublimation temperature of a grain follows from these kinetics with
 recondensation (`dust_sublimation.py:331`–`380`).
 `saturated_key_density` is the key-species density (C for graphite, Si for
 silicate) at which the kinetic condensation flux cancels evaporation, the same

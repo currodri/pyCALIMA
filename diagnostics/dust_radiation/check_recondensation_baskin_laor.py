@@ -28,9 +28,12 @@ The timescale is set against BL18 eq. 36, t_sub = N/(dN/dt) =
 The sublimation tables are written to a temporary directory straight from
 ``dust_sublimation.radius_loss_rate``, in the format the exporter uses.
 
+The GD89 sublimation dataset is used by default, since BL18 eq. 27 is built
+on the GD89 constants; ``--dataset fiducial`` shows the laboratory data.
+
 Usage
 -----
-    python diagnostics/dust_radiation/check_recondensation_baskin_laor.py
+    python diagnostics/dust_radiation/check_recondensation_baskin_laor.py [--dataset fiducial]
 """
 import argparse
 import json
@@ -42,6 +45,7 @@ from scipy.optimize import brentq
 
 from pycalima import _paths
 from pycalima.models.dust_radiation import dust_sublimation as ds
+from pycalima.models.dust_radiation import sublimation_kinetics as sk
 from pycalima.solvers.dust_init import load_initial_conditions
 from pycalima.solvers.ode_driver import integrate_dust_ode
 from pycalima.solvers.rhs import build_process_list, compute_rhs
@@ -266,7 +270,12 @@ def plot(model_data, out_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--no-plot', action='store_true')
+    parser.add_argument('--dataset', default='GD89',
+                        help="sublimation dataset (default GD89, the constants of BL18 "
+                             "eq. 27; 'fiducial' for the laboratory data)")
     args = parser.parse_args()
+    sk.set_default_dataset(args.dataset)
+    print(f"Sublimation dataset: {args.dataset}")
     with tempfile.TemporaryDirectory() as tmp:
         model_data = Path(tmp) / 'model_data'
         write_tables(model_data)

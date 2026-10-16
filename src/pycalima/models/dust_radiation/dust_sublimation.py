@@ -64,6 +64,7 @@ from scipy.optimize import root_scalar
 from scipy import special
 
 from pycalima.models.grain_size_config import load_grain_size_config
+from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
 from pycalima.models.dust_radiation.dust_emission import (
     compute_cross_sections,
     interpolate_cross_sections,
@@ -145,34 +146,29 @@ def _number_of_monomers(a_cm, material):
         raise ValueError(f"Unknown material: {material}")
 
 
-def isolated_sublimation_rate(material, a_cm, Td):
-    """Isolated (canonical) sublimation flux J of GD89 (eq. 3.11).
+def _model(material, dataset=None):
+    """SublimationModel of ``material`` in ``dataset`` (see sublimation_kinetics)."""
+    return get_sublimation_model(material, dataset)
 
-    Parameters
-    ----------
-    material : str
-        ``'graphite'`` or ``'silicate'`` (taken from the JSON ``composition``).
-    a_cm : float
-        Grain radius in cm (sets the number of monomers ``N``).
-    Td : float
-        Grain temperature in K.
 
-    Returns
-    -------
-    float
-        Number of monomers leaving the grain per unit surface area and
-        time, in cm^-2 s^-1. The binding energy ``B`` is reduced for small
-        grains via the surface free-energy term ``sigma * N^(-1/3)`` 
-        where N is the number of monomers (for silicate, olivine units).
+def _number_of_units(a_cm, model):
+    """Evaporating units (C atoms, formula units, ...) in a grain of radius a_cm."""
+    return (4.0 / 3.0) * np.pi * a_cm ** 3 / model.unit_volume_cm3
+
+
+def isolated_sublimation_rate(material, a_cm, Td, dataset=None):
+    """Isolated (canonical) sublimation flux J [units cm^-2 s^-1] (GD89 eq. 3.11).
+
+    The bulk flux of ``material`` in ``dataset`` (``sublimation_kinetics``;
+    default the fiducial dataset), with the GD89 small-grain correction
+    B(N) = B - theta N^(-1/3), i.e. multiplied by exp(theta N^(-1/3) / Td) for
+    a grain of N units. With ``dataset='GD89'`` this is
+    alpha_N P0 exp(-(B - theta N^-1/3) / Td) of Guhathakurta & Draine (1989).
     """
-    params = GD89_PARAMS[material]
-    # For graphite, N_binding = N_atoms. For silicate, N_binding = N_monomers.
-    N_binding = _number_of_monomers(a_cm, material)
-    # Size-corrected binding energy per monomer, expressed as B/k_B in K.
-    B_over_kB = params['B_saturation_temperature_K'] - (params['surface_free_energy_K'] * N_binding ** (-1. / 3.))
-    exp_factor = np.exp(-B_over_kB / Td)
-    # prefactor [cm^-2 s^-1] already folds in nu_0 and the surface monomer density.
-    return params['evaporation_rate_prefactor'] * exp_factor * alpha_N
+    model = _model(material, dataset)
+    N = _number_of_units(a_cm, model)
+    return model.flux(Td) * np.exp(model.theta * N ** (-1. / 3.) / Td)
+
 
 def silicate_heat_capacity(Td):
 
@@ -212,7 +208,7 @@ def get_enthalpy(material, a_cm, Td):
         raise ValueError(f"Unknown material: {material}")
 
 
-def correction_factor(material, a_cm, Td):
+def correction_factor(material, a_cm, Td, dataset=None):
     """GD89 microcanonical correction factor f_corr (dimensionless).
 
     Accounts for the finite internal energy of the grain, which cools as
@@ -221,15 +217,25 @@ def correction_factor(material, a_cm, Td):
     the ``inf/inf`` overflow that arises for hot grains, where the Gamma
     arguments become very large. Returns 0 when the grain internal energy
     is too low for the expansion to be defined (no sublimation).
+
+    The heat capacity and Debye temperature are those of the material's
+    ``heat_capacity`` model (graphite or silicate, GD89); materials without
+    one get f_corr = 1, which only matters for a <~ 0.005 um. The binding
+    energy is the dataset's (local Arrhenius value for laboratory fits),
+    less the small-grain term.
     """
-    params = GD89_PARAMS[material]
-    N_atoms = _number_of_atoms(a_cm, material)  # Total number of atoms in the grain (thermal reservoir)
+    model = _model(material, dataset)
+    heat = model.heat_capacity
+    if heat is None:
+        return 1.0
+    params = GD89_PARAMS[heat]
+    N_atoms = _number_of_atoms(a_cm, heat)  # Total number of atoms in the grain (thermal reservoir)
     f = 3. * N_atoms - 6.                          # vibrational degrees of freedom
-    # For graphite, N_binding = N_atoms. For silicate, N_binding = N_monomers.
-    N_binding = _number_of_monomers(a_cm, material)
-    B = (params['B_saturation_temperature_K'] - params['surface_free_energy_K'] * N_binding ** (-1. / 3.))  # [K]
+    N_binding = _number_of_units(a_cm, model)
+    B_bulk = model.B_K if model.form == 'gd89' else float(model.effective_binding_energy_K(Td))
+    B = B_bulk - model.theta * N_binding ** (-1. / 3.)  # [K]
     b = B / (0.75 * params['Debye_temperature_K'])           # dimensionless
-    U = get_enthalpy(material, a_cm, Td)                       # [erg]
+    U = get_enthalpy(heat, a_cm, Td)                       # [erg]
     m = U / (0.75 * _KB * params['Debye_temperature_K'])      # dimensionless (k_B in erg/K)
     gamma = m / f
     # Microcanonical density-of-states ratio rho(U-B)/rho(U) for f harmonic
@@ -266,89 +272,72 @@ def _lngamma_difference(x, b):
             + (1. / (x + b) - 1. / x) / 12.)
 
 
-def sublimation_rate(material, a_cm, Td):
-    """Monomer loss rate dN/dt of the grain in s^-1.
+def sublimation_rate(material, a_cm, Td, dataset=None):
+    """Unit (monomer) loss rate dN/dt of the grain in s^-1.
 
-    Combines the isolated GD89 flux [cm^-2 s^-1], the microcanonical
-    correction factor, and the grain surface area [cm^2] to give the
-    number of monomers leaving the grain per second.
+    Combines the isolated flux [cm^-2 s^-1], the microcanonical correction
+    factor, and the grain surface area [cm^2].
     """
     grain_area = 4.0 * np.pi * a_cm ** 2  # [cm^2]
-    return grain_area * isolated_sublimation_rate(material, a_cm, Td) * correction_factor(material, a_cm, Td)
+    return (grain_area * isolated_sublimation_rate(material, a_cm, Td, dataset)
+            * correction_factor(material, a_cm, Td, dataset))
 
 
-def radius_loss_rate(material, a_cm, Td):
+def radius_loss_rate(material, a_cm, Td, dataset=None):
     """Grain radius shrink rate ``|da/dt|`` in cm s^-1.
 
-    Each evaporated monomer removes a volume ``V_mon = m_mon / rho``, so
-    ``da/dt = V_mon * (dN/dt) / (4*pi*a^2)``.
+    Each evaporated unit removes a volume ``V_unit = m_unit / rho``, so
+    ``da/dt = V_unit * (dN/dt) / (4*pi*a^2)``.
     """
-    params = GD89_PARAMS[material]
-    m_mon = params['mass_amu'] * _AMU      # [g]   monomer mass
-    V_mon = m_mon / params['rho']          # [cm^3] volume removed per monomer
-    grain_area = 4.0 * np.pi * a_cm ** 2   # [cm^2]
-    dN_dt = sublimation_rate(material, a_cm, Td)  # [s^-1]
-    return V_mon * dN_dt / grain_area      # [cm s^-1]
+    V_unit = _model(material, dataset).unit_volume_cm3   # [cm^3]
+    grain_area = 4.0 * np.pi * a_cm ** 2                 # [cm^2]
+    dN_dt = sublimation_rate(material, a_cm, Td, dataset)  # [s^-1]
+    return V_unit * dN_dt / grain_area                   # [cm s^-1]
 
 
-def mass_loss_rate(material, a_cm, Td):
-    """Grain mass loss rate ``|dm/dt|`` in g s^-1.
-
-    Derived from the radius loss rate via
-
-        ``|dm/dt|`` = 4 pi a^2 rho ``|da/dt|``
-
-    where ``rho`` is the bulk grain density [g cm^-3]. This is the rate at
-    which the grain mass decreases due to thermal sublimation.
-    """
-    params = GD89_PARAMS[material]
-    rho = params['rho']                                     # [g cm^-3]
-    grain_area = 4.0 * np.pi * a_cm ** 2                   # [cm^2]
-    return grain_area * rho * radius_loss_rate(material, a_cm, Td)  # [g s^-1]
+def mass_loss_rate(material, a_cm, Td, dataset=None):
+    """Grain mass loss rate ``|dm/dt|`` = 4 pi a^2 rho ``|da/dt|`` in g s^-1."""
+    rho = _model(material, dataset).density_gcm3              # [g cm^-3]
+    grain_area = 4.0 * np.pi * a_cm ** 2                     # [cm^2]
+    return grain_area * rho * radius_loss_rate(material, a_cm, Td, dataset)  # [g s^-1]
 
 
-def sublimation_timescale(material, a_cm, Td):
-    """GD89 sublimation timescale tau_sub = a / ``|da/dt|`` in seconds.
-
-    Following GD89 (Section 3.4), the lifetime of a grain of radius a against
-    sublimation is defined as tau_sub = a / ``|da/dt|``, where ``|da/dt|`` is the
-    grain radius contraction/shrink rate.
+def sublimation_timescale(material, a_cm, Td, dataset=None):
+    """Sublimation timescale tau_sub = a / ``|da/dt|`` in seconds (GD89 s. 3.4).
 
     Returns ``np.inf`` where the sublimation rate underflows to zero
     (cold grains effectively never sublimate).
     """
-    da_dt = radius_loss_rate(material, a_cm, Td)  # [cm s^-1]
+    da_dt = radius_loss_rate(material, a_cm, Td, dataset)  # [cm s^-1]
     with np.errstate(divide='ignore', invalid='ignore'):
         tau = np.where(da_dt > 0.0, a_cm / da_dt, np.inf)
     return tau
 
 
-# Recondensation: the species whose arrival limits regrowth (Baskin & Laor
-# 2018 use C and Si) and its mass [amu]. Each such atom adds one GD89 monomer.
-KEY_SPECIES = {'graphite': ('C', 12.011), 'silicate': ('Si', 28.086)}
-
-
-def saturated_key_density(material, a_cm, Td, T_gas, alpha=alpha_N):
+def saturated_key_density(material, a_cm, Td, T_gas, alpha=None, dataset=None):
     """Gas density of the key species [cm^-3] at which recondensation cancels
     sublimation for a grain of radius a_cm at Td.
 
-    Condensation adds one monomer per key atom at the kinetic flux
+    Condensation adds 1/key_per_unit units per key atom at the kinetic flux
     ``alpha n_X v_X / 4`` with ``v_X = sqrt(8 k T_gas / pi m_X)``, while
-    sublimation removes them at ``|da/dt| / V_mon``. Setting the two equal,
+    sublimation removes units at ``|da/dt| / V_unit``. Setting the two equal,
 
-        n_sat = 4 |da/dt| / (V_mon alpha v_X(T_gas)),
+        n_sat = 4 key_per_unit |da/dt| / (V_unit alpha v_X(T_gas)),
 
-    the flux balance used by ``solvers.dust_rates.condensation_rate`` with the
-    same alpha (the GD89 alpha_N the evaporation rate is built with).
+    the flux balance of ``solvers.dust_rates.condensation_rate``. ``alpha``
+    defaults to the dataset's evaporation coefficient at Td (flux-weighted
+    over vapour channels), which is what makes the balance detailed.
     """
-    params = GD89_PARAMS[material]
-    V_mon = params['mass_amu'] * _AMU / params['rho']
-    m_X = KEY_SPECIES[material][1] * _AMU
+    model = _model(material, dataset)
+    if alpha is None:
+        alpha = model.condensation_alpha(Td)
+    m_X = model.key_mass_amu * _AMU
     v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_X))
-    return 4.0 * radius_loss_rate(material, a_cm, Td) / (V_mon * alpha * v_X)
+    return (4.0 * model.key_per_unit * radius_loss_rate(material, a_cm, Td, dataset)
+            / (model.unit_volume_cm3 * alpha * v_X))
 
 
-def net_sublimation_timescale(material, a_cm, Td, n_key=0.0, T_gas=1.0e4):
+def net_sublimation_timescale(material, a_cm, Td, n_key=0.0, T_gas=1.0e4, dataset=None):
     """Grain lifetime a / |da/dt| [s] with recondensation from gas holding
     ``n_key`` [cm^-3] of the key species at ``T_gas``.
 
@@ -356,16 +345,16 @@ def net_sublimation_timescale(material, a_cm, Td, n_key=0.0, T_gas=1.0e4):
     vacuum one divided by the undersaturation, and infinite once the gas is
     saturated (the grain then grows). ``n_key = 0`` is ``sublimation_timescale``.
     """
-    tau_vac = sublimation_timescale(material, a_cm, Td)
+    tau_vac = sublimation_timescale(material, a_cm, Td, dataset)
     if n_key <= 0.0:
         return tau_vac
-    under = 1.0 - n_key / saturated_key_density(material, a_cm, Td, T_gas)
+    under = 1.0 - n_key / saturated_key_density(material, a_cm, Td, T_gas, dataset=dataset)
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.where(under > 0.0, tau_vac / under, np.inf)
 
 
 def sublimation_temperature(material, a_cm, t_exp_s, n_key=0.0, T_gas=1.0e4,
-                            T_lo=300.0, T_hi=6000.0):
+                            T_lo=300.0, T_hi=6000.0, dataset=None):
     """Dust temperature [K] at which a grain of radius a_cm survives exactly
     ``t_exp_s`` seconds, from ``net_sublimation_timescale``.
 
@@ -376,8 +365,8 @@ def sublimation_temperature(material, a_cm, t_exp_s, n_key=0.0, T_gas=1.0e4,
     from scipy.optimize import brentq
 
     def f(T):
-        tau = float(net_sublimation_timescale(material, a_cm, T, n_key, T_gas))
-        return np.log(tau / t_exp_s) if np.isfinite(tau) else 700.0
+        tau = float(net_sublimation_timescale(material, a_cm, T, n_key, T_gas, dataset))
+        return np.log(tau / t_exp_s) if np.isfinite(tau) and tau > 0 else 700.0
 
     return brentq(f, T_lo, T_hi, xtol=1e-3)
 
@@ -386,42 +375,50 @@ def sublimation_temperature(material, a_cm, t_exp_s, n_key=0.0, T_gas=1.0e4,
 # Nucleation (steady-state classical nucleation with the GD89 thermodynamics)
 # ---------------------------------------------------------------------------
 
-def nucleation_parameters(material):
-    """Constants for nucleating ``material`` consistently with its GD89
-    sublimation model, in the form the solver's nucleation block takes.
+def nucleation_parameters(material, dataset=None, T_ref=1500.0):
+    """Constants for nucleating ``material``, consistent with its sublimation
+    kinetics, in the form the solver's ``nucleation`` block takes.
 
-    Returns a dict with the evaporation-rate prefactor P0 [cm^-2 s^-1], the
-    bulk binding energy B/k and the GD89 surface term sigma/k [K] (from
-    B(N) = B_inf - sigma N^-1/3), the condensation coefficient alpha, the
-    monomer mass [amu] and bulk density [g cm^-3], and the key species and its
-    mass [amu].
+    The nucleation monomer is one key-species atom (Nozawa et al. 2003):
+    volume V_unit / key_per_unit, mass m_unit / key_per_unit, evaporation
+    flux key_per_unit J_unit. The solver uses J = P0 exp(-B/T), so for
+    laboratory fits P0 and B are the local Arrhenius values at ``T_ref``
+    (exact for GD89). The surface term is theta per monomer,
+    theta_unit key_per_unit^(-2/3).
     """
-    params = GD89_PARAMS[material]
-    key, m_key = KEY_SPECIES[material]
-    return {'evaporation_prefactor_cm2s': params['evaporation_rate_prefactor'],
-            'binding_energy_K': params['B_saturation_temperature_K'],
-            'surface_energy_K': params['surface_free_energy_K'],
-            'alpha': alpha_N,
-            'monomer_mass_amu': params['mass_amu'],
-            'density_gcm3': params['rho'],
-            'key_element': key,
-            'key_mass_amu': m_key}
+    model = _model(material, dataset)
+    kpu = model.key_per_unit
+    if model.form == 'gd89':
+        B = model.B_K
+        P0 = model.P0_cm2s
+        alpha = model.alpha_gd89
+    else:
+        B = float(model.effective_binding_energy_K(T_ref))
+        alpha = float(model.condensation_alpha(T_ref))
+        P0 = float(model.flux(T_ref)) * np.exp(B / T_ref) / alpha
+    return {'evaporation_prefactor_cm2s': kpu * P0,
+            'binding_energy_K': B,
+            'surface_energy_K': model.theta * kpu ** (-2. / 3.),
+            'alpha': alpha,
+            'monomer_mass_amu': model.unit_mass_amu / kpu,
+            'density_gcm3': model.density_gcm3,
+            'key_element': model.key_species,
+            'key_mass_amu': model.key_mass_amu}
 
 
-def supersaturation(material, n_key, T_cluster, T_gas):
+def supersaturation(material, n_key, T_cluster, T_gas, dataset=None):
     """Supersaturation S of the key species over the bulk solid.
 
-    The ratio of the condensation flux, alpha n_X v_X(T_gas) / 4 (one monomer
-    per key atom), to the bulk GD89 evaporation flux of a solid at T_cluster,
-    alpha P0 exp(-B_inf / T_cluster); alpha cancels. S = 1 is the
-    recondensation balance of ``saturated_key_density`` for a large grain.
+    The ratio of the condensation flux of units, alpha n_X v_X(T_gas) / (4
+    key_per_unit), to the bulk evaporation flux of units of a solid at
+    T_cluster (alpha cancels). S = 1 is the recondensation balance of
+    ``saturated_key_density`` for a large grain.
     """
-    params = GD89_PARAMS[material]
-    m_X = KEY_SPECIES[material][1] * _AMU
+    model = _model(material, dataset)
+    m_X = model.key_mass_amu * _AMU
     v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_X))
-    B = params['B_saturation_temperature_K']
-    flux_evap = params['evaporation_rate_prefactor'] * np.exp(-B / np.asarray(T_cluster))
-    return n_key * v_X / (4.0 * flux_evap)
+    alpha = model.condensation_alpha(T_cluster)
+    return (alpha * n_key * v_X / (4.0 * model.key_per_unit)) / model.flux(T_cluster)
 
 
 def classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0_cm, sigma_cgs, m_key_g,
@@ -450,24 +447,30 @@ def classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0_cm, sigma_cgs, m_
     return min(J, J_coll), (2.0 * mu / (3.0 * lnS)) ** 3
 
 
-def steady_state_nucleation_rate(material, n_key, T_cluster, T_gas, alpha=alpha_N):
-    """Steady-state nucleation rate J_s [cm^-3 s^-1] and critical size n* of
-    ``material`` with its GD89 thermodynamics (``classical_nucleation_rate``).
+def steady_state_nucleation_rate(material, n_key, T_cluster, T_gas, alpha=None,
+                                 dataset=None):
+    """Steady-state nucleation rate J_s [cm^-3 s^-1] and critical size n*
+    (in key-species monomers) of ``material`` (``classical_nucleation_rate``).
 
-    S is ``supersaturation`` (the recondensation balance at S = 1) and the
-    surface tension is taken from the GD89 surface term, mu = (3/2)
-    sigma_GD89 / T_cluster, which makes n* the size at which the GD89
-    size-corrected evaporation of the sublimation tables balances growth
-    (S = exp(sigma_GD89 n*^-1/3 / T)). ``n_key`` should be the density of the
-    *neutral* key species able to build clusters.
+    S is ``supersaturation`` (the recondensation balance at S = 1). The
+    monomer is one key atom (volume V_unit / key_per_unit), and mu is taken
+    from the dataset's small-grain term, mu = (3/2) theta_monomer / T_cluster,
+    which makes n* the size at which the size-corrected evaporation of the
+    sublimation tables balances growth (S = exp(theta n*^-1/3 / T)).
+    ``n_key`` should be the density of the *neutral* key species able to
+    build clusters; ``alpha`` defaults to the dataset's coefficient.
     """
-    params = GD89_PARAMS[material]
-    V_mon = params['mass_amu'] * _AMU / params['rho']
+    model = _model(material, dataset)
+    kpu = model.key_per_unit
+    V_mon = model.unit_volume_cm3 / kpu
     a0 = (3.0 * V_mon / (4.0 * np.pi)) ** (1.0 / 3.0)
-    m_X = KEY_SPECIES[material][1] * _AMU
-    S = supersaturation(material, n_key, T_cluster, T_gas)
+    m_X = model.key_mass_amu * _AMU
+    if alpha is None:
+        alpha = float(model.condensation_alpha(T_cluster))
+    S = supersaturation(material, n_key, T_cluster, T_gas, dataset)
     lnS = np.log(S) if np.isfinite(S) and S > 0 else -np.inf
-    sigma = 1.5 * params['surface_free_energy_K'] * _KB / (4.0 * np.pi * a0 ** 2)
+    theta_mon = model.theta * kpu ** (-2. / 3.)
+    sigma = 1.5 * theta_mon * _KB / (4.0 * np.pi * a0 ** 2)
     return classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0, sigma, m_X, alpha)
 
 
@@ -972,7 +975,7 @@ def mean_temperature(T_grid, P):
     return float(np.sum(P * T_grid))
 
 
-def effective_radius_loss_rate(material, a_cm, T_grid, P):
+def effective_radius_loss_rate(material, a_cm, T_grid, P, dataset=None):
     """Stochastic-heating-weighted grain radius shrink rate [cm s^-1].
 
     Computes the expectation value of ``radius_loss_rate`` over the
@@ -1002,11 +1005,11 @@ def effective_radius_loss_rate(material, a_cm, T_grid, P):
     float
         Probability-weighted radius loss rate ``<``|da/dt|``>`` in cm s^-1.
     """
-    rates = np.array([radius_loss_rate(material, a_cm, float(Ti)) for Ti in T_grid])
+    rates = np.array([radius_loss_rate(material, a_cm, float(Ti), dataset) for Ti in T_grid])
     return float(np.dot(P, rates))
 
 
-def effective_sublimation_timescale(material, a_cm, T_grid, P):
+def effective_sublimation_timescale(material, a_cm, T_grid, P, dataset=None):
     """Stochastic sublimation timescale tau = a / <``|da/dt|``> in seconds.
 
     Following GD89, the lifetime against sublimation is tau = a / <da/dt>,
@@ -1031,7 +1034,7 @@ def effective_sublimation_timescale(material, a_cm, T_grid, P):
     float
         Stochastic sublimation timescale in seconds.
     """
-    da_dt_mean = effective_radius_loss_rate(material, a_cm, T_grid, P)
+    da_dt_mean = effective_radius_loss_rate(material, a_cm, T_grid, P, dataset)
     return float(a_cm / da_dt_mean) if da_dt_mean > 0.0 else np.inf
 
 
@@ -1499,7 +1502,7 @@ if __name__ == '__main__':
 
 def write_sublimation_rate_tables(config_path=None,
                                   T_min=200.0, T_max=4000.0, n_T=300,
-                                  output_dir=None):
+                                  output_dir=None, dataset=None):
     """Write Fortran-readable sublimation-rate tables for every non-PAH DustBin.
 
     One file per DustBin is written to ``output_dir`` (default:
@@ -1523,6 +1526,9 @@ def write_sublimation_rate_tables(config_path=None,
         Number of log-spaced temperature points.
     output_dir : str, optional
         Output directory.  Defaults to ``model_data/dust_sublimation``.
+    dataset : str, optional
+        Sublimation dataset (``sublimation_kinetics``); default the fiducial
+        one. ``'GD89'`` reproduces the Guhathakurta & Draine (1989) rates.
 
     Returns
     -------
@@ -1544,14 +1550,14 @@ def write_sublimation_rate_tables(config_path=None,
     for bin_data in prepared:
         fname = write_sublimation_rate_table(
             bin_data['material'], bin_data['a0_cm'], bin_data['id'],
-            output_dir, T_grid)
+            output_dir, T_grid, dataset)
         print(f'Written {fname}')
         written.append(fname)
 
     return written
 
 
-def write_sublimation_rate_table(material, a0_cm, bin_id, output_dir, T_grid):
+def write_sublimation_rate_table(material, a0_cm, bin_id, output_dir, T_grid, dataset=None):
     """Write the sublimation-rate table of one bin and return its path.
 
     ``sublimation_rate_{bin_id}.dat`` in ``output_dir``: log10 of
@@ -1568,7 +1574,8 @@ def write_sublimation_rate_table(material, a0_cm, bin_id, output_dir, T_grid):
     limit_timescale_s = 10.0 * age_universe_yr * _YR
 
     T_grid = np.asarray(T_grid, dtype=float)
-    dadt = np.array([radius_loss_rate(material, a0_cm, float(T))
+    model = _model(material, dataset)
+    dadt = np.array([radius_loss_rate(material, a0_cm, float(T), dataset)
                      for T in T_grid])                  # [cm s^-1]
 
     # Calculate sublimation timescale against each temperature
@@ -1591,12 +1598,13 @@ def write_sublimation_rate_table(material, a0_cm, bin_id, output_dir, T_grid):
         for line in headers:
             fh.write(f"{line}\n")
         fh.write(
-            f'# Method    : GD89 thermal sublimation (Guhathakurta & Draine\n'
-            f'#             1989, ApJ 345, 230) with microcanonical correction\n'
-            f'#             factor (eq. 3.11 + Gamma-function ratio, eq. 3.16).\n'
-            f'#             Binding energy B(N) = B_inf - sigma*N^(-1/3),\n'
-            f'#             B_inf/k_B = {GD89_PARAMS[material]["B_saturation_temperature_K"]:.1f} K,\n'
-            f'#             sigma/k_B = {GD89_PARAMS[material]["surface_free_energy_K"]:.1f} K.\n'
+            f'# Method    : thermal sublimation with the GD89 small-grain and\n'
+            f'#             microcanonical corrections (Guhathakurta & Draine\n'
+            f'#             1989, ApJ 345, 230, eqs. 3.11 and 3.16).\n'
+            f'# Dataset   : {model.dataset} ({model.form}); {model.note}\n'
+            f'#             B(N) = B - theta N^(-1/3), theta/k_B = {model.theta:.1f} K\n'
+            f'# Condensation alpha (at 1500 K): {float(model.condensation_alpha(1500.0)):.6g}\n'
+            f'# Key species: {model.key_species} ({model.key_per_unit} per {model.unit})\n'
             f'# Sublimation rate: epsilon = |da/dt| / a  [s^-1]\n'
             f'#   where |da/dt| = (V_mon / (4 pi a^2)) * dN/dt [cm s^-1]\n'
             f'#   and   dN/dt   = 4 pi a^2 * J(T) * f_corr      [s^-1]\n'
@@ -1890,7 +1898,7 @@ def plot_grain_lifetime_vs_N(
                 T_grid_grain, P = res['T'], res['P']
 
                 tau_s = effective_sublimation_timescale(
-                    material, a_cm, T_grid_grain, P)  # [s]
+                    material, a_cm, T_grid_grain, P, dataset='GD89')  # [s]
 
                 if np.isfinite(tau_s) and tau_s > 0.0:
                     tau_arr[k] = tau_s
@@ -2044,7 +2052,8 @@ def plot_graphite_lifetime_gd89_variants_comparison(
             n_bins_wide=n_bins_fine,
             n_bins_narrow=n_bins_fine,
         )
-        return effective_sublimation_timescale('graphite', a_cm, res['T'], res['P'])
+        return effective_sublimation_timescale('graphite', a_cm, res['T'], res['P'],
+                                               dataset='GD89')
 
     all_N = np.concatenate([arr[:, 0] for arr in datasets.values()])
     N_grid = np.logspace(np.log10(all_N.min()), np.log10(all_N.max()), n_model_points)
@@ -2199,7 +2208,8 @@ def plot_silicate_lifetime_gd89_comparison(
             n_bins_wide=n_bins_fine,
             n_bins_narrow=n_bins_fine,
         )
-        return effective_sublimation_timescale('silicate', a_cm, res['T'], res['P'])
+        return effective_sublimation_timescale('silicate', a_cm, res['T'], res['P'],
+                                               dataset='GD89')
 
     N_ref = gd89[:, 0]
     tau_ref = gd89[:, 1]
@@ -2614,7 +2624,8 @@ def compare_large_grain_timescales_wd00(
             a_cm = a_mu * 1e-4
 
             # Compute CALIMA timescales for each temperature
-            t_calima = np.array([sublimation_timescale(mat, a_cm, t) for t in T_grid])
+            t_calima = np.array([sublimation_timescale(mat, a_cm, t, dataset='GD89')
+                                 for t in T_grid])
 
             # WD00 eq. 10 with the GD89 constants
             t_wd = wd00_sublimation_timescale(mat, a_cm, T_grid)

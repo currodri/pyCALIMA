@@ -17,5 +17,6 @@ thermal sublimation and dust emission.
    pycalima.models.dust_radiation.dust_ratd
    pycalima.models.dust_radiation.dust_sublimation
    pycalima.models.dust_radiation.agn_hot_dust
+   pycalima.models.dust_radiation.sublimation_kinetics
 ```
 

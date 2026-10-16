@@ -27,9 +27,13 @@ for the same grain at the same temperature. Equations as printed in:
   Waxman & Draine 2000, ApJ 537, 796, eq. 10 with the GD89 constants
   GRAVITY Collaboration 2024, A&A 690, A76, eq. 2 and Table 4 (L_bol)
 
+pyCALIMA uses the GD89 dataset here by default, since the literature
+relations assume GD89-like kinetics; ``--dataset fiducial`` uses the
+laboratory sublimation data (``sublimation_kinetics``).
+
 Usage
 -----
-    python diagnostics/dust_radiation/check_sublimation_radius_agn.py
+    python diagnostics/dust_radiation/check_sublimation_radius_agn.py [--dataset fiducial]
 """
 import argparse
 
@@ -38,6 +42,7 @@ from scipy.optimize import brentq
 
 from pycalima import _paths
 from pycalima.models.dust_radiation import dust_sublimation as ds
+from pycalima.models.dust_radiation import sublimation_kinetics as sk
 from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
 PC = 3.0856775814913673e18
@@ -239,7 +244,13 @@ def plot(out_path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--no-plot', action='store_true')
+    parser.add_argument('--dataset', default='GD89',
+                        help="sublimation dataset (default GD89, the kinetics the "
+                             "literature relations assume; 'fiducial' for the "
+                             "laboratory data)")
     args = parser.parse_args()
+    sk.set_default_dataset(args.dataset)
+    print(f"Sublimation dataset: {args.dataset}")
     print_comparison()
     if not args.no_plot:
         out_dir = _paths.get_plots_dir()

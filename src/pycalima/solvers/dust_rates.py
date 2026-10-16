@@ -618,9 +618,10 @@ def condensation_rate(
     becomes a function of the gas density (Baskin & Laor 2018, eqs. 27–33).
 
     Unlike ``accretion_rate`` (the cold-ISM limit, where n_sat = 0) there are
-    no regime switches: α is ``state.condensation_coefficient`` (default the
-    GD89 α_N = 0.1 the tables were built with), v_X is at the gas temperature,
-    and there is no temperature cut-off or CO lock.
+    no regime switches: α is the bin's ``condensation_alpha`` (read from its
+    sublimation table, i.e. the evaporation coefficient of the dataset the
+    table was built with), else ``state.condensation_coefficient``; v_X is at
+    the gas temperature, and there is no temperature cut-off or CO lock.
 
     ``state.condensation_balance``:
       - ``'flux'`` (default): the kinetic balance above, n_X v_X(T_gas) =
@@ -677,8 +678,10 @@ def condensation_rate(
 
         balance = math.sqrt(Tk / db.dust_temperature_K) if pressure else 1.0
 
+        # the table's own coefficient keeps the balance with sublimation exact
+        alpha_b = db.condensation_alpha if db.condensation_alpha is not None else alpha
         # π a² / m_grain = 3 / (4 a ρ_grain)
-        rate = (alpha * 3.0 / (4.0 * db.asize_cm * db.sgrain) * vth_prefactor
+        rate = (alpha_b * 3.0 / (4.0 * db.asize_cm * db.sgrain) * vth_prefactor
                 * limit_rate * coulomb * balance)   # [s⁻¹]
         if rate <= 0.0:
             continue

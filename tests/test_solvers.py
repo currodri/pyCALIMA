@@ -1129,13 +1129,18 @@ def test_critical_cluster_is_where_gd89_evaporation_balances_growth():
     S = exp(sigma_GD89 n*^-1/3 / T): the Kelvin balance of the sublimation
     tables' B(N) = B - sigma N^-1/3."""
     from pycalima.models.dust_radiation import dust_sublimation as ds
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
 
-    sig = ds.GD89_PARAMS["graphite"]["surface_free_energy_K"]
-    for T in (1400.0, 1600.0, 1700.0):
-        n = 10 ** -3.44 * 1e10
-        S = float(ds.supersaturation("graphite", n, T, 1e4))
-        _, n_star = ds.steady_state_nucleation_rate("graphite", n, T, 1e4)
-        assert S == pytest.approx(np.exp(sig * n_star ** (-1 / 3) / T), rel=1e-9)
+    for material, dataset in (("graphite", "GD89"), ("graphite", "fiducial"),
+                              ("forsterite", "fiducial")):
+        model = get_sublimation_model(material, dataset)
+        theta = model.theta * model.key_per_unit ** (-2 / 3)   # per key monomer
+        for T in (1400.0, 1600.0, 1700.0):
+            n = 10 ** -3.44 * 1e10
+            S = float(ds.supersaturation(material, n, T, 1e4, dataset))
+            _, n_star = ds.steady_state_nucleation_rate(material, n, T, 1e4, dataset=dataset)
+            if np.isfinite(n_star):
+                assert S == pytest.approx(np.exp(theta * n_star ** (-1 / 3) / T), rel=1e-9)
 
 
 def test_nucleation_never_exceeds_the_monomer_collision_rate():
@@ -1208,3 +1213,20 @@ def test_dust_forms_from_pure_gas_and_settles_at_saturation(tmp_path):
     _, d, _ = integrate_dust_ode(state, 1e9, y_gas, y_dust, build_process_list(state),
                                  MPRK22Solver(), h_init=1e-3, h_min=1e-9)
     assert d[0] == 0.0
+
+
+def test_solver_reads_the_condensation_alpha_of_each_table(tmp_path):
+    """Tables carry the evaporation coefficient of their dataset, and
+    condensation uses it, so the balance with sublimation is exact for any
+    material (iron: alpha = exp(1.44 - 2595/T), not 0.1)."""
+    from pycalima.models.dust_radiation.dust_sublimation import write_sublimation_rate_table
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+    from pycalima.solvers.dust_init import _table_condensation_alpha
+
+    T = np.linspace(800.0, 2500.0, 50)
+    write_sublimation_rate_table("iron", 1e-5, "DustBin_01", str(tmp_path), T)
+    alpha = _table_condensation_alpha("DustBin_01", tmp_path)
+    assert alpha == pytest.approx(float(get_sublimation_model("iron").condensation_alpha(1500.0)),
+                                  rel=1e-5)
+    assert alpha > 0.5
+    assert _table_condensation_alpha("DustBin_99", tmp_path) is None
