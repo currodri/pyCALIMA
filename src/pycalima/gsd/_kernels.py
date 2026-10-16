@@ -92,10 +92,123 @@ def advance_one(ta, tf, x, dt):
 
 
 @njit(cache=True)
+def _in_cell(ta, tf, k, x, t):
+    # position after t inside cell k (no edge reached), from x with f(x)
+    g = (tf[k + 1] - tf[k]) / (ta[k + 1] - ta[k])
+    fx = tf[k] + g * (x - ta[k])
+    if fx == 0.0:
+        return x
+    return x + fx * t * _phi(g * t)
+
+
+@njit(cache=True)
+def _crossing_tables(ta, tf):
+    """Per table: time to cross each cell upward / downward (inf where f does
+    not keep its sign across the cell), their cumulative sums restarted at
+    every blocked cell (U, D), and for each node the first blocked cell above
+    (E) and the lowest node reachable below (B)."""
+    n = ta.size
+    U = np.zeros(n)
+    D = np.zeros(n)
+    E = np.empty(n, dtype=np.int64)
+    B = np.empty(n, dtype=np.int64)
+    up = np.empty(n - 1)
+    B[0] = 0
+    for k in range(n - 1):
+        a0, a1, f0, f1 = ta[k], ta[k + 1], tf[k], tf[k + 1]
+        g = (f1 - f0) / (a1 - a0)
+        if f0 > 0.0 and f1 > 0.0:
+            z = g * (a1 - a0) / f0
+            up[k] = (a1 - a0) / f0 if abs(z) < 1e-8 else math.log1p(z) / g
+        else:
+            up[k] = np.inf
+        if f0 < 0.0 and f1 < 0.0:
+            z = g * (a0 - a1) / f1
+            dn = (a0 - a1) / f1 if abs(z) < 1e-8 else math.log1p(z) / g
+            D[k + 1] = D[k] + dn
+            B[k + 1] = B[k]
+        else:
+            D[k + 1] = 0.0
+            B[k + 1] = k + 1
+        U[k + 1] = U[k] + up[k] if up[k] < np.inf else 0.0
+    E[n - 1] = n - 1
+    for k in range(n - 2, -1, -1):
+        E[k] = k if up[k] == np.inf else E[k + 1]
+    return U, D, E, B
+
+
+@njit(cache=True)
+def _advance_tabled(ta, tf, U, D, E, B, x, dt):
+    """advance_one, with the run over whole cells found by bisection on the
+    cumulative crossing times instead of cell by cell."""
+    n = ta.size
+    t = dt
+    k = _cell(ta, x)
+    if k < 0:
+        return 0.0
+    if k >= n - 1:
+        x = x + tf[n - 1] * t
+        return x if x > 0.0 else 0.0
+    # the partial first cell, as in advance_one
+    a0, a1 = ta[k], ta[k + 1]
+    f0, f1 = tf[k], tf[k + 1]
+    g = (f1 - f0) / (a1 - a0)
+    fx = f0 + g * (x - a0)
+    if fx == 0.0:
+        return x
+    up = fx > 0.0
+    target = a1 if up else a0
+    ft = f1 if up else f0
+    if ft == 0.0 or (ft > 0.0) != up:
+        return x + fx * t * _phi(g * t)
+    z = g * (target - x) / fx
+    tau = (target - x) / fx if abs(z) < 1e-8 else math.log1p(z) / g
+    if tau >= t:
+        return x + fx * t * _phi(g * t)
+    t -= tau
+    if up:
+        j = k + 1
+        if j >= n - 1:
+            x = ta[n - 1] + tf[n - 1] * t
+            return x if x > 0.0 else 0.0
+        # largest node m in [j, E[j]] reached within t
+        lo, hi = j, E[j]
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if U[mid] - U[j] <= t:
+                lo = mid
+            else:
+                hi = mid - 1
+        m = lo
+        t -= U[m] - U[j]
+        if m >= n - 1:
+            x = ta[n - 1] + tf[n - 1] * t
+            return x if x > 0.0 else 0.0
+        return _in_cell(ta, tf, m, ta[m], t)
+    j = k
+    if j == 0:
+        return 0.0
+    # smallest node m in [B[j], j] reached within t
+    lo, hi = B[j], j
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if D[j] - D[mid] <= t:
+            hi = mid
+        else:
+            lo = mid + 1
+    m = lo
+    t -= D[j] - D[m]
+    if m == 0:
+        return 0.0 if t > 0.0 else ta[0]
+    return _in_cell(ta, tf, m - 1, ta[m], t)
+
+
+@njit(cache=True)
 def advance(ta, tf, xs, dt):
+    U, D, E, B = _crossing_tables(ta, tf)
     out = np.empty_like(xs)
     for i in range(xs.size):
-        out[i] = advance_one(ta, tf, xs[i], dt)
+        out[i] = _advance_tabled(ta, tf, U, D, E, B, xs[i], dt)
     return out
 
 

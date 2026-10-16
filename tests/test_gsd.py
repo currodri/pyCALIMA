@@ -75,6 +75,26 @@ def test_pl2m_reproduces_the_bin_moments():
 # transport along characteristics
 # ---------------------------------------------------------------------------
 
+def test_tabled_characteristics_match_the_cell_walk():
+    """advance (bisection on cumulative crossing times) = advance_one (cell
+    by cell) for velocity tables with roots, zeros and sign changes."""
+    from pycalima.gsd import _kernels as K
+
+    rng = np.random.default_rng(1)
+    for trial in range(40):
+        n = int(rng.integers(5, 2000))
+        ta = np.geomspace(1e-8, 1e-3, n)
+        tf = 1e-12 * np.sin(np.log(ta) * rng.uniform(0.2, 3) + rng.uniform(0, 6))
+        if trial % 2:
+            tf[rng.integers(0, n, 3)] = 0.0
+        xs = np.geomspace(3e-9, 3e-3, 200)
+        for dt in (1e2, 1e6, 1e10):
+            a = K.advance(ta, tf, xs, dt)
+            b = np.array([K.advance_one(ta, tf, x, dt) for x in xs])
+            assert np.array_equal(a > 0, b > 0)
+            assert np.allclose(a, b, rtol=1e-11, atol=0)
+
+
 def test_constant_growth_moves_number_and_mass_exactly():
     g = _grid()
     N, M = _lognormal(g)
