@@ -21,6 +21,7 @@ Three subpackages do export a curated `__all__` — `solvers`,
 
 solvers
 collapse
+gsd
 pycalima
 models
 models.dust_radiation
