@@ -264,3 +264,21 @@ class RelativeVelocity:
         y = -(lc[None] + np.log1p(-ks)[(slice(None),) + (None,) * lc.ndim])
         v_q = flux_quantile(np.broadcast_to(s, y.shape), y) / alpha
         return v_mean, np.exp(lc), v_q
+
+
+def terminal_drift_velocity(F_rad, a, T_gas, rho_gas, mu=1.4):
+    """Drift speed [cm/s] of a grain of radius a [cm] through gas at which the
+    collisional drag balances a force F_rad [dyn] (e.g. radiation pressure,
+    absorbed power / c). Drag of Draine & Salpeter (1979) for neutral gas,
+    F = A v (1 + B v^2)^1/2 with A = (4 pi/3) a^2 rho v_th (Epstein, v_th =
+    (8kT/pi m)^1/2) and B = 9 pi m / (128 k T) (the supersonic correction,
+    pi a^2 rho v^2 at v >> v_th), solved in closed form. Coulomb drag on
+    charged grains in ionised gas is not included (it lowers the drift)."""
+    F, a = np.broadcast_arrays(np.asarray(F_rad, float), np.asarray(a, float))
+    m = mu * cvel.MH_CGS
+    v_th = math.sqrt(8.0 * cvel.KB_CGS * T_gas / (math.pi * m))
+    A = 4.0 * math.pi / 3.0 * a ** 2 * rho_gas * v_th
+    B = 9.0 * math.pi * m / (128.0 * cvel.KB_CGS * T_gas)
+    A2 = A * A
+    x = 2.0 * F * F / (A2 + np.sqrt(A2 * A2 + 4.0 * B * A2 * F * F))
+    return np.sqrt(x)

@@ -816,3 +816,19 @@ def test_ion_accretion_is_slowed_by_positive_grains():
     grow_n = m.condensation_alpha(1500.0) * m.unit_volume_cm3 * gas["C"] * np.sqrt(
         8 * 1.380649e-16 * 1500.0 / (np.pi * m.key_mass_amu * 1.66053906660e-24)) / (4 * m.key_per_unit)
     np.testing.assert_allclose(ionised - neutral, (0.25 + 0.75e-3 - 1.0) * grow_n, rtol=1e-10)
+
+
+def test_terminal_drift_velocity_limits():
+    """Subsonic: v = F / A (Epstein); supersonic: v -> (F / (pi a^2 rho))^1/2."""
+    from pycalima.collapse import velocities as cvel
+    from pycalima.gsd.velocities import terminal_drift_velocity
+
+    a, T, rho, mu = 1e-5, 1e4, 1e-14, 1.4
+    m = mu * cvel.MH_CGS
+    v_th = np.sqrt(8 * cvel.KB_CGS * T / (np.pi * m))
+    A = 4 * np.pi / 3 * a ** 2 * rho * v_th
+    F_small = 1e-6 * A * v_th
+    assert float(terminal_drift_velocity(F_small, a, T, rho, mu)) == pytest.approx(F_small / A, rel=1e-6)
+    F_big = 1e8 * A * v_th
+    v = float(terminal_drift_velocity(F_big, a, T, rho, mu))
+    assert v == pytest.approx(np.sqrt(F_big / (np.pi * a ** 2 * rho)), rel=1e-3)
