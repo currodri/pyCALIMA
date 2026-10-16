@@ -832,3 +832,20 @@ def test_terminal_drift_velocity_limits():
     F_big = 1e8 * A * v_th
     v = float(terminal_drift_velocity(F_big, a, T, rho, mu))
     assert v == pytest.approx(np.sqrt(F_big / (np.pi * a ** 2 * rho)), rel=1e-3)
+
+
+def test_hot_grain_from_optical_constants():
+    """Mie absorption from Kitzmann & Heng (2018) constants: an absorbing Fe
+    grain has Q_abs ~ 1 in the UV, a transparent MgO one far less; both give
+    finite equilibrium temperatures in the AGN field."""
+    from pycalima.models.dust_radiation.agn_hot_dust import PC_CM, AGNIllumination, HotGrain
+
+    agn = AGNIllumination(1e46, law="isotropic")
+    fe = HotGrain.from_optical_constants("iron", 0.1, "Fe.dat")
+    mgo = HotGrain.from_optical_constants("periclase", 0.1, "MgO.dat")
+    q = lambda g, lam_um: float(g.cross_section(lam_um * 1e-4)) / (np.pi * (1e-5) ** 2)
+    assert 0.5 < q(fe, 0.3) < 3.0
+    assert q(mgo, 0.3) < 1e-3 * q(fe, 0.3)
+    for g in (fe, mgo):
+        T = float(agn.temperature(g, PC_CM))
+        assert np.isfinite(T) and 300 < T < 5000

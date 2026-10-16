@@ -106,8 +106,40 @@ class HotGrain:
         self.a_cm = self.a_um * 1e-4
         _, wav, _, C_abs, _ = interpolate_cross_sections(material, self.a_um)
         order = np.argsort(wav)
-        self.wav_cm = np.asarray(wav, dtype=float)[order]
-        self.C_abs = np.asarray(C_abs, dtype=float)[order]
+        self._build(np.asarray(wav, dtype=float)[order], np.asarray(C_abs, dtype=float)[order],
+                    T_table)
+
+    @classmethod
+    def from_optical_constants(cls, name, a_um, nk_file, T_table=None, lam_um=None):
+        """A grain of radius a_um [um] from tabulated optical constants
+        (a ``stx3141_supp`` file of Kitzmann & Heng 2018, e.g. "Fe.dat"):
+        Mie absorption (``collapse.optics``: log-log n, k, power-law far-IR
+        tail, small-particle expansion where |m| x < 0.1) on a wavelength grid
+        (default 300 points, 0.01 um - 1 mm)."""
+        import miepython
+
+        from pycalima import _paths
+        from pycalima.collapse.optics import _read_columns, qabs_small, refractive_index
+
+        lam = np.geomspace(0.01, 1000.0, 300) if lam_um is None else np.asarray(lam_um, float)
+        m = refractive_index(lam, *_read_columns(_paths.get_optical_props_path("stx3141_supp", nk_file)))
+        x = 2.0 * np.pi * float(a_um) / lam
+        Q = np.empty(lam.size)
+        small = np.abs(m) * x < 0.1
+        Q[small] = qabs_small(m[small], x[small])
+        if (~small).any():
+            qext, qsca, _, _ = miepython.efficiencies(m[~small], 2.0 * float(a_um), lam[~small])
+            Q[~small] = qext - qsca
+        g = cls.__new__(cls)
+        g.material = name
+        g.a_um = float(a_um)
+        g.a_cm = g.a_um * 1e-4
+        g._build(lam * 1e-4, np.maximum(Q, 1e-30) * np.pi * g.a_cm ** 2, T_table)
+        return g
+
+    def _build(self, wav_cm, C_abs, T_table):
+        self.wav_cm = wav_cm
+        self.C_abs = C_abs
         self.T_table = (np.logspace(np.log10(3.0), np.log10(5000.0), 1500)
                         if T_table is None else np.asarray(T_table, dtype=float))
         B = planck_lambda(self.wav_cm[None, :], self.T_table[:, None])
