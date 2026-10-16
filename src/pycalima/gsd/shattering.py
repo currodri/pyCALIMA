@@ -52,9 +52,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+import math
+
 import numpy as np
 
-from .collisions import Channel
+from pycalima.collapse._jit import njit
+
+from .collisions import Channel, _deposit_segment, _fragments, default_threads, run_rows
 from .velocities import RelativeVelocity, coulomb_rate_factor, flux_quantile, log_flux_above
 
 _E2 = 4.80320471e-10 ** 2
@@ -156,16 +160,23 @@ class GrainCollisions:
     ``n_speed``: flux-quantile channels for shattering with a
     ``RelativeVelocity``; with its ``charges``, rates include Coulomb
     focusing/barriers averaged over the charge points of both grains, and
-    impact speeds the mean-charge barrier. ``table_ppd``: if set, the rates
+    impact speeds the mean-charge barrier. ``table_ppd`` (default 24; None
+    for the exact direct evaluation): if set, the rates
     and impact speeds are tabulated per environment on a log-radius grid with
     this many points per decade and interpolated (call ``refresh()`` after
-    changing the gas, radiation or charges).
+    mutating a drift or charge provider in place; new numbers or new provider
+    objects are detected). With the table, pairs whose
+    number and mass rates are both below ``prune`` times the totals are
+    skipped (1e-12, far below the 1e-8 the step control resolves).
+    ``n_speed`` = 4 is converged to ~1% against 8 in a 10 Myr WIM run; 2
+    costs ~3% and halves the time.
     ``a_frag_min`` [cm] is the smallest fragment (HK13: the grid minimum).
     ``collector``: ``"remove"`` (HK13) or ``"smallest"`` (HY09)."""
 
     def __init__(self, material, velocity, law="KT10", alpha_f=3.3, f_M=0.4,
                  a_frag_min=3e-8, collector="remove", coagulation=False, F_stick=10.0,
-                 v_shat: Optional[float] = None, n_speed=4, table_ppd: Optional[float] = None):
+                 v_shat: Optional[float] = None, n_speed=4, table_ppd: Optional[float] = 24,
+                 threads: Optional[int] = None, prune: float = 1e-12):
         self.material = MATERIALS[material] if isinstance(material, str) else material
         self.velocity = velocity
         self.law = law
@@ -178,6 +189,8 @@ class GrainCollisions:
         self.v_shat = self.material.v_shat if v_shat is None else float(v_shat)
         self.n_speed = int(n_speed)
         self.table_ppd = table_ppd
+        self.threads = threads
+        self.prune = float(prune)
         self._table = None
 
     def _shatter_products(self, a1, m1, m2, v):
@@ -270,11 +283,12 @@ class GrainCollisions:
             return self._pair_fields(a, m)
         lo, hi = a.min(), a.max()
         t = self._table
-        if t is None or lo < t["a"][0] or hi > t["a"][-1]:
+        key = self._env_key()
+        if t is None or lo < t["a"][0] or hi > t["a"][-1] or t.get("key") != key:
             n = max(int(np.ceil(np.log10(4.0 * hi / lo) * self.table_ppd)) + 1, 4)
             at = np.geomspace(lo / 2.0, hi * 2.0, n)
             K, v, Kc = self._pair_fields(at, 4.0 / 3.0 * np.pi * self.material.rho * at ** 3)
-            t = self._table = {"a": at, "lK": np.log(np.maximum(K, 1e-300)), "v": v,
+            t = self._table = {"a": at, "lK": np.log(np.maximum(K, 1e-300)), "v": v, "key": key,
                                "lKc": None if Kc is None else np.log(np.maximum(Kc, 1e-300))}
         la = np.log(t["a"])
         f = np.clip((np.log(a) - la[0]) / (la[1] - la[0]), 0.0, la.size - 1 - 1e-9)
@@ -294,6 +308,82 @@ class GrainCollisions:
             return np.where(v_ < 1e-299, 0.0, v_)
 
         return pos(t["lK"]), tri(t["v"]), None if t["lKc"] is None else pos(t["lKc"])
+
+    def pair_terms(self, grid, m_nodes, w, wid, a, m):
+        """(F, L, H) of the collision operator from the fused, threaded pair
+        sum (``_shatter_rows``), with a pair table; None otherwise."""
+        if not (self.table_ppd and isinstance(self.velocity, RelativeVelocity)):
+            return None
+        t = self._ensure_table(a, m)
+        la = np.log(t["a"])
+        f = np.clip((np.log(a) - la[0]) / (la[1] - la[0]), 0.0, la.size - 1 - 1e-9)
+        mat = self.material
+        lKc = t["lKc"] if t["lKc"] is not None else np.zeros((1, 1))
+        args = (2 * grid.n_bins, m_nodes, w, wid, np.ascontiguousarray(a), f, t["lK"],
+                np.ascontiguousarray(t["v"]), lKc, 0 if self.law == "KT10" else 1, mat.Q_D,
+                self._jth_A(), mat.c0, mat.s, self.f_M, self.a_frag_min, bool(self.coagulation),
+                grid.m_edges, grid.a_edges, float(grid.rho), float(self.alpha_f),
+                self.collector == "smallest")
+        if self.prune > 0.0:
+            tN, tM = _shatter_totals(2 * grid.n_bins, m_nodes, w, f, t["lK"], lKc,
+                                     bool(self.coagulation))
+            args = args + (self.prune * tN, self.prune * tM)
+        else:
+            args = args + (0.0, 0.0)
+        n_threads = self.threads if self.threads is not None else (
+            default_threads() if a.size >= 160 else 1)
+        return run_rows(_shatter_rows, args, grid.n_bins, grid.a_edges, float(grid.rho),
+                        float(self.alpha_f), n_threads)
+
+    def _jth_A(self):
+        mat = self.material
+        phi1 = mat.P1 / (mat.rho * mat.c0 ** 2)
+        M1 = 2.0 * phi1 / (1.0 + math.sqrt(1.0 + 4.0 * mat.s * phi1))
+        return 3.0 / (2.0 * 2.0 ** (9.0 / 16.0)) * (1.0 / (_sigma(M1, mat.s) * M1 ** 2)) ** (8.0 / 9.0)
+
+    def _env_key(self):
+        """State the pair table depends on: the gas, turbulence and drift and
+        charge providers of the velocity model (a changed provider object, or
+        changed numbers, rebuild the table; a provider mutated in place needs
+        ``refresh()``)."""
+        v = self.velocity
+        return (v.T, v.n_H, v.mu, v.v_turb, v.L, v.sigma_neutral, v.y_star, v.brownian,
+                id(v.drift), id(v.charges), self.v_shat, self.n_speed, self.coagulation,
+                self.F_stick, self.material)
+
+    def _ensure_table(self, a, m):
+        t = self._table
+        if (t is None or a.min() < t["a"][0] or a.max() > t["a"][-1]
+                or t.get("key") != self._env_key()):
+            self._table = None
+            self._fields(a, m)
+            t = self._table
+        return t
+
+    def stacked_channels(self, a, m):
+        """Channel arrays (K, rem, frag, a_hi, a_lo) for the collision kernel
+        directly, compiled, from the pair table (``table_ppd`` set); None
+        otherwise (``collisions`` then stacks ``channels``)."""
+        if not (self.table_ppd and isinstance(self.velocity, RelativeVelocity)):
+            return None
+        self._fields(a[:2], m[:2]) if self._table is None else None
+        t = self._table
+        if a.min() < t["a"][0] or a.max() > t["a"][-1]:
+            self._table = None
+            self._fields(a, m)
+            t = self._table
+        la = np.log(t["a"])
+        mat = self.material
+        phi1 = mat.P1 / (mat.rho * mat.c0 ** 2)
+        M1 = 2.0 * phi1 / (1.0 + math.sqrt(1.0 + 4.0 * mat.s * phi1))
+        sig1 = _sigma(M1, mat.s)
+        jth_A = 3.0 / (2.0 * 2.0 ** (9.0 / 16.0)) * (1.0 / (sig1 * M1 ** 2)) ** (8.0 / 9.0)
+        lKc = t["lKc"] if t["lKc"] is not None else np.zeros((1, 1))
+        return _channels_from_table(np.ascontiguousarray(a, float), np.ascontiguousarray(m, float),
+                                    float(la[0]), float(la[1] - la[0]), la.size, t["lK"],
+                                    np.ascontiguousarray(t["v"]), lKc,
+                                    0 if self.law == "KT10" else 1, mat.Q_D, jth_A, mat.c0, mat.s,
+                                    self.f_M, self.a_frag_min, bool(self.coagulation))
 
     def _distributed_channels(self, a, m):
         """Channels from the speed distribution of every pair."""
@@ -318,3 +408,198 @@ class GrainCollisions:
 
 def flux_above_(u, s):
     return np.exp(log_flux_above(u, s))
+
+
+@njit(cache=True)
+def _ejecta(m1, m2, v, law, Q_D, jth_A, c0, s_, f_M):
+    """Mass ejected from m1 hit by m2 at v (law 0: KT10, 1: JTH96)."""
+    if law == 0:
+        phi = 0.5 * m2 / (m1 + m2) * v * v / Q_D
+        return phi / (1.0 + phi) * m1
+    Mr = max(v, 1e-30) / c0
+    x = s_ + 2.0 / Mr                       # sigma(M_r / (1 + R)), R = 1
+    sig_r = 0.30 * (x - 0.11) ** 1.3 / (x - 1.0)
+    M = m2 * jth_A * sig_r ** (-1.0 / 9.0) * (Mr * Mr) ** (8.0 / 9.0)
+    if M > 0.5 * m1:
+        return m1
+    return min(f_M * M, m1)
+
+
+@njit(cache=True)
+def _channels_from_table(a, m, la0, dla, n_tab, lK, V, lKc, law, Q_D, jth_A, c0, s_, f_M,
+                         a_frag_min, coag):
+    """Channel arrays (upper triangle q >= p) from the pair table, linear on
+    the triangles of each cell split along its diagonal."""
+    P = a.size
+    nq = V.shape[0]
+    C = nq + (1 if coag else 0)
+    K = np.zeros((C, P, P))
+    rem = np.zeros((2, C, P, P))
+    frag = np.zeros((2, C, P, P))
+    ahi = np.ones((2, C, P, P))
+    alo = np.ones((2, C, P, P))
+    f = np.empty(P)
+    for p in range(P):
+        f[p] = min(max((math.log(a[p]) - la0) / dla, 0.0), n_tab - 1 - 1e-9)
+    for p in range(P):
+        for q in range(p, P):
+            x, y = f[p], f[q]
+            i, j = int(x), int(y)
+            u, w = x - i, y - j
+            if u >= w:
+                c00, c10, c11 = 1.0 - u, u - w, w      # (i,j), (i+1,j), (i+1,j+1)
+                i1, j1, i2, j2 = i + 1, j, i + 1, j + 1
+            else:
+                c00, c10, c11 = 1.0 - w, w - u, u      # (i,j), (i,j+1), (i+1,j+1)
+                i1, j1, i2, j2 = i, j + 1, i + 1, j + 1
+            lk = c00 * lK[i, j] + c10 * lK[i1, j1] + c11 * lK[i2, j2]
+            kk = math.exp(lk)
+            if kk < 1e-299:
+                kk = 0.0
+            m1, m2 = m[p], m[q]
+            for k in range(nq):
+                K[k, p, q] = kk / nq
+                if kk == 0.0:
+                    continue
+                v = c00 * V[k, i, j] + c10 * V[k, i1, j1] + c11 * V[k, i2, j2]
+                e1 = _ejecta(m1, m2, v, law, Q_D, jth_A, c0, s_, f_M)
+                e2 = _ejecta(m2, m1, v, law, Q_D, jth_A, c0, s_, f_M)
+                rem[0, k, p, q] = m1 - e1
+                rem[1, k, p, q] = m2 - e2
+                frag[0, k, p, q] = e1
+                frag[1, k, p, q] = e2
+                ahi[0, k, p, q] = (0.0204 * min(max(e1 / m1, 0.0), 1.0)) ** (1.0 / 3.0) * a[p]
+                ahi[1, k, p, q] = (0.0204 * min(max(e2 / m2, 0.0), 1.0)) ** (1.0 / 3.0) * a[q]
+                alo[0, k, p, q] = a_frag_min
+                alo[1, k, p, q] = a_frag_min
+            if coag:
+                lc = c00 * lKc[i, j] + c10 * lKc[i1, j1] + c11 * lKc[i2, j2]
+                kc = math.exp(lc)
+                K[nq, p, q] = kc if kc >= 1e-299 else 0.0
+                rem[0, nq, p, q] = m1 + m2
+    return K, rem, frag, ahi, alo
+
+
+@njit(cache=True, nogil=True)
+def _shatter_rows(t, T, P, m, w, wid, a, f, lK, V, lKc, law, Q_D, jth_A, c0, s_, f_M,
+                  a_frag_min, coag, m_edges, a_edges, rho, alpha, keep_small, thr_N, thr_M,
+                  F, L, H, D):
+    """Fused pair sum of ``GrainCollisions`` with a pair table: rows p = t,
+    t + T, ... of the node pairs, with rates and impact speeds interpolated
+    on the table's triangles and the ejecta computed on the fly (the same
+    deposits as ``collisions._pair_rows`` on ``_channels_from_table``).
+    Pairs whose number and mass rates are both below thr_N and thr_M are
+    skipped."""
+    mfac = 4.0 / 3.0 * math.pi * rho
+    eM = 4.0 - alpha
+    eN = 1.0 - alpha
+    nb = m.shape[0]
+    GM = np.empty(nb + 1)
+    GN = np.empty(nb + 1)
+    for k in range(nb + 1):
+        GM[k] = a_edges[k] ** eM
+        GN[k] = a_edges[k] ** eN
+    geo_m = np.array([math.log(m_edges[0]), 1.0 / math.log(m_edges[1] / m_edges[0])])
+    geo_a = np.array([math.log(a_edges[0]), 1.0 / math.log(a_edges[1] / a_edges[0])])
+    nq = V.shape[0]
+    Lf = math.log(a_frag_min)
+    lo_pre = (Lf, math.exp(eM * Lf), math.exp(eN * Lf))
+    for p in range(t, P, T):
+        i, ia = p // 2, p % 2
+        wp = w[i, ia]
+        if wp <= 0.0:
+            continue
+        mp, ap, wdp = m[i, ia], a[p], wid[i, ia]
+        for q in range(p, P):
+            j, jb = q // 2, q % 2
+            wq = w[j, jb]
+            if wq <= 0.0:
+                continue
+            mq, aq, wdq = m[j, jb], a[q], wid[j, jb]
+            x, y = f[p], f[q]
+            ii, jj = int(x), int(y)
+            u, v_ = x - ii, y - jj
+            if u >= v_:
+                c00, c10, c11 = 1.0 - u, u - v_, v_
+                i1, j1 = ii + 1, jj
+            else:
+                c00, c10, c11 = 1.0 - v_, v_ - u, u
+                i1, j1 = ii, jj + 1
+            pair = (0.5 if q == p else 1.0) * wp * wq
+            fp = mp / (mp + mq)
+            fq = 1.0 - fp
+            kk = math.exp(c00 * lK[ii, jj] + c10 * lK[i1, j1] + c11 * lK[ii + 1, jj + 1])
+            if thr_N > 0.0:
+                ksum = kk
+                if coag:
+                    ksum += math.exp(c00 * lKc[ii, jj] + c10 * lKc[i1, j1]
+                                     + c11 * lKc[ii + 1, jj + 1])
+                rN = pair * ksum
+                if rN < thr_N and rN * (mp + mq) < thr_M:
+                    continue
+            if kk >= 1e-299:
+                r = pair * kk / nq
+                for k in range(nq):
+                    vv = c00 * V[k, ii, jj] + c10 * V[k, i1, j1] + c11 * V[k, ii + 1, jj + 1]
+                    e1 = _ejecta(mp, mq, vv, law, Q_D, jth_A, c0, s_, f_M)
+                    e2 = _ejecta(mq, mp, vv, law, Q_D, jth_A, c0, s_, f_M)
+                    L[i] += r
+                    L[j] += r
+                    r1, r2 = mp - e1, mq - e2
+                    if r1 > 0.0:
+                        hw = 0.5 * wdp * min(r1 / mp, 1.0)
+                        _deposit_segment(F, H, i, j, fp, fq, r, r1, hw, m_edges, keep_small, geo_m)
+                    if r2 > 0.0:
+                        hw = 0.5 * wdq * min(r2 / mq, 1.0)
+                        _deposit_segment(F, H, i, j, fp, fq, r, r2, hw, m_edges, keep_small, geo_m)
+                    if e1 > 0.0:
+                        h1 = (0.0204 * min(e1 / mp, 1.0)) ** (1.0 / 3.0) * ap
+                        _fragments(F, H, D, i, j, fp, fq, r, e1, a_frag_min, h1, m_edges, a_edges,
+                                   GM, GN, eM, eN, mfac, keep_small, geo_a, lo_pre)
+                    if e2 > 0.0:
+                        h2 = (0.0204 * min(e2 / mq, 1.0)) ** (1.0 / 3.0) * aq
+                        _fragments(F, H, D, i, j, fp, fq, r, e2, a_frag_min, h2, m_edges, a_edges,
+                                   GM, GN, eM, eN, mfac, keep_small, geo_a, lo_pre)
+            if coag:
+                kc = math.exp(c00 * lKc[ii, jj] + c10 * lKc[i1, j1] + c11 * lKc[ii + 1, jj + 1])
+                if kc >= 1e-299:
+                    r = pair * kc
+                    L[i] += r
+                    L[j] += r
+                    mr = mp + mq
+                    hw = 0.5 * (wdp + wdq)
+                    _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m)
+
+
+@njit(cache=True, nogil=True)
+def _shatter_totals(P, m, w, f, lK, lKc, coag):
+    """Total collision number and mass rates over all node pairs (q >= p),
+    for the negligible-pair threshold of ``_shatter_rows``."""
+    tN = 0.0
+    tM = 0.0
+    for p in range(P):
+        i, ia = p // 2, p % 2
+        wp = w[i, ia]
+        if wp <= 0.0:
+            continue
+        for q in range(p, P):
+            j, jb = q // 2, q % 2
+            wq = w[j, jb]
+            if wq <= 0.0:
+                continue
+            x, y = f[p], f[q]
+            ii, jj = int(x), int(y)
+            u, v_ = x - ii, y - jj
+            if u >= v_:
+                c00, c10, c11 = 1.0 - u, u - v_, v_
+                i1, j1 = ii + 1, jj
+            else:
+                c00, c10, c11 = 1.0 - v_, v_ - u, u
+                i1, j1 = ii, jj + 1
+            k = math.exp(c00 * lK[ii, jj] + c10 * lK[i1, j1] + c11 * lK[ii + 1, jj + 1])
+            if coag:
+                k += math.exp(c00 * lKc[ii, jj] + c10 * lKc[i1, j1] + c11 * lKc[ii + 1, jj + 1])
+            r = (0.5 if q == p else 1.0) * wp * wq * k
+            tN += r
+            tM += r * (m[i, ia] + m[j, jb])
+    return tN, tM

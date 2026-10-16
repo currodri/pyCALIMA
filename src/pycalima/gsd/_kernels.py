@@ -245,19 +245,40 @@ def _mean_ratio(b, le):
 
 @njit(cache=True)
 def solve_beta(ratio, eta, beta_max, n_iter):
-    """Exponents whose mean mass ratios are ``ratio`` (bisection)."""
+    """Exponents whose mean mass ratios are ``ratio``: Illinois (regula falsi)
+    on the monotone ratio(beta), to |dbeta| < 1e-10 (``n_iter`` caps it)."""
     le = math.log(eta)
     out = np.empty_like(ratio)
     r_lo = _mean_ratio(-beta_max, le)
     r_hi = _mean_ratio(beta_max, le)
     for i in range(ratio.size):
         r = min(max(ratio[i], r_lo), r_hi)
-        lo, hi = -beta_max, beta_max
-        for _ in range(n_iter):
-            mid = 0.5 * (lo + hi)
-            if _mean_ratio(mid, le) < r:
-                lo = mid
+        a, b = -beta_max, beta_max
+        fa, fb = r_lo - r, r_hi - r
+        if fa >= 0.0:
+            out[i] = a
+            continue
+        if fb <= 0.0:
+            out[i] = b
+            continue
+        side = 0
+        c = 0.0
+        for _ in range(4 * n_iter):
+            c = (a * fb - b * fa) / (fb - fa)
+            fc = _mean_ratio(c, le) - r
+            if fc == 0.0 or b - a < 1e-10:
+                break
+            if fc > 0.0:
+                b, fb = c, fc
+                if side == -1:
+                    fa *= 0.5
+                side = -1
             else:
-                hi = mid
-        out[i] = 0.5 * (lo + hi)
+                a, fa = c, fc
+                if side == 1:
+                    fb *= 0.5
+                side = 1
+            if abs(fc) < 1e-15 * r:
+                break
+        out[i] = c
     return out

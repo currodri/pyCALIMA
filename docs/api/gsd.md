@@ -100,6 +100,40 @@ environment on a log-radius grid (linear on triangles split along the
 diagonal, where Ormel & Cuzzi's velocity has a cusp) and interpolates
 them, which matters once the rates are averaged over charge points.
 
+## Performance
+
+`diagnostics/gsd/benchmark_gsd.py` times the main workloads (wall and CPU).
+
+* **Collision sums** run in compiled code without the GIL on Python
+  threads (`collisions.run_rows`), not on numba's threading layers. Those are
+  limited on Apple silicon: the pip wheels have no TBB layer, and the OpenMP
+  layer needs Homebrew's keg-only `libomp`, so numba falls back to
+  `workqueue`.
+* **Threads:**
+  * Workers are marked user-interactive (macOS QoS), so the scheduler keeps
+    them on the performance cores.
+  * `default_threads()` takes the performance cores less the current load
+    (or `PYCALIMA_GSD_THREADS`), because oversubscribing a busy machine is
+    slower than serial.
+  * Threads pull row-chunks from a shared counter.
+* **`GrainCollisions` with a `RelativeVelocity`** tabulates rates and impact
+  speeds per environment (`table_ppd = 24` by default; the table rebuilds
+  when the gas, turbulence or charge provider changes). Its pair sum is
+  fused (`_shatter_rows`): table interpolation, ejecta and deposits in one
+  compiled loop, with no intermediate arrays. Pairs below 1e-12 of the total
+  number and mass rates are skipped (`prune`).
+* **`n_speed`:** the default of 4 is converged to ~1% against 8. With
+  `n_speed = 2` it costs ~3% and halves the time.
+
+| Workload | Time |
+|---|---|
+| Exchange step, 136 bins | ~2 ms |
+| Collision rate evaluation, 120 bins (MRN) | ~7 ms CPU |
+| Same, evolved (all bins filled) | ~14 ms CPU |
+| Charging solve, 22 radii | ~2 ms |
+
+Timings are single-threaded, measured with the machine otherwise busy.
+
 Status: transport, gas exchange, coagulation, shattering and per-size
 charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
 

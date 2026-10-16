@@ -381,6 +381,30 @@ Characteristics are monotone, so the remap needs no CFL condition. Stability is 
   * Grain-grain Coulomb uses point charges.
   * The rim densities of 2f (n_H ≳ 1e8) are where electron capture should pull the potentials down. That needs checking there.
 
+**Performance pass.** CPU times, single-threaded:
+
+| Workload | Before | After | Change |
+|---|---|---|---|
+| WIM shattering + sticking, 10 Myr, 120 bins | 20 s | 7.3 s | 2.7× |
+| Tabulated rate evaluation | 25 ms | 7.4 ms | 3.4× |
+| Evolved-state rate evaluation | 24 ms | 14 ms | 1.7× |
+| Coagulation step | 3.6 ms | 2.3 ms | 1.6× |
+| Coulomb-explosion rates | 12.7 ms | 0.5 ms | 25× |
+
+What changed:
+* **Fused, compiled pair sum** with no 20 MB channel arrays.
+* **Bin lookups and fragment powers:** O(1) bin lookups from logarithms the caller already has; fragment powers from ln a, with the fixed lower edge precomputed.
+* **Single-bin remnant fast path.**
+* **Negligible-pair pruning** at 1e-12 (results identical to 4e-11).
+* **Profiles:** one `BinProfile` per evaluation, and an Illinois β solve (180 → 39 µs).
+* **Explosion rates:** skip charges more than 40σ out.
+
+Rejected:
+* **RMS error norm:** equivalent to a looser max norm, no free gain.
+* **numba `parallel=True`:** slower than serial here even with OpenMP enabled.
+
+Thread scaling was measured with ~12 cores busy, so its gain is still to be measured on an idle machine.
+
 **Status of the suite (`tests/test_gsd.py`).** Items 1-6, the steady-cascade part of item 7 and the NK13 and HK13 parts of item 8 pass.
 
 * **Steady cascade (item 7).** Mass is fed at the top and removed below 0.01 µm, with constant v = 1 km/s and Q*_D = 1e9 erg/g. KT10 ejecta come from the larger grain, the projectile is shattered, and fragments are a^{−α_f} up to (f/2)^{1/3}a_t.

@@ -283,6 +283,8 @@ class ChargeState:
             Z_ife = a * a * (E_ife / 299.792458) / E_STATC
             if Zc > Z_ife or Zc - 1 > gt.t["Zmax"] or Zc - 1 < gt.t["Zmin"]:
                 continue
+            if Zc - 1 - r["Zstar"] > 40.0 * max(r["Zsigma"], 0.5) + 10.0:
+                continue                         # P(Z_c - 1) < e^-800: no explosions
             self._set(k)
             lo = max(gt.t["Zmin"], Zc - 1 - max_window,
                      min(Zc - 1, math.floor(r["Zstar"] - 10 * r["Zsigma"] - 10)))

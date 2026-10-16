@@ -626,7 +626,7 @@ def test_shattering_rates_are_the_flux_above_threshold_and_continuous():
     for T in np.linspace(7000.0, 9000.0, 41):
         rv = _wim_velocity()
         rv.T = T
-        model = GrainCollisions("silicate", rv, n_speed=4)
+        model = GrainCollisions("silicate", rv, n_speed=4, table_ppd=None)
         ch = model.channels(a, m)
         dV, mu = rv.pair_statistics(a, m, SILICATE.rho)
         v_mean, c, v_q = rv.collision_speeds(dV, mu, SILICATE.v_shat, 4)
@@ -779,7 +779,7 @@ def test_grain_charges_suppress_or_focus_sticking():
     a = np.geomspace(3e-8, 1e-5, 20)
     m = 4 / 3 * np.pi * a ** 3 * 3.3
     base = dict(T=100.0, n_H=1e4, mu=2.3, v_turb=3e4, L=3e17)
-    def stick(Zfun, ppd=None):
+    def stick(Zfun, ppd=None):  # ppd None: direct evaluation
         rv = RelativeVelocity(**base, charges=Zfun)
         model = GrainCollisions("silicate", rv, coagulation=True, table_ppd=ppd)
         return model._fields(a, m)[2]
@@ -797,7 +797,7 @@ def test_grain_charges_suppress_or_focus_sticking():
     big = plus > 1e-3 * plus.max()
     assert np.median(np.abs(tab[big] / plus[big] - 1)) < 0.01
     rv = _wim_velocity(charges=one(1.0))
-    direct = GrainCollisions("silicate", rv)._fields(a, m)
+    direct = GrainCollisions("silicate", rv, table_ppd=None)._fields(a, m)
     table = GrainCollisions("silicate", rv, table_ppd=24)._fields(a, m)
     big = direct[0] > 1e-3 * direct[0].max()
     np.testing.assert_allclose(table[0][big], direct[0][big], rtol=0.02)

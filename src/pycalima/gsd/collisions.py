@@ -42,6 +42,11 @@ conserved to round-off and stays positive for any step. Number losses are
 Patankar-implicit in each bin (positive), number gains follow the delivered
 mass. The first/second-order stage difference sizes the sub-steps.
 
+The pair sums run in compiled code without the GIL on Python threads
+(``run_rows``): ``default_threads()`` = the performance cores (or
+``PYCALIMA_GSD_THREADS``), each marked user-interactive so that macOS keeps
+them off the efficiency cores. numba's own threading layers are not used.
+
 Collisions are within one population: different materials do not collide
 with each other here.
 """
@@ -54,23 +59,17 @@ import numpy as np
 
 from pycalima.collapse._jit import njit
 
-try:
-    from numba import get_num_threads, prange
-except Exception:  # pragma: no cover - optional acceleration
-    prange = range
-
-    def get_num_threads():
-        return 1
-
 from .pl2m import BinProfile, int_pow
 from .remap import realisable
 
 COLLECTORS = ("smallest", "remove")
 
 
-def bin_nodes(grid, N, M):
+def bin_nodes(grid, N, M, widths=False):
     """Two nodes per bin: masses m[nb, 2] and weights w[nb, 2] (N/2 each)
-    reproducing N and M of every bin. Empty bins get zero weight."""
+    reproducing N and M of every bin. Empty bins get zero weight. With
+    ``widths``, also the nodes' mass intervals (``node_widths``) from the
+    same profile."""
     N = np.asarray(N, float)
     M = np.asarray(M, float)
     prof = BinProfile(grid, N, M)
@@ -91,6 +90,11 @@ def bin_nodes(grid, N, M):
     m[pl, 1] = 2.0 * M[pl] / N[pl] - m[pl, 0]
     sp = filled & prof.delta
     m[sp, :] = (mL[sp] * prof.u_delta[sp] ** 3)[:, None]
+    if widths:
+        m_med = mL * u_med ** 3
+        wid = np.stack([m_med - mL, grid.m_edges[1:] - m_med], axis=1)
+        wid[~filled | prof.delta] = 0.0
+        return m, w, wid
     return m, w
 
 
@@ -107,6 +111,27 @@ def node_widths(grid, N, M):
     wid = np.stack([m_med - mL, mR - m_med], axis=1)
     wid[(np.asarray(N) <= 0) | prof.delta] = 0.0
     return wid
+
+
+@njit(cache=True, nogil=True)
+def _bin_log(edges, lx, geo, x=-1.0):
+    """_bin for ln x on a geometric grid: geo = (ln edges[0], 1 / ln ratio);
+    O(1), corrected against the edges for round-off (pass x if known)."""
+    nb = edges.size - 1
+    k = int(math.floor((lx - geo[0]) * geo[1]))
+    if k < 0:
+        k = -1 if lx < geo[0] else 0
+    if k > nb:
+        k = nb
+    if x < 0.0:
+        x = math.exp(lx)
+    while k > 0 and k <= nb and x < edges[k]:
+        k -= 1
+    while 0 <= k < nb and x >= edges[k + 1]:
+        k += 1
+    if k == 0 and x < edges[0]:
+        k = -1
+    return k
 
 
 @njit(cache=True)
@@ -126,16 +151,16 @@ def _bin(edges, x):
     return lo
 
 
-@njit(cache=True)
-def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small):
+@njit(cache=True, nogil=True)
+def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m):
     """One grain per collision (rate r) with mass spread uniformly over
     [mr - hw, mr + hw]: number and mass split across the bins it overlaps
     (mean exactly mr), so the deposit is continuous in the node masses."""
     nb = m_edges.size - 1
     lo = mr - hw
     hi = mr + hw
-    if hw <= 0.0 or (lo >= m_edges[0] and _bin(m_edges, lo) == _bin(m_edges, hi)):
-        k = _bin(m_edges, mr)
+    k = _bin_log(m_edges, math.log(mr), geo_m, mr)
+    if hw <= 0.0 or (0 <= k < nb and lo >= m_edges[k] and hi < m_edges[k + 1]):
         if k >= 0:
             F[k, i] += r * mr * fp
             F[k, j] += r * mr * fq
@@ -159,8 +184,8 @@ def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small):
         if hi <= m_edges[0]:
             return
         lo = m_edges[0]
-    k0 = _bin(m_edges, lo)
-    k1 = _bin(m_edges, hi)
+    k0 = _bin_log(m_edges, math.log(lo), geo_m, lo)
+    k1 = _bin_log(m_edges, math.log(hi), geo_m, hi)
     for k in range(k0, k1 + 1):
         x1 = max(lo, m_edges[k])
         x2 = min(hi, m_edges[k + 1]) if k < nb else hi
@@ -174,10 +199,11 @@ def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small):
         H[k, j] += dn * fq
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _fragments(F, H, D, i, j, fp, fq, r, mf, lo, hi, m_edges, a_edges, GM, GN, eM, eN,
-               mfac, keep_small):
-    """Deposit r * mf of fragments with dN/da ~ a^-alpha on [lo, hi]."""
+               mfac, keep_small, geo_a, lo_pre=None):
+    """Deposit r * mf of fragments with dN/da ~ a^-alpha on [lo, hi].
+    ``lo_pre`` = (ln lo, lo^eM, lo^eN) if precomputed (a fixed lower edge)."""
     nb = m_edges.size - 1
     a0, aT = a_edges[0], a_edges[nb]
     if hi <= lo or hi <= a0:
@@ -192,8 +218,13 @@ def _fragments(F, H, D, i, j, fp, fq, r, mf, lo, hi, m_edges, a_edges, GM, GN, e
             F[nb + 1, i] += dm * fp
             F[nb + 1, j] += dm * fq
         return
-    PloM, PhiM = lo ** eM, hi ** eM
-    PloN, PhiN = lo ** eN, hi ** eN
+    if lo_pre is None:
+        Llo = math.log(lo)
+        PloM, PloN = math.exp(eM * Llo), math.exp(eN * Llo)
+    else:
+        Llo, PloM, PloN = lo_pre
+    Lhi = math.log(hi)
+    PhiM, PhiN = math.exp(eM * Lhi), math.exp(eN * Lhi)
     cM = r * mf * eM / (PhiM - PloM)      # mass = cM (y2^eM - y1^eM) / eM
     cN = cM / mfac
     # below the grid: collector
@@ -220,8 +251,8 @@ def _fragments(F, H, D, i, j, fp, fq, r, mf, lo, hi, m_edges, a_edges, GM, GN, e
         return
     inside_lo = lo > a0
     inside_hi = hi < aT
-    j0 = _bin(a_edges, lo) if inside_lo else 0
-    j1 = _bin(a_edges, hi) if inside_hi else nb - 1
+    j0 = _bin_log(a_edges, Llo, geo_a, lo) if inside_lo else 0
+    j1 = _bin_log(a_edges, Lhi, geo_a, hi) if inside_hi else nb - 1
     if j1 > nb - 1:
         j1 = nb - 1
     # partial end bins exactly, the bins between by difference array
@@ -247,7 +278,7 @@ def _fragments(F, H, D, i, j, fp, fq, r, mf, lo, hi, m_edges, a_edges, GM, GN, e
         D[j1, j] -= cM * fq
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _finish(F, H, D, GM, GN, eM, eN, mfac):
     """Full-bin deposits from the difference array; zero the diagonal."""
     nb = D.shape[1]
@@ -262,58 +293,250 @@ def _finish(F, H, D, GM, GN, eM, eN, mfac):
         F[k, k] = 0.0                    # mass staying in its bin does not move
 
 
-@njit(cache=True)
-def _pair_terms_serial(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alpha,
-                       keep_small):
-    nb = m.shape[0]
-    nz = nb + 2
-    F = np.zeros((nz, nz))
-    L = np.zeros(nb)
-    H = np.zeros((nb + 1, nb))
-    D = np.zeros((nb + 1, nb))
+@njit(cache=True, nogil=True)
+def _finish_blocks(F, H, D, a_edges, rho, alpha):
     mfac = 4.0 / 3.0 * math.pi * rho
     eM = 4.0 - alpha
     eN = 1.0 - alpha
-    GM = a_edges ** eM
-    GN = a_edges ** eN
-    _pair_rows(0, 1, 2 * nb, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, GM, GN,
-               eM, eN, mfac, keep_small, F, L, H, D)
-    _finish(F, H, D, GM, GN, eM, eN, mfac)
+    _finish(F, H, D, a_edges ** eM, a_edges ** eN, eM, eN, mfac)
+
+
+def run_rows(rows, args, nb, a_edges, rho, alpha, n_threads, n_chunks=None):
+    """Sum a nogil rows kernel ``rows(t, T, *args, F, L, H, D)`` (rows t,
+    t + T, ... of the pair sum) over T = n_chunks interleaved chunks, on
+    ``n_threads`` Python threads that each pull chunks from a shared counter
+    into their own accumulators (fast cores take more; Apple chips mix
+    performance and efficiency cores). Returns (F, L, H) after ``_finish``."""
+    import threading
+
+    nz = nb + 2
+    T = n_chunks or 4 * n_threads
+    lock = threading.Lock()
+    nxt = [0]
+
+    def work():
+        _prefer_performance_cores()
+        F = np.zeros((nz, nz))
+        L = np.zeros(nb)
+        H = np.zeros((nb + 1, nb))
+        D = np.zeros((nb + 1, nb))
+        while True:
+            with lock:
+                t = nxt[0]
+                nxt[0] += 1
+            if t >= T:
+                return F, L, H, D
+            rows(t, T, *args, F, L, H, D)
+
+    _LAST_THREADS[0] = max(1, n_threads)
+    if n_threads <= 1:
+        F, L, H, D = work()
+    else:
+        parts = [f.result() for f in [_pool(n_threads).submit(work) for _ in range(n_threads)]]
+        F, L, H, D = (sum(p_[k] for p_ in parts) for k in range(4))
+    _finish_blocks(F, H, D, a_edges, rho, alpha)
     return F, L, H
 
 
-@njit(cache=True, parallel=True)
-def _pair_terms_parallel(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alpha,
-                         keep_small, n_threads):
-    nb = m.shape[0]
+def performance_cores():
+    """Number of performance cores (Apple silicon: hw.perflevel0; else all
+    CPUs)."""
+    import os
+    import sys
+
+    if sys.platform == "darwin":
+        try:
+            import ctypes
+
+            n = ctypes.c_int(0)
+            size = ctypes.c_size_t(ctypes.sizeof(n))
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+            if lib.sysctlbyname(b"hw.perflevel0.physicalcpu", ctypes.byref(n),
+                                ctypes.byref(size), None, 0) == 0 and n.value > 0:
+                return int(n.value)
+        except Exception:  # pragma: no cover
+            pass
+    return os.cpu_count() or 1
+
+
+_QOS_SET = set()
+
+
+def _prefer_performance_cores():
+    """Mark the calling thread user-interactive (macOS QoS), which the
+    scheduler runs on performance cores; a no-op elsewhere."""
+    import sys
+    import threading
+
+    tid = threading.get_ident()
+    if sys.platform != "darwin" or tid in _QOS_SET:
+        return
+    try:
+        import ctypes
+
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        lib.pthread_set_qos_class_self_np(ctypes.c_uint(0x21), ctypes.c_int(0))
+    except Exception:  # pragma: no cover
+        pass
+    _QOS_SET.add(tid)
+
+
+_LAST_THREADS = [1]
+
+
+def default_threads():
+    """Threads for the pair sums: ``PYCALIMA_GSD_THREADS`` if set, else the
+    performance cores (efficiency cores, ~3x slower, would set the pace)
+    that are free: their number less the 1-minute load average not due to
+    our own last pair sum. Oversubscribing a busy machine makes a pair sum
+    slower than serial."""
+    import os
+
+    env = os.environ.get("PYCALIMA_GSD_THREADS")
+    if env:
+        return max(1, int(env))
+    n_p = performance_cores()
+    try:
+        load = os.getloadavg()[0] - _LAST_THREADS[0]
+    except OSError:  # pragma: no cover
+        load = 0.0
+    free = (os.cpu_count() or n_p) - max(load, 0.0)
+    return int(max(1, min(n_p, math.floor(free))))
+
+
+_POOL = None
+
+
+def _pool(n):
+    global _POOL
+    if _POOL is None or _POOL._max_workers < n:
+        from concurrent.futures import ThreadPoolExecutor
+        _POOL = ThreadPoolExecutor(max_workers=n)
+    return _POOL
+
+
+def run_rows(rows, args, nb, a_edges, rho, alpha, n_threads, n_chunks=None):
+    """Sum a nogil rows kernel ``rows(t, T, *args, F, L, H, D)`` (rows t,
+    t + T, ... of the pair sum) over T = n_chunks interleaved chunks, on
+    ``n_threads`` Python threads that each pull chunks from a shared counter
+    into their own accumulators (fast cores take more; Apple chips mix
+    performance and efficiency cores). Returns (F, L, H) after ``_finish``."""
+    import threading
+
     nz = nb + 2
+    T = n_chunks or 4 * n_threads
+    lock = threading.Lock()
+    nxt = [0]
+
+    def work():
+        _prefer_performance_cores()
+        F = np.zeros((nz, nz))
+        L = np.zeros(nb)
+        H = np.zeros((nb + 1, nb))
+        D = np.zeros((nb + 1, nb))
+        while True:
+            with lock:
+                t = nxt[0]
+                nxt[0] += 1
+            if t >= T:
+                return F, L, H, D
+            rows(t, T, *args, F, L, H, D)
+
+    _LAST_THREADS[0] = max(1, n_threads)
+    if n_threads <= 1:
+        F, L, H, D = work()
+    else:
+        parts = [f.result() for f in [_pool(n_threads).submit(work) for _ in range(n_threads)]]
+        F, L, H, D = (sum(p_[k] for p_ in parts) for k in range(4))
+    _finish_blocks(F, H, D, a_edges, rho, alpha)
+    return F, L, H
+
+
+def performance_cores():
+    """Number of performance cores (Apple silicon: hw.perflevel0; else all
+    CPUs)."""
+    import os
+    import sys
+
+    if sys.platform == "darwin":
+        try:
+            import ctypes
+
+            n = ctypes.c_int(0)
+            size = ctypes.c_size_t(ctypes.sizeof(n))
+            lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+            if lib.sysctlbyname(b"hw.perflevel0.physicalcpu", ctypes.byref(n),
+                                ctypes.byref(size), None, 0) == 0 and n.value > 0:
+                return int(n.value)
+        except Exception:  # pragma: no cover
+            pass
+    return os.cpu_count() or 1
+
+
+_QOS_SET = set()
+
+
+def _prefer_performance_cores():
+    """Mark the calling thread user-interactive (macOS QoS), which the
+    scheduler runs on performance cores; a no-op elsewhere."""
+    import sys
+    import threading
+
+    tid = threading.get_ident()
+    if sys.platform != "darwin" or tid in _QOS_SET:
+        return
+    try:
+        import ctypes
+
+        lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        lib.pthread_set_qos_class_self_np(ctypes.c_uint(0x21), ctypes.c_int(0))
+    except Exception:  # pragma: no cover
+        pass
+    _QOS_SET.add(tid)
+
+
+_LAST_THREADS = [1]
+
+
+def default_threads():
+    """Threads for the pair sums: ``PYCALIMA_GSD_THREADS`` if set, else the
+    performance cores (efficiency cores, ~3x slower, would set the pace)
+    that are free: their number less the 1-minute load average not due to
+    our own last pair sum. Oversubscribing a busy machine makes a pair sum
+    slower than serial."""
+    import os
+
+    env = os.environ.get("PYCALIMA_GSD_THREADS")
+    if env:
+        return max(1, int(env))
+    n_p = performance_cores()
+    try:
+        load = os.getloadavg()[0] - _LAST_THREADS[0]
+    except OSError:  # pragma: no cover
+        load = 0.0
+    free = (os.cpu_count() or n_p) - max(load, 0.0)
+    return int(max(1, min(n_p, math.floor(free))))
+
+
+_POOL = None
+
+
+def _pool(n):
+    global _POOL
+    if _POOL is None or _POOL._max_workers < n:
+        from concurrent.futures import ThreadPoolExecutor
+        _POOL = ThreadPoolExecutor(max_workers=n)
+    return _POOL
+
+
+def _pair_terms_threads(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alpha,
+                        keep_small, n_threads):
     T = n_threads
-    # per-thread accumulators (rows p interleaved for balance), reduced below
-    Fs = np.zeros((T, nz, nz))
-    Ls = np.zeros((T, nb))
-    Hs = np.zeros((T, nb + 1, nb))
-    Ds = np.zeros((T, nb + 1, nb))
-    mfac = 4.0 / 3.0 * math.pi * rho
-    eM = 4.0 - alpha
-    eN = 1.0 - alpha
-    GM = np.empty(nb + 1)
-    GN = np.empty(nb + 1)
-    for k in range(nb + 1):
-        GM[k] = a_edges[k] ** eM
-        GN[k] = a_edges[k] ** eN
-    for t in prange(T):
-        _pair_rows(t, T, 2 * nb, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, GM, GN,
-                   eM, eN, mfac, keep_small, Fs[t], Ls[t], Hs[t], Ds[t])
-    F = Fs[0].copy()
-    L = Ls[0].copy()
-    H = Hs[0].copy()
-    D = Ds[0].copy()
-    for t in range(1, T):
-        F += Fs[t]
-        L += Ls[t]
-        H += Hs[t]
-        D += Ds[t]
-    _finish(F, H, D, GM, GN, eM, eN, mfac)
+    futs = [_pool(T).submit(_pair_block, t, T, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges,
+                            a_edges, rho, alpha, keep_small) for t in range(T)]
+    parts = [f.result() for f in futs]
+    F, L, H, D = (sum(p[k] for p in parts) for k in range(4))
+    _finish_blocks(F, H, D, a_edges, rho, alpha)
     return F, L, H
 
 
@@ -321,7 +544,7 @@ PARALLEL_MIN_PAIRS = 100_000   # channel x pair evaluations above which threads 
 
 
 def _pair_terms(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alpha,
-                keep_small):
+                keep_small, threads=None):
     """Mass flows F[k, i] (donor bin i to node k; k = nb overflow, nb + 1
     sink), number losses L[i] and number gains H[k, i] per unit donor
     weight (k <= nb).
@@ -330,22 +553,26 @@ def _pair_terms(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alph
     a_lo have an extra leading axis of two product sets (s = 0: products of
     grain p, s = 1: of grain q; a merger puts everything in set 0). Channels
     must be symmetric under p <-> q with the sets swapped, so only q >= p is
-    visited. Large problems run on up to 4 threads (more do not pay with
-    numba's workqueue threading layer)."""
+    visited. Large problems run on ``default_threads()`` threads."""
     P = K.shape[1]
     work = K.shape[0] * P * (P + 1) // 2
-    T = min(get_num_threads(), 4, P)
-    if T > 1 and work >= PARALLEL_MIN_PAIRS:
-        return _pair_terms_parallel(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges,
-                                    rho, alpha, keep_small, T)
-    return _pair_terms_serial(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho,
-                              alpha, keep_small)
+    if threads is None:
+        threads = default_threads() if work >= PARALLEL_MIN_PAIRS else 1
+    nb = m.shape[0]
+    mfac = 4.0 / 3.0 * math.pi * rho
+    eM, eN = 4.0 - alpha, 1.0 - alpha
+    GM, GN = a_edges ** eM, a_edges ** eN
+    args = (P, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, GM, GN, eM, eN, mfac,
+            keep_small)
+    return run_rows(_pair_rows, args, nb, a_edges, rho, alpha, threads)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _pair_rows(t, T, P, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, GM, GN,
                eM, eN, mfac, keep_small, F, L, H, D):
     """Rows p = t, t + T, ... of the pair sum into one thread's arrays."""
+    geo_m = np.array([math.log(m_edges[0]), 1.0 / math.log(m_edges[1] / m_edges[0])])
+    geo_a = np.array([math.log(a_edges[0]), 1.0 / math.log(a_edges[1] / a_edges[0])])
     for c in range(K.shape[0]):
         for p in range(t, P, T):
             i, ia = p // 2, p % 2
@@ -376,12 +603,13 @@ def _pair_rows(t, T, P, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, G
                                                       else (mq, wid[j, jb], mp, wid[i, ia]))
                         hw = 0.5 * (w_own * min(mr / m_own, 1.0)
                                     + w_oth * max(0.0, min((mr - m_own) / m_oth, 1.0)))
-                        _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small)
+                        _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small,
+                                         geo_m)
                     mf = frag[st, c, p, q]
                     if mf > 0.0:
                         _fragments(F, H, D, i, j, fp, fq, r, mf, a_lo[st, c, p, q],
                                    a_hi[st, c, p, q], m_edges, a_edges, GM, GN, eM, eN,
-                                   mfac, keep_small)
+                                   mfac, keep_small, geo_a)
 
 
 class CoagulationModel:
@@ -397,8 +625,18 @@ class CoagulationModel:
     def channels(self, a, m):
         K = np.asarray(self.kernel(m[:, None], m[None, :]), float)
         K = np.broadcast_to(K, (m.size, m.size))
-        zero = np.zeros_like(K)
         return [Channel(K, m[:, None] + m[None, :])]
+
+    def stacked_channels(self, a, m):
+        """Channel arrays for the kernel directly (one merger channel)."""
+        P = m.size
+        K = np.ascontiguousarray(np.broadcast_to(
+            np.asarray(self.kernel(m[:, None], m[None, :]), float), (P, P)))[None]
+        rem = np.zeros((2, 1, P, P))
+        rem[0, 0] = m[:, None] + m[None, :]
+        z = np.zeros((2, 1, P, P))
+        o = np.ones((2, 1, P, P))
+        return K, rem, z, o, o
 
 
 class Channel:
@@ -419,15 +657,22 @@ class Channel:
 
 
 def _terms(grid, N, M, model):
-    m, w = bin_nodes(grid, N, M)
-    wid = node_widths(grid, N, M)
+    m, w, wid = bin_nodes(grid, N, M, widths=True)
     mf = m.reshape(-1)
     a = grid.radius(mf)
-    chans = model.channels(a, mf)
-    K = np.ascontiguousarray(np.array([ch.K for ch in chans], float))
-    stack = [np.ascontiguousarray(np.array([[ch.sets[st][k] for ch in chans] for st in (0, 1)],
-                                           float)) for k in range(4)]
-    stack = [K] + stack
+    fused = getattr(model, "pair_terms", None)
+    if fused is not None:
+        out = fused(grid, m, w, wid, a, mf)
+        if out is not None:
+            return out
+    fast = getattr(model, "stacked_channels", None)
+    stack = fast(a, mf) if fast is not None else None
+    if stack is None:
+        chans = model.channels(a, mf)
+        K = np.ascontiguousarray(np.array([ch.K for ch in chans], float))
+        stack = [np.ascontiguousarray(np.array([[ch.sets[st][k] for ch in chans] for st in (0, 1)],
+                                               float)) for k in range(4)]
+        stack = [K] + stack
     if model.collector not in COLLECTORS:
         raise ValueError(f"collector must be one of {COLLECTORS}")
     if abs(model.alpha_f - 4.0) < 1e-9 or abs(model.alpha_f - 1.0) < 1e-9:
@@ -461,7 +706,7 @@ def _number(N_old, N_den, theta, L, H, h, nb):
 
 
 def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=100000,
-            source=None):
+            source=None, norm="max"):
     """Advance (N, M) over dt under the collision ``model``. The local error
     of every bin, relative to its value or to ``atol`` times the total
     (number or mass), is held below ``errmax``. ``source`` = (S_N, S_M),
@@ -501,8 +746,12 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
         N2, oN2 = _number(N + h * S_N, N1, th2, Lm, Hm, h, nb)
         scale_z = np.maximum(np.maximum(z, z2), atol * max(z.sum(), 1e-300))
         scale_N = np.maximum(np.maximum(N, N2), atol * max(N.sum(), 1e-300))
-        err = max(np.max(np.abs(z2 - z1) / scale_z),
-                  np.max(np.abs(N2 - N1) / scale_N))
+        ez = np.abs(z2 - z1) / scale_z
+        eN = np.abs(N2 - N1) / scale_N
+        if norm == "rms":
+            err = max(math.sqrt(np.mean(ez ** 2)), math.sqrt(np.mean(eN ** 2)))
+        else:
+            err = max(ez.max(), eN.max())
         if err <= errmax or h <= 1e-12 * dt:
             t += h
             steps += 1
