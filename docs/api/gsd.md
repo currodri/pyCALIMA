@@ -47,8 +47,26 @@ Verified against the constant, additive (Golovin) and multiplicative
 Smoluchowski solutions; ~2 ms per sub-step on 150 bins. Different
 materials do not coagulate with each other.
 
-Status: transport, gas exchange and coagulation (phases 2a-2c of the
-plan). Shattering and per-bin charging follow.
+`collisions` is the general operator behind coagulation and shattering:
+a model returns, per node pair and outcome channel, a rate coefficient and
+the products of each grain (a remnant, deposited spread over its parent
+node's width, and fragments $dN/da\propto a^{-\alpha_f}$ integrated exactly
+over the bins with difference arrays, so a pair costs $O(1)$). Fragments
+below the grid go to a collector (kept in the smallest bin, HY09, or
+removed, HK13); an optional constant source feeds the step. Large problems
+run on up to 4 threads.
+
+`shattering` provides the physics: HY09 Table 2 materials, the KT10 and
+JTH96 ejecta laws in the form of Hirashita & Kobayashi (2013), fragments up
+to $(0.0204 f)^{1/3} a$, HY09's four velocity directions and the Chokshi
+sticking threshold (HY09 eq. 8). Velocity laws should be continuous: a node
+sitting on a jump makes the step control chatter. Verified against the
+Dohnanyi/Tanaka steady cascade ($a^{-3.5}$ for any fragment slope), the
+HK13 worked example and their $P_1/t$ scaling
+(`diagnostics/gsd/check_shattering.py`).
+
+Status: transport, gas exchange, coagulation and shattering (phases 2a-2d
+of the plan). Per-bin charging follows.
 
 ## Modules
 
@@ -61,6 +79,8 @@ plan). Shattering and per-bin charging follow.
    pycalima.gsd.pl2m
    pycalima.gsd.remap
    pycalima.gsd.exchange
+   pycalima.gsd.collisions
    pycalima.gsd.coagulation
+   pycalima.gsd.shattering
    pycalima.gsd._kernels
 ```

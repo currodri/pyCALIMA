@@ -365,3 +365,181 @@ def test_additive_and_multiplicative_kernels_follow_their_number_laws():
     N1, M1, *_ = coagulate(g, N, M, lambda a, b: B * a * b, t)
     assert M1.sum() == pytest.approx(Mt, rel=1e-13)
     assert N1.sum() == pytest.approx(N.sum() - 0.5 * B * Mt ** 2 * t, rel=1e-4)
+
+
+class _FullShatter:
+    """Every collision shatters both grains into a^-alpha fragments on
+    [a_hi/30, a_hi], with a_hi fixed."""
+
+    def __init__(self, K, a_hi, alpha=3.3, collector="smallest"):
+        self.K, self.a_hi, self.alpha_f, self.collector = K, a_hi, alpha, collector
+
+    def channels(self, a, m):
+        from pycalima.gsd.collisions import Channel
+
+        P = m.size
+        K = np.full((P, P), self.K)
+        hi = np.full((P, P), self.a_hi)
+        return [Channel(K, frag1=m[:, None] + 0 * m[None, :], a_hi1=hi, a_lo1=hi / 30,
+                        frag2=m[None, :] + 0 * m[:, None], a_hi2=hi, a_lo2=hi / 30)]
+
+
+@pytest.mark.parametrize("collector", ["smallest", "remove"])
+def test_fragments_are_deposited_with_the_exact_power_law(collector):
+    """One bin of grains shattering into a^-3.3 fragments spanning ~15 bins
+    and the bottom edge: per-bin fragment number and mass equal the
+    power-law integrals; mass below the grid goes to the collector."""
+    from pycalima.gsd.collisions import _terms
+
+    g = MassGrid.from_radii(1e-7, 1e-4, 10, RHO)
+    N = np.zeros(g.n_bins)
+    M = np.zeros(g.n_bins)
+    k = g.bin_of_radius(5e-5)
+    N[k] = 2.0
+    M[k] = 2.0 * g.mass(5e-5)
+    a_hi, alpha = 2e-6, 3.3
+    model = _FullShatter(1e-9, a_hi, alpha, collector)
+    F, L, H = _terms(g, N, M, model)
+    rate = 0.5 * 1e-9 * N[k] ** 2                      # collisions per cm^3 s
+    mfrag = rate * 2 * g.mass(5e-5)                    # nodes sit at one mass
+    lo = a_hi / 30
+    ipow = lambda e, x1, x2: (x2 ** (e + 1) - x1 ** (e + 1)) / (e + 1)
+    norm = ipow(3 - alpha, lo, a_hi)
+    a_e = g.a_edges
+    for j in range(g.n_bins):
+        x1, x2 = max(lo, a_e[j]), min(a_hi, a_e[j + 1])
+        if j == k or x2 <= x1:
+            continue
+        dm = mfrag * ipow(3 - alpha, x1, x2) / norm
+        dn = mfrag * ipow(-alpha, x1, x2) / norm / (4 / 3 * np.pi * RHO)
+        if j == 0 and collector == "smallest":
+            below = mfrag * ipow(3 - alpha, lo, a_e[0]) / norm
+            dm += below
+            dn += below / g.m_edges[0]
+        assert F[j, k] == pytest.approx(dm, rel=1e-10)
+        assert H[j, k] == pytest.approx(dn, rel=1e-10)
+    below = mfrag * ipow(3 - alpha, lo, a_e[0]) / norm
+    assert F[g.n_bins + 1, k] == pytest.approx(below if collector == "remove" else 0.0, abs=1e-30)
+    assert F[:, k].sum() == pytest.approx(mfrag, rel=1e-12)
+    assert L[k] == pytest.approx(2 * rate, rel=1e-12)
+
+
+def test_shattering_conserves_mass_into_the_collector_and_sink():
+    """Integrated over many collision times: grid + sink mass is constant
+    to round-off; with collector 'smallest' nothing leaves the grid."""
+    from pycalima.gsd.collisions import collide
+
+    g = MassGrid.from_radii(1e-7, 1e-4, 10, RHO)
+    N, M = _lognormal(g, a0=3e-5, sig=0.2)
+    for collector in ("smallest", "remove"):
+        r = collide(g, N, M, _FullShatter(1.0 / N.sum(), 2e-6, 3.3, collector), 2.0)
+        assert r["M"].sum() + r["sink_M"] == pytest.approx(M.sum(), rel=1e-12)
+        assert np.all(r["N"] >= 0) and np.all(r["M"] >= 0)
+        if collector == "smallest":
+            assert r["sink_M"] == 0.0
+        else:
+            assert r["sink_M"] > 0.0
+
+
+# ---------------------------------------------------------------------------
+# shattering
+# ---------------------------------------------------------------------------
+
+class _SelfSimilarCascade:
+    """Constant v and Q*_D, KT10 ejecta from the larger grain (target),
+    projectile shattered, fragments a^-alpha up to (f/2)^(1/3) a_t: a
+    collision outcome that depends only on the mass ratio."""
+
+    collector = "remove"
+
+    def __init__(self, alpha, v=1e5, Q=1e9):
+        self.alpha_f, self.v, self.Q = alpha, v, Q
+
+    def channels(self, a, m):
+        from pycalima.gsd.collisions import Channel
+
+        A1, A2 = np.meshgrid(a, a, indexing="ij")
+        M1, M2 = np.meshgrid(m, m, indexing="ij")
+        big = M1 >= M2
+        mt, mp, at = np.where(big, M1, M2), np.where(big, M2, M1), np.where(big, A1, A2)
+        K = np.pi * (A1 + A2) ** 2 * self.v
+        phi = 0.5 * mt * mp / (mt + mp) * self.v ** 2 / (mt * self.Q)
+        mej = phi / (1 + phi) * mt
+        ahi = (0.5 * np.minimum((mej + mp) / mt, 1.0)) ** (1 / 3) * at
+        # target remnant and all fragments as one product set (attribution
+        # to the two donors is by mass in the operator anyway)
+        return [Channel(K, rem1=mt - mej, frag1=mej + mp, a_hi1=ahi, a_lo1=ahi / 100)]
+
+
+@pytest.mark.parametrize("alpha_f", [2.5, 3.5])
+def test_collisional_cascade_reaches_the_dohnanyi_slope(alpha_f):
+    """Mass fed at the top of a self-similar cascade (constant v, Q*_D) and
+    removed below the grid: the steady state is dN/da ~ a^-3.5 whatever the
+    fragment law (Dohnanyi 1969; Tanaka, Inaba & Nakazawa 1996)."""
+    from pycalima.gsd.collisions import collide
+
+    g = MassGrid.from_radii(1e-6, 1e-2, 6, 3.0)
+    top = g.n_bins - 2
+    sN, sM = np.zeros(g.n_bins), np.zeros(g.n_bins)
+    sM[top] = 1e-25
+    sN[top] = sM[top] / g.m_centres[top]
+    N, M = sN * 1e5, sM * 1e5
+    model = _SelfSimilarCascade(alpha_f)
+    t, dt = 0.0, 1e6
+    while t < 3e11:
+        r = collide(g, N, M, model, dt, errmax=1e-2, source=(sN, sM))
+        N, M = r["N"], r["M"]
+        t += dt
+        dt *= 1.1
+    a = g.a_centres
+    sel = (a > 1e-5) & (a < 1e-3)
+    slope = np.polyfit(np.log(a[sel]), np.log(N[sel] / np.diff(g.a_edges)[sel]), 1)[0]
+    assert slope == pytest.approx(-3.5, abs=0.03)
+
+
+def test_kt10_ejecta_reproduce_the_hk13_worked_example():
+    """HK13 s. 3: carbon, a1 = 0.3 um hit by a2 = 0.03 um at 20 km/s:
+    phi = 0.22 and M_ej / m1 = 0.18."""
+    from pycalima.gsd.shattering import GRAPHITE, ejected_mass
+
+    m = lambda a: 4 / 3 * np.pi * a ** 3 * GRAPHITE.rho
+    assert ejected_mass(GRAPHITE, m(3e-5), m(3e-6), 2e6) / m(3e-5) == pytest.approx(0.18, abs=0.005)
+
+
+def test_small_grain_production_scales_with_P1_t():
+    """Cratering mass ~ 1/P1, so runs with equal P1/t give the same small
+    grains (HK13 Fig. 7). MRN silicate in the WIM, v = 20 km/s above
+    0.1 um (HK13 Model H), KT10 ejecta; mass is conserved with the sink.
+    HK13 find n(a) within a factor 3; away from the removal edge it is 25%."""
+    from dataclasses import replace
+
+    from pycalima.gsd.collisions import collide
+    from pycalima.gsd.shattering import SILICATE, GrainCollisions, hy09_directions
+
+    g = MassGrid.from_radii(3e-8, 3e-4, 5, SILICATE.rho)
+    a_e = g.a_edges
+    N, M = np.zeros(g.n_bins), np.zeros(g.n_bins)
+    for i in range(g.n_bins):
+        x1, x2 = max(5e-7, a_e[i]), min(2.5e-5, a_e[i + 1])
+        if x2 > x1:
+            N[i] = (x1 ** -2.5 - x2 ** -2.5) / 2.5
+            M[i] = 4 / 3 * np.pi * SILICATE.rho * (x2 ** 0.5 - x1 ** 0.5) / 0.5
+    scale = 4e-3 * 1.4 * 1.6735e-24 / M.sum()
+    N, M = N * scale, M * scale
+    # HK13's step, smoothed over ~10% in a: a node sitting on a discontinuous
+    # velocity law makes the rates jump and the step control chatter
+    vel = hy09_directions(lambda a: 1e6 * (1 + np.tanh(np.log(np.asarray(a) / 1e-5) / 0.1)))
+    myr = 3.156e13
+    out = []
+    for P1, t in ((3e11, 10.0), (1e11, 10.0 / 3)):
+        model = GrainCollisions(replace(SILICATE, P1=P1), vel, law="KT10")
+        r = collide(g, N, M, model, t * myr, errmax=1e-2)
+        assert r["M"].sum() + r["sink_M"] == pytest.approx(M.sum(), rel=1e-12)
+        out.append(r["N"])
+    small = (g.a_centres < 3e-6) & (out[0] > 0)
+    ratio = out[1][small] / out[0][small]
+    assert np.all((ratio > 1 / 3) & (ratio < 3.0))       # HK13: within a factor 3
+    mid = (g.a_centres > 3e-7) & (g.a_centres < 3e-6)    # away from the removal edge
+    assert np.all(np.abs(out[1][mid] / out[0][mid] - 1) < 0.25)
+    gained = (out[0][g.a_centres < 3e-7] * g.m_centres[g.a_centres < 3e-7]).sum()
+    assert gained > 0.03 * M.sum()                      # small grains are produced

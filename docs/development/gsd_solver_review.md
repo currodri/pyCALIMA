@@ -371,7 +371,18 @@ Characteristics are monotone, so the remap needs no CFL condition. Stability is 
    * NK13 non-steady nucleation: condensation efficiency f_con,∞ and average radius a_ave,∞ versus the cooling-time parameter, with gas depletion.
 9. **Regression against the current one-moment pyCALIMA solver** on accretion-only and coagulation-only problems.
 
-**Status of the suite (`tests/test_gsd.py`).** Items 1-6 and the NK13 part of item 8 pass.
+**Status of the suite (`tests/test_gsd.py`).** Items 1-6, the steady-cascade part of item 7 and the NK13 and HK13 parts of item 8 pass.
+
+* **Steady cascade (item 7).** Mass is fed at the top and removed below 0.01 µm, with constant v = 1 km/s and Q*_D = 1e9 erg/g. KT10 ejecta come from the larger grain, the projectile is shattered, and fragments are a^{−α_f} up to (f/2)^{1/3}a_t.
+  * dN/da ∝ a^{−3.50±0.01} over 0.1–10 µm for α_f = 2.5, 3.0 and 3.5, independent of the fragment law as Tanaka et al. (1996) predict.
+  * At v²/2Q*_D ≫ 1 (v = 10 km/s) the cut-off waves (Campo Bagatin et al. 1994) span the whole 4-decade grid. That this is physical is confirmed by shifting a_min (the pattern moves with it) and by doubling the resolution (no change), so the test stays at moderate v²/2Q*_D. Q*_D ∝ a^β runs show the predicted trend in slope, but not the K10 value, because v²/2Q*_D then varies by orders of magnitude across the grid.
+* **HK13 (item 8).**
+  * The KT10 law gives their worked example exactly (M_ej/m₁ = 0.18).
+  * For MRN silicate in their WIM Model H, runs with equal P₁/t agree within 0.55–1.19 below 0.03 µm (HK13: factor 3), and JTH96/KT10 within 0.64–1.35 (HK13: ≲1.8).
+* **Lessons:**
+  * Remnants must be deposited spread over the parent node's width, not at a point. Point deposits switch bins discontinuously as a node crosses an edge, so cratering piles grains at the lower bin edges (in-bin β → −10 instead of −1.83) and the step control chatters (176k against 606 sub-steps for the cascade).
+  * External sources belong inside the MPRK step. Adding them between long chunks sends pulses down the cascade.
+  * Velocity laws must be continuous at the bin nodes (HK13's step at a_c: 300 s against 1.6 s for the same test).
 
 * **Smoluchowski (item 6)**, exponential start, mass grid at 10 bins per mass decade:
   * **Constant kernel:** to τ = K N₀t/2 = 100, N matches N₀/(1+τ) to 2e-5. The L1 error of the binned distribution is 0.7%, falling to 0.16% at 20 bins/decade (second order).
