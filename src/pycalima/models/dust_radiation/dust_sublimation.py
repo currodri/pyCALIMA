@@ -323,6 +323,65 @@ def sublimation_timescale(material, a_cm, Td):
     return tau
 
 
+# Recondensation: the species whose arrival limits regrowth (Baskin & Laor
+# 2018 use C and Si) and its mass [amu]. Each such atom adds one GD89 monomer.
+KEY_SPECIES = {'graphite': ('C', 12.011), 'silicate': ('Si', 28.086)}
+
+
+def saturated_key_density(material, a_cm, Td, T_gas, alpha=alpha_N):
+    """Gas density of the key species [cm^-3] at which recondensation cancels
+    sublimation for a grain of radius a_cm at Td.
+
+    Condensation adds one monomer per key atom at the kinetic flux
+    ``alpha n_X v_X / 4`` with ``v_X = sqrt(8 k T_gas / pi m_X)``, while
+    sublimation removes them at ``|da/dt| / V_mon``. Setting the two equal,
+
+        n_sat = 4 |da/dt| / (V_mon alpha v_X(T_gas)),
+
+    the flux balance used by ``solvers.dust_rates.condensation_rate`` with the
+    same alpha (the GD89 alpha_N the evaporation rate is built with).
+    """
+    params = GD89_PARAMS[material]
+    V_mon = params['mass_amu'] * _AMU / params['rho']
+    m_X = KEY_SPECIES[material][1] * _AMU
+    v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_X))
+    return 4.0 * radius_loss_rate(material, a_cm, Td) / (V_mon * alpha * v_X)
+
+
+def net_sublimation_timescale(material, a_cm, Td, n_key=0.0, T_gas=1.0e4):
+    """Grain lifetime a / |da/dt| [s] with recondensation from gas holding
+    ``n_key`` [cm^-3] of the key species at ``T_gas``.
+
+    ``da/dt = -|da/dt|_vac (1 - n_key / n_sat)``, so the lifetime is the
+    vacuum one divided by the undersaturation, and infinite once the gas is
+    saturated (the grain then grows). ``n_key = 0`` is ``sublimation_timescale``.
+    """
+    tau_vac = sublimation_timescale(material, a_cm, Td)
+    if n_key <= 0.0:
+        return tau_vac
+    under = 1.0 - n_key / saturated_key_density(material, a_cm, Td, T_gas)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        return np.where(under > 0.0, tau_vac / under, np.inf)
+
+
+def sublimation_temperature(material, a_cm, t_exp_s, n_key=0.0, T_gas=1.0e4,
+                            T_lo=300.0, T_hi=6000.0):
+    """Dust temperature [K] at which a grain of radius a_cm survives exactly
+    ``t_exp_s`` seconds, from ``net_sublimation_timescale``.
+
+    With ``n_key = 0`` this is the vacuum (exposure-time) sublimation
+    temperature; with gas it is never below the saturation temperature
+    n_sat(T_sub) = n_key, which it approaches for long exposures.
+    """
+    from scipy.optimize import brentq
+
+    def f(T):
+        tau = float(net_sublimation_timescale(material, a_cm, T, n_key, T_gas))
+        return np.log(tau / t_exp_s) if np.isfinite(tau) else 700.0
+
+    return brentq(f, T_lo, T_hi, xtol=1e-3)
+
+
 # Bulk sublimation constants of GD89 as quoted by Waxman & Draine (2000,
 # ApJ 537, 796, Sect. 3.1, after eq. 10): attempt frequency nu_0 [s^-1] and
 # binding energy B/k [K]. m is the mass of the unit that leaves: a C atom for
@@ -1381,8 +1440,6 @@ def write_sublimation_rate_tables(config_path=None,
     list of str
         Paths of the files that were written.
     """
-    import datetime
-
     dust_bins = _load_dust_bins(config_path)
     if not dust_bins:
         raise ValueError('No DustBin entries found in the configuration.')
@@ -1394,67 +1451,78 @@ def write_sublimation_rate_tables(config_path=None,
     os.makedirs(output_dir, exist_ok=True)
 
     T_grid = np.logspace(np.log10(T_min), np.log10(T_max), n_T)  # [K]
-    date_str = datetime.date.today().isoformat()
     written = []
-
-    # Limit timescale threshold: 10x age of Universe in seconds
-    age_universe_yr = 1.38e10
-    limit_timescale_s = 10.0 * age_universe_yr * _YR
-
     for bin_data in prepared:
-        material  = bin_data['material']
-        a0_cm     = bin_data['a0_cm']
-        bin_id    = bin_data['id']
-
-        dadt = np.array([radius_loss_rate(material, a0_cm, float(T))
-                         for T in T_grid])                  # [cm s^-1]
-        
-        # Calculate sublimation timescale against each temperature
-        with np.errstate(divide='ignore', invalid='ignore'):
-            tau_sub = np.where(dadt > 0.0, a0_cm / dadt, np.inf)
-
-        # Filter: keep only where dadt > 0.0 and tau_sub <= limit_timescale_s
-        mask = (dadt > 0.0) & (tau_sub <= limit_timescale_s)
-        T_filtered = T_grid[mask]
-        epsilon_filtered = (dadt / a0_cm)[mask]
-
-        from pycalima.models.grain_size_config import get_header_lines
-        headers = get_header_lines(
-            title="CALIMA dust sublimation rate table",
-            script_name="models/dust_radiation/dust_sublimation.py",
-            bin_info=f"Dust bin: {bin_id}, Material: {material}, Grain radius (representative): {a0_cm:.6e} cm ({a0_cm * 1e4:.6e} micron)",
-            val_desc="Columns: T_d [K] (dust temperature) | log10(epsilon/[s^-1]) (fractional sublimation rate)"
-        )
-        fname = os.path.join(output_dir, f'sublimation_rate_{bin_id}.dat')
-        with open(fname, 'w') as fh:
-            for line in headers:
-                fh.write(f"{line}\n")
-            fh.write(
-                f'# Method    : GD89 thermal sublimation (Guhathakurta & Draine\n'
-                f'#             1989, ApJ 345, 230) with microcanonical correction\n'
-                f'#             factor (eq. 3.11 + Gamma-function ratio, eq. 3.16).\n'
-                f'#             Binding energy B(N) = B_inf - sigma*N^(-1/3),\n'
-                f'#             B_inf/k_B = {GD89_PARAMS[material]["B_saturation_temperature_K"]:.1f} K,\n'
-                f'#             sigma/k_B = {GD89_PARAMS[material]["surface_free_energy_K"]:.1f} K.\n'
-                f'# Sublimation rate: epsilon = |da/dt| / a  [s^-1]\n'
-                f'#   where |da/dt| = (V_mon / (4 pi a^2)) * dN/dt [cm s^-1]\n'
-                f'#   and   dN/dt   = 4 pi a^2 * J(T) * f_corr      [s^-1]\n'
-                f'# Only dust temperatures where the sublimation timescale is\n'
-                f'# less than or equal to 10x the age of the Universe are saved\n'
-                f'# (preventing tiny value interpolations / micro-level noise).\n'
-                f'# N rows : {len(T_filtered)}\n'
-                f'#\n'
-            )
-            # Two fixed-width columns: temperature (E14.6) and rate (E14.6).
-            # Fortran can read these with:
-            #   READ(unit, '(E14.6, 1X, E14.6)') T_d, epsilon
-            for T, eps in zip(T_filtered, epsilon_filtered):
-                fh.write(f'{T:14.6E} {np.log10(eps):14.6E}\n')
-
+        fname = write_sublimation_rate_table(
+            bin_data['material'], bin_data['a0_cm'], bin_data['id'],
+            output_dir, T_grid)
         print(f'Written {fname}')
         written.append(fname)
 
     return written
+
+
+def write_sublimation_rate_table(material, a0_cm, bin_id, output_dir, T_grid):
+    """Write the sublimation-rate table of one bin and return its path.
+
+    ``sublimation_rate_{bin_id}.dat`` in ``output_dir``: log10 of
+    epsilon = ``|da/dt|`` / a [s^-1] for a grain of radius ``a0_cm`` on the
+    dust temperatures ``T_grid`` [K], in the format the solver reads
+    (``solvers.dust_init._load_erosion_rate_table``). Rows whose timescale
+    exceeds 10 times the age of the Universe are dropped.
+    """
+    from pycalima.models.grain_size_config import get_header_lines
+
+    os.makedirs(output_dir, exist_ok=True)
+    # Limit timescale threshold: 10x age of Universe in seconds
+    age_universe_yr = 1.38e10
+    limit_timescale_s = 10.0 * age_universe_yr * _YR
+
+    T_grid = np.asarray(T_grid, dtype=float)
+    dadt = np.array([radius_loss_rate(material, a0_cm, float(T))
+                     for T in T_grid])                  # [cm s^-1]
+
+    # Calculate sublimation timescale against each temperature
+    with np.errstate(divide='ignore', invalid='ignore'):
+        tau_sub = np.where(dadt > 0.0, a0_cm / dadt, np.inf)
+
+    # Filter: keep only where dadt > 0.0 and tau_sub <= limit_timescale_s
+    mask = (dadt > 0.0) & (tau_sub <= limit_timescale_s)
+    T_filtered = T_grid[mask]
+    epsilon_filtered = (dadt / a0_cm)[mask]
+
+    headers = get_header_lines(
+        title="CALIMA dust sublimation rate table",
+        script_name="models/dust_radiation/dust_sublimation.py",
+        bin_info=f"Dust bin: {bin_id}, Material: {material}, Grain radius (representative): {a0_cm:.6e} cm ({a0_cm * 1e4:.6e} micron)",
+        val_desc="Columns: T_d [K] (dust temperature) | log10(epsilon/[s^-1]) (fractional sublimation rate)"
+    )
+    fname = os.path.join(output_dir, f'sublimation_rate_{bin_id}.dat')
+    with open(fname, 'w') as fh:
+        for line in headers:
+            fh.write(f"{line}\n")
+        fh.write(
+            f'# Method    : GD89 thermal sublimation (Guhathakurta & Draine\n'
+            f'#             1989, ApJ 345, 230) with microcanonical correction\n'
+            f'#             factor (eq. 3.11 + Gamma-function ratio, eq. 3.16).\n'
+            f'#             Binding energy B(N) = B_inf - sigma*N^(-1/3),\n'
+            f'#             B_inf/k_B = {GD89_PARAMS[material]["B_saturation_temperature_K"]:.1f} K,\n'
+            f'#             sigma/k_B = {GD89_PARAMS[material]["surface_free_energy_K"]:.1f} K.\n'
+            f'# Sublimation rate: epsilon = |da/dt| / a  [s^-1]\n'
+            f'#   where |da/dt| = (V_mon / (4 pi a^2)) * dN/dt [cm s^-1]\n'
+            f'#   and   dN/dt   = 4 pi a^2 * J(T) * f_corr      [s^-1]\n'
+            f'# Only dust temperatures where the sublimation timescale is\n'
+            f'# less than or equal to 10x the age of the Universe are saved\n'
+            f'# (preventing tiny value interpolations / micro-level noise).\n'
+            f'# N rows : {len(T_filtered)}\n'
+            f'#\n'
+        )
+        # Two fixed-width columns: temperature (E14.6) and rate (E14.6).
+        # Fortran can read these with:
+        #   READ(unit, '(E14.6, 1X, E14.6)') T_d, epsilon
+        for T, eps in zip(T_filtered, epsilon_filtered):
+            fh.write(f'{T:14.6E} {np.log10(eps):14.6E}\n')
+    return fname
 
 
 def export_dust_sublimation(config_path=None, output_dir=None):

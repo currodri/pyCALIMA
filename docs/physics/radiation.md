@@ -340,3 +340,47 @@ $\log_{10}(|\dot a|/a\,[\mathrm{s^{-1}}])$ on a 200–4000 K grid
 $T_d$ only; the radiation field (Mathis scaled by $G_0$, or O6V) enters only
 the diagnostic plots. `dust_ratd.py`, on radiative torque disruption, is not
 part of any export stage.
+
+## Hot dust around an AGN
+
+`models/dust_radiation/agn_hot_dust.py` holds the pieces for optically thin
+grain heating by a quasar:
+
+- `skirtor_sed(lam_cm, L_bol)` (`agn_hot_dust.py:57`) is the SKIRTOR disk SED
+  of {cite:t}`Stalevski2012`: $\lambda L_\lambda \propto \lambda^{1.2}$
+  (1–10 nm), flat (10–100 nm), $\lambda^{-0.5}$ (0.1–5 µm), $\lambda^{-3}$
+  beyond, normalised to $L_\mathrm{bol}$ over 1 nm–1 mm.
+- `disk_anisotropy(cos_theta, law)` (`:69`) is the angular distribution
+  $f(\theta)$ of the disk emission, with mean 1 over the sphere: `isotropic`,
+  `cos` ($2|\cos\theta|$) or `skirtor`
+  ($\tfrac{6}{7}|\cos\theta|(1+2|\cos\theta|)$).
+- `HotGrain(material, a_um)` (`:90`) holds the Draine & Lee / Laor & Draine
+  absorption cross section of one grain and tabulates its emitted power
+  $4\pi\int C_\mathrm{abs}B_\lambda(T)\,d\lambda$ on 3–5000 K, so that the
+  equilibrium temperature is a table look-up. It avoids the 800 K bracket of
+  the `dust_emission.compute_equilibrium_temperature*` helpers and agrees
+  with `dust_sublimation.compute_bin_temperature` to 0.2%.
+  `luminosity_density` is the grain's emission $4\pi C_\mathrm{abs}B_\lambda(T)$.
+- `AGNIllumination(L_bol, law)` (`:145`) gives the temperature of a grain at
+  $(r,\theta)$ and its inverse, `radius_at_temperature`. With no attenuation
+  the absorbed power scales as $f(\theta)/r^2$, so
+  $R(T)\propto[f(\theta)L_\mathrm{bol}]^{1/2}$.
+
+The sublimation temperature of a grain follows from the GD89 kinetics with
+recondensation (`dust_sublimation.py:331`–`380`).
+`saturated_key_density` is the key-species density (C for graphite, Si for
+silicate) at which the kinetic condensation flux cancels evaporation, the same
+flux balance as the `condensation_rate` kernel
+({doc}`dust-growth-destruction`). `net_sublimation_timescale` divides the
+vacuum lifetime by the undersaturation $1-n_X/n_\mathrm{sat}$, and
+`sublimation_temperature(material, a_cm, t_exp_s, n_key, T_gas)` is the
+temperature at which the grain survives an exposure $t_\mathrm{exp}$.
+`write_sublimation_rate_table` (`dust_sublimation.py:1465`) writes the
+solver table of a single grain, for runs that do not go through a grain-size
+configuration.
+
+`models/tools/spherex.py` models the 102 SPHEREx channels (six bands of 17
+over 0.75–5.0 µm, $R$ = 35–41 below 3.82 µm and 110–130 above) as log-spaced
+top-hats, and `spherex_photometry` returns the photon-weighted mean
+$F_\lambda$ per channel. It approximates the real linear-variable-filter
+responses, which should replace it once released.

@@ -604,6 +604,104 @@ class TestDustRadiation:
                     ds.wd00_sublimation_timescale("silicate", a_cm, T)
                 assert 0.5 < r < 2.0, (a_cm, T)
 
+    def test_recondensation_balances_sublimation_at_the_saturated_density(self):
+        """n_sat is where the kinetic condensation flux equals the GD89
+        evaporation flux: the lifetime diverges there and is the vacuum one
+        divided by (1 - n/n_sat) below it."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        for material in ("graphite", "silicate"):
+            a, T, Tg = 1e-5, 1700.0, 1e4
+            n_sat = float(ds.saturated_key_density(material, a, T, Tg))
+            tau_vac = float(ds.sublimation_timescale(material, a, T))
+            assert ds.net_sublimation_timescale(material, a, T, 0.0, Tg) == tau_vac
+            assert ds.net_sublimation_timescale(material, a, T, 0.5 * n_sat, Tg) == \
+                pytest.approx(2.0 * tau_vac)
+            assert np.isinf(ds.net_sublimation_timescale(material, a, T, 1.01 * n_sat, Tg))
+            # hotter gas brings the atoms back faster: n_sat ~ T_gas^-1/2
+            assert ds.saturated_key_density(material, a, T, 4 * Tg) == \
+                pytest.approx(0.5 * n_sat)
+
+    def test_sublimation_temperature_inverts_the_lifetime(self):
+        """T_sub(t_exp) round-trips, falls with exposure, and with gas never
+        drops below the saturation temperature."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        yr = 3.1556952e7
+        for material in ("graphite", "silicate"):
+            T = [ds.sublimation_temperature(material, 1e-5, t * yr) for t in (1e-2, 1, 1e2)]
+            assert T[0] > T[1] > T[2]
+            assert float(ds.sublimation_timescale(material, 1e-5, T[1])) == \
+                pytest.approx(yr, rel=1e-2)
+            n = 1e3
+            T_long = ds.sublimation_temperature(material, 1e-5, 1e12 * yr, n_key=n)
+            assert float(ds.saturated_key_density(material, 1e-5, T_long, 1e4)) == \
+                pytest.approx(n, rel=0.02)
+            assert ds.sublimation_temperature(material, 1e-5, 1e3 * yr, n_key=n) > \
+                ds.sublimation_temperature(material, 1e-5, 1e3 * yr)
+
+
+class TestAGNHotDust:
+    def test_skirtor_sed_integrates_to_the_bolometric_luminosity(self):
+        from pycalima.models.dust_radiation.agn_hot_dust import skirtor_sed
+
+        lam = np.logspace(-7, -1, 20001)
+        assert np.trapezoid(skirtor_sed(lam, 1e46), lam) == pytest.approx(1e46, rel=1e-3)
+
+    @pytest.mark.parametrize("law", ["isotropic", "cos", "skirtor"])
+    def test_disk_anisotropy_averages_to_one_over_the_sphere(self, law):
+        from pycalima.models.dust_radiation.agn_hot_dust import disk_anisotropy
+
+        mu = np.linspace(-1.0, 1.0, 200001)
+        assert np.trapezoid(disk_anisotropy(mu, law), mu) / 2.0 == pytest.approx(1.0, rel=1e-6)
+
+    def test_unknown_anisotropy_law_raises(self):
+        from pycalima.models.dust_radiation.agn_hot_dust import disk_anisotropy
+
+        with pytest.raises(ValueError, match="law"):
+            disk_anisotropy(0.5, "conical")
+
+    def test_grain_power_table_round_trips_and_matches_its_spectrum(self):
+        from pycalima.models.dust_radiation.agn_hot_dust import HotGrain
+
+        g = HotGrain("graphite", 0.1)
+        T = np.array([50.0, 800.0, 1500.0, 2500.0])
+        np.testing.assert_allclose(g.temperature(g.emitted_power(T)), T, rtol=1e-4)
+        assert np.isnan(g.temperature(1e-60)) and np.isnan(g.temperature(1e60))
+        lam = np.logspace(-6, -1, 20001)
+        L = np.trapezoid(g.luminosity_density(lam, 1500.0), lam)
+        assert L == pytest.approx(float(g.emitted_power(1500.0)), rel=5e-3)
+
+    @pytest.mark.parametrize("material,a_um", [("graphite", 0.1), ("silicate", 0.1),
+                                              ("graphite", 1.0)])
+    def test_equilibrium_temperature_matches_the_root_finder(self, material, a_um):
+        """The tabulated inversion must agree with
+        dust_sublimation.compute_bin_temperature where that one is valid."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+        from pycalima.models.dust_radiation.agn_hot_dust import (
+            PC_CM, AGNIllumination, HotGrain)
+
+        g, agn = HotGrain(material, a_um), AGNIllumination(1e46, law="isotropic")
+        for r_pc in (0.3, 1.0, 3.0):
+            ref = ds.compute_bin_temperature(g.a_cm, g.wav_cm, g.C_abs, agn.lam_cm,
+                                             agn.flux(r_pc * PC_CM))
+            assert float(agn.temperature(g, r_pc * PC_CM)) == pytest.approx(ref, rel=2e-3)
+
+    def test_sublimation_radius_scales_with_luminosity_and_anisotropy(self):
+        """Optically thin: R(T) ~ (f(theta) L)^1/2, and it inverts T(r)."""
+        from pycalima.models.dust_radiation.agn_hot_dust import (
+            AGNIllumination, HotGrain, disk_anisotropy)
+
+        g = HotGrain("graphite", 0.1)
+        a1, a2 = AGNIllumination(1e45), AGNIllumination(1e46)
+        R1 = a1.radius_at_temperature(g, 1500.0, cos_theta=1.0)
+        assert a2.radius_at_temperature(g, 1500.0, cos_theta=1.0) == \
+            pytest.approx(np.sqrt(10.0) * R1)
+        assert float(a1.temperature(g, R1, cos_theta=1.0)) == pytest.approx(1500.0, rel=1e-4)
+        R_eq = a1.radius_at_temperature(g, 1500.0, cos_theta=0.2)
+        ratio = np.sqrt(disk_anisotropy(0.2) / disk_anisotropy(1.0))
+        assert R_eq / R1 == pytest.approx(ratio)
+
 
 # ===========================================================================
 # models/dust_gas_collisions
@@ -717,6 +815,26 @@ class TestTools:
         for name, df in frames.items():
             assert len(df) > 0, name
             assert df["Grain Size"].notna().any(), name
+
+    def test_spherex_channels_tile_the_band_at_the_quoted_resolution(self):
+        from pycalima.models.tools.spherex import SPHEREX_BANDS, spherex_channels
+
+        ch = spherex_channels()
+        assert ch["lam_um"].size == 102
+        np.testing.assert_allclose(ch["lo_um"][1:], ch["hi_um"][:-1])
+        assert ch["lo_um"][0] == 0.75 and ch["hi_um"][-1] == 5.0
+        R_eff = ch["lam_um"] / (ch["hi_um"] - ch["lo_um"])
+        assert np.all(np.abs(R_eff / ch["R"] - 1.0) < 0.15)
+        assert len(SPHEREX_BANDS) == 6
+
+    def test_spherex_photometry_preserves_a_flat_and_a_linear_spectrum(self):
+        from pycalima.models.tools.spherex import spherex_photometry
+
+        lam = np.linspace(0.5, 5.5, 5001)
+        ch, F = spherex_photometry(lam, np.stack([np.full_like(lam, 3.0), lam]))
+        np.testing.assert_allclose(F[0], 3.0)
+        # photon-weighted mean of lambda over a narrow top-hat ~ its centre
+        np.testing.assert_allclose(F[1], ch["lam_um"], rtol=1e-3)
 
 
 # ===========================================================================
