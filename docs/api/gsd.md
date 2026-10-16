@@ -125,14 +125,20 @@ them, which matters once the rates are averaged over charge points.
 * **`n_speed`:** the default of 4 is converged to ~1% against 8. With
   `n_speed = 2` it costs ~3% and halves the time.
 
-| Workload | Time |
-|---|---|
-| Exchange step, 136 bins | ~2 ms |
-| Collision rate evaluation, 120 bins (MRN) | ~7 ms CPU |
-| Same, evolved (all bins filled) | ~14 ms CPU |
-| Charging solve, 22 radii | ~2 ms |
+Measured on an idle M-series machine (10 performance + 4 efficiency cores):
 
-Timings are single-threaded, measured with the machine otherwise busy.
+| Workload | Wall | CPU |
+|---|---|---|
+| Exchange step, 136 bins | 1.9 ms | 1.9 ms |
+| Collision rate evaluation, 120 bins (MRN, charges, table) | 1.1 ms | 6 ms |
+| WIM shattering + sticking, 10 Myr (253 steps) | 1.1-1.3 s | 7 s |
+| Coagulation, 150 bins, one collision time | 0.94 s | 1.5 s |
+| Charging solve, 22 radii | 1.9 ms | 1.9 ms |
+
+Shattering scales 5.5x from 1 to 10 threads and gains nothing on the
+efficiency cores (12-14 threads). Coagulation sums are small and run best
+on 3-4 threads, so `threads_for(work)` gives one thread per 15k
+channel x pair evaluations.
 
 Status: transport, gas exchange, coagulation, shattering and per-size
 charging (phases 2a-2e of the plan). The AGN rim on the solver follows.

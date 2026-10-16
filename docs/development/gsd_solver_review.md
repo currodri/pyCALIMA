@@ -403,7 +403,10 @@ Rejected:
 * **RMS error norm:** equivalent to a looser max norm, no free gain.
 * **numba `parallel=True`:** slower than serial here even with OpenMP enabled.
 
-Thread scaling was measured with ~12 cores busy, so its gain is still to be measured on an idle machine.
+**Thread scaling** (idle machine, nogil Python threads on the performance cores):
+* WIM shattering takes 5.9 s on 1 thread, 1.8 s on 4 and 1.07 s on 10 (5.5×), with no gain on 12–14 threads.
+* Coagulation sums are small (~0.6 ms) and run best on 3–4 threads.
+* Overall the WIM 10 Myr run went from 20 s to ~1.1 s of wall time (~17×).
 
 **Status of the suite (`tests/test_gsd.py`).** Items 1-6, the steady-cascade part of item 7 and the NK13 and HK13 parts of item 8 pass.
 

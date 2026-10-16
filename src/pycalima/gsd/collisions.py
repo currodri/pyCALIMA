@@ -540,7 +540,15 @@ def _pair_terms_threads(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, r
     return F, L, H
 
 
-PARALLEL_MIN_PAIRS = 100_000   # channel x pair evaluations above which threads pay
+PAIRS_PER_THREAD = 15_000   # channel x pair evaluations per thread that pay for it
+
+
+def threads_for(work):
+    """Threads for a pair sum of ``work`` channel x pair evaluations: one per
+    PAIRS_PER_THREAD, at most ``default_threads()`` (measured on an M-series
+    chip: shattering, 145k evaluations, 5.5x on 10 threads; coagulation, 45k,
+    best on 3-4)."""
+    return int(max(1, min(default_threads(), work // PAIRS_PER_THREAD)))
 
 
 def _pair_terms(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alpha,
@@ -553,11 +561,11 @@ def _pair_terms(m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, rho, alph
     a_lo have an extra leading axis of two product sets (s = 0: products of
     grain p, s = 1: of grain q; a merger puts everything in set 0). Channels
     must be symmetric under p <-> q with the sets swapped, so only q >= p is
-    visited. Large problems run on ``default_threads()`` threads."""
+    visited. Threads: ``threads_for(work)``."""
     P = K.shape[1]
     work = K.shape[0] * P * (P + 1) // 2
     if threads is None:
-        threads = default_threads() if work >= PARALLEL_MIN_PAIRS else 1
+        threads = threads_for(work)
     nb = m.shape[0]
     mfac = 4.0 / 3.0 * math.pi * rho
     eM, eN = 4.0 - alpha, 1.0 - alpha

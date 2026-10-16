@@ -58,7 +58,7 @@ import numpy as np
 
 from pycalima.collapse._jit import njit
 
-from .collisions import Channel, _deposit_segment, _fragments, default_threads, run_rows
+from .collisions import Channel, _deposit_segment, _fragments, run_rows, threads_for
 from .velocities import RelativeVelocity, coulomb_rate_factor, flux_quantile, log_flux_above
 
 _E2 = 4.80320471e-10 ** 2
@@ -330,8 +330,9 @@ class GrainCollisions:
             args = args + (self.prune * tN, self.prune * tM)
         else:
             args = args + (0.0, 0.0)
-        n_threads = self.threads if self.threads is not None else (
-            default_threads() if a.size >= 160 else 1)
+        n_ch = self.n_speed + (1 if self.coagulation else 0)
+        n_threads = self.threads if self.threads is not None else threads_for(
+            n_ch * a.size * (a.size + 1) // 2)
         return run_rows(_shatter_rows, args, grid.n_bins, grid.a_edges, float(grid.rho),
                         float(self.alpha_f), n_threads)
 
