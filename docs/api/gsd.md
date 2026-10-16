@@ -29,11 +29,26 @@ is installed.
 sublimation with the Kelvin term and steady-state nucleation, implicit in
 the gas density (backward Euler on the key species, solved for the
 end-of-step density), so steps of any length are stable and every key
-element is conserved to round-off. One exchange step on 136 bins takes
-~1.5 ms.
+element is conserved to round-off. While nucleation is active the step is
+halved until the gas density changes by less than 0.5% per sub-step;
+otherwise one exchange step on 136 bins takes ~1.5 ms. New grains are
+injected past the nucleation barrier (the Zeldovich width above n*).
+Verified against Wagner's (LSW) self-similar ripening and against Nozawa &
+Kozasa (2013) dust formation in expanding gas (within ~1-4% in
+$a_{\rm ave}$; see the review, s. 7.6).
 
-Status: transport and gas exchange (phases 2a-2b of the plan). Coagulation,
-shattering and per-bin charging follow.
+`coagulation` collides grains of one population: each bin's profile is
+represented by two nodes (its number halves) that reproduce $N$ and $M$
+exactly, node pairs deposit their products in the bin containing
+$m_1 + m_2$, and the mass transfers are integrated with MPRK22 (mass
+conserved to round-off and positive for any step; number Patankar-implicit),
+with adaptive sub-steps from the first/second-order stage difference.
+Verified against the constant, additive (Golovin) and multiplicative
+Smoluchowski solutions; ~2 ms per sub-step on 150 bins. Different
+materials do not coagulate with each other.
+
+Status: transport, gas exchange and coagulation (phases 2a-2c of the
+plan). Shattering and per-bin charging follow.
 
 ## Modules
 
@@ -46,5 +61,6 @@ shattering and per-bin charging follow.
    pycalima.gsd.pl2m
    pycalima.gsd.remap
    pycalima.gsd.exchange
+   pycalima.gsd.coagulation
    pycalima.gsd._kernels
 ```

@@ -2,7 +2,7 @@
 
 ``advance``: exact characteristics of da/dt = f(a) for f tabulated on
 ascending radii and linear in a between table points. In a cell with
-f = f0 + g (a - a0) a grain moves as a(t) = a0 + (f(a) e^{g t} - f0) / g,
+f = f0 + g (a - a0) a grain moves as a(t) = a + f(a) (e^{g t} - 1) / g,
 so it is integrated cell by cell without time steps: the cost does not
 depend on stiffness, and a root of f (an equilibrium radius) is approached
 exponentially and never crossed. Grains carried below the table return 0.
@@ -37,8 +37,22 @@ def _cell(ta, x):
 
 
 @njit(cache=True)
+def _phi(z):
+    # expm1(z) / z, continuous at 0
+    if abs(z) < 1e-8:
+        return 1.0 + 0.5 * z
+    return math.expm1(z) / z
+
+
+@njit(cache=True)
 def advance_one(ta, tf, x, dt):
-    """Radius after dt of a grain at x (0 if it fell below the table)."""
+    """Radius after dt of a grain at x (0 if it fell below the table).
+
+    In a cell the grain moves as x(t) = x + f(x) t expm1(g t) / (g t); the
+    time to reach a cell edge is log1p(g (edge - x) / f(x)) / g. Written so,
+    neither form cancels when f is nearly constant across the cell, so
+    displacements far smaller than x are resolved to round-off.
+    """
     n = ta.size
     t = dt
     k = _cell(ta, x)
@@ -58,17 +72,14 @@ def advance_one(ta, tf, x, dt):
         up = fx > 0.0
         target = a1 if up else a0
         ft = f1 if up else f0
-        if fx * ft <= 0.0:
+        if ft == 0.0 or (ft > 0.0) != up:
             # a root of f lies ahead in this cell: approach it, never cross
-            return a0 + (fx * math.exp(g * t) - f0) / g
-        if abs(g) * (a1 - a0) < 1e-12 * abs(fx):
-            tau = (target - x) / fx
-            if tau >= t:
-                return x + fx * t
-        else:
-            tau = math.log(ft / fx) / g
-            if tau >= t:
-                return a0 + (fx * math.exp(g * t) - f0) / g
+            # (signs, not fx * ft: the product underflows for tiny rates)
+            return x + fx * t * _phi(g * t)
+        z = g * (target - x) / fx            # > -1: f keeps its sign to the edge
+        tau = (target - x) / fx if abs(z) < 1e-8 else math.log1p(z) / g
+        if tau >= t:
+            return x + fx * t * _phi(g * t)
         t -= tau
         x = target
         if up:

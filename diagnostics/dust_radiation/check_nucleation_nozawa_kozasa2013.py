@@ -31,6 +31,11 @@ sticking s = 1):
     dK_i/dt = I_s n_crit^(i/3) + (i/a0)(da/dt) K_(i-1)          (eq. 49)
     c1 = c~1 (1 - K3),   f_con = K3,   a_ave = a0 (K3/K0)^(1/3)
 
+Finally the same expansion is run through the grain-size-distribution
+solver (``pycalima.gsd``: exchange steps plus dilution, steady-state
+nucleation injected past the barrier, Kelvin term in growth), with the
+N03 graphite dataset set to NK13's s = 1 and a0 (``run_gsd``).
+
 Usage
 -----
     python diagnostics/dust_radiation/check_nucleation_nozawa_kozasa2013.py
@@ -185,11 +190,54 @@ def run_nonsteady(c10, gamma, t0=T0_DAYS * DAY, s=1.0, x_end=20.0, n_star=N_STAR
             t_on / t0, 1.0 / tau_sat_inv / DAY, T0)
 
 
+def nk13_carbon_model():
+    """N03 graphite with NK13's sticking (s = 1) and a0 = 1.281 A per atom."""
+    from dataclasses import replace
+
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+    m = get_sublimation_model("graphite", "N03")
+    rho = M_C / (4.0 * np.pi * A0_C ** 3 / 3.0)
+    return replace(m, channels=(replace(m.channels[0], alpha0=1.0),), density_gcm3=rho)
+
+
+def run_gsd(c10, gamma, t0=T0_DAYS * DAY, x_end=20.0, step=5e-4, kelvin=True,
+            bins_per_mass_decade=10):
+    """NK13's expansion through pycalima.gsd. Returns the tuple of ``run``
+    (Lambda_on, x_on, tau_sat and T0 from the steady model).
+
+    The step dt = ``step`` t must resolve the cooling: within a step T is
+    held fixed and ln S moves by (A/T) dln T. At gamma = 1.5 and Lambda_on
+    ~ 1e5-1e6, step = 2e-3 puts a_ave 20-50% high; 5e-4 is converged to ~1%.
+    """
+    from pycalima.gsd.exchange import Population, exchange_step
+
+    model = nk13_carbon_model()
+    lam, _, _, x_on, tau_sat, T0 = run(c10, gamma, t0=t0)
+    pop = Population.empty(model, 0.9e-8, 1e-2, bins_per_mass_decade, T_d=T0, kelvin=kelvin)
+    gas, t = {"C": c10}, t0
+    while t < x_end * t0:
+        dt = step * t
+        d = (t / (t + dt)) ** 3                  # homologous dilution
+        t += dt
+        pop.N, pop.M, gas["C"] = pop.N * d, pop.M * d, gas["C"] * d
+        pop.overflow_N *= d
+        pop.overflow_M *= d
+        T = T0 * (t / t0) ** (-3.0 * (gamma - 1.0))
+        pop.T_d = np.full(pop.grid.n_bins, T)
+        exchange_step([pop], gas, T, dt)
+    f = pop.key_atoms() / (c10 * (t / t0) ** -3)
+    n = pop.N.sum() + pop.overflow_N
+    a = ((pop.M.sum() + pop.overflow_M) / n / (4.0 / 3.0 * np.pi * model.density_gcm3)) ** (1 / 3)
+    return lam, a * 1e4, f, x_on, tau_sat, T0
+
+
 def compute(c10_grid, gammas):
     rows = []
     for gamma in gammas:
         for c10 in c10_grid:
             rows.append(("steady", gamma, c10) + tuple(run(c10, gamma)))
+            rows.append(("GSD", gamma, c10) + tuple(run_gsd(c10, gamma)))
             # Above c10 ~ 1e9 (Lambda_on >~ 1e5) the cluster equations become very
             # stiff (tau_coll ~ 0.03 s against t0 = 2.6e7 s) and the steady model,
             # which NK13 show is exact there, is used instead.
@@ -214,6 +262,9 @@ def print_comparison(rows):
     st = [r for r in rows if r[0] == "steady" and np.isfinite(r[3]) and r[3] >= 30]
     print(f"steady vs eq64, Lambda_on >= 30: max |a/eq64 - 1| = "
           f"{max(abs(r[4] / nk13_a_ave(r[3]) - 1) for r in st):.1%}")
+    gs = [r for r in rows if r[0] == "GSD" and np.isfinite(r[3]) and r[3] >= 30]
+    print(f"GSD solver vs eq64, Lambda_on >= 30: max |a/eq64 - 1| = "
+          f"{max(abs(r[4] / nk13_a_ave(r[3]) - 1) for r in gs):.1%}")
     for label, fn in (("steady", run), ("non-steady", run_nonsteady)):
         lam, a, f, x_on, tau_sat_d, T0 = fn(1e5, 1.25)
         print(f"{label:>11s}, c10 = 1e5, gamma = 1.25: a_ave = {a:.4f} um, f_con = {f:.2f} "
@@ -239,6 +290,11 @@ def plot(rows, out_path):
             ax_a.plot([r[3] for r in sel], [r[4] for r in sel],
                       label=rf"pyCALIMA {model}, $\gamma$ = {gamma}", **kw)
             ax_f.plot([r[3] for r in sel], [r[5] for r in sel], **kw)
+        sel = [r for r in rows if r[0] == "GSD" and r[1] == gamma]
+        kw = dict(ls="none", marker="x", ms=7, mew=1.5, color="#1c1c1a" if gamma == 1.25 else "#8a3ffc")
+        ax_a.plot([r[3] for r in sel], [r[4] for r in sel],
+                  label=rf"pycalima.gsd solver, $\gamma$ = {gamma}", **kw)
+        ax_f.plot([r[3] for r in sel], [r[5] for r in sel], **kw)
     for ax in (ax_a, ax_f):
         ax.set(xscale="log", xlabel=r"$\Lambda_{\rm on}=\tau_{\rm sat}/\tau_{\rm coll}$",
                xlim=(0.1, 3e6))
@@ -246,7 +302,7 @@ def plot(rows, out_path):
     ax_a.set(yscale="log", ylabel=r"$a_{\rm ave,\infty}$ [$\mu$m]")
     ax_f.set(yscale="log", ylabel=r"$f_{\rm con,\infty}$", ylim=(1e-4, 2))
     ax_a.legend(frameon=False, fontsize=7, loc="upper left")
-    ax_f.text(0.5, 3e-4, "open: steady model (NK13 Fig. 8, grey)\nfilled: non-steady",
+    ax_f.text(0.5, 3e-4, "open: steady model (NK13 Fig. 8, grey)\nfilled: non-steady\ncrosses: GSD solver (steady kernel)",
               fontsize=8, color="#52514e")
     fig.suptitle("C grains in cooling gas: pyCALIMA vs Nozawa & Kozasa (2013)", fontsize=10)
     fig.tight_layout()

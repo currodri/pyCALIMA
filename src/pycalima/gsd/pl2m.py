@@ -34,7 +34,7 @@ def mean_mass_ratio(beta, eta):
     return out
 
 
-def solve_beta(mbar_ratio, eta, n_iter=80):
+def solve_beta(mbar_ratio, eta, n_iter=56):
     """Exponent beta whose mean mass ratio is ``mbar_ratio`` (in (1, eta)),
     by bisection on [-BETA_MAX, BETA_MAX] (compiled kernel)."""
     from ._kernels import solve_beta as _solve

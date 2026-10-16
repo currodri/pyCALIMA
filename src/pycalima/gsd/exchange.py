@@ -20,10 +20,18 @@ below the binding energy, which would freeze tens-of-atoms clusters in
 place, and the steady-state nucleation rate assumes canonical evaporation
 with the same Kelvin term, so canonical rates keep the two consistent.
 Switch it on together with a P(T) treatment of the smallest grains.
+``kelvin=False`` drops the small-grain term from growth and evaporation (it
+still sets the nucleation barrier), as in the growth law of Nozawa & Kozasa
+(2013, eq. 2).
 
 New grains form by steady-state nucleation (``steady_state_nucleation_rate``)
-at the critical size, or at the bottom of the grid if smaller, and are laid
-along their growth characteristic (``remap.inject``).
+and are laid along their growth characteristic (``remap.inject``) from the
+injection size, or the bottom of the grid if smaller. With the Kelvin term
+that size is n* + 3 n*^(2/3) / mu^(1/2) monomers, where Delta G has fallen
+by kT below the barrier (the Zeldovich width): J_s already counts the
+clusters that cross the barrier, and at n* itself da/dt = 0, so grains
+injected there would stall while nucleation continued. Without it
+(``kelvin=False``) grains start at n*, as in NK13's steady model.
 
 ``exchange_step`` advances all populations sharing a key species over dt
 with the gas density held at its end-of-step value n (backward Euler in the
@@ -72,6 +80,7 @@ class Population:
     overflow_M: float = 0.0
     table_points: int = 2000
     microcanonical: bool = False
+    kelvin: bool = True
     _fcorr: tuple = field(default=None, repr=False)
     _profile: tuple = field(default=None, repr=False)
 
@@ -120,7 +129,8 @@ class Population:
             T = self.temperature_of_radius(a)
             grow = m.condensation_alpha(T) * V * n_key * v_X * coulomb / (4.0 * m.key_per_unit)
             N_units = (4.0 / 3.0) * np.pi * np.maximum(a, 1e-30) ** 3 / V
-            kelvin = np.exp(np.minimum(m.theta * N_units ** (-1.0 / 3.0) / T, 700.0))
+            kelvin = (np.exp(np.minimum(m.theta * N_units ** (-1.0 / 3.0) / T, 700.0))
+                  if self.kelvin else 1.0)
             fcorr = (np.interp(np.log(np.maximum(a, 1e-30)), la_tab, f_tab)
                      if la_tab is not None else 1.0)
             return grow - V * m.flux(T) * kelvin * fcorr
@@ -129,7 +139,8 @@ class Population:
 
     # -- one step at fixed gas ---------------------------------------------------
     def advanced(self, n_key, T_gas, dt, nucleate=True):
-        """(N, M, overflow_N, overflow_M) after dt at fixed gas n_key (no mutation)."""
+        """(N, M, overflow_N, overflow_M, born) after dt at fixed gas n_key (no
+        mutation); ``born`` is the number nucleated in the step."""
         rate = self.adot(n_key, T_gas)
         table = velocity_table(rate, self.grid.a_edges[0] * 0.3, self.grid.a_edges[-1] * 3.0,
                                self.table_points)
@@ -138,53 +149,96 @@ class Population:
         N1, M1, _lost, oN, oM = remap(self.grid, self.N, self.M,
                                       lambda a: advance(table, a, dt),
                                       profile=self._profile[2])
+        born = 0.0
         if nucleate and self.nucleation and n_key > 0.0:
             T_c = self.T_cluster if self.T_cluster is not None else float(self.T_d[0])
             J, n_star = ds.steady_state_nucleation_rate(
                 self.model, self.neutral_fraction * n_key, T_c, T_gas)
             if J > 0.0 and np.isfinite(n_star):
-                V_mon = self.model.unit_volume_cm3 / self.model.key_per_unit
-                a_star = (3.0 * max(n_star, 1.0) * V_mon / (4.0 * np.pi)) ** (1.0 / 3.0)
+                kpu = self.model.key_per_unit
+                V_mon = self.model.unit_volume_cm3 / kpu
+                n_inj = max(n_star, 1.0)
+                if self.kelvin:
+                    # past the barrier top by the Zeldovich width, where
+                    # Delta G has fallen by kT: there the drift carries the
+                    # grains on (at n* itself adot = 0 and they would stall)
+                    mu = 1.5 * self.model.theta * kpu ** (-2.0 / 3.0) / T_c
+                    n_inj = n_inj + 3.0 * n_inj ** (2.0 / 3.0) / np.sqrt(mu)
+                a_star = (3.0 * n_inj * V_mon / (4.0 * np.pi)) ** (1.0 / 3.0)
                 a0 = max(a_star, self.grid.a_edges[0] * (1.0 + 1e-9))
                 _, y = trajectory(rate, a0, dt, n_nodes=33, table=table)
                 dN, dM = inject(self.grid, J * dt, y[::-1])
                 N1 = N1 + dN
                 M1 = M1 + dM
-        return N1, M1, self.overflow_N + oN, self.overflow_M + oM
+                born = float(dN.sum())
+        return N1, M1, self.overflow_N + oN, self.overflow_M + oM, born
 
 
 def exchange_step(populations: List[Population], gas: Dict[str, float], T_gas: float,
-                  dt: float, rtol: float = 1e-10) -> Dict[str, float]:
+                  dt: float, rtol: float = 1e-10, dlnn_max: float = 0.005,
+                  max_depth: int = 20) -> Dict[str, float]:
     """Advance the populations and the gas over dt, implicitly in the gas.
 
     ``gas`` maps key species to number density [cm^-3]; it is updated in place
     and returned. Populations sharing a key species are solved together.
+
+    Nucleation depends steeply on the gas density, so while newly formed
+    grains are a non-negligible part (>1e-3) of a population the step is
+    halved (up to ``max_depth`` times) until the key density changes by less
+    than ``dlnn_max`` in ln per sub-step; the error of the backward-Euler
+    gas update is then ~dlnn_max instead of the full depletion. Steps without
+    nucleation are taken whole at any length.
     """
     by_key: Dict[str, List[Population]] = {}
     for p in populations:
         by_key.setdefault(p.model.key_species, []).append(p)
     for key, pops in by_key.items():
-        total = gas.get(key, 0.0) + sum(p.key_atoms() for p in pops)
-        if total <= 0.0:
-            continue
-        cache = {}
-
-        def dust_after(n):
-            if n not in cache:
-                cache[n] = [p.advanced(n, T_gas, dt) for p in pops]
-            return cache[n]
-
-        def residual(n):
-            res = dust_after(n)
-            return n + sum((r[1].sum() + r[3]) * p.key_atoms_per_gram
-                           for r, p in zip(res, pops)) - total
-
-        lo, hi = 0.0, total
-        if residual(lo) >= 0.0:
-            n = lo
-        else:
-            n = brentq(residual, lo, hi, xtol=rtol * total, rtol=rtol, maxiter=200)
-        for p, r in zip(pops, dust_after(n)):
-            p.N, p.M, p.overflow_N, p.overflow_M = r
-        gas[key] = max(total - sum(p.key_atoms() for p in pops), 0.0)
+        _advance_key(pops, gas, key, T_gas, dt, rtol, dlnn_max, max_depth)
     return gas
+
+
+def _advance_key(pops, gas, key, T_gas, dt, rtol, dlnn_max, depth):
+    n0 = gas.get(key, 0.0)
+    saved = [(p.N, p.M, p.overflow_N, p.overflow_M) for p in pops]
+    born = _implicit_step(pops, gas, key, T_gas, dt, rtol)
+    n1 = gas.get(key, 0.0)
+    if depth <= 0 or n0 <= 0.0:
+        return
+    N_tot = sum(p.N.sum() for p in pops)
+    if born > 1e-3 * N_tot and abs(np.log(max(n1, 1e-300) / n0)) > dlnn_max:
+        for p, st in zip(pops, saved):
+            p.N, p.M, p.overflow_N, p.overflow_M = st
+        gas[key] = n0
+        _advance_key(pops, gas, key, T_gas, 0.5 * dt, rtol, dlnn_max, depth - 1)
+        _advance_key(pops, gas, key, T_gas, 0.5 * dt, rtol, dlnn_max, depth - 1)
+
+
+def _implicit_step(pops, gas, key, T_gas, dt, rtol):
+    """One backward-Euler step of the populations of one key species; returns
+    the number nucleated."""
+    total = gas.get(key, 0.0) + sum(p.key_atoms() for p in pops)
+    if total <= 0.0:
+        return 0.0
+    cache = {}
+
+    def dust_after(n):
+        if n not in cache:
+            cache[n] = [p.advanced(n, T_gas, dt) for p in pops]
+        return cache[n]
+
+    def residual(n):
+        res = dust_after(n)
+        return n + sum((r[1].sum() + r[3]) * p.key_atoms_per_gram
+                       for r, p in zip(res, pops)) - total
+
+    lo, hi = 0.0, total
+    if residual(lo) >= 0.0:
+        n = lo
+    else:
+        n = brentq(residual, lo, hi, xtol=rtol * total, rtol=rtol, maxiter=200)
+    born = 0.0
+    for p, r in zip(pops, dust_after(n)):
+        p.N, p.M, p.overflow_N, p.overflow_M, b = r
+        born += b
+    gas[key] = max(total - sum(p.key_atoms() for p in pops), 0.0)
+    return born

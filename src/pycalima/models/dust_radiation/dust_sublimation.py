@@ -418,11 +418,20 @@ def supersaturation(material, n_key, T_cluster, T_gas, dataset=None):
     T_cluster (alpha cancels). S = 1 is the recondensation balance of
     ``saturated_key_density`` for a large grain.
     """
+    with np.errstate(over="ignore", divide="ignore"):
+        return np.exp(ln_supersaturation(material, n_key, T_cluster, T_gas, dataset))
+
+
+def ln_supersaturation(material, n_key, T_cluster, T_gas, dataset=None):
+    """ln S of ``supersaturation``, evaluated in log space so that it stays
+    finite in cold gas where the bulk evaporation flux underflows."""
     model = _model(material, dataset)
     m_X = model.key_mass_amu * _AMU
     v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_X))
     alpha = model.condensation_alpha(T_cluster)
-    return (alpha * n_key * v_X / (4.0 * model.key_per_unit)) / model.flux(T_cluster)
+    with np.errstate(divide="ignore"):
+        return (np.log(alpha * n_key * v_X / (4.0 * model.key_per_unit))
+                - model.log_flux(T_cluster))
 
 
 def classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0_cm, sigma_cgs, m_key_g,
@@ -438,16 +447,18 @@ def classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0_cm, sigma_cgs, m_
     with Omega_0 = 4 pi a_0^3 / 3 the volume per key species. Where n* drops
     below ~2 the formula exceeds the rate at which monomers meet, so J_s is
     capped at the dimer collision rate alpha n_X^2 pi (2 a_0)^2 sqrt(2) v_X / 2,
-    v_X at T_gas. Returns (0, inf) for ln S <= 0.
+    v_X at T_gas. Returns (0, inf) for ln S <= 0 and the cap for ln S = inf.
     """
-    if not np.isfinite(lnS) or lnS <= 0.0 or n_key <= 0.0:
+    if np.isnan(lnS) or lnS <= 0.0 or n_key <= 0.0:
         return 0.0, np.inf
+    v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_key_g))
+    J_coll = 0.5 * alpha * n_key ** 2 * np.pi * (2.0 * a0_cm) ** 2 * np.sqrt(2.0) * v_X
+    if np.isinf(lnS):
+        return J_coll, 0.0
     omega0 = 4.0 * np.pi * a0_cm ** 3 / 3.0
     mu = 4.0 * np.pi * a0_cm ** 2 * sigma_cgs / (_KB * T_cluster)
     J = (alpha * omega0 * np.sqrt(2.0 * sigma_cgs / (np.pi * m_key_g)) * n_key ** 2
          * np.exp(-4.0 * mu ** 3 / (27.0 * lnS ** 2)))
-    v_X = np.sqrt(8.0 * _KB * T_gas / (np.pi * m_key_g))
-    J_coll = 0.5 * alpha * n_key ** 2 * np.pi * (2.0 * a0_cm) ** 2 * np.sqrt(2.0) * v_X
     return min(J, J_coll), (2.0 * mu / (3.0 * lnS)) ** 3
 
 
@@ -471,8 +482,9 @@ def steady_state_nucleation_rate(material, n_key, T_cluster, T_gas, alpha=None,
     m_X = model.key_mass_amu * _AMU
     if alpha is None:
         alpha = float(model.condensation_alpha(T_cluster))
-    S = supersaturation(material, n_key, T_cluster, T_gas, dataset)
-    lnS = np.log(S) if np.isfinite(S) and S > 0 else -np.inf
+    lnS = float(ln_supersaturation(material, n_key, T_cluster, T_gas, dataset))
+    if np.isnan(lnS):
+        lnS = -np.inf
     theta_mon = model.theta * kpu ** (-2. / 3.)
     sigma = 1.5 * theta_mon * _KB / (4.0 * np.pi * a0 ** 2)
     return classical_nucleation_rate(n_key, lnS, T_cluster, T_gas, a0, sigma, m_X, alpha)

@@ -111,19 +111,29 @@ class SublimationModel:
                 2.0 * np.pi * m * _KB * T)
         return J
 
+    def log_flux(self, T):
+        """ln of ``flux(T)``, finite where the flux itself underflows."""
+        T = np.asarray(T, float)
+        if self.form == "gd89":
+            return np.log(self.alpha_gd89 * self.P0_cm2s) - self.B_K / T
+        terms = [np.log(c.units_per_molecule * c.alpha(T))
+                 + np.log(10.0) * (c.A10 - c.B10_K / T)
+                 - 0.5 * np.log(2.0 * np.pi * c.mass_amu * _AMU * _KB * T)
+                 for c in self.channels]
+        return np.logaddexp.reduce(np.array(terms), axis=0)
+
     def condensation_alpha(self, T):
         """Flux-weighted evaporation coefficient, used for the reverse
         (condensation) flux so that detailed balance holds."""
         T = np.asarray(T, float)
         if self.form == "gd89":
             return np.full_like(T, self.alpha_gd89)
-        num = np.zeros_like(T)
-        den = np.zeros_like(T)
-        for c in self.channels:
-            w = c.units_per_molecule * c.pressure(T) / np.sqrt(c.mass_amu)
-            num = num + c.alpha(T) * w
-            den = den + w
-        return num / den
+        # weights in log space: the pressures underflow at low T
+        lw = np.array([np.log(c.units_per_molecule) + np.log(10.0) * (c.A10 - c.B10_K / T)
+                       - 0.5 * np.log(c.mass_amu) for c in self.channels])
+        w = np.exp(lw - lw.max(axis=0))
+        al = np.array([np.broadcast_to(c.alpha(T), T.shape) for c in self.channels])
+        return (al * w).sum(axis=0) / w.sum(axis=0)
 
     @property
     def unit_volume_cm3(self) -> float:

@@ -371,6 +371,26 @@ Characteristics are monotone, so the remap needs no CFL condition. Stability is 
    * NK13 non-steady nucleation: condensation efficiency f_con,∞ and average radius a_ave,∞ versus the cooling-time parameter, with gas depletion.
 9. **Regression against the current one-moment pyCALIMA solver** on accretion-only and coagulation-only problems.
 
+**Status of the suite (`tests/test_gsd.py`).** Items 1-6 and the NK13 part of item 8 pass.
+
+* **Smoluchowski (item 6)**, exponential start, mass grid at 10 bins per mass decade:
+  * **Constant kernel:** to τ = K N₀t/2 = 100, N matches N₀/(1+τ) to 2e-5. The L1 error of the binned distribution is 0.7%, falling to 0.16% at 20 bins/decade (second order).
+  * **Additive kernel:** N matches N₀e^{−τ} to 4e-5. The mass distribution against Golovin's solution is off by 4.1% (10 bins/decade) and 1.4% (20) at τ = 4.
+  * **Multiplicative kernel:** N matches N₀ − BM²t/2 to 5e-5 up to 0.95 of the gelation time.
+  * Mass is conserved to ~1e-15 in every case.
+
+* **LSW (item 5).** Linearising the Kelvin term gives da/dt = K(1/a* − 1/a), with K = V J_bulk c and c = θ(3V/4π)^{1/3}/T. This is Wagner's interface-limited law. Its self-similar solution has a*² = Kt/2, ā = (8/9)a*, r_max = 2a* and P(ρ) ∝ ρ(2−ρ)^{−5} exp[−3ρ/(2−ρ)]. Started on that distribution, the solver stays on it: a* is within 1% of √(Kt/2) and ā/a* within 1% of 8/9 (20 bins per mass decade). Over a factor 7 in a*, the error in ā² is 4.7% at 10 bins/decade and 1.4% at 20. From a narrow log-normal the coarsening rate approaches 32/81 K only logarithmically slowly (0.457, 0.435, 0.426 per decade of time), as expected for LSW.
+* **NK13 (item 8).** NK13's homologous expansion, run through the solver (exchange steps plus dilution), with N03 carbon at s = 1:
+  * **Kelvin term on** (grains injected past the barrier, below): a_ave,∞ matches their non-steady cluster model to 0.6%, 0.4% and 1.2% at c10 = 1e6, 1e8 and 1e9 cm⁻³, and eq. 64 to ≤4.5% for Λ_on ≥ 50. f_con = 1. Against their steady model the match is ≤3.5% over Λ_on = 0.04–3e6 at γ = 1.25 (the figure of `check_nucleation_nozawa_kozasa2013.py`).
+  * **Kelvin term off:** matches their steady model to ≤1% up to Λ_on ~ 1e4. The remaining 3.5% at Λ_on ~ 1e6 is the first-order splitting of the dilution at Δt = 0.002t.
+  * **Low Λ_on:** below ~30 the steady kernel keeps f_con = 1, as their steady model does (their Fig. 8, grey). Non-steady effects then need a cluster block.
+* **Lessons from the NK13 run:**
+  * The backward-Euler gas update must be sub-stepped while nucleation is active, because J is exponentially sensitive to S. With whole steps the error is first order in Δt, with a_ave 25% high at Λ ~ 1e5. `exchange_step` therefore halves steps until |Δ ln n| ≤ 0.005 whenever the grains nucleated in the step exceed 1e-3 of the population.
+  * Grains must be injected past the nucleation barrier, at the Zeldovich width n* + 3n*^{2/3}/√μ. At n* itself ȧ = 0, the grains stall while J_s keeps counting, and a_ave comes out 9× too small at Λ ~ 1e6.
+  * The driver's step must resolve the change of ln S from cooling, (A/T) Δln T, because T is held fixed within a step. At γ = 1.5 and Λ_on ~ 1e5–1e6, Δt = 0.002t puts a_ave 20–50% high, and 5e-4·t converges to ~1%. This rule carries over to any driver with a time-dependent T_d.
+  * In cold gas the vapour pressures underflow, so S, the condensation α and the nucleation cap are evaluated in log space (`SublimationModel.log_flux`, `dust_sublimation.ln_supersaturation`).
+  * The characteristic must be written x + f t·expm1(gt)/(gt). The form a₀ + (f e^{gt} − f₀)/g cancels when the velocity is nearly constant, and its 1e-8 relative noise in the dust mass became spurious gas, and so spurious nucleation, once the gas was depleted to ~1e-8 of the element.
+
 ---
 
 ## 8. Reference list with verification status
