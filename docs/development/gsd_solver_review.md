@@ -382,7 +382,12 @@ Characteristics are monotone, so the remap needs no CFL condition. Stability is 
 * **Lessons:**
   * Remnants must be deposited spread over the parent node's width, not at a point. Point deposits switch bins discontinuously as a node crosses an edge, so cratering piles grains at the lower bin edges (in-bin β → −10 instead of −1.83) and the step control chatters (176k against 606 sub-steps for the cascade).
   * External sources belong inside the MPRK step. Adding them between long chunks sends pulses down the cascade.
-  * Velocity laws must be continuous at the bin nodes (HK13's step at a_c: 300 s against 1.6 s for the same test).
+  * Velocity laws must be continuous at the bin nodes (HK13's step at a_c: 300 s against 1.6 s for the same test). Physical runs therefore use `gsd.velocities.RelativeVelocity`:
+    * the random rms speed is Brownian plus the full Ormel & Cuzzi (2007) form, as in the collapse module and RAMSES `fold/*`;
+    * an optional drift, with the skewed-Maxwellian speed distribution (Guillet+20 App. C);
+    * shattering in n_q equal-flux quantile channels above v_shat, and sticking as the flux below v_coag.
+
+    The flux above a speed matches quadrature to 2e-9, and the quantiles invert it to ≤2e-3 in u. The summed rate reproduces the collapse coagulation kernel exactly, and the rates are smooth in T. A 50 Myr WIM run (v_turb = 10 km/s, L = 100 pc) takes 484 sub-steps.
 
 * **Smoluchowski (item 6)**, exponential start, mass grid at 10 bins per mass decade:
   * **Constant kernel:** to τ = K N₀t/2 = 100, N matches N₀/(1+τ) to 2e-5. The L1 error of the binned distribution is 0.7%, falling to 0.16% at 20 bins/decade (second order).

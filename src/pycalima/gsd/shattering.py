@@ -36,10 +36,15 @@ R12 = a1 a2 / (a1 + a2), 1/E = 2 (1 - nu)^2 / E_Y for one material (as
 printed in HY09; Chokshi et al. write (1 - nu^2)), F_stick = 10; between
 the thresholds they bounce.
 
-Relative velocities come from ``velocity(a1, a2)``, a callable returning a
-list of (weight, v [cm/s]) arrays; ``hy09_directions(v_of_a)`` builds the
-four cases v1 + v2, |v1 - v2|, v1, v2 of HY09/HK13 with weight 1/4 each
-from a velocity dispersion v(a).
+Relative velocities come either from a ``velocities.RelativeVelocity``
+(Brownian + Ormel & Cuzzi 2007 turbulence + optional drift, with the
+skewed-Maxwellian speed distribution): shattering is then ``n_speed``
+channels of equal collision flux above v_shat at their quantile speeds, and
+sticking the flux below v_coag, both continuous in grain size and gas
+state; or from a callable ``velocity(a1, a2)`` returning a list of (weight,
+v [cm/s]) arrays, e.g. ``hy09_directions(v_of_a)``, the four cases v1 + v2,
+|v1 - v2|, v1, v2 of HY09/HK13 with weight 1/4 each, with hard thresholds
+(kept for the HK13 benchmarks).
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from .collisions import Channel
+from .velocities import RelativeVelocity, log_flux_above
 
 
 @dataclass(frozen=True)
@@ -143,13 +149,16 @@ def hy09_directions(v_of_a: Callable):
 class GrainCollisions:
     """Shattering (and optionally sticking) for one material.
 
-    ``velocity(a1, a2)`` -> list of (weight, v) arrays (``hy09_directions``).
+    ``velocity``: a ``RelativeVelocity`` (continuous; recommended) or a
+    callable (a1, a2) -> list of (weight, v) arrays (``hy09_directions``).
+    ``n_speed``: flux-quantile channels for shattering with a
+    ``RelativeVelocity``.
     ``a_frag_min`` [cm] is the smallest fragment (HK13: the grid minimum).
     ``collector``: ``"remove"`` (HK13) or ``"smallest"`` (HY09)."""
 
     def __init__(self, material, velocity, law="KT10", alpha_f=3.3, f_M=0.4,
                  a_frag_min=3e-8, collector="remove", coagulation=False, F_stick=10.0,
-                 v_shat: Optional[float] = None):
+                 v_shat: Optional[float] = None, n_speed=4):
         self.material = MATERIALS[material] if isinstance(material, str) else material
         self.velocity = velocity
         self.law = law
@@ -160,6 +169,7 @@ class GrainCollisions:
         self.coagulation = coagulation
         self.F_stick = F_stick
         self.v_shat = self.material.v_shat if v_shat is None else float(v_shat)
+        self.n_speed = int(n_speed)
 
     def _shatter_products(self, a1, m1, m2, v):
         mej = ejected_mass(self.material, m1, m2, v, self.law, self.f_M)
@@ -168,6 +178,8 @@ class GrainCollisions:
         return m1 - mej, mej, a_hi
 
     def channels(self, a, m):
+        if isinstance(self.velocity, RelativeVelocity):
+            return self._distributed_channels(a, m)
         A1, A2 = a[:, None], a[None, :]
         M1, M2 = m[:, None], m[None, :]
         sig = np.pi * (A1 + A2) ** 2
@@ -188,4 +200,30 @@ class GrainCollisions:
                     out.append(Channel(Kc, rem1=M1 + M2))
         if not out:
             out.append(Channel(np.zeros(lo.shape)))
+        return out
+
+    def _distributed_channels(self, a, m):
+        """Channels from the speed distribution of every pair."""
+        vel = self.velocity
+        A1, A2 = a[:, None], a[None, :]
+        M1, M2 = m[:, None], m[None, :]
+        sig = np.pi * (A1 + A2) ** 2
+        dV, mu = vel.pair_statistics(a, m, self.material.rho)
+        v_mean, c_shat, v_q = vel.collision_speeds(dV, mu, self.v_shat, self.n_speed)
+        lo = np.full(sig.shape, self.a_frag_min)
+        out = []
+        K = sig * v_mean * c_shat / self.n_speed
+        if np.any(K > 0):
+            for v in v_q:
+                r1, e1, h1 = self._shatter_products(A1, M1, M2, v)
+                r2, e2, h2 = self._shatter_products(A2, M2, M1, v)
+                out.append(Channel(K, rem1=r1, frag1=e1, a_hi1=h1, a_lo1=lo,
+                                   rem2=r2, frag2=e2, a_hi2=h2, a_lo2=lo))
+        if self.coagulation:
+            alpha = np.sqrt(1.5) / np.maximum(dV, 1e-300)
+            v_c = coagulation_threshold(self.material, A1, A2, self.F_stick)
+            stick = -np.expm1(log_flux_above(alpha * v_c, alpha * mu))   # flux below v_coag
+            out.append(Channel(sig * v_mean * stick, rem1=M1 + M2))
+        if not out:
+            out.append(Channel(np.zeros(sig.shape)))
         return out

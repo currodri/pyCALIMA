@@ -19,6 +19,12 @@
    with (P1, t) = (1e11 dyn cm^-2, 3.3 Myr) and (9e11, 30 Myr): HK13 find that
    equal P1/t gives the same n(a) within a factor 3 (their Fig. 7).
 
+3. The same MRN silicate in the WIM with continuous relative velocities
+   (``gsd.velocities.RelativeVelocity``: Brownian + Ormel & Cuzzi 2007
+   turbulence, v_turb = 10 km/s driven at L = 100 pc, skewed-Maxwellian
+   speeds), shattering above v_shat and sticking below the Chokshi
+   threshold, at 10 and 50 Myr.
+
 Usage
 -----
     python diagnostics/gsd/check_shattering.py
@@ -32,6 +38,7 @@ from pycalima import _paths
 from pycalima.gsd.collisions import Channel, collide
 from pycalima.gsd.grid import MassGrid
 from pycalima.gsd.shattering import SILICATE, GrainCollisions, hy09_directions
+from pycalima.gsd.velocities import RelativeVelocity
 
 MYR = 3.156e13
 M_H = 1.6735e-24
@@ -102,6 +109,21 @@ def wim(law, P1, t_myr, bpd=10):
     return g.a_centres, dn0, dn, r["sink_M"] / M.sum()
 
 
+def wim_turbulent(t_list_myr, bpd=10):
+    g = MassGrid.from_radii(3e-8, 3e-4, bpd, SILICATE.rho)
+    N, M = mrn(g)
+    rv = RelativeVelocity(T=8000.0, n_H=1.0, mu=1.4, v_turb=1e6, L=100 * 3.086e18)
+    model = GrainCollisions(SILICATE, rv, law="KT10", coagulation=True, a_frag_min=3e-8,
+                            collector="remove")
+    out, t_prev, steps = {}, 0.0, 0
+    for t in t_list_myr:
+        r = collide(g, N, M, model, (t - t_prev) * MYR, errmax=1e-3)
+        N, M, t_prev = r["N"], r["M"], t
+        steps += r["n_steps"]
+        out[t] = N / np.diff(g.a_edges)
+    return g.a_centres, out, steps
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--no-plot", action="store_true")
@@ -127,13 +149,16 @@ def main():
     r = runs["JTH96"][small] / runs["KT10"][small]
     print(f"  JTH96 / KT10 for a < 0.03 um: {r.min():.2f}-{r.max():.2f} (HK13: <~1.8 for silicate)")
 
+    a_t, turb, steps = wim_turbulent((10.0, 50.0))
+    print(f"WIM with Ormel & Cuzzi velocities: 50 Myr in {steps} sub-steps")
+
     if args.no_plot:
         return
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.0, 4.2))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14.5, 4.2))
     for af, color in zip((2.5, 3.0, 3.5), ("#2a78d6", "#1baf7a", "#eb6834")):
         a_c, dn_c = casc[af]
         ax1.plot(a_c * 1e4, dn_c * a_c ** 3.5 / np.median(dn_c * a_c ** 3.5), color=color,
@@ -154,7 +179,14 @@ def main():
             ylabel=r"$a^4\,dN/da$ [cm$^{3}$ per cm$^{3}$]", ylim=(1e-30, 1e-27),
             title="WIM shattering (HK13 setup, MRN start)")
     ax2.legend(frameon=False, fontsize=8, loc="lower center")
-    for ax in (ax1, ax2):
+    ax3.plot(a * 1e4, dn0 * a ** 4, color="#c3c2be", lw=1.5, label="MRN, t = 0")
+    for t, color in ((10.0, "#2a78d6"), (50.0, "#eb6834")):
+        ax3.plot(a_t * 1e4, turb[t] * a_t ** 4, color=color, lw=1.5, label=f"{t:.0f} Myr")
+    ax3.set(xscale="log", yscale="log", xlabel=r"$a$ [$\mu$m]",
+            ylabel=r"$a^4\,dN/da$ [cm$^{3}$ per cm$^{3}$]", ylim=(1e-30, 1e-27),
+            title="WIM, Ormel & Cuzzi turbulence (10 km/s)")
+    ax3.legend(frameon=False, fontsize=8, loc="lower center")
+    for ax in (ax1, ax2, ax3):
         ax.tick_params(which="both", direction="in", top=True, right=True)
     fig.tight_layout()
     out = _paths.get_plots_dir()

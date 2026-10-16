@@ -543,3 +543,122 @@ def test_small_grain_production_scales_with_P1_t():
     assert np.all(np.abs(out[1][mid] / out[0][mid] - 1) < 0.25)
     gained = (out[0][g.a_centres < 3e-7] * g.m_centres[g.a_centres < 3e-7]).sum()
     assert gained > 0.03 * M.sum()                      # small grains are produced
+
+
+# ---------------------------------------------------------------------------
+# continuous relative velocities (Ormel & Cuzzi 2007 + skewed Maxwellian)
+# ---------------------------------------------------------------------------
+
+def test_collision_flux_above_a_speed_matches_quadrature():
+    """C(u; s) and the mean speed of the skewed Maxwellian (Guillet+20 App.
+    C), including s -> 0 and the deep tail."""
+    from scipy.integrate import quad
+
+    from pycalima.gsd.velocities import flux_above, log_flux_above, mean_speed_normalised
+
+    def flux_density(v, s):
+        if s < 1e-8:
+            return 4 / np.sqrt(np.pi) * v ** 3 * np.exp(-v ** 2)
+        return v ** 2 / (np.sqrt(np.pi) * s) * (np.exp(-(v - s) ** 2) - np.exp(-(v + s) ** 2))
+
+    for s in (0.0, 1e-3, 0.7, 5.0, 50.0):
+        lo, hi = max(0.0, s - 30), s + 30
+        pts = [s] if s > lo else None
+        tot = quad(flux_density, lo, hi, args=(s,), points=pts, limit=400, epsrel=1e-13)[0]
+        assert float(mean_speed_normalised(s)) == pytest.approx(tot, rel=1e-10)
+        for u in (lo, s + 0.5, s + 3.0):
+            num = quad(flux_density, u, hi, args=(s,), points=[s] if u < s else None,
+                       limit=400, epsabs=0, epsrel=1e-12)[0]
+            assert float(flux_above(u, s)) == pytest.approx(num / tot, rel=1e-7)
+    assert float(log_flux_above(20.0, 0.0)) == pytest.approx(np.log(401.0) - 400.0, rel=1e-12)
+
+
+def test_flux_quantiles_invert_the_collision_flux():
+    from pycalima.gsd.velocities import flux_quantile, log_flux_above
+
+    rng = np.random.default_rng(1)
+    s = np.concatenate([np.zeros(200), 10 ** rng.uniform(-4, 2.9, 2000)])
+    y = np.exp(rng.uniform(np.log(1e-6), np.log(250), s.size))
+    u = flux_quantile(s, y)
+    lo, hi = np.zeros_like(u), s + 40.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        up = -log_flux_above(mid, s) < y
+        lo, hi = np.where(up, mid, lo), np.where(up, hi, mid)
+    ref = 0.5 * (lo + hi)
+    assert np.max(np.abs(u - ref) / np.maximum(ref, 1e-3)) < 2e-3
+
+
+def _wim_velocity(**kw):
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    return RelativeVelocity(T=8000.0, n_H=1.0, mu=1.4, v_turb=1e6, L=100 * 3.086e18, **kw)
+
+
+def test_relative_velocity_reproduces_the_collapse_coagulation_kernel():
+    """Without thresholds the summed collision rate is sigma <v> with the rms
+    speed of collapse.integrator.turbulent_kernel (Brownian + full OC07)."""
+    from pycalima.collapse import velocities as cvel
+
+    rv = _wim_velocity()
+    a = np.geomspace(1e-7, 1e-4, 30)
+    m = 4 / 3 * np.pi * a ** 3 * 3.3
+    dV, mu = rv.pair_statistics(a, m, 3.3)
+    t_s = cvel.epstein_stopping_time(a, 3.3, rv.T, rv.rho_gas, rv.mu)
+    ref = np.sqrt(cvel.brownian_rms(rv.T, m) ** 2
+                  + cvel.ormel_cuzzi_dv(t_s, rv.v_turb, rv.tau_L, rv.tau_eta) ** 2)
+    np.testing.assert_allclose(dV, ref, rtol=1e-12)
+    assert np.all(mu == 0)
+    v_mean, c, v_q = rv.collision_speeds(dV, mu, 0.0, 4)
+    np.testing.assert_allclose(v_mean, cvel.mean_collision_speed(dV, np.inf), rtol=1e-12)
+    np.testing.assert_allclose(c, 1.0)
+
+
+def test_shattering_rates_are_the_flux_above_threshold_and_continuous():
+    """The shattering channels carry sigma <v> C(v_shat) in equal parts at
+    speeds above v_shat, and the total rate varies smoothly with the gas
+    state (no thresholds switching at the nodes)."""
+    from pycalima.gsd.shattering import GrainCollisions, SILICATE
+
+    a = np.geomspace(1e-7, 1e-4, 24)
+    m = 4 / 3 * np.pi * a ** 3 * SILICATE.rho
+    totals = []
+    for T in np.linspace(7000.0, 9000.0, 41):
+        rv = _wim_velocity()
+        rv.T = T
+        model = GrainCollisions("silicate", rv, n_speed=4)
+        ch = model.channels(a, m)
+        dV, mu = rv.pair_statistics(a, m, SILICATE.rho)
+        v_mean, c, v_q = rv.collision_speeds(dV, mu, SILICATE.v_shat, 4)
+        K = sum(c_.K for c_ in ch)
+        sig = np.pi * (a[:, None] + a[None, :]) ** 2
+        np.testing.assert_allclose(K, sig * v_mean * c, rtol=1e-12)
+        assert np.all(v_q[:, c > 1e-12] > SILICATE.v_shat * (1 - 2e-3))
+        totals.append(K.sum())
+    d2 = np.diff(np.log(totals), 2)
+    assert np.max(np.abs(d2)) < 1e-3          # smooth: no jumps in the second difference
+
+
+def test_turbulent_shattering_and_sticking_run_smoothly_and_conserve_mass():
+    """MRN silicate in the WIM with Ormel & Cuzzi velocities (v_turb = 10
+    km/s, L = 100 pc): large grains are shattered into small ones in 10 Myr
+    with few sub-steps, and grid + sink mass is conserved."""
+    from pycalima.gsd.collisions import collide
+    from pycalima.gsd.shattering import SILICATE, GrainCollisions
+
+    g = MassGrid.from_radii(3e-8, 3e-4, 5, SILICATE.rho)
+    a_e = g.a_edges
+    N, M = np.zeros(g.n_bins), np.zeros(g.n_bins)
+    for i in range(g.n_bins):
+        x1, x2 = max(5e-7, a_e[i]), min(2.5e-5, a_e[i + 1])
+        if x2 > x1:
+            N[i] = (x1 ** -2.5 - x2 ** -2.5) / 2.5
+            M[i] = 4 / 3 * np.pi * SILICATE.rho * (x2 ** 0.5 - x1 ** 0.5) / 0.5
+    scale = 4e-3 * 1.4 * 1.6735e-24 / M.sum()
+    N, M = N * scale, M * scale
+    model = GrainCollisions("silicate", _wim_velocity(), coagulation=True)
+    r = collide(g, N, M, model, 10 * 3.156e13, errmax=1e-2)
+    assert r["M"].sum() + r["sink_M"] == pytest.approx(M.sum(), rel=1e-12)
+    assert r["n_steps"] < 200
+    small = g.a_centres < 5e-7
+    assert (r["M"][small].sum() + r["sink_M"]) > 0.01 * M.sum()

@@ -56,6 +56,16 @@ below the grid go to a collector (kept in the smallest bin, HY09, or
 removed, HK13); an optional constant source feeds the step. Large problems
 run on up to 4 threads.
 
+`velocities` gives continuous relative velocities for collisions: for
+every node pair the rms random speed from Brownian motion and the full
+Ormel & Cuzzi (2007) turbulence (`collapse.velocities.ormel_cuzzi_dv`),
+plus an optional systematic drift between sizes (e.g. radiation pressure),
+with the skewed-Maxwellian speed distribution of Guillet et al. (2020).
+Shattering is split into equal-flux channels above $v_{\rm shat}$ at their
+flux-quantile speeds and sticking takes the flux below $v_{\rm coag}$, so
+both thresholds are smooth in grain size and gas state (the HK13 step and
+the HY09 four directions remain available for their benchmarks).
+
 `shattering` provides the physics: HY09 Table 2 materials, the KT10 and
 JTH96 ejecta laws in the form of Hirashita & Kobayashi (2013), fragments up
 to $(0.0204 f)^{1/3} a$, HY09's four velocity directions and the Chokshi
@@ -82,5 +92,6 @@ of the plan). Per-bin charging follows.
    pycalima.gsd.collisions
    pycalima.gsd.coagulation
    pycalima.gsd.shattering
+   pycalima.gsd.velocities
    pycalima.gsd._kernels
 ```
