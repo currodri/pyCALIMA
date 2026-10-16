@@ -64,7 +64,8 @@ from scipy.optimize import root_scalar
 from scipy import special
 
 from pycalima.models.grain_size_config import load_grain_size_config
-from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+from pycalima.models.dust_radiation.sublimation_kinetics import (
+    SublimationModel, get_sublimation_model)
 from pycalima.models.dust_radiation.dust_emission import (
     compute_cross_sections,
     interpolate_cross_sections,
@@ -147,7 +148,10 @@ def _number_of_monomers(a_cm, material):
 
 
 def _model(material, dataset=None):
-    """SublimationModel of ``material`` in ``dataset`` (see sublimation_kinetics)."""
+    """SublimationModel of ``material`` in ``dataset`` (see sublimation_kinetics).
+    ``material`` may also be a SublimationModel, which is used as is."""
+    if isinstance(material, SublimationModel):
+        return material
     return get_sublimation_model(material, dataset)
 
 

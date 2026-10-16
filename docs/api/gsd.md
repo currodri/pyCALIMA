@@ -18,7 +18,21 @@ as a power law of the same $N$ and $M$, which costs ~0.5% in mass over a
 factor of 10 of growth). Nucleation is injected along the characteristic
 from the critical size.
 
-Status: transport (phase 2a of the plan). Gas coupling, coagulation,
+The size-space velocity is tabulated and the characteristics are integrated
+exactly for a velocity linear between table points (`_kernels.advance`), so
+there are no time steps and equilibrium radii (roots of $\dot a$) are
+approached but never crossed. The hot loops are compiled with numba when it
+is installed.
+
+`exchange` couples populations of one material (a
+`sublimation_kinetics` model, any dataset) to the gas: recondensation,
+sublimation with the Kelvin term and steady-state nucleation, implicit in
+the gas density (backward Euler on the key species, solved for the
+end-of-step density), so steps of any length are stable and every key
+element is conserved to round-off. One exchange step on 136 bins takes
+~1.5 ms.
+
+Status: transport and gas exchange (phases 2a-2b of the plan). Coagulation,
 shattering and per-bin charging follow.
 
 ## Modules
@@ -31,4 +45,6 @@ shattering and per-bin charging follow.
    pycalima.gsd.grid
    pycalima.gsd.pl2m
    pycalima.gsd.remap
+   pycalima.gsd.exchange
+   pycalima.gsd._kernels
 ```

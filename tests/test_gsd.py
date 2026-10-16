@@ -160,3 +160,72 @@ def test_nucleation_at_constant_rate_and_growth_gives_the_top_hat():
         assert dN[j] == pytest.approx(J / adot * (x2 - x1), rel=1e-9)
     mtot = J / adot * 4 / 3 * np.pi * RHO * (a_hi ** 4 - a_star ** 4) / 4
     assert dM.sum() == pytest.approx(mtot, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# gas-grain exchange
+# ---------------------------------------------------------------------------
+
+def _carbon_box(T_d, nH=1e10, dust_frac=0.99, nucleation=False, a0=1e-5, bpd=8):
+    from pycalima.gsd.exchange import Population
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+    model = get_sublimation_model("graphite", "GD89")
+    pop = Population.empty(model, 3e-8, 1e-3, bpd, T_d=T_d, nucleation=nucleation)
+    n_C = 10 ** -3.44 * nH
+    if dust_frac > 0:
+        a = pop.grid.a_centres
+        w = np.exp(-np.log(a / a0) ** 2 / (2 * 0.15 ** 2))
+        pop.M = w / w.sum() * dust_frac * n_C * 12.011 * 1.66053906660e-24
+        pop.N = pop.M / pop.grid.mass(a)
+    return pop, {"C": (1 - dust_frac) * n_C}, n_C
+
+
+def test_closed_box_relaxes_to_the_saturated_density_conserving_carbon():
+    from pycalima.gsd.exchange import exchange_step
+    from pycalima.models.dust_radiation import dust_sublimation as ds
+
+    pop, gas, n_C = _carbon_box(1700.0)
+    total = gas["C"] + pop.key_atoms()
+    for _ in range(25):
+        exchange_step([pop], gas, 1e4, 1e7)
+        assert gas["C"] + pop.key_atoms() == pytest.approx(total, rel=1e-13)
+    n_sat = float(ds.saturated_key_density(pop.model, 1e-5, 1700.0, 1e4))
+    assert gas["C"] == pytest.approx(n_sat, rel=0.01)
+
+
+def test_above_saturation_all_dust_evaporates():
+    from pycalima.gsd.exchange import exchange_step
+
+    pop, gas, n_C = _carbon_box(2100.0)
+    for _ in range(5):
+        exchange_step([pop], gas, 1e4, 1e8)
+    assert pop.M.sum() < 1e-10 * n_C * 12.011 * 1.66053906660e-24
+    assert gas["C"] == pytest.approx(n_C, rel=1e-10)
+
+
+def test_one_huge_step_is_stable_and_positive():
+    """The gas is implicit: a step 1e4 times the relaxation time neither goes
+    negative nor overshoots saturation."""
+    from pycalima.gsd.exchange import exchange_step
+    from pycalima.models.dust_radiation import dust_sublimation as ds
+
+    pop, gas, n_C = _carbon_box(1700.0, dust_frac=0.5)
+    exchange_step([pop], gas, 1e4, 1e12)
+    n_sat = float(ds.saturated_key_density(pop.model, 1e-5, 1700.0, 1e4))
+    assert 0.0 < gas["C"] < 2 * n_sat
+    assert np.all(pop.N >= 0) and np.all(pop.M >= 0)
+
+
+def test_dust_nucleates_from_pure_gas_and_grows():
+    """No initial dust: at n_H = 1e10 and 1400 K clusters nucleate, grow and
+    lock up the carbon down to the saturated density."""
+    from pycalima.gsd.exchange import exchange_step
+
+    pop, gas, n_C = _carbon_box(1400.0, dust_frac=0.0, nucleation=True)
+    total = gas["C"]
+    for _ in range(30):
+        exchange_step([pop], gas, 1e4, 3e5)
+    assert gas["C"] + pop.key_atoms() == pytest.approx(total, rel=1e-12)
+    assert pop.key_atoms() > 0.9 * total
+    assert pop.N.sum() > 0

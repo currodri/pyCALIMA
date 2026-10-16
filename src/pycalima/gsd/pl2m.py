@@ -36,17 +36,12 @@ def mean_mass_ratio(beta, eta):
 
 def solve_beta(mbar_ratio, eta, n_iter=80):
     """Exponent beta whose mean mass ratio is ``mbar_ratio`` (in (1, eta)),
-    by bisection on [-BETA_MAX, BETA_MAX] (vectorised)."""
-    target = np.clip(np.asarray(mbar_ratio, float), mean_mass_ratio(-BETA_MAX, eta),
-                     mean_mass_ratio(BETA_MAX, eta))
-    lo = np.full_like(target, -BETA_MAX)
-    hi = np.full_like(target, BETA_MAX)
-    for _ in range(n_iter):
-        mid = 0.5 * (lo + hi)
-        up = mean_mass_ratio(mid, eta) < target
-        lo = np.where(up, mid, lo)
-        hi = np.where(up, hi, mid)
-    return 0.5 * (lo + hi)
+    by bisection on [-BETA_MAX, BETA_MAX] (compiled kernel)."""
+    from ._kernels import solve_beta as _solve
+
+    r = np.atleast_1d(np.asarray(mbar_ratio, float))
+    out = _solve(r.ravel().copy(), float(eta), BETA_MAX, int(n_iter)).reshape(r.shape)
+    return out if np.ndim(mbar_ratio) else float(out[0])
 
 
 def int_pow(lam, u1, u2):
