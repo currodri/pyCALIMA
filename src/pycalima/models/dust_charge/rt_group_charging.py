@@ -255,16 +255,33 @@ def grain_ionisation_potential(material, a, W, Z):
     return np.where(Z >= 0, ionisation_potential_valence_vec(W, Z, a), ea(Z + 1.0, a))
 
 
+def last_charge_with_ip_below(material, a, W, Zmin, Zmax, E):
+    """Largest integer Z in [Zmin, Zmax] with IP(a, Z) <= E [eV], or None if there is none.
+    IP(a, Z) increases with Z, so this is a bisection: an array over every allowed charge
+    would hold ~4e8 values for a 1 mm grain."""
+    ip = lambda z: float(grain_ionisation_potential(material, a, W, float(z)))   # noqa: E731
+    lo, hi = int(round(Zmin)), int(round(Zmax))
+    if ip(lo) > E:
+        return None
+    if ip(hi) <= E:
+        return float(hi)
+    while hi - lo > 1:                          # ip(lo) <= E < ip(hi)
+        mid = (lo + hi) // 2
+        if ip(mid) <= E:
+            lo = mid
+        else:
+            hi = mid
+    return float(lo)
+
+
 def recombination_thresholds(material, a, W, Zmin, Zmax):
     """Largest grain charge Z at which X+ can take an electron from the grain,
     IP(a, Z) <= IP(X) (Weingartner & Draine 2001b case A), per RECOMB_IONS;
     Zmin - 1 where no charge allows it."""
-    Z = np.arange(Zmin, Zmax + 1.0)
-    ipz = grain_ionisation_potential(material, a, W, Z)
     out = []
     for _, _, ip in RECOMB_IONS:
-        ok = np.nonzero(ipz <= ip)[0]
-        out.append(float(Z[ok[-1]]) if ok.size else Zmin - 1.0)
+        z = last_charge_with_ip_below(material, a, W, Zmin, Zmax, ip)
+        out.append(Zmin - 1.0 if z is None else z)
     return np.array(out)
 
 
@@ -363,11 +380,9 @@ class GroupChargingTable:
         self.x0 = np.arcsinh(U[0] / U_SCALE)
         self.dx = (np.arcsinh(U[-1] / U_SCALE) - self.x0) / (U.size - 1)
         # charges at which IP(a, Z) crosses photon-energy edges: g(Z) has kinks there
-        Zall = np.arange(tab["Zmin"], tab["Zmax"] + 1.0)
-        ipz = grain_ionisation_potential(self.material, self.a, tab["W"], Zall)
         def edge(E):
-            k = np.nonzero(ipz <= E)[0]
-            return float(Zall[k[-1]]) if k.size and 0 < k[-1] < Zall.size - 1 else None
+            z = last_charge_with_ip_below(self.material, self.a, tab["W"], tab["Zmin"], tab["Zmax"], E)
+            return z if z is not None and tab["Zmin"] < z < tab["Zmax"] else None
         self._edge_groups = [(edge(l0), edge(l1)) for l0, l1 in zip(tab["L0"], tab["L1"])]
         self._edge_bg = [z for z in (edge(E) for E in MATHIS_BREAKS) if z is not None]
         self.set_group_energies(tab["egy"][:, tab["egy"].shape[1] // 2] if egy is None else egy)

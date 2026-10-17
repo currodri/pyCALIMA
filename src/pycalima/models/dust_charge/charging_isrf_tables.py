@@ -47,29 +47,103 @@ QUANTITIES = (("Zmean", "Zsigma", "lnGamma1", "lambda1") + tuple(f"lnD{j:+d}" fo
 LN_FLOOR = np.log(1e-300)
 
 
+# Memory bounds of full_distribution (each kept charge costs ~1 kB downstream: heating, cooling, D_j,
+# alpha_i). The shipped bins span at most ~4e4 charges and take the contiguous path, as before; a 1 mm
+# grain has ~1e9 allowed charges, and the solver's sigma_Z of a wide P(Z) can be far wider than the
+# exact one (a P(Z) pinned at Zmin).
+MAX_CONTIGUOUS = 100_000     # charges evaluated at once from -3..+3 to the window
+CHUNK = 100_000              # charges per step where ln P is accumulated piecewise
+MAX_CHARGES = 50_000         # charges kept; a wider P(Z) is kept on every stride-th charge
+MAX_MARCH = 50_000_000       # charges ln P may be accumulated over (time, not memory)
+
+
+def _lnf(gt, lo, hi):
+    """Integer charges lo..hi and ln P(Z) up to a constant (the cumulative g = ln up/down)."""
+    Z = np.arange(lo, hi + 1.0)
+    return Z, np.concatenate([[0.0], np.cumsum(gt._g_arr(Z[:-1]))])
+
+
+def _march(gt, z, l, z_end):
+    """Chunks (Zc, Lc) of ln P on the charges from z (exclusive; ln P(z) = l) to z_end (inclusive),
+    from g at every charge, CHUNK at a time, in the direction of z_end."""
+    d = 1.0 if z_end > z else -1.0
+    done = 0
+    while (z_end - z) * d > 0:
+        n = int(min(CHUNK, abs(z_end - z)))
+        done += n
+        if done > MAX_MARCH:
+            raise ValueError(f"P(Z) of a = {gt.t['a']:.3e} cm: ln P over more than {MAX_MARCH} charges")
+        if d > 0:                                       # ln P(z + k) = ln P(z) + g(z) + ... + g(z + k - 1)
+            Zc = np.arange(z + 1.0, z + n + 1.0)
+            Lc = l + np.cumsum(gt._g_arr(Zc - 1.0))
+        else:                                           # ln P(z - k) = ln P(z) - g(z - 1) - ... - g(z - k)
+            Zc = np.arange(z - 1.0, z - n - 1.0, -1.0)
+            Lc = l - np.cumsum(gt._g_arr(Zc))
+        yield Zc, Lc
+        z, l = Zc[-1], Lc[-1]
+
+
+def _floor_end(gt, z, l, z_end, lfloor):
+    """The last charge from z towards z_end with ln P > lfloor, and its ln P (ln P(z) = l > lfloor).
+    Away from the peak P(Z) is log-concave (g decreases with Z), so ln P falls monotonically."""
+    for Zc, Lc in _march(gt, z, l, z_end):
+        k = np.nonzero(Lc <= lfloor)[0]
+        if k.size:
+            return (Zc[k[0] - 1], Lc[k[0] - 1]) if k[0] > 0 else (z, l)
+        z, l = Zc[-1], Lc[-1]
+    return z, l
+
+
 def full_distribution(gt, Zs, width):
     """The exact P(Z) of the cell set by the last solve on every integer charge within
     8 width + 10 of Zs and from -3 to +3 (where D_j of the opposite sign and the photoemission
-    of strongly charged grains live), kept down to 1e-300 of its maximum."""
-    lo = max(gt.t["Zmin"], min(np.floor(Zs - 8 * width - 10), -3.0))
-    hi = min(gt.t["Zmax"], max(np.ceil(Zs + 8 * width + 10), 3.0))
-    Z = np.arange(lo, hi + 1.0)
-    lnf = np.concatenate([[0.0], np.cumsum(gt._g_arr(Z[:-1]))])
+    of strongly charged grains live), kept down to 1e-300 of its maximum. Returns the charges,
+    P, and the stride: 1, or, where P(Z) is above that floor over more than MAX_CHARGES charges
+    (sigma_Z of 1e4 or more: large grains in hot gas), every stride-th charge, each standing for
+    stride charges (ln P exact at each; sums over a P(Z) that wide do not see the stride)."""
+    wlo = max(gt.t["Zmin"], np.floor(Zs - 8 * width - 10))
+    whi = min(gt.t["Zmax"], np.ceil(Zs + 8 * width + 10))
+    lo = max(gt.t["Zmin"], min(wlo, -3.0))
+    hi = min(gt.t["Zmax"], max(whi, 3.0))
+    if hi - lo + 1 <= MAX_CONTIGUOUS:
+        Z, lnf = _lnf(gt, lo, hi)
+        lnf -= lnf.max()
+        k = lnf > LN_FLOOR
+        P = np.exp(lnf[k])
+        return Z[k], P / P.sum(), 1
+    # Far from neutral, or wide, without an array over every charge in between: (1) the peak of
+    # ln P in the window, (2) the charges above the floor around it, out towards -3..+3 while P
+    # is above it, (3) ln P on those, on a stride if they are more than MAX_CHARGES
+    zp, lp = wlo, 0.0
+    for Zc, Lc in _march(gt, wlo, 0.0, whi):
+        i = int(np.argmax(Lc))
+        if Lc[i] > lp:
+            zp, lp = Zc[i], Lc[i]
+    lfloor = lp + LN_FLOOR
+    za, la = _floor_end(gt, zp, lp, lo, lfloor)
+    zb, _ = _floor_end(gt, zp, lp, hi, lfloor)
+    stride = max(1, int(np.ceil((zb - za + 1) / MAX_CHARGES)))
+    Zk, Lk = [np.array([za])], [np.array([la])]
+    for Zc, Lc in _march(gt, za, la, zb):
+        keep = np.mod(Zc - za, stride) == 0
+        Zk.append(Zc[keep])
+        Lk.append(Lc[keep])
+    Z, lnf = np.concatenate(Zk), np.concatenate(Lk)
     lnf -= lnf.max()
     k = lnf > LN_FLOOR
     P = np.exp(lnf[k])
-    return Z[k], P / P.sum()
+    return Z[k], P / P.sum(), stride
 
 
 def _node(gt, T, x, Z_guess):
     """One node (G0 = 1, n_e = x): the solve, then everything on its exact P(Z)."""
     ions = [(x, 1.0, rg.M_HION)]
     r = gt.solve(np.zeros(gt.t["L0"].size), 0.0, T, x, ions, G0_bg=1.0, Z_guess=Z_guess, recomb=None)
-    Z, P = full_distribution(gt, r["Zstar"], max(r["Zsigma"], 0.5))
+    Z, P, stride = full_distribution(gt, r["Zstar"], max(r["Zsigma"], 0.5))
     zmean = float(P @ Z)
     zsig = float(np.sqrt(max(P @ Z ** 2 - zmean ** 2, 0.0)))
     heat, cool = gt._heating_cooling_arr(Z)
-    auto = gt._averages(Z[:1], P[:1], True)[2]          # autoionisation at Zmin, if P(Z) reaches it
+    auto = gt._averages(Z[:1], P[:1] / stride, True)[2]   # autoionisation at Zmin, if P(Z) reaches it
     D = cf.coulomb_factors_exact(Z, P, T, gt.t["a"], max(D_CHARGES))
     lnD = [np.log(max(D[j + 1], 1e-300)) for j in D_CHARGES]
     lnalpha = [np.log(max(v, 1e-300)) for v in gt._recombination(Z, P)]

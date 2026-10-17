@@ -105,3 +105,80 @@ def test_build_matches_its_nodes(isolated_env, model_data):
         for j in range(len(lX)):
             scaled = (t["q"][k0:k0 + len(rg.RECOMB_IONS), i, j] + lnm)[order]
             assert np.all(np.diff(scaled) >= -1e-12), (lT[i], lX[j], scaled)
+
+
+# --------------------------------------------------------------------------- memory bounds
+# A grain of radius a has ~1e10 a [cm] allowed charges, so nothing may build an array over all of
+# them (a 1 mm grain exhausted the memory of a laptop: one array per worker of ~4e8 charges).
+
+@pytest.fixture(scope="module")
+def bins(tmp_path_factory):
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    out = {}
+    for a in (1e-5, 0.1):                   # 0.1 um (the shipped DustBin_02) and 1 mm graphite
+        tab = rg.build_bin_table("graphite", a, U=rg.u_grid(n=241), Ts=np.geomspace(3e3, 3e6, 13),
+                                 T_hot=np.geomspace(1e3, 1e9, 13), label=f"g{a:g}")
+        out[a] = rg.read_bin_table(rg.write_bin_table(tab, tmp_path_factory.mktemp("isrf") / f"g{a:g}.dat"))
+    return out
+
+
+@pytest.mark.parametrize("material", ["graphite", "silicate"])
+def test_charge_edges_by_bisection_match_every_charge(material):
+    from pycalima.models.dust_charge import rt_group_charging as rg
+    from pycalima.models.dust_charge import wdb06_yields as wy
+
+    W = wy.MATERIALS[material]["W"]
+    for a in (5e-8, 1e-6, 1e-5, 1e-4):
+        Zmin = float(rg.most_negative_allowed_charge_graphite(a) if material == "graphite"
+                     else rg.most_negative_allowed_charge_silicate(a))
+        Zmax = float(rg.most_positive_allowed_charge(a, W, 13.6))
+        Z = np.arange(Zmin, Zmax + 1.0)
+        ipz = rg.grain_ionisation_potential(material, a, W, Z)
+        assert np.all(np.diff(ipz) > 0)                     # what the bisection relies on
+        for E in [0.1, 5.6, 11.2, 13.6, 24.6, 54.4] + [ip for _, _, ip in rg.RECOMB_IONS]:
+            k = np.nonzero(ipz <= E)[0]
+            assert rg.last_charge_with_ip_below(material, a, W, Zmin, Zmax, E) == (float(Z[k[-1]]) if k.size else None)
+
+
+def _nodes(gt, lts=(1.0, 3.0, 5.0, 9.0), lxs=(-8.0, -2.0, 2.0, 8.0)):
+    return np.array([cit._node(gt, 10.0 ** lt, 10.0 ** lx, None)[0] for lt in lts for lx in lxs])
+
+
+def test_piecewise_distribution_reproduces_the_contiguous_one(bins, monkeypatch):
+    """The path of wide or far-from-neutral grains (from the window out to the floor, CHUNK at a
+    time) gives the contiguous result where both apply."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    gt = rg.GroupChargingTable(bins[1e-5], kernels="pchip")
+    ref = _nodes(gt)
+    monkeypatch.setattr(cit, "MAX_CONTIGUOUS", 0)
+    monkeypatch.setattr(cit, "CHUNK", 997)                  # many chunks, not a multiple of anything
+    # ln P differs by rounding (~1e-13) where the cumulative sum starts; sigma_Z^2 = <Z^2> - <Z>^2 of a
+    # narrow P(Z) far from neutral cancels ~10 digits of it (sigma 0.17 at <Z> = 625: 4e-6)
+    np.testing.assert_allclose(_nodes(gt), ref, rtol=1e-5, atol=1e-12)
+
+
+def test_a_millimetre_grain_is_tabulated_on_a_bounded_number_of_charges(bins, monkeypatch):
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    gt = rg.GroupChargingTable(bins[0.1], kernels="pchip")
+    assert gt.t["Zmax"] - gt.t["Zmin"] > 1e8
+    kept, strides = [], []
+    orig = cit.full_distribution
+
+    def spy(*args):
+        Z, P, s = orig(*args)
+        kept.append(Z.size)
+        strides.append(s)
+        return Z, P, s
+
+    monkeypatch.setattr(cit, "full_distribution", spy)
+    lts, lxs = (1.0, 4.0, 6.0, 9.0), (-8.0, 0.0, 4.0, 8.0)
+    v = _nodes(gt, lts, lxs)
+    assert np.all(np.isfinite(v))
+    assert max(kept) <= max(cit.MAX_CONTIGUOUS, 3 * cit.MAX_CHARGES)
+    assert max(strides) > 1                                 # hot gas: P(Z) wider than MAX_CHARGES
+    # the stride does not show in the sums over a P(Z) that wide
+    monkeypatch.setattr(cit, "MAX_CHARGES", 8 * cit.MAX_CHARGES)
+    np.testing.assert_allclose(v, _nodes(gt, lts, lxs), rtol=1e-4, atol=1e-12)
