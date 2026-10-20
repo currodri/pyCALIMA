@@ -1715,6 +1715,56 @@ compared with their figures (digitised from the arXiv source).
   pahchem computes, so their laws can be carried to the population's
   cascades (the "Next" item above).
 
+**Aliphatic side groups on the fitted population (2026-10-20;
+`diagnostics/pahchem/fit_34um_sidegroups.py`, figure `sidegroups_34um`).**
+The "Next" item of the 3.4 µm study: the population of the full fit (fit
+`392313363fe8`, best Gaussian cell) is given CH$_2$ and CH$_3$ side groups
+that radiate from each molecule's own cascade.
+- **Model.**
+  - Per state: the residence time in each energy bin, from the CH modes'
+    photons over their rates (the same for every mode), under the bases'
+    field and recombination heating.
+  - Each side-group band emits from each bin at its harmonic rate on the
+    state's density of states. Its photons take the CosmicPAH-IRDB law
+    position and FWHM at the bin's microcanonical T, as in the Demyk+26
+    reproduction above.
+  - Bands: the aliphatic CH stretches of 6H-pyrene (CH$_2$) and
+    Me-pyrene (CH$_3$), {cite:t}`Demyk2026` Table 5. Intensity per
+    aliphatic H = the lab ratio to the aromatic CH stretch per H (CH$_2$
+    1.63, CH$_3$ 0.95) times the state's own aromatic CH stretch per H.
+    Using the neutral's value instead changes the amounts by ≤ 15 %.
+  - First order: the groups do not change the cascade, and the aromatic H
+    they replace are not removed (the free aromatic scale takes that).
+  - Check: the tables' CH-stretch power equals the bases' to 0.3 %.
+- **Fit of 3.1–3.65 µm:** observed = a × (the full fit's 3 µm PAH spectrum)
+  + x$_2$ CH$_2$ + x$_3$ CH$_3$ + a linear continuum, all ≥ 0.
+
+  | | HII | Atomic | DF1 | DF2 | DF3 |
+  |---|---|---|---|---|---|
+  | 3.36–3.60 µm residual / mean, aromatic only | 0.27 | 0.38 | 0.44 | 0.48 | 0.48 |
+  | with CH$_2$ + CH$_3$ | 0.09 | 0.14 | 0.15 | 0.14 | 0.13 |
+  | (3.36–3.60)/(3.20–3.36), observed / model | 0.36 / 0.31 | 0.31 / 0.27 | 0.35 / 0.30 | 0.40 / 0.38 | 0.48 / 0.44 |
+  | aliphatic H per aromatic H, CH$_2$ / CH$_3$ | 0.06 / 0.16 | 0.05 / 0.15 | 0.06 / 0.17 | 0.09 / 0.22 | 0.11 / 0.26 |
+  | aliphatic C fraction | 2.5 % | 2.3 % | 2.6 % | 3.8 % | 4.5 % |
+
+  (The observed ratio is over the fitted continuum. In the aromatic-only fit
+  that continuum rises under the complex and the ratio drops to 0.15–0.23.)
+- **Reading.**
+  - **The complex appears.** One to two methyl and about one CH$_2$ group per
+    molecule (N$_C$ ≈ 72) give the 3.4 µm complex in strength and place. The
+    3.36–3.60 µm residual falls by 3–4×. The PAHdb aliphatic species could
+    not do this: the earlier library ceiling was a median ratio of 0.008.
+  - **The trend is physical.** The aliphatic share rises from the HII and
+    atomic zones (2.3–2.6 % of C) to DF2–DF3 (3.8–4.5 %), into shielded
+    gas, as the observed ratio does.
+  - **What is missing.**
+    - The model's 3.40 µm peak sits at ~3.405 µm, narrower than the
+      observed flat-topped 3.395–3.40 µm band with its steep blue edge.
+    - A CH$_3$ bump at 3.355 µm (2981 cm⁻¹) is not observed.
+    - The 3.516 µm component is too weak: the 2846 cm⁻¹ CH$_2$ band.
+    - All are the pyrene-family lab bands carried to larger PAHs, where
+      the side-group environments (and their Fermi resonances) differ.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
