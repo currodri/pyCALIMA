@@ -4,10 +4,10 @@
 PAH bins are the first `npah` entries of the solver's dust array, each holding
 a mass density $\rho_{\rm PAH}$ [g cm$^{-3}$] of molecules of a fixed
 representative mass $m_{\rm PAH} = N_{\rm C}\times 12.011$ amu
-(`solvers/dust_init.py:490`) and radius
+(`solvers/dust_init.py:480`) and radius
 $a_{\rm PAH} = (3m_{\rm PAH}/4\pi s_{\rm PAH})^{1/3}$, with a default material
-density $s_{\rm PAH} = 2.24$ g cm$^{-3}$ (`solvers/dust_init.py:489`,
-`solvers/dust_init.py:493`). A bin may be flagged `is_cluster`, which marks it
+density $s_{\rm PAH} = 2.24$ g cm$^{-3}$ (`solvers/dust_init.py:479`,
+`solvers/dust_init.py:483`). A bin may be flagged `is_cluster`, which marks it
 as a PAH cluster rather than a free molecule. Six processes change
 $\rho_{\rm PAH}$:
 
@@ -20,7 +20,7 @@ $\rho_{\rm PAH}$:
 | Cluster evaporation | `pah_cluster_evaporation` | `pah_cluster_evaporation_rate` | cluster bin $p$ to bin $p-1$ |
 | Freezing onto grains | `pah_freezing` | `pah_freezing_rate` | PAH bin to dust bin |
 
-All six flags default to `false` (`solvers/dust_init.py:588`–`593`), and
+All six flags default to `false` (`solvers/dust_init.py:578`–`583`), and
 `build_process_list` registers the kernels (`solvers/rhs.py:167`–`216`).
 Coalescence and cluster evaporation also need `npah > 1`, and freezing needs at
 least one dust bin. Every kernel skips a bin whose density is at or below its
@@ -39,9 +39,9 @@ $$
  = -k_{\rm diss}(G_0,n_{\rm H})\,\frac{\rho_{\rm PAH}}{m_{\rm PAH}}\,2m_{\rm C}
 $$ (eq-pah-photolysis)
 
-(`solvers/dust_rates.py:961`). The kernel returns immediately if
+(`solvers/dust_rates.py:966`). The kernel returns immediately if
 $G_0 \le 0$, and it skips cluster bins and bins with no table
-(`solvers/dust_rates.py:936`, `solvers/dust_rates.py:946`). $G_0$ comes from
+(`solvers/dust_rates.py:941`, `solvers/dust_rates.py:951`). $G_0$ comes from
 `environment.radiation_field_G0` (`solvers/dust_init.py:376`). The table is
 `model_data/PAH_dissociation_data/dissociation_<bin_id>.dat`
 (`solvers/dust_init.py:244`, `solvers/dust_init.py:361`), and it is
@@ -56,7 +56,7 @@ $(G_0, n_{\rm H})$ outside the grid returns the *global minimum* of the table
 
 :::{note}
 The `models.photolysis_model` key (default `"RM2026"`) is parsed and stored
-(`solvers/dust_init.py:600`), but no Python code reads it. There is only one
+(`solvers/dust_init.py:590`), but no Python code reads it. There is only one
 photolysis kernel. The RAMSES Fortran branches on the key, but both branches
 call the same routine. `pah_sputtering_model` and `cluster_evaporation_model`
 are in the same position.
@@ -204,9 +204,9 @@ $$
 \dot\rho_{\rm PAH} = -\dot\rho_{\rm C,gas} = -\mathcal{R}\,\frac{\rho_{\rm PAH}}{m_{\rm PAH}}\,m_{\rm C}
 $$ (eq-pah-sput)
 
-(`solvers/dust_rates.py:1024`, `solvers/dust_rates.py:1029`). Here
+(`solvers/dust_rates.py:1029`, `solvers/dust_rates.py:1034`). Here
 $n_i = \rho_i/m_i$ is the *total* number density of element $i$, not its ion
-density (`solvers/dust_rates.py:1016`), and $n_e$ is
+density (`solvers/dust_rates.py:1021`), and $n_e$ is
 `electron_number_density_cm3`, which defaults to $10^{-4}n_{\rm H}$
 (`solvers/dust_init.py:375`). The tables
 `pah_sputtering_data/sputtering_<bin_id>_Z_<Z>` hold $\log_{10}J$
@@ -243,8 +243,8 @@ All tables are computed for a neutral PAH with no Coulomb shift ($\phi = 0$)
 Coalescence moves mass from each non-cluster bin $p < n_{\rm pah}-1$ into bin
 $p+1$ at the rate
 $\dot\rho_p = -\dot\rho_{p+1} = -k_1\rho_p$
-(`solvers/dust_rates.py:1086`–`1090`). `coalescence_model` selects the rate
-$k_1$ [s$^{-1}$] (default `Totton2012`, `solvers/dust_init.py:598`;
+(`solvers/dust_rates.py:1091`–`1095`). `coalescence_model` selects the rate
+$k_1$ [s$^{-1}$] (default `Totton2012`, `solvers/dust_init.py:588`;
 `solvers/rhs.py:186`–`201`).
 
 **`Totton2012`** {cite:p}`Totton2012`:
@@ -255,7 +255,7 @@ k_1 = 4\pi a_{\rm PAH}^2\,\sqrt{\frac{8k_{\rm B}T}{m_{\rm PAH}/2}}\;
 \frac{\rho_{\rm PAH}}{m_{\rm PAH}}
 $$ (eq-pah-totton)
 
-(`solvers/dust_rates.py:1064`, `1078`–`1082`).
+(`solvers/dust_rates.py:1069`, `1083`–`1087`).
 
 :::{note}
 The thermal speed in eq. {eq}`eq-pah-totton` is $\sqrt{8k_{\rm B}T/\mu}$, with
@@ -267,7 +267,7 @@ mean relative speed. The RAMSES Fortran and
 **`Tielens2021`**, in the neutral approximation {cite:p}`Tielens2021`:
 $k_1 = 4\times10^{-11}\,(T/10\,{\rm K})^{1/2}(N_{\rm C}/50)^{1/2}
 \;\rho_{\rm PAH}/m_{\rm PAH}$, with the coefficient in cm$^3$ s$^{-1}$
-(`solvers/dust_rates.py:1130`–`1133`). The RAMSES version mixes in an ionized
+(`solvers/dust_rates.py:1135`–`1138`). The RAMSES version mixes in an ionized
 (Langevin) term weighted by the PAH cation fraction. The Python solver does
 not track PAH charge, so it omits that term.
 
@@ -282,7 +282,7 @@ k_{\rm ev} = \min\!\left[\frac{G_0}{0.19306},\;
 \dot\rho_p = -\dot\rho_{p-1} = -\frac{k_{\rm ev}}{3.1536\times10^{7}\,{\rm s\,yr^{-1}}}\,\frac{\rho_p}{m_p}\,m_{p-1}
 $$ (eq-pah-evap)
 
-(`solvers/dust_rates.py:1171`–`1173`, `1189`). The first term is the
+(`solvers/dust_rates.py:1176`–`1178`, `1194`). The first term is the
 single-cluster timescale $0.19306/G_0$ yr
 (`models/PAH_photophysics/PAH_photophysics.py:390`). The second is a log-log
 line through digitised (C$_{54}$H$_{18}$)$_n$ curves
@@ -292,7 +292,7 @@ line through digitised (C$_{54}$H$_{18}$)$_n$ curves
 
 A PAH bin freezes onto every dust bin, or onto the range set by
 `dust_index_interact` and `nd_bins_interact`, regardless of composition
-(`solvers/dust_rates.py:1237`–`1242`). The rate is
+(`solvers/dust_rates.py:1242`–`1247`). The rate is
 
 $$
 k_1 = \sqrt{\frac{8}{3\pi}}\,\pi(a_{\rm PAH}+a_d)^2\,v_{\rm rel}\,
@@ -300,13 +300,13 @@ k_1 = \sqrt{\frac{8}{3\pi}}\,\pi(a_{\rm PAH}+a_d)^2\,v_{\rm rel}\,
 p_{\rm stick} = \frac{1}{1+\exp[4(v_{\rm rel}/v_{\rm coag}-1)]}
 $$ (eq-pah-freeze)
 
-(`solvers/dust_rates.py:1256`–`1266`, `solvers/grain_dynamics.py:119`–`124`),
+(`solvers/dust_rates.py:1261`–`1271`, `solvers/grain_dynamics.py:119`–`124`),
 and $\dot\rho_{\rm PAH} = -\dot\rho_d = -k_1\rho_{\rm PAH}$
-(`solvers/dust_rates.py:1270`–`1274`). $v_{\rm rel}$ comes from
+(`solvers/dust_rates.py:1275`–`1279`). $v_{\rm rel}$ comes from
 `grain_relative_velocity` with `dust_velocity_model` (default `Ormel2007`,
-`solvers/dust_init.py:596`). $v_{\rm coag}$ is the dust bin's
+`solvers/dust_init.py:586`). $v_{\rm coag}$ is the dust bin's
 `vthresh_coag_cm_s`, which defaults to $10^4$ cm s$^{-1}$
-(`solvers/dust_init.py:465`). No Coulomb focusing is applied.
+(`solvers/dust_init.py:455`). No Coulomb focusing is applied.
 
 ## Accretion of gas-phase carbon
 
@@ -319,7 +319,7 @@ $$
 \frac{1}{1+10^{-4}T^{1.5}}\,\frac{\rho_{\rm C}}{\sqrt{m_{\rm C}}}\,\rho_{\rm PAH}
 $$ (eq-pah-accr)
 
-(`solvers/dust_rates.py:834`, `852`–`855`). This kernel also acts on cluster
+(`solvers/dust_rates.py:839`, `857`–`860`). This kernel also acts on cluster
 bins.
 
 ## Role of PAH charge

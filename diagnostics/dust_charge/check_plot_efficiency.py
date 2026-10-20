@@ -48,7 +48,7 @@ def main():
     mpl.set_loglevel("error")
 
     external_data_dir = os.path.join(repo_root, "external_data")
-    out_dir = os.path.join(repo_root, "model_data", "dust_photoelectric_heating_data")
+    out_dir = str(dph.dust_photoelectric_output_dir())
     out_eff = os.path.join(out_dir, f"dust_photoelectric_heating_efficiency_{radiation_model}.pdf")
     out_pot = os.path.join(out_dir, f"dust_photoelectric_heating_potential_{radiation_model}.pdf")
 

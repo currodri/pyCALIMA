@@ -1,0 +1,13 @@
+# Draine & Salpeter (1979, ApJ 231, 77) Table 5: secondary electron emission
+# parameters. delta_m = peak normal-incidence yield at E_m (eq. 14); eps = mean
+# energy lost per secondary created; lam = secondary escape length (eq. A6).
+# Lunar dust values are approximate ("~") in the source. WDB06 sec. 6 adopts
+# eps = 117 eV (graphite) and 155 eV (lunar dust) for carbonaceous / silicate.
+material,rho_gcm3,delta_m,E_m_eV,eps_eV,lam_A
+graphite,2.26,1,250,117,13.2
+SiO2,2.65,2.9,420,67.9,24.9
+mica,2.8,2.4,340,66.1,29.8
+Fe,7.86,1.3,400,144.,9.00
+Al,2.70,0.95,300,147.,14.8
+MgO_crystal,3.58,23.,1200,24.3,93.3
+lunar_dust,3.2,1.5,500,155.,27.6

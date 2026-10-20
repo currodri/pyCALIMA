@@ -25,6 +25,7 @@ import numpy as np
 
 from .chemistry_state import DustBinParams, DustChemistryState, PAHBinParams
 from .grain_dynamics import grain_relative_velocity, sticking_probability_from_velocity
+from .table_io import ISRF_D_CHARGES, isrf_charging_lookup
 
 # ---------------------------------------------------------------------------
 # Physical constants (CGS)
@@ -137,7 +138,11 @@ def _get_coulomb_D(
 ) -> float:
     """Return the Coulomb enhancement factor D for a grain bin given the environment.
 
-    Uses the pre-computed (T, gamma) charge tables if available; otherwise D = 1.
+    D is the Weingartner & Draine (1999) factor of the grain's charge
+    distribution under a uniform ISRF, from the bin's ``isrf_table``: for the
+    impactor charges the table holds (``table_io.ISRF_D_CHARGES``), its D over
+    the exact P(Z); for any other charge, the point-charge factor at the table's
+    <Z>. D = 1 without a table, without electrons, or for a neutral impactor.
 
     Parameters
     ----------
@@ -145,18 +150,18 @@ def _get_coulomb_D(
     Tk : float
         Gas temperature [K].
     G0 : float
-        FUV field strength [Habing units].
+        FUV field strength [Habing units], the table's convention.
     ne : float
         Electron number density [cm⁻³].
     Zi : float
         Charge of the accreting/sputtering ion (default +1).
     """
-    if db.charge_Z_interp is None or ne <= 0.0:
+    if db.isrf_table is None or ne <= 0.0 or Zi == 0:
         return 1.0
-    # Charging parameter: gamma = G0 × √T / ne  (WD01 convention)
-    gamma = G0 * math.sqrt(max(Tk, 1.0)) / ne
-    Z_avg = db.charge_Z_interp(Tk, gamma)
-    return _coulomb_factor_WD99(Z_avg, Zi, Tk, db.asize_cm)
+    Zmean, _, D = isrf_charging_lookup(db.isrf_table, G0, Tk, ne)
+    if Zi in ISRF_D_CHARGES:
+        return max(float(D[ISRF_D_CHARGES.index(Zi)]), 1.0e-10)
+    return _coulomb_factor_WD99(Zmean, Zi, Tk, db.asize_cm)
 
 
 # ---------------------------------------------------------------------------

@@ -32,11 +32,10 @@ python -m pycalima.models.dust_gas_collisions.export_sputtering_rates_bins
 # PAH sputtering tables
 python -m pycalima.models.PAH_gas_collisions.export_pah_sputtering_rates_bins
 
-# Dust charging summary tables
-python -m pycalima.models.dust_charge.export_dust_charging_vs_gamma
-
-# Dust photoelectric heating tables
-python -m pycalima.models.dust_charge.export_dust_photoelectric_heating
+# Dust charging under a uniform ISRF: <Z>, sigma_Z, PE heating, recombination
+# cooling, Coulomb factors (reads the RT-group charging tables, written first)
+python -m pycalima.models.dust_charge.export_dust_charging_rtgroups
+python -m pycalima.models.dust_charge.export_dust_charging_isrf
 
 # PAH photoelectric heating tables
 python -m pycalima.models.PAH_charge.export_PAH_photoelectric_heating_tables

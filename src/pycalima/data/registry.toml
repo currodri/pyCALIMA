@@ -123,6 +123,20 @@ citation = "CLOUDY (Ferland et al.) grain data"
 url_status = "none"
 notes = "Extracted from a CLOUDY source tree; no standalone URL."
 
+[datasets.wdb06-atomic-data]
+kind = "bundled"
+dest = "external_data/wdb06"
+files = ["verner_phfit2_neutral.csv", "dwek_smith_1996_auger.csv", "draine_salpeter_1979_secondary.csv"]
+size_bytes = 4_100
+citation = "Verner & Yakovlev (1995); Verner et al. (1996); Dwek & Smith (1996) Tables 4.1-4.2; Draine & Salpeter (1979) Table 5"
+url = "https://www.pa.uky.edu/~verner/dima/photo/phfit2.f"
+url_status = "none"
+notes = """Inputs to the Weingartner, Draine & Barr (2006) photoemission model.
+The Verner rows are the neutral-atom (ne = nz) parameters for C, O, Mg, Si, Fe
+extracted from phfit2.f v2 (sha256 in the file header); the url is that source,
+not this derived file. The Auger and secondary-emission tables are hand
+transcribed; every Auger group reproduces the paper's printed totals."""
+
 [datasets.digitised-figures]
 kind = "bundled"
 dest = "external_data"

@@ -40,7 +40,7 @@ def _ds87_j_scalar_impl(Z, q, a, T):
 
     tp = max(tau, TINY)
     nup = max(nu, TINY)
-    theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+    theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
     root_term = 1.0 / np.sqrt(4.0 * tp + 3.0 * nup)
     value = (1.0 + root_term) ** 2 * np.exp(-theta_nu / tp)
     return value if np.isfinite(value) else 0.0
@@ -54,7 +54,7 @@ def _electron_sticking_coefficient_graphite_scalar_impl(Z, a):
     Nc = 468.0 * (a / 1e-7) ** 3
     base = 0.5 * (1.0 - np.exp(-a / ELECTRON_ESCAPE_LENGTH_CM))
     factor = 1.0 / (1.0 + np.exp(20.0 - Nc))
-    zmin = np.floor(-(3.9 + 1.2e7 * a + 2.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a)
+    zmin = np.floor(-(3.9 + 1.2e7 * a + 2.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
     if Z == 0:
         return base * factor
@@ -69,7 +69,7 @@ def _electron_sticking_coefficient_silicate_scalar_impl(Z, a):
     Nc = 468.0 * (a / 1e-7) ** 3
     base = 0.5 * (1.0 - np.exp(-a / ELECTRON_ESCAPE_LENGTH_CM))
     factor = 1.0 / (1.0 + np.exp(20.0 - Nc))
-    zmin = np.floor(-(2.5 + 7.0e6 * a + 8.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a)
+    zmin = np.floor(-(2.5 + 7.0e6 * a + 8.0e-8 / max(a, TINY)) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
     if Z == 0:
         return base * factor
@@ -101,7 +101,7 @@ def DS87_lambda_scalar(Z, q, a, T):
         return float((2.0 - nu / tn) * (1.0 + 1.0 / np.sqrt(inner)))
     tp = max(tau, TINY)
     nup = max(nu, TINY)
-    theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+    theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
     return float((2.0 + nup / tp) * (1.0 + 1.0 / np.sqrt(1.5 / tp + 3.0 * nup)) * np.exp(-theta_nu / tp))
 
 
@@ -213,11 +213,20 @@ def photon_attenuation_length_silicate_vec(wav, Im):
     return wav / np.maximum(4.0 * np.pi * Im, TINY)
 
 
+def _watson_h(x):
+    """x^2 - 2x + 2 - 2 exp(-x) = 2 sum_{n>=3} (-x)^n (-1) / n!; the closed form
+    cancels catastrophically for x << 1 (X-ray a/l_a reaches 1e-6)."""
+    x = np.asarray(x, dtype=float)
+    series = x ** 3 / 3.0 * (1.0 - x / 4.0 * (1.0 - x / 5.0 * (1.0 - x / 6.0 * (1.0 - x / 7.0))))
+    direct = x ** 2 - 2.0 * x + 2.0 - 2.0 * np.exp(-np.maximum(x, 0.1))
+    return np.where(x < 0.1, series, direct)
+
+
 def Watson73_y1_vec(a, la, le):
     beta = a / la
     alpha = a / le + a / la
-    num = (beta / alpha) ** 2.0 * (alpha ** 2 - 2.0 * alpha + 2.0 - 2.0 * np.exp(-alpha))
-    den = np.maximum(beta ** 2 - 2.0 * beta + 2.0 - 2.0 * np.exp(-beta), TINY)
+    num = (beta / alpha) ** 2.0 * _watson_h(alpha)
+    den = np.maximum(_watson_h(beta), TINY)
     return num / den
 
 
@@ -272,7 +281,7 @@ def DS87_J_function_vec(Z, q, a, T):
     if np.any(nu_pos):
         tp = tau_safe[nu_pos]
         nup = np.maximum(nu[nu_pos], TINY)
-        theta_nu = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+        theta_nu = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
         root_term = 1.0 / np.sqrt(4.0 * tp + 3.0 * nup)
         J[nu_pos] = (1.0 + root_term) ** 2 * np.exp(-theta_nu / tp)
 
@@ -291,12 +300,12 @@ def autoionisation_potential_silicate(a):
 
 def most_negative_allowed_charge_graphite(a):
     a = np.asarray(a, dtype=float)
-    return np.floor(-autoionisation_potential_graphite(a) / 14.4 * 1.0e8 * a)
+    return np.floor(-autoionisation_potential_graphite(a) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
 
 def most_negative_allowed_charge_silicate(a):
     a = np.asarray(a, dtype=float)
-    return np.floor(-autoionisation_potential_silicate(a) / 14.4 * 1.0e8 * a)
+    return np.floor(-autoionisation_potential_silicate(a) / 14.4 * 1.0e8 * a) + 1.0  # WD01 eq. 24
 
 
 def most_positive_allowed_charge(a, W, hnu_max):
@@ -419,7 +428,9 @@ def collisional_rates_ions_vector(a, Zs, ion_species):
 
         vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g_cgs))
         Jtilde_i = DS87_J_function_vec(Zs, np.array([z_i]), a, T_i)
-        J_total = J_total + cross * n_i * vth_i * Jtilde_i
+        # optional charge-transfer probability, e.g. ions passing through (DS79)
+        transfer = ion["transfer"](Zs) if "transfer" in ion else 1.0
+        J_total = J_total + cross * n_i * vth_i * Jtilde_i * transfer
 
     return np.asarray(J_total, dtype=float)
 
@@ -438,6 +449,8 @@ def collisional_rates_ions_scalar(a, Z, ion_species):
         z_i = float(ion.get("z", 1.0))
 
         vth_i = np.sqrt(8.0 * KB_CGS * T_i / (np.pi * m_g_cgs))
-        total += cross * n_i * vth_i * DS87_J_function_scalar(Z, z_i, a, T_i)
+        transfer = float(np.asarray(ion["transfer"](np.array([Z], dtype=float))).reshape(-1)[0]) \
+            if "transfer" in ion else 1.0
+        total += cross * n_i * vth_i * DS87_J_function_scalar(Z, z_i, a, T_i) * transfer
 
     return float(total)
