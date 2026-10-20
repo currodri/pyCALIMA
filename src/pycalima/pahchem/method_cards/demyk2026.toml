@@ -1,0 +1,62 @@
+# Method card: Demyk, Joblin, Bérenguer et al. 2026, "Anharmonicity of aliphatic pyrenes" ("D26"; arXiv:2607.16018v2).
+#
+# Conventions as in andrews16.toml: each value has a `source` and a
+# `confidence` (A experiment, B benchmarked theory, C theory, D extrapolation,
+# E assumption). "not stated" marks what the paper does not give; "inferred"
+# marks what follows from reproducing their numbers.
+#
+# Status (2026-10-20): runner pahchem.demyk2026, data pahchem.cosmicpah (fetch
+# dataset cosmicpah-irdb), figure diagnostics/pahchem/check_demyk2026.py, gates
+# tests/test_pahchem_demyk2026.py against Figs. 5, 10, 11 digitised from the arXiv
+# source PNGs (data/external_data/pahchem/demyk2026_fig*.csv).
+
+[card]
+name = "Demyk2026"
+bib_key = "Demyk2026"
+citation = "Demyk, K., Joblin, C., et al. 2026, arXiv:2607.16018 (v2)"
+read_from = "arXiv v2 HTML (Sect. 2.4, Table 4, Table 5, Appendices A, B, F, G); CosmicPAH-IRDB datasets 4, 9, 12, 17, 22 (2026-10-20)"
+status = "reproduced (3 um profiles, photon temperatures); 6.9/3.3 um not"
+
+[species]
+molecules = { value = "pyrene, 2H- (4,5-dihydro-), 4H- (4,5,9,10-tetrahydro-), 6H- (1,2,3,6,7,8-hexahydro-) and 1-methylpyrene; emission modelled for 6H- and Me-pyrene", source = "Sects. 2, 4.3", confidence = "A" }
+phase = { value = "gas, 423-673 K, ESPOIRS high-temperature cell, 2 cm^-1 resolution", source = "Sect. 2.1; IRDB infos.csv", confidence = "A" }
+
+[laws]
+form = { value = "position chi0' + chi1' T, FWHM chi0'' + chi1'' T, first-order polynomials over a low and a high temperature range per band (main component)", source = "Sect. 3, Appendix F Fig. 20", confidence = "A" }
+values = { value = "CosmicPAH-IRDB per-dataset JSON, IDs 22 (pyrene, multi-component + rotation), 9, 12, 4 (6H, 1.1.2 rotation-corrected), 17 (Me, 1.1.2)", source = "database listing; Table 4 equals IDs 4 and 17 (the high-T piece where Table 4 gives one law)", confidence = "A" }
+rotation = { value = "5.9, 6.1, 6.7, 6.6, 6.5, 6.9 cm^-1 at 423-673 K, removed from all bands without P-Q-R structure", source = "Appendix A", confidence = "A" }
+below_data = { value = "the value at the lowest measured temperature", source = "Sect. 2.4", confidence = "A" }
+above_data = { value = "positions extrapolated linearly; widths extrapolated, except the strongly blended components (held)", source = "Sect. 2.4", confidence = "A" }
+above_data_pahchem = "a width is extrapolated only if its last piece rises (chi1'' > 0); the blended components are the ones with chi1'' < 0, which D26 call unphysical (cosmicpah.BandLaw.fwhm)"
+
+[emission]
+excitation = { value = "one UV photon of 4, 5, 5.5 or 6 eV; 4 eV for 6H-pyrene, 6 eV for Me-pyrene in the comparisons", source = "Sects. 2.4, 4.3; Figs. 5-7", confidence = "A" }
+start = { value = "cold molecule: the photon energy only", source = "not stated", confidence = "E" }
+cascade = { value = "microcanonical Monte Carlo (Joblin+02), 1e4 cascades, harmonic rates k = v A P with P = rho(U - v h nu) / rho(U)", source = "Sect. 2.4", confidence = "A" }
+cascade_pahchem = "the exact expectation of the same harmonic cascade: energy_me.CascadeModel (bins 20 cm^-1, grain 2 cm^-1) and emission.emission_by_energy"
+anharmonic_dos = { value = "Morse oscillators with Stein-Rabinovitch counting and the Stockett+25 modified rate; negligible for the fundamental profiles", source = "Sect. 2.4 (equations and constants not given)", confidence = "A" }
+anharmonic_dos_pahchem = "harmonic density of states"
+temperature = { value = "microcanonical T(U), harmonic and anharmonic counts compared (Fig. 10)", source = "Appendix B (no formula given)", confidence = "B" }
+temperature_pahchem = "1/kT = d ln rho / dE of the harmonic count, smoothed over 200 cm^-1 (demyk2026.temperature); canonical as a variant"
+frequencies = { value = "B3LYP-D3/6-311G(d,p) harmonic, scaled 0.965 (CH stretch) and 0.982 (others)", source = "Sect. 2.4", confidence = "A" }
+frequencies_pahchem = "not published: B3LYP/4-31G (PySCF 2.14, no dispersion), scaled per class so that pyrene matches PAHdb v4.00 UID 334 (demyk2026_modes.csv)"
+intensities = { value = "Table 5 experimental intensities at 523 K, each matched to the closest harmonic frequency; some mode lists adjusted", source = "Sect. 2.4, Table 5", confidence = "A" }
+intensities_pahchem = "demyk2026_table5.csv; each band to the nearest unassigned mode of its class (CH stretch or not), strongest band first; the other modes carry no intensity. Bands > 15 km/mol land within 25 cm^-1 of a fundamental; Me-pyrene's six CH3 bands (Fermi resonances) have three CH3 stretch modes, so its weak 2956.9 and 2908.4 bands take aromatic CH stretch modes 90-140 cm^-1 away (D26: 'some required adjusting the mode list')"
+profile = { value = "one pseudo-Voigt per band, no asymmetry, Lorentzian fraction fixed per band (mean of an initial fit)", source = "Sect. 2.4", confidence = "A" }
+profile_fixed_width = { value = "constant FWHM for the Me-pyrene bands without laws: 40.40 (1597.5), 33.90 (1502.3), 40.25 (1448.6), 19.85 (1246.2), 16.80 (1182.3), 25.63 (999.7), 36.18 (963.3) cm^-1", source = "Sect. 2.4", confidence = "A" }
+profile_fixed_lorentz = { value = "not stated for the bands without laws", source = "not stated", confidence = "E" }
+
+[targets]
+ratio_69_33_6h_4ev = { value = 1.08, source = "Sect. 4.3: 6.9/3.3 um integrated intensity, 6H-pyrene, 4 eV", confidence = "A" }
+ratio_69_33_me_6ev = { value = 0.19, source = "Sect. 4.3: Me-pyrene, 6 eV", confidence = "A" }
+ratio_definition = "not stated: which bands make '3.3' and '6.9', and energy or photons; pahchem reads the aromatic CH band and the CH2/CH3 deformation band (1448.8 / 1448.6 cm^-1) and reports both (inferred from the gates)"
+strongest_ch_band_6h = { value = "the aliphatic ~3.4 um band is the strongest in the CH-stretch region of 6H-pyrene; the aromatic 3.3 um band dominates for Me-pyrene", source = "Sect. 4.3, Fig. 5", confidence = "A" }
+fig11 = { value = "temperature distribution of the 6H-pyrene 3.4 um photons after 4 eV", source = "Appendix B, Fig. 11 (not digitised)", confidence = "A" }
+fig6_scaling = { value = "DF3 template = 2.1e-6 x 6H-pyrene (4 eV) and 3.5e-6 x Me-pyrene (6 eV) emission", source = "Fig. 6 caption (3.6e-6 for Me-pyrene in Appendix G)", confidence = "A" }
+
+[results]
+fig5_3um = "reproduced: main CH band positions within 0.5-1.5 cm^-1 and FWHM within 1 cm^-1 (6H 3.40 um 19.5 vs 19.5 at 4 eV, 22.9 vs 22.5 at 6 eV; Me 3.29 um 34.6 vs 35.0, 41.4 vs 42.4), sub-bands within ~5 %, the 4 -> 6 eV growth 1.665 vs 1.658, one scale per molecule"
+fig5_midir = "6.27 and 7.92 um peaks within 2-4 % of the 3.40 um peak scaling (6H, 6 eV); the 12 um band ~0.09 of 3.40 um in both"
+fig11 = "reproduced: 2.68 vs 2.67 3.4 um photons per 4 eV photon, mean emission T 924 vs 917 K, each 100 K bin within 7 %"
+fig10 = "pahchem's microcanonical T(U) is their harmonic curve within 1 % (1-6 eV); their anharmonic curve is 3-4 % cooler, and Fig. 11 follows the harmonic one"
+ratio_69_33 = "not reproduced: 0.90 (6H, 4 eV) and 0.16 (Me, 6 eV) against 1.08 and 0.19. Their 6.9 um band carries 15-20 % more energy than ours over identical windows and, for 6H, is wider (FWHM ~33 vs 24 cm^-1), while the cascade checks above hold; likely their intensity split over the CH2/CH3 deformation modes (strict xfail)"

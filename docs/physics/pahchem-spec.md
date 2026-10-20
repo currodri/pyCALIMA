@@ -1689,6 +1689,32 @@ carriers and pahchem's emission physics give the complex?
   meaning, and 3.395/3.405 can be separated. The carrier spectra to ask for
   are in {doc}`pahchem-data-requests`.
 
+**Demyk+26 emission model reproduced (2026-10-20; `pahchem.cosmicpah`,
+`pahchem.demyk2026`, `diagnostics/pahchem/check_demyk2026.py`, figure
+`demyk2026_reproduction`).** Before the laws of {cite:t}`Demyk2026` go into the
+population, their single-photon model was rerun on pahchem's cascade and
+compared with their figures (digitised from the arXiv source).
+- **Inputs.** Band laws from CosmicPAH-IRDB by the paper's dataset IDs
+  (fetch dataset `cosmicpah-irdb`; Table 4 checked), Table 5 intensities,
+  and B3LYP/4-31G modes computed here: their mode lists are not published
+  and PAHdb has no methylpyrene. Scaled against PAHdb pyrene, our
+  6H-pyrene matches PAHdb UID 336 to 8 cm⁻¹ rms.
+- **Reproduced.**
+  - 3 µm profiles of 6H- and Me-pyrene at 4 and 6 eV (Fig. 5): main CH
+    band positions within 0.5–1.5 cm⁻¹, FWHMs within 1 cm⁻¹, sub-bands
+    within ~5 %.
+  - Emission temperatures of the 6H-pyrene 3.4 µm photons after 4 eV
+    (Fig. 11): 2.68 against 2.67 photons per UV photon, mean 924 against
+    917 K, each 100 K bin within 7 %.
+  - T(U) is their harmonic curve to 1 % (Fig. 10).
+- **Not reproduced.** Their 6.9/3.3 µm ratios (1.08 for 6H-pyrene at 4 eV,
+  0.19 for Me-pyrene at 6 eV; ours 0.90 and 0.16). The 6.27 and 7.92 µm
+  bands match, so the cascade is not the cause: their 6.9 µm CH$_2$/CH$_3$
+  deformation band carries 15–20 % more energy (strict xfail).
+- **Reading.** The aliphatic 3.4 µm profiles of their method are what
+  pahchem computes, so their laws can be carried to the population's
+  cascades (the "Next" item above).
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
