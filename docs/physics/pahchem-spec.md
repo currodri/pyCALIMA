@@ -2090,8 +2090,36 @@ large single deposits do, and not for the IR brightness.
   nucleon, in groups He … Fe–Ni.
 - **Attenuation.** Continuous slowing down through N(H$_2$), with the NIST
   {cite:p}`NISTSTAR` loss functions for H$_2$.
-- **Secondary electrons are not in yet.** Their spectrum per ζ is requested
-  ({doc}`pahchem-data-requests`).
+- **Secondary electrons: the spectrum exists, but the collisions do not use it
+  yet.** It comes from CRISpy's Spencer–Fano degradation in H$_2$ (2026-10-19)
+  and is extracted by `diagnostics/pahchem/extract_crispy_secondary_spectrum.py`,
+  run with CRISpy's interpreter. The output is 4πj$_{\rm sec}$/ζ in
+  cm⁻² eV⁻¹, written to `results/pahchem/cr_secondary_electrons/` for:
+  - spectra L and H;
+  - x$_e$ = 0–10⁻³;
+  - log N(H$_2$) = 20–24;
+  - 1 eV – 100 keV, 10 bins per decade;
+  - primary electrons excluded.
+
+  Checks:
+  - 4πj L$_{\rm ESTAR}$ / S(>ε) = 0.98–1.00 at 10–30 keV, and 1.18–1.26 at
+    1 keV (cascade electrons, and CRISpy's approximate low-energy loss);
+  - ζ$_{\rm sec}$/ζ$_{\rm prim}$ = 0.75–0.94 (L) and 0.85–0.95 (H) at
+    10$^{21}$–10$^{24}$ cm⁻², against Ivlev et al. (2021, ApJ 909, 107)
+    0.8–1.1;
+  - CRISpy's B/C excitation per ionisation is within 4 % of Padovani+2026.
+
+  Properties and caveats:
+  - The raw 0.02 eV bins below 40 eV carry a comb from the discrete losses
+    (50–80 % rms), so only rebinned values are meaningful.
+  - Per ζ, the spectrum below ~300 eV hardly depends on N; at keV it rises up
+    to 30× from 10$^{20}$ to 10$^{24}$ cm⁻².
+  - Coulomb losses suppress it below 10 eV at x$_e$ ≳ 10⁻⁵.
+  - The medium is pure H$_2$, with no He.
+  - Secondaries born above 100 keV are lumped into the top bin.
+
+  Still to do: bundle the table, then use it in `impact_rates` and
+  `check_cr_impact.py`.
 
 **Energy transfer** ({mod}`pycalima.pahchem.impact`). Bethe theory is written
 over the PAH's own optical oscillator strength df/dW, in the manner of
@@ -2117,10 +2145,58 @@ Two corrections, both from measurements, apply only where Bethe fails:
   factor T/(T + IP + W). Stopping is then within 15 % of Joy (1995) carbon
   above 80 eV, 1.35× at 50 eV and 2.3× at 30 eV (confidence D).
 
-**Gate G2 (electron-impact ionisation of PAHs) is open.** The only data within
-reach are benzene BEB values (NIST), which scale only crudely to coronene. On
-that scaling the model is 1.5–2× above at 30–100 eV. The measured or BEB
-cross sections of PAHs are requested.
+**Gate G2 (electron-impact ionisation of PAHs) fails; it is not fixed yet
+(2026-10-19).**
+
+*The reference.* `diagnostics/pahchem/beb_hf_pah.py` computes BEB (Kim & Rudd
+1994) from RHF orbitals: B = −ε (Koopmans) and U = ⟨T⟩, using PySCF on ideal
+planar geometries. PySCF runs in its own environment; it is not a pycalima
+dependency.
+- It reproduces the BEB(HF) peaks of Krishnadas et al. (2024, Phys. Scr. 99,
+  095403, Table 4): anthracene 28.5 against 28.1 Å², pyrene 31.6 against
+  31.0 Å².
+- 6-31G and cc-pVDZ agree to 0.1 %.
+- The OVGF-based peaks of Appl. Sci. 15, 9562 (2025, Table 2; naphthalene to
+  hexacene) are 12–15 % higher. That spread is the systematic of the
+  reference.
+- No laboratory cross section exists for these PAHs, so G2 is a comparison
+  against theory.
+- Results are in `results/pahchem/beb_hf/` (σ(T) and the orbital B, U, N):
+  C$_{10}$H$_8$ to C$_{26}$H$_{16}$, C$_{16}$H$_{10}$, C$_{24}$H$_{12}$ and
+  C$_{54}$H$_{18}$.
+- The peak is σ$_{\max}$ ≈ 0.43 Å² per valence electron (0.415 for
+  C$_{54}$H$_{18}$), at 72–75 eV for every size.
+
+*The model against it.* `impact` (σ$_{\rm ion}$ = collisions with dz ≥ 1, the
+Jochims yield) over BEB(HF):
+
+| T (eV) | 15 | 20–30 | 50 | 72 | 1000–5000 |
+|---|---|---|---|---|---|
+| C$_{10}$–C$_{26}$, C$_{24}$H$_{12}$ | 1.6 | 2.2–2.4 | 1.9–2.1 | 1.75–1.95 | 1.26–1.47 |
+| C$_{54}$H$_{18}$ | 2.1 | 2.6–2.8 | 2.2 | 2.0 | 1.40–1.44 |
+
+The model also peaks at ~50 eV instead of ~72 eV.
+
+*Diagnosis so far:*
+- **High energy.** The 1/W-weighted ionising dipole strength is too large:
+  M²$_{\rm ion}$ = ∫(R/W) y df/dW dW = 35.7 for anthracene, against BEB's
+  Σ N R/2B = 27.9 (×1.28). It is not yet known whether this comes from the
+  Li & Draine σ at 10–30 eV or from the yield.
+- **Near the peak.** The likely extra factor is the slow-electron denominator:
+  T + IP + W here, against BEB's T + B + U, with U ≈ 2.1 B (median U ≈ 38 eV
+  for the valence orbitals). This has not been tested.
+- **Ruled out.** Restricting close collisions to Q ≥ IP changes the peak by
+  only ~3 %.
+- **Unaffected.** Stopping (G1) still passes, so the deposited energy is
+  sound. The number of collisions counted as ionisations is high.
+
+*Open decision.* There are two options:
+1. use BEB(HF) for the dz = +1 rate of electrons, and keep the Bethe df/dW
+   for the energy partition;
+2. repair the model's dipole strength and denominator from physics, not by
+   fitting.
+
+Until then, electron-impact ionisation rates are high by these factors.
 
 **Collision outcomes.** Each collision is mapped to a charge change and to the
 internal energy E* left in the product:
@@ -2228,7 +2304,8 @@ N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the same molecule absorbs
 ~10⁻⁷ eV s⁻¹.
 
 **Next.**
-- The secondary-electron spectrum.
+- Fix gate G2 (see above), then put the secondary-electron spectrum into the
+  collisions.
 - The CR-UV field, as a radiation field with H$_2$ line blanketing.
 - The aliphatic side groups of the 3.4 µm work under the same deposits.
 - Charge-resolved modes for the dications and above.

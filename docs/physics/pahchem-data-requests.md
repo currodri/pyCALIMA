@@ -227,20 +227,28 @@ An earlier draft put H addition first.
   CosmicPAH-IRDB holds (or will hold) shift and width laws for larger PAHs,
   for a methylated large PAH, and the cascade code behind their 6H-pyrene fit.
 - **Cosmic-ray collisions** ({doc}`pahchem-spec`, "Cosmic-ray collisions").
-  The fast-particle part is calibrated on NIST stopping. Four inputs are
-  missing:
-  - **The secondary-electron spectrum** per unit ζ at N(H$_2$) =
-    10$^{21}$–10$^{23}$, 1 eV – 10 keV, from Ivlev et al. (2021, ApJ 909,
-    107) or Padovani et al. (2024), as tables or digitised curves.
-    CRISpy's degradation spectrum would serve once it is exported.
-  - **Electron-impact ionisation cross sections** of PAHs from threshold to
-    1 keV: measured, or BEB. These are gate G2; only benzene (NIST BEB) is
-    within reach. Possible sources: the acene BEB tables of Appl. Sci. 15,
-    9562 (2025), Phys. Scr. (2024, doi:10.1088/1402-4896/ad640a) and J.
-    Phys. Chem. A (2020, doi:10.1021/acs.jpca.0c05589). The Rigopoulou group
-    could give the orbital binding and kinetic energies (B, U, N) that BEB
-    needs from any of their DFT runs, for coronene and circumcoronene. That
-    is a small addition to T1.
+  The fast-particle part is calibrated on NIST stopping. Two items are now
+  covered:
+  - **The secondary-electron spectrum** (done 2026-10-19). It is exported
+    from CRISpy, so it is no longer needed from Ivlev et al. (2021) or
+    Padovani et al. (2024). See {doc}`pahchem-spec`, "Cosmic-ray collisions".
+  - **Electron-impact ionisation cross sections** (obtained 2026-10-19). We
+    have the papers: Appl. Sci. 15, 9562 (2025); Krishnadas et al. 2024,
+    Phys. Scr. 99, 095403 (doi:10.1088/1402-4896/ad640a); Singh et al. 2020,
+    J. Phys. Chem. A 124, 7088 (doi:10.1021/acs.jpca.0c05589). Their curves
+    are raster figures; only the peak tables can be read.
+    - We compute BEB(HF) ourselves and it reproduces their HF peaks
+      ({doc}`pahchem-spec`, gate G2).
+    - Still useful:
+      - the Appl. Sci. curves, which they say will be deposited in the MOST
+        Wiedzy repository;
+      - the Krishnadas curves, available on request;
+      - from the Rigopoulou group, OVGF or DFT orbital energies (B, U, N) for
+        coronene and circumcoronene, to bracket our HF values (a small
+        addition to T1);
+      - any laboratory σ$_{\rm ion}$ for a PAH larger than benzene.
+
+  Two inputs are still missing:
   - **Double photoionisation yields** of PAHs at 20–100 eV (the 2+/1+ ratio),
     which set the multiple-ionisation branching of distant collisions.
   - **A laboratory Coulomb-explosion threshold for compact PAHs.** The
