@@ -1,0 +1,9 @@
+# Grackle's own critical metallicity for the N07 CCSN pathways (n_amb = 1 cm^-3), full
+# chemistry and dust (Chiaki & Wise 2019; newchem-cpp, commit 9ac7cd5), by the Schneider &
+# Omukai (2010) fragmentation criterion of pycalima.collapse.integrator.fragmentation, to
+# 0.025 dex; 2026-10-10, diagnostics/collapse/make_grackle_tables.py.
+# columns: progenitor mass [Msun], [Z_cr] without grain growth, [Z_cr] with grain growth
+ 13 -4.938 -4.891
+ 20 -4.422 -4.438
+ 25 -4.531 -4.531
+ 30 -3.875 -3.859

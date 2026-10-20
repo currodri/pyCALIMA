@@ -41,6 +41,7 @@ import argparse
 import json
 import sys
 import time
+import warnings
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -58,6 +59,7 @@ from .rhs import build_process_list
 from .anninos import AnninosSolver
 from .rk4 import RK4Solver
 from .rk54 import RK54Solver
+from .mprk22 import MPRK22Solver
 from .solver_base import DustSolverBase
 
 # ---------------------------------------------------------------------------
@@ -66,6 +68,7 @@ from .solver_base import DustSolverBase
 SOLVER_REGISTRY: Dict[str, type] = {
     "rk4":           RK4Solver,
     "rk54":          RK54Solver,
+    "mprk22":        MPRK22Solver,
     "anninos":       AnninosSolver,
     "newton_krylov": NewtonKrylovEquilibriumSolver,
     "sparse_newton": SparseNewtonEquilibriumSolver,
@@ -84,6 +87,12 @@ def _make_solver(solver_cfg: dict):
 
     if solver_type == "rk4":
         return cls(errmax=float(solver_cfg.get("errmax", 0.1)))
+
+    if solver_type == "mprk22":
+        return cls(
+            errmax=float(solver_cfg.get("errmax", 0.01)),
+            y_min =float(solver_cfg.get("y_min",  1e-40)),
+        )
 
     if solver_type in ("rk54", "anninos"):
         return cls(
@@ -342,6 +351,20 @@ def run_chemistry(
     h_max_s     = h_max_Myr * SEC2MYR
 
     solver = _make_solver(solver_cfg)
+    if (state.dust_condensation and state.dust_sublimation
+            and solver.name in ("Anninos", "NewtonKrylov")):
+        # Anninos takes each bin's creation rate with the gas at the start of
+        # the step; with sublimation and condensation in balance the gas is
+        # the stiff variable, and the scheme oscillates about a biased state
+        # unless h is below the gas relaxation time. NewtonKrylov's
+        # stationarity test (max|F| t_H / M) cannot be met when the gross
+        # fluxes turn over in days.
+        warnings.warn(
+            f"the {solver.name} solver does not reach the right equilibrium "
+            "with dust_sublimation and dust_condensation in near balance; "
+            "use mprk22 or sparse_newton.",
+            stacklevel=2,
+        )
 
     # ---- Build active process list ----
     processes = build_process_list(state)

@@ -252,17 +252,16 @@ def _integrate_to_steady_state(
 ) -> np.ndarray:
     """Pseudo-transient continuation: integrate implicitly towards steady state.
 
-    Runs the quasi-implicit Anninos integrator for ``t_long_s`` and returns the
-    end y_dust. Whether that state is steady is judged by the caller from the
-    residual there, not from whether the integrator reached ``t_long_s``: at a
-    fixed point its step controller can chatter (accepted ~ rejected) until it
-    hits ``countmax`` although the state no longer moves.
+    Runs the MPRK22 integrator (conservative and implicit in the gas as well
+    as the bins) for ``t_long_s`` and returns the end y_dust. Whether that
+    state is steady is judged by the caller from the residual there, not from
+    whether the integrator reached ``t_long_s``.
     """
-    from .anninos import AnninosSolver
+    from .mprk22 import MPRK22Solver
     from .ode_driver import integrate_dust_ode
 
     _, y_dust, _ = integrate_dust_ode(state, t_long_s, y_gas_0, y_dust_0,
-                                      processes, AnninosSolver(), h_max=t_long_s)
+                                      processes, MPRK22Solver(), h_max=t_long_s)
     return y_dust
 
 

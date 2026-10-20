@@ -525,11 +525,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if a.name:
             return 0 if verify_dataset(a.name, strict=False) else 1
         # A bare `verify` checks the installation. `manual` datasets (PAHdb)
-        # are optional extras the user downloads themselves, so their absence
-        # is reported with instructions but does not fail the check.
+        # are optional extras the user downloads themselves, and `fetch`
+        # datasets are downloaded on demand, so their absence is reported with
+        # instructions but does not fail the check (a checksum mismatch does).
         ok, optional_missing = True, []
         for ds in iter_datasets():
-            if ds.kind == "manual" and ds.locate() is None:
+            if ds.kind in ("manual", "fetch") and ds.locate() is None:
                 print(f"{ds.name}: not installed (optional)")
                 optional_missing.append(ds)
             elif not verify_dataset(ds, strict=False):

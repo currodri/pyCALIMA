@@ -90,12 +90,12 @@ one of two ways.
 (`models/export_all_grain_data.py:655`). It reads the tables
 {cite:t}`DraineLee1984` and {cite:t}`LaorDraine1993` computed: `Gra_81` for
 graphite and `suvSil_81` for smoothed-UV astronomical silicate
-(`models/dust_radiation/dust_oppacity.py:1778-1783`). Each table has 81 radii
+(`models/dust_radiation/dust_oppacity.py:1780-1785`). Each table has 81 radii
 from $10^{-3}$ to 10 µm and 241 wavelengths from $10^{-3}$ to $10^{3}$ µm.
 
 The code interpolates $\log Q$ linearly in $\log\lambda$
-(`models/dust_radiation/dust_oppacity.py:1694-1697`), then linearly in
-$\log a$ (`models/dust_radiation/dust_oppacity.py:1738-1741`). $g$ is
+(`models/dust_radiation/dust_oppacity.py:1696-1699`), then linearly in
+$\log a$ (`models/dust_radiation/dust_oppacity.py:1740-1743`). $g$ is
 interpolated linearly in $\lambda$ and in $a$. `np.interp` clamps at the ends
 of the tabulated range. The default silicate bin `DustBin_03` starts at
 $a_\mathrm{min}=5\times10^{-4}$ µm, below the first tabulated radius, so for
@@ -105,7 +105,7 @@ its smallest grains $Q$ is held at its $a=10^{-3}$ µm value.
 (`models/dust_radiation/export_dust_optical_properties.py:239`). It computes
 Mie efficiencies with `miepython` from the optical constants in
 `draine_lee_1984/eps_suvSil`, `callindex.out_CpaD03_0.01` and
-`callindex.out_CpeD03_0.01` (`models/dust_radiation/dust_oppacity.py:1856-1858`).
+`callindex.out_CpeD03_0.01` (`models/dust_radiation/dust_oppacity.py:1858-1860`).
 The refractive index is $m=n-ik$, interpolated linearly in $\lambda$
 (`models/tools/mie_theory.py:128-130`), and
 $Q_\mathrm{abs}=Q_\mathrm{ext}-Q_\mathrm{sca}$
@@ -129,9 +129,9 @@ constants already cover the $10^{-3}$ µm lower edge of the output grid.
 
 Both methods integrate over the bin's size distribution with 30 log-spaced
 sizes between $a_\mathrm{min}$ and $a_\mathrm{max}$
-(`models/dust_radiation/dust_oppacity.py:1810`). The weight is
+(`models/dust_radiation/dust_oppacity.py:1812`). The weight is
 {eq}`eq-lognormal` evaluated for $\rho_d=1$ g cm$^{-3}$
-(`models/dust_radiation/dust_oppacity.py:1812-1814`). The result is a mass
+(`models/dust_radiation/dust_oppacity.py:1814-1816`). The result is a mass
 opacity in cm$^{2}$ per gram of dust:
 
 $$
@@ -142,8 +142,8 @@ Q_\mathrm{rp}=Q_\mathrm{abs}+(1-g)\,Q_\mathrm{sca}.
 $$ (eq-bin-opacity)
 
 Here $x$ is `abs`, `sca` or `rp` (radiation pressure). This is implemented at
-`models/dust_radiation/dust_oppacity.py:1744-1752`, and in the Mie path at
-`models/dust_radiation/dust_oppacity.py:1927-1935`.
+`models/dust_radiation/dust_oppacity.py:1746-1754`, and in the Mie path at
+`models/dust_radiation/dust_oppacity.py:1929-1937`.
 
 ### Average over the Mathis ISRF
 
@@ -269,7 +269,7 @@ $G_0$ is defined differently in different modules:
 | `compute_G0_from_rad_field` | $\int_{6}^{13.6\,\mathrm{eV}}4\pi I_E\,dE\,/\,1.68\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ | `models/dust_charge/dust_charging.py:1542`, `:1593`, `:1604` |
 | PAH photoelectric heating | $\int_{5.17}^{13.6\,\mathrm{eV}}2\pi I_E\,dE\,/\,1.68\times10^{-6}$ W m$^{-2}$ | `models/PAH_charge/PAH_photoelectric_heating.py:881-882` |
 | PAH temperature (`compute_base_g0`) | $c\int_{6}^{13.6\,\mathrm{eV}}u_E\,dE\,/\,1.6\times10^{-3}$ | `models/PAH_photophysics/pah_temperature.py:103-111` |
-| sublimation | a multiplier of the full Mathis field | `models/dust_radiation/dust_sublimation.py:362-368` |
+| sublimation | a multiplier of the full Mathis field | `models/dust_radiation/dust_sublimation.py:573-579` |
 
 So, except in the uniform-ISRF charging tables, a table's "$G_0=1$" means the
 base spectrum exactly as tabulated, not a fixed 6–13.6 eV flux. For reference, `compute_G0_from_rad_field` gives 1.07
@@ -316,7 +316,7 @@ $$
 L_\mathrm{band}=\frac{\int 4\pi\,\mathcal{C}_\mathrm{abs}B_\lambda(T_d)\,R(\lambda)\,d\lambda}{\int R(\lambda)\,d\lambda}
 $$
 
-(`models/dust_radiation/dust_emission.py:2279-2284`). It then divides by
+(`models/dust_radiation/dust_emission.py:2283-2288`). It then divides by
 $m_0=\tfrac43\pi s a_0^{3}$
 (`models/dust_radiation/export_dust_band_luminosities.py:105`,
 `models/dust_radiation/export_dust_band_luminosities.py:134`) and writes
@@ -336,7 +336,69 @@ wavelength), not a band-integrated power.
 The `dust_sublimation` stage writes `model_data/[<model_name>/]dust_sublimation/sublimation_rate_<bin_id>.dat`.
 It follows {cite:t}`GuhathakurtaDraine1989`, and each row holds $T_d$ [K] and
 $\log_{10}(|\dot a|/a\,[\mathrm{s^{-1}}])$ on a 200–4000 K grid
-(`models/dust_radiation/dust_sublimation.py:1308-1408`). The table depends on
+(`models/dust_radiation/dust_sublimation.py:1519-1408`). The table depends on
 $T_d$ only; the radiation field (Mathis scaled by $G_0$, or O6V) enters only
 the diagnostic plots. `dust_ratd.py`, on radiative torque disruption, is not
 part of any export stage.
+
+## Hot dust around an AGN
+
+`models/dust_radiation/agn_hot_dust.py` holds the pieces for optically thin
+grain heating by a quasar:
+
+- `skirtor_sed(lam_cm, L_bol)` (`agn_hot_dust.py:57`) is the SKIRTOR disk SED
+  of {cite:t}`Stalevski2012`: $\lambda L_\lambda \propto \lambda^{1.2}$
+  (1–10 nm), flat (10–100 nm), $\lambda^{-0.5}$ (0.1–5 µm), $\lambda^{-3}$
+  beyond, normalised to $L_\mathrm{bol}$ over 1 nm–1 mm.
+- `disk_anisotropy(cos_theta, law)` (`:69`) is the angular distribution
+  $f(\theta)$ of the disk emission, with mean 1 over the sphere: `isotropic`,
+  `cos` ($2|\cos\theta|$) or `skirtor`
+  ($\tfrac{6}{7}|\cos\theta|(1+2|\cos\theta|)$).
+- `HotGrain(material, a_um)` (`:90`) holds the Draine & Lee / Laor & Draine
+  absorption cross section of one grain and tabulates its emitted power
+  $4\pi\int C_\mathrm{abs}B_\lambda(T)\,d\lambda$ on 3–5000 K, so that the
+  equilibrium temperature is a table look-up. It avoids the 800 K bracket of
+  the `dust_emission.compute_equilibrium_temperature*` helpers and agrees
+  with `dust_sublimation.compute_bin_temperature` to 0.2%.
+  `luminosity_density` is the grain's emission $4\pi C_\mathrm{abs}B_\lambda(T)$.
+- `AGNIllumination(L_bol, law)` (`:145`) gives the temperature of a grain at
+  $(r,\theta)$ and its inverse, `radius_at_temperature`. With no attenuation
+  the absorbed power scales as $f(\theta)/r^2$, so
+  $R(T)\propto[f(\theta)L_\mathrm{bol}]^{1/2}$.
+
+Sublimation kinetics for 28 materials (graphite, amorphous carbon,
+astronomical silicate, forsterite, enstatite, fayalite, ferrosilite, silica,
+SiO, Fe, Si, Cr, FeS, Al$_2$O$_3$, spinel, perovskite, TiO$_2$, MgO, FeO,
+Fe$_3$O$_4$, Fe$_2$O$_3$, SiC, TiC, NaCl, KCl, MnS, Na$_2$S and water ice) are
+in `models/dust_radiation/sublimation_kinetics.py`, read from
+`data/external_data/sublimation_kinetics/sublimation_models.toml`. That file
+is generated (`make_sublimation_models.py`) from a literature compilation in
+the same directory (`compilation.csv`, 107 rows, and
+`COMPILATION_NOTES.md`): vapour-pressure fits, evaporation coefficients
+(temperature dependent where measured, e.g. Fe), vapour channels (C$_1$,
+C$_2$, C$_3$ for graphite), surface energies and congruency flags, each with
+its source. `get_sublimation_model(material, dataset)` returns the bulk flux
+$J(T) = \sum_c n_c\alpha_c P_c/\sqrt{2\pi m_c kT}$ (or the GD89 form), the
+condensation coefficient and the small-grain term
+$\theta = (32\pi/3)^{1/3}(m/\rho)^{2/3}\sigma/k$. The `fiducial` dataset is
+the default; `GD89` is kept for graphite and silicate. Incongruent materials
+(FeS, enstatite, SiC, Fe oxides) carry a formal congruent row and a flag.
+
+The sublimation temperature of a grain follows from these kinetics with
+recondensation (`dust_sublimation.py:331`–`380`).
+`saturated_key_density` is the key-species density (C for graphite, Si for
+silicate) at which the kinetic condensation flux cancels evaporation, the same
+flux balance as the `condensation_rate` kernel
+({doc}`dust-growth-destruction`). `net_sublimation_timescale` divides the
+vacuum lifetime by the undersaturation $1-n_X/n_\mathrm{sat}$, and
+`sublimation_temperature(material, a_cm, t_exp_s, n_key, T_gas)` is the
+temperature at which the grain survives an exposure $t_\mathrm{exp}$.
+`write_sublimation_rate_table` (`dust_sublimation.py:1465`) writes the
+solver table of a single grain, for runs that do not go through a grain-size
+configuration.
+
+`models/tools/spherex.py` models the 102 SPHEREx channels (six bands of 17
+over 0.75–5.0 µm, $R$ = 35–41 below 3.82 µm and 110–130 above) as log-spaced
+top-hats, and `spherex_photometry` returns the photon-weighted mean
+$F_\lambda$ per channel. It approximates the real linear-variable-filter
+responses, which should replace it once released.

@@ -46,6 +46,8 @@ variant used when the key is absent is marked *(default)*.
 | {doc}`Grain growth by accretion <dust-growth-destruction>` | `dust_accretion` | — | `accretion_rate` |
 | {doc}`Thermal sputtering <dust-growth-destruction>` | `dust_sputtering` | `dust_sputtering_model`: `kirchschlager` *(default, tables)*, `nozawa2006`, `nozawa2006_ramses` | `thermal_sputtering_rate`, `thermal_sputtering_rate_nozawa`, `thermal_sputtering_rate_nozawa_ramses` |
 | {doc}`Thermal sublimation <dust-growth-destruction>` | `dust_sublimation` | — | `sublimation_rate` |
+| {doc}`Recondensation <dust-growth-destruction>` | `dust_condensation` | `condensation_balance`: `flux` *(default)*, `pressure` | `condensation_rate` |
+| {doc}`Nucleation <dust-growth-destruction>` | `dust_nucleation` | — | `nucleation_rate` |
 | {doc}`Coagulation <grain-collisions>` | `dust_coagulation` | `coagulation_model`: `Aoyama2017` *(default)*, `Dubois2024`, `turbulent`, `turbulent_all` | `coagulation_rate`, `dubois_coagulation_rate`, `turbulent_coagulation_rate`, `turbulent_all_coagulation_rate` |
 | {doc}`Shattering <grain-collisions>` | `dust_shattering` | `shattering_model`: `turbulent` *(default)*, `Dubois2024`, `turbulent_all` | `turbulent_shattering_rate`, `dubois_shattering_rate`, `turbulent_all_shattering_rate` |
 | {doc}`PAH accretion <pah>` | `pah_accretion` | — | `pah_accretion_rate` |

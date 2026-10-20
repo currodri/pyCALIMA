@@ -6,9 +6,9 @@ PAH-freezing rate kernels in RAMSES-CALIMA.
 Models for grain relative velocity
 ------------------------------------
 ``'Ormel2007'``
-    Ormel & Cuzzi (2007), Appendix B – Brownian motion plus turbulence in the
-    Epstein drag regime.  Three sub-regimes depending on the stopping-time
-    ratio relative to the turbulent dissipation and injection timescales.
+    Ormel & Cuzzi (2007) – Brownian motion plus turbulence in the Epstein drag
+    regime, from their full closed-form expression (Eqs. 16-18), continuous
+    across the tightly coupled, intermediate and heavy regimes.
 
 ``'Hirashita2019'``
     Simplified Mach-number scaling from Hirashita & Aoyama (2019), Appendix C.
@@ -50,6 +50,7 @@ def grain_relative_velocity(
     projectile_a: float,
     projectile_s: float,
     projectile_m: float,
+    x_ion: float = 0.0,
 ) -> float:
     """Relative collision velocity of two dust grains [cm s⁻¹].
 
@@ -75,6 +76,9 @@ def grain_relative_velocity(
         Grain material (bulk) densities [g cm⁻³].
     target_m, projectile_m :
         Grain masses [g].
+    x_ion :
+        Ionised fraction n_ion / n_H, for the gas viscosity of ``'Ormel2007'``
+        (0: neutral gas).
 
     Returns
     -------
@@ -85,7 +89,7 @@ def grain_relative_velocity(
         return _ormel2007(
             T, rho_gas, nH, v_turb, local_mu, inject_L,
             target_a, target_s, target_m,
-            projectile_a, projectile_s, projectile_m,
+            projectile_a, projectile_s, projectile_m, x_ion,
         )
     if model == "Hirashita2019":
         return _hirashita2019(
@@ -128,6 +132,10 @@ def sticking_probability_from_velocity(v_rel: float, v_coag: float) -> float:
 # Ormel & Cuzzi (2007)  — Appendix B / Kawasaki & Machida (2023) formulation
 # ---------------------------------------------------------------------------
 
+SIGMA_NEUTRAL = 2.0e-15   # H/H2 kinetic cross-section [cm^2] (as Ormel et al. 2009)
+COULOMB_LOG = 20.0        # ln Lambda of the ion-ion collisions (Braginskii 1965)
+
+
 def _ormel2007(
     T: float,
     rho_gas: float,
@@ -141,35 +149,42 @@ def _ormel2007(
     projectile_a: float,
     projectile_s: float,
     projectile_m: float,
+    x_ion: float = 0.0,
 ) -> float:
-    # --- Brownian (thermal) contribution ---
+    # --- Brownian (thermal) contribution: (8 k T / pi m_red)^1/2 ---
     m_sum = target_m + projectile_m
     m_prod = target_m * projectile_m
-    dV_thermal = math.sqrt(8.0 * KB_CGS * T * m_sum / max(m_prod, 1.0e-100))
+    dV_thermal = math.sqrt(8.0 * KB_CGS * T * m_sum / (PI * max(m_prod, 1.0e-100)))
 
     if v_turb <= 0.0 or inject_L <= 0.0:
         return dV_thermal
 
-    # --- Gas sound speed and thermal velocity ---
-    cs_gas = math.sqrt(5.0 / 3.0 * KB_CGS * T / (MH_CGS * max(local_mu, 1.0)))
-    cs_gas = max(cs_gas, 1.0)
-    v_th = math.sqrt(8.0 / PI) * cs_gas
+    # --- Gas thermal (Maxwellian mean) speed: no adiabatic index in it ---
+    v_th = math.sqrt(8.0 * KB_CGS * T / (PI * MH_CGS * max(local_mu, 1.0e-3)))
+    v_th = max(v_th, 1.0)
 
-    # --- Coulomb mean free path ---
+    # --- Kinematic viscosity of the neutral + ionised mixture, each species
+    # weighted by its mass fraction: nu = sum_s f_s v_th mfp_s / 3, with
+    # neutral collisions at SIGMA_NEUTRAL (neutral-neutral and neutral-ion) and
+    # ion-ion Coulomb collisions (Braginskii 1965). Neutral gas: v_th / (3 n sigma);
+    # fully ionised: the Braginskii ion viscosity. ---
+    x = min(max(x_ion, 0.0), 1.0)
     rc = E2_CGS / (KB_CGS * T)               # Coulomb distance [cm]
-    mfp = 1.0 / max(nH * rc ** 2, 1.0e-30)  # [cm]
+    sigma_C = PI * rc ** 2 * COULOMB_LOG
+    nu_n = (1.0 - x) / SIGMA_NEUTRAL
+    nu_i = x / (x * sigma_C + (1.0 - x) * SIGMA_NEUTRAL)
+    nu = v_th * (nu_n + nu_i) / (3.0 * max(nH, 1.0e-30))
 
-    # --- Turbulence timescales ---
+    # --- Turbulence timescales: Re = v L / nu ---
     tau_L = inject_L / v_turb                 # injection timescale [s]
-    Re = 3.0 * v_turb * inject_L / (cs_gas * mfp)
+    Re = v_turb * inject_L / nu
     Re = max(Re, 1.0)
     tau_eta = tau_L / math.sqrt(Re)           # dissipation timescale [s]
 
     # --- Epstein stopping times ---
     rho_s = max(rho_gas, 1.0e-30)
-    v_th_s = max(v_th, 1.0)
-    ts_t = target_s * target_a / (rho_s * v_th_s)
-    ts_p = projectile_s * projectile_a / (rho_s * v_th_s)
+    ts_t = target_s * target_a / (rho_s * v_th)
+    ts_p = projectile_s * projectile_a / (rho_s * v_th)
 
     # Normalise: target is the larger grain
     if ts_t < ts_p:
@@ -178,29 +193,26 @@ def _ormel2007(
     # --- Stokes numbers ---
     St_t = ts_t / tau_L
     St_p = ts_p / tau_L
-    Stmin = tau_eta / tau_L
+    Stmin = tau_eta / tau_L                   # Re^-1/2
 
-    # --- Turbulent relative velocity (three regimes) ---
-    if ts_t < tau_eta:
-        # Both grains well-coupled to turbulence
-        dSt = St_t - St_p  # ≥ 0 since ts_t ≥ ts_p
-        sumSt = St_t + St_p
-        if sumSt > 0.0:
-            frac1 = St_t ** 2 / (St_t + Stmin) - St_p ** 2 / (St_p + Stmin)
-            arg = (dSt / sumSt) * max(frac1, 0.0)
-            dV_turb = math.sqrt(3.0 / 2.0) * v_turb * math.sqrt(arg)
-        else:
-            dV_turb = 0.0
-    elif ts_t < tau_L:
-        # Intermediate regime for the larger grain
-        x = St_p / max(St_t, 1.0e-30)
-        OC07 = 3.2 - (1.0 + x) + 2.0 / (1.0 + x) * (1.0 / 2.6 + x ** 3 / (1.6 + x))
-        dV_turb = math.sqrt(3.0 / 2.0) * v_turb * math.sqrt(max(OC07 * St_t, 0.0))
+    # --- Turbulent relative velocity: the full closed form of Ormel & Cuzzi
+    # (2007, Eqs. 16-18), continuous across the tightly coupled, intermediate
+    # and heavy regimes (their Eqs. 26-29 are its limits; switching between
+    # those leaves jumps of up to x2.4 at t_eta and t_L). The class I / II
+    # boundary eddy: t* = y_a t_s with y_a = 1.6 (their Sect. 3.2.1), t* = t_L
+    # once t_s >= t_L, and t_eta <= t*_12 <= t_L. ---
+    St_star = min(max(1.6 * St_t, Stmin), 1.0) if St_t < 1.0 else 1.0
+    sumSt = St_t + St_p
+    if sumSt > 0.0:
+        dV_I2 = (St_t - St_p) / sumSt * (
+            St_t ** 2 / (St_star + St_t) - St_t ** 2 / (1.0 + St_t)
+            - St_p ** 2 / (St_star + St_p) + St_p ** 2 / (1.0 + St_p))
     else:
-        # Large Stokes number
-        dV_turb = math.sqrt(3.0 / 2.0) * v_turb * math.sqrt(
-            1.0 / (1.0 + St_t) + 1.0 / (1.0 + St_p)
-        )
+        dV_I2 = 0.0
+    dV_II2 = (2.0 * (St_star - Stmin)
+              + St_t ** 2 / (St_t + St_star) - St_t ** 2 / (St_t + Stmin)
+              + St_p ** 2 / (St_p + St_star) - St_p ** 2 / (St_p + Stmin))
+    dV_turb = math.sqrt(3.0 / 2.0) * v_turb * math.sqrt(max(dV_I2 + dV_II2, 0.0))
 
     return math.sqrt(dV_thermal ** 2 + dV_turb ** 2)
 

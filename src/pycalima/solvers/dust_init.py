@@ -17,6 +17,8 @@ See ``configs/example_ic.json`` for a complete example::
             "electron_number_density_cm3": 1e-3,
             "radiation_field_G0": 1.0,
             "radiation_field_model": "habing",   // informational
+            "dust_temperature_K": 20.0,          // required by dust_sublimation;
+                                                 // a bin may override it
             "mean_molecular_weight": 1.4
         },
         "elemental_abundances": {
@@ -71,6 +73,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import warnings
 from pathlib import Path
 from typing import Tuple
 
@@ -91,6 +95,7 @@ from .chemistry_state import (
     N_ELEMENTS,
     DustBinParams,
     DustChemistryState,
+    NucleationParams,
     PAHBinParams,
 )
 from .table_io import (
@@ -274,37 +279,116 @@ def _load_pah_sputtering_tables(bin_id: str, data_dir: Path) -> dict:
 def _load_erosion_rate_table(bin_id: str, data_dir: Path):
     """Load pre-computed GD89 sublimation/erosion-rate table for *bin_id*.
 
-    Returns a callable ``(T_K) -> epsilon [s^-1]`` that linearly
-    interpolates the table produced by
-    ``models.dust_radiation.dust_sublimation.write_sublimation_rate_tables``.
-    Returns ``None`` when the file does not exist or cannot be read.
+    Returns ``(interp, a_table_cm)``: a callable ``(T_dust_K) -> epsilon
+    [s^-1]`` interpolating the table produced by
+    ``models.dust_radiation.dust_sublimation.write_sublimation_rate_tables``,
+    and the grain radius the table was computed for (from its header; ``None``
+    if the header does not give it). Returns ``(None, None)`` when the file
+    does not exist or cannot be read.
 
     The expected file is ``<data_dir>/sublimation_rate_{bin_id}.dat`` (falling back to
-    ``erosion_rate_{bin_id}.dat``), with two columns (temperature [K], rate [s⁻¹]).
-    Lines starting with ``#`` are treated as comments and skipped.
+    ``erosion_rate_{bin_id}.dat``), with two columns: dust temperature [K] and
+    the rate. Current exporters write ``log10(epsilon/[s^-1])`` and say so in
+    the ``# Columns:`` header; tables without that header are older exports
+    holding linear epsilon. Lines starting with ``#`` are comments.
+
+    ``log10 epsilon`` is interpolated linearly in T (epsilon spans ~20
+    decades across the table). Below the first row epsilon is 0, since the
+    exporter drops rows whose timescale exceeds 10 Hubble times; above the
+    last row the last value is held.
     """
     fname = _resolve_table(data_dir, f"sublimation_rate_{bin_id}.dat")
     if not fname.exists():
         fname = _resolve_table(data_dir, f"erosion_rate_{bin_id}.dat")
     if not fname.exists():
-        return None
+        return None, None
     try:
+        with open(fname) as fh:
+            header = [line for line in fh if line.startswith("#")]
+        is_log10 = any("log10(epsilon" in line for line in header)
+        a_table_cm = None
+        for line in header:
+            m = re.search(r"Grain radius \(representative\): (\S+) cm", line)
+            if m:
+                a_table_cm = float(m.group(1))
         data = np.loadtxt(fname, comments="#")
         if data.ndim != 2 or data.shape[1] < 2:
-            return None
+            return None, None
         T_tab = data[:, 0]
-        eps_tab = data[:, 1]
-        # Return a simple linear-log interpolant (extrapolate as 0)
-        from scipy.interpolate import interp1d
-        interp = interp1d(
-            T_tab, eps_tab,
-            kind="linear",
-            bounds_error=False,
-            fill_value=(0.0, eps_tab[-1]),
-        )
-        return interp
+        log_eps_tab = data[:, 1] if is_log10 else np.log10(data[:, 1])
+
+        def interp(T_dust_K):
+            return 10.0 ** np.interp(T_dust_K, T_tab, log_eps_tab, left=-np.inf)
+
+        return interp, a_table_cm
     except Exception:
+        return None, None
+
+
+def _parse_nucleation(entries, dust_bins, config_path):
+    """Build NucleationParams from the config's ``nucleation`` list.
+
+    Each entry names the ``target_bin`` receiving the new grains, the
+    ``key_element``, and the GD89 constants of the composition
+    (``evaporation_prefactor_cm2s``, ``binding_energy_K``,
+    ``surface_energy_K``, ``monomer_mass_amu``; ``density_gcm3`` defaults to the
+    bin's grain density, ``alpha`` to 0.1). ``neutral_fraction`` (default 1),
+    ``gas_temperature_K`` and ``cluster_temperature_K`` (default: local gas
+    temperature and the target bin's dust temperature) are optional.
+    ``models.dust_radiation.dust_sublimation.nucleation_parameters`` returns
+    the constants for graphite and silicate.
+    """
+    by_id = {db.bin_id: db for db in dust_bins}
+    out = []
+    for e in entries:
+        db = by_id.get(e.get("target_bin"))
+        if db is None:
+            raise ValueError(f"nucleation target_bin {e.get('target_bin')!r} is not a "
+                             f"dust bin of {config_path}.")
+        key = e["key_element"]
+        if key not in db.el_names:
+            raise ValueError(f"nucleation key_element {key!r} is not in the elements "
+                             f"of {db.bin_id} ({config_path}).")
+        if e.get("cluster_temperature_K") is None and db.dust_temperature_K is None:
+            raise ValueError(
+                f"nucleation into {db.bin_id} needs a cluster temperature: set "
+                f'"cluster_temperature_K" or the bin\'s "dust_temperature_K" '
+                f"({config_path}).")
+        rho = float(e.get("density_gcm3", db.sgrain))
+        m_mon = float(e["monomer_mass_amu"]) * AU2G
+        key_index = ELEMENT_NAMES.index(key)
+        out.append(NucleationParams(
+            target_bin=db.bin_index,
+            key_index=key_index,
+            key_mass_g=ELEMENT_ATOMIC_MASSES_G[key_index],
+            evaporation_prefactor=float(e["evaporation_prefactor_cm2s"]),
+            binding_energy_K=float(e["binding_energy_K"]),
+            surface_energy_K=float(e["surface_energy_K"]),
+            monomer_volume_cm3=m_mon / rho,
+            alpha=float(e.get("alpha", 0.1)),
+            neutral_fraction=float(e.get("neutral_fraction", 1.0)),
+            gas_temperature_K=(None if e.get("gas_temperature_K") is None
+                               else float(e["gas_temperature_K"])),
+            cluster_temperature_K=(None if e.get("cluster_temperature_K") is None
+                                   else float(e["cluster_temperature_K"])),
+        ))
+    return out
+
+
+def _table_condensation_alpha(bin_id: str, data_dir: Path):
+    """Condensation coefficient written in the header of the bin's
+    sublimation table (``# Condensation alpha (at 1500 K): x``), or None."""
+    fname = _resolve_table(data_dir, f"sublimation_rate_{bin_id}.dat")
+    if not fname.exists():
         return None
+    with open(fname) as fh:
+        for line in fh:
+            if not line.startswith("#"):
+                break
+            m = re.search(r"Condensation alpha[^:]*:\s*(\S+)", line)
+            if m:
+                return float(m.group(1))
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +458,12 @@ def load_initial_conditions(
     )
     local_ne = float(env.get("electron_number_density_cm3", 1.0e-4 * local_nH))
     local_G0 = float(env.get("radiation_field_G0", 1.0))
+    # Grain temperature for sublimation; a bin's own value overrides it.
+    local_Tdust = (
+        float(env["dust_temperature_K"]) if "dust_temperature_K" in env else None
+    )
+    # Grain potential seen by condensing ions; a bin's own value overrides it.
+    local_Ugrain = float(env.get("grain_potential_V", 0.0))
 
     # ------------------------------------------------------------------
     # Elemental abundances → y_gas
@@ -390,6 +480,7 @@ def load_initial_conditions(
     # ------------------------------------------------------------------
     dust_cfgs = cfg.get("dust_bins", [])
     dust_bins: list[DustBinParams] = []
+    subl_size_mismatch: list[str] = []
 
     for bd in dust_cfgs:
         bin_id = bd["id"]
@@ -414,7 +505,12 @@ def load_initial_conditions(
         k0_acc = _k0_accretion(asize_cm, sgrain, sticking)
         k0_coa = _k0_coagulation(asize_cm, sgrain)
         sput_interps = _load_sputtering_tables(bin_id, sputtering_dir)
-        erosion_interp = _load_erosion_rate_table(bin_id, sublimation_dir)
+        erosion_interp, erosion_a_cm = _load_erosion_rate_table(bin_id, sublimation_dir)
+        if (erosion_interp is not None and erosion_a_cm is not None
+                and abs(erosion_a_cm / asize_cm - 1.0) > 0.01):
+            subl_size_mismatch.append(
+                f"{bin_id} ({asize_um:g} um here, {erosion_a_cm * 1e4:g} um in the table)"
+            )
 
         # Uniform-ISRF charging table (for Coulomb enhancement in accretion/sputtering)
         isrf_file = model_data_dir / "dust_charging_isrf_data" / f"dust_charging_isrf_{bin_id}.dat"
@@ -443,6 +539,12 @@ def load_initial_conditions(
             k0_coa=k0_coa,
             sputtering_interps=sput_interps,
             erosion_rate_interp=erosion_interp,
+            condensation_alpha=_table_condensation_alpha(bin_id, sublimation_dir),
+            dust_temperature_K=(
+                float(bd["dust_temperature_K"]) if "dust_temperature_K" in bd
+                else local_Tdust
+            ),
+            grain_potential_V=float(bd.get("grain_potential_V", local_Ugrain)),
             isrf_table=isrf_table,
             nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
             nh_coa=float(bd.get("nh_coa", 0.1)),
@@ -545,8 +647,61 @@ def load_initial_conditions(
     # Physics flags and solver settings
     # ------------------------------------------------------------------
     phys = cfg.get("physics", {})
+    if phys.get("dust_sublimation", False):
+        missing = [db.bin_id for db in dust_bins if db.dust_temperature_K is None]
+        if missing:
+            raise ValueError(
+                f"dust_sublimation is enabled but no dust temperature is set "
+                f"for {missing}. The sublimation tables are functions of the "
+                f"grain temperature, not the gas temperature: set "
+                f'"dust_temperature_K" in "environment" or in each dust bin '
+                f"of {config_path}."
+            )
+        if subl_size_mismatch:
+            # epsilon = |da/dt|/a scales as 1/a, so the rate is off by roughly
+            # the size ratio.
+            warnings.warn(
+                "sublimation tables were exported for a different grain size "
+                f"than the solver bin: {', '.join(subl_size_mismatch)}. "
+                "Re-export with a grain-size JSON that matches the solver config.",
+                stacklevel=2,
+            )
     solver_cfg = cfg.get("solver", {})
     models_cfg = cfg.get("models", {})
+    condensation_balance = str(models_cfg.get("condensation_balance", "flux"))
+    nucleation = []
+    if phys.get("dust_nucleation", False):
+        if not cfg.get("nucleation"):
+            raise ValueError(
+                f'dust_nucleation is enabled but {config_path} has no "nucleation" '
+                "list (target_bin, key_element and the GD89 constants).")
+        nucleation = _parse_nucleation(cfg["nucleation"], dust_bins, config_path)
+    if phys.get("dust_condensation", False):
+        if phys.get("dust_accretion", False):
+            # Both are the same gas-grain collisions; together they double count.
+            raise ValueError(
+                "dust_condensation and dust_accretion are both enabled: they "
+                "count the same gas-grain collisions twice. Use accretion for "
+                "cold ISM grains and condensation (with dust_sublimation) for "
+                f"hot grains near their sublimation temperature ({config_path})."
+            )
+        if condensation_balance not in ("flux", "pressure"):
+            raise ValueError(
+                f"condensation_balance must be 'flux' or 'pressure', "
+                f"not {condensation_balance!r} ({config_path})."
+            )
+        if condensation_balance == "pressure" and any(
+                db.dust_temperature_K is None for db in dust_bins):
+            raise ValueError(
+                "condensation_balance 'pressure' needs a dust temperature: set "
+                f'"dust_temperature_K" in "environment" ({config_path}).'
+            )
+        if not phys.get("dust_sublimation", False):
+            warnings.warn(
+                "dust_condensation without dust_sublimation is one-way growth "
+                "with no evaporation to balance it.",
+                stacklevel=2,
+            )
     turb_cfg = cfg.get("turbulence", {})
 
     # Turbulent velocity and injection scale (convert from km/s and pc)
@@ -573,6 +728,8 @@ def load_initial_conditions(
         dust_accretion=bool(phys.get("dust_accretion", False)),
         dust_sputtering=bool(phys.get("dust_sputtering", False)),
         dust_sublimation=bool(phys.get("dust_sublimation", False)),
+        dust_condensation=bool(phys.get("dust_condensation", False)),
+        dust_nucleation=bool(phys.get("dust_nucleation", False)),
         dust_coagulation=bool(phys.get("dust_coagulation", False)),
         dust_shattering=bool(phys.get("dust_shattering", False)),
         pah_accretion=bool(phys.get("pah_accretion", False)),
@@ -592,7 +749,12 @@ def load_initial_conditions(
         cluster_evaporation_model=str(
             models_cfg.get("cluster_evaporation_model", "Montillaud2014")
         ),
-        slope_frag_func=float(models_cfg.get("slope_frag_func", 1.3 / 3.0)),
+        slope_frag_func=float(models_cfg.get("slope_frag_func", 0.7 / 3.0)),
+        # Recondensation
+        condensation_coefficient=float(models_cfg.get("condensation_coefficient", 0.1)),
+        condensation_balance=condensation_balance,
+        condensation_ion_fraction=float(models_cfg.get("condensation_ion_fraction", 0.0)),
+        nucleation=nucleation,
         # Turbulent environment
         local_sigma=local_sigma,
         local_dx=local_dx,
