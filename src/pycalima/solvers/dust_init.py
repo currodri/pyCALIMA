@@ -102,7 +102,7 @@ from .table_io import (
     build_sputtering_interpolator,
     build_pah_photolysis_interpolator,
     build_pah_sputtering_interpolator,
-    build_charge_interpolator,
+    read_isrf_charging_table,
 )
 
 # ---------------------------------------------------------------------------
@@ -512,18 +512,9 @@ def load_initial_conditions(
                 f"{bin_id} ({asize_um:g} um here, {erosion_a_cm * 1e4:g} um in the table)"
             )
 
-        # Grain charge tables (for Coulomb enhancement in accretion/sputtering)
-        charge_Z_interp = None
-        charge_sigma_interp = None
-        charge_dir = model_data_dir / "dust_charging_data"
-        _fZ = charge_dir / f"dust_charge_Z_vs_T_{bin_id}"
-        _fS = charge_dir / f"dust_charge_sigma_vs_T_{bin_id}"
-        if _fZ.exists() and _fS.exists():
-            try:
-                charge_Z_interp = build_charge_interpolator(_fZ, clamp_range=(-60.0, 60.0))
-                charge_sigma_interp = build_charge_interpolator(_fS, clamp_range=(0.0, 20.0))
-            except Exception:
-                pass  # table unreadable — disable Coulomb enhancement for this bin
+        # Uniform-ISRF charging table (for Coulomb enhancement in accretion/sputtering)
+        isrf_file = model_data_dir / "dust_charging_isrf_data" / f"dust_charging_isrf_{bin_id}.dat"
+        isrf_table = read_isrf_charging_table(isrf_file) if isrf_file.exists() else None
 
         # Grain mass range for fragment distribution (shattering)
         amin_um = float(bd.get("amin_micron", asize_um * 0.5))
@@ -554,8 +545,7 @@ def load_initial_conditions(
                 else local_Tdust
             ),
             grain_potential_V=float(bd.get("grain_potential_V", local_Ugrain)),
-            charge_Z_interp=charge_Z_interp,
-            charge_sigma_interp=charge_sigma_interp,
+            isrf_table=isrf_table,
             nhmax_acc=float(bd.get("nhmax_acc", 1.0e4)),
             nh_coa=float(bd.get("nh_coa", 0.1)),
             catastrophic_spec_energy=float(
