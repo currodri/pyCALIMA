@@ -23,6 +23,13 @@ def test_laws_hold_below_and_extrapolate_positions_above():
     assert b.t_range == (400.0, 700.0) and b.lorentz == 0.4
 
 
+def test_extrapolated_laws_continue_the_lowest_piece_to_0k():
+    b = cp.parse_laws(_payload([ROW]))[0]
+    assert b.position([0.0, 200.0, 450.0], below="extrapolate") == pytest.approx([3010.0, 3006.0, 3001.0])
+    assert b.fwhm([0.0, 200.0, 450.0], below="extrapolate") == pytest.approx([5.0, 9.0, 14.0])
+    assert b.fwhm([0.0], below="extrapolate", floor_cm=6.0) == pytest.approx([6.0])
+
+
 def test_a_falling_width_is_held_above_the_data():
     row = ROW[:6] + [[[30.0, -0.01, 0.0, 400.0, 700.0]]]
     b = cp.parse_laws(_payload([row]))[0]

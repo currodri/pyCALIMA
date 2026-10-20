@@ -119,8 +119,8 @@ def tables(lib, processes):
 class SideGroups:
     """Per state and group, the side-group power per cm^-1 on ``nu`` for one aliphatic H per aromatic H."""
 
-    def __init__(self, lib, tab, nu):
-        self.lib, self.tab, self.nu = lib, tab, nu
+    def __init__(self, lib, tab, nu, below="hold"):
+        self.lib, self.tab, self.nu, self.below = lib, tab, nu, below
         self.energy = np.arange(next(iter(tab.values()))["P"].size) * DE_CM
         self.bands = {}
         for g, (key, bands, n_ali, aro, n_aro) in GROUPS.items():
@@ -143,7 +143,7 @@ class SideGroups:
                 a_b = _EINSTEIN_A_PER_KM_MOL * BANDS[i] ** 2 * r * ref["i_aro_h"] * mol.nh
                 photons = P[live] * a_b * e["K"][i].astype(float)[live]
                 t = T[live]
-                pos, fw = law.position(t), law.fwhm(t)
+                pos, fw = law.position(t, self.below), law.fwhm(t, self.below)
                 prof = cosmicpah.pseudo_voigt(self.nu[None, :], pos[:, None], fw[:, None], law.lorentz)
                 out += (photons * pos) @ prof
             self._cache[k] = out
@@ -185,6 +185,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--processes", type=int, default=8)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--below", choices=("hold", "extrapolate"), default="hold",
+                    help="band laws below the lab data: Demyk+26's lowest-T value, or continued to 0 K (Mackie+18)")
     args = ap.parse_args()
     lib = library()
     tab = tables(lib, args.processes)
@@ -205,7 +207,7 @@ def main():
     print(f"CH-stretch power, tables vs population bases (sample of states): max |rel diff| {worst:.3f}")
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
-    sg = SideGroups(lib, tab, nu)
+    sg = SideGroups(lib, tab, nu, args.below)
     w33, w34 = (lam >= 3.20) & (lam < 3.36), (lam >= 3.36) & (lam < 3.60)
     results = {}
     for t in C.TEMPLATES:
@@ -232,12 +234,13 @@ def main():
                   flush=True)
         results[t] = {"y": y, "arom": arom, "res": res, "cols": cols}
     out = args.out or _paths.get_plots_dir("pahchem")
-    with open(_paths.get_results_dir() / "pahchem_sidegroups_34um.pkl", "wb") as fh:
+    suffix = "" if args.below == "hold" else f"_{args.below}"
+    with open(_paths.get_results_dir() / f"pahchem_sidegroups_34um{suffix}.pkl", "wb") as fh:
         pickle.dump({"lam": lam, "results": results}, fh)
-    plot(lam, results, out)
+    plot(lam, results, out, suffix)
 
 
-def plot(lam, results, out):
+def plot(lam, results, out, suffix=""):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -273,7 +276,7 @@ def plot(lam, results, out):
         a.minorticks_on()
         a.tick_params(which="both", axis="both", direction="in")
     fig.tight_layout()
-    path = Path(out) / "sidegroups_34um.png"
+    path = Path(out) / f"sidegroups_34um{suffix}.png"
     fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {path}")

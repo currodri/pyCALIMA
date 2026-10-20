@@ -1765,6 +1765,24 @@ that radiate from each molecule's own cascade.
     - All are the pyrene-family lab bands carried to larger PAHs, where
       the side-group environments (and their Fermi resonances) differ.
 
+**Cold photons and the 3.40 µm peak (2026-10-20;
+`fit_34um_sidegroups.py --below extrapolate`).** {cite:t}`Mackie2018` find
+cascade bands with a steep blue wall at the 0 K position and a red wing.
+- **Laws continued to 0 K below the lab data** (instead of held at 423 K)
+  change nothing: 1 % of the CH$_2$ 3.40 µm photons are emitted below 423 K
+  and ~75 % above 673 K, the top of the lab data. The complex is emitted
+  hot, so its profile is set by the extrapolation of the laws upwards.
+- **The 3.40 µm peak** (HII / DF3, µm): observed 3.3973 / 3.4002 (blue
+  half-maximum 3.3858 / 3.3887). With the lab laws the CH$_2$ peak is at
+  3.4016 / 3.4018 (3.3917). Frozen at the 0 K intercepts it is at 3.3932
+  (3.3835).
+- **Reading.** The observed band lies between the two: in the cascade it
+  shifts about half as much as the thermal lab laws extrapolated past 673 K
+  predict, as {cite:t}`Mackie2018` argue. The observed peak also moves
+  0.003 µm red from HII to DF3, which the CH$_2$ band alone does not do
+  (Thatte+26's 3.405 µm component). The test of the extrapolation is
+  Mackie+18's fully anharmonic cascade of 6H-pyrene (supplementary material).
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

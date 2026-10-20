@@ -139,25 +139,30 @@ class BandLaw:
         return min(p.t_min for p in ps), max(p.t_max for p in ps)
 
     @staticmethod
-    def _evaluate(pieces, t, extrapolate_up):
+    def _evaluate(pieces, t, extrapolate_up, extrapolate_down=False):
         t = np.asarray(t, dtype=float)
         lo, hi = pieces[0], pieces[-1]
-        out = np.full(t.shape, lo(lo.t_min))     # below the data: the lowest-T value
+        # below the data: the lowest-T value, or the lowest piece continued towards 0 K
+        out = lo(t) if extrapolate_down else np.full(t.shape, lo(lo.t_min))
         for p in pieces:                         # ranges meet end to end (_pieces); the upper piece wins at a joint
             out = np.where(t >= p.t_min, p(t), out)
         if not extrapolate_up:
             out = np.where(t > hi.t_max, hi(hi.t_max), out)
         return out
 
-    def position(self, t):
-        """Position at T [K]: the lowest-T value below the data, linear extrapolation above (Demyk+26 Sect. 2.4)."""
-        return self._evaluate(self.position_pieces, t, extrapolate_up=True)
+    def position(self, t, below="hold"):
+        """Position at T [K]: linear extrapolation above the data (Demyk+26 Sect. 2.4); below it the lowest-T value
+        (``below="hold"``, Demyk+26) or the lowest piece continued to its 0 K intercept (``"extrapolate"``, the
+        cold photons of Mackie+18 at their 0 K positions)."""
+        return self._evaluate(self.position_pieces, t, True, below == "extrapolate")
 
-    def fwhm(self, t):
+    def fwhm(self, t, below="hold", floor_cm=2.0):
         """FWHM at T [K]. Above the data the last piece is extrapolated only if it rises; a falling width
-        (the strongly blended components, whose chi1'' < 0 Demyk+26 call unphysical) is held."""
+        (the strongly blended components, whose chi1'' < 0 Demyk+26 call unphysical) is held. Below it as
+        ``position``; an extrapolated width is kept above ``floor_cm``."""
         rises = self.fwhm_pieces[-1].c1 > 0
-        return self._evaluate(self.fwhm_pieces, t, extrapolate_up=rises)
+        w = self._evaluate(self.fwhm_pieces, t, rises, below == "extrapolate")
+        return np.maximum(w, floor_cm) if below == "extrapolate" else w
 
 
 def _pieces(rows, what):
