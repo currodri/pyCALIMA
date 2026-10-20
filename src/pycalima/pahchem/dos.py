@@ -191,7 +191,7 @@ def canonical_temperature(freqs_cm, energy_cm):
     Vectorised over E: an initial guess from U on a log-T grid, then Newton
     steps in ln T with the analytic heat capacity, dU/dT = sum f x / T /
     (4 sinh^2(x/2)), x = f / kT. U is convex in ln T, so the iteration
-    converges quadratically; it stops at |d ln T| < 1e-14 (the scalar brentq
+    converges quadratically; it stops at ``|d ln T|`` < 1e-14 (the scalar brentq
     it replaces stopped at 2e-12). T is confined to 1 K - 1e6 K; E <= 0
     gives 0.
     """

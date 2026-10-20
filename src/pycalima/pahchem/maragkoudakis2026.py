@@ -1,6 +1,7 @@
 """Maragkoudakis et al. (2026, PDRs4All XVIII) pyPAHdb decomposition, from their stated inputs.
 
 Method card ``method_cards/maragkoudakis2026.toml``. Their model, in short:
+
 - pyPAHdb with the precomputed PAHdb v4.00-alpha matrix (public, no
   registration: dataset ``pypahdb-matrix-v4-00-alpha``). It has 7529 spectra of
   C/H species with 20 < N_C <= 384 and charges -1 to +3, each the emission of
@@ -17,6 +18,7 @@ Method card ``method_cards/maragkoudakis2026.toml``. Their model, in short:
   charge and size fractions are therefore shares of the emitted energy, and
   N_C is the emission-weighted mean. "Cation" is every charge > 0, dications and
   trications included.
+
 """
 
 from __future__ import annotations
@@ -65,11 +67,13 @@ def decompose(wavelength_um, intensity, precomputed, fit_range_um=FIT_RANGE_UM):
     """(weights, fit on the input points) of pyPAHdb's NNLS for one spectrum.
 
     As ``DecomposerBase``:
+
     - the matrix columns are linearly interpolated onto the observation's
       wavenumbers;
     - the matrix is scaled by its maximum and the spectrum by its own;
     - NNLS runs on the points within ``fit_range_um``, unweighted;
     - the weights are scaled back.
+
     """
     from scipy.optimize import nnls
 
@@ -99,7 +103,7 @@ def fractions(weights, precomputed):
 
 
 def fit_error(wavelength_um, intensity, fit, fit_range_um=FIT_RANGE_UM):
-    """pyPAHdb's error: integral of |residual| over the integral of the observation (in wavenumber)."""
+    """pyPAHdb's error: integral of ``|residual|`` over the integral of the observation (in wavenumber)."""
     lam = np.asarray(wavelength_um, dtype=float)
     sel = (lam >= fit_range_um[0]) & (lam <= fit_range_um[1]) & np.isfinite(fit)
     nu = 1e4 / lam[sel]
@@ -159,6 +163,7 @@ def matrix_from_species(species, abscissa_cm, model="thermal_7ev", profile="gaus
     """{"abscissa", "matrix", "charge", "size"} of pyPAHdb-style columns built by pahchem.
 
     ``model``:
+
     - "thermal_7ev": the AmesPAHdb thermal cascade after one 7 eV photon
       (pyPAHdb's columns; ``emission.ThermalCascade``);
     - "exact_7ev": pahchem's microcanonical cascade after one 7 eV photon;

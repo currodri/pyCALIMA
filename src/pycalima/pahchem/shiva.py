@@ -26,11 +26,13 @@ Method card: ``method_cards/murga2020.toml`` ([photophysics], [heating],
   ``p_time``, the time average, and ``p_post``, the distribution just
   after an absorption.
 - **Rates**:
+
   - ``mw22``: R = int k_diss p_time dE (Murga & Wiebe 2022 eq. 1), the
     sink-free time-averaged rate;
   - ``m20``: R = <k_diss / (k_diss + k_IR)>_{p_post} x int_5^13.6 C_abs F dE
     (M20 eqs. 4-6), the yield per absorption times the absorption rate,
     per fragment, the channels not competing (eq. 4 as printed).
+
   R is in fragment-loss events per molecule per second; the M20 factor-2
   ambiguity for molecules (card [dissociation].units) is not applied.
 

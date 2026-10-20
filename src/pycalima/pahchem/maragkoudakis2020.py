@@ -1,6 +1,7 @@
 """Maragkoudakis, Peeters & Ricca (2020) band-ratio diagnostics, from their stated inputs.
 
 Method card ``method_cards/maragkoudakis2020.toml``. In short:
+
 - 308 PAHdb v3.20 species (their Tables H1-H3);
 - one absorbed photon of fixed energy (6-12 eV), or the Mathis+83 ISRF with the
   AmesPAHdb suite's cross section (``photo.sigma_amespahdb``);
@@ -8,9 +9,11 @@ Method card ``method_cards/maragkoudakis2020.toml``. In short:
 - band fluxes summed in fixed wavebands (Table 1).
 
 ``band_fluxes`` runs one species with either emission model:
+
 - "thermal" is the suites' thermal-approximation cascade (``emission.ThermalCascade``),
   their model;
 - "exact" is pahchem's microcanonical cascade (``emission.cascade_photons``).
+
 Fluxes are their "sum of fluxes" in each waveband, on a grid uniform in
 wavenumber (0.5 cm^-1; their grid is not stated).
 """

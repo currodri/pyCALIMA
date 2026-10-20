@@ -13,12 +13,14 @@ used. The physics is pahchem's own:
 - cation H addition at the Table 4 rates, none for neutrals (standard model).
 
 ``modes`` chooses the mode set of each hydrogenation state:
+
 - "parent" (default): the parent's modes for every state. This is what the
   paper implies: photodissociation depends "on the size of the species through
   their vibrational density of states, and ... on their hydrogenation state
   through the binding energy E0" (Sect. 3.7).
 - "stripped": ``PAHSpecies.stripped``, a pahchem sensitivity variant, not
   Montillaud's model.
+
 The choice moves the even-N_H rates by ~100x (pahchem-spec.md, M5).
 
 ``hydrogenation_grid`` computes the quantity of their Fig. 10: the fraction of

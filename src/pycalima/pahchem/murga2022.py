@@ -8,9 +8,11 @@ charge is fixed per population and weighted by f(a, Z) afterwards. There is
 no loss from the lowest bin and no addition into the top one (Sect. 3.1).
 
 The pieces:
+
 - **Photo H loss.** ``pahchem.shiva`` (M20 eqs. 4-6, the post-absorption
   yield) in the MMP83 field scaled by chi (the unit the charge gate infers,
   ``murga_charge``):
+
   - for X_H <= X_H0: H (4.3 eV, 11.8 cal/K), H2 (3.52 eV, -12.69 cal/K) and
     the H of C2H2 (4.6 eV, 10 cal/K), counted in atoms, each channel against
     k_IR alone;
@@ -22,6 +24,7 @@ The pieces:
     and also inside hydrogen or acetylene molecules"; model b keeps the
     carbon.
 - **H addition (M20 Sect. 2.2).**
+
   - Neutrals: 0.5 (N_edge k_edge + N_core k_core) n_H, from Goumans 2011
     (``goumans2011_table3.csv``), N_edge = N_H0, N_core = N_C - N_H0.
   - Ions: 1.4e-10 N_H/N_C n_H (normal); 0.5 (1.4e-10 N_H/N_C + 5e-11) n_H
@@ -30,8 +33,10 @@ The pieces:
 
 Choices where the card says "not stated", fixed or tested on the Figshare
 files (``check_murga2022.py``):
+
 - **Molecule of a size bin.** N_C = 468 (a/10 A)^3 (the DL01 radius law; it
   gives the quoted N_C = 60 at 5 A) and N_H0 = DL01 eq. 8.
+
   - A bin state has N_H = max(1, round(x N_H0)).
   - The 50 A bin (N_C ~ 58500) has no photo-loss: E/N_C < 3e-4 eV per C.
 - **Charge classes.** Rates by anion (Z < 0), neutral and cation (Z > 0).
@@ -53,8 +58,10 @@ files (``check_murga2022.py``):
   diverge there, Goumans Sect. 3) and extrapolated above 2000 K.
 
 Measured against the Figshare model b (2026-10-06, check_murga2022.py):
+
 - **Deep MC, 3.3 A neutrals** (locations 134-151; H addition negligible
   there, so these are pure loss chains, fitted exactly):
+
   - The step rate k(mid -> lowest)/k(normal -> mid) is 1.250 at every chi.
     With DL01 our R(mid)/R(normal) is 1.257 (1.278 without the C2H2
     hydrogen); with Tielens it is 0.787 (the T(E) verdict).
@@ -65,6 +72,7 @@ Measured against the Figshare model b (2026-10-06, check_murga2022.py):
     (not stated) would make it.
 - **3.3 A at 1e5 yr** (f-weighted fraction in the lowest bin, ours /
   theirs):
+
   - PDR 1: 0.98 / 0.95;
   - PDR 2: 0.92 / 0.93;
   - DF: 1.00 / 1.00;
@@ -72,6 +80,7 @@ Measured against the Figshare model b (2026-10-06, check_murga2022.py):
 - **>= 6 A outside the HII region.** Ours go super-hydrogenated (60-90 % in
   the top two bins; <X_H/X_H0> +0.3 to +0.5), where Figshare stays normal
   (80-100 %).
+
   - The M20 H-addition rates as implemented (Goumans for neutrals, 1.4e-10
     N_H/N_C for normal cations) outrun the super-H photo-loss by 10^3-10^4.
   - The Figshare super-H populations do not behave as addition chains: the
@@ -85,6 +94,7 @@ Measured against the Figshare model b (2026-10-06, check_murga2022.py):
   above the Figshare values, from the same super-H excess.
 - **HII region.** 6-7.8 A are dehydrogenated in the files and normal here:
   M22 add EUV photons there with no stated spectrum.
+
 """
 
 from __future__ import annotations

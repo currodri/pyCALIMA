@@ -51,6 +51,7 @@ def stationary_banded(band, lo, up, row0_extra=None):
 
     One balance equation is redundant; it is replaced by sum p = 1 over the
     band of that row, and p is normalised afterwards.
+
     - With a dense row 0, that row is the one replaced, so the dense part
       never enters. Back-substitution then keeps the far tail of p (where
       dissociation rates are large) accurate to relative precision; a
@@ -60,6 +61,7 @@ def stationary_banded(band, lo, up, row0_extra=None):
       (from a first pass with row 0): a row of nearly empty bins (row 0 in
       an intense field) would scale the solution by the inverse of their
       tiny population and amplify rounding.
+
     Returns None if the system is singular.
     """
     n = band.shape[1]

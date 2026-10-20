@@ -87,11 +87,6 @@ class Environment:
                 else fields.draine1978(g0=self.g0))
 
 
-#: Carbon loss from the bare skeleton: name -> (rate form, {fragment: (n_C, A [s^-1] or dS [J/K/mol], E0 [eV])}).
-#: - "leger89": Leger+89 Table 2, from graphite sublimation, inverse-Laplace form (grade C; the default).
-#: - "c60_cage": C2 loss of C60+ (Matt+01): the slow bound if bare flakes fold into cages first.
-#: - "micelotta10b": C2H2 loss from small cations raised to a 1e8 yr lifetime (Micelotta+10b, as
-#:   Murga & Wiebe 2022 "Arrh. 2"), RRKM; not a bare-skeleton value, the fast bound (grade D).
 #: Recurrent fluorescence: parent -> {Z: Malloci+07 TD-DFT cross-section file of that cation}.
 #: The levels are its bands below 3.1 eV, one per band at the peak, with the integrated f
 #: (photo.rf_levels_from_cross_section): C24H12+ (1.70 eV, 0.068), (2.10, 0.008), (2.85, 0.068);
@@ -101,6 +96,12 @@ class Environment:
 RF_SPECTRA = {"C24": {1: "malloci_coronene_cation_sigma.dat"},
               "C54": {1: "pahchem/malloci2007_circumcoronene_cation_sigma.dat"}}
 
+#: Carbon loss from the bare skeleton: name -> (rate form, {fragment: (n_C, A [s^-1] or dS [J/K/mol], E0 [eV])}).
+#:
+#: - "leger89": Leger+89 Table 2, from graphite sublimation, inverse-Laplace form (grade C; the default).
+#: - "c60_cage": C2 loss of C60+ (Matt+01): the slow bound if bare flakes fold into cages first.
+#: - "micelotta10b": C2H2 loss from small cations raised to a 1e8 yr lifetime (Micelotta+10b, as
+#:   Murga & Wiebe 2022 "Arrh. 2"), RRKM; not a bare-skeleton value, the fast bound (grade D).
 CARBON_LOSS = {
     "leger89": ("ilt", {"C": (1, 6.2e15, 7.37), "C2": (2, 3.5e17, 8.49), "C3": (3, 1.5e18, 7.97)}),
     "c60_cage": ("ilt", {"C2": (2, 5.0e19, 10.0)}),

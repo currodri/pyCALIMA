@@ -131,12 +131,14 @@ def read_model_2022(model="b", root=None, cache=True):
     """Populations of Murga+2022 model ``model`` (b, c or d; ``MODELS_2022``).
 
     Returns a dict:
+
     - ``n`` [loc, Z, t, X_H, size]: number density [cm^-3];
     - ``f`` [loc, Z, t, X_H, size]: the WD01 charge fraction f(a, Z), the
       same for every t and X_H;
     - ``n_h``, ``t_gas``, ``chi`` [loc]: from the block headers;
     - ``z`` [Z], ``x_h`` [X_H] (X_H column; the normal state is 1.385), and
       ``a_cm`` [size].
+
     Each block is "counter n_H T chi Z", then 5 X_H sub-blocks of 10 rows
     "a X_H n Z f". The parse (~1 min) is cached as ``<file>.npz``.
     """

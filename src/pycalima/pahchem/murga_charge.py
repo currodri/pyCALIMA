@@ -10,6 +10,7 @@ The M22 Figshare f(a, Z) (158 locations x 10 sizes, with chi, T and n_e
 tabulated per location) fix the choices Murga do not state.
 ``MURGA2022`` is the configuration that reproduces them
 (check_murga_charge.py):
+
 - **Field shape: MMP83** (``field="Mathis"``), scaled by chi. chi is
   therefore in MMP83 units, although MARION's is Draine (card
   [field].chi_definition_sect2). The Draine shape gives <Z> +0.18 in PDR 2.
@@ -24,6 +25,7 @@ tabulated per location) fix the choices Murga do not state.
 - **Absorption cross section:** Li & Draine (2001) neutral PAH Q_abs at
   radius a (``cabs="nPAH"``; ``"iPAH"`` is identical to 0.001 in <Z>).
   Draine & Lee graphite Mie lowers <Z> by up to 1.5 in PDR 2.
+
 The HII points are excluded: M22 add EUV photons there from an O6 star with
 no stated spectrum.
 """
@@ -150,6 +152,7 @@ def f_wd01(a_cm, chi, temperature_k, n_e, n_cplus=0.0, field="Draine", cabs="nPA
     """WD01 equilibrium charge distribution of a carbonaceous grain of radius ``a_cm``.
 
     Returns (Z, f) on Z_min..Z_max (WD01 eqs. 22-24), f normalised.
+
     - ``euv_factor`` > 0 adds photons above 13.6 eV (``_field_with_euv``), as
       Murga+2022 do in the HII region.
     - The birth-death chain is solved here, in log space, from pyCALIMA's
@@ -165,6 +168,7 @@ def f_wd01(a_cm, chi, temperature_k, n_e, n_cplus=0.0, field="Draine", cabs="nPA
       Z = -2..9). ``fold=True`` moves the probability outside it into the end
       states; ``fold=False`` drops it and renormalises (the chain truncated
       at the grid edges).
+
     """
     from pycalima.models.dust_charge.dust_charging import (compute_Rpe_vectorized, electron_escape_length,
                                                            graphite_work_function, yield_graphite_vectorized)

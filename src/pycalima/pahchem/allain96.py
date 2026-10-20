@@ -23,6 +23,7 @@ Where the card says "not stated", or where pahchem lacks the paper's input,
 this module chooses as follows. Every choice is confidence E.
 
 - **Cross sections.** Joblin (1992) is not available. Instead:
+
   - Malloci+07 TD-DFT spectra (``allain96_sigma_malloci2007.csv``) for
     naphthalene, anthracene, pyrene, coronene and ovalene, neutral and
     cation;
@@ -54,6 +55,7 @@ this module chooses as follows. Every choice is confidence E.
   max(n_e - 5e-4 n_H, 0) from II eq. 22, and is zero in four of the media.
 - **Electronic luminescence** (S1/T1 fluorescence, phosphorescence, IIC) is
   left out; the card says it matters only below ~6 eV for N_C <= 24.
+
 """
 
 from __future__ import annotations

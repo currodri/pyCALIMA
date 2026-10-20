@@ -8,7 +8,7 @@ part in two kinds of collision.
 
 - **Distant (dipole) collisions** with momentum transfer below the
   oscillator's. The field of the passing charge acts as a pulse of virtual
-  photons (Fermi; Weizsaecker-Williams), and the molecule absorbs one of energy W:
+  photons (Fermi; Weizsaecker-Williams), and the molecule absorbs one of energy W::
 
       dsigma_d/dW = (2 pi z^2 e^4 / m c^2 beta^2) (df/dW) / W * L_d(W),
       L_d = ln(2 m c^2 beta^2 gamma^2 / W) - beta^2          (heavy particles)
@@ -19,7 +19,7 @@ part in two kinds of collision.
 - **Close (binary) collisions** in which the oscillator's electron recoils as
   if free, with energy Q from W to Q_max. The spin factor is
   (1 - beta^2 Q / Q_max) for nuclei. For electrons, the Moeller exchange form
-  is used with Q_max = T/2:
+  is used with Q_max = T/2::
 
       dsigma_c/dQ = (2 pi z^2 e^4 / m c^2 beta^2) (df/dW) g(Q) / Q^2.
 
@@ -385,9 +385,11 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     """Map collisions on oscillators W to (charge change, internal energy E*).
 
     - **Distant collisions** have the outcome of a photon of energy W.
+
       - Below IP: E* = W.
       - Above IP: ionisation with the photoionisation yield ``yield_(W)``.
         The ion keeps E* of W - IP minus the electron's energy:
+
         - ``partition="uniform"``: E* uniform on [0, W - IP];
         - ``"none"``: E* = 0, Montillaud+13's convention for photons;
         - ``"all"``: E* = W - IP.
@@ -397,6 +399,7 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     - **Close collisions** ionise. The hole is kept: E* = max(W, IP) - IP.
     - **W above the carbon K edge**, either kind: Auger decay gives dz = +2 with
       E* = K_HOLE_FINAL_EV - IP - IP2.
+
     """
     if partition not in PARTITIONS:
         raise ValueError(f"partition must be one of {PARTITIONS}, not {partition!r}")
@@ -512,7 +515,7 @@ def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yie
     are weighted by sigma_g sin theta. One collision's (dz, E*) follows
     ``deposition``.
 
-    The n-fold sums p^{*n} are built once by linear 2-D convolution and
+    The n-fold sums ``p^{*n}`` are built once by linear 2-D convolution and
     truncated to the grid; the mass that leaves the grid goes to ``beyond``.
     The Poisson mixture over theta is then exact up to ``tol``. No circular
     FFT wrap is involved, so arbitrarily large nu (slow heavy nuclei) is fine.

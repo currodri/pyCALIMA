@@ -371,9 +371,10 @@ def yield_components(E, Zs, a, material, la_wd01=None, include_secondaries=True)
 
     Returns
     -------
-    dict name -> (Y, E_mean), each (N_E, N_Z). Names: 'band', 'inner:<El><shell>',
-    'auger:<El><shell>', and 'sec:<parent>' for each channel above. Holds every
-    channel at once: use ``total_yield`` / ``yield_energy_product`` on large grids.
+    dict
+        name -> (Y, E_mean), each (N_E, N_Z). Names: 'band', 'inner:<El><shell>',
+        'auger:<El><shell>', and 'sec:<parent>' for each channel above. Holds every
+        channel at once: use ``total_yield`` / ``yield_energy_product`` on large grids.
     """
     return {name: (Y, mean) for name, Y, mean in
             _iter_components(E, Zs, a, material, la_wd01, include_secondaries)}

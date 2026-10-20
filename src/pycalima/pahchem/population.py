@@ -16,12 +16,14 @@ the molecules' abundances are fitted. In outline:
 - **Charge** (``charge_fractions``). A chain over the molecule's charge states
   (``Molecule.ionisation_ev`` holds the threshold of each step z -> z+1). The
   ingredients are the baseline's:
+
   - Li & Draine sigma;
   - Jochims+96 yields at the DFT threshold (photodetachment at the EA), and
     Wenzel+20 from the cation up where it applies (N_C >= 32, IP < 11.3 eV);
   - BT94 electron capture, with sticking 1 for cations and the statistical s_e
     of ``attachment`` for neutrals;
   - associative detachment of anions with H.
+
   The chain stops at the highest charge in the library (+1 for PAHdb v3.20,
   which has no dications): that state holds the higher charges, emitting as
   itself, and absorbs without ionising.
@@ -29,11 +31,13 @@ the molecules' abundances are fitted. In outline:
   molecule, N_H = N_H0 ... 0, with H loss (one step), H2 loss (two steps) and
   H addition, solved in steady state at each environment; f(N_H0) is the
   intact fraction. The baseline's rules apply:
+
   - H loss uses West+18 even-H (E0, dS) with degeneracy N_H for even N_H, and
     the odd-H radical values with degeneracy 1;
   - H2 loss (degeneracy 2) applies for even N_H above the solo count;
   - H addition is 1.4e-10 n_H for cations and 0.07 of the geometric rate for
     neutrals.
+
   The rates are RRKM on the molecule's own modes for N_H0, and on
   ``PAHSpecies.stripped`` modes for N_H0-1 ... N_H0-3, each with its own
   multiphoton cascade (tabulated on ``K_H_G0_GRID``). Deeper even (odd)
@@ -75,6 +79,7 @@ the molecules' abundances are fitted. In outline:
   show which conclusions survive. Size and edge statistics
   (``population_statistics``) are the robust outputs, not the individual
   species.
+
 """
 
 from __future__ import annotations
@@ -131,10 +136,12 @@ def library_m20(path=None, min_nc=0, all_anions=False):
 
     Charge states are matched by bond graph (``ames_suite.read_ascii_graphs``),
     not by formula and edge-H counts, which isomers share (review A).
+
     - The cation is the sample cation with the neutral's bond graph. This
       corrects one M20 row pairing, C66H18 (714).
     - The anion is the anion with that graph: from Table H3, or with
       ``all_anions`` from the whole of PAHdb v3.20, Table H3's first.
+
     ``path`` is the PAHdb v3.20 ASCII file (default ``ames_suite.ascii_path()``).
     """
     from pycalima.pahchem import ames_suite, maragkoudakis2020

@@ -19,8 +19,10 @@ averaged over the capture flux.
   whose flux average is the DS87 J~ = 1 + sqrt(pi / 2 tau). The sticking
   coefficient therefore multiplies that capture rate consistently.
 - **Stabilisation.** Harmonic IR down-jumps (``cooling.mode_emission_rates``)
-  of the anion modes. P_stab(E) = 1 below EA, and above it
+  of the anion modes. P_stab(E) = 1 below EA, and above it::
+
       P_stab(E) = sum_i k_i(E) P_stab(E - h nu_i) / (sum_i k_i(E) + k_d(E)),
+
   exact for a cascade of down-jumps alone (no photon absorbed in between).
 
 Energies are in cm^-1 on a Beyer-Swinehart grid, as in ``dos``.

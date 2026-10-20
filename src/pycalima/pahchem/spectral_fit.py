@@ -192,11 +192,13 @@ def fit_band_shape(observed, grid, pop, env, keep, continuum_columns, start=Band
     """(BandShape, SpectralFit, active molecule indices): the band shape that minimises the joint-fit residual.
 
     The weights are linear, so the shape is profiled:
+
     1. NNLS over all kept molecules at the current shape gives the active set;
     2. bounded least squares on the shape parameters (variable projection): the
        residual of the NNLS fit restricted to that set, which is smooth in the
        shape;
     3. repeat until the active set is stable (or ``max_rounds``).
+
     The profile kind (``start.profile``) is held fixed.
     """
     from scipy.optimize import least_squares

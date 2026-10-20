@@ -22,11 +22,13 @@ be traced to one entry:
   branching at E = IP (Sect. 3.3).
 
 Inputs read from figures, and substitutes:
+
 - the Joblin soot cross section per C atom has no printed parameters; it
   is Paper I Fig. 11 as digitised (``SIGMA_FILE``). Li & Draine (2001) and
   Malloci coronene remain as options of ``sigma_uv``.
 - No IPs are printed; Allain+96 I eq. 12 is used, the law of the paper Le
   Page cite for eq. 15.
+
 """
 
 from __future__ import annotations
@@ -245,6 +247,7 @@ def k_photodissociation(nc, nh, nh0, charge, chi=1.0, one_minus_yion=True, stepl
 
     Two defaults depart from eq. 11 as printed (which starts at IP and has no
     yield factor). Paper I Fig. 10 fixes both:
+
     - ``e_min`` defaults to the bottom of the field (0.5 eV; any e_min <=
       2.8 eV gives the same within 2 %). From IP, the PAHH rates (E0 = 1.2
       eV) are 3-20x below Fig. 10.
@@ -252,6 +255,7 @@ def k_photodissociation(nc, nh, nh0, charge, chi=1.0, one_minus_yion=True, stepl
       caption calls neutrals less dissociative "because of the existing
       competitive photoionization channel"; without it the neutral PAH rates
       are 0.2-0.7 dex above Fig. 10.
+
     ``e_min="ip"`` restores the printed lower limit.
     """
     ip = ionisation_potential(nc)

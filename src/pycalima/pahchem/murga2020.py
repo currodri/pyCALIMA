@@ -7,7 +7,7 @@ and N_H(t) (M20 eqs. 1-3):
 
     dN_C/dt = -2 R_C2H2
     dN_H/dt = -R_H - 2 R_H2 - 2 R_C2H2 + H
-    N_C2H2  = (1/2) sum |dN_C| over steps with N_H > 1          (eq. 3)
+    N_C2H2  = (1/2) sum ``|dN_C|`` over steps with N_H > 1          (eq. 3)
 
 - **Photo-rates.** R_frag come from ``pahchem.shiva`` (DL01 or Tielens
   T(E), LD01 C_abs, WD01a Y_ion, stationary p(E) with continuous cooling;
@@ -17,6 +17,7 @@ and N_H(t) (M20 eqs. 1-3):
   for Z > 0; C2H2 2.0 eV; no H2 photo-channel). They are tabulated on an
   (N_C, N_H) grid once per (Z, chi) and interpolated in log R.
 - **H addition** (Sect. 2.2, Fig. 1):
+
   - neutrals: n_H x 0.5 (N_edge k_edge + N_core k_core), with k_edge =
     0.5 (k_1 + k_4) and k_core = k_3a1 from Goumans (2011) Table 3. The
     edge/core split is fixed by the parent (N_edge = N_H0), and the ratio is
@@ -106,7 +107,7 @@ class Options:
       with two H and every inner C with one (N_H <= N_C + N_edge); addition
       stops there.
     - ``er_atoms``: H removed per Eley-Rideal event (1).
-    - ``normal_band``: |N_H - N_H,normal| below which an ion takes the
+    - ``normal_band``: ``|N_H - N_H,normal|`` below which an ion takes the
       'normal' addition rate (with real-valued N_H, exact normality never
       occurs).
     - ``goumans_t_range``: the Goumans fits are valid 40-2000 K, and Goumans

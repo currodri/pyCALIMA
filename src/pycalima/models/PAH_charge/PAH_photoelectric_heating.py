@@ -554,7 +554,7 @@ def four_state_charge_fractions(k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, 
     """Steady-state fractions of a Z = -1, 0, 1, 2 chain.
 
     Detailed balance between neighbours:
-    f_-1 k_det = f_0 k_att ne,  f_0 k_pe_0 = f_1 k_rec_1 ne,  f_1 k_pe_1 = f_2 k_rec_2 ne.
+    ``f_-1 k_det = f_0 k_att ne``, ``f_0 k_pe_0 = f_1 k_rec_1 ne``, ``f_1 k_pe_1 = f_2 k_rec_2 ne``.
 
     Returns:
         tuple: (f_anion, f_neutral, f_1, f_2), normalised to sum to 1.
