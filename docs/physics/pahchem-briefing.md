@@ -1,5 +1,15 @@
 # PAHchem: briefing figures (2026-10-20)
 
+```{note}
+Updated after the code audit of 2026-10-20 ({doc}`pahchem-audit`):
+- **Fixes applied.** Seven bugs were fixed (C1–C7), and the figures and
+  numbers below come from the fixed code.
+- **The emission cation share changed.** It was counted from photon heating
+  only (C6); it is 0.48–0.51, not the 0.57–0.60 of the first version.
+- **The other fit results are unchanged** by the fixes: rms, γ, ⟨N$_C$⟩ and
+  the band shape.
+```
+
 This page goes with the figure set in `<plots dir>/pahchem/briefing/` (run
 `calima-paths` to see where the plots dir resolves). It covers four things:
 - what pahchem can already reproduce;
@@ -39,10 +49,10 @@ metric, cause and spec line).
 
 | Verdict | Count | Meaning |
 |---|---|---|
-| Reproduced | 64 | within the stated tolerance |
-| Partly | 24 | some of it, or within a looser bound |
-| Fails or open | 33 | |
-| Withdrawn | 10 | |
+| Reproduced | 63 | within the stated tolerance |
+| Partly | 25 | some of it, or within a looser bound |
+| Fails or open | 32 | |
+| Withdrawn | 11 | |
 
 - **The statistical-mechanics, rate and photophysics layers (M1–M3)** pass
   almost everywhere.
@@ -124,8 +134,8 @@ Each figure has three parts:
 |---|---|---|---|---|---|
 | rms residual (% of mean I$_\nu$) | 4.8 | 10.2 | 9.1 | 6.4 | 5.5 |
 | best γ = G$_0$T$^{1/2}$/n$_e$ | 9.8e3 | 1.0e4 | 1.0e4 | 9.9e3 | 1.1e4 |
-| cation share of the PAH emission (Z ≥ +1) | 0.57 | 0.60 | 0.59 | 0.58 | 0.60 |
-| of which dications and higher | 0.05 | 0.05 | 0.05 | 0.05 | 0.05 |
+| cation share of the PAH emission (Z ≥ +1) | 0.48 | 0.51 | 0.50 | 0.49 | 0.51 |
+| of which dications and higher | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 |
 | ⟨N$_{\rm C}$⟩, carbon-weighted | 84 | 87 | 84 | 85 | 83 |
 | continuum / (continuum + PAH), 5–15 µm | 0.71 | 0.39 | 0.44 | 0.55 | 0.63 |
 | molecules with w > 0 | 81 | 80 | 79 | 62 | 55 |
@@ -159,8 +169,11 @@ Results:
 - **One band shape and one physics fit all five templates** to 5–10 %.
 - **The best γ is ≈ 1 × 10⁴ everywhere**, inside the scanned range
   (5 × 10³ to 1.5–2.6 × 10⁵), and the Δχ² < 9 cells are narrow.
-- **Cations carry 0.57–0.60 of the emission and ⟨N$_{\rm C}$⟩ ≈ 83–87 in every
-  template.**
+- **Cations carry 0.48–0.51 of the emission and ⟨N$_{\rm C}$⟩ ≈ 83–87 in every
+  template.** The share counts all the emitted power, photon heating plus
+  recombination heating. Counted from photon heating alone (as first
+  reported) it was 0.57–0.60, because recombination heats neutrals much more
+  than cations (audit fix C6).
 
 Caveats to raise:
 - **The best G$_0$ sits at the low end of the stated range** in H II, Atomic,
@@ -235,7 +248,7 @@ the paper's own stated inputs.
   Table 2 lifetimes) pass. The figures show three things:
   - **C11, the energy left per passage:** ~9 eV mean for protons and
     electrons; CNO and Fe-group nuclei reach hundreds of eV.
-  - **C12, lifetimes against N(H$_2$):** C$_{54}$H$_{18}$ 16–60 Myr (L) and
+  - **C12, lifetimes against N(H$_2$):** C$_{54}$H$_{18}$ 17–66 Myr (L) and
     0.8–1.0 Myr (H) unattenuated; 300–450 Myr (L) at 10$^{22}$ cm$^{-2}$.
   - **C13, the CR-excited IR spectrum:** ionised products show a hot-cation
     signature, 3.3/11.2 × 1.65–1.78 against UV excitation at the same charge.
@@ -257,10 +270,17 @@ tuning targets.
   dehydrogenated, in G$_0$–n$_{\rm H}$).
   - With parent modes for every state, which is their stated model, our
     contours sit +1.0 to +1.5 dex higher in G$_0$.
-  - With modes stripped per missing H, they sit +0.0 to +0.6 dex higher.
-  - E$_{\rm th}$(C$_{54}$H$_{18}$) is 19.5 eV against their 17 eV.
-  - *Needs:* their unpublished Malloci mode sets and Monte Carlo k$_{\rm IR}$
-    (request to Joblin/Montillaud).
+  - With modes stripped per missing H, they sit +0.3 to +0.8 dex higher
+    (+0.28/+0.59/+0.84 at 90/50/10 %). The earlier +0.0 to +0.6 came from the
+    old stripping, which removed the most intense C–H modes first (audit fix
+    C1).
+  - E$_{\rm th}$(C$_{54}$H$_{18}$) is 19.5 eV against their 17 eV. With
+    k$_{\rm IR}$ taken as the energy-loss rate (dE/dt)/E and cation modes, it
+    matches theirs to 0.25 eV for C$_{24}$, C$_{54}$ and C$_{66}$. That
+    definition explains 0.4–0.55 dex of the Fig. 10 gap
+    ({doc}`pahchem-audit`, section 2).
+  - *Needs:* whether their k$_{\rm IR}$ is the energy e-folding rate, and
+    their C$_{54}$ modes (request to Joblin/Montillaud).
 - **D02 — Andrews+16 NGC 7023** (Fig. 7, hydrogenation; Fig. 8, charge).
   - We keep C$_{54}$H$_{18}$ ≥ 97 % normally hydrogenated. Their Fig. 7 needs
     a k$_{\rm IR}$ ~10³ smaller in their eq. 8.
@@ -274,26 +294,38 @@ tuning targets.
     Murga+22 contradicts that.
   - The two papers also need opposite readings of SHIVA's p(E).
   - *Needs:* author answers.
-- **D04 — Murga+22 model b** (hydrogenation through the Orion Bar).
+- **D04 — Murga+22 model b** (hydrogenation through the Orion Bar),
+  **largely resolved** by audit fix C3.
   - 3.3 Å PAHs agree within 0.03.
-  - PAHs ≥ 6 Å come out 60–90 % super-hydrogenated where the Figshare chains
-    are normal: their M20 addition rate outruns super-H loss by 10³–10⁴.
-  - *Needs:* author answer.
+  - **The fix.** The Figshare chains fix M22's rates: the bin step is
+    0.5 N$_{H0}$, Eley–Rideal removes 2 H, and the addition laws differ from
+    M20's printed ones. With these rates, PAHs ≥ 6 Å stay normal as in
+    Figshare: ⟨X$_H$/X$_{H0}$⟩ within +0.00 to +0.05 in PDR 1, DF and MC.
+    With M20's rates as printed they were 60–90 % super-hydrogenated.
+  - **What remains:**
+    - PDR 2, +0.12 to +0.17 at 6–8.7 Å;
+    - 5 Å in DF and MC, 0.18 more dehydrogenated.
+  - *Needs:* the authors to confirm the bin step and the 2-H Eley–Rideal
+    event, and the PDR 2 super-H loss.
 - **D05 — West+18 against Jochims+94 H-loss thresholds.** The two
   laboratories differ by 0.7–1.4 eV at k = 10⁴ s⁻¹. That is a laboratory
   systematic on the H-loss E$_0$, larger than either's quoted error, and it is
   carried as an uncertainty.
-- **D06 — gate G2, electron-impact ionisation (fails).**
+- **D06 — gate G2, electron-impact ionisation** (improved, not closed).
   - Reference: our BEB(HF). It reproduces Krishnadas+24's 28.1 and 31.0 Å²
     peaks to 2 %; the Appl. Sci. OVGF values are 12–15 % higher.
-  - pahchem is 2.2–2.8× BEB at 20–30 eV, ~1.75–2× at the peak and
-    1.3–1.45× at keV. It also peaks at ~50 eV instead of ~72 eV.
-  - The keV excess is a 28 % excess of ionising dipole strength.
-  - The near-threshold excess is likely the slow-electron factor
-    (T + IP + W against BEB's T + B + U).
-  - Energy deposition (G1) is unaffected; the ionisation count is too high.
-  - *Decision pending:* adopt BEB for the ionisation rate, or repair the
-    dipole strength and the denominator.
+  - **Fixed.** The slow-electron denominator was Kim's excitation form,
+    T + IP + W, used for ionisation too. Ionising collisions now use Kim's
+    ionisation form, T + B + U with U = 2B (audit C5), and σ below N$_C$ = 21
+    scales with volume (C4).
+  - **Effect.** pahchem/BEB over 15 eV–5 keV is now 0.99–1.41 (anthracene),
+    1.10–1.55 (coronene) and 1.39–1.80 (C$_{54}$H$_{18}$), against
+    1.28–2.58 before.
+  - **What remains** at keV (×1.2–1.4) is the Li & Draine dipole strength,
+    which is 1.2–1.5× the TD-DFT cross section at the ionising energies.
+  - Energy deposition (G1) is unaffected.
+  - *Decision pending:* adopt BEB for the ionisation rate, or scale the
+    Li & Draine σ.
 - **D07 — sensitivity ranking** (C$_{54}$H$_{18}$, NGC 7023 edge and Orion Bar
   atomic PDR; one input varied at a time).
   - Four inputs each move dehydrogenation by ~1 dex: per-state modes, UV

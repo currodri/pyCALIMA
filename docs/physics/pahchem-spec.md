@@ -1490,7 +1490,7 @@ review_B).
   |---|---|---|---|---|---|
   | rms | 0.048 | 0.102 | 0.091 | 0.067 | 0.055 |
   | best γ | 9.8e3 | 1.0e4 | 1.0e4 | 9.9e3 | 1.1e4 |
-  | cation emission share (Z ≥ 2) | 0.55–0.61 (0.05) | | | | |
+  | cation emission share (Z ≥ 2) | 0.55–0.61 (0.05); 0.48–0.51 (0.04) of the emitted power, audit C6 | | | | |
   | ⟨N_C⟩, carbon-weighted | 85 | 87 | 85 | 81 | 83 |
   | CH shift / FWHM | −28 / 40 | −29 / 35 | −29 / 36 | −28 / 35 | −28 / 34 |
   | CC shift | +15 | +17 | +18 | +17 | +19 |
@@ -1500,7 +1500,10 @@ review_B).
 - **Reading.**
   - The band shape is the same in all five templates.
   - The best γ is ≈ 1e4 everywhere, inside every template's stated range.
-  - Cations (mostly +1) carry ≈ 0.55–0.6 of the PAH emission, anions ≤ 0.01.
+  - Cations (mostly +1) carry ≈ 0.48–0.51 of the PAH emission, anions ≤ 0.01. That is
+    a share of the emitted power, recombination heating included. The ≈ 0.55–0.6 first reported
+    counted photon heating only ({doc}`pahchem-audit`, C6); the refit with the fixed code
+    (2026-10-20) leaves rms, γ, ⟨N_C⟩ and the band shape unchanged.
   - The continuum takes 0.5–0.6 of the 5–15 µm power.
   - The γ and ⟨N_C⟩ uncertainties are not yet calibrated (step 3). The
     Δχ² < 9 ranges use the fit's own residual scale and are narrow because

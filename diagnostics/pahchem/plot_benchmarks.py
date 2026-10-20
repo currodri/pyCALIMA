@@ -708,7 +708,8 @@ def fig_murga2022_model_b(args, out):
     a2.set_ylabel("fraction in bin")
     a2.set_title("Bins: lowest (solid), normal (dashed), first super-H (dotted)", fontsize=9)
     a2.legend(fontsize=6)
-    fig.suptitle("Murga+2022 model b (H loss only): small PAHs reproduced; >= 6 A over-super-hydrogenated (open)",
+    fig.suptitle(r"Murga+2022 model b (H loss only), rates read from the Figshare chains: PDR 2 peak (129$^{\prime\prime}$) = neutral "
+                 r"super-H at $\geq 6$ A; dip at 131-145$^{\prime\prime}$ = 5 A too dehydrogenated",
                  fontsize=10)
     _save(fig, out, "murga2022_model_b")
 
