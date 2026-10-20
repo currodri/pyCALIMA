@@ -5,7 +5,7 @@ H addition only: per location, per charge Z and per size bin, the population
 moves between five hydrogenation bins, X_H/X_H0 = 0.26, 0.63, 1.0, 1.37 and
 1.74. It starts from the normal bin and runs in a fixed environment. The
 charge is fixed per population and weighted by f(a, Z) afterwards. There is
-no loss from the lowest bin and no addition into the top one (Sect. 3.1).
+no loss from the lowest bin and no addition out of the top one (Sect. 3.1).
 
 The pieces:
 
@@ -23,13 +23,21 @@ The pieces:
     all hydrogen atoms which might be detached from a PAH both separately
     and also inside hydrogen or acetylene molecules"; model b keeps the
     carbon.
-- **H addition (M20 Sect. 2.2).**
+- **H addition.** Read from the Figshare model-b chains where they constrain
+  it (``h_addition(law="figshare")``, the default; pahchem-audit C3), M20
+  Sect. 2.2 as printed elsewhere (``law="m20"``):
 
-  - Neutrals: 0.5 (N_edge k_edge + N_core k_core) n_H, from Goumans 2011
-    (``goumans2011_table3.csv``), N_edge = N_H0, N_core = N_C - N_H0.
-  - Ions: 1.4e-10 N_H/N_C n_H (normal); 0.5 (1.4e-10 N_H/N_C + 5e-11) n_H
-    (dehydrogenated); 1e-12 n_H (super-H). H2 does not react (M22 Sect.
-    4.3.4).
+  - Neutrals, normal and first super-H bins: n_H (a_edge k_edge + a_core N_C
+    k_core) with Goumans 2011 k_edge = (k_1 + k_4)/2, k_core = k_3a1
+    (``goumans2011_table3.csv``) and (a_edge, a_core) = (0.606, 1.17) and
+    (0.497, 0.974). M20 as printed, 0.5 (N_H0 k_edge + (N_C - N_H0) k_core),
+    is N_H0 times too fast below ~1000 K and 2-3x too slow above ~2000 K
+    against the files; it still sets the dehydrogenated bins.
+  - Ions: 0.5 (1.4e-10 N_H/N_C + 5e-11) n_H (dehydrogenated, as printed); the
+    same divided by N_C from the normal bin (M20's 1.4e-10 N_H/N_C n_H is
+    ~0.82 N_C times faster than the files); 1e-12 n_H (super-H). H2 does not
+    react (M22 Sect. 4.3.4).
+- **Eley-Rideal** removes 2 H per event in the files (``ER_ATOMS``).
 
 Choices where the card says "not stated", fixed or tested on the Figshare
 files (``check_murga2022.py``):
@@ -43,11 +51,10 @@ files (``check_murga2022.py``):
   The Figshare chains are identical for every Z >= 1, and for Z = -1 and
   -2.
 - **Bin flux.** A per-molecule rate R [atoms s^-1] moves the population by
-  one bin at R / dN_H, dN_H = 0.371 N_H0 (the spacing of the bin centres).
-  The same holds for losses and additions, so equilibrium distributions do
-  not depend on it. The deep-MC chains support it: with it, the ion
-  loss/addition balance and the neutral step rate give the same factor
-  between their rates and ours.
+  one bin at R / dN_H, dN_H = 0.5 N_H0 (``DX_FLUX``), not the 0.371 N_H0
+  spacing of the bin centres: the ion super-H addition (1e-12 n_H) and the
+  equilibrium f4/f3 = 1e-12 / (2 K_ER sqrt(T/100)) at 320 K fit only with
+  it (pahchem-audit C3).
 - **Output times.** 0, 1e4, ..., 1e5 yr. The deep-MC neutral chains decay
   by a constant factor per output (linear spacing), and 1e5 yr is the age
   (Sect. 4.1).
@@ -65,11 +72,12 @@ Measured against the Figshare model b (2026-10-06, check_murga2022.py):
   - The step rate k(mid -> lowest)/k(normal -> mid) is 1.250 at every chi.
     With DL01 our R(mid)/R(normal) is 1.257 (1.278 without the C2H2
     hydrogen); with Tielens it is 0.787 (the T(E) verdict).
-  - The absolute step rate is 0.87-1.44x ours (DL01; 1.5-2.5x without the
-    C2H2 hydrogen, 2.8-4.6x with the channels competing as in M19 eq. B2).
-    The ratio rises monotonically with depth (chi 1.9e-3 -> 1.2e-5): their
-    rate per unit chi grows inward, as a field shape that changes with depth
-    (not stated) would make it.
+  - The absolute step rate is 0.70-1.16x ours (DL01, dN_H = 0.5 N_H0, the
+    post-absorption yield from photons above 5 eV; 1.22-2.02x without the
+    C2H2 hydrogen). Before the 2026-10-20 audit fixes C2 and C3 it was
+    0.87-1.44x. The ratio rises monotonically with depth (chi 1.9e-3 ->
+    1.2e-5): their rate per unit chi grows inward, as a field shape that
+    changes with depth (not stated) would make it.
 - **3.3 A at 1e5 yr** (f-weighted fraction in the lowest bin, ours /
   theirs):
 
@@ -77,21 +85,18 @@ Measured against the Figshare model b (2026-10-06, check_murga2022.py):
   - PDR 2: 0.92 / 0.93;
   - DF: 1.00 / 1.00;
   - MC: 0.85 / 0.86.
-- **>= 6 A outside the HII region.** Ours go super-hydrogenated (60-90 % in
-  the top two bins; <X_H/X_H0> +0.3 to +0.5), where Figshare stays normal
-  (80-100 %).
-
-  - The M20 H-addition rates as implemented (Goumans for neutrals, 1.4e-10
-    N_H/N_C for normal cations) outrun the super-H photo-loss by 10^3-10^4.
-  - The Figshare super-H populations do not behave as addition chains: the
-    3 -> 4 step is ~2e-13 s^-1 whatever n_H.
-  - So M22's addition (or super-H loss) differs from M20 as printed, in a
-    way the files do not reveal. M22's one stated change there, the Table 3
-    super-H law, makes it worse, not better: at X_H/X_H0 = 1.37 it puts the
-    neutral H-loss E0 at 3.3 eV, against M20's 1.4 eV. The C2H2 hydrogen
-    changes <X_H/X_H0> by < 0.01.
-- **Fig. 8 <X_H/X_H0>(distance)**: +0.09 (MC, PDR 1) to +0.18 (PDR 2)
-  above the Figshare values, from the same super-H excess.
+- **>= 6 A outside the HII region.** With the file-derived rates, <X_H/X_H0>
+  is within +0.00 to +0.05 of Figshare in PDR 1, DF and MC (6-50 A). With M20
+  as printed (before 2026-10-20) they went super-hydrogenated, +0.3 to +0.5:
+  M20's addition outran the super-H loss 10^3-10^4x. PDR 2 keeps +0.12 to
+  +0.17 at 6-8.7 A (+0.05 to +0.08 at 11.7-14.2 A): the top bin of the
+  neutrals fills where Figshare's stays empty, so their loss out of it is
+  >= 1e3x ours, which the files do not explain. M22's one stated change
+  there, the Table 3 super-H law, raises the neutral super-H H-loss E0 at
+  X_H/X_H0 = 1.37 from M20's 1.4 eV to 3.3 eV. The C2H2 hydrogen changes
+  <X_H/X_H0> by < 0.01.
+- **5 A in DF and MC**: 0.18-0.19 more dehydrogenated than Figshare (0.10-0.11
+  before audit fix C2, which raised the post-absorption photo-loss ~1.9x).
 - **HII region.** 6-7.8 A are dehydrogenated in the files and normal here:
   M22 add EUV photons there with no stated spectrum.
 
@@ -111,6 +116,17 @@ from pycalima.pahchem import shiva
 YR = 3.15576e7
 X_BINS = np.array([0.258, 0.629, 1.0, 1.371, 1.742])          # X_H / X_H0 (Figshare x_h / 1.385)
 DX_CENTRES = 0.371                                              # bin-centre spacing in X_H / X_H0
+#: the bin step that turns a per-molecule rate [atoms s^-1] into a bin flux, in X_H / X_H0: 0.5, read from the
+#: Figshare model-b chains (the ion super-H addition 1e-12 n_H and the equilibrium f4/f3 = 1e-12 / (2 K_ER
+#: sqrt(T/100)) fit only with it; pahchem-audit C3). Not the 0.371 of the bin centres.
+DX_FLUX = 0.5
+#: H atoms removed per Eley-Rideal event (H + H-PAH -> H2 + PAH): 2 in the Figshare chains (pahchem-audit C3)
+ER_ATOMS = 2.0
+#: H addition from the normal (j = 2) and first super-H (j = 3) bins, fitted to the Figshare model-b chains
+#: (time series and equilibria at every location, 6-19.9 A, to 1-2 %; pahchem-audit C3, confidence D):
+#: neutrals n_H (a_edge k_edge + a_core N_C k_core), k_edge = (k_1 + k_4) / 2 and k_core = k_3a1 of Goumans
+#: 2011; ions 0.5 (1.4e-10 N_H / N_C + 5e-11) n_H / N_C from the normal bin, 1e-12 n_H from the first super-H.
+ADD_NEUTRAL_FIT = {2: (0.606, 1.17), 3: (0.497, 0.974)}
 OUTPUT_TIMES_YR = np.arange(11) * 1.0e4
 CHI_GRID = np.array([1e-4, 1e-2, 1.0, 10.0, 100.0, 1e3, 3e3, 1e4, 2e4, 4e4])
 CLASSES = (-1, 0, 1)                                            # anion, neutral, cation
@@ -157,15 +173,28 @@ def goumans_k(site, temperature_k):
     return row.alpha_cm3_site_s * (T / 300.0) ** row.beta * np.exp(-row.gamma_K / T)
 
 
-def h_addition(nc, j, z, temperature_k, n_h):
-    """H additions per molecule per second in bin j (M20 Sect. 2.2)."""
+def h_addition(nc, j, z, temperature_k, n_h, law="figshare"):
+    """H additions per molecule per second in bin j.
+
+    ``law="figshare"`` (default): the rates the Figshare model-b chains imply
+    for the normal and first super-H bins (``ADD_NEUTRAL_FIT``, ions as there),
+    M20 Sect. 2.2 as printed for the dehydrogenated bins, which the files do
+    not constrain. ``law="m20"``: M20 Sect. 2.2 as printed everywhere (before
+    2026-10-20); it outruns the super-H loss 1e3-1e4x at >= 6 A.
+    """
     nh0, nh = shiva.dl01_nh(nc), nh_of(nc, j)
     if charge_class(z) == 0:
         k_edge = 0.5 * (goumans_k("1", temperature_k) + goumans_k("4", temperature_k))
-        return 0.5 * (nh0 * k_edge + (nc - nh0) * goumans_k("3a1", temperature_k)) * n_h
+        k_core = goumans_k("3a1", temperature_k)
+        if law == "figshare" and j in ADD_NEUTRAL_FIT:
+            a_edge, a_core = ADD_NEUTRAL_FIT[j]
+            return (a_edge * k_edge + a_core * nc * k_core) * n_h
+        return 0.5 * (nh0 * k_edge + (nc - nh0) * k_core) * n_h
     if X_BINS[j] < 1.0:
         return 0.5 * (K_ION_NORMAL * nh / nc + K_ION_DEHYDRO_CONST) * n_h
     if X_BINS[j] == 1.0:
+        if law == "figshare":
+            return 0.5 * (K_ION_NORMAL * nh / nc + K_ION_DEHYDRO_CONST) / nc * n_h
         return K_ION_NORMAL * nh / nc * n_h
     return K_ION_SUPERH * n_h
 
@@ -270,12 +299,15 @@ def evolve(G, times_yr=OUTPUT_TIMES_YR, start=2):
     return np.clip(out.real, 0.0, None)
 
 
-def run_model_b(data, profile, R, temperature_k=None, loss_scale=1.0, dx=DX_CENTRES, times_yr=OUTPUT_TIMES_YR):
+def run_model_b(data, profile, R, temperature_k=None, loss_scale=1.0, dx=DX_FLUX, times_yr=OUTPUT_TIMES_YR,
+                law="figshare", er_atoms=ER_ATOMS):
     """Bin fractions [loc, Z, t, bin, size] of model b at every Figshare location.
 
     ``data``: ``murga_data.read_model_2022``; ``profile``: the
     murga2022_fig6_profile table; ``R``: ``photo_loss_table``.
     ``loss_scale`` multiplies the photo loss (a sensitivity knob, not a fit).
+    ``law``, ``dx`` and ``er_atoms`` select the Figshare-derived rates (the
+    defaults) or M20 as printed (``law="m20", dx=DX_CENTRES, er_atoms=1``).
     """
     a_cm, zs = data["a_cm"], data["z"]
     out = np.zeros((len(profile), zs.size, len(times_yr), X_BINS.size, a_cm.size))
@@ -287,7 +319,7 @@ def run_model_b(data, profile, R, temperature_k=None, loss_scale=1.0, dx=DX_CENT
             for m, a in enumerate(a_cm):
                 nc = nc_of(a)
                 loss = Rl[m, :, c].copy()
-                loss[3:] += K_ER * np.sqrt(T / 100.0) * n_h
-                add = np.array([h_addition(nc, j, z, T, n_h) for j in range(X_BINS.size)])
+                loss[3:] += er_atoms * K_ER * np.sqrt(T / 100.0) * n_h
+                add = np.array([h_addition(nc, j, z, T, n_h, law) for j in range(X_BINS.size)])
                 out[loc, iz, :, :, m] = evolve(generator(loss, add, shiva.dl01_nh(nc), dx), times_yr)
     return out

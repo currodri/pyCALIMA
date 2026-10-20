@@ -25,7 +25,14 @@ $PY diagnostics/pahchem/plot_benchmarks.py west18 jochims94 montillaud13_fig3 an
 $PY diagnostics/pahchem/check_cr_impact.py --states-dir "$STATES"
 fi
 # 3. the spectral fits (cached fit_pdrs4all_spectra.py --fit-shape result) and the extra figures
-$PY diagnostics/pahchem/plot_briefing_fits.py --cache "$($PY -c "from pycalima import _paths; print(_paths.get_results_dir())")/pahchem_spectral_shape_3ddd190a5731.pkl" --out "$OUT"
+RESULTS=$($PY -c "from pycalima import _paths; print(_paths.get_results_dir())")
+# FIT_CACHE: a fit_pdrs4all_spectra.py --fit-shape result; default the newest without aliphatics
+FIT_CACHE=${FIT_CACHE:-$($PY -c "
+import pickle, sys; from pathlib import Path
+c = sorted(Path(sys.argv[1]).glob('pahchem_spectral_shape_*.pkl'), key=lambda p: p.stat().st_mtime, reverse=True)
+print(next(p for p in c if pickle.load(open(p, 'rb'))['args'].get('aliphatic', 'none') == 'none'))" "$RESULTS")}
+echo "spectral fits from $FIT_CACHE"
+$PY diagnostics/pahchem/plot_briefing_fits.py --cache "$FIT_CACHE" --out "$OUT"
 $PY diagnostics/pahchem/plot_briefing_extras.py --out "$OUT"
 
 # 4. presentation order

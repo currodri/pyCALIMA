@@ -36,6 +36,22 @@ from pycalima.pahchem.network import PAHNetwork
 E_PH = np.linspace(5.0, 13.6, 345)
 
 
+#: CH stretch modes scaled by ``Params.stretch_scale`` [cm^-1]. The aliphatic CH2/CH3 stretches (2700-3000) are
+#: included: the scale is measured on aromatic stretches only, and is assumed to hold for them as well
+CH_STRETCH_CM = (2600.0, 3200.0)
+#: lab / DFT ratio of the CH stretch to CH oop intensity: -0.29 dex, the median of 35 neutrals
+#: (check_lab_band_strengths.py: PAHdb v4.00 6-31G* against PAHdb experimental v3.10, matrix isolation)
+LAB_STRETCH_SCALE = 10.0 ** -0.29
+
+
+def scaled_einstein_a(sp, params):
+    """``sp.einstein_a`` with the CH-stretch modes (``CH_STRETCH_CM``) times ``params.stretch_scale``."""
+    if params.stretch_scale == 1.0:
+        return sp.einstein_a
+    f = sp.freqs_cm
+    return sp.einstein_a * np.where((f >= CH_STRETCH_CM[0]) & (f <= CH_STRETCH_CM[1]), params.stretch_scale, 1.0)
+
+
 @dataclass(frozen=True)
 class Params:
     # dissociation: (E0 [eV], dS(1000 K) [J/K/mol]); West+18 coronene+, mean 2nd-H, perylene+ H2
@@ -57,7 +73,7 @@ class Params:
     detachment: str = "jochims"              # anion photodetachment yield: Jochims at the EA, or "unity" above it
     capture_model: str = "bt94"              # cation capture: BT94, or "lab_trend" (chemistry.lab_recombination_factor)
     capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
-    stretch_scale: float = 1.0               # Einstein A of 2900-3200 cm^-1 modes (population only; lab CH stretch)
+    stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # hydrogen chemistry
@@ -152,7 +168,7 @@ class BaselineModel:
 
                 at = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
                                 chemistry.disc_radius_cm(self.nc), e_excess_cm=8000.0)
-                cm = energy_me.CascadeModel(self.species.freqs_cm, self.species.einstein_a,
+                cm = energy_me.CascadeModel(self.species.freqs_cm, scaled_einstein_a(self.species, self.p),
                                             e_max_cm=16.0 * dos.CM_PER_EV, de_cm=10.0, grain_cm=1.0)
                 sigma = photo.sigma_li_draine(self.nc, 0, E_PH)
                 _, h = self._absorption(fields.draine1978(g0=1.0), sigma, 0, self.nh0)
@@ -180,7 +196,7 @@ class BaselineModel:
         levels = self.rf_levels(z) if z is not None else ()
         key = (sp.n_modes if self.p.modes == "stripped" else "parent", levels)
         if key not in self._cm:
-            cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a * self.p.ir_scale,
+            cm = energy_me.CascadeModel(sp.freqs_cm, scaled_einstein_a(sp, self.p) * self.p.ir_scale,
                                         e_max_cm=self.p.e_max_ev * dos.CM_PER_EV, de_cm=self.p.de_cm,
                                         electronic=levels)
             E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
@@ -266,7 +282,7 @@ class BaselineModel:
         sp = self.species.stripped(0) if bare is None else bare
         form, fragments = CARBON_LOSS[self.p.carbon_loss]
         if "bare" not in self._cm:
-            cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a * self.p.ir_scale,
+            cm = energy_me.CascadeModel(sp.freqs_cm, scaled_einstein_a(sp, self.p) * self.p.ir_scale,
                                         e_max_cm=self.p.e_max_ev * dos.CM_PER_EV, de_cm=self.p.de_cm)
             E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
             pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)

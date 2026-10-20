@@ -212,13 +212,13 @@ def k_arrhenius_te(energy_ev, E0_ev, dS_cal, t_m, te_correction=True):
 @lru_cache(maxsize=None)
 def _ld01(nc, charge):
     from pycalima.models.PAH_radiation.pah_oppacity import interpolate_pah_cross_sections_2d
-    from pycalima.pahchem.photo import _li_draine_table
+    from pycalima.pahchem.photo import _li_draine_table, ld01_radius_and_volume_factor
 
     kind = "iPAH" if charge != 0 else "nPAH"
-    _, wav_cm, _, c_abs, _ = interpolate_pah_cross_sections_2d(kind, radius_cm(nc) * 1e4,
-                                                               data_table=_li_draine_table(kind))
+    radius, factor = ld01_radius_and_volume_factor(radius_cm(nc) * 1e4, kind)      # volume scaling below N_C = 21
+    _, wav_cm, _, c_abs, _ = interpolate_pah_cross_sections_2d(kind, radius, data_table=_li_draine_table(kind))
     order = np.argsort(wav_cm)
-    return np.asarray(wav_cm)[order], np.asarray(c_abs)[order]
+    return np.asarray(wav_cm)[order], factor * np.asarray(c_abs)[order]
 
 
 def c_abs(nc, charge, energy_ev):
@@ -332,20 +332,34 @@ class ShivaMolecule:
             h = h * (1.0 - y_ion_wd01(E, self.a_cm, self.charge))
         return E, h
 
-    def distribution(self, field, ionising_photons_heat=False):
+    def distribution(self, field, ionising_photons_heat=False, e_min_post=E_DESTRUCTION_MIN):
         """(p_time, p_post) on ``energy_ev``: stationary GD89 distribution with
-        continuous cooling, and the distribution just after an absorption."""
+        continuous cooling, and the distribution just after an absorption.
+
+        p_time is heated by every photon. p_post follows only the absorptions
+        of photons above ``e_min_post``, the range of ``absorption_rate``
+        (M20 eq. 6), so that <Y>_post x r_abs counts each absorption once.
+        Built from all photons (before 2026-10-20), it was diluted by the
+        47-64 % of heating absorptions below 5 eV, which r_abs leaves out:
+        every "m20" rate was 1.8-2.8x low (pahchem-audit, C2).
+        """
         E_ph, h = self.heating(field, ionising_photons_heat)
         n, de = self.energy_ev.size, self.de_ev
         # integrated absorption rate per energy jump bin k (jump in [(k-1/2), (k+1/2)) de)
         edges = (np.arange(n + 1) - 0.5) * de
-        cum = np.concatenate([[0.0], np.cumsum(0.5 * (h[1:] + h[:-1]) * np.diff(E_ph))])
-        jump = np.diff(np.interp(np.clip(edges, E_ph[0], E_ph[-1]), E_ph, cum))
-        jump[0] = 0.0
+
+        def jumps(hh):
+            cum = np.concatenate([[0.0], np.cumsum(0.5 * (hh[1:] + hh[:-1]) * np.diff(E_ph))])
+            j = np.diff(np.interp(np.clip(edges, E_ph[0], E_ph[-1]), E_ph, cum))
+            j[0] = 0.0
+            return j
+
+        jump = jumps(h)
         cool = self.p_ir / de
         cool[0] = 0.0
         p = _stationary_banded(jump, cool)
-        post = np.convolve(p, jump)[:n]              # p_post[i + k] += p[i] jump[k], truncated at the top
+        jump_post = jumps(np.where(E_ph >= e_min_post, h, 0.0))
+        post = np.convolve(p, jump_post)[:n]         # p_post[i + k] += p[i] jump[k], truncated at the top
         post /= post.sum()
         return p, post
 

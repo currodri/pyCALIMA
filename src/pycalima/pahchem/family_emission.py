@@ -30,7 +30,7 @@ from __future__ import annotations
 import numpy as np
 
 from pycalima.pahchem import dos, emission, energy_me, photo
-from pycalima.pahchem.baseline import E_PH
+from pycalima.pahchem.baseline import E_PH, scaled_einstein_a
 
 #: Wavebands [um]. "3.3" ... "11.2" are Maragkoudakis+20 Table 1 ("3.3" holds both C-H
 #: stretches); "3.29" (aromatic) and "3.4" (aliphatic) split it, and "6.9" holds the CH2
@@ -109,7 +109,9 @@ class FamilyEmission:
         key = self._mode_key(z, nh) + (levels,)
         if key not in self._cascades:
             sp = self.state_species(z, nh)
-            self._cascades[key] = (sp, energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, self.e_max_cm,
+            # the model's CH-stretch scale, as the population fits use (pahchem-audit C7)
+            self._cascades[key] = (sp, energy_me.CascadeModel(sp.freqs_cm, scaled_einstein_a(sp, self.model.p),
+                                                              self.e_max_cm,
                                                               self.de_cm, electronic=levels))
         return self._cascades[key]
 

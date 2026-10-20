@@ -79,7 +79,7 @@ def main():
         nn = d["n"][loc, 0, :, :, 0]                       # t, bin
         (k1, k2), res = fit_chain(nn / nn.sum(axis=1, keepdims=True))
         Rl = N.photo_loss_at(R, d["chi"][loc])[0, :, 1]
-        step = N.DX_CENTRES * N.shiva.dl01_nh(N.nc_of(d["a_cm"][0]))
+        step = N.DX_FLUX * N.shiva.dl01_nh(N.nc_of(d["a_cm"][0]))
         print(f"  loc {loc}: k1 {k1:.3e}, k2/k1 {k2 / k1:.3f} | ours R(normal)/step {Rl[2] / step:.3e}"
               f" (theirs/ours {k1 / (Rl[2] / step):.2f}), R(mid)/R(normal) {Rl[1] / Rl[2]:.3f}")
 

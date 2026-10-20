@@ -31,7 +31,7 @@ from scipy.ndimage import median_filter
 
 from pycalima import _paths
 from pycalima.pahchem import conditions
-from pycalima.pahchem.baseline import BaselineModel
+from pycalima.pahchem.baseline import LAB_STRETCH_SCALE, BaselineModel, Params
 from pycalima.pahchem.family_emission import FamilyEmission, load_superh_species
 from pycalima.pahchem.molecule import PAHSpecies
 
@@ -99,7 +99,9 @@ def main():
     for parent, (formula, charges) in FAMILIES.items():
         sp = {z: PAHSpecies.from_states_file(args.states_dir / f"{formula}_{z}.dat") for z in charges}
         sh = load_superh_species(args.states_dir / "superh", formula)
-        fams[parent] = FamilyEmission(BaselineModel(parent, sp[0], anion=sp[-1]), sp, sh)
+        # the lab CH-stretch scale, as in the population fits (pahchem-audit C7)
+        fams[parent] = FamilyEmission(BaselineModel(parent, sp[0], Params(stretch_scale=LAB_STRETCH_SCALE), anion=sp[-1]),
+                                      sp, sh)
     for t in TEMPLATES:
         print(f"\n=== {t} ===")
         res = {}

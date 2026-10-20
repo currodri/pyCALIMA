@@ -192,6 +192,9 @@ class Collisions:
     distant: np.ndarray
     close: np.ndarray
     close_loss: np.ndarray
+    #: factor on the ionising part of each oscillator's collisions (``deposition``): Kim's ionisation scaling
+    #: over the excitation scaling that ``distant`` and ``close`` carry, for slow electrons; 1 otherwise
+    ion_scale: np.ndarray | None = None
 
     @property
     def total(self) -> float:
@@ -206,6 +209,9 @@ class Collisions:
 
 #: electrons below this energy [eV] get Kim's binary-encounter scaling
 BE_SCALING_MAX_EV = 1.0e4
+#: orbital kinetic energy over binding energy, U/B, in Kim's ionisation scaling T / (T + B + U): the median of the
+#: RHF valence orbitals of naphthalene-circumcoronene (diagnostics/pahchem/beb_hf_pah.py), and 1.43 for C 1s
+U_OVER_B_VALENCE, U_OVER_B_K_SHELL = 2.0, 1.43
 
 
 def collisions(proj: Projectile, t_ev: float, df_dw, w, correction: float = 1.0,
@@ -220,17 +226,32 @@ def collisions(proj: Projectile, t_ev: float, df_dw, w, correction: float = 1.0,
     this factor stands in for the acceleration of the electron by the target
     field. With it, the stopping of 80 eV - 2 keV electrons is within 15% of
     Joy (1995) carbon; it is 1.35x at 50 eV and 2.3x at 30 eV.
+
+    That is Kim's scaling for excitation. For ionisation Kim's form (BEB) is
+    T / (T + B + U), with B = max(W, IP) the binding and U = U/B x B the
+    orbital kinetic energy (U/B ~ 2 for PAH valence orbitals). ``ion_scale``
+    holds the ratio of the two; ``deposition`` applies it to the ionising
+    collisions only (distant ones times the yield, every close one), so the
+    excitations and ``stopping`` keep T / (T + IP + W). With it, sigma_ion /
+    BEB(HF) over 15 eV - 5 keV is 0.99-1.41 for anthracene, 1.10-1.55 for
+    coronene and 1.39-1.80 for C54H18, against 1.36-2.30, 1.28-2.21 and
+    1.40-2.58 before (pahchem-audit, C5; C4 also lowers anthracene's). The
+    ~1.2-1.4x left at keV is the Li & Draine dipole strength, not this factor.
     """
     t = float(t_ev)
     beta2, gamma, q_max = (float(x) for x in kinematics(proj, t))
     pre = correction * TWO_PI_E4 * proj.z**2 / (ME_EV * beta2) * np.asarray(df_dw)
+    ion_scale = None
     if proj.is_electron and ip_ev is not None and t < BE_SCALING_MAX_EV:
         pre = pre * t / (t + ip_ev + w)
+        b = np.maximum(w, ip_ev)
+        u = np.where(w >= K_EDGE_EV, U_OVER_B_K_SHELL, U_OVER_B_VALENCE) * b
+        ion_scale = (t + ip_ev + w) / (t + b + u)
     distant = pre / w * _distant_log(proj, t, beta2, gamma, w)
     n, e = _close_number_and_loss(proj, t, beta2, q_max, w)
     with np.errstate(divide="ignore", invalid="ignore"):
         loss = np.where(n > 0, e / n, 0.0)
-    return Collisions(w, distant, pre * n, loss)
+    return Collisions(w, distant, pre * n, loss, ion_scale)
 
 
 # --- stopping: the Bethe limit and the measured polystyrene -----------------
@@ -409,7 +430,8 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     centres = 0.5 * (edges[1:] + edges[:-1])
     k_shell = w >= K_EDGE_EV
     y = np.where((w >= ip_ev) & ~k_shell, np.clip(yield_(w), 0.0, 1.0), 0.0)
-    d, c = coll.distant * tw, coll.close * tw
+    s = np.ones_like(w) if coll.ion_scale is None else coll.ion_scale           # Kim ionisation scaling (C5)
+    d, c, di = coll.distant * tw, coll.close * tw * s, coll.distant * tw * s
 
     def hist(x, q):
         h, _ = np.histogram(x, bins=edges, weights=q)
@@ -418,7 +440,7 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     r0, o0 = hist(w, np.where(k_shell, 0.0, d * (1.0 - y)))
     r1, o1 = hist(np.maximum(w, ip_ev) - ip_ev, np.where(k_shell, 0.0, c))
     x = np.clip(w - ip_ev, 0.0, None)
-    q = d * y
+    q = di * y
     if partition == "uniform":
         span = np.where(x > 0, x, 1.0)
         overlap = np.clip(np.minimum(edges[1:][None, :], x[:, None]) - edges[:-1][None, :], 0.0, de)
@@ -428,7 +450,7 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
         rr, oo = hist(x if partition == "all" else np.zeros_like(x), q)
         r1, o1 = r1 + rr, o1 + oo
     e_k = max(K_HOLE_FINAL_EV - ip_ev - ip2_ev, 0.0)
-    r2, o2 = hist(np.full_like(w, e_k), np.where(k_shell, d + c, 0.0))
+    r2, o2 = hist(np.full_like(w, e_k), np.where(k_shell, di + c, 0.0))
     return Deposition(centres, de, {0: r0, 1: r1, 2: r2}, {0: o0, 1: o1, 2: o2})
 
 

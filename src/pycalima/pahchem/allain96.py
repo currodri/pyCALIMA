@@ -216,22 +216,31 @@ def sigma(name, charge, nh=None, energy_ev=E_GRID):
 def strip_h_modes(species, nh):
     """``species`` with N_H0 - nh C-H stretches, in-plane and out-of-plane bends removed.
 
-    Like ``PAHSpecies.stripped``, but a band with too few modes loses all it
-    has and the rest are taken from the next-most-intense C-H window, so
-    3N - 6 holds for small PAHs too.
+    Like ``PAHSpecies.stripped`` (least intense first, then the A of the modes
+    left in each C-H window rescaled to nh / N_H0 of the window's total: the
+    card's [cooling].dehydrogenated rule, "A of those bands scaled by the
+    number of C-H bonds"), but a band with too few modes loses all it has and
+    the rest are taken from the next C-H window, so 3N - 6 holds for small
+    PAHs too.
     """
     n = species.nh - nh
-    f, A = np.asarray(species.freqs_cm, float), np.asarray(species.einstein_a, float)
+    f, A = np.asarray(species.freqs_cm, float), np.asarray(species.einstein_a, float).copy()
     keep = np.ones(f.size, bool)
+    windows = ((2900.0, 3200.0), (1000.0, 1350.0), (650.0, 1000.0))
+    totals = [A[(f >= lo) & (f < hi)].sum() for lo, hi in windows]
 
     def drop(mask, count):
         cand = np.nonzero(keep & mask)[0]
-        take = cand[np.argsort(A[cand])[::-1][:count]]
+        take = cand[np.argsort(A[cand])[:count]]
         keep[take] = False
         return count - take.size
 
-    owed = sum(drop((f >= lo) & (f < hi), n) for lo, hi in ((2900.0, 3200.0), (1000.0, 1350.0), (650.0, 1000.0)))
+    owed = sum(drop((f >= lo) & (f < hi), n) for lo, hi in windows)
     drop(f >= 650.0, owed)
+    for (lo, hi), total in zip(windows, totals):
+        left = keep & (f >= lo) & (f < hi)
+        if A[left].sum() > 0.0:
+            A[left] *= total * nh / species.nh / A[left].sum()
     return PAHSpecies(species.nc, nh, species.charge, f[keep], A[keep], f"{species.source}, Allain C-H strip to {nh}")
 
 

@@ -76,18 +76,19 @@ def test_photo_loss_hydrogen_dependence_picks_the_dl01_temperature(data, tempera
     assert (abs(R[0] / R[1] - 1.25) < 0.05) == ok, R[0] / R[1]
 
 
-@pytest.mark.parametrize("acetylene_h, lo, hi", [(True, 0.8, 1.6), (False, 1.3, 3.0)])
+@pytest.mark.parametrize("acetylene_h, lo, hi", [(True, 0.6, 1.3), (False, 1.1, 2.3)])
 def test_deep_mc_step_rate_and_its_rise_with_depth(data, acetylene_h, lo, hi):
-    """Their absolute step rate over ours (DL01, dN_H = bin-centre spacing, ours
-    single-photon, so proportional to chi). With R_H counting the H of the C2H2
-    channel (M22 Sect. 3.1: R_H is "the net rate of detachment of all hydrogen
-    atoms which might be detached ... both separately and also inside hydrogen
-    or acetylene molecules"): 0.87 at chi = 1.9e-3 rising to 1.44 at chi =
-    1.2e-5. Counting H and H2 only: 1.52 to 2.51. Their rate per unit chi grows
-    with depth, which a field shape that changes with depth (not stated in
-    M22) would give."""
+    """Their absolute step rate over ours (DL01, dN_H = the 0.5 N_H0 flux step of
+    the files, ours single-photon, so proportional to chi). With R_H counting
+    the H of the C2H2 channel (M22 Sect. 3.1: R_H is "the net rate of detachment
+    of all hydrogen atoms which might be detached ... both separately and also
+    inside hydrogen or acetylene molecules"): 0.70 at chi = 1.9e-3 rising to
+    1.16 at chi = 1.2e-5. Counting H and H2 only: 1.22 to 2.02. (Before the
+    2026-10-20 audit fixes C2 and C3: 0.87-1.44 and 1.52-2.51.) Their rate per
+    unit chi grows with depth, which a field shape that changes with depth
+    (not stated in M22) would give."""
     nc = N.nc_of(data["a_cm"][0])
-    step = N.DX_CENTRES * shiva.dl01_nh(nc)
+    step = N.DX_FLUX * shiva.dl01_nh(nc)
     r1 = N.photo_loss_on_grid(nc, 2, 0, "dl01", chi_grid=[1e-3], acetylene_h=acetylene_h)[0] / 1e-3 / step
     ratio = np.array([_chain(data, loc)[0][0] / (r1 * data["chi"][loc]) for loc in DEEP_MC])
     assert np.all((ratio > lo) & (ratio < hi)), np.round(ratio, 2)
@@ -123,15 +124,15 @@ def test_small_pahs_are_dehydrogenated_as_in_figshare(data, model_b, region):
     assert ours[0] == pytest.approx(theirs[0], abs=0.05)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "PAHs >= 6 A go super-hydrogenated here (<X_H/X_H0> +0.3 to +0.5) where the Figshare model b stays "
-    "normal: the M20 H-addition rates as implemented (Goumans neutral, 1.4e-10 N_H/N_C for normal cations) "
-    "outrun the super-H photo-loss by 1e3-1e4, while the Figshare super-H steps are ~2e-13 s^-1 whatever n_H. "
-    "M22's addition or super-H loss differs from M20 as printed, in a way the files do not reveal. The one change "
-    "M22 state there, the Table 3 super-H law, raises the neutral super-H H-loss E0 at X_H/X_H0 = 1.37 from M20's "
-    "1.4 eV to 3.3 eV, which makes it worse; the C2H2 hydrogen in R_H moves <X_H/X_H0> by < 0.01."))
-@pytest.mark.parametrize("region", ["PDR 1", "DF", "MC"])
+@pytest.mark.parametrize("region", ["PDR 1", "DF", "MC", pytest.param("PDR 2", marks=pytest.mark.xfail(strict=True, reason=(
+    "PDR 2 keeps <X_H/X_H0> +0.12 to +0.17 at 6-8.7 A (+0.05 to +0.08 at 11.7-14.2 A): the top bin of the "
+    "neutrals fills where Figshare's stays empty, so their loss from bin 4 is >= 1e3x ours there; the files "
+    "do not show why (pahchem-audit C3).")))])
 def test_larger_pahs_stay_normal_as_in_figshare(data, model_b, region):
+    """>= 6 A stay normal as in the Figshare model b. Holds with the addition and
+    loss laws read from the files (``murga2022.h_addition(law="figshare")``,
+    DX_FLUX, 2-H Eley-Rideal; pahchem-audit C3). With M20 as printed
+    (``law="m20"``) they went +0.3 to +0.5 super-hydrogenated."""
     for size in range(2, 9):                              # 6 - 19.9 A
         ours, theirs = _regional(data, model_b, size, region)
         assert abs(((ours - theirs) * N.X_BINS).sum()) < 0.1, (region, size)

@@ -144,10 +144,10 @@ def main():
         shape = ("kurucz", 40000)
         pop = population.Population(lib, bands, cache_dir=_paths.get_model_data_dir() / "pahchem_population_basis")
         _, _, B = pop._stack(shape)
-        absorbed = np.zeros(B.shape[:2])
+        emitted = np.zeros(B.shape[:2])
         for i, mol in enumerate(lib):
             for z in mol.charges:
-                absorbed[i, z - pop.zmin] = pop.basis(mol, z, shape).absorbed
+                emitted[i, z - pop.zmin] = pop.basis(mol, z, shape).emitted.sum()
         zgrid = np.array(pop.zs)[None, :] * np.ones((len(lib), 1), int)
         ncgrid = pop.nc[:, None] * np.ones((1, len(pop.zs)))
         ratios = {t: M.band_ratios(*obs[t], bands) for t in obs}
@@ -172,7 +172,7 @@ def main():
                 Fs = B[pop.present]                          # every charge state a free column
                 res = population.fit_abundances(Fs, r, "11.2")
                 e = np.zeros(B.shape[:2])
-                e[pop.present] = res["weights"] * absorbed[pop.present]
+                e[pop.present] = res["weights"] * emitted[pop.present]
                 rows[t] = {**shares(e), "chi2": res["chi2"]}
             report("D1 pahchem library and emission, band ratios (5-15 um), free charge", rows)
         for key, rr, label in (("D2", ratios, "pybaselines"), ("D3", ratios_spline, "Chown+24 spline")):
@@ -188,7 +188,7 @@ def main():
                 res = population.fit_abundances(F[keep], r, "11.2")
                 w = np.zeros(len(lib))
                 w[keep] = res["weights"]
-                rows[t] = {**shares(w[:, None] * f * absorbed), "chi2": res["chi2"]}
+                rows[t] = {**shares(w[:, None] * f * emitted), "chi2": res["chi2"]}
             report(f"{key} ... charge from the conditions (least-ionising corner), {label} continuum", rows)
 
 if __name__ == "__main__":

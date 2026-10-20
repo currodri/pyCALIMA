@@ -130,6 +130,22 @@ for figure comparisons.
 
 ### Status
 
+**Audit fixes (2026-10-20).** A code audit ({doc}`pahchem-audit`) found and
+fixed seven bugs that moved benchmarks:
+- C1, C–H mode stripping;
+- C2, the SHIVA post-absorption yield;
+- C3, the Murga+22 model-b rates;
+- C4, the Li & Draine size clamp;
+- C5, the electron-impact ionisation denominator;
+- C6, the emission shares;
+- C7, the lab CH-stretch scale in the families.
+
+The before/after numbers of every affected benchmark are in its section 5.
+Where a paragraph below quotes a pre-fix number, that table supersedes it.
+The paragraphs most affected are updated in place: Montillaud's stripped
+variant, Allain's dehydrogenated columns, Murga+22 ≥ 6 Å, the PDRs4All
+families, and gate G2.
+
 **Correction: mode frequencies (2026-10-06).** PAHdb stores its frequencies
 already scaled; the SCALE column only records the factor that was applied.
 - Coronene's duo C–H out-of-plane bend is 861.4 cm$^{-1}$ in PAHdb v4.00,
@@ -461,8 +477,15 @@ variant, not their model:
 |---|---|---|---|
 | Parent C$_{54}$H$_{18}$ modes (their model) | +1.5 dex | +1.2 dex (+1.24 at $n_{\rm H} = 1276$) | +1.0 dex |
 | C–H modes stripped per missing H (variant) | +0.60 | +0.35 | +0.00 |
+| the same, with proportional stripping (2026-10-20 audit fix C1) | +0.84 | +0.59 | +0.28 |
 
 (Offsets are median log $G_0$, ours minus theirs, at the same $n_{\rm H}$.)
+
+The stripped variant's apparent improvement was partly an artefact: the old
+stripping removed the most intense C–H modes first, which in PAHdb carry
+nearly all a window's intensity. The C–H cooling of the stripped states fell
+far below N$_H$/N$_{H0}$ of the parent's, so they dehydrogenated too easily
+({doc}`pahchem-audit`, C1).
 
 **Where the 1.2 dex gap comes from.** The cleaner diagnostic is their
 threshold energy, $E_{\rm th}$, where $k_{\rm diss} = k_{\rm IR}$ (Sect. 6.1).
@@ -1090,6 +1113,17 @@ figure `family_emission`).
 
     These are properties of the two compact PAHdb parents, and a structure
     and size mix is the remedy.
+
+    **Superseded on 2026-10-20** ({doc}`pahchem-audit`, C7 and section 5):
+    - **The stretch scale.** These family numbers used the raw DFT CH-stretch
+      intensities, while the population fits apply the lab scale. With the
+      scale (and C1), C$_{54}$'s 3.3/11.2 matches at the DFs (0.35–0.52), but
+      stays ×1.7–2.1 high in H II and Atomic. C$_{96}$'s becomes ×1.5–1.7 low
+      at the DFs (0.18–0.20).
+    - **The observable.** These rows also measure the observation over the
+      Chown spline, the mismatch (C1 of the review) that withdrew the
+      band-ratio fits. They should be re-scored against the spectral-fit
+      decomposition before they are quoted.
   - **3.4/3.29.** C$_{96}$ stays at the floor in the atomic PDR (0.02–0.04
     against 0.09). In the DFs, super-hydrogenation gives the observed rise.
     Chown+24 and Pasquini+24 attribute the Bar's 3.4 band to methyl groups.
@@ -1761,6 +1795,17 @@ has a runner yet.
   - PAH 50 C and 100 C are −1.2 to −1.4 dex in their normal states but within
     0.2 dex when dehydrogenated: the same unstated $N_{\rm H0}$ and
     $k_{\rm IR}$ convention as I Table 4.
+  - **Superseded on 2026-10-20** ({doc}`pahchem-audit`, C1, section 2).
+    - **The old agreement was an artefact.** The dehydrogenated "within
+      0.2 dex" came from the old stripping, which removed the most intense
+      C–H modes first. With the card's own rule (band A scaled by the number
+      of C–H bonds), the 50 C and 100 C dehydrogenated columns are
+      −0.5 to −1.1 dex, like the normal ones.
+    - **What does not explain it:** N$_{H0}$. Closing the gap would need
+      N$_{H0}$ ≈ 15–16, below the compact minimum.
+    - **What likely does:** reading "multi-quanta neglected" as keeping the
+      occupation factor, which brings PAH 50 C to −0.1 to −0.34 dex. That is
+      a convention question for the authors, not applied.
   - With this field the single-state destruction times agree to ≤ 0.21 dex,
     and the critical sizes move by < 0.7 C.
 - **Ionised fraction (II Fig. 7)**, digitised for the Orion Bar and NGC 7027
@@ -1996,8 +2041,16 @@ Gates:
   field shape that changes inward (not stated).
 - **3.3 Å dehydrogenation** at $10^5$ yr: within 0.03 in every region (0.07
   without the C$_2$H$_2$ hydrogen).
-- **PAHs ≥ 6 Å** end 60–90 % super-hydrogenated where Figshare keeps them
-  normal (strict xfail).
+- **PAHs ≥ 6 Å, resolved 2026-10-20** ({doc}`pahchem-audit`, C3).
+  - The Figshare chains fix M22's rates. With the rates read from them
+    (bin flux step 0.5 N$_{H0}$, a 2-H Eley–Rideal event, and the addition
+    laws in `murga2022.h_addition`), ⟨X$_H$/X$_{H0}$⟩ is within +0.00 to
+    +0.05 of Figshare in PDR 1, DF and MC.
+  - PDR 2 keeps +0.12 to +0.17 at 6–8.7 Å (strict xfail): the neutral top
+    bin fills there.
+  - The record below is the pre-fix diagnosis, with M20's rates as printed.
+- **Before the fix:** PAHs ≥ 6 Å ended 60–90 % super-hydrogenated where
+  Figshare keeps them normal.
   - The M20 H-addition rates as printed outrun the super-H photo-loss by
     $10^3$–$10^4$.
   - The Figshare super-H steps are ~$2\times10^{-13}$ s$^{-1}$ whatever
@@ -2145,8 +2198,20 @@ Two corrections, both from measurements, apply only where Bethe fails:
   factor T/(T + IP + W). Stopping is then within 15 % of Joy (1995) carbon
   above 80 eV, 1.35× at 50 eV and 2.3× at 30 eV (confidence D).
 
-**Gate G2 (electron-impact ionisation of PAHs) fails; it is not fixed yet
-(2026-10-19).**
+**Gate G2 (electron-impact ionisation of PAHs): improved by the 2026-10-20
+audit fixes C5 and C4, not closed.** The fixes use Kim's ionisation scaling,
+T/(T + B + U) with U = 2B, for the ionising collisions only, and the volume
+scaling of σ below N$_C$ = 21. With them, model/BEB over 15 eV–5 keV is:
+
+| | before | after |
+|---|---|---|
+| anthracene | 1.36–2.30 | 0.99–1.41 |
+| coronene | 1.28–2.21 | 1.10–1.55 |
+| C$_{54}$H$_{18}$ | 1.40–2.58 | 1.39–1.80 |
+
+The remaining ~1.2–1.4× at keV is the Li & Draine dipole strength
+({doc}`pahchem-audit`, P2). The record below is the pre-fix state
+(2026-10-19).
 
 *The reference.* `diagnostics/pahchem/beb_hf_pah.py` computes BEB (Kim & Rudd
 1994) from RHF orbitals: B = −ε (Koopmans) and U = ⟨T⟩, using PySCF on ideal

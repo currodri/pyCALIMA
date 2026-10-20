@@ -108,8 +108,12 @@ def _optics(a_cm, cabs, lam_key):
     from pycalima.models.dust_charge.dust_photoelectric_heating import read_dielectric_file
     from pycalima.models.dust_radiation.dust_emission import interpolate_cross_sections
 
+    from pycalima.pahchem.photo import ld01_radius_and_volume_factor
+
     lam = np.asarray(lam_key)
-    _, wav_cs, _, C_abs, _ = interpolate_cross_sections(cabs, float(a_cm) * 1e4)
+    radius, factor = ld01_radius_and_volume_factor(float(a_cm) * 1e4, cabs)        # volume scaling below 3.548 A
+    _, wav_cs, _, C_abs, _ = interpolate_cross_sections(cabs, radius)
+    C_abs = factor * np.asarray(C_abs)
     order = np.argsort(wav_cs)
     C = np.interp(lam, wav_cs[order], C_abs[order])
     perp = read_dielectric_file(f"{PATH_OPTICS}/draine_lee_1984/callindex.out_CpeD03_0.10")["table"]

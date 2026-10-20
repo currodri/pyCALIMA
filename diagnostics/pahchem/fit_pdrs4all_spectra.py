@@ -56,7 +56,7 @@ BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3
 
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
-RESULT_VERSION = 5
+RESULT_VERSION = 6
 
 
 def _result_key(args):
@@ -93,10 +93,10 @@ def run(args):
     zs = np.array(pop.zs)
     shape = ("kurucz", 40000)
     pop.prepare(shape)
-    absorbed = np.zeros((len(lib), len(zs)))
+    emitted = np.zeros((len(lib), len(zs)))
     for s, m in enumerate(lib):
         for z in m.charges:
-            absorbed[s, z - pop.zmin] = pop.basis(m, z, shape).absorbed
+            emitted[s, z - pop.zmin] = pop.basis(m, z, shape).emitted.sum()
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
     bases = {k: spectral_fit.continuum_basis(grid, k) for k in KNOTS}
@@ -122,7 +122,7 @@ def run(args):
                         fit = spectral_fit.fit_spectrum(y, P, bases[k])
                         w = np.zeros(len(lib))
                         w[keep] = fit.weights
-                        power = w[:, None] * f * absorbed                       # emitted power by state
+                        power = w[:, None] * f * emitted        # emitted power by state (photon + recombination heating)
                         band = w @ F
                         tot = power.sum()
                         ok = np.isfinite(y)
@@ -191,10 +191,10 @@ def run_shape(args, knot=1.5, iterations=2):
     pop.prepare(fshape)
     nc = np.array([m.nc for m in lib], dtype=float)
     zs = np.array(pop.zs)
-    absorbed = np.zeros((len(lib), len(zs)))
+    emitted = np.zeros((len(lib), len(zs)))
     for s, m in enumerate(lib):
         for z in m.charges:
-            absorbed[s, z - pop.zmin] = pop.basis(m, z, fshape).absorbed
+            emitted[s, z - pop.zmin] = pop.basis(m, z, fshape).emitted.sum()
     out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib], "grid": grid, "args": vars(args), "knot": knot}
     for t in C.TEMPLATES:
         y = observed_on_grid(lam, tmpl[t], grid)
@@ -217,7 +217,7 @@ def run_shape(args, knot=1.5, iterations=2):
                 fit = spectral_fit.fit_spectrum(y, P, C_)
                 w = np.zeros(len(lib))
                 w[keep] = fit.weights
-                power = w[:, None] * f * absorbed
+                power = w[:, None] * f * emitted
                 tot = power.sum()
                 wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
                 pah_ali = P[:, aliphatic[keep]] @ fit.weights[aliphatic[keep]]

@@ -770,6 +770,22 @@ def test_gth_reproduces_an_exact_chain_over_150_decades():
     assert np.allclose(net.steady_state().ravel(), exact, rtol=1e-12, atol=0.0)
 
 
+def test_gth_survives_a_chain_rising_beyond_the_float_range():
+    """The mirror case: the first state is ~1e-600 of the last (a fully hydrogenated
+    100 C PAH against its bare anion, Allain's HI region). GTH builds p relative to
+    state 0, so the ratios overflowed to inf and the solution to nan; rescaling on
+    the way makes it exact (pahchem-audit fixes, 2026-10-20)."""
+    from pycalima.pahchem.network import gth_stationary
+
+    n = 60
+    R = np.zeros((n, n))
+    R[np.arange(n - 1), np.arange(1, n)] = 1e12           # up
+    R[np.arange(1, n), np.arange(n - 1)] = 1.0            # down
+    p = gth_stationary(R)
+    assert np.all(np.isfinite(p)) and p.sum() == pytest.approx(1.0)
+    assert p[-2] / p[-1] == pytest.approx(1e-12, rel=1e-12)
+
+
 def test_every_state_of_a_baseline_network_is_balanced(pah_states):
     """C54H18 at G0 = 0.1, nH = 100: the fully dehydrogenated fraction is ~1e-92,
     far below the ~1e-16 a general linear solve resolves (it returned 2e-16 noise).

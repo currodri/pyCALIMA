@@ -51,6 +51,11 @@ def gth_stationary(R):
     p[0] = 1.0
     for k in range(1, n):
         p[k] = p[:k] @ A[:k, k] / s[k]
+        if p[k] > 1e250:
+            # p is relative to state 0; when state 0 is > 1e250 less likely than state k (a fully
+            # hydrogenated 100 C PAH against its bare anion), rescale before the ratios overflow.
+            # The final normalisation makes this exact.
+            p[:k + 1] /= p[k]
     return p / p.sum()
 
 

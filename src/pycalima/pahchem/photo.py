@@ -55,11 +55,29 @@ def _li_draine_table(kind):
 _SIGMA_CACHE: dict = {}
 
 
+def ld01_radius_and_volume_factor(radius_um, kind="nPAH"):
+    """(radius at which to read the Li & Draine table, factor on C_abs).
+
+    The table starts at a = 3.548 A (N_C = 20.9). The 2-D interpolation holds
+    Q_abs at that radius below it while C_abs = Q pi a^2 still scales as a^2,
+    so sigma per C rose as (20.9 / N_C)^(1/3): 1.28 for C10, 1.14 for C14
+    (pahchem-audit, C4). Below the table, C_abs is taken at a_min and scaled
+    by volume, (a / a_min)^3, i.e. Q proportional to a, as LD01's per-C cross
+    section implies.
+    """
+    a_min = min(float(r) for r in _li_draine_table(kind)[1])
+    if radius_um >= a_min:
+        return float(radius_um), 1.0
+    return a_min, (float(radius_um) / a_min) ** 3
+
+
 def sigma_li_draine(nc, charge, energy_ev) -> np.ndarray:
     """Li & Draine (2001) absorption cross section [cm^2].
 
     Memoised on (N_C, neutral/ionised, energy grid): the 2-D interpolation
-    costs ~0.2 s and callers ask for the same grid for every state.
+    costs ~0.2 s and callers ask for the same grid for every state. Below the
+    table's smallest radius (N_C < 21) it scales with N_C
+    (``ld01_radius_and_volume_factor``).
     """
     from pycalima.models.PAH_radiation.pah_oppacity import interpolate_pah_cross_sections_2d
 
@@ -69,9 +87,10 @@ def sigma_li_draine(nc, charge, energy_ev) -> np.ndarray:
     if key not in _SIGMA_CACHE:
         if len(_SIGMA_CACHE) > 256:
             _SIGMA_CACHE.clear()
+        radius, factor = ld01_radius_and_volume_factor(li_draine_radius_um(nc), kind)
         _, _, _, c_abs, _ = interpolate_pah_cross_sections_2d(
-            kind, li_draine_radius_um(nc), target_wavelengths=HC_EV_UM / E, data_table=_li_draine_table(kind))
-        _SIGMA_CACHE[key] = np.asarray(c_abs, dtype=float)
+            kind, radius, target_wavelengths=HC_EV_UM / E, data_table=_li_draine_table(kind))
+        _SIGMA_CACHE[key] = factor * np.asarray(c_abs, dtype=float)
     return _SIGMA_CACHE[key].copy()
 
 

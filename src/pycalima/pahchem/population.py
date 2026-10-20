@@ -95,7 +95,7 @@ import numpy as np
 
 from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, photo, rates
 from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2
-from pycalima.pahchem.baseline import E_PH, Params
+from pycalima.pahchem.baseline import CH_STRETCH_CM, E_PH, LAB_STRETCH_SCALE, Params, scaled_einstein_a  # noqa: F401
 
 HARTREE_EV = 27.211386
 _FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
@@ -439,19 +439,8 @@ class StateBasis:
         return np.exp(np.interp(np.log(g), np.log(K_H_G0_GRID), lk))
 
 
-#: CH stretch modes scaled by ``Params.stretch_scale`` [cm^-1]. The aliphatic CH2/CH3 stretches (2700-3000) are
-#: included: the scale is measured on aromatic stretches only, and is assumed to hold for them as well
-CH_STRETCH_CM = (2600.0, 3200.0)
-#: lab / DFT ratio of the CH stretch to CH oop intensity: -0.29 dex, the median of 35 neutrals
-#: (check_lab_band_strengths.py: PAHdb v4.00 6-31G* against PAHdb experimental v3.10, matrix isolation)
-LAB_STRETCH_SCALE = 10.0 ** -0.29
-
-
-def _einstein_a(sp, params):
-    if params.stretch_scale == 1.0:
-        return sp.einstein_a
-    f = sp.freqs_cm
-    return sp.einstein_a * np.where((f >= CH_STRETCH_CM[0]) & (f <= CH_STRETCH_CM[1]), params.stretch_scale, 1.0)
+#: the CH-stretch scale and its window live in ``baseline`` (every cascade applies them; pahchem-audit C7)
+_einstein_a = scaled_einstein_a
 
 
 #: classical upper limit of the factor on BT94 capture. BT94 with sticking 1 already holds the Coulomb
