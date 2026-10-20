@@ -18,10 +18,10 @@ WINDOWS = {"3.3": (3.2, 3.36), "6.2": (6.0, 6.6), "11.2": (11.1, 11.8), "12.7": 
 
 def _ascii():
     from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_pahdb
+    from pycalima.pahchem import ames_suite
 
     try:
-        return ames_pahdb.ascii_path()
+        return ames_suite.ascii_path()
     except DatasetUnavailable:
         pytest.skip("PAHdb v3.20 not installed (calima-fetch-data import pahdb-theoretical-v3-20 ...)")
 
@@ -99,10 +99,10 @@ def test_population_statistics_counts_edge_hydrogens():
 
 # -- PAHdb ----------------------------------------------------------------------------------------
 def test_m20_sample_uids_match_their_v3_20_formulas():
-    from pycalima.pahchem import ames_pahdb, maragkoudakis2020
+    from pycalima.pahchem import ames_suite, maragkoudakis2020
 
     s = maragkoudakis2020.sample()
-    meta = ames_pahdb.read_metadata(_ascii(), s.uid)
+    meta = ames_suite.read_metadata(_ascii(), s.uid)
     for r in s.itertuples():
         m = re.match(r"C(\d+)H(\d+)", meta[r.uid]["FORMULA"])
         assert (int(m[1]), int(m[2]), meta[r.uid]["CHARGE"]) == (r.nc, r.nh, r.charge), r.uid
@@ -243,26 +243,26 @@ def _benzene(scale=1.0, jitter=0.0, seed=0):
 
 
 def test_bond_graph_hash_ignores_geometry_but_not_connectivity():
-    from pycalima.pahchem import ames_pahdb
+    from pycalima.pahchem import ames_suite
 
     t, x = _benzene()
-    h0 = ames_pahdb.bond_graph_hash(t, x)
-    assert ames_pahdb.bond_graph_hash(*_benzene(scale=1.02, jitter=0.02, seed=3)) == h0   # a charge state's geometry
+    h0 = ames_suite.bond_graph_hash(t, x)
+    assert ames_suite.bond_graph_hash(*_benzene(scale=1.02, jitter=0.02, seed=3)) == h0   # a charge state's geometry
     t2, x2 = list(t), x.copy()
     x2[6] = x2[0] + (x2[1] - x2[0]) * 0.5 + np.array([0.0, 0.0, 1.09])  # move one H onto a C-C bond: other graph
-    assert ames_pahdb.bond_graph_hash(t2, x2) != h0
+    assert ames_suite.bond_graph_hash(t2, x2) != h0
 
 
 def _v400():
     from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_pahdb
+    from pycalima.pahchem import ames_suite
 
     if "v400" not in _CACHE:
         try:
-            path = ames_pahdb.xml_path("pahdb-theoretical-v4-00")
+            path = ames_suite.xml_path("pahdb-theoretical-v4-00")
         except DatasetUnavailable:
             pytest.skip("PAHdb v4.00 not installed")
-        recs = ames_pahdb.xml_index(path)                       # no cache_dir: tests do not write to model data
+        recs = ames_suite.xml_index(path)                       # no cache_dir: tests do not write to model data
         _CACHE["v400"] = (recs, population.library_v400(recs))
     return _CACHE["v400"]
 

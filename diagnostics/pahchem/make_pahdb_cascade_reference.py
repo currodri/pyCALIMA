@@ -7,7 +7,7 @@ shared among the modes as I nu^3 / (exp(h nu / kT) - 1)) for PAHdb species at
 several excitation energies, and writes the fraction of E emitted in each
 band (the PAHdb modes themselves are not written: PAHdb is never bundled).
 The output is the bundled reference
-``external_data/pahchem/amespahdb_cascade_band_fractions.csv`` for the emission
+``external_data/pahchem/ames_suite_cascade_band_fractions.csv`` for the emission
 gates (tests/test_pahchem_emission.py), with the bands of ``BANDS``.
 
 Needs the AmesPAHdb Python suite (requirements-dev.txt) and the PAHdb XML.

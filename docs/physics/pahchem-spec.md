@@ -848,7 +848,7 @@ Open items:
     emission model, was run on the same PAHdb v4.00 modes; the frequencies
     agree to 0.005 cm$^{-1}$ after the correction above. Its band fractions
     (not the PAHdb modes, which are never bundled) are
-    `amespahdb_cascade_band_fractions.csv`.
+    `ames_suite_cascade_band_fractions.csv`.
     - At 4–12 eV every band but 3.3 µm agrees to 1 % (far-IR 4 %).
     - At 3.3 µm the exact cascade is below the thermal one and converges to
       it as $E$ grows:
@@ -873,7 +873,7 @@ Open items:
 
 **M7a, published emission models recovered** (2026-10-06). Two papers'
 results were reproduced from their stated inputs, each with a method card;
-the PAHdb v3.20 species are read by {mod}`pycalima.pahchem.ames_pahdb` (manual
+the PAHdb v3.20 species are read by {mod}`pycalima.pahchem.ames_suite` (manual
 dataset, never bundled).
 
 - **Their model.** Both papers use the thermal-approximation cascade of the

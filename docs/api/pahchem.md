@@ -29,7 +29,7 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.network
    pycalima.pahchem.emission
    pycalima.pahchem.family_emission
-   pycalima.pahchem.ames_pahdb
+   pycalima.pahchem.ames_suite
    pycalima.pahchem.maragkoudakis2020
    pycalima.pahchem.maragkoudakis2026
    pycalima.pahchem.rigopoulou2021

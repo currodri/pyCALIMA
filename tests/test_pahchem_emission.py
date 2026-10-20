@@ -3,7 +3,7 @@
 The gates:
 - energy closure;
 - the AmesPAHdb suite's own cascade model on the same PAHdb v4.00 modes, as band
-  fractions (amespahdb_cascade_band_fractions.csv, from
+  fractions (ames_suite_cascade_band_fractions.csv, from
   diagnostics/pahchem/make_pahdb_cascade_reference.py);
 - the Monte Carlo of pahchem.montecarlo;
 - the steady state's radiated power.
@@ -61,7 +61,7 @@ def test_cascade_against_the_pahdb_thermal_cascade(model_data, formula):
     8 and 12 eV. At 2 eV it is 0.84 / 0.75: the thermal approximation overestimates
     high-frequency emission from a small energy content."""
     sp = _species(model_data, formula)
-    ref = pd.read_csv(get_external_data_path("pahchem/amespahdb_cascade_band_fractions.csv"), comment="#")
+    ref = pd.read_csv(get_external_data_path("pahchem/ames_suite_cascade_band_fractions.csv"), comment="#")
     ref = ref[ref.species == formula]
     r8 = ref[ref.e_ev == 8.0].set_index("band")
     for b, (lo, hi) in BANDS.items():
@@ -88,7 +88,7 @@ def test_thermal_cascade_is_the_pahdb_suite_model(model_data, formula):
     Transitions.cascade at 2-12 eV: every band with > 0.5 % of E within 1e-3 (measured
     5e-4), and the energy closes."""
     sp = _species(model_data, formula)
-    ref = pd.read_csv(get_external_data_path("pahchem/amespahdb_cascade_band_fractions.csv"), comment="#")
+    ref = pd.read_csv(get_external_data_path("pahchem/ames_suite_cascade_band_fractions.csv"), comment="#")
     th = emission.ThermalCascade(sp.freqs_cm, sp.einstein_a)
     for e, r in ref[ref.species == formula].groupby("e_ev"):
         em = th.energy_per_mode(e * EV)

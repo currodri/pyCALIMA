@@ -717,7 +717,7 @@ def fig_emission_cascade(args, out):
     """Per-photon IR emission: the exact cascade against the AmesPAHdb thermal cascade."""
     from pycalima.pahchem import emission
 
-    ref = pd.read_csv(EXT("pahchem/amespahdb_cascade_band_fractions.csv"), comment="#")
+    ref = pd.read_csv(EXT("pahchem/ames_suite_cascade_band_fractions.csv"), comment="#")
     grid = np.linspace(500.0, 3300.0, 5601)
     wl = 1e4 / grid
     fig, axes = plt.subplots(2, 2, figsize=(12, 7), gridspec_kw={"width_ratios": [2.2, 1]})
@@ -752,7 +752,7 @@ def fig_emission_cascade(args, out):
 def fig_maragkoudakis2020_fig2(args, out):
     """Maragkoudakis+20 Fig. 2 (ISRF): their markers, their model (thermal) and pahchem (exact)."""
     from pycalima.pahchem import maragkoudakis2020 as M
-    from pycalima.pahchem import ames_pahdb as pahdb
+    from pycalima.pahchem import ames_suite as pahdb
 
     species = pahdb.read_ascii(pahdb.ascii_path(), M.sample().uid)
     rows = []
@@ -783,7 +783,7 @@ def fig_maragkoudakis2020_fig2(args, out):
 
 def fig_rigopoulou2021_fig1(args, out):
     """Rigopoulou+21 Fig. 1: UID 742 at 5 and 12.4 eV."""
-    from pycalima.pahchem import ames_pahdb as pahdb
+    from pycalima.pahchem import ames_suite as pahdb
     from pycalima.pahchem import emission
     from pycalima.pahchem import rigopoulou2021 as R
 

@@ -129,35 +129,35 @@ class Molecule:
 def library_m20(path=None, min_nc=0, all_anions=False):
     """[Molecule] of the Maragkoudakis+20 sample with N_C >= ``min_nc``.
 
-    Charge states are matched by bond graph (``ames_pahdb.read_ascii_graphs``),
+    Charge states are matched by bond graph (``ames_suite.read_ascii_graphs``),
     not by formula and edge-H counts, which isomers share (review A).
     - The cation is the sample cation with the neutral's bond graph. This
       corrects one M20 row pairing, C66H18 (714).
     - The anion is the anion with that graph: from Table H3, or with
       ``all_anions`` from the whole of PAHdb v3.20, Table H3's first.
-    ``path`` is the PAHdb v3.20 ASCII file (default ``ames_pahdb.ascii_path()``).
+    ``path`` is the PAHdb v3.20 ASCII file (default ``ames_suite.ascii_path()``).
     """
-    from pycalima.pahchem import ames_pahdb, maragkoudakis2020
+    from pycalima.pahchem import ames_suite, maragkoudakis2020
 
-    path = ames_pahdb.ascii_path() if path is None else path
+    path = ames_suite.ascii_path() if path is None else path
     sample = maragkoudakis2020.sample()
     if all_anions:
         with open(path, encoding="utf-8", errors="replace") as fh:
             every = [int(line.split()[1]) for line in fh if line.startswith("UID:")]
-        full_meta = ames_pahdb.read_metadata(path, every)
+        full_meta = ames_suite.read_metadata(path, every)
         pool = [u for u, m in full_meta.items() if m.get("CHARGE") == -1 and _FORMULA_CH.fullmatch(m.get("FORMULA", ""))]
         meta = {u: full_meta[u] for u in set(sample.uid) | set(pool)}
     else:
         full_meta = None
-        meta = ames_pahdb.read_metadata(path, sample.uid)
+        meta = ames_suite.read_metadata(path, sample.uid)
         pool = list(sample[sample.charge == -1].uid)
-    sp = ames_pahdb.read_ascii(path, sample.uid)
+    sp = ames_suite.read_ascii(path, sample.uid)
     key = lambda u: (meta[u]["FORMULA"].rstrip("+-"),) + tuple(meta[u][f"N_{e.upper()}"] for e in EDGES)
     pairs = sample[sample.charge >= 0].uid.to_numpy().reshape(-1, 2).copy()
     for u0, u1 in pairs:
         if meta[u0]["CHARGE"] != 0 or meta[u1]["CHARGE"] != 1 or key(u0) != key(u1):
             raise ValueError(f"PAHdb UIDs {u0}, {u1} are not a neutral-cation pair")
-    graph = ames_pahdb.read_ascii_graphs(path, set(sample.uid) | set(pool))
+    graph = ames_suite.read_ascii_graphs(path, set(sample.uid) | set(pool))
     cations = {}
     for u in sample[sample.charge == 1].uid:
         cations.setdefault(graph[u], []).append(u)
@@ -172,10 +172,10 @@ def library_m20(path=None, min_nc=0, all_anions=False):
         if full_meta is None:
             with open(path, encoding="utf-8", errors="replace") as fh:
                 every = [int(line.split()[1]) for line in fh if line.startswith("UID:")]
-            full_meta = ames_pahdb.read_metadata(path, every)
+            full_meta = ames_suite.read_metadata(path, every)
         allmeta = full_meta
         extra = [u for u, m in allmeta.items() if m.get("CHARGE") == 1 and _FORMULA_CH.fullmatch(m.get("FORMULA", ""))]
-        g_extra = ames_pahdb.read_ascii_graphs(path, extra)
+        g_extra = ames_suite.read_ascii_graphs(path, extra)
         for i in unmatched:
             u0, u1 = pairs[i]
             match = [u for u in extra if g_extra[u] == graph[u0]]
@@ -194,7 +194,7 @@ def library_m20(path=None, min_nc=0, all_anions=False):
         us = pick(anions_by_graph.get(graph[u0], []))
         if len(us) == 1:
             anion[u0] = us[0]
-    sp |= ames_pahdb.read_ascii(path, [u for u in set(anion.values()) | set(pairs[:, 1]) if u not in sp])
+    sp |= ames_suite.read_ascii(path, [u for u in set(anion.values()) | set(pairs[:, 1]) if u not in sp])
     level = lambda u: (meta[u]["METHOD"].lstrip("RU").upper(), meta[u]["BASIS"].replace("?", "4-31G"))
     same = lambda a, b: level(a) == level(b)
     de = lambda a, b: (meta[b]["TOTAL_E"] - meta[a]["TOTAL_E"]) * HARTREE_EV
@@ -216,7 +216,7 @@ def library_m20(path=None, min_nc=0, all_anions=False):
 def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cache_dir=None):
     """[Molecule] of PAHdb v4.00: every pure C/H skeleton with a neutral and a cation.
 
-    - **Grouping.** Charge states are grouped by ``ames_pahdb.bond_graph_hash``
+    - **Grouping.** Charge states are grouped by ``ames_suite.bond_graph_hash``
       (one bond graph is one molecule). Where PAHdb holds two entries of one
       graph and charge, the lower UID is kept.
     - **Charges.** The contiguous ladder around Z = 0, from -1 up to +3.
@@ -236,13 +236,13 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
       1522 skeletons with a neutral and a dication but no cation, which the
       charge chain cannot reach.
 
-    ``records`` defaults to ``ames_pahdb.xml_index`` of the v4.00 dataset
+    ``records`` defaults to ``ames_suite.xml_index`` of the v4.00 dataset
     (cached in ``cache_dir``).
     """
-    from pycalima.pahchem import ames_pahdb
+    from pycalima.pahchem import ames_suite
 
     if records is None:
-        records = ames_pahdb.xml_index(ames_pahdb.xml_path("pahdb-theoretical-v4-00"), cache_dir)
+        records = ames_suite.xml_index(ames_suite.xml_path("pahdb-theoretical-v4-00"), cache_dir)
     off_edge = lambda r: r["nh"] - sum(r[f"n_{e}"] for e in (*EDGES, "quintet"))
     keep = [r for r in records if r["pure_ch"] and min_nc <= r["nc"] <= max_nc and r["nh"] > 0
             and (include_superh or (r["n_ch2"] == 0 and r["n_ch3"] == 0 and off_edge(r) == 0))
@@ -284,7 +284,7 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
         th = [thresholds[z] for z in zs[:-1]]
         if any(b <= a for a, b in zip(th, th[1:])):
             continue                                     # non-physical ladder (module docstring)
-        species = {z: ames_pahdb.species_from_record(g[z], f"PAHdb v4.00 UID {g[z]['uid']}") for z in zs}
+        species = {z: ames_suite.species_from_record(g[z], f"PAHdb v4.00 UID {g[z]['uid']}") for z in zs}
         formula = re.sub(r"[+-]\d*$", "", neu["formula"])
         edges = {e: neu[f"n_{e}"] for e in EDGES} | (
             {"aliphatic": off_edge(neu), "ch3": neu["n_ch3"]} if include_superh else {})

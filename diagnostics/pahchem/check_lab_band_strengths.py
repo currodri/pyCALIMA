@@ -2,7 +2,7 @@
 """DFT band strengths (PAHdb v4.00, 6-31G*) against the matrix-isolation library (PAHdb experimental v3.10).
 
 Each laboratory species is matched to the theoretical species with the same
-bond graph and charge (``ames_pahdb.bond_graph_hash``). Integrated intensities
+bond graph and charge (``ames_suite.bond_graph_hash``). Integrated intensities
 (km/mol) are summed in four regions (cm^-1): CH stretch 2950-3150, CC stretch
 1500-1650, CH in-plane / CC 1100-1500, CH out-of-plane 650-950.
 
@@ -18,7 +18,7 @@ from collections import defaultdict
 import numpy as np
 
 from pycalima import _paths
-from pycalima.pahchem import ames_pahdb
+from pycalima.pahchem import ames_suite
 
 REGIONS = {"stretch": (2950.0, 3150.0), "CC": (1500.0, 1650.0), "ip": (1100.0, 1500.0), "oop": (650.0, 950.0)}
 
@@ -29,8 +29,8 @@ def regions(freqs, inten):
 
 
 def main():
-    lab = ames_pahdb.read_xml(ames_pahdb.xml_path("pahdb-experimental-v3-10"))
-    theory = ames_pahdb.xml_index(ames_pahdb.xml_path("pahdb-theoretical-v4-00"),
+    lab = ames_suite.read_xml(ames_suite.xml_path("pahdb-experimental-v3-10"))
+    theory = ames_suite.xml_index(ames_suite.xml_path("pahdb-theoretical-v4-00"),
                                   _paths.get_model_data_dir() / "pahchem_pahdb_index")
     by = defaultdict(list)
     for r in theory:

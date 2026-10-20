@@ -67,14 +67,14 @@ def test_every_matrix_column_holds_one_7_ev_photon():
 
 def test_a_v320_column_is_rebuilt_by_pahchem():
     from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_pahdb
+    from pycalima.pahchem import ames_suite
 
     pre = _matrix()
     try:
-        path = ames_pahdb.ascii_path()
+        path = ames_suite.ascii_path()
     except DatasetUnavailable:
         pytest.skip("PAHdb v3.20 not installed")
-    sp = ames_pahdb.read_ascii(path, [564])[564]                  # C96 neutral, B3LYP/4-31G
+    sp = ames_suite.read_ascii(path, [564])[564]                  # C96 neutral, B3LYP/4-31G
     ours = M.matrix_from_species([sp], pre["abscissa"])["matrix"][:, 0]
     col = pre["matrix"][:, 6603]
     assert np.abs(ours - col).max() < 2e-3 * col.max()

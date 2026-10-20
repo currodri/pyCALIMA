@@ -149,7 +149,7 @@ files = ["west2018_table1.csv", "jochims94_table1.csv", "jochims94_table2.csv", 
          "murga2020_fig5_c2h2_vs_av.csv", "murga2022_fig6_profile.csv", "murga2022_fig6_curves.csv",
          "goumans2011_table3.csv", "murga_wiebe22_fig1.csv", "murga2019_fig2_yion.csv",
          "shiva_dl01_fig7_temperature.csv",
-         "wenzel2020_cation_ionisation.csv", "wenzel2020_fig9_yield_fit.csv", "amespahdb_cascade_band_fractions.csv",
+         "wenzel2020_cation_ionisation.csv", "wenzel2020_fig9_yield_fit.csv", "ames_suite_cascade_band_fractions.csv",
          "maragkoudakis2020_sample_uids.csv", "maragkoudakis2020_fig2.csv", "maragkoudakis2020_size_fits.csv",
          "rigopoulou2021_fig1.csv", "borja2026_table1.csv", "borja2026_fig8_krf.csv",
          "malloci2007_circumcoronene_cation_sigma.dat", "pdrs4all_orionbar_band_ratios.csv",
@@ -226,7 +226,7 @@ url = "https://www.astrochemistry.org/pahdb/"
 url_status = "unconfirmed"
 env_override = "CALIMA_PAHDB_DIR"
 instructions = """An older ASCII export of the PAHdb theoretical library. Only
-pahchem's emission benchmarks read it (pahchem.ames_pahdb: the Maragkoudakis+20 and
+pahchem's emission benchmarks read it (pahchem.ames_suite: the Maragkoudakis+20 and
 Rigopoulou+21 tests, which skip without it); nothing else needs it.
 
 To install it, register (free) and log in at

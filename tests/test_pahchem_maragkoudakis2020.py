@@ -18,7 +18,7 @@ _CACHE = {}
 
 def _species():
     from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_pahdb as pahdb
+    from pycalima.pahchem import ames_suite as pahdb
 
     if "species" not in _CACHE:
         try:

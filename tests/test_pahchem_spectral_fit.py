@@ -16,11 +16,11 @@ _CACHE = {}
 
 def _setup():
     from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_pahdb
+    from pycalima.pahchem import ames_suite
 
     if "pop" not in _CACHE:
         try:
-            path = ames_pahdb.ascii_path()
+            path = ames_suite.ascii_path()
         except DatasetUnavailable:
             pytest.skip("PAHdb v3.20 not installed")
         lib = [m for m in population.library_m20(path) if m.nc >= 40][:12]

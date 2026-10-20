@@ -13,7 +13,7 @@ from pycalima.pahchem import rigopoulou2021 as R
 @pytest.fixture(scope="module")
 def uid742():
     from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_pahdb as pahdb
+    from pycalima.pahchem import ames_suite as pahdb
 
     try:
         path = pahdb.ascii_path()

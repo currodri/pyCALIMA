@@ -36,7 +36,7 @@ from scipy.interpolate import CubicSpline
 import check_maragkoudakis2026 as CK
 import compare_pdrs4all as C
 from pycalima import _paths
-from pycalima.pahchem import ames_pahdb, maragkoudakis2026 as M, population
+from pycalima.pahchem import ames_suite, maragkoudakis2026 as M, population
 
 KEYS = ("f_neut", "f_cat", "f_an", "f_dication_plus", "f_sm", "f_med", "f_lar", "n_c")
 CONTINUUM = (0.8, 3, "mor_then_imodpoly")        # best setting of check_maragkoudakis2026
@@ -105,9 +105,9 @@ def main():
     del pre
     if want("R2"):
         t0 = time.time()
-        recs = ames_pahdb.xml_index(ames_pahdb.xml_path(), _paths.get_model_data_dir() / "pahchem_pahdb_index")
+        recs = ames_suite.xml_index(ames_suite.xml_path(), _paths.get_model_data_dir() / "pahchem_pahdb_index")
         sel = [r for r in recs if r["pure_ch"] and r["nc"] > 20 and r["nh"] > 0 and r["n_ch2"] == 0 and r["n_ch3"] == 0]
-        sp = [ames_pahdb.species_from_record(r, f"v4.00 {r['uid']}") for r in sel]
+        sp = [ames_suite.species_from_record(r, f"v4.00 {r['uid']}") for r in sel]
         pre2 = M.matrix_from_species(sp, nu, window_cm=100.0)
         print(f"(R2 matrix: {len(sp)} species in {time.time() - t0:.0f}s)")
         run("R2 final v4.00 (6-31G*), thermal 7 eV, Gaussian", pre2, obs, out)

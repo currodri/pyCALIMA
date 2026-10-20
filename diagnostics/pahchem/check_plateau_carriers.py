@@ -38,7 +38,7 @@ from scipy.ndimage import grey_opening
 
 import compare_pdrs4all as C
 from pycalima import _paths
-from pycalima.pahchem import ames_pahdb, conditions, emission, population
+from pycalima.pahchem import ames_suite, conditions, emission, population
 from pycalima.pahchem.baseline import E_PH
 
 SHAPE = ("kurucz", 40000)
@@ -117,10 +117,10 @@ def main():
                     w[idx[n]] = wt
             print(f"  best-fit population, {t} (v4.00 scan, spline): {plateau_share(LAM, w @ spec):.2f}")
     # -- clusters ------------------------------------------------------------------------------------
-    cl = ames_pahdb.read_xml(ames_pahdb.xml_path("pahdb-clusters-theoretical-v1-00"))
+    cl = ames_suite.read_xml(ames_suite.xml_path("pahdb-clusters-theoretical-v1-00"))
     by_m = defaultdict(list)
     for r in cl:
-        sp = ames_pahdb.species_from_record(r, f"cluster {r['monomers']} {r['type']}")
+        sp = ames_suite.species_from_record(r, f"cluster {r['monomers']} {r['type']}")
         by_m[r["monomers"]].append((r["type"], r["conformation"], sp.nc, model_fnu(sp.freqs_cm, neutral_emitted(sp))))
     print("\nclusters (neutral), per molecule:")
     allc = np.zeros(LAM.size)
@@ -135,8 +135,8 @@ def main():
               f"{pct([plateau_share(LAM, x[3]) for x in cls])}; mixed clusters {plateau_share(LAM, mix):.2f}")
     print(f"  all four molecules: monomers mixed {plateau_share(LAM, allm):.2f}, clusters mixed {plateau_share(LAM, allc):.2f}")
     # -- anharmonic ----------------------------------------------------------------------------------
-    an = [r for r in ames_pahdb.read_xml(ames_pahdb.xml_path("pahdb-anharmonic-v1-00")) if r["pure_ch"]]
-    th = ames_pahdb.xml_index(ames_pahdb.xml_path("pahdb-theoretical-v4-00"), _paths.get_model_data_dir() / "pahchem_pahdb_index")
+    an = [r for r in ames_suite.read_xml(ames_suite.xml_path("pahdb-anharmonic-v1-00")) if r["pure_ch"]]
+    th = ames_suite.xml_index(ames_suite.xml_path("pahdb-theoretical-v4-00"), _paths.get_model_data_dir() / "pahchem_pahdb_index")
     by = defaultdict(list)
     for r in th:
         by[(r.get("graph"), r["charge"])].append(r)
