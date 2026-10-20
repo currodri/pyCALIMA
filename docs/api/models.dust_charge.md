@@ -26,6 +26,7 @@ See {doc}`/cli/calima-export` for what they cost.
    pycalima.models.dust_charge.wdb06_yields
    pycalima.models.dust_charge.wdb06_atomic
    pycalima.models.dust_charge.rt_group_charging
+   pycalima.models.dust_charge._charge_kernels
    pycalima.models.dust_charge.charging_isrf_tables
    pycalima.models.dust_charge.coulomb_focusing
 ```
