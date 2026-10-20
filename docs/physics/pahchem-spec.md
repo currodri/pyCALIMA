@@ -1483,6 +1483,22 @@ review_B).
   alternation, and its first shape fit is made at the best cell of a scan
   with the start shape. Fitted at a fixed high-γ cell, every start fell into
   the narrow-band branch (rms 0.10–0.23).
+- **Run time** (2026-10-20). The full `--fit-shape` refit has gone from 37 min
+  to ~1 min on 14 cores, with the same result (shapes to 2e-10, weights to
+  1e-11):
+  - the profiles are summed by a numba kernel over modes packed once per
+    round (`spectral_fit.ModeTable`); Gaussians are cut at ±8σ;
+  - the NNLS is Lawson–Hanson on Gram columns built only as they enter
+    (`spectral_fit._nnls`, 12× scipy, falling back to it);
+  - the IR down-jump rates (`cooling`), the electron-sticking recursion
+    (`attachment`) and the H-loss chain have numba kernels too;
+  - the basis cache key hashes arrays by their bytes, not by `repr` (old
+    files are linked to the new keys on first use);
+  - the 20 runs go one template per process (`--workers`, or any
+    `concurrent.futures` executor, e.g. dask's `Client.get_executor()`).
+
+  Without numba (the `accel` extra) each kernel falls back to NumPy/scipy
+  with the same numbers.
 - **Result** (v4.00, IPs calibrated, lab CH-stretch scale, BT94; Gaussian
   profile best):
 

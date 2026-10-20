@@ -34,6 +34,12 @@ import numpy as np
 
 from pycalima.pahchem import cooling, dos
 
+try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers
+    from numba import njit
+    HAVE_NUMBA = True
+except ModuleNotFoundError:  # pragma: no cover - exercised only without numba
+    HAVE_NUMBA = False
+
 ME_G = 9.1093837e-28
 HBAR_CGS = 1.054571817e-27
 E2_CGS = 4.80320471e-10 ** 2          # e^2 [erg cm]
@@ -44,6 +50,33 @@ def capture_cross_section(eps_cm, radius_cm, disc_factor=0.82):
     """sigma_c(eps) [cm^2] of a neutral conducting disc, eps in cm^-1."""
     eps = np.asarray(eps_cm, dtype=float) * ERG_PER_CM
     return disc_factor * np.pi * radius_cm**2 * (1.0 + np.sqrt(2.0 * E2_CGS / (radius_cm * eps)))
+
+
+def _stabilisation_numpy(k_modes, k_tot, steps, i_ea):
+    n = k_modes.shape[1]
+    P = np.ones(n)
+    for i in range(i_ea + 1, n):
+        # a window with no anion states carries its neighbour's value (sparse mode sets only)
+        P[i] = (k_modes[:, i] @ P[np.maximum(i - steps, 0)]) / k_tot[i] if k_tot[i] > 0 else P[i - 1]
+    return P
+
+
+if HAVE_NUMBA:
+    @njit(cache=True)
+    def _stabilisation(k_modes, k_tot, steps, i_ea):
+        n = k_modes.shape[1]
+        P = np.ones(n)
+        for i in range(i_ea + 1, n):
+            if k_tot[i] > 0:
+                s = 0.0
+                for m in range(steps.size):
+                    s += k_modes[m, i] * P[max(i - steps[m], 0)]
+                P[i] = s / k_tot[i]
+            else:
+                P[i] = P[i - 1]
+        return P
+else:  # pragma: no cover
+    _stabilisation = _stabilisation_numpy
 
 
 class Attachment:
@@ -94,13 +127,8 @@ class Attachment:
         k_modes = cooling.mode_emission_rates(self.energy_cm, counts_a, anion.freqs_cm, anion.einstein_a,
                                               window_cm=window_cm)
         self.k_ir = k_modes.sum(axis=0)
-        steps = np.maximum(np.rint(np.asarray(anion.freqs_cm) / grain_cm).astype(int), 1)
-        P = np.ones(n)
-        for i in range(self.i_ea + 1, n):
-            tot = self.k_ir[i] + self.k_detach[i]
-            # a window with no anion states carries its neighbour's value (sparse mode sets only)
-            P[i] = (k_modes[:, i] @ P[np.maximum(i - steps, 0)]) / tot if tot > 0 else P[i - 1]
-        self.p_stab = P
+        steps = np.maximum(np.rint(np.asarray(anion.freqs_cm) / grain_cm).astype(np.int64), 1)
+        self.p_stab = _stabilisation(np.ascontiguousarray(k_modes), self.k_ir + self.k_detach, steps, self.i_ea)
 
     def sticking(self, temperature_k, neutral_energy_cm=None, neutral_weights=None, t_vib_k=None):
         """s_e = <P_stab(EA + E_n + eps)> over the capture flux and the neutral's E_n.

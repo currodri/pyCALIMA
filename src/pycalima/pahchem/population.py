@@ -97,6 +97,12 @@ from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, photo,
 from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2
 from pycalima.pahchem.baseline import CH_STRETCH_CM, E_PH, LAB_STRETCH_SCALE, Params, scaled_einstein_a  # noqa: F401
 
+try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers
+    from numba import njit
+    HAVE_NUMBA = True
+except ModuleNotFoundError:  # pragma: no cover - exercised only without numba
+    HAVE_NUMBA = False
+
 HARTREE_EV = 27.211386
 _FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
 EDGES = ("solo", "duo", "trio", "quartet")
@@ -486,7 +492,21 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
 BASIS_VERSION = 4
 
 
-def _basis_key(inp):
+def _feed(h, v):
+    """Arrays by their bytes, also inside tuples (the ladder): repr printed them, slowly and to 8 digits."""
+    if isinstance(v, np.ndarray):
+        h.update(np.ascontiguousarray(v).tobytes())
+    elif isinstance(v, tuple) and any(isinstance(u, (np.ndarray, tuple)) for u in v):
+        for u in v:
+            h.update(b"(")
+            _feed(h, u)
+            h.update(b")")
+    else:
+        h.update(repr(v).encode())
+
+
+def _basis_key(inp, legacy=False):
+    """Cache key of a basis; ``legacy``: the key before ``_feed`` (tuples through repr), to find old files."""
     h = hashlib.sha1()
     h.update(f"v{BASIS_VERSION}".encode())
     h.update(np.ascontiguousarray(E_PH).tobytes())
@@ -494,7 +514,10 @@ def _basis_key(inp):
     for k in sorted(inp):
         v = inp[k]
         h.update(k.encode())
-        h.update(np.ascontiguousarray(v).tobytes() if isinstance(v, np.ndarray) else repr(v).encode())
+        if legacy:
+            h.update(np.ascontiguousarray(v).tobytes() if isinstance(v, np.ndarray) else repr(v).encode())
+        else:
+            _feed(h, v)
     return h.hexdigest()[:20]
 
 
@@ -620,6 +643,20 @@ class Population:
                           float(d["recombination"]) if "recombination" in d else 0.0,
                           d["ladder_h"] if "ladder_h" in d else None, d["ladder_h2"] if "ladder_h2" in d else None)
 
+    def _stored(self, inp):
+        """(key, stored basis or None) of ``inp``; a basis stored under its legacy key gets a link to the new."""
+        key = _basis_key(inp)
+        b = self._load(key)
+        if b is None and self.cache_dir is not None:
+            old = self.cache_dir / f"{_basis_key(inp, legacy=True)}.npz"
+            if old.exists():
+                b = self._load(old.stem)
+                try:
+                    os.link(old, self.cache_dir / f"{key}.npz")
+                except FileExistsError:          # another process linked it first
+                    pass
+        return key, b
+
     def _save(self, key, b):
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -637,8 +674,7 @@ class Population:
                 if ck in mol._cache:
                     continue
                 inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
-                key = _basis_key(inp)
-                b = self._load(key)
+                key, b = self._stored(inp)
                 if b is None:
                     todo.append((mol, ck, key, inp))
                 else:
@@ -662,8 +698,7 @@ class Population:
         ck = self._ckey(shape, z, mol)
         if ck not in mol._cache:
             inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
-            key = _basis_key(inp)
-            b = self._load(key)
+            key, b = self._stored(inp)
             if b is None:
                 b = _build(inp)
                 self._save(key, b)
@@ -686,6 +721,20 @@ class Population:
                     lkh[s, i] = np.log(np.maximum(b.k_h, 1e-300))
                     B[s, i] = b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local)
             self._arrays[key] = (k_up, lkh, B)
+        return self._arrays[key]
+
+    def _ladders(self, shape):
+        """H and H2 loss tables of the ladders N_H0 ... N_H0-3, (s, slot, 4, K_H_G0_GRID); 0 where absent."""
+        key = ("ladders", shape)
+        if key not in self._arrays:
+            self.prepare(shape)
+            lh = np.zeros((len(self.library), len(self.zs), 4, K_H_G0_GRID.size))
+            lh2 = np.zeros_like(lh)
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    b = self.basis(mol, z, shape)
+                    lh[s, z - self.zmin], lh2[s, z - self.zmin] = b.ladder_h, b.ladder_h2
+            self._arrays[key] = (lh, lh2)
         return self._arrays[key]
 
     def _capture_rates(self, temperature_k):
@@ -776,26 +825,19 @@ class Population:
             return np.sum(f * k_add_z / (k_add_z + k_h), axis=1)
         if method != "chain":
             raise ValueError(f"method must be 'chain' or 'single', not {method!r}")
-        self.prepare(fs)
-        out = np.zeros(len(self.library))
-        for s, mol in enumerate(self.library):
-            lh = np.zeros(4)
-            lh2 = np.zeros(4)
-            for zz in mol.charges:
-                b = self.basis(mol, zz, fs)
-                w = f[s, zz - self.zmin]
-                lh += w * self._interp_g0(b.ladder_h, env.g0)
-                lh2 += w * self._interp_g0(b.ladder_h2, env.g0)
-            k_add = float(f[s] @ k_add_z[s])
-            out[s] = _chain_intact(mol.nh, mol.edges.get("solo", 0), lh, lh2, k_add)
-        return out
+        tab_h, tab_h2 = self._ladders(fs)
+        lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0))     # charge-averaged loss rates
+        lh2 = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h2, env.g0))
+        k_add = np.einsum("sz,sz->s", f, k_add_z)
+        return np.array([_chain_intact(mol.nh, mol.edges.get("solo", 0), lh[s], lh2[s], k_add[s])
+                         for s, mol in enumerate(self.library)])
 
     def intact_fraction(self, mol, env):
         return float(self.intact_fractions(env)[self._index[id(mol)]])
 
 
 
-def _chain_intact(nh0, n_solo, lh, lh2, k_add):
+def _chain_intact_numpy(nh0, n_solo, lh, lh2, k_add):
     """Steady-state f(N_H0) of the chain N_H0 ... 0 (H loss, H2 loss, H addition up to N_H0).
 
     ``lh``, ``lh2``: H and H2 loss rates of N_H0 ... N_H0-3. Deeper states:
@@ -829,6 +871,48 @@ def _chain_intact(nh0, n_solo, lh, lh2, k_add):
     b[-1] = 1.0
     p = np.linalg.lstsq(A, b, rcond=None)[0]
     return float(np.clip(p[nh0], 0.0, 1.0))
+
+
+if HAVE_NUMBA:
+    @njit(cache=True)
+    def _chain_intact_numba(nh0, n_solo, lh, lh2, k_add):
+        n = nh0 + 1
+        kH, kH2 = np.zeros(n), np.zeros(n)
+        for m in range(nh0 + 1):
+            k = nh0 - m
+            if k < 4:
+                kH[m], kH2[m] = lh[k], lh2[k]
+            else:
+                ref = 2 if (nh0 - 2) % 2 == m % 2 else 3
+                ref_n = nh0 - ref
+                kH[m] = lh[ref] * (m / ref_n if m % 2 == 0 and ref_n > 0 else 1.0)
+                kH2[m] = lh2[ref] if (m % 2 == 0 and m > n_solo) else 0.0
+        kH[0] = kH2[0] = 0.0
+        if n > 1:
+            kH2[1] = 0.0
+        Q = np.zeros((n, n))
+        for m in range(n):
+            if m >= 1:
+                Q[m, m - 1] += kH[m]
+            if m >= 2:
+                Q[m, m - 2] += kH2[m]
+            if m < nh0:
+                Q[m, m + 1] += k_add
+            Q[m, m] = -Q[m].sum()
+        A = np.ones((n + 1, n))
+        A[:n] = Q.T
+        b = np.zeros(n + 1)
+        b[-1] = 1.0
+        p = np.linalg.lstsq(A, b, rcond=np.finfo(np.float64).eps * (n + 1))[0]
+        return min(max(p[nh0], 0.0), 1.0)
+
+
+def _chain_intact(nh0, n_solo, lh, lh2, k_add):
+    """``_chain_intact_numpy``, through its numba copy when available."""
+    if HAVE_NUMBA:
+        return float(_chain_intact_numba(int(nh0), int(n_solo), np.ascontiguousarray(lh, dtype=float),
+                                         np.ascontiguousarray(lh2, dtype=float), float(k_add)))
+    return _chain_intact_numpy(nh0, n_solo, lh, lh2, k_add)
 
 # -- fitting -----------------------------------------------------------------------------------
 def fit_abundances(F, observed, reference, rel_err=0.15, floor=0.01, stiffness=1e4):

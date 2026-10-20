@@ -217,6 +217,21 @@ def test_basis_disk_cache_round_trips(tmp_path):
     assert second.intact_fraction(mol2, env) == first.intact_fraction(mol, env)
 
 
+def test_basis_stored_under_its_legacy_key_is_found_not_rebuilt(tmp_path, monkeypatch):
+    mol = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")
+    env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
+    first = population.Population([mol], WINDOWS, cache_dir=tmp_path)
+    F1, _ = first.band_fluxes(env)
+    for z in mol.charges:                       # move each file to the key the previous version gave it
+        inp = population._basis_inputs(mol, z, population.field_shape(env), first.de_cm, first.e_max_cm, first.p)
+        (tmp_path / f"{population._basis_key(inp)}.npz").rename(tmp_path / f"{population._basis_key(inp, legacy=True)}.npz")
+    monkeypatch.setattr(population, "_build", lambda inp: pytest.fail("rebuilt a stored basis"))
+    mol2 = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")
+    F2, _ = population.Population([mol2], WINDOWS, cache_dir=tmp_path).band_fluxes(env)
+    assert np.array_equal(F1, F2)
+    assert len(list(tmp_path.glob("*.npz"))) == 2 * len(mol.charges)    # new keys linked to the old files
+
+
 def test_large_compact_pahs_stay_intact_in_the_orion_bar():
     """C96H24 stays intact at the Atomic most-ionising corner; C54H18, near threshold, does not (the network
     gives 0.000 for C54H18 there); the chain never exceeds the single first-step ratio."""
@@ -419,3 +434,13 @@ def test_chain_reproduces_the_baseline_network_given_its_rates():
         f_net = net.hydrogenation_fractions(fss)[nh0]
         assert f_net == pytest.approx(expected, abs=0.01)
         assert population._chain_intact(nh0, n_solo, lh, lh2, k_add) == pytest.approx(f_net, abs=0.02)
+
+
+def test_chain_kernel_matches_the_numpy_solve():
+    rng = np.random.default_rng(5)
+    for nh0 in (2, 5, 12, 30):
+        for _ in range(5):
+            lh, lh2 = 10 ** rng.uniform(-8, -2, 4), 10 ** rng.uniform(-9, -3, 4)
+            k_add = 10 ** rng.uniform(-7, -2)
+            fast = population._chain_intact(nh0, nh0 // 3, lh, lh2, k_add)
+            assert fast == pytest.approx(population._chain_intact_numpy(nh0, nh0 // 3, lh, lh2, k_add), abs=1e-12)

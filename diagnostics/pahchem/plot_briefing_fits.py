@@ -13,7 +13,7 @@ Figures, written to ``--out`` (default ``<plots dir>/pahchem/briefing``):
 
 Run from the worktree root (writable paths resolve by cwd):
   CALIMA_PAHDB_DIR=<main checkout>/reference_data PYTHONPATH=src:diagnostics/pahchem \\
-      python diagnostics/pahchem/plot_briefing_fits.py --cache results/pahchem_spectral_shape_3ddd190a5731.pkl
+      python diagnostics/pahchem/plot_briefing_fits.py --cache results/pahchem_spectral_shape_392313363fe8.pkl
 """
 import argparse
 import pickle

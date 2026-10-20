@@ -9,7 +9,7 @@ coronene and circumcoronene with PAHdb anion modes (model_data/PAH_states).
 import numpy as np
 import pytest
 
-from pycalima.pahchem import dos, energy_me, fields, photo
+from pycalima.pahchem import cooling, dos, energy_me, fields, photo
 from pycalima.pahchem.attachment import (ERG_PER_CM, HBAR_CGS, ME_G, Attachment,
                                          capture_cross_section)
 from pycalima.pahchem.molecule import PAHSpecies
@@ -88,3 +88,19 @@ def test_circumcoronene_sticks_every_electron(model_data):
     neutral, anion = _pair(model_data, "C54H18")
     at = Attachment(neutral, anion, 1.44, disc_radius_cm(54), e_excess_cm=8000.0)
     assert min(at.sticking(T, [0.0], [1.0]) for T in (10.0, 300.0, 3000.0)) > 0.999
+
+
+def test_stabilisation_kernel_matches_the_numpy_loop():
+    """P_stab through the numba recursion (when installed) equals the NumPy loop to rounding."""
+    from pycalima.pahchem import attachment
+
+    rng = np.random.default_rng(4)
+    fn = np.sort(rng.uniform(150, 1600, 30)).round()
+    fa = (0.97 * fn).round()
+    at = Attachment(PAHSpecies(12, 0, 0, fn, np.ones(30)), PAHSpecies(12, 0, -1, fa, np.ones(30)), 0.5, 3e-8,
+                    e_excess_cm=8000.0)
+    _, counts = dos.beyer_swinehart(fa, at.energy_cm[-1], at.grain)
+    k_modes = cooling.mode_emission_rates(at.energy_cm, counts, fa, np.ones(30), window_cm=20.0)
+    steps = np.maximum(np.rint(fa / at.grain).astype(np.int64), 1)
+    slow = attachment._stabilisation_numpy(k_modes, at.k_ir + at.k_detach, steps, at.i_ea)
+    assert np.max(np.abs(at.p_stab - slow)) < 1e-13

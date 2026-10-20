@@ -39,6 +39,38 @@ def test_grid_bins_and_masks():
     assert np.allclose(b, 3.0)
 
 
+@pytest.mark.parametrize("lorentzian", [False, True])
+def test_profile_kernel_matches_the_dense_sum(lorentzian):
+    """Gaussians cut at GAUSS_NSIGMA and Lorentzians on the whole grid: the dense sum to rounding."""
+    rng = np.random.default_rng(2)
+    nu = np.sort(rng.uniform(600.0, 3400.0, 900))
+    n_modes = 300
+    freq, strength = rng.uniform(500.0, 3500.0, n_modes), rng.uniform(0.0, 2.0, n_modes)
+    shift, fwhm = rng.uniform(-30.0, 10.0, n_modes), rng.uniform(4.0, 60.0, n_modes)
+    start = np.array([0, 40, 40, 170, n_modes], dtype=np.int64)                # one empty column
+    args = (nu, freq, strength, shift, fwhm, start, start.size - 1, lorentzian)
+    fast, dense = spectral_fit._summed_profiles(*args), spectral_fit._summed_profiles_numpy(*args)
+    assert np.all(fast[1] == 0.0)
+    assert np.max(np.abs(fast - dense)) <= 1e-12 * np.max(np.abs(dense))
+
+
+def test_nnls_reaches_the_scipy_optimum(monkeypatch):
+    """Same residual as scipy's NNLS, including collinear columns and more columns than rows."""
+    rng = np.random.default_rng(1)
+    for trial in range(60):
+        m, n = rng.integers(5, 60), rng.integers(2, 120)
+        A = np.abs(rng.normal(size=(m, n))) if trial % 2 else rng.normal(size=(m, n))
+        if trial % 3 == 0:
+            A[:, -1] = A[:, 0]
+        y = rng.normal(size=m)
+        x = spectral_fit._nnls(A, y)
+        monkeypatch.setattr(spectral_fit, "HAVE_NUMBA", False)
+        ref = spectral_fit._nnls(A, y)
+        monkeypatch.undo()
+        assert x.min() >= 0
+        assert np.linalg.norm(A @ x - y) == pytest.approx(np.linalg.norm(A @ ref - y), rel=1e-9, abs=1e-12)
+
+
 def test_continuum_basis_is_a_partition_of_unity_per_segment():
     g = spectral_fit.Grid.build()
     C = spectral_fit.continuum_basis(g, knot_um=1.5)

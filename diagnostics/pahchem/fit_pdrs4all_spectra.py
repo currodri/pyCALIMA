@@ -36,6 +36,7 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import os
 import pickle
 from pathlib import Path
 
@@ -61,7 +62,7 @@ RESULT_VERSION = 6
 
 def _result_key(args):
     """Cache key of a run: every argument plus the versions of the code that produce the result."""
-    stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k != "plot"}
+    stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot", "workers")}
     stamp.update(result=RESULT_VERSION, basis=population.BASIS_VERSION, masks=repr(spectral_fit.MASKED_UM),
                  broad=repr(BROAD_START))
     return hashlib.sha1(json.dumps(stamp, sort_keys=True).encode()).hexdigest()[:12]
@@ -158,13 +159,16 @@ def _cells(card, t):
     return out
 
 
-def run_shape(args, knot=1.5, iterations=2):
-    """Band shape fitted per template and profile, then the conditions scan with that shape (see --fit-shape)."""
-    key = _result_key(args)
-    cache = _paths.get_results_dir() / f"pahchem_spectral_shape_{key}.pkl"
-    if cache.exists():
-        with open(cache, "rb") as fh:
-            return pickle.load(fh)
+#: per-process context of run_shape (library, population, grid...), built once per argument set
+_SHAPE_CONTEXT: dict = {}
+
+
+def _shape_context(arg_items, knot):
+    """The read-only inputs of the band-shape runs, built once per process (and per argument set)."""
+    key = (arg_items, knot)
+    if key in _SHAPE_CONTEXT:
+        return _SHAPE_CONTEXT[key]
+    args = argparse.Namespace(**dict(arg_items))
     if args.aliphatic == "none":
         lib = FP.library(args.library)
     elif args.library == "v400":
@@ -178,84 +182,154 @@ def run_shape(args, knot=1.5, iterations=2):
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model, stretch_scale=stretch)
     pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
     grid = spectral_fit.Grid.build()
-    C_ = spectral_fit.continuum_basis(grid, knot)
-    n_ali = np.array([m.edges.get("aliphatic", 0) for m in lib], dtype=float)       # H off the aromatic edges
-    nh = np.array([m.nh for m in lib], dtype=float)
-    aliphatic = n_ali > 0
-    w34 = (grid.lam_um >= ALIPHATIC_UM[0]) & (grid.lam_um < ALIPHATIC_UM[1])
-    w33 = (grid.lam_um >= C.WINDOWS["3.3"][0]) & (grid.lam_um < C.WINDOWS["3.3"][1])
-    lam, tmpl = C.load_templates(args.templates)
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
     fshape = ("kurucz", teff)
-    pop.prepare(fshape)
-    nc = np.array([m.nc for m in lib], dtype=float)
+    pop.prepare(fshape, workers=1)
     zs = np.array(pop.zs)
     emitted = np.zeros((len(lib), len(zs)))
     for s, m in enumerate(lib):
         for z in m.charges:
             emitted[s, z - pop.zmin] = pop.basis(m, z, fshape).emitted.sum()
-    out = {"library": [(m.name, m.nc, m.nh, m.edges) for m in lib], "grid": grid, "args": vars(args), "knot": knot}
-    for t in C.TEMPLATES:
-        y = observed_on_grid(lam, tmpl[t], grid)
-        cells = _cells(card, t)
-        out[t] = {"observed": y}
+    lam, tmpl = C.load_templates(args.templates)
+    n_ali = np.array([m.edges.get("aliphatic", 0) for m in lib], dtype=float)       # H off the aromatic edges
+    ctx = {"args": args, "lib": lib, "pop": pop, "grid": grid, "card": card, "teff": teff, "fshape": fshape,
+           "C_": spectral_fit.continuum_basis(grid, knot), "zs": zs, "emitted": emitted, "lam": lam, "tmpl": tmpl,
+           "n_ali": n_ali, "nh": np.array([m.nh for m in lib], dtype=float), "aliphatic": n_ali > 0,
+           "nc": np.array([m.nc for m in lib], dtype=float),
+           "w34": (grid.lam_um >= ALIPHATIC_UM[0]) & (grid.lam_um < ALIPHATIC_UM[1]),
+           "w33": (grid.lam_um >= C.WINDOWS["3.3"][0]) & (grid.lam_um < C.WINDOWS["3.3"][1]),
+           "state_table": spectral_fit.state_table(pop, fshape, grid.nu), "templates": {}}
+    _SHAPE_CONTEXT[key] = ctx
+    return ctx
+
+
+def _template_inputs(ctx, t):
+    """Observed spectrum, condition cells and intact masks of template t (cached in the context)."""
+    if t not in ctx["templates"]:
+        args, pop, teff = ctx["args"], ctx["pop"], ctx["teff"]
+        y = observed_on_grid(ctx["lam"], ctx["tmpl"][t], ctx["grid"])
+        cells = _cells(ctx["card"], t)
         keeps = [pop.intact_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
         if args.aliphatic == "free":
             # the chain knows only aromatic H loss; the aliphatic species are let in at every cell, so their
             # weights are what the spectrum asks for, not what the conditions allow
-            keeps = [k | aliphatic for k in keeps]
-        ok = np.isfinite(y)
+            keeps = [k | ctx["aliphatic"] for k in keeps]
+        ctx["templates"][t] = (y, cells, keeps)
+    return ctx["templates"][t]
 
-        def scan(shape):
-            S = spectral_fit.shaped_state_spectra(pop, fshape, grid.nu, shape)
-            rows = []
-            for (g0, n_h, ne, temp), keep in zip(cells, keeps):
-                env = Environment(t, g0, n_h, ne, temp, teff)
-                f = pop.charge_matrix(env)
-                P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
-                fit = spectral_fit.fit_spectrum(y, P, C_)
-                w = np.zeros(len(lib))
-                w[keep] = fit.weights
-                power = w[:, None] * f * emitted
-                tot = power.sum()
-                wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
-                pah_ali = P[:, aliphatic[keep]] @ fit.weights[aliphatic[keep]]
-                band = y - fit.cont
-                r34 = lambda v: float(v[w34 & ok].sum() / v[w33 & ok].sum())
-                rows.append({"ali_h": float(w @ n_ali / (w @ nh)) if w.sum() > 0 else np.nan,
-                             "r34_obs": r34(band), "r34_pah": r34(fit.pah), "r34_ali": r34(pah_ali),
-                             "rms34": float(np.sqrt(np.mean((band - fit.pah)[w34 & ok] ** 2)) / y[w34 & ok].mean()),
-                             "pah_ali": pah_ali,
-"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
-                             "rms": fit.rms, "n": int(np.isfinite(y).sum()),
-                             "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
-                             "mean_nc_carbon": float((w * nc) @ nc / (w @ nc)) if w.sum() > 0 else np.nan,
-                             "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
-                             "e_dication": float(power[:, zs >= 2].sum() / tot),
-                             "ratios": {b: v / wf["11.2"] for b, v in wf.items()},
-                             "cont_share": float(fit.cont[grid.segment == 1].sum() / max(
-                                 fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum(), 1e-300)),
-                             "pah": fit.pah, "cont": fit.cont})
-            return rows
 
+def _scan(ctx, t, shape):
+    """Every condition cell of template t fitted with band shape ``shape``."""
+    pop, grid, lib, teff = ctx["pop"], ctx["grid"], ctx["lib"], ctx["teff"]
+    y, cells, keeps = _template_inputs(ctx, t)
+    zs, aliphatic, w34, w33 = ctx["zs"], ctx["aliphatic"], ctx["w34"], ctx["w33"]
+    ok = np.isfinite(y)
+    S = spectral_fit.shaped_state_spectra(pop, ctx["fshape"], grid.nu, shape, table=ctx["state_table"])
+    rows = []
+    for (g0, n_h, ne, temp), keep in zip(cells, keeps):
+        env = Environment(t, g0, n_h, ne, temp, teff)
+        f = pop.charge_matrix(env)
+        P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
+        fit = spectral_fit.fit_spectrum(y, P, ctx["C_"])
+        w = np.zeros(len(lib))
+        w[keep] = fit.weights
+        power = w[:, None] * f * ctx["emitted"]     # emitted power by state (photon + recombination heating)
+        tot = power.sum()
+        wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
+        pah_ali = P[:, aliphatic[keep]] @ fit.weights[aliphatic[keep]]
+        band = y - fit.cont
+        with np.errstate(invalid="ignore", divide="ignore"):
+            r34 = lambda v: float(v[w34 & ok].sum() / v[w33 & ok].sum())  # noqa: E731
+            rows.append({"ali_h": float(w @ ctx["n_ali"] / (w @ ctx["nh"])) if w.sum() > 0 else np.nan,
+                         "r34_obs": r34(band), "r34_pah": r34(fit.pah), "r34_ali": r34(pah_ali),
+                         "rms34": float(np.sqrt(np.mean((band - fit.pah)[w34 & ok] ** 2)) / y[w34 & ok].mean()),
+                         "pah_ali": pah_ali,
+                         "g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
+                         "rms": fit.rms, "n": int(np.isfinite(y).sum()),
+                         "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
+                         "mean_nc_carbon": float((w * ctx["nc"]) @ ctx["nc"] / (w @ ctx["nc"])) if w.sum() > 0 else np.nan,
+                         "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
+                         "e_dication": float(power[:, zs >= 2].sum() / tot),
+                         "ratios": {b: v / wf["11.2"] for b, v in wf.items()},
+                         "cont_share": float(fit.cont[grid.segment == 1].sum() / max(
+                             fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum(), 1e-300)),
+                         "pah": fit.pah, "cont": fit.cont})
+    return rows
+
+
+def _shape_run(arg_items, knot, iterations, t, start):
+    """One alternation of template t from ``start``: the first shape fit at the best cell of a scan with the
+    start shape itself, then ``iterations`` x (shape fit at the best cell, scan). A picklable task."""
+    ctx = _shape_context(arg_items, knot)
+    y, cells, keeps = _template_inputs(ctx, t)
+    # each start goes through the whole alternation: shape and gamma are coupled, and a start compared only
+    # at one cell can pick the wrong branch (two exist; spec, step 1). Fitted at a fixed (high-gamma) cell,
+    # every start fell into the narrow branch, hence the scan with the start shape first.
+    ref, shape, history = int(np.argmin([r["sse"] for r in _scan(ctx, t, start)])), start, []
+    rows = None
+    for it in range(iterations):
+        g0, n_h, ne, temp = cells[ref]
+        shape, _, _ = spectral_fit.fit_band_shape(y, ctx["grid"], ctx["pop"],
+                                                  Environment(t, g0, n_h, ne, temp, ctx["teff"]),
+                                                  keeps[ref], ctx["C_"], start=shape)
+        rows = _scan(ctx, t, shape)
+        ref = int(np.argmin([r["sse"] for r in rows]))
+        history.append((shape, rows[ref]["gamma"], rows[ref]["rms"]))
+    return {"shape": shape, "history": history, "cells": rows, "start": start, "best_sse": rows[ref]["sse"]}
+
+
+def _template_runs(arg_items, knot, iterations, t, starts, threads=None):
+    """The runs of template t, one per start, in one process: they share its intact masks (~10 s to build)
+    and the context. ``threads``: numba threads of this process. A picklable task."""
+    if threads is not None:
+        try:
+            import numba
+        except ModuleNotFoundError:
+            pass
+        else:
+            numba.set_num_threads(threads)
+    return [_shape_run(arg_items, knot, iterations, t, start) for start in starts]
+
+
+def run_shape(args, knot=1.5, iterations=2, executor=None):
+    """Band shape fitted per template and profile, then the conditions scan with that shape (see --fit-shape).
+
+    The 20 runs (5 templates x 2 profiles x 2 starts) are independent; they go by template (one job of 4
+    runs each) to ``executor``: any ``concurrent.futures.Executor`` (a
+    ``dask.distributed.Client(...).get_executor()`` works too), else a process pool of ``args.workers``
+    (1: in this process) sharing the cores out as numba threads. Each worker builds the context once.
+    """
+    key = _result_key(args)
+    cache = _paths.get_results_dir() / f"pahchem_spectral_shape_{key}.pkl"
+    if cache.exists():
+        with open(cache, "rb") as fh:
+            return pickle.load(fh)
+    arg_items = tuple(sorted((k, v) for k, v in vars(args).items() if k not in ("plot", "workers")))
+    tasks = [(t, profile, i, start) for t in C.TEMPLATES for profile in ("lorentzian", "gaussian")
+             for i, start in enumerate((spectral_fit.BandShape(profile=profile),
+                                        dataclasses.replace(BROAD_START, profile=profile)))]
+    jobs = [(t, [start for tt, _, _, start in tasks if tt == t]) for t in C.TEMPLATES]
+    workers = getattr(args, "workers", 1)
+    if executor is None and workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+
+        threads = max(1, (os.cpu_count() or 1) // min(workers, len(jobs)))
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_template_runs, arg_items, knot, iterations, t, starts, threads) for t, starts in jobs]
+            results = [r for fu in futures for r in fu.result()]
+    elif executor is not None:
+        futures = [executor.submit(_template_runs, arg_items, knot, iterations, t, starts) for t, starts in jobs]
+        results = [r for fu in futures for r in fu.result()]
+    else:
+        results = [r for t, starts in jobs for r in _template_runs(arg_items, knot, iterations, t, starts)]
+    ctx_lib = FP.library(args.library) if args.aliphatic == "none" else None
+    out = {"knot": knot, "args": vars(args), "grid": spectral_fit.Grid.build()}
+    lam, tmpl = C.load_templates(args.templates)
+    for t in C.TEMPLATES:
+        out[t] = {"observed": observed_on_grid(lam, tmpl[t], out["grid"])}
         for profile in ("lorentzian", "gaussian"):
-            runs = []
-            # each start goes through the whole alternation: shape and gamma are coupled, and a start
-            # compared only at one cell can pick the wrong branch (two exist; spec, step 1)
-            for start in (spectral_fit.BandShape(profile=profile), dataclasses.replace(BROAD_START, profile=profile)):
-                # the first shape fit is made at the best cell of a scan with the start shape itself: fitted at a
-                # fixed (high-gamma) cell, every start fell into the narrow branch
-                ref, shape, history = int(np.argmin([r["sse"] for r in scan(start)])), start, []
-                for it in range(iterations):
-                    g0, n_h, ne, temp = cells[ref]
-                    shape, _, _ = spectral_fit.fit_band_shape(y, grid, pop, Environment(t, g0, n_h, ne, temp, teff),
-                                                              keeps[ref], C_, start=shape)
-                    rows = scan(shape)
-                    ref = int(np.argmin([r["sse"] for r in rows]))
-                    history.append((shape, rows[ref]["gamma"], rows[ref]["rms"]))
-                runs.append({"shape": shape, "history": history, "cells": rows, "start": start,
-                             "best_sse": rows[ref]["sse"]})
+            runs = [r for (tt, pp, _, _), r in zip(tasks, results) if tt == t and pp == profile]
             best = min(runs, key=lambda r: r["best_sse"])
             out[t][profile] = best | {"alternatives": [{k: r[k] for k in ("shape", "history", "best_sse", "start")}
                                                        for r in runs]}
@@ -265,6 +339,9 @@ def run_shape(args, knot=1.5, iterations=2):
                       + " -> ".join(f"[rms {h[2]:.3f}, gamma {h[1]:.2g}]" for h in r["history"])
                       + f"; shape CH {r['shape'].shift_ch:+.0f}/{r['shape'].fwhm_ch:.0f}, CC {r['shape'].shift_cc:+.0f}, "
                       f"oop {r['shape'].shift_oop:+.0f}, rest FWHM {r['shape'].fwhm_rest:.0f}", flush=True)
+    lib = ctx_lib if ctx_lib is not None else population.library_v400(
+        include_superh=True, cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+    out["library"] = [(m.name, m.nc, m.nh, m.edges) for m in lib]
     with open(cache, "wb") as fh:
         pickle.dump(out, fh)
     return out
@@ -393,6 +470,9 @@ def main():
                     help="with --fit-shape: add the v4.00 species with H off the aromatic edges; 'free' lets them in "
                          "at every cell (no hydrogenation constraint)")
     ap.add_argument("--plot", action="store_true")
+    ap.add_argument("--workers", type=int, default=min(len(C.TEMPLATES), os.cpu_count() or 1),
+                    help="processes for the band-shape runs of --fit-shape, one template each (1: serial); "
+                         "not part of the result")
     ap.add_argument("--fit-shape", action="store_true",
                     help="fit the global band shape (shifts per mode class, two widths, Lorentzian or Gaussian) per template")
     args = ap.parse_args()

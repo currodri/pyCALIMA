@@ -31,6 +31,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
+try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers
+    from numba import njit, prange
+    HAVE_NUMBA = True
+except ModuleNotFoundError:  # pragma: no cover - exercised only without numba
+    HAVE_NUMBA = False
+
 #: fitted segments [um]: the 3.3 um complex (NIRSpec) and 5-15 um (MRS channels 1-3)
 SEGMENTS_UM = ((3.1, 3.65), (5.0, 15.0))
 #: MRS artefacts listed by Chown+24 (12.2, 13.7-13.95, 14.3 um), masked [um]
@@ -135,6 +141,102 @@ class BandShape:
         return shift, fwhm
 
 
+#: Gaussians are summed within +-GAUSS_NSIGMA sigma of their centre (exp(-32) = 1e-14 of the peak): the same numbers
+#: as the dense evaluation to rounding. Lorentzians are summed over the whole grid.
+GAUSS_NSIGMA = 8.0
+_FWHM_TO_SIGMA = 1.0 / np.sqrt(8.0 * np.log(2.0))
+
+
+def _summed_profiles_numpy(nu, freq, strength, shift, fwhm, col_start, n_cols, lorentzian):
+    out = np.zeros((n_cols, nu.size))
+    for c in range(n_cols):
+        sl = slice(col_start[c], col_start[c + 1])
+        x = nu[None, :] - (freq[sl] + shift[sl])[:, None]
+        w = fwhm[sl][:, None]
+        if lorentzian:
+            g = 0.5 * w / np.pi / (x**2 + (0.5 * w) ** 2)
+        else:
+            sg = w * _FWHM_TO_SIGMA
+            g = np.exp(-0.5 * (x / sg) ** 2) / (sg * np.sqrt(2.0 * np.pi))
+        out[c] = strength[sl] @ g
+    return out
+
+
+if HAVE_NUMBA:
+    @njit(parallel=True, cache=True)
+    def _summed_profiles(nu, freq, strength, shift, fwhm, col_start, n_cols, lorentzian):
+        n = nu.size
+        out = np.zeros((n_cols, n))
+        for c in prange(n_cols):
+            for m in range(col_start[c], col_start[c + 1]):
+                s = strength[m]
+                if s == 0.0:
+                    continue
+                x0 = freq[m] + shift[m]
+                w = fwhm[m]
+                if lorentzian:
+                    hw = 0.5 * w
+                    a = s * hw / np.pi
+                    for i in range(n):
+                        d = nu[i] - x0
+                        out[c, i] += a / (d * d + hw * hw)
+                else:
+                    sig = w * 0.42466090014400953            # 1 / sqrt(8 ln 2)
+                    a = s / (sig * 2.5066282746310002)        # sqrt(2 pi)
+                    lo = np.searchsorted(nu, x0 - GAUSS_NSIGMA * sig)
+                    hi = np.searchsorted(nu, x0 + GAUSS_NSIGMA * sig)
+                    inv = 0.5 / (sig * sig)
+                    for i in range(lo, hi):
+                        d = nu[i] - x0
+                        out[c, i] += a * np.exp(-d * d * inv)
+        return out
+else:  # pragma: no cover
+    _summed_profiles = _summed_profiles_numpy
+
+
+class ModeTable:
+    """Every mode of a set of spectra ("columns"), packed once, so that a band shape costs one kernel call.
+
+    Column c is the sum of the modes ``col_start[c]:col_start[c+1]`` with their strengths. The modes do
+    not depend on the band shape, only each mode's shift and FWHM do (through its class, ``MODE_CLASSES``),
+    so ``spectra(shape)`` re-evaluates the profiles alone: with numba (``HAVE_NUMBA``) ~30x faster than
+    the dense evaluation it replaces, to rounding (``GAUSS_NSIGMA``).
+    """
+
+    def __init__(self, columns, nu_cm):
+        freq, strength = [], []
+        start = [0]
+        for col in columns:                                   # iterable of [(freqs_cm, strength), ...]
+            for f, a in col:
+                freq.append(np.asarray(f, dtype=float))
+                strength.append(np.asarray(a, dtype=float) * np.ones(np.size(f)))
+            start.append(start[-1] + sum(np.size(f) for f, _ in col))
+        self.freq = np.ascontiguousarray(np.concatenate(freq) if freq else np.zeros(0))
+        self.strength = np.ascontiguousarray(np.concatenate(strength) if strength else np.zeros(0))
+        self.col_start = np.asarray(start, dtype=np.int64)
+        self.n_cols = len(start) - 1
+        f = self.freq
+        ch = (f >= MODE_CLASSES["ch"][0]) & (f < MODE_CLASSES["ch"][1])
+        oop = (f >= MODE_CLASSES["oop"][0]) & (f < MODE_CLASSES["oop"][1])
+        self._cls = np.where(ch, 0, np.where(oop, 2, 1))     # 0 CH stretch, 1 CC (and the rest), 2 CH oop
+        nu = np.asarray(nu_cm, dtype=float)
+        self._order = np.argsort(nu, kind="stable")
+        self._nu_sorted = np.ascontiguousarray(nu[self._order])
+
+    def spectra(self, shape=BandShape()):
+        """(n_cols, n_nu) on the caller's ``nu_cm`` order, per cm^-1, with ``shape``."""
+        shift = np.array([shape.shift_ch, shape.shift_cc, shape.shift_oop])[self._cls]
+        fwhm = np.where(self._cls == 0, shape.fwhm_ch, shape.fwhm_rest).astype(float)
+        if shape.profile not in ("lorentzian", "gaussian"):
+            raise ValueError(f"profile must be 'lorentzian' or 'gaussian', not {shape.profile!r}")
+        out_sorted = _summed_profiles(self._nu_sorted, self.freq, self.strength, np.ascontiguousarray(shift),
+                                      np.ascontiguousarray(fwhm), self.col_start, self.n_cols,
+                                      shape.profile == "lorentzian")
+        out = np.empty_like(out_sorted)
+        out[:, self._order] = out_sorted
+        return out
+
+
 def shaped_spectrum(freqs_cm, strength, nu_cm, shape=BandShape()):
     """Sum of unit-area bands of ``strength`` at the shifted positions, per cm^-1 on ``nu_cm``."""
     shift, fwhm = shape.per_mode(freqs_cm)
@@ -156,31 +258,50 @@ def window_fluxes(grid, spectrum, windows_um):
     return {b: float(spectrum[(lam >= lo) & (lam <= hi)].sum() * grid.step_cm) for b, (lo, hi) in windows_um.items()}
 
 
-def molecule_spectra(pop, env, nu_cm, shape=BandShape(), index=None):
-    """P[s, i] for the molecules ``index`` of a ``population.Population`` (all if None), with ``shape``."""
+def molecule_table(pop, env, nu_cm, index=None):
+    """``ModeTable`` of the molecules ``index`` (all if None) at ``env``: each column one molecule, its
+    charge states' modes weighted by f(Z) and G0 (``molecule_spectra`` without the band shape)."""
     from pycalima.pahchem.population import field_shape
 
     fs = field_shape(env)
     f = pop.charge_matrix(env)
     idx = range(len(pop.library)) if index is None else index
-    out = np.zeros((len(idx), np.size(nu_cm)))
-    for k, s in enumerate(idx):
+    cols = []
+    for s in idx:
         mol = pop.library[s]
+        col = []
         for z in mol.charges:
             b = pop.basis(mol, z, fs)
-            out[k] += f[s, z - pop.zmin] * shaped_spectrum(b.freqs_cm, b.emitted, nu_cm, shape)
-    return env.g0 * out
+            col.append((b.freqs_cm, env.g0 * f[s, z - pop.zmin] * np.asarray(b.emitted, dtype=float)))
+        cols.append(col)
+    return ModeTable(cols, nu_cm)
 
 
-def shaped_state_spectra(pop, fshape, nu_cm, shape=BandShape()):
-    """S[s, slot, i]: every state's IR power per cm^-1 at G0 = 1 with ``shape`` (independent of the cell)."""
+def molecule_spectra(pop, env, nu_cm, shape=BandShape(), index=None):
+    """P[s, i] for the molecules ``index`` of a ``population.Population`` (all if None), with ``shape``."""
+    return molecule_table(pop, env, nu_cm, index).spectra(shape)
+
+
+def state_table(pop, fshape, nu_cm):
+    """``ModeTable`` with one column per (molecule, charge slot) at G0 = 1 (empty slots are empty columns)."""
     pop.prepare(fshape)
-    S = np.zeros((len(pop.library), len(pop.zs), np.size(nu_cm)))
-    for s, mol in enumerate(pop.library):
-        for z in mol.charges:
-            b = pop.basis(mol, z, fshape)
-            S[s, z - pop.zmin] = shaped_spectrum(b.freqs_cm, b.emitted, nu_cm, shape)
-    return S
+    cols = []
+    for mol in pop.library:
+        for slot, z in enumerate(pop.zs):
+            if z in mol.charges:
+                b = pop.basis(mol, z, fshape)
+                cols.append([(b.freqs_cm, b.emitted)])
+            else:
+                cols.append([])
+    return ModeTable(cols, nu_cm)
+
+
+def shaped_state_spectra(pop, fshape, nu_cm, shape=BandShape(), table=None):
+    """S[s, slot, i]: every state's IR power per cm^-1 at G0 = 1 with ``shape`` (independent of the cell).
+
+    ``table``: a ``state_table`` to reuse across shapes."""
+    table = state_table(pop, fshape, nu_cm) if table is None else table
+    return table.spectra(shape).reshape(len(pop.library), len(pop.zs), np.size(nu_cm))
 
 
 #: bounds of the BandShape parameters fitted by ``fit_band_shape`` [cm^-1]
@@ -217,10 +338,11 @@ def fit_band_shape(observed, grid, pop, env, keep, continuum_columns, start=Band
             break
         active_prev = active
         ok = np.isfinite(observed)
+        table = molecule_table(pop, env, grid.nu, active)          # packed once per active set
 
         def residual(x):
             sh = BandShape(**dict(zip(names, x)), profile=start.profile)
-            Pa = molecule_spectra(pop, env, grid.nu, sh, active).T
+            Pa = table.spectra(sh).T
             f_ = fit_spectrum(observed, Pa, continuum_columns)
             return (observed - f_.pah - f_.cont)[ok] / np.mean(observed[ok])
 
@@ -246,17 +368,89 @@ class SpectralFit:
     sse: float                   # sum of squared residuals
 
 
-def fit_spectrum(observed, model_columns, continuum_columns):
-    """NNLS of ``observed`` (on the grid) on [PAH columns | continuum columns]; bins with NaN are skipped."""
+if HAVE_NUMBA:
+    @njit(cache=True)
+    def _nnls_gram(A, y, max_iter, tol):
+        """Lawson-Hanson NNLS of ``A x = y`` on Gram columns ``A^T a_j`` built as columns enter the passive
+        set: the fits have ~1300 columns of which ~100 end up passive, so the full ``A^T A`` is never
+        needed. ``A`` Fortran-ordered. Returns (x, converged)."""
+        n = A.shape[1]
+        G = np.zeros((n, n))
+        have = np.zeros(n, dtype=np.bool_)
+        passive = np.zeros(n, dtype=np.bool_)
+        aty = A.T @ y
+        x = np.zeros(n)
+        it = 0
+        while True:
+            w = aty.copy()                       # gradient -A^T (A x - y), x lives on built columns only
+            for j in range(n):
+                if x[j] > 0:
+                    w -= G[:, j] * x[j]
+            jb, best = -1, tol
+            for j in range(n):
+                if not passive[j] and w[j] > best:
+                    jb, best = j, w[j]
+            if jb < 0:
+                return x, True
+            passive[jb] = True
+            if not have[jb]:
+                G[:, jb] = A.T @ A[:, jb]
+                have[jb] = True
+            while True:                          # least squares on the passive set, stepping back if needed
+                it += 1
+                if it > max_iter:
+                    return x, False
+                P = np.nonzero(passive)[0]
+                k = P.size
+                gp, b = np.empty((k, k)), np.empty(k)
+                for a in range(k):
+                    b[a] = aty[P[a]]
+                    for c in range(k):
+                        gp[a, c] = G[P[a], P[c]]
+                z = np.linalg.solve(gp, b)
+                if z.min() > 0:
+                    for a in range(k):
+                        x[P[a]] = z[a]
+                    break
+                alpha, block = np.inf, -1
+                for a in range(k):
+                    if z[a] <= 0:
+                        r = x[P[a]] / (x[P[a]] - z[a])
+                        if r < alpha:
+                            alpha, block = r, P[a]
+                if block < 0:                        # 0/0 steps only (degenerate): let scipy have it
+                    return x, False
+                for a in range(k):
+                    j = P[a]
+                    x[j] += alpha * (z[a] - x[j])
+                    if j == block or x[j] <= 0:      # the blocking variable is zero up to rounding
+                        x[j] = 0.0
+                        passive[j] = False
+
+
+def _nnls(A, y):
+    """NNLS with the numba kernel when available, scipy's otherwise (or if the kernel fails)."""
     from scipy.optimize import nnls
 
+    if HAVE_NUMBA:
+        tol = 10 * max(A.shape) * np.finfo(float).eps * np.abs(A).sum(axis=0).max() * np.abs(y).max()
+        try:
+            x, converged = _nnls_gram(np.asfortranarray(A), np.ascontiguousarray(y), 3 * A.shape[1], tol)
+        except np.linalg.LinAlgError:        # a singular passive Gram matrix (collinear columns)
+            converged = False
+        if converged:
+            return x
+    return nnls(A, y)[0]
+
+
+def fit_spectrum(observed, model_columns, continuum_columns):
+    """NNLS of ``observed`` (on the grid) on [PAH columns | continuum columns]; bins with NaN are skipped."""
     y = np.asarray(observed, dtype=float)
     ok = np.isfinite(y)
     P, Cc = np.asarray(model_columns, dtype=float), np.asarray(continuum_columns, dtype=float)
     A = np.hstack([P, Cc])[ok]
     scale = np.where(A.max(axis=0) > 0, A.max(axis=0), 1.0)
-    x, _ = nnls(A / scale, y[ok])
-    x = x / scale
+    x = _nnls(A / scale, y[ok]) / scale
     w, c = x[:P.shape[1]], x[P.shape[1]:]
     pah, cont = P @ w, Cc @ c
     r = (y - pah - cont)[ok]

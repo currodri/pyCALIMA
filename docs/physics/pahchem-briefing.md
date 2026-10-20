@@ -33,9 +33,10 @@ run from the worktree root with `$CALIMA_PAHDB_DIR` set, rebuilds every
 figure in pyCALIMA's style (`pycalima.plotting_style`).
 - The benchmark runners take ~30 min.
 - The spectral fits are not refitted: they are read from the cached
-  `fit_pdrs4all_spectra.py --fit-shape` result (key `3ddd190a5731`, 2026-10-07).
-  A refit needs the Van De Putte+25 templates
-  (CDS J/A+A/701/A111), which are not on disk any more.
+  `fit_pdrs4all_spectra.py --fit-shape` result (key `392313363fe8`, refitted
+  2026-10-20 after the audit fixes). A refit needs the Van De Putte+25
+  templates (CDS J/A+A/701/A111, in `results/pahchem/data/vdp25/`) and takes
+  ~1 min with numba installed (`--workers`, one template per process).
 - Figures superseded before this date are kept in
   `<plots dir>/pahchem/archive_2026-10-08/`.
 ```

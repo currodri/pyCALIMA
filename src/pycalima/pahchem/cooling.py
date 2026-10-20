@@ -23,6 +23,34 @@ import numpy as np
 
 from pycalima.pahchem import dos
 
+try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers
+    from numba import njit, prange
+    HAVE_NUMBA = True
+except ModuleNotFoundError:  # pragma: no cover - exercised only without numba
+    HAVE_NUMBA = False
+
+if HAVE_NUMBA:
+    @njit(parallel=True, cache=True)
+    def _mode_rates_numba(counts, freq_bins, einstein_a, half, pick, rho_w):
+        """``mode_emission_rates``'s loop, one mode per thread: the same recurrence and running sums."""
+        n = counts.size
+        out = np.zeros((freq_bins.size, pick.size))
+        for m in prange(freq_bins.size):
+            f = freq_bins[m]
+            S = np.zeros(n)
+            for i in range(f, n):
+                S[i] = counts[i - f] + S[i - f]
+            total = np.zeros(n + 1)
+            for i in range(n):
+                total[i + 1] = total[i] + S[i]
+            for k in range(pick.size):
+                i = pick[k]
+                lo = min(max(i - half, 0), n)
+                hi = min(max(i + half + 1, 0), n)
+                if rho_w[k] > 0:
+                    out[m, k] = einstein_a[m] * (total[hi] - total[lo]) / rho_w[k]
+        return out
+
 
 def _window_sum(values, half):
     total = np.concatenate([[0.0], np.cumsum(values)])
@@ -49,6 +77,11 @@ def mode_emission_rates(energy_cm, counts, freqs_cm, einstein_a, window_cm=100.0
     pick = (np.arange(n) if at_cm is None
             else np.clip(np.rint(np.asarray(at_cm) / grain).astype(int), 0, n - 1))
     rho_w = _window_sum(counts, half)[pick]
+    if HAVE_NUMBA:
+        bins = np.array([max(int(round(nu / grain)), 1) for nu in freqs_cm], dtype=np.int64)
+        return _mode_rates_numba(np.ascontiguousarray(counts, dtype=float), bins,
+                                 np.ascontiguousarray(einstein_a, dtype=float), half,
+                                 np.ascontiguousarray(pick, dtype=np.int64), np.ascontiguousarray(rho_w, dtype=float))
     out = np.zeros((len(freqs_cm), pick.size))
     for m, (nu, A) in enumerate(zip(freqs_cm, einstein_a)):
         f = max(int(round(nu / grain)), 1)

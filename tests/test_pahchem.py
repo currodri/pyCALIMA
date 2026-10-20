@@ -529,6 +529,19 @@ def test_single_oscillator_emits_at_n_times_A():
     assert np.allclose(k[0], A * np.arange(1, 10))
 
 
+def test_mode_emission_rates_kernel_matches_the_numpy_loop(monkeypatch):
+    """The numba kernel (when installed) gives the NumPy recurrence's numbers exactly."""
+    f = _random_modes(40, seed=3)
+    E, counts = dos.beyer_swinehart(f, 8.0 * EV)
+    a_ein = np.linspace(1.0, 10.0, f.size)
+    for at in (None, np.linspace(0.2, 7.5, 50) * EV):
+        fast = cooling.mode_emission_rates(E, counts, f, a_ein, at_cm=at)
+        monkeypatch.setattr(cooling, "HAVE_NUMBA", False)
+        slow = cooling.mode_emission_rates(E, counts, f, a_ein, at_cm=at)
+        monkeypatch.undo()
+        assert np.array_equal(fast, slow)
+
+
 @pytest.fixture(scope="module")
 def toy_cascade():
     """60 PAH-like modes, A_i = 1-10 s^-1, and one channel with E0 = 3 eV."""
