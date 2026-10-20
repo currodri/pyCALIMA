@@ -530,7 +530,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # instructions but does not fail the check (a checksum mismatch does).
         ok, optional_missing = True, []
         for ds in iter_datasets():
-            if ds.kind in ("manual", "fetch") and ds.locate() is None:
+            if ds.kind == "fetch" and ds.locate() is None:
+                print(f"{ds.name}: not fetched (optional; calima-fetch-data fetch {ds.name})")
+            elif ds.kind == "manual" and ds.locate() is None:
                 print(f"{ds.name}: not installed (optional)")
                 optional_missing.append(ds)
             elif not verify_dataset(ds, strict=False):

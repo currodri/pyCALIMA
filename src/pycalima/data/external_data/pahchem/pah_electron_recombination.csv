@@ -1,0 +1,16 @@
+# Measured electron-PAH cation recombination rate coefficients at ~300 K [cm^3 s^-1].
+# Flowing-afterglow (FALP) unless noted. Values as compiled in Bierbaum, Le Page & Snow
+# 2011 (EAS Publ. Ser. 46, 427, doi:10.1051/eas/1146044) and in the cited primary papers;
+# not yet each re-checked against its primary source. err_frac is the quoted fractional
+# uncertainty. The two naphthalene values disagree by 3x: a measure of the systematic error.
+species,formula,n_c,k_cm3_s,err_frac,source,doi
+benzene,C6H6,6,1.0e-6,0.30,"Abouelaziz et al. 1993 (J. Chem. Phys. 99, 237)",
+naphthalene,C10H8,10,3.0e-7,0.33,Abouelaziz et al. 1993; Biennier et al. 2006,10.1039/b516858a
+naphthalene,C10H8,10,9.0e-7,0.33,Wiens Shuman & Viggiano 2015,10.1063/1.4913829
+azulene,C10H8,10,1.1e-6,0.27,Biennier et al. 2006,10.1039/b516858a
+acenaphthene,C12H10,12,5.0e-7,0.40,Biennier et al. 2006,10.1039/b516858a
+anthracene,C14H10,14,2.4e-6,0.33,Novotny et al. 2005,10.1063/1.2000927
+phenanthrene,C14H10,14,1.7e-6,0.29,Biennier et al. 2006,10.1039/b516858a
+fluoranthene,C16H10,16,3.0e-6,0.30,Biennier et al. 2006,10.1039/b516858a
+fluoranthene,C16H10,16,2.5e-6,0.60,Rebrion-Rowe et al. 2003,10.1016/S1387-3806(02)00794-7
+pyrene,C16H10,16,4.1e-6,0.29,Novotny et al. 2005,10.1063/1.2000927

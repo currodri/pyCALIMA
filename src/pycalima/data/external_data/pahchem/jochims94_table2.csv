@@ -1,0 +1,20 @@
+# Jochims et al. 1994, ApJ 420, 307, Table 2: H loss from PAH cations.
+# n_atoms = N_A, n_c = N_C, s_minus_1 = 3 N_A - 7. eint_exp: measured parent-ion internal
+# energy at the (M-H)+ appearance potential (k ~ 1e4 s^-1). eint_calc / ecrit_calc: their RRK
+# model, k = nu ((E - E0)/E)^(s-1) with nu = 1e16 s^-1 and E0 = 2.8 eV (eq. 2, Sect. 5.3), at
+# k = 1e4 and 1e2 s^-1. The printed formula of tetracene, "C16H10", is a misprint for C18H12
+# (N_A = 30, N_C = 18 in the same row). Transcribed by hand from the ADS scan.
+molecule,formula,n_atoms,n_c,s_minus_1,eint_exp_eV,eint_calc_eV,ecrit_calc_eV
+benzene,C6H6,12,6,29,4.62,4.56,4.17
+naphthalene,C10H8,18,10,47,7.40,6.30,5.64
+azulene,C10H8,18,10,47,7.33,6.30,5.64
+anthracene,C14H10,24,14,65,8.20,8.09,7.16
+phenanthrene,C14H10,24,14,65,7.64,8.09,7.16
+pyrene,C16H10,26,16,71,9.06,8.69,7.67
+fluoranthene,C16H10,26,16,71,9.16,8.69,7.67
+tetracene,C18H12,30,18,83,9.45,9.89,8.70
+chrysene,C18H12,30,18,83,,9.89,8.70
+triphenylene,C18H12,30,18,83,8.16,9.89,8.70
+perylene,C20H12,32,20,89,,10.49,9.21
+pentacene,C22H14,36,22,101,,11.70,10.25
+coronene,C24H12,36,24,101,12.05,11.70,10.25

@@ -265,9 +265,9 @@ $G_0$ is defined differently in different modules:
 | where | definition of $G_0$ | code |
 |---|---|---|
 | full-spectrum dust charging solver (`dust_charging`) | a pure multiplier of the chosen base spectrum, $J_\nu = G_0\,J_\nu^\mathrm{base}$; the base spectrum is not renormalised | `models/dust_charge/dust_photoelectric_heating.py:2294` |
-| uniform-ISRF charging tables | Habing: the Mathis field scaled to $1.6\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ in 6–13.6 eV, times $G_0$ | `models/dust_charge/rt_group_charging.py:221-226` |
+| uniform-ISRF charging tables | Habing: the Mathis field scaled to $1.6\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ in 6–13.6 eV, times $G_0$ | `models/dust_charge/rt_group_charging.py:224-229` |
 | `compute_G0_from_rad_field` | $\int_{6}^{13.6\,\mathrm{eV}}4\pi I_E\,dE\,/\,1.68\times10^{-3}$ erg cm$^{-2}$ s$^{-1}$ | `models/dust_charge/dust_charging.py:1542`, `:1593`, `:1604` |
-| PAH photoelectric heating | $\int_{5.17}^{13.6\,\mathrm{eV}}2\pi I_E\,dE\,/\,1.68\times10^{-6}$ W m$^{-2}$ | `models/PAH_charge/PAH_photoelectric_heating.py:881-882` |
+| PAH photoelectric heating | $\int_{5.17}^{13.6\,\mathrm{eV}}2\pi I_E\,dE\,/\,1.68\times10^{-6}$ W m$^{-2}$ | `models/PAH_charge/PAH_photoelectric_heating.py:885-886` |
 | PAH temperature (`compute_base_g0`) | $c\int_{6}^{13.6\,\mathrm{eV}}u_E\,dE\,/\,1.6\times10^{-3}$ | `models/PAH_photophysics/pah_temperature.py:103-111` |
 | sublimation | a multiplier of the full Mathis field | `models/dust_radiation/dust_sublimation.py:573-579` |
 

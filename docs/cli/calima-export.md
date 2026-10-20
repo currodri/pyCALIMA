@@ -7,14 +7,16 @@ configuration or to the underlying physics.
 
 ## Stages and what they cost
 
-A full export runs eleven stages. The table below is a measured profile of the
+A full export runs thirteen stages. The table below is a measured profile of the
 25-bin `5PAH10C10Sil` configuration (20 dust + 5 PAH), recorded in that model's
 `export_profile.json`, less the stages since removed; the total and the shares
-are of the stages listed, from that same measurement. It predates the two
-charging stages for RAMSES, `dust_charging_rtgroups` (RT-group tables, a few
-seconds per bin) and `dust_charging_isrf` (uniform-ISRF tables built from them,
-about half a minute per dust bin). Of the stages measured, two take most of the
-time:
+are of the stages listed, from that same measurement. It predates four stages:
+the two charging stages for RAMSES, `dust_charging_rtgroups` (RT-group tables, a
+few seconds per bin) and `dust_charging_isrf` (uniform-ISRF tables built from
+them, about half a minute per dust bin); `pahchem_dissociation_tables` (the N-D
+carbon-loss tables of {doc}`/physics/pahchem-spec`, ~15 s per free-PAH bin at the
+default axes, bins in parallel); and `ssp_yield_tables`. Of the stages measured,
+two take most of the time:
 
 | Stage | Writes | Seconds | Share |
 |---|---|---:|---:|

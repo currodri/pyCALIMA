@@ -197,6 +197,26 @@ class TestPAHTemperature:
         assert np.isfinite(u_high)
 
 
+class TestPAHAcetyleneDissociation:
+    @pytest.mark.parametrize("nc", [52, 418])
+    def test_rate_is_finite_and_non_negative(self, nc):
+        """Nc = 418 (a0 = 10 A) once gave an all-NaN photolysis table."""
+        from types import SimpleNamespace
+
+        from pycalima.models.PAH_photophysics.PAH_photophysics import (
+            compute_acetylene_dissociation_rate,
+            dissociation_parameters,
+        )
+
+        E = np.linspace(4.0, 14.0, 200)
+        wav = 1.2398 / E                                   # micron
+        sigma = np.full_like(E, 1e-21 * nc)                # m^2
+        dist = SimpleNamespace(a0=1e-3, Nc=nc)
+        R = compute_acetylene_dissociation_rate(
+            (wav, sigma, dist, dissociation_parameters['Murga2020']))
+        assert np.isfinite(R) and R >= 0.0
+
+
 # ===========================================================================
 # models/PAH_charge
 # ===========================================================================
@@ -236,6 +256,20 @@ class TestPAHPhotoelectricHeating:
 
         assert recombination_rate_Tielens21(54, temperature) > 0
         assert attachment_rate_Tielens05(54) > 0
+
+    @pytest.mark.parametrize("ne", [1e-3, 1e-1, 10.0])
+    def test_four_state_fractions_obey_detailed_balance(self, ne):
+        from pycalima.models.PAH_charge.PAH_photoelectric_heating import (
+            four_state_charge_fractions,
+        )
+
+        k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2 = 3e-9, 2e-8, 5e-8, 1e-9, 4e-6, 9e-6
+        fm, f0, f1, f2 = four_state_charge_fractions(
+            k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne)
+        assert np.isclose(fm + f0 + f1 + f2, 1.0)
+        assert np.isclose(fm * k_det, f0 * k_att * ne, rtol=1e-12)
+        assert np.isclose(f0 * k_pe_0, f1 * k_rec_1 * ne, rtol=1e-12)
+        assert np.isclose(f1 * k_pe_1, f2 * k_rec_2 * ne, rtol=1e-12)
 
 
 # ===========================================================================
