@@ -61,9 +61,22 @@ E_PH = np.linspace(5.0, 13.6, 345)
 EXT = _paths.get_external_data_path
 
 
+def _house_style():
+    """pyCALIMA's figure style, with Computer Modern mathtext instead of a LaTeX run (the labels here are
+    plain text and mathtext, which LaTeX would not accept)."""
+    from pycalima.plotting_style import use_calima_style
+
+    use_calima_style(usetex=False)
+    plt.rcParams.update({"font.serif": ["cmr10", "DejaVu Serif", "serif"], "mathtext.fontset": "cm",
+                         "axes.formatter.use_mathtext": True, "legend.frameon": False})
+
+
 def _save(fig, out, name):
     path = out / f"{name}.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    for ax in fig.axes:
+        ax.minorticks_on()
+        ax.tick_params(which="both", axis="both", direction="in")
+    fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {path}", flush=True)
 
@@ -1076,6 +1089,7 @@ def main():
         ap.error(f"unknown figures: {', '.join(sorted(unknown))}")
     out = args.out or _paths.get_plots_dir("pahchem")
     out.mkdir(parents=True, exist_ok=True)
+    _house_style()
     for name in args.figures or FIGURES:
         if name == "murga_wiebe22_fig1" and args.c66_modes is None:
             print("skipping murga_wiebe22_fig1: needs --c66-modes")

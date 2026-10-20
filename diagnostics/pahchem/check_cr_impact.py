@@ -32,6 +32,7 @@ from pycalima.pahchem.andrews16 import IONISATION  # noqa: E402
 from pycalima.pahchem.baseline import E_PH  # noqa: E402
 from pycalima.pahchem.family_emission import BANDS_UM, band_fluxes  # noqa: E402
 from pycalima.pahchem.molecule import PAHSpecies  # noqa: E402
+from plot_benchmarks import _house_style, _save  # noqa: E402
 
 MOLECULES = (("C24", "C24H12", 24, 12), ("C54", "C54H18", 54, 18), ("C96", "C96H24", 96, 24))
 C_LOSS = {"Micelotta+10b C2": impact.Channel("C2", 4.6, 41.84, 1.0, 1600.0, 2, 0),
@@ -91,8 +92,7 @@ def deposition_figure(out_dir, spectra_by_model, isrf_e, isrf_h):
         ax.legend(fontsize=7)
     axes[0].set_ylabel("dP/dE* [eV$^{-1}$] (passages with a collision)")
     fig.tight_layout()
-    fig.savefig(Path(out_dir) / "cr_impact_deposition.png", dpi=120)
-    plt.close(fig)
+    _save(fig, Path(out_dir), "cr_impact_deposition")
 
 
 def lifetimes(states_dir, out_dir):
@@ -136,8 +136,7 @@ def lifetimes(states_dir, out_dir):
     axes[0].set_ylabel("lifetime against primary CRs [yr]")
     axes[0].legend(fontsize=7)
     fig.tight_layout()
-    fig.savefig(Path(out_dir) / "cr_impact_lifetimes.png", dpi=120)
-    plt.close(fig)
+    _save(fig, Path(out_dir), "cr_impact_lifetimes")
     return spectra
 
 
@@ -219,8 +218,7 @@ def ir_spectra(states_dir, out_dir, spectra):
         ax.legend(fontsize=7)
     axes[0, 0].set_ylabel("normalised power per cm$^{-1}$")
     fig.tight_layout()
-    fig.savefig(Path(out_dir) / "cr_impact_ir_spectra.png", dpi=120)
-    plt.close(fig)
+    _save(fig, Path(out_dir), "cr_impact_ir_spectra")
     return field, h
 
 
@@ -229,6 +227,7 @@ def main():
     ap.add_argument("--states-dir", type=Path, default=_paths.get_model_data_dir() / "PAH_states")
     args = ap.parse_args()
     out_dir = _paths.get_plots_dir("pahchem")
+    _house_style()
     gate_g1()
     gate_g4()
     spectra = lifetimes(args.states_dir, out_dir)
