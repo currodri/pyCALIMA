@@ -14,7 +14,7 @@ comp_G0_selfshield  Dust self-shielding of the radiation field G0
 Utilities
 ---------
 compute_kappa_LW_draine  κ_LW [cm²/g] from Draine Q-tables for arbitrary (size, composition)
-compute_kappa_LW_precomp κ_LW [cm²/g] from pre-computed pyCALIMA cross-section tables
+compute_kappa_LW_precomp κ_LW [cm²/g] from pre-computed pyCALIMA cross-section tables (per gram)
 """
 
 from .shielding_functions import (

@@ -64,8 +64,8 @@ python -m pycalima.models.PAH_radiation.export_pah_optical_properties
 python -m pycalima.models.dust_gas_collisions.export_collisional_cooling_bins
 python -m pycalima.models.dust_gas_collisions.export_sputtering_rates_bins
 python -m pycalima.models.PAH_gas_collisions.export_pah_sputtering_rates_bins
-python -m pycalima.models.dust_charge.export_dust_charging_vs_gamma
-python -m pycalima.models.dust_charge.export_dust_photoelectric_heating
+python -m pycalima.models.dust_charge.export_dust_charging_rtgroups
+python -m pycalima.models.dust_charge.export_dust_charging_isrf    # reads the RT-group tables
 python -m pycalima.models.PAH_charge.export_PAH_photoelectric_heating_tables
 python -m pycalima.models.PAH_photophysics.export_pah_dissociation_tables
 ```

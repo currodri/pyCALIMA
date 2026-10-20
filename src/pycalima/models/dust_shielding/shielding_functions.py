@@ -406,8 +406,8 @@ def compute_kappa_LW_draine(grain_sizes_um, composition='graphite',
 def _read_precomp_table(bin_id):
     """Read averaged_cross_section_<bin_id>.txt.
 
-    Returns wavelengths_angstrom, C_abs_cm2, and the ISRF-averaged value.
-    The stored C_abs values are cross-sections per representative grain [cm²].
+    Returns wavelengths_angstrom, C_abs, and the ISRF-averaged value.
+    The stored C_abs values are cross-sections per gram of dust [cm²/g_dust].
     """
     fname = _MODEL_DIR / f"averaged_cross_section_{bin_id}.txt"
     if not fname.exists():
@@ -453,22 +453,17 @@ def _read_precomp_table(bin_id):
     return np.array(wavelengths), np.array(cabs), isrf_avg
 
 
-def compute_kappa_LW_precomp(bin_id, grain_density, a0_um,
-                              E_min=E_LW_MIN, E_max=E_LW_MAX):
+def compute_kappa_LW_precomp(bin_id, E_min=E_LW_MIN, E_max=E_LW_MAX):
     """LW-band mass opacity κ_LW [cm²/g] from a pre-computed pyCALIMA table.
 
-    Reads the averaged cross-section table for a given CALIMA dust bin,
-    restricts to the LW/Habing band, performs a Draine (1978) ISRF-weighted
-    average, and divides by the representative grain mass to get κ_LW.
+    Reads the averaged cross-section table for a given CALIMA dust bin (per
+    gram of dust), restricts to the LW/Habing band and performs a Draine (1978)
+    ISRF-weighted average.
 
     Parameters
     ----------
     bin_id : str
         CALIMA bin identifier, e.g. ``'DustBin_01'``.
-    grain_density : float
-        Material density of the grain [g/cm³] (2.2 graphite, 3.3 silicate).
-    a0_um : float
-        Representative grain radius [µm] (peak of the log-normal).
     E_min, E_max : float
         Energy band [eV].  Defaults to the Habing band (6–13.6 eV).
 
@@ -505,11 +500,7 @@ def compute_kappa_LW_precomp(bin_id, grain_density, a0_um,
     else:
         C_abs_avg = np.mean(C_abs_band)
 
-    # Representative grain mass [g]
-    a0_cm   = a0_um * 1e-4
-    m_grain = (4.0 / 3.0) * np.pi * grain_density * a0_cm**3
-
-    return C_abs_avg / m_grain
+    return C_abs_avg  # the tables are per gram of dust
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

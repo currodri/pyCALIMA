@@ -12,7 +12,7 @@ Units are cgs, energies are in eV where noted, and $a$ is the grain radius in cm
 ## Charge distribution of a dust grain
 
 `compute_equilibrium_charge_distribution_vectorized`
-(`models/dust_charge/dust_charging.py:809`) solves for the steady-state
+(`models/dust_charge/dust_charging.py:847`) solves for the steady-state
 distribution $P(Z)$ over integer charges, following {cite:t}`WeingartnerDraine2001`.
 The low-level physics is in `models/dust_charge/shared_physics.py`.
 
@@ -25,11 +25,11 @@ R_{\rm pe}(Z) = \int C_{\rm abs}(\nu)\,J_\nu\,Y(\nu,Z)\,d\nu
  \;+\; [Z<0]\int \sigma_{\rm pd}(\nu,Z)\,J_\nu\,d\nu
 $$ (eq-rpe)
 
-(`models/dust_charge/dust_charging.py:324`–`327`, `350`). Here $J_\nu$ is a
+(`models/dust_charge/dust_charging.py:318`–`321`, `341`). Here $J_\nu$ is a
 photon flux [photons cm$^{-2}$ s$^{-1}$ Hz$^{-1}$], obtained from the
 field's $I_E$ [erg s$^{-1}$ cm$^{-2}$ eV$^{-1}$] as
-$J_\nu = I_E/(\nu\,\mathrm{eV})$ (`models/dust_charge/dust_charging.py:1664`).
-The yield is $Y = y_2\min(y_0y_1,1)$ (`models/dust_charge/dust_charging.py:181`), where:
+$J_\nu = I_E/(\nu\,\mathrm{eV})$ (`models/dust_charge/dust_charging.py:1638`).
+The yield is $Y = y_2\min(y_0y_1,1)$ (`models/dust_charge/dust_charging.py:173`), where:
 
 - $y_0$ is the bulk yield, a function of $x=\theta/W$:
   $9\times10^{-3}x^5/(1+3.7\times10^{-2}x^5)$ for graphite and
@@ -92,9 +92,9 @@ in the charging currents ($s_i = 1$).
 The same $\theta_\nu$ expression appears in $\tilde\lambda$
 (`models/dust_charge/shared_physics.py:104`). The module
 `dust_photoelectric_heating.py` tabulates `DS87_theta_nu` against `DS87_nu`
-(`models/dust_charge/dust_photoelectric_heating.py:96`–`97`) and labels that
+(`models/dust_charge/dust_photoelectric_heating.py:95`–`96`) and labels that
 table $\theta_\nu/\nu$ in `plot_DS87_thetanu`
-(`models/dust_charge/dust_photoelectric_heating.py:1606`). The code's
+(`models/dust_charge/dust_photoelectric_heating.py:1561`). The code's
 $1/(1+\nu^{-1/2})$ matches those tabulated values, so what the code puts in the
 exponent is $\theta_\nu/\nu$, not $\theta_\nu$. As a result the repulsive
 ($\nu>0$) branch is suppressed less strongly than a $\theta_\nu$ exponent would
@@ -113,27 +113,24 @@ $$
 $U_{\rm ait}$ is $3.9+0.12\,(a/\text{Å})+2/(a/\text{Å})$ eV for graphite and
 $2.5+0.07\,(a/\text{Å})+8/(a/\text{Å})$ eV for silicate
 (`models/dust_charge/shared_physics.py:284`–`306`). $h\nu_{\rm max}$ is the
-highest photon energy in the field (`models/dust_charge/dust_charging.py:607`).
+highest photon energy in the field (`models/dust_charge/dust_charging.py:604`).
 A bisection finds a reference charge $Z_{\rm ref}$
-(`models/dust_charge/dust_charging.py:659`–`669`), and the window around it
+(`models/dust_charge/dust_charging.py:656`–`666`), and the window around it
 doubles in width until $P<10^{-4}$ at both edges
-(`models/dust_charge/dust_charging.py:789`). Detailed balance between adjacent
+(`models/dust_charge/dust_charging.py:786`). Detailed balance between adjacent
 states is then solved in log space:
 
 $$
 \frac{P(Z+1)}{P(Z)} = \frac{R_{\rm pe}(Z)+J_{\rm ion}(Z)}{J_e(Z+1)}
 $$ (eq-detbal)
 
-(`models/dust_charge/dust_charging.py:978`–`1021`). The outputs are the moments
+(`models/dust_charge/dust_charging.py:1023`–`1066`). The outputs are the moments
 $\langle Z\rangle=\sum ZP$ and $\sigma_Z=[\sum(Z-\langle Z\rangle)^2P]^{1/2}$
-(`models/dust_charge/dust_charging.py:1039`–`1041`).
+(`models/dust_charge/dust_charging.py:1084`–`1086`).
 
-Every exporter passes an empty ion list: the heating grid, the recombination
-grid and the stand-alone charge scan
-(`models/dust_charge/export_dust_photoelectric_heating.py:280`,
-`models/dust_charge/export_dust_ion_recombination.py:92`,
-`models/dust_charge/export_dust_charging_vs_gamma.py:393`). In every table
-below, charge is therefore set by photoemission against electron capture alone.
+The uniform-ISRF charging
+tables below use the WDB06 charge balance of `rt_group_charging` instead, with
+H$^+$ at $n({\rm H^+})=n_e$ (`models/dust_charge/charging_isrf_tables.py:66`).
 
 ## Dust photoelectric heating and recombination cooling
 
@@ -144,11 +141,11 @@ $$
  \;+\;[Z<0]\int\sigma_{\rm pd}\,\frac{I_E}{E}\,(E-E_{\rm pd}+E_{\rm min})\,dE
 $$ (eq-gpe)
 
-(`models/dust_charge/dust_photoelectric_heating.py:362`–`364`, `389`). The
+(`models/dust_charge/dust_photoelectric_heating.py:317`–`319`, `344`). The
 photoelectron energy distribution is parabolic,
 $f_E=6(E-E_{\rm low})(E_{\rm high}-E)/(E_{\rm high}-E_{\rm low})^3$
-(`models/dust_charge/dust_photoelectric_heating.py:578`). The code integrates
-it analytically (`models/dust_charge/dust_photoelectric_heating.py:254`–`271`)
+(`models/dust_charge/dust_photoelectric_heating.py:533`). The code integrates
+it analytically (`models/dust_charge/dust_photoelectric_heating.py:209`–`226`)
 {cite:p}`WeingartnerDraine2001`. The cooling per charge state from electron
 capture is
 
@@ -156,56 +153,49 @@ $$
 \Lambda_{\rm rec}(Z) = \pi a^2 n_e s_e\left(\frac{8kT}{\pi m_e}\right)^{1/2}\tilde\lambda(Z/(-1),\tau)\,kT
 $$ (eq-lrec)
 
-(`models/dust_charge/dust_photoelectric_heating.py:1097`), with $\tilde\lambda$
+(`models/dust_charge/dust_photoelectric_heating.py:1052`), with $\tilde\lambda$
 from `models/dust_charge/shared_physics.py:96`–`105`. Grains at $Z_{\rm min}$
 also lose energy by autoionisation, at the rate
 $\pi a^2n_eP(Z_{\rm min})v_e\tilde J\,{\rm EA}(Z_{\rm min})$ with no $s_e$
-(`models/dust_charge/dust_photoelectric_heating.py:1108`–`1109`). The totals are
+(`models/dust_charge/dust_photoelectric_heating.py:1063`–`1064`). The totals are
 the averages $\sum P\,\Gamma_{\rm pe}$ and $\sum P\,\Lambda_{\rm rec}$
-(`models/dust_charge/dust_charging.py:1090`–`1091`). What is tabulated is:
+(`models/dust_charge/dust_charging.py:1145`–`1146`).
 
-- heating $=\sum P\,\Gamma_{\rm pe} - \Lambda_{\rm auto}$
-  (`models/dust_charge/dust_photoelectric_heating.py:2348`);
-- cooling $=\sum P\,\Lambda_{\rm rec}$
-  (`models/dust_charge/dust_photoelectric_heating.py:2349`).
-
-Any negative part of the cooling would be moved into the heating
-(`models/dust_charge/dust_photoelectric_heating.py:2524`–`2526`). Non-positive
-values are written as $-10^{30}$
-(`models/dust_charge/dust_photoelectric_heating.py:2529`).
-
-The grid (`make_rate_gamma_T_tables`,
-`models/dust_charge/dust_photoelectric_heating.py:2396`–`2409`) is log-spaced in
-$T$ and in the charging parameter $\gamma=G_0\sqrt T/n_e$ [K$^{1/2}$ cm$^3$].
-With `mode = "fix_G0"`, $G_0$ is held at `fixed_value` and
-$n_e=G_0\sqrt T/\gamma$ (floored at $10^{-20}$). $G_0$ scales the chosen field
-(`radiation_model`, default `Mathis`) linearly
-(`models/dust_charge/dust_photoelectric_heating.py:2338`). The shipped
-configuration uses $T=10$–$10^5$ K and $\gamma=10^{-6}$–$10^6$, with 100 points
-on each axis.
+These rates are not tabulated from this solver. The tables that carry them are
+the uniform-ISRF charging tables, `dust_charging_isrf_data/dust_charging_isrf_<bin>.dat`,
+written by `export_dust_charging_isrf` through
+`models/dust_charge/charging_isrf_tables.py`. They are built from each bin's
+RT-group table with the WDB06 charge balance of `rt_group_charging`, under the
+Mathis ISRF scaled to $G_0$ Habing in 6–13.6 eV
+(`models/dust_charge/rt_group_charging.py:221`–`226`) and with H$^+$ at
+$n({\rm H^+})=n_e$. Every rate is linear in $G_0$ or in $n_e$, so one table at
+$G_0=1$ serves any $G_0$ through $x=n_e/G_0$. On 161 points of $\log T$ from 1
+to 9 and 161 of $\log x$ from $-8$ to 8
+(`models/dust_charge/charging_isrf_tables.py:42`–`43`), each node stores
+$\langle Z\rangle$, $\sigma_Z$, $\ln\Gamma_1$ with $\Gamma=G_0\Gamma_1$,
+$\lambda_1$ with $\Lambda=n_e\sqrt T\,\lambda_1$ (the net recombination cooling
+with autoionisation, which can be negative), $\ln D_j$ for $j=-1,1,2,3$
+(Eq. {eq}`eq-coulomb` averaged over $P(Z)$), and $\ln\alpha_i$, the grain-assisted
+recombination coefficients of the ions of `RECOMB_IONS` (next section), all evaluated
+on the exact $P(Z)$ (`models/dust_charge/charging_isrf_tables.py:64`–`77`).
+$\alpha_i$ per grain depends only on $P(Z)$ and $T$, so it too is a function of
+$(T, x)$ alone. `isrf_lookup` interpolates bilinearly in $(\log T,\log x)$, clamped to
+the grid (`models/dust_charge/charging_isrf_tables.py:140`–`155`). RAMSES reads the
+tables with `charging_model='WDB06isrf'`, the $\ln\alpha_i$ planes only for
+`dust_ion_recombination`.
 
 ## Grain-assisted ion recombination
 
-`compute_ion_recombination_coefficients`
-(`models/dust_charge/dust_ion_recombination.py:79`) averages the collision rate
-over $P(Z)$:
-
-$$
-\alpha_i = \sum_Z P(Z)\,\pi a^2\left(\frac{8kT}{\pi m_i}\right)^{1/2} s_i\,\tilde J(Z/z_i,\tau)\,\Theta_i(Z)\quad[{\rm cm^3\,s^{-1}\ per\ grain}]
-$$ (eq-alpha)
-
-(`models/dust_charge/dust_ion_recombination.py:178`), with $s_i=1$. The
-exporter uses "case A" of {cite:t}`WeingartnerDraine2001`: $\Theta_i=1$ if
-${\rm IP}(X)\ge {\rm IP}(a,Z)$ and 0 otherwise
-(`models/dust_charge/dust_ion_recombination.py:163`–`164`,
-`models/dust_charge/export_dust_ion_recombination.py:113`). The grain
-ionisation potential ${\rm IP}(a,Z)$ is ${\rm IP_V}$ for $Z\ge0$ and
-${\rm EA}(Z+1)$ for $Z<0$. The threshold is applied only after $P(Z)$ has been
-solved; $P(Z)$ itself is found without ions. Eleven singly charged ions are
-included (H, He, C, Na, Mg, Si, S, K, Ca, Mn, Fe), all at the gas temperature
-(`models/dust_charge/export_dust_ion_recombination.py:104`–`108`). The grid is
-the same $(T,\gamma)$ grid as the heating tables, from the exporter defaults;
-the shipped configuration has no `dust_ion_recombination` block.
+The coefficients $\alpha_i$ [cm$^3$ s$^{-1}$ per grain] of the singly charged
+ions in `RECOMB_IONS` come from the WDB06 charge balance of `rt_group_charging`.
+`GroupChargingTable._recombination` sums
+$P(Z)\,\pi a^2(8kT/\pi m_i)^{1/2}\tilde J(Z,\tau)$ over the charges at or below
+the "case A" threshold of {cite:t}`WeingartnerDraine2001`, the largest $Z$ with
+${\rm IP}(a,Z)\le{\rm IP}(X)$ (`recombination_thresholds`)
+(`models/dust_charge/rt_group_charging.py:538`–`547`, `256`–`266`); for a wide
+$P(Z)$, `_recombination_fit` evaluates the same sum. RAMSES computes them itself
+for `dust_ion_recombination` with `charging_model='WDB06rt'`, and reads them
+from the uniform-ISRF charging tables with `charging_model='WDB06isrf'`.
 
 ## Coulomb factor and what the solver uses
 
@@ -222,17 +212,18 @@ $$ (eq-coulomb)
 (`models/dust_charge/Coulomb_enhancement.py:39`–`43`). No export stage calls
 this module.
 
-On the solver side, `solvers/dust_init.py:419`–`431` loads
-`dust_charge_Z_vs_T_<bin_id>` and `dust_charge_sigma_vs_T_<bin_id>` for each
-bin through `build_charge_interpolator` (`solvers/table_io.py:301`). The mean
-charge is clamped to $[-60,60]$ and the width to $[0,20]$. The resulting
-`charge_Z_interp` is used only by `_get_coulomb_D`
-(`solvers/dust_rates.py:131`–`159`), which applies Eq. {eq}`eq-coulomb` at
-$\langle Z\rangle$ (`solvers/dust_rates.py:120`–`127`). Nothing calls
-`_get_coulomb_D` or `_coulomb_factor_WD99`. Instead, `accretion_rate` multiplies
-its rate by a fixed per-bin factor $E_C$ (`solvers/dust_rates.py:303`–`315`),
+On the solver side, `solvers/dust_init.py:420`–`421` loads each bin's
+uniform-ISRF charging table, when present, into `DustBinParams.isrf_table`,
+with the solver's own reader (`solvers/table_io.py`, so that solvers/ does not
+import models/). `_get_coulomb_D` (`solvers/dust_rates.py:132`–`164`) looks it
+up at $(G_0,T,n_e)$, with $G_0$ in Habing units as in the table. For impactor
+charges $j=-1,1,2,3$ it returns the table's $D_j$, Eq. {eq}`eq-coulomb` averaged
+over the exact $P(Z)$; for any other charge, the point-charge factor at the
+table's $\langle Z\rangle$ (`_coulomb_factor_WD99`). Nothing calls
+`_get_coulomb_D`. Instead, `accretion_rate` multiplies
+its rate by a fixed per-bin factor $E_C$ (`solvers/dust_rates.py:308`–`320`),
 applied when $T<2\times10^4$ K or $n_{\rm H}>10$ cm$^{-3}$
-(`solvers/dust_rates.py:257`):
+(`solvers/dust_rates.py:262`):
 
 | Bin | $E_C$ |
 |---|---|
@@ -241,17 +232,6 @@ applied when $T<2\times10^4$ K or $n_{\rm H}>10$ cm$^{-3}$
 | all others | 1 |
 
 These values follow {cite:t}`Dubois2024`; see {ref}`physics-dust-growth-destruction`.
-
-:::{note}
-The charge tables are written as $n_\gamma$ rows of $n_T$ values
-(`models/dust_charge/export_dust_charging_vs_gamma.py:269`–`273`), but
-`build_charge_interpolator` reads $n_T$ rows of $n_\gamma$ values
-(`solvers/table_io.py:337`–`346`). On the default square $100\times100$ grid,
-the table is therefore read transposed without any error. On a non-square grid
-the read fails, and `dust_init` quietly sets the interpolator to `None`
-(`solvers/dust_init.py:429`–`430`). Today this has no effect, because nothing
-uses the interpolator.
-:::
 
 ## PAH photoelectric heating
 
@@ -343,15 +323,6 @@ says erg cm$^3$ s$^{-1}$ (`models/dust_gas_collisions/dust_collisional_cooling.p
 
 | Directory / file | Exporter | Contents | Read by |
 |---|---|---|---|
-| `dust_photoelectric_heating_data/dust_rates_peh_<bin>.dat`, `dust_rates_rec_<bin>.dat` | `export_dust_photoelectric_heating` | 6 `#` lines; `nT nγ`; $\log T$; $\log\gamma$; $n_\gamma$ rows × $n_T$ of $\log_{10}$ rate [erg s$^{-1}$ per grain] | RAMSES Fortran only |
-| `dust_photoelectric_heating_data/heating_<bin>.npz` | same | `T`, `gamma`, `peh_rate`, `rec_rate`, `G0_grid`, `ne_grid`, `Zmean_grid`, `Zsigma_grid` ($n_T\times n_\gamma$) | `export_dust_charging_vs_gamma` |
-| `dust_charging_data/dust_charge_Z_vs_T_<bin>`, `dust_charge_sigma_vs_T_<bin>` | `export_dust_charging_vs_gamma` | same layout, $\langle Z\rangle$ and $\sigma_Z$ | `solvers/dust_init.py:419` (unused) |
-| `dust_ion_recombination_data/dust_rates_ion_recomb_<bin>.dat` | `export_dust_ion_recombination` | `nT nγ`; axes; $n_Tn_\gamma$ rows ($T$ outer) × 11 ions of $\log_{10}\alpha$ [cm$^3$ s$^{-1}$] | none in pyCALIMA |
+| `dust_charging_isrf_data/dust_charging_isrf_<bin>.dat` | `export_dust_charging_isrf` | 4 `#` lines; `version nT nX nQ a` (version 2; $a$ the grain radius [cm], which RAMSES checks against the bin's); $\log T$; $\log(n_e/G_0)$; 18 planes of $n_T$ rows × $n_X$: $\langle Z\rangle$, $\sigma_Z$, $\ln\Gamma_1$, $\lambda_1$, $\ln D_{-1}$, $\ln D_{+1}$, $\ln D_{+2}$, $\ln D_{+3}$, then $\ln\alpha_i$ [cm$^3$ s$^{-1}$ per grain] of the ten `RECOMB_IONS` (H, He, C, N, O, Ne, Mg, Si, S, Fe) | RAMSES (`charging_model='WDB06isrf'`); `solvers/dust_init.py:420` |
 | `PAH_photoelectric_heating_data/peh_ISRF_<rad>_<opt>_<att>_<bin>.dat` | `export_PAH_photoelectric_heating_tables` | $\log\gamma$, $\log\epsilon$, $\log P_{\rm abs}$, $f_{-1}$, $f_0$, $f_1$, $f_2$ | none in the solver |
 | `collisional_cooling_data/cooling_<bin>_Z_<Zi>` | `export_collisional_cooling_bins` | `nT nφ`; $\phi$ [eV]; rows of $\log T$, $\log_{10}H$. `Z_0` is electrons; the ions are H, He, C, N, O, Ne, Mg, Si, S, Fe | `models/dust_radiation/dust_emission.py:966` |
-
-When run from `calima-export`, the charging stage reuses the heating NPZ
-(`reuse_heating_data=True`, `models/export_all_grain_data.py:1255`). Run on its
-own, it samples random $(T,n_e)$ pairs for each $\gamma$
-(`models/dust_charge/dust_charging.py:1868`–`1882`). Each sample then gets its
-own temperature column, so the written grid has many empty cells.

@@ -22,7 +22,13 @@ module dust_utils
         ncell = 1 ! we just want the neighbors of that cell
         ind_cell2(1)=icell
         d=uold(icell,1)
+
+#ifdef RTZ_ONE_CELL_TEST
+        ind_nbor = 1
+#else
         call getnbor(ind_cell2,ind_nbor,ncell,ilevel)
+#endif
+
         d1           = uold(ind_nbor(1,1),1) ; d2 = uold(ind_nbor(1,2),1) ; d3 = uold(ind_nbor(1,3),1)
         d4           = uold(ind_nbor(1,4),1) ; d5 = uold(ind_nbor(1,5),1) ; d6 = uold(ind_nbor(1,6),1)
         sigma2       = 0d0 ; sigma2_comp = 0d0 ; sigma2_sole = 0d0
@@ -97,65 +103,35 @@ module dust_utils
         locate = j
     end function locate
 
-    function locate_eqw(xx,n,x)
+    function locate_eqw(xx,n,x,inv_dx)
         ! Fast locator for equally spaced ordered arrays.
         ! Returns lower index j such that x is bracketed by xx(j), xx(j+1)
         ! and clamps to edges: j in [1, n-1].
         implicit none
         integer, intent(in) :: n
         real(dp), intent(in) :: xx(n), x
+        real(dp), intent(in) :: inv_dx
         integer :: locate_eqw
         integer :: j
-        real(dp) :: dx, invdx
 
-        if (n <= 2) then
-            locate_eqw = 1
-            return
-        end if
-
-        dx = (xx(n) - xx(1)) / dble(n - 1)
-        if (dx == 0d0) then
-            locate_eqw = 1
-            return
-        end if
-        invdx = 1d0 / dx
-
-        if (dx > 0d0) then
-            if (x <= xx(1)) then
-                locate_eqw = 1
-                return
-            else if (x >= xx(n)) then
-                locate_eqw = n - 1
-                return
-            end if
-            j = int((x - xx(1)) * invdx) + 1
-        else
-            if (x >= xx(1)) then
-                locate_eqw = 1
-                return
-            else if (x <= xx(n)) then
-                locate_eqw = n - 1
-                return
-            end if
-            j = int((xx(1) - x) / abs(dx)) + 1
-        end if
+        j = int((x - xx(1)) * inv_dx) + 1
 
         if (j < 1) j = 1
         if (j >= n) j = n - 1
         locate_eqw = j
     end function locate_eqw
 
-    subroutine interpolate1D(x, results, ni, xi, interp_val, non_eqw)
+    subroutine interpolate1D_noeqw(x, results, ni, xi, interp_val,idx_x)
         implicit none
         integer, intent(in) :: ni
         real(dp), intent(in) :: x(ni)
         real(dp), intent(in) :: results(ni)
         real(dp), intent(in) :: xi
         real(dp), intent(out) :: interp_val
-        logical, intent(in), optional :: non_eqw
+        integer, intent(inout), optional :: idx_x
         integer :: i
-        real(dp) :: x1, x2
-        logical :: use_eqw
+        real(dp) :: x1, x2, t
+
         ! If xi is outside bounds, return continuation at the limits (no extrapolation)
         if (xi <= x(1)) then
             interp_val = results(1)
@@ -166,10 +142,14 @@ module dust_utils
         end if
 
         ! Find index for interpolation (xi now within bounds)
-        use_eqw = .true.
-        if (present(non_eqw)) use_eqw = .not. non_eqw
-        if (use_eqw) then
-            i = locate_eqw(x, ni, xi)
+
+        if (present(idx_x)) then
+            if (idx_x > 0 .and. idx_x < ni .and. xi >= x(idx_x) .and. xi <= x(idx_x+1)) then
+                i = idx_x
+            else
+                i = locate(x, ni, xi)
+                idx_x = i
+            end if
         else
             i = locate(x, ni, xi)
         end if
@@ -179,23 +159,73 @@ module dust_utils
         x2 = x(i+1)
 
         ! Perform linear interpolation
-        interp_val = (x2 - xi) / (x2 - x1) * results(i) + (xi - x1) / (x2 - x1) * results(i+1)
-    end subroutine interpolate1D
+        t = (xi - x1) / (x2 - x1)
+        interp_val = (1.0d0 - t) * results(i) + t * results(i+1)
+    end subroutine interpolate1D_noeqw
+
+    subroutine interpolate1D_eqw(x, results, ni, inv_dx, xi, interp_val, idx_x)
+        implicit none
+        integer, intent(in) :: ni
+        real(dp), intent(in) :: x(ni)
+        real(dp), intent(in) :: results(ni)
+        real(dp), intent(in):: inv_dx
+        real(dp), intent(in) :: xi
+        real(dp), intent(out) :: interp_val
+        integer, intent(inout), optional :: idx_x
+        
+        integer :: i
+        real(dp) :: x1, x2, t
+
+        ! If xi is outside bounds, return continuation at the limits (no extrapolation)
+        if (xi <= x(1)) then
+            interp_val = results(1)
+            return
+        else if (xi >= x(ni)) then
+            interp_val = results(ni)
+            return
+        end if
+
+        ! Find index for interpolation (xi now within bounds)
+
+        if (present(idx_x)) then
+            if (idx_x > 0 .and. idx_x < ni) then
+                if (xi >= x(idx_x) .and. xi <= x(idx_x+1)) then
+                    i = idx_x
+                else
+                    i = locate_eqw(x, ni, xi, inv_dx)
+                    idx_x = i
+                end if
+            else
+                i = locate_eqw(x, ni, xi, inv_dx)
+                idx_x = i
+            end if
+        else
+            i = locate_eqw(x, ni, xi, inv_dx)
+        end if
+
+        ! Get bounding values
+        x1 = x(i)
+        x2 = x(i+1)
+
+        ! Perform linear interpolation
+        t = (xi - x1) * inv_dx
+        interp_val = (1.0d0 - t) * results(i) + t * results(i+1)
+    end subroutine interpolate1D_eqw
 
 
-    subroutine interpolate2D(x, y, results, ni, nj, xi, yi, interp_val, non_eqw)
+    subroutine interpolate2D_noeqw(x, y, results, ni, nj, xi, yi, interp_val, idx_x, idx_y)
         implicit none
         integer, intent(in) :: ni, nj
         real(dp), intent(in) :: x(ni), y(nj)
         real(dp), intent(in) :: results(ni, nj)
         real(dp), intent(in) :: xi, yi
         real(dp), intent(out) :: interp_val
-        logical, intent(in), optional :: non_eqw
+        integer, intent(inout), optional :: idx_x, idx_y
         integer :: i, j
         real(dp) :: x1, x2, y1, y2
         real(dp) :: c0, c1
         real(dp) :: xi_copy, yi_copy
-        logical :: use_eqw
+        real(dp) :: inv_dx, inv_dy, t, u
 
         ! Copy and clamp coordinates to domain limits so we continue at edges (no extrapolation)
         xi_copy = xi
@@ -206,13 +236,25 @@ module dust_utils
         if (yi_copy > y(nj)) yi_copy = y(nj)
 
         ! Find indices for interpolation using clamped coordinates
-        use_eqw = .true.
-        if (present(non_eqw)) use_eqw = .not. non_eqw
-        if (use_eqw) then
-            i = locate_eqw(x, ni, xi_copy)
-            j = locate_eqw(y, nj, yi_copy)
+        if (present(idx_x)) then
+            if (idx_x > 0 .and. idx_x < ni .and. xi_copy >= x(idx_x) .and. xi_copy <= x(idx_x+1)) then
+                i = idx_x
+            else
+                i = locate(x, ni, xi_copy)
+                idx_x = i
+            end if
         else
             i = locate(x, ni, xi_copy)
+        end if
+
+        if (present(idx_y)) then
+            if (idx_y > 0 .and. idx_y < nj .and. yi_copy >= y(idx_y) .and. yi_copy <= y(idx_y+1)) then
+                j = idx_y
+            else
+                j = locate(y, nj, yi_copy)
+                idx_y = j
+            end if
+        else
             j = locate(y, nj, yi_copy)
         end if
 
@@ -229,26 +271,108 @@ module dust_utils
         y2 = y(j+1)
 
         ! Perform bilinear interpolation (with clamped coordinates)
-        c0 = (x2 - xi_copy) / (x2 - x1) * results(i, j) + (xi_copy - x1) / (x2 - x1) * results(i+1, j)
-        c1 = (x2 - xi_copy) / (x2 - x1) * results(i, j+1) + (xi_copy - x1) / (x2 - x1) * results(i+1, j+1)
+        inv_dx = 1.0d0 / (x2 - x1)
+        inv_dy = 1.0d0 / (y2 - y1)
+        t = (xi_copy - x1) * inv_dx
+        u = (yi_copy - y1) * inv_dy
 
-        interp_val = (y2 - yi_copy) / (y2 - y1) * c0 + (yi_copy - y1) / (y2 - y1) * c1
-        ! print*,'DEBUG: xi=',xi,' yi=',yi,' i=',i,' j=',j,' x1=',x1,' x2=',x2,' y1=',y1,' y2=',y2,' c0=',c0,' c1=',c1,' interp_val=',interp_val
-    end subroutine interpolate2D
+        c0 = (1.0d0 - t) * results(i, j) + t * results(i+1, j)
+        c1 = (1.0d0 - t) * results(i, j+1) + t * results(i+1, j+1)
 
-    subroutine interpolate3D(x,y,z,results,ni,nj,nk,xi,yi,zi,interp_val,non_eqw)
+        interp_val = (1.0d0 - u) * c0 + u * c1
+    end subroutine interpolate2D_noeqw
+
+    subroutine interpolate2D_eqw(x, y, results, ni, nj, inv_dx, inv_dy, xi, yi, interp_val, idx_x, idx_y)
+        implicit none
+        integer, intent(in) :: ni, nj
+        real(dp), intent(in) :: x(ni), y(nj)
+        real(dp), intent(in) :: results(ni, nj)
+        real(dp), intent(in) :: inv_dx, inv_dy
+        real(dp), intent(in) :: xi, yi
+        real(dp), intent(out) :: interp_val
+        integer, intent(inout), optional :: idx_x, idx_y
+        integer :: i, j
+        real(dp) :: x1, x2, y1, y2
+        real(dp) :: c0, c1
+        real(dp) :: xi_copy, yi_copy
+        real(dp) :: t, u
+
+        ! Copy and clamp coordinates to domain limits so we continue at edges (no extrapolation)
+        xi_copy = xi
+        yi_copy = yi
+        if (xi_copy < x(1)) xi_copy = x(1)
+        if (xi_copy > x(ni)) xi_copy = x(ni)
+        if (yi_copy < y(1)) yi_copy = y(1)
+        if (yi_copy > y(nj)) yi_copy = y(nj)
+
+        ! Find indices for interpolation using clamped coordinates
+        if (present(idx_x)) then
+            if (idx_x > 0 .and. idx_x < ni) then
+                if (xi_copy >= x(idx_x) .and. xi_copy <= x(idx_x+1)) then
+                    i = idx_x
+                else
+                    i = locate_eqw(x, ni, xi_copy, inv_dx)
+                    idx_x = i
+                end if
+            else
+                i = locate_eqw(x, ni, xi_copy, inv_dx)
+                idx_x = i
+            end if
+        else
+            i = locate_eqw(x, ni, xi_copy, inv_dx)
+        end if
+
+        if (present(idx_y)) then
+            if (idx_y > 0 .and. idx_y < nj) then
+                if (yi_copy >= y(idx_y) .and. yi_copy <= y(idx_y+1)) then
+                    j = idx_y
+                else
+                    j = locate_eqw(y, nj, yi_copy, inv_dy)
+                end if
+                idx_y = j
+            else
+                j = locate_eqw(y, nj, yi_copy, inv_dy)
+                idx_y = j
+            end if
+        else
+            j = locate_eqw(y, nj, yi_copy, inv_dy)
+        end if
+
+        ! Ensure indices are within bounds
+        if (i < 1) i = 1
+        if (i >= ni) i = ni - 1
+        if (j < 1) j = 1
+        if (j >= nj) j = nj - 1
+
+        ! Get bounding values
+        x1 = x(i)
+        x2 = x(i+1)
+        y1 = y(j)
+        y2 = y(j+1)
+
+        ! Perform bilinear interpolation (with clamped coordinates)
+        t = (xi_copy - x1) * inv_dx
+        u = (yi_copy - y1) * inv_dy
+
+        c0 = (1.0d0 - t) * results(i, j) + t * results(i+1, j)
+        c1 = (1.0d0 - t) * results(i, j+1) + t * results(i+1, j+1)
+
+        interp_val = (1.0d0 - u) * c0 + u * c1
+    end subroutine interpolate2D_eqw
+
+    subroutine interpolate3D_noeqw(x, y, z, results, ni, nj, nk, xi, yi, zi, interp_val, idx_x, idx_y, idx_z)
         implicit none
         integer, intent(in) :: ni, nj, nk
         real(dp), intent(in) :: x(ni), y(nj), z(nk)
         real(dp), intent(in) :: results(ni, nj, nk)
         real(dp), intent(in) :: xi, yi, zi
         real(dp), intent(out) :: interp_val
-        logical, intent(in), optional :: non_eqw
+        integer, intent(inout), optional :: idx_x, idx_y, idx_z
         integer :: i, j, k
         real(dp) :: x1, x2, y1, y2, z1, z2
         real(dp) :: c00, c01, c10, c11, c0, c1
         real(dp) :: xi_copy, yi_copy, zi_copy
-        logical :: use_eqw
+        real(dp) :: inv_dx, inv_dy, inv_dz, t, u, v
 
         ! Copy and clamp values so we continue at the domain limits (no extrapolation)
         xi_copy = xi
@@ -262,15 +386,36 @@ module dust_utils
         if (zi_copy > z(nk)) zi_copy = z(nk)
 
         ! Find indices for interpolation using clamped coordinates
-        use_eqw = .true.
-        if (present(non_eqw)) use_eqw = .not. non_eqw
-        if (use_eqw) then
-            i = locate_eqw(x, ni, xi_copy)
-            j = locate_eqw(y, nj, yi_copy)
-            k = locate_eqw(z, nk, zi_copy)
+        if (present(idx_x)) then
+            if (idx_x > 0 .and. idx_x < ni .and. xi_copy >= x(idx_x) .and. xi_copy <= x(idx_x+1)) then
+                i = idx_x
+            else
+                i = locate(x, ni, xi_copy)
+                idx_x = i
+            end if
         else
             i = locate(x, ni, xi_copy)
+        end if
+
+        if (present(idx_y)) then
+            if (idx_y > 0 .and. idx_y < nj .and. yi_copy >= y(idx_y) .and. yi_copy <= y(idx_y+1)) then
+                j = idx_y
+            else
+                j = locate(y, nj, yi_copy)
+                idx_y = j
+            end if
+        else
             j = locate(y, nj, yi_copy)
+        end if
+
+        if (present(idx_z)) then
+            if (idx_z > 0 .and. idx_z < nk .and. zi_copy >= z(idx_z) .and. zi_copy <= z(idx_z+1)) then
+                k = idx_z
+            else
+                k = locate(z, nk, zi_copy)
+                idx_z = k
+            end if
+        else
             k = locate(z, nk, zi_copy)
         end if
 
@@ -282,6 +427,105 @@ module dust_utils
         if (k < 1) k = 1
         if (k >= nk) k = nk - 1
 
+        ! Get bounding values
+        x1 = x(i)
+        x2 = x(i+1)
+        y1 = y(j)
+        y2 = y(j+1)
+        z1 = z(k)
+        z2 = z(k+1)
+
+        ! Perform trilinear interpolation
+        inv_dx = 1.0d0 / (x2 - x1)
+        inv_dy = 1.0d0 / (y2 - y1)
+        inv_dz = 1.0d0 / (z2 - z1)
+        t = (xi_copy - x1) * inv_dx
+        u = (yi_copy - y1) * inv_dy
+        v = (zi_copy - z1) * inv_dz
+
+        c00 = (1.0d0 - t) * results(i, j, k) + t * results(i+1, j, k)
+        c01 = (1.0d0 - t) * results(i, j, k+1) + t * results(i+1, j, k+1)
+        c10 = (1.0d0 - t) * results(i, j+1, k) + t * results(i+1, j+1, k)
+        c11 = (1.0d0 - t) * results(i, j+1, k+1) + t * results(i+1, j+1, k+1)
+
+        c0 = (1.0d0 - u) * c00 + u * c10
+        c1 = (1.0d0 - u) * c01 + u * c11
+
+        interp_val = (1.0d0 - v) * c0 + v * c1
+    end subroutine interpolate3D_noeqw
+
+    subroutine interpolate3D_eqw(x, y, z, results, ni, nj, nk, inv_dx, inv_dy, inv_dz, xi, yi, zi, interp_val, idx_x, idx_y, idx_z)
+        implicit none
+        integer, intent(in) :: ni, nj, nk
+        real(dp), intent(in) :: x(ni), y(nj), z(nk)
+        real(dp), intent(in) :: results(ni, nj, nk)
+        real(dp), intent(in) :: inv_dx, inv_dy, inv_dz
+        real(dp), intent(in) :: xi, yi, zi
+        real(dp), intent(out) :: interp_val
+        integer, intent(inout), optional :: idx_x, idx_y, idx_z
+        integer :: i, j, k
+        real(dp) :: x1, x2, y1, y2, z1, z2
+        real(dp) :: c00, c01, c10, c11, c0, c1
+        real(dp) :: xi_copy, yi_copy, zi_copy
+        real(dp) :: t, u, v
+
+        ! Copy and clamp values so we continue at the domain limits (no extrapolation)
+        xi_copy = xi
+        yi_copy = yi
+        zi_copy = zi
+        if (xi_copy < x(1)) xi_copy = x(1)
+        if (xi_copy > x(ni)) xi_copy = x(ni)
+        if (yi_copy < y(1)) yi_copy = y(1)
+        if (yi_copy > y(nj)) yi_copy = y(nj)
+        if (zi_copy < z(1)) zi_copy = z(1)
+        if (zi_copy > z(nk)) zi_copy = z(nk)
+
+        ! Find indices for interpolation using clamped coordinates
+        if (present(idx_x)) then
+            if (idx_x > 0 .and. idx_x < ni) then
+                if (xi_copy >= x(idx_x) .and. xi_copy <= x(idx_x+1)) then
+                    i = idx_x
+                else
+                    i = locate_eqw(x, ni, xi_copy, inv_dx)
+                    idx_x = i
+                end if
+            else
+                i = locate_eqw(x, ni, xi_copy, inv_dx)
+                idx_x = i
+            end if
+        else
+            i = locate_eqw(x, ni, xi_copy, inv_dx)
+        end if
+
+        if (present(idx_y)) then
+            if (idx_y > 0 .and. idx_y < nj .and. yi_copy >= y(idx_y) .and. yi_copy <= y(idx_y+1)) then
+                j = idx_y
+            else
+                j = locate_eqw(y, nj, yi_copy, inv_dy)
+                idx_y = j
+            end if
+        else
+            j = locate_eqw(y, nj, yi_copy, inv_dy)
+        end if
+
+        if (present(idx_z)) then
+            if (idx_z > 0 .and. idx_z < nk .and. zi_copy >= z(idx_z) .and. zi_copy <= z(idx_z+1)) then
+                k = idx_z
+            else
+                k = locate_eqw(z, nk, zi_copy, inv_dz)
+                idx_z = k
+            end if
+        else
+            k = locate_eqw(z, nk, zi_copy, inv_dz)
+        end if
+
+        ! Ensure indices are within bounds
+        if (i < 1) i = 1
+        if (i >= ni) i = ni - 1
+        if (j < 1) j = 1
+        if (j >= nj) j = nj - 1
+        if (k < 1) k = 1
+        if (k >= nk) k = nk - 1
 
         ! Get bounding values
         x1 = x(i)
@@ -291,18 +535,21 @@ module dust_utils
         z1 = z(k)
         z2 = z(k+1)
 
-
         ! Perform trilinear interpolation
-        c00 = (x2 - xi_copy) / (x2 - x1) * results(i, j, k) + (xi_copy - x1) / (x2 - x1) * results(i+1, j, k)
-        c01 = (x2 - xi_copy) / (x2 - x1) * results(i, j, k+1) + (xi_copy - x1) / (x2 - x1) * results(i+1, j, k+1)
-        c10 = (x2 - xi_copy) / (x2 - x1) * results(i, j+1, k) + (xi_copy - x1) / (x2 - x1) * results(i+1, j+1, k)
-        c11 = (x2 - xi_copy) / (x2 - x1) * results(i, j+1, k+1) + (xi_copy - x1) / (x2 - x1) * results(i+1, j+1, k+1)
+        t = (xi_copy - x1) * inv_dx
+        u = (yi_copy - y1) * inv_dy
+        v = (zi_copy - z1) * inv_dz
 
-        c0 = (y2 - yi_copy) / (y2 - y1) * c00 + (yi_copy - y1) / (y2 - y1) * c10
-        c1 = (y2 - yi_copy) / (y2 - y1) * c01 + (yi_copy - y1) / (y2 - y1) * c11
+        c00 = (1.0d0 - t) * results(i, j, k) + t * results(i+1, j, k)
+        c01 = (1.0d0 - t) * results(i, j, k+1) + t * results(i+1, j, k+1)
+        c10 = (1.0d0 - t) * results(i, j+1, k) + t * results(i+1, j+1, k)
+        c11 = (1.0d0 - t) * results(i, j+1, k+1) + t * results(i+1, j+1, k+1)
 
-        interp_val = (z2 - zi_copy) / (z2 - z1) * c0 + (zi_copy - z1) / (z2 - z1) * c1
-    end subroutine interpolate3D
+        c0 = (1.0d0 - u) * c00 + u * c10
+        c1 = (1.0d0 - u) * c01 + u * c11
+
+        interp_val = (1.0d0 - v) * c0 + v * c1
+    end subroutine interpolate3D_eqw
 
     subroutine read_next_data_line(iunit, out_line, io_status)
         implicit none
@@ -404,11 +651,39 @@ module dust_utils
         ! Output
         real(dp) :: emittance                ! Emittance in erg/s/cm^2/cm/steradian
         ! Local variables
-        real(dp) :: exponent
+        real(dp) :: exponent, prefactor
 
-        ! Compute the Planck function
+        ! Guard 1: Safety check for zero or negative inputs
+        if (wavelength <= 0.0d0 .or. T <= 0.0d0) then
+            emittance = 0.0d0
+            return
+        end if
+
+        ! Compute the exponent
         exponent = hplanck * c_cgs / (wavelength * kB * T)
-        emittance = (2.0d0 * hplanck * c_cgs**2 / wavelength**5) / (safe_exp(exponent) - 1.0d0)
+
+        ! Guard 2: Handle the Wien tail safely using negative exponents
+        if (exponent > 500.0d0) then
+            ! e^(-500) is incredibly tiny (~10^-217). Anything higher is effectively 0.
+            emittance = 0.0d0
+            return
+        else if (exponent > 10.0d0) then
+            ! Use the mathematically identical alternative: 1 / (e^x - 1) ≈ e^(-x)
+            prefactor = 2.0d0 * hplanck * c_cgs**2 / wavelength**5
+            emittance = prefactor * safe_exp(-exponent)
+        else
+            ! Guard 3: Prevent division by zero in the Rayleigh-Jeans limit (very small exponent)
+            if (exponent < 1.0d-12) then
+                ! Rayleigh-Jeans approximation: B_lambda ≈ 2*c*kB*T / lambda^4
+                emittance = 2.0d0 * c_cgs * kB * T / wavelength**4
+            else
+                ! Standard calculation for normal ranges
+                prefactor = 2.0d0 * hplanck * c_cgs**2 / wavelength**5
+                emittance = prefactor / (safe_exp(exponent) - 1.0d0)
+            end if
+        end if
+
+        if (isnan(emittance)) emittance = 0.0d0
     end function planck_function
 
     function planck_function_derivative(wavelength, T) result(derivative)
@@ -433,10 +708,30 @@ module dust_utils
 
         ! Compute the Planck function derivative
         exponent = hplanck * c_cgs / (wavelength * kB * T)
-        expo = safe_exp(exponent)
-        prefactor = 2.0d0 * hplanck * c_cgs**2 / wavelength**5
-        derivative = prefactor * expo * exponent / (T * (expo - 1.0d0)**2)
-        if (isnan(derivative)) derivative = 0d0
+
+        ! 2. Check for the Wien tail (large exponent)
+        if (exponent > 500.0d0) then
+            ! If exponent is huge, e^(-exponent) is essentially 0.
+            ! This avoids calculating e^680 and prevents the crash entirely.
+            derivative = 0.0d0
+            return
+        else if (exponent > 10.0d0) then
+            ! For moderately large exponents, use the simplified version:
+            ! expo / (expo - 1)^2 simplifies perfectly to safe_exp(-exponent)
+            prefactor = 2.0d0 * hplanck * (c_cgs**2) / (wavelength**5)
+            derivative = (prefactor * exponent / T) * safe_exp(-exponent)
+        else
+            ! For normal/small exponents, use the standard equation
+            expo = safe_exp(exponent)
+            if (abs(expo - 1.0d0) < 1.0d-12) then
+                derivative = 0.0d0
+            else
+                prefactor = 2.0d0 * hplanck * (c_cgs**2) / (wavelength**5)
+                derivative = prefactor * expo * exponent / (T * (expo - 1.0d0)**2)
+            end if
+        end if
+
+        if (isnan(derivative)) derivative = 0.0d0
     end function planck_function_derivative
 
     function a_to_Nc(a) result(Nc)

@@ -51,7 +51,9 @@ Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1)
    more set of rates at T (1 + dlnT) on the same charges, to serve the cooling
    solver's T (1 +- dlnT) calls without further solves.
 6. Grain-assisted recombination alpha_i = sum_Z P(Z) pi a^2 v_i J~ Theta_i
-   (``recomb``): exact for a discrete P(Z); for a wide one, the segmented
+   (``recomb``): exact for a discrete P(Z), over its window and the charges below it while
+   their terms can matter (``_recombination_discrete``: on a positive grain P A can peak
+   far below the window); for a wide one, the segmented
    Chebyshev reconstruction of ln P in ``_recombination_fit``, reused by warm
    solves as the fit times the change of a Gaussian estimate
    (``_recombination_gauss``) while the cell drifts little.
@@ -254,16 +256,33 @@ def grain_ionisation_potential(material, a, W, Z):
     return np.where(Z >= 0, ionisation_potential_valence_vec(W, Z, a), ea(Z + 1.0, a))
 
 
+def last_charge_with_ip_below(material, a, W, Zmin, Zmax, E):
+    """Largest integer Z in [Zmin, Zmax] with IP(a, Z) <= E [eV], or None if there is none.
+    IP(a, Z) increases with Z, so this is a bisection: an array over every allowed charge
+    would hold ~4e8 values for a 1 mm grain."""
+    ip = lambda z: float(grain_ionisation_potential(material, a, W, float(z)))   # noqa: E731
+    lo, hi = int(round(Zmin)), int(round(Zmax))
+    if ip(lo) > E:
+        return None
+    if ip(hi) <= E:
+        return float(hi)
+    while hi - lo > 1:                          # ip(lo) <= E < ip(hi)
+        mid = (lo + hi) // 2
+        if ip(mid) <= E:
+            lo = mid
+        else:
+            hi = mid
+    return float(lo)
+
+
 def recombination_thresholds(material, a, W, Zmin, Zmax):
     """Largest grain charge Z at which X+ can take an electron from the grain,
     IP(a, Z) <= IP(X) (Weingartner & Draine 2001b case A), per RECOMB_IONS;
     Zmin - 1 where no charge allows it."""
-    Z = np.arange(Zmin, Zmax + 1.0)
-    ipz = grain_ionisation_potential(material, a, W, Z)
     out = []
     for _, _, ip in RECOMB_IONS:
-        ok = np.nonzero(ipz <= ip)[0]
-        out.append(float(Z[ok[-1]]) if ok.size else Zmin - 1.0)
+        z = last_charge_with_ip_below(material, a, W, Zmin, Zmax, ip)
+        out.append(Zmin - 1.0 if z is None else z)
     return np.array(out)
 
 
@@ -365,11 +384,9 @@ class GroupChargingTable:
         self.compiled = _ck.NUMBA     # g(Z) and its root in numba (_charge_kernels); False: Python
         self._nb = self._nbh = None
         # charges at which IP(a, Z) crosses photon-energy edges: g(Z) has kinks there
-        Zall = np.arange(tab["Zmin"], tab["Zmax"] + 1.0)
-        ipz = grain_ionisation_potential(self.material, self.a, tab["W"], Zall)
         def edge(E):
-            k = np.nonzero(ipz <= E)[0]
-            return float(Zall[k[-1]]) if k.size and 0 < k[-1] < Zall.size - 1 else None
+            z = last_charge_with_ip_below(self.material, self.a, tab["W"], tab["Zmin"], tab["Zmax"], E)
+            return z if z is not None and tab["Zmin"] < z < tab["Zmax"] else None
         self._edge_groups = [(edge(l0), edge(l1)) for l0, l1 in zip(tab["L0"], tab["L1"])]
         self._edge_bg = [z for z in (edge(E) for E in MATHIS_BREAKS) if z is not None]
         self.set_group_energies(tab["egy"][:, tab["egy"].shape[1] // 2] if egy is None else egy)
@@ -483,8 +500,8 @@ class GroupChargingTable:
         lam -= arrive * jt * self._hot("delta", c["T"], i, w) * self._hot("E_bar", c["T"], i, w) * EV2ERG
         return gamma, lam
 
-    # -- the same on arrays of charges (exact_distribution, the WDB06tab nodes); the scalar
-    #    versions above are what RAMSES mirrors
+    # -- the same on arrays of charges (the exact P(Z) at the charging_isrf_tables nodes); the
+    #    scalar versions above are what RAMSES mirrors
     def _u_index_arr(self, U):
         f = np.clip((np.arcsinh(U / U_SCALE) - self.x0) / self.dx, 0.0, self.t["U"].size - 1.0)
         i = np.minimum(f.astype(int), self.t["U"].size - 2)
@@ -558,6 +575,38 @@ class GroupChargingTable:
         mass = np.array([m for _, m, _ in RECOMB_IONS])
         frac = lambda z: np.clip((z + 0.5 - (Z - 0.5 * h)) / h, 0.0, 1.0)  # noqa: E731
         return np.array([np.sum(P * A * frac(z)) for z in self.t["recomb_Zth"]]) / np.sqrt(mass)
+
+    def _recombination_discrete(self, nodes, weights):
+        """Grain-assisted recombination of a discrete P(Z) (charges ``nodes``, ascending, with
+        ``weights`` summing to one): the sum over its window and over the charges below it,
+        with P continued from the window by g, one charge at a time, while those terms can
+        matter. On a positive grain the capture rate rises by up to exp(e^2/akT) per charge
+        towards lower Z, so P A can peak far below the window, at Z <= 0 for a small grain in
+        cold gas. The walk stops at Zmin, or once a bound on all the remaining terms is e^-CUT
+        below each ion's sum (sums below 1e-300 count as 1e-300). The bound is
+        P(Z) A(Zmin) (Z - Zmin): P falls and A rises towards Zmin. There is no floor relative to
+        the geometric rate, unlike _recombination_fit: below such a floor a stopped sum misses
+        the charges that set it, and jumps by ~exp(e^2/akT) wherever the stop moves by one
+        charge. The weights keep the window's normalisation; the tail adds less than
+        DISCRETE_TAIL to it."""
+        t = self.t
+        Zlo, zth = t["Zmin"], t["recomb_Zth"]
+        Z = np.asarray(nodes, float)
+        W = np.asarray(weights, float)
+        S = np.array([np.sum(W * self._capture_z1(Z) * (Z <= z)) for z in zth])
+        lnA_lo = self._ln_capture_z1(Zlo)
+        z, lnP = Z[0], np.log(W[0])
+        for _ in range(MAX_DISCRETE_STATES):
+            if z <= Zlo:
+                break
+            z -= 1.0
+            lnP -= self._g(z)
+            S = S + np.exp(lnP) * self._capture_z1(z)[0] * (z <= zth)
+            bound = lnP + lnA_lo + np.log(max(z - Zlo, 1.0))
+            if np.all(bound < np.log(np.maximum(S, 1e-300)) - RECOMB_CUT):
+                break
+        mass = np.array([m for _, m, _ in RECOMB_IONS])
+        return S / np.sqrt(mass)
 
     def _ln_capture_z1(self, Z):
         """ln of the capture coefficient of _capture_z1, in log form (DS87 with
@@ -890,18 +939,6 @@ class GroupChargingTable:
             sigma, chord = np.sqrt(-1.0 / slope), (lo, hi, glo, ghi)
         return sigma, chord
 
-    def exact_distribution(self, Zs, width, tail=1e-12):
-        """The exact P(Z) of the cell set by the last solve: g on every integer within
-        8 width + 10 of Z*, trimmed where P < tail x its maximum (the reference that
-        the Gaussian of a wide P(Z) approximates). Returns the charges and P."""
-        Z = np.arange(max(self.t["Zmin"], np.floor(Zs - 8 * width - 10)),
-                      min(self.t["Zmax"], np.ceil(Zs + 8 * width + 10)) + 1.0)
-        lnf = np.concatenate([[0.0], np.cumsum(self._g_arr(Z[:-1]))])
-        lnf -= lnf.max()
-        k = lnf > np.log(tail)
-        P = np.exp(lnf[k])
-        return Z[k], P / P.sum()
-
     def _averages(self, nodes, weights, discrete):
         """Gamma, Lambda (+ autoionisation at Zmin) averaged over the charge nodes."""
         gam = lam = 0.0
@@ -1128,7 +1165,7 @@ class GroupChargingTable:
         if recomb is None:
             out["alpha_rec"] = None
         elif discrete:
-            out["alpha_rec"] = self._recombination(nodes, weights)
+            out["alpha_rec"] = self._recombination_discrete(nodes, weights)
         elif recomb == "exact":
             out["alpha_rec"] = self._recombination_exact(Zs, sigma)
         elif recomb == "gauss":
