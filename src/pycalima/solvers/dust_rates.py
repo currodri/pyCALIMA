@@ -954,7 +954,12 @@ def pah_photolysis_rate(
         if rho_pah <= pb.smallr_pah:
             continue
 
-        log_rate = pb.dissociation_interp(log_G0, log_nH)
+        if pb.dissociation_ndim == 4:      # pahchem table: also T and x_e = n_e/nH
+            log_rate = pb.dissociation_interp(
+                log_G0, log_nH, math.log10(max(state.local_Tk, 1.0)),
+                math.log10(max(state.local_ne, 1.0e-30) / max(state.local_nH, 1.0e-10)))
+        else:
+            log_rate = pb.dissociation_interp(log_G0, log_nH)
         rate1 = 10.0 ** log_rate  # [s⁻¹] per molecule
 
         # Mass rate: each dissociation removes 2 C atoms (C₂H₂ ejection)

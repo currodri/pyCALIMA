@@ -197,6 +197,26 @@ class TestPAHTemperature:
         assert np.isfinite(u_high)
 
 
+class TestPAHAcetyleneDissociation:
+    @pytest.mark.parametrize("nc", [52, 418])
+    def test_rate_is_finite_and_non_negative(self, nc):
+        """Nc = 418 (a0 = 10 A) once gave an all-NaN photolysis table."""
+        from types import SimpleNamespace
+
+        from pycalima.models.PAH_photophysics.PAH_photophysics import (
+            compute_acetylene_dissociation_rate,
+            dissociation_parameters,
+        )
+
+        E = np.linspace(4.0, 14.0, 200)
+        wav = 1.2398 / E                                   # micron
+        sigma = np.full_like(E, 1e-21 * nc)                # m^2
+        dist = SimpleNamespace(a0=1e-3, Nc=nc)
+        R = compute_acetylene_dissociation_rate(
+            (wav, sigma, dist, dissociation_parameters['Murga2020']))
+        assert np.isfinite(R) and R >= 0.0
+
+
 # ===========================================================================
 # models/PAH_charge
 # ===========================================================================
@@ -236,6 +256,20 @@ class TestPAHPhotoelectricHeating:
 
         assert recombination_rate_Tielens21(54, temperature) > 0
         assert attachment_rate_Tielens05(54) > 0
+
+    @pytest.mark.parametrize("ne", [1e-3, 1e-1, 10.0])
+    def test_four_state_fractions_obey_detailed_balance(self, ne):
+        from pycalima.models.PAH_charge.PAH_photoelectric_heating import (
+            four_state_charge_fractions,
+        )
+
+        k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2 = 3e-9, 2e-8, 5e-8, 1e-9, 4e-6, 9e-6
+        fm, f0, f1, f2 = four_state_charge_fractions(
+            k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne)
+        assert np.isclose(fm + f0 + f1 + f2, 1.0)
+        assert np.isclose(fm * k_det, f0 * k_att * ne, rtol=1e-12)
+        assert np.isclose(f0 * k_pe_0, f1 * k_rec_1 * ne, rtol=1e-12)
+        assert np.isclose(f1 * k_pe_1, f2 * k_rec_2 * ne, rtol=1e-12)
 
 
 # ===========================================================================
@@ -333,6 +367,169 @@ class TestDustCharge:
         with pytest.raises(KeyError):
             grain_charge_dist(1.0, 100.0, 1.0, "graphite", "7A")
 
+    # Draine & Sutin (1987) Table 1 lists theta_nu / nu, not theta_nu.
+    DS87_NU = np.array([0.5, 1, 2, 3, 4, 5, 10, 20])
+    DS87_THETA_OVER_NU = np.array(
+        [0.4203, 0.5000, 0.5823, 0.6296, 0.6621, 0.6865, 0.7560, 0.8146])
+
+    @staticmethod
+    def _ds87_implementations():
+        from pycalima.models.dust_charge import dust_photoelectric_heating as dph
+        from pycalima.models.dust_charge import shared_physics as sp
+        from pycalima.models.PAH_photophysics import pah_charge_utils as pcu
+
+        J = {
+            "shared_physics.DS87_J_function_scalar": sp.DS87_J_function_scalar,
+            "shared_physics.DS87_J_function_vec":
+                lambda Z, q, a, T: float(sp.DS87_J_function_vec(Z, q, a, T)),
+            "pah_charge_utils.J_function_DS87": pcu.J_function_DS87,
+        }
+        L = {
+            "shared_physics.DS87_lambda_scalar": sp.DS87_lambda_scalar,
+            "dust_photoelectric_heating.DS87_lambda_function":
+                dph.DS87_lambda_function,
+        }
+        return J, L
+
+    @pytest.mark.parametrize("kind", ["J", "Lambda"])
+    def test_ds87_repulsive_factor_matches_table_1(self, kind):
+        """Invert exp(-theta_nu/tau) from each nu > 0 implementation and
+        compare with DS87 Table 1 (theta_nu = nu * tabulated value)."""
+        from pycalima.models.dust_charge.shared_physics import E_STATC, KB_CGS
+
+        a, T, q = 1e-5, 1e4, 1.0
+        tau = a * KB_CGS * T / (q * E_STATC) ** 2
+        J_impls, L_impls = self._ds87_implementations()
+        impls = J_impls if kind == "J" else L_impls
+        for name, fn in impls.items():
+            for nu, ratio in zip(self.DS87_NU, self.DS87_THETA_OVER_NU):
+                if kind == "J":
+                    prefac = (1.0 + 1.0 / np.sqrt(4.0 * tau + 3.0 * nu)) ** 2
+                else:
+                    prefac = (2.0 + nu / tau) * (
+                        1.0 + 1.0 / np.sqrt(1.5 / tau + 3.0 * nu))
+                theta = -tau * np.log(fn(nu * q, q, a, T) / prefac)
+                # the fit 1/(1+nu^-1/2) is good to ~1% against the table
+                assert theta == pytest.approx(nu * ratio, rel=0.02), (
+                    f"{name}: nu={nu}")
+
+    def test_collisional_charge_reaches_spitzer_limit(self):
+        """A large grain in e/p plasma with unit sticking and no field sits at
+        eU/kT = -2.51 (Spitzer 1941; Draine 2011 eq. 25.10)."""
+        from scipy.optimize import brentq
+
+        from pycalima.models.dust_charge.shared_physics import (
+            E_STATC, KB_CGS, ME_CGS, DS87_J_function_scalar,
+        )
+
+        a, T = 1e-4, 1e4
+        mp = 1.67262192e-24
+        kT = KB_CGS * T
+
+        def net(eU_kT):
+            Z = eU_kT * a * kT / E_STATC ** 2
+            J_e = DS87_J_function_scalar(Z, -1.0, a, T) / np.sqrt(ME_CGS)
+            J_p = DS87_J_function_scalar(Z, +1.0, a, T) / np.sqrt(mp)
+            return J_p - J_e
+
+        eU_kT = brentq(net, -200.0, 0.0)
+        assert eU_kT == pytest.approx(-2.51, abs=0.05)
+
+    @pytest.mark.parametrize("grain_type", ["graphite", "silicate"])
+    def test_zmin_follows_wd01_eq24(self, grain_type):
+        """Zmin = int(U_ait a / 14.4 V A) + 1 with int = floor (WD01 eq. 24):
+        a 3.5 A carbonaceous grain can hold one extra electron, not two."""
+        from pycalima.models.dust_charge import shared_physics as sp
+
+        U = getattr(sp, f"autoionisation_potential_{grain_type}")
+        Zmin_fn = getattr(sp, f"most_negative_allowed_charge_{grain_type}")
+        for a in (3.5e-8, 1e-7, 1e-6, 1e-5):
+            x = -float(U(a)) * a / 1e-8 / 14.4
+            assert float(Zmin_fn(a)) == np.floor(x) + 1
+        if grain_type == "graphite":
+            assert float(Zmin_fn(3.5e-8)) == -1
+
+    @pytest.mark.parametrize("grain_type", ["graphite", "silicate"])
+    def test_electron_sticking_vanishes_exactly_at_zmin(self, grain_type):
+        from pycalima.models.dust_charge import shared_physics as sp
+
+        s_e = getattr(sp, f"electron_sticking_coefficient_{grain_type}_scalar")
+        Zmin_fn = getattr(sp, f"most_negative_allowed_charge_{grain_type}")
+        for a in (5e-8, 1e-7, 1e-6):
+            Zmin = int(Zmin_fn(a))
+            assert s_e(Zmin, a) == 0.0
+            assert s_e(Zmin + 1, a) > 0.0
+
+    @staticmethod
+    def _rpe_inputs():
+        from pycalima.models.dust_charge import dust_charging as dc
+        from pycalima.models.dust_charge.shared_physics import EV2ERG, H_CGS
+
+        E = np.linspace(5.0, 13.6, 200)
+        nu = E * EV2ERG / H_CGS
+        J_nu = np.full_like(nu, 1e-20)
+        C_abs = np.full_like(nu, 1e-12)
+        return dc, nu, J_nu, C_abs
+
+    @staticmethod
+    def _flat_yield(nu, Zs, a, params):
+        return np.full((np.size(nu), np.size(Zs)), 0.1)
+
+    @pytest.mark.parametrize("material", ["graphite", "silicate"])
+    def test_rpe_uses_the_given_photodetachment_threshold(self, material):
+        """The material's own threshold reproduces the default; raising the
+        threshold removes photodetachment, so R_pe drops for Z < 0 only."""
+        from pycalima.models.dust_charge import shared_physics as sp
+
+        dc, nu, J_nu, C_abs = self._rpe_inputs()
+        params = {"material": material}
+        Zs = np.arange(-3, 3)
+        own = getattr(sp, f"photodetachment_energy_{material}_vec")
+        ref = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                        self._flat_yield, params)
+        same = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                         self._flat_yield, params, pdt_func=own)
+        np.testing.assert_allclose(same, ref)
+        high = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                         self._flat_yield, params,
+                                         pdt_func=lambda Z, a: 1e3)
+        assert np.all(high[Zs < 0] < ref[Zs < 0])
+        np.testing.assert_allclose(high[Zs >= 0], ref[Zs >= 0])
+
+    @pytest.mark.parametrize("budget", [None, 2 * 8 * 200 * 4, 8 * 200])
+    def test_rpe_per_sr_is_4pi_times_the_mean_intensity(self, budget):
+        """All three memory paths (all-at-once, chunked, streaming) must scale
+        both photoemission and photodetachment by 4 pi."""
+        dc, nu, J_nu, C_abs = self._rpe_inputs()
+        params = {"material": "graphite"}
+        if budget is not None:
+            params["max_tmp_bytes"] = budget
+        Zs = np.arange(-3, 3)
+        iso = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                        self._flat_yield, params)
+        per_sr = dc.compute_Rpe_vectorized(nu, J_nu, C_abs, 1e-6, Zs,
+                                           self._flat_yield, params,
+                                           J_is_per_sr=True)
+        np.testing.assert_allclose(per_sr, 4.0 * np.pi * iso, rtol=1e-12)
+
+    def test_watson_y1_small_grain_limit(self):
+        """For a << l_a, l_e the size enhancement tends to alpha/beta = 1 + l_a/l_e
+        (Watson 1973); X-ray attenuation lengths reach a/l_a ~ 1e-6."""
+        from pycalima.models.dust_charge.shared_physics import Watson73_y1_vec
+
+        la = np.array([1e-6, 1e-4, 1e-2, 1.0])
+        le = 1e-5  # alpha = a/le + a/la <= 1e-3, so the (1 - alpha/4) correction is negligible
+        a = 1e-8
+        np.testing.assert_allclose(Watson73_y1_vec(a, la, le), 1.0 + la / le, rtol=1e-3)
+
+    def test_watson_y1_is_continuous_across_the_series_switch(self):
+        from pycalima.models.dust_charge.shared_physics import Watson73_y1_vec
+
+        la = 1e-5 * np.geomspace(0.5, 2.0, 2001)  # beta = a/la sweeps through 0.1
+        y1 = Watson73_y1_vec(1e-6, la, 1e-7)
+        assert np.all(np.isfinite(y1))
+        assert np.max(np.abs(np.diff(np.log(y1)))) < 1e-3
+
     def test_charging_output_dir_is_writable_and_outside_the_package(self, isolated_env):
         from pycalima import _paths
         from pycalima.models.dust_charge.dust_charging import dust_charging_output_dir
@@ -352,6 +549,25 @@ class TestDustCharge:
         out = dust_photoelectric_output_dir()
         assert _paths.PKG_DIR not in out.parents
         assert out.is_relative_to(isolated_env)
+
+    @pytest.mark.parametrize("mode", ["case_a", "case_b"])
+    def test_both_ion_recombination_paths_agree_on_the_same_distribution(self, mode):
+        """equilibrium_charge_for_grain's rates and compute_ion_recombination_coefficients
+        apply the same WD01 thresholds (case B keeps the corrected sign of Eq. 6)."""
+        from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
+        from pycalima.models.dust_charge.dust_ion_recombination import compute_ion_recombination_coefficients
+
+        ions = [{"name": n, "n": 1e-3, "T": 100.0, "m": m, "z": 1.0}
+                for n, m in (("H+", 1.6726e-24), ("C+", 1.9926e-23), ("Mg+", 4.0359e-23))]
+        a = 1e-7   # 10 A: for C+ at Z = +1 case B forbids the transfer, Eq. 6 as printed allows it
+        Zs, P, rates, _, _ = equilibrium_charge_for_grain(10.0, 0.03, 100.0, "graphite", a, ion_species=ions,
+                                                          recomb_mode=mode)
+        assert P[Zs == 1][0] > 0.05
+        _, ref = compute_ion_recombination_coefficients(Zs, P, a, ions, grain_type="graphite", recomb_mode=mode)
+        np.testing.assert_allclose(rates["ion_recomb_rate_coefficients"], ref, rtol=1e-12)
+        _, ref_a = compute_ion_recombination_coefficients(Zs, P, a, ions, grain_type="graphite", recomb_mode="case_a")
+        if mode == "case_b":
+            assert not np.allclose(ref, ref_a, rtol=1e-6, atol=0.0)   # the threshold is active here
 
 
 # ===========================================================================

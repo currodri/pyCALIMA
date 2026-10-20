@@ -1,0 +1,137 @@
+# Every benchmark and gate reported in docs/physics/pahchem-spec.md, with its verdict (2026-10-19; rows touched by
+# the 2026-10-20 audit fixes updated, see docs/physics/pahchem-audit.md section 5).
+# status: PASS (within the stated tolerance), PARTIAL (in part, or a looser bound), OPEN (fails, strict xfail,
+# unexplained, or not yet run), WITHDRAWN (superseded or withdrawn). line: the spec line of the main statement.
+# Read by plot_briefing_benchmarks.py; regenerate this table when the spec's verdicts change.
+id,milestone,compared,metric,status,cause,needs,line
+andrews16_tableB_definition,M5,sink-free eq.(7) from Andrews' inputs vs Table B.1,C24H12 1.8e-6 vs 1.6e-6 (+0.06 dex); C24H13 1.0e4 vs 6.2e3 (+0.22 dex); C24H3 bracketed -1.9 to +0.8 dex,PASS,C24H3 modes unknown (bracketed by C24H12/C24 modes),-,54
+legacy_rates_vs_andrews16_fig5,M2,"legacy PAHdb k_H, k_H2, k_IR vs digitised Andrews16 curves",within 0.25 dex for the three parents,PASS,-,-,38
+m1_beyer_swinehart_direct,M1,Beyer-Swinehart vs direct count,identical for frequencies on the grid,PASS,-,-,156
+m1_whitten_rabinovitch,M1,Whitten-Rabinovitch vs Beyer-Swinehart,within 2.2 % above ZPE (30 modes); -3 % (C24H12) and -9 % (C54H18) at E=Ez; 5 % target not achievable,PARTIAL,WR error grows with mode number,- (BS used for rates),157
+m1_tmicro_tcan,M1,T_micro/T_can - 1 vs classical 1/(s-1),"positive, below 3 % from 1 eV up, ~1.1/s at 20 eV",PASS,-,-,163
+m1_tielens_ET,M1,U(T)/(3N-6) C54H18 vs Tielens E-T table,1-12 % (was 2-7 % before frequency correction),PASS,-,-,167
+m2_thermal_identities,M2,canonical average of k(E) forms vs thermal laws,A e^{-E0/kT} to 0.2 %; TST to 0.5 % at 500-2000 K,PASS,RRKM identity needs Q on grid-rounded frequencies,-,184
+montillaud13_fig3,M2,"coronene k(E) (A=6.8e17, E0=4.8 eV) vs Montillaud Fig.3",near-constant -0.11 to -0.26 dex,PASS,Malloci modes (theirs) vs PAHdb neutral modes (ours),-,189
+andrews16_fig5_c24_c54,M2,H/H2-loss k(E) >1.5 eV above threshold vs Andrews Fig.5,"median |Delta| = 0.05-0.17 dex, maximum 0.58",PASS,-,-,195
+andrews16_fig5_c96,M2,C96 k(E) vs Andrews Fig.5,uniformly ~0.4 dex high (strict xfail); was ~0.2 dex before frequency correction,OPEN,unexplained; not the mode version (PAHdb v2.00 gives 0.03-0.06 dex more),-,196
+m2_legacy_consistency,M2,rates vs legacy pah_mol_data on same modes,agree to 1e-6 dex,PASS,-,-,201
+jochims94_tab1_eq1,M2,transcribed Jochims Tab.1 vs their eq.(1),holds to <= 0.05 eV,PASS,-,-,223
+west18_rrkm,M2,rates.rrkm with West ESI frequencies + Tab.1 E0 vs West k(E),"7 reactions, median 0.0002-0.01 dex over 10 eV; degeneracies 1,2,6",PASS,"remaining reactions' spreadsheets imply E0 0.02-1.7 eV from Tab.1, excluded",-,227
+west18_ts_convention,M2,transition_state_for_entropy(n_scaled=5) vs West TS frequencies,to 2 %,PASS,-,-,233
+jochims94_rrk_tab2,M2,"rates.rrk (nu=1e16, E0=2.8 eV) vs Jochims Tab.2 E_int, E_crit",to the printed 0.01 eV,PASS,-,-,237
+west18_vs_jochims94_threshold,M2,West k=1e4 energy vs Jochims E_int,pyrene +1.42 eV; fluoranthene +0.73 eV; coronene +1.22 eV; West rates 1e2-1e3 s^-1 at Jochims E_int,OPEN,"~1 eV laboratory systematic, larger than quoted errors",- (carry as E0 uncertainty in M5),241
+m3a_cooling_exact,M3,exact microcanonical emission vs one-oscillator / thermal approx / legacy,one oscillator nA exactly; below thermal by 5 % at 1 eV and 0.1 % at 40 eV; thermal = legacy,PASS,-,-,266
+andrews16_fig5_kIR,M3,(dE/dt)/E vs Andrews Fig.5 k_IR,to 0.26 dex,PASS,-,-,269
+m3a_energy_me_balance,M3,energy_me absorbed vs radiated+carried off; low-G0 vs single-photon,exact to 1e-6; steady state = single-photon to 1 %,PASS,-,-,276
+andrews16_coronene_single_photon,M3,coronene single-photon regime vs Andrews' statement,single-photon to 2 % up to G0=1e5,PASS,-,-,283
+m3b_montecarlo,M3,Gillespie MC vs energy_me,"per-photon |z| < 1; deep multiphoton MC/ME = 0.95-0.99 (z = -0.8, -0.1)",PASS,-,-,296
+wenzel2020_yield_law,M3,photo.yield_wenzel2020 vs Wenzel vector Fig.9,every vertex to 2e-3; beta = measured 20 eV branching to 0.03,PASS,paper: text +19 %/-14 % vs plotted curves +25 %/-11 %,-,306
+wenzel2020_rate,M3,int sigma_LD01 Y F vs measured int sigma_I F (9.5-13.6 eV),"Jochims ramp 0.56-0.97, rms 0.14 dex; Wenzel eq.4 0.66-1.30, rms 0.09 dex",PASS,partly compensating: LD01 sigma 1.1-1.5x TD-DFT; eq.4 8-18 % below Fig.8,-,314
+m3d_rf_detailed_balance,M3,<k_n>_T vs A_n (g_n/g_0) e^{-E_n/kT},to 2e-3 at 600-2000 K,PASS,-,-,347
+borja2026_fig8,M3,"RF rates Np+, An+, Py+ vs Borja Fig.8","allowed (D2,D3) within 0.18 dex; forbidden D1 -0.14 to +0.49 dex",PARTIAL,"their excited-state modes, Duschinsky rotation, Herzberg-Teller dipoles",-,351
+storage_ring_rf,M3,"RF cooling vs Martin+13, Bernard+23, Subramani+25 storage rings",not yet done,OPEN,needs decay-curve model,authors' inputs (paywalled); no coronene+ RF measurement,405
+mennella12_abstraction,M4,Mennella+12 abstraction cross section vs Andrews eq.(10),to 1 %,PASS,-,-,429
+m4_network_invariants,M4,"capture ordering, T^-1/2, probability conservation, H flux, four-state chain, G0/n_e scaling, H2 balance",all pass (qualitative/exact),PASS,-,-,430
+m4_wd01_crosscheck,M4,charge balance vs WD01 solver in dust_charge,not done,OPEN,-,-,441
+montillaud13_fig10,M5,C54H18 total-dehydrogenation contours vs Montillaud Fig.10,"parent modes +1.5/+1.2 (+1.24 at nH=1276)/+1.0 dex (10/50/90 %); stripped variant +0.84/+0.59/+0.28 after audit fix C1 (was +0.60/+0.35/+0.00, partly the stripping artefact)",OPEN,unpublished Malloci frequencies (scaled or not) and MC k_IR(E),Montillaud mode sets and k_IR; T1.1 per-state modes,462
+montillaud13_Eth_coronene,M5,E_th (k_diss=k_IR) coronene vs Montillaud,10.25 eV vs 9.6 eV (test passes),PASS,-,-,473
+montillaud13_Eth_c54,M5,E_th C54H18 vs Montillaud,19.5 eV vs 17 eV (strict xfail); cation modes give 20.3 eV,OPEN,their C54 k(E) ~10x faster or k_IR slower; unpublished inputs,Montillaud modes and k_IR,474
+montillaud13_contour_slope,M5,Fig.10 contour slope,~1.4 vs ~1.5,PASS,-,-,486
+andrews16_tableB_eq7,M5,"eq.7 with sink-free energy_me G_n (Kurucz 15000 K, all absorptions heat) vs Table B","-0.2 dex (C24H12), +0.1 (C24H13), -0.3 to +0.4 (C54H18), -0.5 (C96H24); C96H25 +2.3 dex; without ionising heating -0.5 to -1.5 dex",PASS,C96H25 off but P_H=1 either way,-,506
+andrews16_fig7_ngc7023_hydrogenation,M5,C54H18 hydrogenation through NGC 7023 NW vs Andrews Fig.7,"ours >= 97 % normally hydrogenated vs N_H=16 at 0.19 (edge), 0.11 (A_V=2); needs eff. H2 loss ~1e-9 vs 2e-11 s^-1 from Table B; acts as if k_IR ~1e3 smaller",OPEN,eq.8 underspecified: weighting of cold part of G near T_i=3-20 K,"Candian/Tielens: G_n normalisation, T range in k_IR of eq.8",520
+andrews16_fig8_charge,M5,charge fractions vs gamma vs Andrews Fig.8,"shape right; ours more neutral/anionic, like theirs at 2-3x lower gamma",PARTIAL,Malloci vs Li & Draine sigma; their Allamandola s_e vs our s_e=1,Andrews s_e values,531
+murgawiebe22_fig1_pE,M5,four rate forms through pahchem multiphoton P(E) vs MW22 Fig.1 (C66H20),RRK within 0.7 dex; other three differ by 1.6-5 dex (e.g. Arrh.2 chi=1e4 +1.4 vs ~-3.6),PARTIAL,originally ZPE/T_e conventions; later SHIVA work attributes the gap to the T(E) relation,-,563
+electron_recombination_lab,M4,measured C6-C16 cation recombination vs capture with s_e=1,"0.03-0.35, rising with N_C, ~1 near N_C~20; WD01 s_e+~0.1 underestimates pyrene+ by 2.4x",PARTIAL,no data above C16 or for dications,measured recombination of large PAH cation,648
+attachment_detailed_balance,M4,thermal <k_d> vs capture x Saha constant (30 modes),to 6e-4,PASS,density window needed (else up to 70 % flux lost),-,680
+attachment_vs_literature,M4,statistical s_e coronene vs Carelli13 / Andrews16,"s_e = 4.2e-3, 2.5e-3, 2.7e-4 at 30, 100, 1000 K; Carelli ~4e-3; 300 K thermal 4.6e-6 vs Andrews 1e-5",PASS,-,-,687
+khatymov11_autodetachment,M4,autodetachment lifetimes vs Khatymov+11,"tetracene- 3-5 ms vs 12 ms; pyrene- 4 ns (eta=1) vs 29 us, ~20 us with eta~2e-4",PARTIAL,"consistency check only (non-exponential decays, window dependent)",-,709
+m6_gth_precision,M6,GTH steady state vs exact chain / local balance,150-decade chain to 2e-15; every baseline state balances to 3e-16; energy_me/SHIVA bins <= 1e-12 down to P~1e-60,PASS,old linear solve floored at ~1e-16 (fixed),-,812
+m6_end_to_end,M6,calima-run pahchem rates vs engine; RAMSES single-cell,not yet run; RAMSES reader not written,OPEN,-,-,822
+m7a_emission_energy,M7,cascade photon energy vs E; steady state vs power,"< 150 cm^-1 left (66 cm^-1 C24H12 at 8 eV); radiated to 1e-9, absorbed to 1e-3",PASS,-,-,841
+m7a_mc_cascade,M7,3000 Gillespie cascades C24H12 at 6 eV vs exact,every band within 1.5 %,PASS,-,-,845
+amespahdb_cascade,M7,exact cascade vs AmesPAHdb Transitions.cascade,"freqs to 0.005 cm^-1; 4-12 eV all bands but 3.3 um to 1 % (far-IR 4 %); 3.3 um ratio 0.84-0.995 (C24), 0.75-0.99 (C54)",PASS,3.3 um difference is expected thermal-approx physics,-,852
+thermalcascade_suite,M7,ThermalCascade vs Python suite Transitions.cascade,to 5e-4 per band,PASS,-,-,882
+maragkoudakis2020_fig2,M7,"per-molecule ISRF band ratios vs M20 Fig.2 (120 neutral, 116 cation, 35 anion)","median log(ours/paper) = +0.001 each, at most 0.002-0.004",PASS,"needs suite sigma; LD01 gives +0.03-0.05 dex, energy weighting -0.12 dex",-,889
+maragkoudakis2020_size_cal,M7,11.2/3.3 at 6-12 eV vs eq.3 fits (Tabs F9-F12),"-0.007 to -0.028 dex (median, N_C >= 50)",PASS,-,-,897
+maragkoudakis2020_binned,M7,charge-size grid and binned points,not reproduced,OPEN,"bin edges and mixture weighting not stated; Fig.2 has non-sample C28 cation, C22 cation at 2.23",-,899
+rigopoulou2021_fig1,M7,thermal cascade UID 742 C210H36 vs Fig.1 peaks,1.6 % rms with FWHM 15 cm^-1; stated 30 cm^-1 gives 12.8 %,PASS,text states wrong FWHM,-,907
+rigopoulou2021_binned,M7,binned diagnostics Figs.5-11,cannot be reproduced,OPEN,"CASSIS fits, inconsistent bins, wrong UIDs in Tab.A1, 17 unpublished DFT spectra, contradictory figures","author answers (card, data-requests)",911
+rigopoulou2021_fig8_window,M7,window-based Fig.8 ratios,small-bin 11.3/3.3 0.64/0.43/0.33/0.27 vs 0.68/0.52/0.35/0.27; small-bin 11.3/7.7 2-4x theirs; large bin 0.75-3,PARTIAL,as above,authors,918
+m7b_family_energy,M7,family emission vs absorption C54H18,to 6e-16,PASS,-,-,954
+pdrs4all_least_ionising,M7,C96 family at gamma=6e3 vs Orion Bar atomic PDR ratios,6.2/11.2 1.0 vs 0.96; 8.6/11.2 0.75 vs 0.87; 11.0/11.2 0.10 vs 0.12; 3.3/11.2 0.32 vs 0.29,WITHDRAWN,families used raw DFT CH stretch (audit C7) and the observation over the Chown spline (review C1); after C7 C96 3.3/11.2 is 0.18-0.20 at the DFs (x1.5-1.7 low),-,1072
+pdrs4all_charge_balance,M7,model charge range vs observed charge-sensitive ratios,"cation fraction 0.2-0.3 to 0.95-1.0, 6.2/11.2 ~1 to 20-500 across stated gamma; all observed inside",OPEN,stated conditions too wide to test,"per-template conditions (maps, PDR-model fits)",1065
+pdrs4all_robust_misses,M7,"7.7, 12.7, 3.3 bands vs Orion Bar","after audit fixes C1, C7: C54 3.3/11.2 0.35-0.52 at the DFs (ok), x1.7-2.1 high in HII/Atomic; C54 12.7/11.2 x1.5-1.7 low; C96 3.3/11.2 x1.5-1.7 low at the DFs",OPEN,"compact parents: solo/duo 0.5-1, no trio H vs Khan+25 solo/duo ~15, solo/trio ~1.5","re-score against the spectral-fit decomposition (Chown spline mismatch, review C1)",1085
+pdrs4all_34_329_c96,M7,C96 3.4/3.29 atomic PDR vs Peeters+24,0.02-0.04 vs 0.09; DFs rise via super-H,OPEN,carriers: methyl groups per Chown+24/Pasquini+24,-,1093
+m7d_bandratio_population_gamma,M7,band-ratio NNLS population fit chi2 and gamma vs templates,"chi2 = 6-31 (least ionising), 32-148 (most ionising); 'stated conditions not all allowed'",WITHDRAWN,C1: observed bands over Chown spline vs raw model windows,-,1162
+m7d_bandratio_NC,M7,band-ratio <N_C> vs templates / M26,"<N_C> ~90-110; without 3.3: HII 78/70, Atomic 111/71, DF1 100/69, DF2 86/63, DF3 52/62",WITHDRAWN,C1 measurement mismatch,-,1170
+m7d_bandratio_misses,M7,population fit misses,12.7/11.2 under 1.3-2x (~3x local); 8.6/11.2 over 10-35 %; 3.3/11.2 10-25 % (spline) / 40-80 % (local) high,WITHDRAWN,C1 (band-ratio fits withdrawn wholesale),-,1174
+m7d_edge_structure,M7,"fitted solo/duo, solo/trio, solo/quartet vs Khan+25","0.6-1.2, 4-9, >~5 vs 14-17, 1.5, 22-46",OPEN,"band assignment model-dependent (duo oop in 11.2 window: ovalene 51 % vs 25 %, C54H18 58 % vs 4 %); 'open, not a contradiction'",-,1179
+maragkoudakis2026_table1,M7,rebuilt pyPAHdb pipeline vs M26 Table 1,f_neut within 0.04; f_cat 0.03-0.07 low; N_C within 1-5; inferred baseline rms 0.046 dex,PASS,"Table 1 averages per-pixel fits, templates are pixel averages",-,1210
+maragkoudakis2026_matrix_columns,M7,pahchem-rebuilt columns vs pyPAHdb v4.00-alpha matrix,"20/40 exactly from v3.20, 9 from v4.00, 11 (mostly dications) match neither; < 1e-3 of peak",PARTIAL,matrix mixes levels of theory,-,1220
+maragkoudakis2026_gamma_D1_D3,M7,constrained cation shares and gamma vs M26,cations 0.36-0.51 vs 0.47-0.60; gamma ~5e3 vs M26 ~4e4,WITHDRAWN,C1 (D1-D3 withdrawn),-,1251
+ip_ea_calibration,M7,PAHdb v4.00 IP/EA vs Malloci and measured,"IP1 -0.22 eV vs Malloci (scatter 0.01), -0.62 eV (-0.48 to -0.70) vs measured (16 mol.); EA -0.39 eV; IP2 -0.14 eV vs Malloci, Malloci - measured ~-0.5 eV",PARTIAL,6-31G* without diffuse functions underbinds; shifts +0.37/+0.60/+0.64 eV applied,-,1270
+recombination_vs_bt94,M7,measured PAH+ recombination (300 K) vs BT94,"0.03-0.37 (median 0.15; N_C <= 16); ~N_C^1.15, ~2 at N_C~100 extrapolated",OPEN,no measurement above N_C=16,measured recombination for a large PAH cation,1279
+charge_scan_gamma_tables,M7,"gamma scans (IP shift, yields, capture x0.3/x3, lab trend)","e.g. capture x3 best gamma 1.8-2.7e4, allowed <~3-10e4",WITHDRAWN,C1 measurement mismatch,-,1285
+lab_band_strengths,M7,DFT v4.00 vs matrix-isolation band ratios (59 species),"CC/oop DFT/lab 1.2x (n 35), 1.3x (cations, n 19); contrast -0.02 dex; CH in-plane 0.16 dex weaker; CH stretch/oop 2x too strong (+0.29 dex)",PARTIAL,DFT CH stretch too strong (stretch_scale 10^-0.29 adopted),-,1300
+plateau_carriers,M7,opening-metric plateau share models vs templates,templates 0.70-0.84/0.62-0.77/0.57-0.70 vs best fits 0.89-0.91/0.84-0.85/0.68-0.74,WITHDRAWN,metric scores a single Lorentzian at 0.48 (counts wings),-,1393
+review_intact_filter,M7,single-step intact filter vs network,C54H18 0.87 vs 0.00,WITHDRAWN,wrong near threshold; replaced by per-cell chain in Step 2,-,1397
+spectral_fit_synthetic,M7,spectral_fit recovery of synthetic population + continuum,to 3 % in band ratios,PASS,-,-,1416
+spectral_fit_step1,M7,"full-spectrum fits, old intact filter",rms 15-32 %; best gamma 5e4-2e5; cations 0.89-0.97; <N_C> 75-86,WITHDRAWN,superseded by Step 2 corrections; structured residuals from band-profile model,-,1418
+spectral_fit_step2,M7,corrected shape-fitted spectral fits vs 5 templates,rms 0.048/0.102/0.091/0.067/0.055; best gamma 9.8e3-1.1e4; cation share 0.48-0.51 of the emitted power (0.55-0.61 counted photon heating only; audit C6); <N_C> 81-87; Lorentzian rms 0.049-0.109,PARTIAL,"residuals: 3.40 um aliphatic band, 3.25 shoulder, Atomic 8.6 um; uncertainties uncalibrated (step 3)",-,1452
+mai2025_profiles,M7,fitted band shape vs Mai+25 MLMD T laws; pyrene vs de Bentzmann+26,pyrene 11.9 um slopes to ~25 %; CH -28 and oop shifts consistent; CC blue shift +15 to +18 cannot be thermal,PARTIAL,"CC shift points to carriers (cations, N substitution); MLMD neutrals only, D=1, classical T",authors (data requests); CosmicPAH-IRDB lab slopes,1498
+aliphatic_free_fit,M7,full fit with aliphatic species free vs 3.4 um complex,off-edge H <= 0.3 %; residual 0.20-0.33 of mean; intermediate aliphatic fractions 3-23 % of H,WITHDRAWN,continuum sag and NNLS 3.29 trap,-,1550
+emission_by_energy,M7,emission_by_energy vs cascade_photons,exact; energy closes to 0.1 %,PASS,-,-,1575
+aliphatic_34_twostep,M7,two-step refit 3.36-3.60 um residual vs templates,"e.g. DF3 0.67 -> 0.54 (symmetric), 0.56 -> 0.50 (Demyk); aliphatics carry 9-18 % of 3.2-3.36; library ceiling 0.008 (median) vs observed 0.35-0.51",OPEN,carriers missing: few large methyl/CH2 PAHs with cations; aliphatic per-bond intensities ~half Yang2020,carrier spectra (data requests),1595
+demyk26_pyrene_laws_population,M7,Demyk lab T laws applied to population 3.29 band,"~11 cm^-1 too blue, too narrow (observed FWHM 37-42 cm^-1)",OPEN,pyrene laws do not transfer,-,1617
+ere_test,M7,RF ERE efficiency vs observed,eta 0.35 % vs >= 10 % (diffuse); 22 % vs 4.7 % (IC 63); 9 % vs 0.2-0.6 % (NGC 7023); 100 % vs 0.4-1.3 % (Orion); ERE/IR 2.3 % vs 1.6 %; 29 % vs <~6 %,OPEN,wrong trend: eta follows cation fraction; rests on low-lying states of dehydrogenated cations (eta < 1e-4 if RF only at N_H >= N_H0),T3 excited states of dehydrogenated cations,1656
+lepage01_fig9_via_montillaud,M5,two-frequency RRKM coronene k(E) vs Le Page Fig.9,+-0.12 dex only with path degeneracy 12,PASS,degeneracy not stated,-,1708
+allain96_level0,M5,"Allain conventions, eq.11, eq.9, Set 1 field",benzene+ 1.0e-6; Set 1 = draine1978 to 0.13 %,PASS,-,-,1740
+allain96_I_tab5,M5,photoionisation vs I Table 5,-0.11 to +0.03 dex (C14-C32),PASS,-,-,1746
+allain96_I_tab4,M5,dissociation vs I Table 4,C14-C24 within 0.09 dex; C32 -0.22 dex,PASS,-,-,1747
+allain96_I_tab4_pah50,M5,PAH 50 C dissociation vs I Table 4,-1.35 dex (strict xfail),OPEN,"'multi-quanta neglected' reading of k_IR above 24 C (audit: N_H0 would need 15-16, below the compact minimum)",-,1748
+allain96_II_tab5_single,M5,single-state destruction times and critical sizes vs II Table 5,"<= 0.37 dex; critical 39-46 C (UIR), 64 C (warm diffuse) vs 40-55 C",PASS,-,-,1750
+allain96_II_tab5_network,M5,network-mean destruction times vs II Table 5,1-2 dex shorter (strict xfail),OPEN,our steady state more dehydrogenated; their own text agrees with ours,-,1753
+allain96_II_tab2_3_set2,M5,rate tables in Set 2 field vs II Tables 2-3,C14-C24 within 0.23 dex; PAH 50/100 C -1.2 to -1.4 dex normal; dehydrogenated -0.5 to -1.1 dex after audit fix C1 (the earlier 'within 0.2' was the stripping artefact),PARTIAL,'multi-quanta neglected' reading (occupation factor kept gives PAH 50 C -0.1 to -0.34); not N_H0,-,1758
+allain96_II_fig7,M5,ionised fraction vs II Fig.7,"C10-C32 within 1-5 points (Orion), 1-2.5 (NGC 7027); log-odds residual = I Tab.5 residual to 0.06 dex",PASS,-,-,1768
+allain96_II_fig7_large,M5,PAH 50/100 C ionised fraction,+9 and +10 points (strict xfail); 1 point without LD sigma excess,OPEN,Li & Draine sigma makes photoionisation 0.2 dex high,-,1773
+allain96_II_fig10,M5,hydrogenation vs II Fig.10 (>= 24 C),"within 1.6 points (Orion), 3.4 points (NGC 7027)",PASS,-,-,1779
+allain96_II_fig10_small,M5,10-16 C Orion hydrogenation,"15-19 points (neutral), 10-16 points (cation) too dehydrogenated (strict xfail)",OPEN,factor ~2 in H-loss/H-addition; intermediate states' unstated C-H mode removal and band-A scaling,-,1783
+lepage01_coronene_kE,M5,"coronene, benzene+, anthracene+ k(E)",coronene -0.07 to +0.15 dex; benzene+/anthracene+ within 0.14 dex,PASS,needs path degeneracy 12,-,1796
+lepage01_naphthalene,M5,naphthalene+ k(E) vs Table 2,"strict xfail: 4.5 eV fails, ~4.2 eV would work",OPEN,Table 2 E0,-,1799
+lepage01_appendix_c50,M5,C50 example fractions,"0.578/0.268/0.155, only if C50H21+ recombination is dissociative",PARTIAL,unstated assumption,-,1801
+lp03_fig4_tab2_rates,M5,charge fractions from LP03 Tab.2 rates; our rates vs Tab.2,within 0.015; rates within 1.5 %,PASS,-,-,1804
+lp03_fig4_own_sigma,M5,charge with LP01 Fig.11 sigma,"ionisation 1.06-1.34x high; fractions off up to 0.07 (strict xfail; 0.13 with LD); eV yield form 0.96-0.99x (C16-C32), 0.72-0.82x (C50-C100)",OPEN,yield units (um^-1 vs eV) and unstated IPs,-,1807
+lp01_fig10,M5,photodissociation vs LP01 Fig.10,PAH/PAH+/PAHH/PAHH+ within 0.21 dex (6-150 C); XdPAH within 0.13 dex to 24 C; 2(N_H-y) degeneracy +0.22-0.29 dex,PASS,Fig.10 fixes 2 previously unstated inputs,-,1819
+lp03_fig7,M5,H loss vs size,cation rate within 0.13 dex (14-32 C),PASS,-,-,1827
+lp03_fig6,M5,"C2 loss, C+ insertion size","16.2 C vs 18.1 C (figure), 18-20 C (text)",PARTIAL,"assumed TS (one C-C removed, two scaled)",-,1828
+lp03_c2h2,M5,C2H2 curves,"4.5 eV fits C14-C16, 6.0 eV C28 cation, not pyrene at 5.5 eV; recorded, not gated",OPEN,per-size E0 and charge not stated,-,1833
+lp03_fig9,M5,hydrogenation vs LP03 Fig.9 card readings,C50H20+ 0.60 vs ~0.6; C80H24+/H25+ 0.58/0.26 vs 0.6/0.27; C32H14+/C32H14 0.50/0.33 vs 0.45/0.37,PASS,figure not digitisable (+-0.03),-,1838
+lp01_tab1,M5,LP01 Table 1 columns,"two-frequency within 0.25 dex; RRK column needs E0 ~0.7 eV, not stated value",PARTIAL,stated RRK E0 inconsistent,-,1844
+murga_vector_extraction,M5,vector-digitised M20 Fig.4 / M22 Fig.6 vs stated values / Figshare,"ticks <= 1e-4 dex; full destruction N_C/2 to 0.01 %; T_gas, n_H median -0.001 and -0.003 dex",PASS,-,-,1869
+murga22_figshare_fZ,M5,"WD01 chain f(a,Z) vs M22 Figshare","PDR1 -0.04/0.13/92 %; PDR2 -0.03/0.05/96 %; DF -0.00/0.03/100 %; MC -0.00/0.03/100 % (median dZ, max df, modal agree)",PASS,"inferred config: s_e=1, MMP83 shape, no C+, Zmin as printed, Z=-2..9",-,1884
+murga22_hii,M5,HII region <Z> vs M22,"-0.97 without EUV (strict xfail); Kurucz 40 kK EUV x4: within 0.06 in <Z> up to 14.2 A, max |df| 0.11",PARTIAL,O6 EUV spectrum/normalisation not stated (x4 inferred),-,1898
+murga20_fig3,M5,66 integer <Z> vs M20 Fig.3,"48/66 with M22 config, best 57/66 (strict xfail)",OPEN,papers ran different charge conventions (Zmin floor); Orion C128H28 +2 not reproduced,-,1910
+shiva_inputs,M5,DL01 T(E) vs DL01 Fig.7; WD01a yield vs M19 Fig.2,0.004 dex; 0.0012,PASS,-,-,1934
+mw22_fig1_rrk,M5,SHIVA RRK vs MW22 Fig.1,within 0.33 dex at chi >= 100; -1.4 dex at chi=1 (strict xfail),PARTIAL,chi=1 probes p(E) tail: continuous cooling vs their MC,-,1939
+mw22_fig1_arrhenius,M5,Arrhenius forms vs MW22 Fig.1,"with Tielens T_m: H +0.6 dex, C <= 0.1 dex at chi=100; with DL01 1.6-3.4 dex off (strict xfail)",PARTIAL,T(E) relation (DL01 5-10 % hotter at 10-14 eV); explains M5 3-5 dex gap,-,1944
+mw22_fig1_laplace,M5,Laplace form vs MW22 Fig.1,-2 to -4 dex (bound test),OPEN,rho(E) convention (fewer modes or ZPE),-,1952
+murga22_step_ratio,M5,second/first step ratio vs Figshare,1.257 (DL01) vs 1.250; Tielens 0.787; time-averaged reading ~12 dex off,PASS,-,-,1967
+murga22_deepmc_rate,M5,deep-MC step rate vs Figshare,"theirs 0.70-1.16x ours after audit fixes C2, C3 (was 0.87-1.44x); 1.22-2.02x without C2H2 hydrogen",PARTIAL,factor grows with depth: field shape possibly changing inward (not stated),-,1994
+murga22_33A_dehydro,M5,3.3 A dehydrogenation at 1e5 yr,within 0.03 in every region (0.07 without C2H2 H),PASS,-,-,1997
+murga22_superh_6A,M5,PAHs >= 6 A super-hydrogenation vs Figshare,after audit fix C3 (rates read from the Figshare chains): PDR 1/DF/MC within +0.00 to +0.05 in <X_H/X_H0> (was +0.12 to +0.49); PDR 2 +0.12 to +0.17 at 6-8.7 A (strict xfail),PARTIAL,"M20 rates as printed differ from the files (bin step 0.5 N_H0, 2-H Eley-Rideal, addition laws); PDR 2 top neutral bin unexplained",authors: confirm the bin step and the 2-H Eley-Rideal; PDR 2 super-H loss,1999
+murga20_full_destruction,M5,Orion A_V=0.1 Z=0 trajectories,all 20 parents N_C/2 to 0.1 %; C150H30 dies at 1.6e3 yr (DL01) vs 1e4 yr Figshare (Tielens 24 yr); LSODA = Euler to 1e-8,PARTIAL,-,-,2019
+murga20_partial_destruction,M5,partial destruction vs M20 Fig.4 (140 points),"1-4 dex above; rms 2.53 dex, median +2.45 (strict xfail)",OPEN,super-H channel ~1e12x faster; threshold handling not published,authors,2024
+murga20_competition,M5,channel competition (M19 eq.B2) vs Fig.4,1.16 dex rms (median +0.06); but A_V=0.1 neutrals N_C >= 110 short of destruction by 0.6-1.3 dex (strict xfail),OPEN,competition rejected by M22 chains; default independent,authors,2032
+murga_pE_conflict,M5,p(E) reading M20 Fig.4 vs M22 Figshare,M20 needs time-averaged (post 1e4x too fast); M22 needs post-absorption (time-avg ~12 dex off); M20 time 1.16 vs post 4.40 dex,OPEN,SHIVA changed or unstated definition,authors,2040
+crispy_secondary_checks,CR,"CRISpy secondary e- spectrum vs ESTAR S(>e), Ivlev+21, Padovani+26","0.98-1.00 at 10-30 keV, 1.18-1.26 at 1 keV; zeta_sec/zeta_prim 0.75-0.94 (L), 0.85-0.95 (H) vs 0.8-1.1; B/C excitation within 4 %",PASS,"1 keV: cascade electrons, CRISpy low-energy loss; not yet used in collisions",-,2105
+cr_trk_sum_rule,CR,df/dW TRK sum rule,1-4 % (C14-C96); I = 59 eV,PASS,-,-,2133
+cr_gate_G1,CR,Bethe stopping vs NIST polystyrene (PSTAR/ASTAR/ESTAR),"within 1-7 % (1-100 MeV/u p, alpha; 10 keV-1 GeV e-)",PASS,-,-,2135
+cr_slow_electron_stopping,CR,stopping with Kim2001 factor vs Joy (1995) carbon,within 15 % above 80 eV; 1.35x at 50 eV; 2.3x at 30 eV (confidence D),PARTIAL,slow-electron regime,-,2145
+beb_hf_reference,CR,own BEB(HF) vs Krishnadas+24 Tab.4; vs OVGF Appl.Sci.2025,anthracene 28.5 vs 28.1 A^2; pyrene 31.6 vs 31.0 A^2; 6-31G vs cc-pVDZ 0.1 %; OVGF 12-15 % higher,PASS,OVGF spread = reference systematic,-,2155
+cr_gate_G2,CR,impact sigma_ion / BEB(HF),"after audit fixes C5, C4: model/BEB 0.99-1.41 (anthracene), 1.10-1.55 (coronene), 1.39-1.80 (C54H18) over 15 eV-5 keV (was 1.28-2.58)",OPEN,remaining ~1.2-1.4x at keV: Li & Draine dipole strength (audit P2),decision: BEB for dz=+1 or a sigma scale; measured PAH VUV ionisation,2148
+cr_convolution,CR,multi-collision Poisson/convolution,conserves crossings and collisions (tested),PASS,-,-,2210
+cr_gate_G4,CR,micelotta2011 runner vs Micelotta+11 Sect.7.1 and Tab.2,"crossover N_C 152 vs ~150 (f=0.5), 319 vs ~280 (f=1); Tab.2 electron lifetimes to 4 % only without the 0.5 orientation factor of eq.31",PASS,eq.31 factor recorded as card discrepancy,-,2243
+cr_lifetimes_vs_micelotta11,CR,"lifetimes with their spectra, f=1","20 Myr (C54), 40 Myr (C96)",PARTIAL,no verdict stated,-,2260
+cr_vs_chabot2020,CR,Coulomb-explosion lifetime C54H18 vs Chabot+20,"explosions alone 5e8 yr (L, N(H2)=1e22) vs 'billions of years'",PARTIAL,total shorter from statistical C loss of sub-explosion deposits,-,2262
+cr_chabot_threshold_c24,CR,Chabot criterion vs lab coronene dications,criterion explodes C24H12 dications; lab ones stable,OPEN,C60-scaled threshold 4 N_C/60,laboratory anchor for threshold,2240
+cr_emission_old,CR,earlier CR/UV 3.3/11.2 (emission stopped at first dissociation),x1.3-1.4 (now x1.65-1.78),WITHDRAWN,dropped hot tail above 40 eV,-,2297

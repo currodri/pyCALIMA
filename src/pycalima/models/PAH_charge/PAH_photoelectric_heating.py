@@ -550,6 +550,27 @@ def ionisation_rate(IP,sigma_ion,I,E):
     
     return k_pe
 
+def four_state_charge_fractions(k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne):
+    """Steady-state fractions of a Z = -1, 0, 1, 2 chain.
+
+    Detailed balance between neighbours:
+    ``f_-1 k_det = f_0 k_att ne``, ``f_0 k_pe_0 = f_1 k_rec_1 ne``, ``f_1 k_pe_1 = f_2 k_rec_2 ne``.
+
+    Returns:
+        tuple: (f_anion, f_neutral, f_1, f_2), normalised to sum to 1.
+    """
+    f_anion = 1. / (1. + k_det / (k_att*ne) +
+                    k_det * k_pe_0 / (k_att*k_rec_1*ne**2.) +
+                    k_det * k_pe_0 * k_pe_1 / (k_att*k_rec_1*k_rec_2*ne**3.))
+    f_neutral = 1. / (1. + k_att*ne / k_det + k_pe_0 / (k_rec_1*ne) +
+                      k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
+    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) +
+                k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
+    f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) +
+                k_att*k_rec_1*k_rec_2*ne**3. / (k_det*k_pe_0*k_pe_1))
+    f_tot = f_anion + f_neutral + f_1 + f_2
+    return f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
+
 def power_absorbed(sigma_abs,I,E):
     """Compute the power absorbed by each PAH molecule.
 
@@ -716,26 +737,9 @@ def compute_heating_efficiency(args):
     # print('k_pe_1',k_pe_1)
 
     
-    # 10. Fraction of Z=-1
-    f_anion = 1. / (1. + k_det / (k_att*ne) + \
-                    k_det * k_pe_0 / (k_att*k_rec_1*ne**2.) + \
-                    k_det * k_pe_0 * k_pe_1 / (k_att*k_rec_1*k_rec_2*ne**3.))
-    
-    # 11. Fraction of Z=0
-    f_neutral = 1. / (1. + k_att*ne / k_det + k_pe_0 / (k_rec_1*ne) + \
-                    k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
-    
-    # 12. Fraction of Z=1
-    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) + \
-                k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
-    
-    # 13. Fraction of Z=2
-    f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
-                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
-    
-    # 14. Check that all fractions add up to 1
-    f_tot = f_anion + f_neutral + f_1 + f_2
-    f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
+    # 10.-14. Charge fractions of Z=-1, 0, 1, 2, normalised to 1
+    f_anion, f_neutral, f_1, f_2 = four_state_charge_fractions(
+        k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne)
     
     # 15. Compute the total injected power
     Pinj_anion = power_injected(IP_anion,2*np.pi*yield_anion*sigma_abs_anion,I,E)
@@ -975,21 +979,8 @@ def _evaluate_pah_heating_context(context, T, ne, attach_model):
         E[context['mask_cation']],
     )
 
-    f_anion = 1. / (1. + k_det / (k_att * ne) +
-                    k_det * k_pe_0 / (k_att * k_rec_1 * ne**2.) +
-                    k_det * k_pe_0 * k_pe_1 / (k_att * k_rec_1 * k_rec_2 * ne**3.))
-
-    f_neutral = 1. / (1. + k_att * ne / k_det + k_pe_0 / (k_rec_1 * ne) +
-                       k_pe_0 * k_pe_1 / (k_rec_1 * k_rec_2 * ne**2.))
-
-    f_1 = 1. / (1. + k_rec_1 * ne / k_pe_0 + k_pe_1 / (k_rec_2 * ne) +
-                k_att * k_rec_1 * ne**2. / (k_det * k_pe_0))
-
-    f_2 = 1. / (1. + k_rec_2 * ne / k_pe_1 + k_rec_1 * k_rec_2 * ne**2. / (k_pe_0 * k_pe_1) +
-                k_att * k_rec_1 * k_rec_2 * ne**3. / (k_det * k_pe_0 * k_pe_0))
-
-    f_tot = f_anion + f_neutral + f_1 + f_2
-    f_anion, f_neutral, f_1, f_2 = f_anion / f_tot, f_neutral / f_tot, f_1 / f_tot, f_2 / f_tot
+    f_anion, f_neutral, f_1, f_2 = four_state_charge_fractions(
+        k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne)
 
     Pinj = W2ergs * (f_anion * context['Pinj_anion'] +
                      f_neutral * context['Pinj_neutral'] +
@@ -1071,26 +1062,9 @@ def compute_heating_efficiency3(args):
     k_pe_1 = ionisation_rate(IP_cation,2*np.pi*yield_cation[mask]*sigma_abs_cation[mask],I[mask],E[mask])
 
     
-    # 10. Fraction of Z=-1
-    f_anion = 1. / (1. + k_det / (k_att*ne) + \
-                    k_det * k_pe_0 / (k_att*k_rec_1*ne**2.) + \
-                    k_det * k_pe_0 * k_pe_1 / (k_att*k_rec_1*k_rec_2*ne**3.))
-    
-    # 11. Fraction of Z=0
-    f_neutral = 1. / (1. + k_att*ne / k_det + k_pe_0 / (k_rec_1*ne) + \
-                    k_pe_0 * k_pe_1 / (k_rec_1*k_rec_2*ne**2.))
-    
-    # 12. Fraction of Z=1
-    f_1 = 1. / (1. + k_rec_1*ne / k_pe_0 + k_pe_1 / (k_rec_2*ne) + \
-                k_att*k_rec_1*ne**2. / (k_det*k_pe_0))
-    
-    # 13. Fraction of Z=2
-    f_2 = 1. / (1. + k_rec_2*ne / k_pe_1 + k_rec_1*k_rec_2*ne**2. / (k_pe_0*k_pe_1) + \
-                k_att*k_rec_1*k_rec_2*ne**3./(k_det*k_pe_0*k_pe_0))
-    
-    # 14. Check that all fractions add up to 1
-    f_tot = f_anion + f_neutral + f_1 + f_2
-    f_anion, f_neutral, f_1, f_2 = f_anion/f_tot, f_neutral/f_tot, f_1/f_tot, f_2/f_tot
+    # 10.-14. Charge fractions of Z=-1, 0, 1, 2, normalised to 1
+    f_anion, f_neutral, f_1, f_2 = four_state_charge_fractions(
+        k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne)
     
     # 15. Compute the total injected power
     pcof = 1 #0.5 * E / (E - IP_anion) # Partition coefficient for the anion

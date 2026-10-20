@@ -54,12 +54,21 @@ $(G_0, n_{\rm H})$ outside the grid returns the *global minimum* of the table
 (`fill_value = log_rate.min()`, `solvers/table_io.py:207`).
 :::
 
+The `models.photolysis_model` key selects the table:
+
+- **`"RM2026"`** (the default): the legacy 2-D table described here,
+  `dissociation_<bin_id>.dat`.
+- **`"pahchem"`**: the 4-D table `pahchem_dissociation_<bin_id>.dat`
+  (`pahchem.export_pah_tables`, stage `pahchem_dissociation_tables`). It gives
+  the C$_2$-loss rate on (log $G_0$, log $n_{\rm H}$, log $T$, log $x_e$).
+  The kernel passes `local_Tk` and `local_ne/local_nH`, and out-of-range
+  coordinates are clamped to the table edges. The physics is in
+  {doc}`pahchem-spec`.
+
 :::{note}
-The `models.photolysis_model` key (default `"RM2026"`) is parsed and stored
-(`solvers/dust_init.py:600`), but no Python code reads it. There is only one
-photolysis kernel. The RAMSES Fortran branches on the key, but both branches
-call the same routine. `pah_sputtering_model` and `cluster_evaporation_model`
-are in the same position.
+`pah_sputtering_model` and `cluster_evaporation_model` are parsed but not
+read: each has a single kernel. The RAMSES Fortran does not yet read the
+`pahchem` table ({doc}`pahchem-spec`, M6).
 :::
 
 ### How the table is built
@@ -70,7 +79,7 @@ grain-size configuration (`models/PAH_photophysics/export_pah_dissociation_table
 That function writes a $100\times100$ grid spanning $G_0 = 10^{-2}$–$10^{6}$
 and $n_{\rm H} = 10^{-2}$–$10^{6}$ cm$^{-3}$
 (`models/PAH_photophysics/export_pah_dissociation_tables.py:19`–`24`,
-`models/PAH_photophysics/PAH_photophysics.py:294`–`295`). The bin's
+`models/PAH_photophysics/PAH_photophysics.py:298`–`299`). The bin's
 $N_{\rm C}$ comes from the lognormal $a_0$ of its size distribution, via
 $N_{\rm C} = \lfloor 418\,(a/10)^3 \rfloor$ with $a$ in Å, from {cite:t}`Draine2021`
 (`models/tools/utils.py:30`). This value is independent of the `nc` set in the
@@ -102,7 +111,7 @@ eV K$^{-1}$ in the exponent
 The code follows {cite:t}`Micelotta2010b` and evaluates $k$ at
 $T_{\rm av} = [T_{\rm eff}(E)\,T_{\rm eff}(E - n_{\max}\Delta\varepsilon)]^{1/2}$,
 where $n_{\max} = \lfloor N_{\rm C}/5\rfloor$ and $\Delta\varepsilon = 0.16$ eV
-(`models/PAH_photophysics/PAH_photophysics.py:255`, `272`–`275`, `85`). The
+(`models/PAH_photophysics/PAH_photophysics.py:255`, `271`–`280`, `85`). The
 dissociation probability competes $k$ against IR cooling at
 $k_{\rm IR} = 100$ s$^{-1}$ (`models/PAH_photophysics/PAH_photophysics.py:83`):
 
@@ -117,10 +126,10 @@ $$
 R_1 = \int_{E_0}^{13.6\,\rm eV} \frac{\sigma_{\rm abs}^{+}(E)\,I(E)\,P(E)}{E}\,\mathrm{d}E
 $$ (eq-pah-r1)
 
-(`models/PAH_photophysics/PAH_photophysics.py:266`, `280`, `282`). Here
+(`models/PAH_photophysics/PAH_photophysics.py:266`, `284`, `286`). Here
 $\sigma^{+}_{\rm abs}$ [m$^2$] is the {cite:t}`LiDraine2001` *cation*
 cross-section, number-averaged over the bin's lognormal distribution
-(`models/PAH_photophysics/PAH_photophysics.py:245`, `304`). $I(E)$ is the
+(`models/PAH_photophysics/PAH_photophysics.py:245`, `308`). $I(E)$ is the
 {cite:t}`Draine1978` field divided by 1.7 and converted to W m$^{-2}$ eV$^{-1}$
 (`models/PAH_photophysics/PAH_photophysics.py:260`–`263`), and the factor
 $6.2415\times10^{18}$ eV J$^{-1}$ turns the integrand into photons, so $R_1$
@@ -129,10 +138,10 @@ is in s$^{-1}$.
 $R_1$ is then scaled linearly with $G_0$ and multiplied by a smooth estimate of
 the fraction of fully dehydrogenated molecules,
 $k_{\rm diss} = R_1\,G_0\,f(G_0,n_{\rm H})$
-(`models/PAH_photophysics/PAH_photophysics.py:299`, `307`). The function $f$
+(`models/PAH_photophysics/PAH_photophysics.py:303`, `311`). The function $f$
 uses a straight line $\log n_{\rm H} = a\log G_0 + b$, fitted to the 50%
 hydrogenation contour for C$_{54}$ from {cite:t}`Montillaud2013`
-(`models/PAH_photophysics/PAH_photophysics.py:290`–`291`). With $d$ the
+(`models/PAH_photophysics/PAH_photophysics.py:294`–`295`). With $d$ the
 distance of a point from that line in the log plane:
 
 $$
@@ -142,18 +151,18 @@ $$ (eq-pah-fdehydro)
 
 The minus sign applies on the dense side of the line
 ($\log n_{\rm H} \ge a\log G_0 + b$)
-(`models/PAH_photophysics/PAH_photophysics.py:600`–`611`).
+(`models/PAH_photophysics/PAH_photophysics.py:605`–`616`).
 
 :::{note}
 One constant is defined twice, and the second definition wins:
 $\Delta\varepsilon$ is set to 0.145 eV at
 `models/PAH_photophysics/PAH_photophysics.py:78` and to 0.16 eV at line `85`.
-Nothing in eq. {eq}`eq-pah-teff` guards against
-$E - n_{\max}\Delta\varepsilon \le 0$. For $N_{\rm C} = 418$ ($a_0 = 10$ Å),
-$n_{\max}\Delta\varepsilon = 13.3$ eV, so the integrand of eq. {eq}`eq-pah-r1` is NaN at every $E$, and the
-exported `dissociation_PAHBin_02.dat` in the default configuration contains
-only `nan`. The solver never interpolates that table when bin 2 is a cluster
-bin, but it would if the bin were a free PAH.
+As in the sputtering module, $P$ is set to zero when
+$E - n_{\max}\Delta\varepsilon \le 0.2E_0$, where the second effective
+temperature of eq. {eq}`eq-pah-teff` would be non-positive. For
+$N_{\rm C} = 418$ ($a_0 = 10$ Å), $n_{\max}\Delta\varepsilon = 13.3$ eV, so
+the rate is zero at every $E$. Zero rates are written as
+$\log_{10}k = -100$ rather than $-\infty$.
 :::
 
 ### The RRKM research modules
@@ -284,9 +293,9 @@ $$ (eq-pah-evap)
 
 (`solvers/dust_rates.py:1171`–`1173`, `1189`). The first term is the
 single-cluster timescale $0.19306/G_0$ yr
-(`models/PAH_photophysics/PAH_photophysics.py:390`). The second is a log-log
+(`models/PAH_photophysics/PAH_photophysics.py:395`). The second is a log-log
 line through digitised (C$_{54}$H$_{18}$)$_n$ curves
-(`models/PAH_photophysics/PAH_photophysics.py:394`–`403`).
+(`models/PAH_photophysics/PAH_photophysics.py:399`–`408`).
 
 ## Freezing onto grains
 

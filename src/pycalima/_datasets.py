@@ -526,10 +526,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0 if verify_dataset(a.name, strict=False) else 1
         # A bare `verify` checks the installation. `manual` datasets (PAHdb)
         # are optional extras the user downloads themselves, so their absence
-        # is reported with instructions but does not fail the check.
+        # is reported with instructions but does not fail the check. So are
+        # `fetch` datasets that have not been fetched yet.
         ok, optional_missing = True, []
         for ds in iter_datasets():
-            if ds.kind == "manual" and ds.locate() is None:
+            if ds.kind == "fetch" and ds.locate() is None:
+                print(f"{ds.name}: not fetched (optional; calima-fetch-data fetch {ds.name})")
+            elif ds.kind == "manual" and ds.locate() is None:
                 print(f"{ds.name}: not installed (optional)")
                 optional_missing.append(ds)
             elif not verify_dataset(ds, strict=False):

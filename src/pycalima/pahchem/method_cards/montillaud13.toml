@@ -1,0 +1,88 @@
+# Method card: Montillaud, Joblin & Toublanc 2013, A&A 552, A15.
+#
+# Conventions as in andrews16.toml: each value has a `source` in the paper and
+# a `confidence` (A experiment ... E assumption); "unspecified" marks gaps.
+
+[card]
+name = "Montillaud2013"
+bib_key = "Montillaud2013"
+citation = "Montillaud, Joblin & Toublanc 2013, A&A 552, A15 (arXiv:1301.6507)"
+read_from = "arXiv v1, Sects. 2-5; Appendix A not yet transcribed"
+status = "draft"
+
+[species]
+parents = ["C24H12", "C54H18", "C66H20", "C96H24"]
+nh_range = "0 to NH0 + 1"                       # Sect. 3
+charges = [0, 1]                                # Sect. 3.7: no anions, no dications
+source = "Sect. 3, Table 4"
+
+[environment]
+pdr_code = "Meudon PDR code 1.4.3, isobaric, P = 7e6 K cm^-3 (NW PDR); isochoric nH = 150 (cavity)"
+g0_habing = { value = 2600.0, unit = "Habing", source = "Sect. 2, at 42 arcsec from the star", confidence = "E" }
+star = "Castelli & Kurucz 2004, Teff = 15000 K, log g = 4.0"
+cavity_conditions = "Table 2"
+
+[absorption]
+sigma_uv = "Malloci+2007; C96H24 = C54H18 scaled by NC"
+source = "Sect. 3.1"
+confidence = "C"
+
+[ionisation]
+yield = "Le Page+2001: Y = a exp{-b [c (E - d)]^4}, a = 0.8, b = 0.00128, d = 14.89 eV, c = (14.89 - IP_coronene)/(14.89 - IP_PAH)"  # eq. 1
+ip = { C24 = 7.02, C54 = 6.14, C66 = 5.71, C96 = 5.68, unit = "eV", source = "Sect. 3.2, Malloci+2007; C96 Ruiterkamp+2005", confidence = "C" }
+ionising_photons_heat = "no: a photon either ionises (Y_ion) or heats by h nu"  # Sect. 3.3, eq. 5
+
+[ir_cooling]
+method = "microcanonical Monte Carlo (Joblin+2002), 10^4 trajectories; k_IR(E) and mean IR photon energy e_IR(E)"
+cooling = "dE/dt = k_IR(E) e_IR(E)"            # eq. 2
+applies_to = "computed for cations in normal H state, used for every charge and H state; C96 uses C54"
+modes = "Malloci+2007"
+source = "Sect. 3.3.1"
+
+[dissociation]
+rate_form = "inverse Laplace transform of Arrhenius: k(E) = A rho(E - E0)/rho(E)"   # eq. 3
+rho = "exact harmonic DOS, Beyer-Swinehart"
+source = "Sect. 3.3.2, Table 4"
+A_diss = { value = 6.8e17, unit = "s^-1", source = "Sect. 3.3.2, from Jochims+1994 appearance potential of C24H12+", confidence = "B" }
+E0_even = { value = 4.8, unit = "eV", source = "Sect. 3.3.2, Joblin+2013 PIRENEA coronene+", confidence = "B" }
+E0_odd = { value = 3.2, unit = "eV", source = "Sect. 3.3.2", confidence = "B" }
+superh = "k(NH0 + 1) = k(NH0 - 1): lower limit"
+modes_per_state = "the parent's (Malloci+07) modes for every hydrogenation state: implied by Sect. 3.7, where k_diss depends on hydrogenation only through E0"
+threshold_energies = { C24 = 9.6, C54 = 17.0, C66 = 20.0, unit = "eV, where k_diss = k_IR", source = "Sect. 6.1", confidence = "C" }
+charge_dependence = "none"
+channels = "H loss only; no H2 or C loss"
+
+[cascade]
+energy_grid = { value = 0.25, unit = "eV", source = "Sect. 4.1, App. A.4", confidence = "E" }
+method = "explicit internal-energy histograms per species; photon up-jumps, IR down-jumps, dissociation sink"
+multiphoton = "yes"
+note = "This is the per-state P(E) master equation of pahchem energy_me.py"
+
+[electrons]
+recombination = "mean of pyrene+ experiment and Spitzer law; alpha(300 K) in Table 4 (1.0e-5 to 1.85e-5 cm^3 s^-1), T^-1/2"
+recombination_dissociative = "neglected (IR 100x faster than dissociation at 7 eV)"
+charge_exchange = "neglected"
+
+[hydrogen]
+cation_addition = "k = (y/x) 1.4e-10 cm^3 s^-1 (normal and even-dehydrogenated); 5e-11 odd; ~1e-12 superhydrogenated"  # Table 3
+neutral_addition = "0 (standard) or 3e-11 radicals / 3e-13 closed shell at 300 K, T^1/2"
+cation_h2 = "0 or 5e-13 cm^3 s^-1 (adds 2 H)"
+source = "Sect. 3.4, Tables 3-4"
+
+[run]
+# Numbers read by pahchem.montillaud13 (Table 4 unless stated), per parent N_C.
+recombination_alpha_300K = { C24 = 1.0e-5, C54 = 1.4e-5, C66 = 1.56e-5, C96 = 1.85e-5, unit = "cm^3 s^-1, scales as T^-1/2", source = "Table 4; Sect. 3.5", confidence = "D" }
+cation_h_addition_even = { C24 = 1.4e-10, C54 = 9.3e-11, C66 = 8.5e-11, C96 = 7.0e-11, unit = "cm^3 s^-1, no T dependence", source = "Table 4 (normal and even-dehydrogenated cations)", confidence = "D" }
+cation_h_addition_odd = { value = 5.0e-11, unit = "cm^3 s^-1", source = "Table 4 (odd-dehydrogenated cations)", confidence = "D" }
+cation_h_addition_superh = { value = 0.0, unit = "cm^3 s^-1", source = "Table 4 (NH0 + 1 is the top state)", confidence = "E" }
+neutral_h_addition_standard = { value = 0.0, unit = "cm^3 s^-1", source = "Sect. 3.4, standard model", confidence = "E" }
+fig10_conditions = "Mathis83 ISRF scaled to G0 = 1-1e4 Habing, T = 100 K, n(H) = 0.5 nH, n(e) = 1.4e-4 nH (Sect. 6.2)"
+fig10_quantity = "fraction of species totally dehydrogenated (N_H = 0), all charges"
+deviations = "pahchem uses Li & Draine sigma at the LD01 radius (no Malloci C54 sigma bundled), PAHdb neutral parent modes for every state, and its own microcanonical IR cascade instead of the Joblin+02 Monte Carlo k_IR(E)"
+
+[targets]
+fig3 = "k_IR(E) and k_diss(E) for C24H12 and C66H20 (digitised: dissoc_rate_coronene_Montillaud.csv)"
+fig4 = "hydrogenation state vs position, NGC 7023 NW"
+fig6 = "cation fraction vs position against PAHTAT"
+fig7 = "hydrogenation phase diagram vs size"
+fig10 = "sensitivity to G0 and nH (digitised contours: montillaud13_hydrogenation_fraction_C54.csv)"

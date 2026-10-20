@@ -195,7 +195,11 @@ class PAHBinParams:
     C_index: int = 2
     """Index of carbon in ELEMENT_NAMES (= 2, hardcoded like RAMSES)."""
     dissociation_interp: Optional[Any] = None
-    """Callable ``(log10_G0, log10_nH) → log10(rate [s⁻¹])`` for photolysis."""
+    """Callable ``(log10_G0, log10_nH) → log10(rate [s⁻¹])`` for photolysis, or,
+    with ``dissociation_ndim = 4`` (``photolysis_model = "pahchem"``),
+    ``(log10_G0, log10_nH, log10_T, log10_x_e)``."""
+    dissociation_ndim: int = 2
+    """Number of arguments of ``dissociation_interp`` (2 or 4)."""
 
     # --- Cluster evaporation ---
     is_cluster: bool = False

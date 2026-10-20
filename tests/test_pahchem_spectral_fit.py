@@ -1,0 +1,141 @@
+"""The joint PAH + continuum spectral fit (spectral_fit): it must return what was put in.
+
+The PAHdb-based tests need PAHdb v3.20 ($CALIMA_PAHDB_DIR) and skip without it.
+"""
+
+import numpy as np
+import pytest
+
+from pycalima.pahchem import population, spectral_fit
+from pycalima.pahchem.baseline import Environment
+
+WINDOWS = {"3.3": (3.2, 3.36), "6.2": (6.0, 6.6), "7.7": (7.05, 8.15), "8.6": (8.15, 9.1), "11.2": (11.1, 11.8),
+           "12.7": (12.3, 13.1)}
+_CACHE = {}
+
+
+def _setup():
+    from pycalima._datasets import DatasetUnavailable
+    from pycalima.pahchem import ames_suite
+
+    if "pop" not in _CACHE:
+        try:
+            path = ames_suite.ascii_path()
+        except DatasetUnavailable:
+            pytest.skip("PAHdb v3.20 not installed")
+        lib = [m for m in population.library_m20(path) if m.nc >= 40][:12]
+        _CACHE["pop"] = population.Population(lib, WINDOWS)
+    return _CACHE["pop"]
+
+
+def test_grid_bins_and_masks():
+    g = spectral_fit.Grid.build()
+    assert np.all(np.diff(g.nu[g.segment == 1]) > 0)
+    lam = g.lam_um
+    assert not np.any((lam > 13.71) & (lam < 13.94))
+    x = np.linspace(2.9, 16.0, 200000)
+    y = 3.0 + 0.0 * x
+    b = spectral_fit.bin_spectrum(x, y, g)
+    assert np.allclose(b, 3.0)
+
+
+@pytest.mark.parametrize("lorentzian", [False, True])
+def test_profile_kernel_matches_the_dense_sum(lorentzian):
+    """Gaussians cut at GAUSS_NSIGMA and Lorentzians on the whole grid: the dense sum to rounding."""
+    rng = np.random.default_rng(2)
+    nu = np.sort(rng.uniform(600.0, 3400.0, 900))
+    n_modes = 300
+    freq, strength = rng.uniform(500.0, 3500.0, n_modes), rng.uniform(0.0, 2.0, n_modes)
+    shift, fwhm = rng.uniform(-30.0, 10.0, n_modes), rng.uniform(4.0, 60.0, n_modes)
+    start = np.array([0, 40, 40, 170, n_modes], dtype=np.int64)                # one empty column
+    args = (nu, freq, strength, shift, fwhm, start, start.size - 1, lorentzian)
+    fast, dense = spectral_fit._summed_profiles(*args), spectral_fit._summed_profiles_numpy(*args)
+    assert np.all(fast[1] == 0.0)
+    assert np.max(np.abs(fast - dense)) <= 1e-12 * np.max(np.abs(dense))
+
+
+def test_nnls_reaches_the_scipy_optimum(monkeypatch):
+    """Same residual as scipy's NNLS, including collinear columns and more columns than rows."""
+    rng = np.random.default_rng(1)
+    for trial in range(60):
+        m, n = rng.integers(5, 60), rng.integers(2, 120)
+        A = np.abs(rng.normal(size=(m, n))) if trial % 2 else rng.normal(size=(m, n))
+        if trial % 3 == 0:
+            A[:, -1] = A[:, 0]
+        y = rng.normal(size=m)
+        x = spectral_fit._nnls(A, y)
+        monkeypatch.setattr(spectral_fit, "HAVE_NUMBA", False)
+        ref = spectral_fit._nnls(A, y)
+        monkeypatch.undo()
+        assert x.min() >= 0
+        assert np.linalg.norm(A @ x - y) == pytest.approx(np.linalg.norm(A @ ref - y), rel=1e-9, abs=1e-12)
+
+
+def test_continuum_basis_is_a_partition_of_unity_per_segment():
+    g = spectral_fit.Grid.build()
+    C = spectral_fit.continuum_basis(g, knot_um=1.5)
+    assert np.allclose(C.sum(axis=1), 1.0, atol=1e-9)
+    assert C.min() >= 0.0
+
+
+def test_fit_returns_the_input_population_and_continuum():
+    pop = _setup()
+    g = spectral_fit.Grid.build()
+    env = Environment("t", 2e4, 5e4, 50.0, 700.0, 40000)
+    P = pop.spectra(env, g.nu).T                                 # (n_grid, n_mol)
+    w_true = np.zeros(P.shape[1])
+    w_true[[1, 4, 9]] = [2.0, 1.0, 0.5]
+    pah = P @ w_true
+    cont = 0.3 * pah.max() * (g.lam_um / 10.0) ** 2 * (g.segment == 1) + 0.05 * pah.max() * (g.segment == 0)
+    C = spectral_fit.continuum_basis(g, knot_um=1.5)
+    fit = spectral_fit.fit_spectrum(pah + cont, P, C)
+    F, _ = pop.band_fluxes(env)
+    true_b, fit_b = w_true @ F, fit.weights @ F
+    i = list(WINDOWS).index("11.2")
+    assert fit_b / fit_b[i] == pytest.approx(true_b / true_b[i], rel=0.03)
+    assert fit.cont == pytest.approx(cont, rel=0.05, abs=0.01 * pah.max())
+    assert fit.rms < 1e-3
+    # no continuum in: (almost) none out
+    fit0 = spectral_fit.fit_spectrum(pah, P, C)
+    assert fit0.cont.max() < 0.02 * pah.max()
+
+
+def test_band_fluxes_of_the_fitted_spectrum_are_the_model_bands():
+    """The derived band fluxes integrate the fitted PAH spectrum itself (no continuum operator)."""
+    pop = _setup()
+    env = Environment("t", 2e4, 5e4, 50.0, 700.0, 40000)
+    nu = np.arange(500.0, 3500.0, 0.25)
+    P = pop.spectra(env, nu)
+    F, _ = pop.band_fluxes(env)
+    for b, (lo, hi) in WINDOWS.items():
+        m = (nu >= 1e4 / hi) & (nu <= 1e4 / lo)
+        num = P[:, m].sum(axis=1) * 0.25
+        assert num == pytest.approx(F[:, list(WINDOWS).index(b)], rel=1.5e-2)    # Riemann sum vs analytic window
+
+
+def test_default_band_shape_is_the_previous_profile():
+    from pycalima.pahchem import emission
+
+    f = np.array([3050.0, 1600.0, 880.0, 450.0])
+    s = np.array([1.0, 2.0, 3.0, 0.5])
+    nu = np.arange(300.0, 3300.0, 1.0)
+    assert np.allclose(spectral_fit.shaped_spectrum(f, s, nu), emission.spectrum(f, s, nu))
+
+
+def test_fit_band_shape_recovers_shifts_and_widths():
+    pop = _setup()
+    g = spectral_fit.Grid.build()
+    env = Environment("t", 2e4, 5e4, 50.0, 700.0, 40000)
+    true = spectral_fit.BandShape(shift_ch=-35.0, shift_cc=-8.0, shift_oop=-4.0, fwhm_ch=35.0, fwhm_rest=12.0)
+    idx = [1, 4, 9]
+    w = np.array([2.0, 1.0, 0.5])
+    pah = w @ spectral_fit.molecule_spectra(pop, env, g.nu, true, idx)
+    cont = 0.2 * pah.max() * (g.lam_um / 10.0) ** 2 * (g.segment == 1)
+    C = spectral_fit.continuum_basis(g, knot_um=1.5)
+    keep = np.zeros(len(pop.library), bool)
+    keep[idx] = True
+    shape, fit, active = spectral_fit.fit_band_shape(pah + cont, g, pop, env, keep, C)
+    assert shape.shift_ch == pytest.approx(-35.0, abs=2.0) and shape.fwhm_ch == pytest.approx(35.0, abs=3.0)
+    assert shape.shift_cc == pytest.approx(-8.0, abs=2.0) and shape.shift_oop == pytest.approx(-4.0, abs=2.0)
+    assert shape.fwhm_rest == pytest.approx(12.0, abs=2.0)
+    assert fit.rms < 0.01

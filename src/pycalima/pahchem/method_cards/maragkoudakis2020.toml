@@ -1,0 +1,48 @@
+# Method card: Maragkoudakis, Peeters & Ricca 2020, MNRAS 494, 642 ("M20").
+#
+# Conventions as in andrews16.toml: each value has a `source` and a
+# `confidence` (A experiment, B benchmarked theory, C theory, D extrapolation,
+# E assumption). "not stated" marks what the paper does not give; "inferred"
+# marks what follows from reproducing their numbers.
+#
+# Status (2026-10-06): recovered. Runner pahchem.maragkoudakis2020, gates
+# tests/test_pahchem_maragkoudakis2020.py (needs PAHdb v3.20).
+
+[card]
+name = "Maragkoudakis2020"
+bib_key = "Maragkoudakis2020"
+citation = "Maragkoudakis, Peeters & Ricca 2020, MNRAS 494, 642 (doi:10.1093/mnras/staa681; arXiv:2003.02823)"
+read_from = "arXiv v1 LaTeX source (PAH_Size_Charge_R3_f.tex and the appendix tables), checked against the PDF; vector figures from the source"
+status = "recovered"
+
+[species]
+database = { value = "PAHdb v3.00 plus the Ricca+18 straight-edge species (v3.20)", source = "Sect. 2; Sect. 3.4 calls it v3.10", confidence = "A" }
+selection = "N_C > 20; no N, O, Mg, Fe; solo C-H present (excludes coronene, HBC); defect and partially dehydrogenated PAHs kept, fully dehydrogenated excluded (Sect. 2, 3.1.4, 3.3)"
+sample = { value = 308, source = "Tables H1-H3 (maragkoudakis2020_sample_uids.csv): 133 neutral-cation pairs, 42 anions, N_C 22-216", confidence = "A" }
+modes = "PAHdb frequencies as stored (already scaled); no further scaling"
+
+[dissociation]
+modelled = "no: emission only"
+
+[emission]
+model = { value = "thermal-approximation cascade (AmesPAHdbIDLSuite, 2015 Aug 27), eqs. A1-A4", source = "App. A", confidence = "C" }
+implementation = "emission.ThermalCascade, equal to the AmesPAHdb Python suite's Transitions.cascade to 5e-4 per band (test_pahchem_emission.py)"
+fixed_energies_eV = { value = [6.0, 8.0, 10.0, 12.0], source = "Sect. 3: single absorbed photons", confidence = "A" }
+isrf = { value = "Mathis+83, photon counting N = sigma F / nu", source = "App. A, eq. A5", confidence = "A" }
+cross_section = { value = "AmesPAHdb suite form: Draine & Li 2007 UV Drude terms x Mattioda+05 cutoff, ion near-IR terms for Z != 0", source = "App. A ('Draine & Li 2007 and Mattioda 2005'); photo.sigma_amespahdb transcribes the suite", confidence = "C" }
+cross_section_inferred = "With Li & Draine 2001 tables instead, 11.2/3.3 comes out +0.03 to +0.05 dex against Fig. 2; with the suite form +0.001 (inferred: the suite's own cross section is what they used)"
+isrf_range_eV = { value = [0.1, 13.6], source = "pahchem choice; they state 3.1e-7 to 13.6 eV. Lowering it to 0.002 eV changes 11.2/3.3 by < 1e-4 (measured, UIDs 4, 5, 168, 169)", confidence = "D" }
+profile = { value = "Lorentzian, FWHM 15 cm^-1, no redshift", source = "Sect. 2; App. B for the redshifted variant", confidence = "A" }
+grid = "not stated; pahchem sums on a 0.5 cm^-1 uniform wavenumber grid"
+mixtures = "neutral-cation spectra combined 75/25, 50/50, 25/75 (Sect. 3.4); weighting not stated; not yet reproduced"
+
+[bands]
+method = "sum of fluxes in fixed wavebands, no continuum or decomposition (Sect. 2.1)"
+windows_um = { value = "3.3: 3.1-3.5; 6.2: 6.1-6.8; 7.7: 7.0-8.2; 8.6: 8.2-8.9; 11.2 (11.0): 10.5-11.6; 6-9; 7-9; 15-20", source = "Table 1", confidence = "A" }
+
+[targets]
+fig2 = "per-molecule 11.2/3.3 and CH_oop/3.3 under the ISRF, read from the vector figure (maragkoudakis2020_fig2.csv): recovered to median +0.001 dex (test_fig2_is_recovered_molecule_by_molecule)"
+size_fits = "eq. 3, Tables 4 and F9-F12 (maragkoudakis2020_size_fits.csv): our per-molecule ratios at 6-12 eV sit -0.007 to -0.028 dex (median, N_C >= 50) from their fits of binned data"
+exact_cascade = "pahchem's microcanonical cascade on the same inputs raises ISRF 11.2/3.3 by 0.016-0.020 dex (4-5 %); a physical difference of the thermal approximation, not a reproduction error"
+not_reproduced = "the charge-size grid (Table 2, Fig. 8), the binned points (Table 3, F5-F8) and the mixtures: binning edges and mixture weighting are not stated"
+figure_issues = "Fig. 2 shows a cation at N_C = 28, which is not in Tables H1-H2, and one C22 cation at 2.23 where the sample's C22 cations give 0.9-1.2"

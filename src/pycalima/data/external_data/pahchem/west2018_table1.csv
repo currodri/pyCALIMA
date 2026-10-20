@@ -1,0 +1,30 @@
+# West et al. 2018, PCCP 20, 7195 (doi:10.1039/c7cp07369k), Table 1, iPEPICO columns.
+# Activation energy E0 [eV] and activation entropy dS at 1000 K [J K^-1 mol^-1] from RRKM
+# fits to breakdown diagrams; ie_eV is the ionisation energy of the neutral parent (Table 1
+# headings). Transcribed by hand from the journal PDF and checked against the printed page.
+reaction,parent,reactant,products,E0_eV,E0_err_eV,dS_J_K_mol,dS_err_J_K_mol,ie_eV
+1,fluorene,C13H10+,C13H9+ + H,2.20,0.50,-21,43,7.895
+2,fluorene,C13H9+,C11H7+ + C2H2,4.23,0.77,-11,42,7.895
+3,fluorene,C13H9+,C9H8+ + C4H2,4.05,0.68,-11,36,7.895
+4,fluorene,C13H9+,C13H8+ + H,4.13,0.68,13,36,7.895
+5,cyclopenta[def]phenanthrene,C15H10+,C15H9+ + H,3.44,0.86,84,72,7.775
+6,cyclopenta[def]phenanthrene,C15H9+,C13H7+ + C2H2,4.08,1.3,-10,74,7.775
+7,cyclopenta[def]phenanthrene,C15H9+,C15H8+ + H,4.40,0.74,37,41,7.775
+8,acenaphthylene,C12H8+,C12H7+ + H,4.41,0.25,29,13,8.005
+9,acenaphthylene,C12H8+,C10H6+ + C2H2,5.21,0.34,46,16,8.005
+10,acenaphthylene,C12H7+,C12H6+ + H,3.50,0.94,-11,63,8.005
+11,fluoranthene,C16H10+,C16H9+ + H,4.86,1.1,49,68,7.845
+12,fluoranthene,C16H9+,C16H8+ + H,3.29,0.85,10,64,7.845
+13,fluoranthene,C16H10+,C14H8+ + C2H2,2.59,0.62,-43,42,7.845
+14,perylene,C20H12+,C20H11+ + H,4.75,0.6,38,35,6.960
+15,perylene,C20H12+,C20H10+ + H2,4.58,1.3,40,69,6.960
+16,perylene,C20H11+,C20H10+ + H,2.63,1.2,-12,84,6.960
+17,pyrene,C16H10+,C16H9+ + H,4.16,0.69,-5,37,7.42
+18,pyrene,C16H9+,C16H8+ + H,3.09,1.22,-14,84,7.42
+19,corannulene,C20H10+,C20H9+ + H,4.24,1.03,8,58,7.83
+20,coronene,C24H12+,C24H11+ + H,4.41,0.83,12,44,7.29
+21,"dibenzo[a,e]pyrene",C24H14+,C24H13+ + H,4.44,0.56,48,31,7.11
+22,"dibenzo[a,e]pyrene",C24H14+,C24H12+ + H2,4.46,0.62,56,34,7.11
+23,"dibenzo[a,e]pyrene",C24H13+,C24H12+ + H,3.50,0.65,66,36,7.11
+24,"dibenzo[a,l]pyrene",C24H14+,C24H13+ + H,2.85,0.56,-3,38,7.05
+25,"dibenzo[a,l]pyrene",C24H13+,C24H12+ + H,2.35,1.3,-4,100,7.05
