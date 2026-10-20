@@ -88,15 +88,21 @@ def test_cooling_rate_is_chiaki15_eq5_and_scales_with_cross_section():
     assert gg.cooling_rate(2 * n, a, T, Td, F) == pytest.approx(2 * L, rel=1e-12)
 
 
+def _load_nk_or_skip(name):
+    """``load_nk``, skipping the test for a registered download (data/registry.toml: C, Si, Fe3O4) that has
+    not been fetched with calima-fetch-data."""
+    from pycalima._datasets import DatasetUnavailable
+    try:
+        return load_nk(name)
+    except DatasetUnavailable:
+        pytest.skip(f"optical constants of {name} not fetched")
+
+
 @pytest.mark.parametrize("name,n_points", [("C", 1245), ("Si", 4001), ("Fe3O4", 401)])
 def test_fetched_optical_constants_parse_completely(name, n_points):
     """The three materials whose optical constants are registered downloads
     (data/registry.toml); skipped until fetched with calima-fetch-data."""
-    from pycalima._datasets import DatasetUnavailable
-    try:
-        lam, n, k = load_nk(name)
-    except DatasetUnavailable:
-        pytest.skip(f"optical constants of {name} not fetched")
+    lam, n, k = _load_nk_or_skip(name)
     assert lam.size == n_points
     assert np.all(np.diff(lam) > 0) and np.all(n > 0) and np.all(k >= 0)
 
@@ -110,7 +116,7 @@ def test_absorption_is_continuous_across_the_mie_switch(name):
     import miepython
     from pycalima.collapse.optics import qabs_small
     lam = np.geomspace(1.0, 1e4, 200)
-    m = refractive_index(lam, *load_nk(name))
+    m = refractive_index(lam, *_load_nk_or_skip(name))
     a_um = 0.01
     x = 2 * np.pi * a_um / lam
     qe, qs, _, _ = miepython.efficiencies(m, 2 * a_um, lam)
@@ -122,6 +128,7 @@ def test_absorption_is_continuous_across_the_mie_switch(name):
 def test_weak_absorption_has_no_cancellation_floor():
     """Crystalline Si at 1-5 um (k ~ 1e-10): Q_abs follows k, not Mie's round-off."""
     from pycalima.collapse.optics import qabs_grid
+    _load_nk_or_skip("Si")
     lam = np.geomspace(1.5, 4.5, 40)
     Q = qabs_grid("Si", radii_cm=np.array([1e-6]), lam_um=lam)[0]
     k = -refractive_index(lam, *load_nk("Si")).imag
