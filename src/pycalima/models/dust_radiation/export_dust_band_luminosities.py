@@ -130,8 +130,8 @@ def export_band_luminosities(
                         L_band = compute_energy_band_luminosity_from_table(
                             bin_id, T_dust, filter_file, wavs, C_abs
                         )
-                        # Specific luminosity in erg/s/g
-                        L_spec = L_band / m_grain
+                        # Specific luminosity in erg/s/g: the cross-sections are per gram of dust
+                        L_spec = L_band
                         # Convert to log10, handle zero/negative values safely by clipping
                         log_L_spec = np.log10(np.maximum(L_spec, 1e-300))
                         row_vals.append(log_L_spec)

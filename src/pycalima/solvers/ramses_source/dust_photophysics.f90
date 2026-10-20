@@ -28,6 +28,8 @@ module dust_optics
         character(len=512) :: line
         real(dp) :: wav_ref
         real(dp) :: wav_read,cabs_read,csca_read,crp_read
+        real(dp) :: cs_to_grain   ! factor from the table's cross-sections to cm^2 per grain
+        logical  :: per_gram
         real(dp) :: wav_neu,cabs_neu,csca_neu,crp_neu
         real(dp) :: wav_ion,cabs_ion,csca_ion,crp_ion
 
@@ -88,6 +90,14 @@ module dust_optics
                 call clean_stop
             end if
 
+            ! Units of the cross-sections, from the header: cm^2 per gram of dust (the pyCALIMA
+            ! convention, "C_abs[cm^2/g_dust]"); older tables give cm^2 per grain ("C_abs[cm^2]").
+            ! Internally CALIMA keeps cm^2 per grain (rates use rho_dust/mgrain), so per-gram tables
+            ! are multiplied by the grain mass of the bin.
+            call dust_table_units_per_gram(20, fDust(i), per_gram)
+            cs_to_grain = 1d0
+            if (per_gram) cs_to_grain = dustbins_props(i)%mgrain
+
             call read_next_data_line(20,line,ios)
             if (ios /= 0) then
                 if (myid.eq.1) write(*,*) 'ERROR reading NWAV in file ', trim(fDust(i))
@@ -135,9 +145,9 @@ module dust_optics
                 call clean_stop
             end if
 
-            dustbins_props(i)%Pabs_isrf = dustbins_props(i)%Pabs_isrf * c_cgs * u_Mathis1983
-            dustbins_props(i)%Psc_isrf  = dustbins_props(i)%Psc_isrf  * c_cgs * u_Mathis1983
-            dustbins_props(i)%Prp_isrf  = dustbins_props(i)%Prp_isrf  * c_cgs * u_Mathis1983
+            dustbins_props(i)%Pabs_isrf = dustbins_props(i)%Pabs_isrf * cs_to_grain * c_cgs * u_Mathis1983
+            dustbins_props(i)%Psc_isrf  = dustbins_props(i)%Psc_isrf  * cs_to_grain * c_cgs * u_Mathis1983
+            dustbins_props(i)%Prp_isrf  = dustbins_props(i)%Prp_isrf  * cs_to_grain * c_cgs * u_Mathis1983
 
             do k = 1, nwav
                 call read_next_data_line(20,line,ios)
@@ -154,9 +164,9 @@ module dust_optics
                 dustbins_props(i)%cs_scat_tab%tab1d(k,1) = log10(wav_read)
                 dustbins_props(i)%cs_ext_tab%tab1d(k,1) = log10(wav_read)
 
-                dustbins_props(i)%cs_abs_tab%tab1d(k,2) = log10(cabs_read)
-                dustbins_props(i)%cs_scat_tab%tab1d(k,2) = log10(csca_read)
-                dustbins_props(i)%cs_ext_tab%tab1d(k,2) = log10(crp_read)
+                dustbins_props(i)%cs_abs_tab%tab1d(k,2) = log10(cabs_read * cs_to_grain)
+                dustbins_props(i)%cs_scat_tab%tab1d(k,2) = log10(csca_read * cs_to_grain)
+                dustbins_props(i)%cs_ext_tab%tab1d(k,2) = log10(crp_read * cs_to_grain)
             end do
             close(20)
             call dustbins_props(i)%cs_abs_tab%init()
@@ -353,6 +363,45 @@ module dust_optics
         end if
 
     end subroutine init_dust_efficiency_tables
+
+    subroutine dust_table_units_per_gram(iunit, fname, per_gram)
+        ! Units of a grain cross-section table, from its "# Columns:" header line: .true. for cm^2
+        ! per gram of dust ("[cm^2/g_dust]"), .false. for cm^2 per grain ("[cm^2]", older tables).
+        ! Anything else stops the run. Leaves the file rewound.
+        use amr_commons, only: myid
+        implicit none
+        integer, intent(in) :: iunit
+        character(len=*), intent(in) :: fname
+        logical, intent(out) :: per_gram
+        character(len=512) :: hline
+        integer :: ios
+        logical :: found
+        found = .false.; per_gram = .false.
+        do
+            read(iunit,'(A)',iostat=ios) hline
+            if (ios /= 0) exit
+            hline = adjustl(hline)
+            if (len_trim(hline) > 0 .and. hline(1:1) /= '#') exit
+            if (index(hline, 'Columns:') > 0 .and. index(hline, 'C_abs') > 0) then
+                found = .true.
+                if (index(hline, 'cm^2/g_dust') > 0) then
+                    per_gram = .true.
+                else if (index(hline, 'C_abs[cm^2]') > 0) then
+                    per_gram = .false.
+                    if (myid == 1) write(*,*) 'CALIMA: ', trim(fname), &
+                         ': cross-sections per grain (an older table); per gram of dust is the convention'
+                else
+                    found = .false.
+                end if
+                exit
+            end if
+        end do
+        rewind(iunit)
+        if (.not. found) then
+            if (myid == 1) write(*,*) 'CALIMA: no cross-section units ("# Columns: ... C_abs[cm^2/g_dust] ...") in ', trim(fname)
+            call clean_stop
+        end if
+    end subroutine dust_table_units_per_gram
 
     subroutine init_dust_dielectric_tables
         use amr_commons,only:myid
