@@ -468,6 +468,24 @@ def generate_readme(export_results, config_data, git_info, output_base=None):
         ])
 
     readme_lines.extend([
+        "### 13. SSP Stellar Yield Release Tables",
+        "",
+    ])
+
+    if 'ssp_yield_tables' in export_results:
+        ssp_result = export_results['ssp_yield_tables']
+        readme_lines.extend([
+            f"- **Status**: {ssp_result['status']}",
+            f"- **Export Time**: {ssp_result['timestamp']}",
+            f"- **Output Directory**: `{ssp_result['dir']}`",
+            f"- **Function**: `export_ssp_tables()` from `pycalima.gce.export_ssp_tables`",
+            f"- **Description**: Cumulative mass, element, dust and SN-number release per Msun formed",
+            f"  vs age and metallicity (AGB + SNII + SNIa). Independent of the grain configuration.",
+            f"- **Files**: {ssp_result.get('file_count', '?')} `.npz` tables",
+            "",
+        ])
+
+    readme_lines.extend([
         "---",
         "",
         "## Methodology",
@@ -976,6 +994,34 @@ def export_dust_band_luminosities_wrapper(config_path=None):
         }
  
  
+def export_ssp_yield_tables_wrapper(config_path=None):
+    """Wrapper for the SSP stellar metal and dust release tables (config-independent)."""
+    from pycalima.gce.export_ssp_tables import export_ssp_tables
+
+    timestamp_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        print("\n" + "="*80)
+        print("EXPORTING SSP STELLAR YIELD RELEASE TABLES")
+        print("="*80)
+        result = export_ssp_tables()
+        return {
+            'status': 'Success',
+            'timestamp': timestamp_str,
+            'dir': result['output_dir'],
+            'file_count': len(result['tables']),
+        }
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'status': f'Error: {str(e)}',
+            'timestamp': timestamp_str,
+            'dir': 'model_data/ssp_yields',
+            'file_count': 0,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Export stages
 # ---------------------------------------------------------------------------
@@ -996,6 +1042,7 @@ _STAGES = (
     ('pah_dissociation_tables',          export_pah_dissociation_tables_wrapper,          {}),
     ('dust_sublimation',                 export_dust_sublimation_wrapper,                 {}),
     ('dust_band_luminosities',           export_dust_band_luminosities_wrapper,           {}),
+    ('ssp_yield_tables',                 export_ssp_yield_tables_wrapper,                 {}),
 )
 
 STAGE_NAMES = tuple(name for name, _func, _kwargs in _STAGES)
