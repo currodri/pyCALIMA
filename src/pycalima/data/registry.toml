@@ -427,6 +427,20 @@ redistributed with pyCALIMA.
 
 Read with pycalima.pahchem.vpt2 (read_gaussian_qff, mackie2018_force_field)."""
 
+[datasets.mai2025-mlmd]
+kind = "fetch"
+dest = "pahchem/mai2025"
+files = ["Supplementary.zip"]
+size_bytes = 102_343_899
+citation = "Mai, Wang, Pan, Schorghuber, Kovacs, Carrete & Madsen (2025), MNRAS 541, 3073 (arXiv:2503.05120); Zenodo doi:10.5281/zenodo.15771437"
+url = "https://zenodo.org/api/records/15771437/files/Supplementary.zip/content"
+url_status = "confirmed"
+sha256 = "8c3688f9f18e0f6aaf43685cd6ab56e2329e7920b1739f8b1387324609a6f28f"
+fetcher = "pycalima.pahchem.mai2025:fetch"
+notes = """Machine-learning MD IR spectra of 1704 neutral PAHdb PAHs at 50, 300 and 600 K
+(classical, peak-normalised) and the code. The data are CC BY-NC-SA 4.0 (the code
+Apache 2.0), so they are fetched, never bundled. Read with pycalima.pahchem.mai2025."""
+
 [datasets.cagliari-pah]
 kind = "fetch"
 dest = "external_data"

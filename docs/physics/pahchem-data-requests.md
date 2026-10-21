@@ -195,7 +195,12 @@ An earlier draft put H addition first.
   - per-mode shifts and widths;
   - a retrain at 6-31G* on PAHdb v4.00 geometries;
   - whether derived per-band tables may be redistributed (the data are
-    CC BY-NC-SA).
+    CC BY-NC-SA; the code Apache 2.0, Zenodo doi:10.5281/zenodo.15771437,
+    fetched as `mai2025-mlmd`);
+  - their 1704-PAH spectra show the 3.3 µm peak of N$_C$ ≥ 60 shifting
+    1.4–1.9× as far as C$_{24}$–C$_{39}$ at equal energy per mode
+    ({doc}`pahchem-spec`, "The 3.3 µm band against size"). Quantum-corrected
+    or NVE runs of three or four sizes would turn that into a law.
 - **CH-stretch intensities of large PAHs (Rigopoulou group, T1 item 3, or the
   laboratory).** Against 35 matrix-isolation neutrals (PAHdb experimental
   v3.10, N_C ≤ 50), B3LYP/6-31G* puts 2× too much intensity in the CH stretch
@@ -243,6 +248,21 @@ An earlier draft put H addition first.
   - which interaction-strength cut-off (SPECTRO's W) and which treatment of
     the methyl torsion they used;
   - force fields for a methylated or superhydrogenated PAH with N_C ≥ 24.
+- **ALPAHCAS (Reems, Candian, Rol, Esposito, Kamp, Buma, Tielens; conference
+  abstract, Aromatic Universe 2026).** An open-source successor to the Mackie+18
+  cascade code (VPT2 quartic force fields, B3LYP/N07D). The ask: the code or
+  its release date, and through it the 9-methylanthracene items above.
+- **Esposito et al. (PAHdb anharmonic library; Esposito et al. 2024, MNRAS 535, 3239).**
+  Their indene / 2-ethynyltoluene cascades treat CH$_2$ in a ring and a hindered
+  CH$_3$ (MNRAS 535, 3239). The ask: χ and VPT2 intensities of those molecules
+  (the supplement holds only harmonic data), and any methylated PAH with N$_C$
+  ≥ 16.
+- **Ricca, Sloan, Peeters, Cami et al. (arXiv:2609.30574, JWST Proto-PAH).** Their
+  C$_{130}$H$_{96}$ aliphatic-rich carrier matches post-AGB 3.4 µm positions to
+  ~0.001 µm with one 0.959 scale. The ask: the spectrum and mode list (promised
+  in NGdb, https://nanograin.odr.io/) as a check of side-group positions on a
+  large molecule.
+
 - **Cosmic-ray collisions** ({doc}`pahchem-spec`, "Cosmic-ray collisions").
   The fast-particle part is calibrated on NIST stopping. Two items are now
   covered:

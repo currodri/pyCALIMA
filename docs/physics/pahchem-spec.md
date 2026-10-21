@@ -1935,6 +1935,34 @@ rms over the lab points / lab peak, free scale and offset:
   intensities with the lab stretch scale (de Bentzmann+26 used measured
   gas-phase intensities instead); `demyk2026.band_profile`.
 
+**The 3.3 µm band against size in machine-learning MD (2026-10-21;
+`pahchem.mai2025`, `diagnostics/pahchem/check_mai2025_ch.py`, fetch dataset
+`mai2025-mlmd`).** The spectra of {cite:t}`Mai2025` for 1580 pure-aromatic
+neutrals (no CH$_2$/CH$_3$ in PAHdb) at 50, 300 and 600 K: smoothed CH
+band, medians per N$_C$ bin, shifts from 50 K [cm⁻¹]:
+
+| N$_C$ | 9–23 | 24–39 | 40–59 | 60–89 | 90–129 | 130–216 |
+|---|---|---|---|---|---|---|
+| n | 53 | 1120 | 84 | 164 | 89 | 70 |
+| peak shift, 300 K | −14 | −14 | −22 | −27 | −26 | −40 |
+| peak shift, 600 K | −33 | −36 | −42 | −51 | −49 | −69 |
+| centroid shift, 600 K | −40 | −46 | −44 | −48 | −47 | −51 |
+
+- **The peak moves further in large PAHs.** At equal energy per mode, the
+  peak of N$_C$ ≥ 60 shifts 1.4–1.9× as far as that of C$_{24}$–C$_{39}$.
+  The centroid barely changes: small PAHs grow a red wing, large ones shift
+  as a whole.
+- **Absolute shifts are upper bounds.** The runs are classical: 300 /
+  600 K carry the energy per mode of a quantum molecule at ~750 / ~1250 K.
+  They also excite the CH stretches, adding their self-anharmonicity
+  (~−8 cm⁻¹ at 600 K classical).
+- **Bearing on the population fit.** With pyrene's lab law the
+  population's 3.29 µm band is ~11 cm⁻¹ too blue: ~−17 cm⁻¹ at its emission
+  temperatures, against the −28 cm⁻¹ the free fit takes. A ×1.5 larger shift
+  for N$_C$ ~ 70 would close that, which the trend suggests but cannot fix
+  quantitatively without quantum-corrected or fixed-energy (NVE) runs (asked
+  in {doc}`pahchem-data-requests`).
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
