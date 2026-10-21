@@ -1887,6 +1887,28 @@ row of its mode group: 6H-pyrene for CH$_2$, 9-methylanthracene for CH$_3$.
 - **The misfits remain** (the 3.405 µm peak, the 3.355 µm bump, the weak
   3.516 µm band). They are not band-shape effects of anharmonicity.
 
+**Side-group strengths and the 3.355 / 3.51 µm misfits (2026-10-21;
+`fit_34um_sidegroups.py --strengths yangli`).**
+- **Literature band strengths change the amounts, not the fit.**
+  - The per-H A(3.4)/A(3.3) of {cite:t}`Yang2020`-type calibrations is
+    CH$_2$ 1.98 and CH$_3$ 1.76 (cations × 3.80/1.76, the methyl value, also
+    applied to CH$_2$ as an assumption), against the Demyk+26 lab 1.63 and
+    0.95.
+  - The residuals are identical; the fitted aliphatic H per aromatic H
+    drops to CH$_2$ 0.035–0.075 and CH$_3$ 0.07–0.12.
+- **Methyl groups are needed.** Model − observed over 3.34–3.37 µm
+  (fraction of the 3.36–3.60 µm mean): −0.01 to −0.08 with CH$_2$ + CH$_3$,
+  −0.19 to −0.37 with CH$_2$ alone. The 3.355 µm CH$_3$ band is real
+  (Demyk+26: 0.67 of Me-pyrene's main band). The misfit is its shape: a peak
+  where the observation has a smooth shoulder. Swapping methyl for CH$_2$
+  makes the fit worse.
+- **3.51 µm.** With the symmetric CH$_2$ bands (2876.8, 2846.1 cm⁻¹) given
+  their own amplitude, the fit takes them 1.6–2.2× stronger relative to the
+  asymmetric ones than in 6H-pyrene (lab ratio 0.46). The 3.49–3.53 µm
+  deficit halves (−0.10 to −0.18 → −0.05 to −0.08); the residual goes from
+  0.09–0.15 to 0.09–0.14. Plausible for a Fermi-resonance band whose
+  strength depends on the molecule.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

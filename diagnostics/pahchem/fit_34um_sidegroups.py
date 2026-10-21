@@ -55,6 +55,10 @@ FIT = "392313363fe8"
 GROUPS = {"CH2": ("6h-pyrene", (2942.7, 2916.3, 2876.8, 2846.1), 12, 3028.0, 4),
           "CH3": ("me-pyrene", (2981.1, 2956.9, 2936.8, 2908.4, 2877.8), 3, 3049.9, 9)}
 BANDS = [b for g in GROUPS.values() for b in g[1]]
+#: --strengths yangli: A(3.4)/A(3.3) per C-H bond, neutral; cations take the methyl cation/neutral factor
+#: (superhydrogenated, Yang, Li & Glaser 2020 ApJS 247, 1; methyl, Yang & Li 2023 ApJS 268, 50: 1.76 / 3.80)
+YANGLI = {"CH2": 1.98, "CH3": 1.76}
+YANGLI_CATION = 3.80 / 1.76
 TABLE_VERSION = 1
 
 
@@ -173,8 +177,9 @@ class ChiProfile:
 class SideGroups:
     """Per state and group, the side-group power per cm^-1 on ``nu`` for one aliphatic H per aromatic H."""
 
-    def __init__(self, lib, tab, nu, below="hold", profile="lab"):
+    def __init__(self, lib, tab, nu, below="hold", profile="lab", strengths="lab"):
         self.lib, self.tab, self.nu, self.below, self.profile = lib, tab, nu, below, profile
+        self.strengths = strengths
         self.energy = np.arange(next(iter(tab.values()))["P"].size) * DE_CM
         self.bands = {}
         for g, (key, bands, n_ali, aro, n_aro) in GROUPS.items():
@@ -183,6 +188,7 @@ class SideGroups:
             ratio = [(inten[b] / n_ali) / (inten[aro] / n_aro) for b in bands]
             laws = [cosmicpah.band(key, b) for b in bands]
             self.bands[g] = [(BANDS.index(b), r, law) for b, r, law in zip(bands, ratio, laws)]
+        self.lab_total = {g: sum(r for _, r, _ in v) for g, v in self.bands.items()}
         if profile == "chi":
             self.chi = {b: ChiProfile(cosmicpah.band(GROUPS[g][0], b), *CHI_SOURCES[b])
                         for g in GROUPS for b in GROUPS[g][1]}
@@ -196,7 +202,11 @@ class SideGroups:
             P, T = e["P"].astype(float), e["T"].astype(float)
             live = P > 1e-12 * P.max() if P.max() > 0 else P > 0
             out = np.zeros(self.nu.size)
+            scale = 1.0
+            if self.strengths == "yangli":
+                scale = YANGLI[group] / self.lab_total[group] * (YANGLI_CATION if z > 0 else 1.0)
             for i, r, law in self.bands[group]:
+                r = r * scale
                 a_b = _EINSTEIN_A_PER_KM_MOL * BANDS[i] ** 2 * r * ref["i_aro_h"] * mol.nh
                 photons = P[live] * a_b * e["K"][i].astype(float)[live]
                 t = T[live]
@@ -252,6 +262,9 @@ def main():
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--profile", choices=("lab", "chi"), default="lab",
                     help="side-group band profiles: the lab laws, or VPT2 shift distributions anchored on them")
+    ap.add_argument("--strengths", choices=("lab", "yangli"), default="lab",
+                    help="per-H side-group strengths: Demyk+26 lab ratios (CH2 1.63, CH3 0.95), or Yang & Li's "
+                         "(CH2 1.98, CH3 1.76, cations x 2.16)")
     ap.add_argument("--below", choices=("hold", "extrapolate"), default="hold",
                     help="band laws below the lab data: Demyk+26's lowest-T value, or continued to 0 K (Mackie+18)")
     args = ap.parse_args()
@@ -274,11 +287,12 @@ def main():
     print(f"CH-stretch power, tables vs population bases (sample of states): max |rel diff| {worst:.3f}")
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
-    sg = SideGroups(lib, tab, nu, args.below, args.profile)
+    sg = SideGroups(lib, tab, nu, args.below, args.profile, args.strengths)
     if args.profile == "chi":
         for b, cp in sg.chi.items():
             print(f"  {b}: alpha {cp.alpha:.2f}, nu0 {cp.nu0:.1f}, intrinsic sigma {cp.sigma_int:.1f} cm^-1")
     w33, w34 = (lam >= 3.20) & (lam < 3.36), (lam >= 3.36) & (lam < 3.60)
+    w_bump, w_351 = (lam >= 3.34) & (lam < 3.37), (lam >= 3.49) & (lam < 3.53)
     results = {}
     for t in C.TEMPLATES:
         row, env = best_cell(fit, t, card, teff)
@@ -295,16 +309,21 @@ def main():
             band = y - cont
             ok = np.isfinite(y)
             rel34 = float(np.sqrt(np.nanmean((band - model)[w34 & ok] ** 2)) / np.nanmean(y[w34 & ok]))
+            mean34 = np.nanmean(y[w34 & ok])
+            bias = lambda w: float(np.nanmean((model - band)[w & ok]) / mean34)      # noqa: E731
             res[name] = {"x": x, "model": model, "cont": cont, "rms34": rel34,
+                         "bias_3355": bias(w_bump), "bias_351": bias(w_351),
                          "ratio_obs": float(np.nansum(band[w34]) / np.nansum(band[w33])),
                          "ratio_model": float(model[w34].sum() / model[w33].sum())}
             xs = ", ".join(f"x_{g} {v:.3f}" for g, v in zip([k for k in GROUPS if k in name or "CH2 + CH3" in name], x[1:]))
             print(f"{t:6s} {name:22s}: aromatic scale {x[0]:.2f}{', ' + xs if xs else ''}; 3.36-3.60 residual "
-                  f"{rel34:.2f}; (3.36-3.60)/(3.20-3.36) obs {res[name]['ratio_obs']:.2f}, model {res[name]['ratio_model']:.2f}",
+                  f"{rel34:.2f}; (3.36-3.60)/(3.20-3.36) obs {res[name]['ratio_obs']:.2f}, model {res[name]['ratio_model']:.2f}; "
+                  f"model - obs at 3.34-3.37 {res[name]['bias_3355']:+.2f}, 3.49-3.53 {res[name]['bias_351']:+.2f}",
                   flush=True)
         results[t] = {"y": y, "arom": arom, "res": res, "cols": cols}
     out = args.out or _paths.get_plots_dir("pahchem")
-    suffix = ("" if args.below == "hold" else f"_{args.below}") + ("" if args.profile == "lab" else f"_{args.profile}")
+    suffix = (("" if args.below == "hold" else f"_{args.below}") + ("" if args.profile == "lab" else f"_{args.profile}")
+              + ("" if args.strengths == "lab" else f"_{args.strengths}"))
     with open(_paths.get_results_dir() / f"pahchem_sidegroups_34um{suffix}.pkl", "wb") as fh:
         pickle.dump({"lam": lam, "results": results}, fh)
     plot(lam, results, out, suffix)
