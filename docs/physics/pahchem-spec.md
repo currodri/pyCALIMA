@@ -1909,6 +1909,32 @@ row of its mode group: 6H-pyrene for CH$_2$, 9-methylanthracene for CH$_3$.
   0.09–0.15 to 0.09–0.14. Plausible for a Fermi-resonance band whose
   strength depends on the molecule.
 
+**Pyrene cascades against measured emission of UV-excited pyrene (2026-10-21;
+`diagnostics/pahchem/check_saykally_pyrene.py`, figure `saykally_pyrene`).**
+Saykally's laboratory measured the IR emission of gas-phase pyrene after one
+5 eV photon: 3.3 µm (Wagner, Kim & Saykally 2000) and 12 µm (Cook et al.
+1996). {cite:t}`deBentzmann2026` replot both with their cascade (read here
+from the vector figure; `saykally_pyrene_emission.csv`). These are hot
+molecules emitting, a direct test of the laws extrapolated above 673 K.
+rms over the lab points / lab peak, free scale and offset:
+
+| | de Bentzmann+26 | pahchem, lab laws (ID 2) | pahchem, VPT2 + polyads |
+|---|---|---|---|
+| 3.3 µm | 0.096 | 0.074 | 0.058 |
+| 12 µm | 0.048 | 0.049 | 0.187 |
+
+- **Both cascades reproduce the 3.3 µm band.** The lab band is broader on
+  its red side than either model; VPT2's red wing comes closest.
+- **The lab laws reproduce the 12 µm band.** VPT2 is ~8 cm⁻¹ blue (844.5
+  against ~836 cm⁻¹) and too narrow. The ID 2 laws include the rotational
+  envelope (~6 cm⁻¹), which VPT2 lacks.
+- **Reading.** The lab laws extrapolated to ~1500 K hold for real hot pyrene,
+  as de Bentzmann+26 found. VPT2's absolute positions are good to a few
+  cm⁻¹ at best, and its red wing helps only in the CH stretch.
+- **Inputs.** pyrene modes of `demyk2026_modes.csv`; PAHdb UID 334
+  intensities with the lab stretch scale (de Bentzmann+26 used measured
+  gas-phase intensities instead); `demyk2026.band_profile`.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

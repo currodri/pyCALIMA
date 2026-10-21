@@ -386,7 +386,7 @@ kind = "fetch"
 dest = "pahchem/cosmicpah_irdb"
 files = ["laws/ID22.json", "archives/pyrene_gas.zip", "laws/ID9.json", "archives/2h-pyrene_gas.zip",
          "laws/ID12.json", "archives/4h-pyrene_gas.zip", "laws/ID4.json", "archives/6h-pyrene_gas.zip",
-         "laws/ID17.json", "archives/me-pyrene_gas.zip"]
+         "laws/ID17.json", "archives/me-pyrene_gas.zip", "laws/ID2.json"]
 size_bytes = 2_400_000
 citation = "Demyk et al. (2026), arXiv:2607.16018; CosmicPAH-IRDB (IRAP Toulouse), https://cosmicpah-irdb.irap.omp.eu"
 url = "https://www.cosmicpah-irdb.ovgso.fr"
@@ -394,7 +394,7 @@ url_status = "confirmed"
 fetcher = "pycalima.pahchem.cosmicpah:fetch"
 notes = """Gas-phase band temperature laws (position and FWHM against T, 423-673 K) of
 pyrene and 2H-, 4H-, 6H- and 1-methylpyrene, by the dataset IDs of Demyk+26's
-analysis, and the per-molecule spectrum archives (relative absorbance, version
+analysis (and pyrene ID 2, the single-component laws of de Bentzmann+26), and the per-molecule spectrum archives (relative absorbance, version
 1.1.1). No licence is stated; the site asks that the dataset reference be cited,
 so the data are fetched, never bundled. The site publishes no checksums: the
 fetcher writes MANIFEST.json with the URLs, the date and a sha256 per file.

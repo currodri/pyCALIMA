@@ -50,6 +50,8 @@ DATASETS = {
     "4h-pyrene": ("4,5,9,10-tetrahydropyrene", "C16H14", 12, "1.1.1"),
     "6h-pyrene": ("1,2,3,6,7,8-hexahydropyrene", "C16H16", 4, "1.1.2 Rotational correction"),
     "me-pyrene": ("1-methylpyrene", "C17H12", 17, "1.1.2 Rotational correction"),
+    # one component per band, rotation not removed: the laws de Bentzmann+26 compare with UV-excited pyrene
+    "pyrene-mono": ("Pyrene", "C16H10", 2, "1.1.2 Mono component"),
 }
 PHASE, CATEGORY = "Gas", "Experimental"
 
@@ -58,12 +60,17 @@ def _laws_file(key):
     return f"laws/ID{DATASETS[key][2]}.json"
 
 
+def _archive_key(key):
+    """The first key of the same molecule: one archive per molecule."""
+    return next(k for k in DATASETS if DATASETS[k][0] == DATASETS[key][0])
+
+
 def _archive_file(key):
-    return f"archives/{key}_gas.zip"
+    return f"archives/{_archive_key(key)}_gas.zip"
 
 
 #: every file the fetcher writes (``data/registry.toml`` lists the same)
-FILES = tuple(f(k) for k in DATASETS for f in (_laws_file, _archive_file))
+FILES = tuple(dict.fromkeys(f(k) for k in DATASETS for f in (_laws_file, _archive_file)))
 
 
 def _laws_url(key):
@@ -91,6 +98,8 @@ def fetch(output_dir):
     manifest = {"source": BASE_URL, "fetched": datetime.date.today().isoformat(), "files": {}}
     for key in DATASETS:
         for rel, url in ((_laws_file(key), _laws_url(key)), (_archive_file(key), _archive_url(key))):
+            if rel in manifest["files"]:
+                continue
             _download(url, out / rel)
             manifest["files"][rel] = {"url": url, "sha256": _sha256(out / rel)}
         parse_laws(json.loads((out / _laws_file(key)).read_text()))          # fail now, not at first use

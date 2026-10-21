@@ -165,3 +165,21 @@ def run(key, e_uv_ev, freqs_cm=None, t_kind="microcanonical", root=None):
             law = near[0]
         bands.append(Band(float(row.band_cm), float(f[m]), law, float(row.fwhm_fixed_cm), X[m]))
     return Emission(key, float(e_uv_ev), temperature(f, cm.energy_cm, t_kind), bands)
+
+
+def band_profile(freqs_cm, einstein_a, modes, law, e_uv_ev, nu_cm, t_kind="microcanonical"):
+    """Emitted power per cm^-1 on ``nu_cm`` of the modes ``modes`` (mask or indices) of any molecule after one
+    ``e_uv_ev`` photon, each photon at ``law``'s position and FWHM at its bin's T (pseudo-Voigt): the method of
+    ``run`` for a mode list and intensities given directly."""
+    f = np.asarray(freqs_cm, dtype=float)
+    e_uv = e_uv_ev * dos.CM_PER_EV
+    cm = energy_me.CascadeModel(f, np.asarray(einstein_a, dtype=float), e_uv + 5 * DE_CM, DE_CM, GRAIN_CM)
+    start = np.zeros(cm.n)
+    x = e_uv / DE_CM
+    lo = int(np.floor(x))
+    start[lo], start[lo + 1] = 1.0 - (x - lo), x - lo
+    ph = emission.emission_by_energy(cm, start)[np.asarray(modes)].reshape(-1, cm.n).sum(axis=0)
+    T = temperature(f, cm.energy_cm, t_kind)
+    on = ph > 0
+    pos, fw = law.position(T[on]), law.fwhm(T[on])
+    return (ph[on] * pos) @ cosmicpah.pseudo_voigt(np.asarray(nu_cm, float)[None, :], pos[:, None], fw[:, None], law.lorentz)
