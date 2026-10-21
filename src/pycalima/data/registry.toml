@@ -400,6 +400,33 @@ so the data are fetched, never bundled. The site publishes no checksums: the
 fetcher writes MANIFEST.json with the URLs, the date and a sha256 per file.
 Read with pycalima.pahchem.cosmicpah."""
 
+[datasets.mackie2018-supplement]
+kind = "manual"
+dest = "pahchem/mackie2018"
+files = ["cascade_spectra.pdf",
+         "123678-hexahydropyrene_b3lyp-n07d_normal_coordinate_quadratic_force_constants.txt",
+         "123678-hexahydropyrene_b3lyp-n07d_normal_coordinate_cubic_force_constants.txt",
+         "123678-hexahydropyrene_b3lyp-n07d_normal_coordinate_quartic_force_constants.txt",
+         "pyrene_b3lyp-n07d_normal_coordinate_quadratic_force_constants.txt",
+         "pyrene_b3lyp-n07d_normal_coordinate_cubic_force_constants.txt",
+         "pyrene_b3lyp-n07d_normal_coordinate_quartic_force_constants.txt"]
+size_bytes = 79_700_000
+citation = "Mackie, Chen, Candian, Lee & Tielens (2018), J. Chem. Phys. 149, 134302, doi:10.1063/1.5038725, supplementary material"
+url = "https://pubs.aip.org/jcp/article-supplement/196981/zip/134302_1_supplements/"
+url_status = "confirmed"
+instructions = """B3LYP/N07D quartic force fields (Gaussian reduced constants in normal coordinates)
+and equilibrium geometries of 19 PAHs, and their anharmonic IR cascade spectra (PDF),
+from the supplementary material of Mackie et al. (2018). AIP's copyright, so it is not
+redistributed with pyCALIMA.
+
+  1. Download the supplementary zip (134302_1_supplements) from the article page,
+     https://pubs.aip.org/aip/jcp/article/149/13/134302/196981 ("supplementary material"),
+     and unpack it.
+  2. Register the unpacked directory:
+         calima-fetch-data import mackie2018-supplement /path/to/134302_1_supplements [--link]
+
+Read with pycalima.pahchem.vpt2 (read_gaussian_qff, mackie2018_force_field)."""
+
 [datasets.cagliari-pah]
 kind = "fetch"
 dest = "external_data"

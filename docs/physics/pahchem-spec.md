@@ -1783,6 +1783,40 @@ cascade bands with a steep blue wall at the 0 K position and a red wing.
   (Thatte+26's 3.405 µm component). The test of the extrapolation is
   Mackie+18's fully anharmonic cascade of 6H-pyrene (supplementary material).
 
+**Anharmonic constants from the Mackie+18 force fields (2026-10-21;
+`pahchem.vpt2`, manual dataset `mackie2018-supplement`).** Step 1 of
+using {cite:t}`Mackie2018`'s fully anharmonic cascade.
+- **What their cascade looks like** (6H-pyrene CH stretches, supplement
+  Fig. 2, extracted from the vector PDF). From 3 to 9 eV the blue wall of
+  the 3.40 µm band stays put while a red wing grows: FWHM 9.5 → 35.5 cm⁻¹,
+  red/blue half-widths 23.5/12.0 at 9 eV. Between 2900 and 2850 cm⁻¹ the
+  band holds 0.3–0.5 of the peak, against ~0.15 with the lab laws, whose
+  FWHM goes only 18 → 28 cm⁻¹. Their peak moves −10 cm⁻¹ (mostly one
+  Fermi doublet component taking over), ours −5.5.
+- **VPT2.** χ from Gaussian's reduced cubic and semi-diagonal quartic
+  constants (Barone 2005), Fermi terms of types 1 and 2 removed
+  (200 cm⁻¹ above 2000 cm⁻¹, 25 below, as Mackie+18), no Coriolis terms.
+  Checks:
+  - analytic limits;
+  - pyrene's isolated fundamentals fall on the strong lines of PAHdb
+    anharmonic v1.00 (same B3LYP/N07D; median offset < 1 cm⁻¹ below
+    1500 cm⁻¹).
+- **Thermal shifts against the lab** (Δν$_k$ = 2χ$_{kk}$n̄$_k$ +
+  Σ$_i$ χ$_{ik}$n̄$_i$, Bose occupations):
+
+  | dν/dT [cm⁻¹/K], 423–523 / 523–673 K | VPT2 | Demyk+26 |
+  |---|---|---|
+  | CH$_2$ asymmetric (3.40 µm) | −0.007 to −0.009 / −0.011 to −0.013 | −0.0085 / −0.0115 |
+  | aromatic CH | −0.014 / −0.019 | −0.025 / −0.024 |
+
+  The χ reproduce the CH$_2$ law and its steepening with T. Above the lab
+  range the shift keeps steepening: −10 cm⁻¹ at 1000 K, −27 to −31 cm⁻¹ at
+  1500 K. That is about twice the lab law extrapolated linearly, the factor
+  seen in Mackie+18's cascade.
+- **Next.** Microcanonical emission spectra from χ, with the polyads of
+  the CH stretch region, through pahchem's cascade. They are to be gated
+  on the 3–9 eV curves of 6H-pyrene, then used as side-group profiles.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
