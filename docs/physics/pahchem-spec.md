@@ -1848,13 +1848,37 @@ cascades (supplement, extracted from the vector paths of the PDF;
 
   The blue wall sits 2–4 cm⁻¹ red of theirs. At 7–9 eV a polyad band near
   2885 cm⁻¹ merges with the main band.
-- **9-methylanthracene does not work yet** (rms 0.22–0.25). Their sharp
+- **A resonance bug (fixed).** Type-1 terms inside χ$_{ij}$ (k = j with
+  2ω$_j$ ≈ ω$_i$, and k = i) were not deperturbed. 9-methylanthracene's
+  3202 cm⁻¹ CH stretch got χ = −388 cm⁻¹ against its 1601 cm⁻¹ ring mode
+  (detuning 0.1 cm⁻¹), so its fundamental came out at 2870 cm⁻¹. After the
+  fix, 6H-pyrene's rms with polyads is 0.13 / 0.10 / 0.09 / 0.09 at
+  3 / 5 / 7 / 9 eV, the 2885 cm⁻¹ merging gone.
+- **9-methylanthracene does not work yet** (rms 0.19–0.22 after the fix). Their sharp
   2935 cm⁻¹ methyl band is too weak in ours, and their aromatic band splits
   into peaks near 3080, 3060 and 3030 cm⁻¹ while ours sits ~30 cm⁻¹ redder.
   The suspects are the missing inputs: VPT2 intensities (including the
   combination bands' own) and the dark–dark (Darling–Dennison) couplings.
   Without those, methyl profiles taken from this reproduction are not
   reliable.
+
+**Anharmonic side-group profiles in the Orion Bar fit (2026-10-21;
+`fit_34um_sidegroups.py --profile chi`).** Each lab band takes the VPT2 χ
+row of its mode group: 6H-pyrene for CH$_2$, 9-methylanthracene for CH$_3$.
+- **Anchoring to the lab.** The row is scaled by α to give the lab slope
+  over 523–673 K: 0.93 for the 3.40 µm CH$_2$ band and 0.92 for the
+  2936.8 cm⁻¹ CH$_3$ band; 0 for the bands that shift blue in the lab. The
+  cold position follows from the lab position at 523 K. An intrinsic
+  Gaussian makes up the lab FWHM at 523 K, matched by FWHM, not variance,
+  because the distribution is skewed.
+- **Result: no change in substance.** The 3.36–3.60 µm residual is
+  0.10–0.18 against 0.09–0.15 with the lab laws, with the same aliphatic
+  amounts. The population emits its CH stretches at ~700–1000 K. There the
+  χ physics and the lab laws agree: CH$_2$ peak at 900 K 2938.4 against
+  2938.3 cm⁻¹, FWHM 16.0 against 17.7. Mackie+18's broad red wings belong
+  to small molecules at 7–9 eV.
+- **The misfits remain** (the 3.405 µm peak, the 3.355 µm bump, the weak
+  3.516 µm band). They are not band-shape effects of anharmonicity.
 
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?

@@ -49,6 +49,13 @@ def test_a_fermi_resonance_is_removed_not_divergent():
     assert ("2", 0, 1, 2) in ff.resonances
 
 
+def test_a_type1_resonance_inside_chi_ij_is_removed():
+    """2 omega_j ~ omega_i: the k = j term of chi_ij carries 1/(2 omega_j - omega_i) and is deperturbed."""
+    ff = _ff([3202.1, 1601.1], cubic=[((0, 1, 1), 60.0)])
+    chi = vpt2.anharmonic_constants(ff)
+    assert abs(chi[0, 1]) < 5.0 and ("1", 1, 0) in ff.resonances
+
+
 @pytest.fixture(scope="module")
 def mackie():
     from pycalima._datasets import get_dataset
@@ -96,3 +103,12 @@ def test_6h_pyrene_ch2_thermal_shift_is_the_demyk26_law(mackie):
     slopes = [np.mean([(shift(b, k) - shift(a, k)) / (b - a) for k in ch2]) for a, b in ((423, 523), (523, 673))]
     lab = [p.c1 for p in cosmicpah.band("6h-pyrene", 2942.7).position_pieces]
     assert slopes == pytest.approx(lab, rel=0.25)
+
+
+@pytest.mark.parametrize("name", ["9-methylanthracene", "123678-hexahydropyrene", "pyrene", "910-dimethylanthracene"])
+def test_ch_stretch_anharmonic_corrections_are_physical(mackie, name):
+    """nu - omega of every CH stretch within -200..-100 cm^-1 (an undeperturbed resonance gave -332)."""
+    ff = vpt2.mackie2018_force_field(name, mackie)
+    nu = vpt2.fundamentals(ff.omega, vpt2.anharmonic_constants(ff))
+    d = (nu - ff.omega)[ff.omega > 2900]
+    assert d.min() > -200 and d.max() < -100

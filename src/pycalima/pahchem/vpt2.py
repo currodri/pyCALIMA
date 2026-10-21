@@ -134,6 +134,10 @@ def anharmonic_constants(ff, delta_hi=200.0, delta_lo=25.0, split_cm=2000.0, min
         r_ij_k = t2                                              # w_i + w_j ~ w_k
         r_ik_j = np.transpose(t2, (0, 2, 1))                     # w_i + w_k ~ w_j
         r_jk_i = np.transpose(t2, (2, 1, 0))                     # w_j + w_k ~ w_i
+        # type 1 inside chi_ij: the k = i term carries 1/(2 w_i - w_j), the k = j term 1/(2 w_j - w_i)
+        eye = np.eye(n, dtype=bool)
+        r_ik_j = r_ik_j | (t1[:, :, None] & eye[:, None, :])     # k = i, 2 w_i ~ w_j
+        r_jk_i = r_jk_i | (t1.T[:, :, None] & eye[None, :, :])   # k = j, 2 w_j ~ w_i
         frac = 0.25 * (p1 - np.where(r_ij_k, 0.0, p2) + np.where(r_ik_j, 0.0, p3) + np.where(r_jk_i, 0.0, p4))
     # sign: for w_k >> w_i, w_j, eliminating q_k adiabatically gives -phi_ijk^2 / (2 w_k) (frac -> 1/w_k)
     b = -0.5 * np.einsum("ijk,ijk->ij", phi ** 2, np.nan_to_num(frac, posinf=0.0, neginf=0.0))

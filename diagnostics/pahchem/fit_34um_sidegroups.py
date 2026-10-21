@@ -116,11 +116,65 @@ def tables(lib, processes):
 
 
 # -- side-group spectra --------------------------------------------------------------------------
+#: lab band -> (Mackie+18 molecule, its VPT2 modes whose chi row the band takes) for --profile chi
+CHI_SOURCES = {2942.7: ("123678-hexahydropyrene", (4, 5, 6, 7, 8, 9)), 2916.3: ("123678-hexahydropyrene", (10, 11)),
+               2876.8: ("123678-hexahydropyrene", (10, 11)), 2846.1: ("123678-hexahydropyrene", (12, 13, 15)),
+               2981.1: ("9-methylanthracene", (9,)), 2956.9: ("9-methylanthracene", (10,)),
+               2936.8: ("9-methylanthracene", (10,)), 2908.4: ("9-methylanthracene", (11,)),
+               2877.8: ("9-methylanthracene", (11,))}
+T_REF, T_HI = 523.0, 673.0
+FWHM_SIGMA = 1.0 / np.sqrt(8 * np.log(2))
+
+
+class ChiProfile:
+    """A lab band's profile from the shift distribution of its VPT2 chi row (pahchem.mackie2018), the row scaled
+    by alpha so that the mean shift has the lab slope over T_REF-T_HI (clipped to 0-2; 0 for a band shifting
+    blue), the cold position nu0 = lab position(T_REF) - mean shift(T_REF), and an intrinsic Gaussian giving the
+    lab FWHM at T_REF. Inside the lab range it follows the lab law; above it the chi physics."""
+
+    def __init__(self, law, molecule, modes, cache={}):
+        from pycalima.pahchem import mackie2018, vpt2
+
+        if molecule not in cache:
+            ff = vpt2.mackie2018_force_field(molecule)
+            chi = vpt2.anharmonic_constants(ff)
+            cache[molecule] = (ff.omega, chi)
+        self.omega, chi = cache[molecule]
+        row = np.mean([chi[k] - np.diag(chi)[k] * (np.arange(self.omega.size) == k) for k in modes], axis=0)
+        mean = lambda t, r: r @ (1.0 / np.expm1(self.omega / (dos.KB_CM * t)))      # noqa: E731
+        vpt2_slope = (mean(T_HI, row) - mean(T_REF, row)) / (T_HI - T_REF)
+        lab_slope = float(law.position(T_HI) - law.position(T_REF)) / (T_HI - T_REF)
+        self.alpha = float(np.clip(lab_slope / vpt2_slope, 0.0, 2.0)) if vpt2_slope < 0 else 0.0
+        self.row = self.alpha * row
+        self.nu0 = float(law.position(T_REF)) - mean(T_REF, self.row)
+        # the intrinsic Gaussian that gives the lab FWHM at T_REF (FWHM, not variance: the distribution is skewed)
+        target = float(law.fwhm(T_REF))
+        lo, hi = 0.3, target * FWHM_SIGMA
+        for _ in range(40):
+            mid = 0.5 * (lo + hi)
+            g, d = mackie2018.shift_distribution(self.row[None], self.omega, T_REF, smooth_cm=mid)
+            half = g[d[0] >= 0.5 * d[0].max()]
+            lo, hi = (mid, hi) if half.max() - half.min() < target else (lo, mid)
+        self.sigma_int = 0.5 * (lo + hi)
+        self._dist = {}
+
+    def density(self, t_k):
+        """(shift grid, density) at T, the intrinsic Gaussian included."""
+        from pycalima.pahchem import mackie2018
+
+        key = int(round(t_k / 25.0))
+        if key not in self._dist:
+            g, d = mackie2018.shift_distribution(self.row[None], self.omega, max(key * 25.0, 10.0),
+                                                 smooth_cm=self.sigma_int)
+            self._dist[key] = (g, d[0])
+        return self._dist[key]
+
+
 class SideGroups:
     """Per state and group, the side-group power per cm^-1 on ``nu`` for one aliphatic H per aromatic H."""
 
-    def __init__(self, lib, tab, nu, below="hold"):
-        self.lib, self.tab, self.nu, self.below = lib, tab, nu, below
+    def __init__(self, lib, tab, nu, below="hold", profile="lab"):
+        self.lib, self.tab, self.nu, self.below, self.profile = lib, tab, nu, below, profile
         self.energy = np.arange(next(iter(tab.values()))["P"].size) * DE_CM
         self.bands = {}
         for g, (key, bands, n_ali, aro, n_aro) in GROUPS.items():
@@ -129,6 +183,9 @@ class SideGroups:
             ratio = [(inten[b] / n_ali) / (inten[aro] / n_aro) for b in bands]
             laws = [cosmicpah.band(key, b) for b in bands]
             self.bands[g] = [(BANDS.index(b), r, law) for b, r, law in zip(bands, ratio, laws)]
+        if profile == "chi":
+            self.chi = {b: ChiProfile(cosmicpah.band(GROUPS[g][0], b), *CHI_SOURCES[b])
+                        for g in GROUPS for b in GROUPS[g][1]}
         self._cache = {}
 
     def spectrum(self, mol, z, group, intensity="relative"):
@@ -143,6 +200,14 @@ class SideGroups:
                 a_b = _EINSTEIN_A_PER_KM_MOL * BANDS[i] ** 2 * r * ref["i_aro_h"] * mol.nh
                 photons = P[live] * a_b * e["K"][i].astype(float)[live]
                 t = T[live]
+                if self.profile == "chi":
+                    cp = self.chi[BANDS[i]]
+                    keys = np.round(t / 25.0).astype(int)
+                    for key in np.unique(keys):
+                        g, d = cp.density(key * 25.0)
+                        w = photons[keys == key].sum()
+                        out += w * cp.nu0 * np.interp(self.nu - cp.nu0, g, d, left=0.0, right=0.0)
+                    continue
                 pos, fw = law.position(t, self.below), law.fwhm(t, self.below)
                 prof = cosmicpah.pseudo_voigt(self.nu[None, :], pos[:, None], fw[:, None], law.lorentz)
                 out += (photons * pos) @ prof
@@ -185,6 +250,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--processes", type=int, default=8)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--profile", choices=("lab", "chi"), default="lab",
+                    help="side-group band profiles: the lab laws, or VPT2 shift distributions anchored on them")
     ap.add_argument("--below", choices=("hold", "extrapolate"), default="hold",
                     help="band laws below the lab data: Demyk+26's lowest-T value, or continued to 0 K (Mackie+18)")
     args = ap.parse_args()
@@ -207,7 +274,10 @@ def main():
     print(f"CH-stretch power, tables vs population bases (sample of states): max |rel diff| {worst:.3f}")
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
-    sg = SideGroups(lib, tab, nu, args.below)
+    sg = SideGroups(lib, tab, nu, args.below, args.profile)
+    if args.profile == "chi":
+        for b, cp in sg.chi.items():
+            print(f"  {b}: alpha {cp.alpha:.2f}, nu0 {cp.nu0:.1f}, intrinsic sigma {cp.sigma_int:.1f} cm^-1")
     w33, w34 = (lam >= 3.20) & (lam < 3.36), (lam >= 3.36) & (lam < 3.60)
     results = {}
     for t in C.TEMPLATES:
@@ -234,7 +304,7 @@ def main():
                   flush=True)
         results[t] = {"y": y, "arom": arom, "res": res, "cols": cols}
     out = args.out or _paths.get_plots_dir("pahchem")
-    suffix = "" if args.below == "hold" else f"_{args.below}"
+    suffix = ("" if args.below == "hold" else f"_{args.below}") + ("" if args.profile == "lab" else f"_{args.profile}")
     with open(_paths.get_results_dir() / f"pahchem_sidegroups_34um{suffix}.pkl", "wb") as fh:
         pickle.dump({"lam": lam, "results": results}, fh)
     plot(lam, results, out, suffix)
