@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """The population's 3.29 um band from the lab temperature law, with a size-dependent slope (2026-10-21).
 
+The size factor is AD HOC: an exploratory option, not part of the model, until the anharmonic coupling of the
+CH stretch against size is derived (VPT2 or quantum-corrected MD of compact PAHs, C24-C96). s_large = 1 is the
+physical default (pyrene's law unchanged).
+
 The full fit (``fit_pdrs4all_spectra --fit-shape``) gives the 3.29 um band one symmetric Gaussian per mode,
 shifted -28 cm^-1 with FWHM ~34 cm^-1 (fitted). With pyrene's lab law instead, the band came out ~11 cm^-1
 too blue and too narrow (spec, 3.4 um study). Mai+25's ML-MD spectra shift the CH-stretch peak of N_C >= 60

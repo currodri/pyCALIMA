@@ -1982,12 +1982,17 @@ band, medians per N$_C$ bin, shifts from 50 K [cm⁻¹]:
   | pyrene law (s = 1) | 0.209 | 0.288 | 0.275 | 0.263 | 0.240 |
   | best s | 0.082 (1.5) | 0.097 (1.5) | 0.112 (1.6) | 0.114 (1.6) | 0.122 (1.6) |
 
-- **Reading.**
+- **Reading (s is ad hoc: an option, not a default).**
   - With s = 1 the band is ~10 cm⁻¹ too blue (peak 3.2830 against
     3.2938 µm), the known gap.
-  - s = 1.5–1.6 closes it in every template. That lies inside the 1.4–1.9
-    MD trend, so the gap is the larger anharmonic shift of large PAHs, not a
-    missing band-shape parameter.
+  - s = 1.5–1.6 closes it in every template. The value lies inside the
+    1.4–1.9 trend of the classical ML-MD, which supports the direction but
+    does not derive the number. The MD is classical: its absolute shifts are
+    upper bounds, and its size trend is not quantum-corrected.
+  - A physical derivation would need the anharmonic coupling of the CH
+    stretch to the soft modes as a function of size: VPT2 χ or
+    quantum-corrected / NVE MD for two or three compact PAHs from C$_{24}$ to
+    C$_{96}$. The default model keeps s = 1.
   - The lab law then does as well as the free shape or better (HII, Atomic,
     DF1) and slightly worse in DF2/DF3, where the red wing at
     3.31–3.34 µm falls short.
