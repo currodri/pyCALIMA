@@ -1817,6 +1817,45 @@ using {cite:t}`Mackie2018`'s fully anharmonic cascade.
   the CH stretch region, through pahchem's cascade. They are to be gated
   on the 3–9 eV curves of 6H-pyrene, then used as side-group profiles.
 
+**Anharmonic cascade spectra after Mackie+18 (2026-10-21; `pahchem.mackie2018`,
+`diagnostics/pahchem/digitise_mackie2018.py`).** Step 2: the χ above made
+into emission spectra through pahchem's cascade, against their CH-stretch
+cascades (supplement, extracted from the vector paths of the PDF;
+`mackie2018_ch_cascades.csv`).
+- **Ingredients.**
+  - pahchem's harmonic cascade on the VPT2 fundamentals.
+  - At each bin's microcanonical T, the shift Σ$_i$ χ$_{ki}$n$_i$ of each
+    band for thermally occupied modes.
+  - CH-stretch polyads: the bright fundamentals and the two-quantum
+    states in Fermi resonance with them, couplings φ$_{iij}$/4 and
+    φ$_{ijk}$/(2√2), no Darling–Dennison terms.
+  - Intensities from PAHdb v4.00 by frequency rank, since the supplement
+    has none.
+- **Mean field fails.** A Gaussian of the mean shift and its variance
+  makes the 3.40 µm band of 6H-pyrene 2–4× too broad. The variance at
+  fixed energy (the energy-correlated part removed) does not help.
+- **The exact shift distribution works.** Its characteristic function
+  Π$_i$ (1 − q$_i$)/(1 − q$_i$e$^{itχ}$) is inverted by FFT. Rarely excited
+  stiff modes give a distribution peaked near zero shift with a red tail:
+  Mackie+18's steep blue wall and growing red wing. For 6H-pyrene's 3.40 µm
+  band:
+
+  | | 3 eV | 5 eV | 7 eV | 9 eV |
+  |---|---|---|---|---|
+  | FWHM, Mackie+18 / ours [cm⁻¹] | 9.5 / 9.8 | 16.5 / 16.8 | 24.0 / 52.0 | 35.5 / 52.0 |
+  | 2850–2900 cm⁻¹ level, Mackie / ours | 0.24 / 0.17 | 0.28 / 0.30 | 0.35 / 0.48 | 0.44 / 0.64 |
+  | rms over 2800–3150 cm⁻¹, with / without polyads | 0.11 / 0.16 | 0.11 / 0.14 | 0.12 / 0.14 | 0.13 / 0.15 |
+
+  The blue wall sits 2–4 cm⁻¹ red of theirs. At 7–9 eV a polyad band near
+  2885 cm⁻¹ merges with the main band.
+- **9-methylanthracene does not work yet** (rms 0.22–0.25). Their sharp
+  2935 cm⁻¹ methyl band is too weak in ours, and their aromatic band splits
+  into peaks near 3080, 3060 and 3030 cm⁻¹ while ours sits ~30 cm⁻¹ redder.
+  The suspects are the missing inputs: VPT2 intensities (including the
+  combination bands' own) and the dark–dark (Darling–Dennison) couplings.
+  Without those, methyl profiles taken from this reproduction are not
+  reliable.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
