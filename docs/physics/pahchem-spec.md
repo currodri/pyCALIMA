@@ -1963,6 +1963,37 @@ band, medians per N$_C$ bin, shifts from 50 K [cm⁻¹]:
   quantitatively without quantum-corrected or fixed-energy (NVE) runs (asked
   in {doc}`pahchem-data-requests`).
 
+**The 3.29 µm band from the lab law with a size-dependent slope (2026-10-21;
+`diagnostics/pahchem/fit_33um_sizelaw.py`, figure `sizelaw_33um`).**
+- **Model.** The aromatic CH photons of the fitted population: each takes
+  ν$_i$ − 6 cm⁻¹ + s(N$_C$) χ$_1'$ T at its bin's microcanonical T, with
+  pyrene's lab law (CosmicPAH-IRDB ID 22, χ$_1'$ = −0.0216 cm⁻¹/K, its
+  FWHM law, pseudo-Voigt). s = 1 below N$_C$ = 40 and rises linearly to
+  s$_\mathrm{large}$ at N$_C$ ≥ 60, after the size trend of {cite:t}`Mai2025`
+  above.
+- **Fit.** With the CH$_2$/CH$_3$ side groups and a linear continuum on
+  3.1–3.65 µm, against the full fit's free shape (−28 cm⁻¹, FWHM 34). There
+  is no free shift; s is the one parameter, scanned. Residual over
+  3.20–3.36 µm / mean:
+
+  | | HII | Atomic | DF1 | DF2 | DF3 |
+  |---|---|---|---|---|---|
+  | free shape | 0.124 | 0.112 | 0.132 | 0.103 | 0.099 |
+  | pyrene law (s = 1) | 0.209 | 0.288 | 0.275 | 0.263 | 0.240 |
+  | best s | 0.082 (1.5) | 0.097 (1.5) | 0.112 (1.6) | 0.114 (1.6) | 0.122 (1.6) |
+
+- **Reading.**
+  - With s = 1 the band is ~10 cm⁻¹ too blue (peak 3.2830 against
+    3.2938 µm), the known gap.
+  - s = 1.5–1.6 closes it in every template. That lies inside the 1.4–1.9
+    MD trend, so the gap is the larger anharmonic shift of large PAHs, not a
+    missing band-shape parameter.
+  - The lab law then does as well as the free shape or better (HII, Atomic,
+    DF1) and slightly worse in DF2/DF3, where the red wing at
+    3.31–3.34 µm falls short.
+  - The width law is pyrene's, unscaled (FWHM 32–35 against the observed
+    35–37.5 cm⁻¹).
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,
