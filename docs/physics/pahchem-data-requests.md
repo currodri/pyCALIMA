@@ -226,6 +226,23 @@ An earlier draft put H addition first.
   the 3.29 band ~11 cm⁻¹ too blue and too narrow. The ask: whether the
   CosmicPAH-IRDB holds (or will hold) shift and width laws for larger PAHs,
   for a methylated large PAH, and the cascade code behind their 6H-pyrene fit.
+- **Mackie, Candian, Tielens et al. ({cite:t}`Mackie2018`).** Their
+  supplement gives the quartic force fields of 19 PAHs, from which pahchem
+  recomputes VPT2 χ and polyads ({doc}`pahchem-spec`, "Anharmonic cascade
+  spectra after Mackie+18"). 6H-pyrene's CH-stretch cascades are reproduced
+  (rms 0.09–0.13). 9-methylanthracene is not (0.19–0.22): its sharp 2935 cm⁻¹
+  methyl band comes out too weak and its aromatic band too red. No
+  reassignment of harmonic intensities fixes it: the rank mapping is the best
+  of 16 permutations. The asks:
+  - their VPT2 output for 9-methylanthracene and 9,10-dimethylanthracene: the
+    anharmonic intensities (fundamentals, overtones and combinations), the
+    polyad states and couplings, and the Darling–Dennison terms;
+  - the dipole derivatives of their B3LYP/N07D runs, or at least the harmonic
+    intensities of the supplement's modes (the supplement has none; pahchem
+    maps PAHdb's by frequency rank);
+  - which interaction-strength cut-off (SPECTRO's W) and which treatment of
+    the methyl torsion they used;
+  - force fields for a methylated or superhydrogenated PAH with N_C ≥ 24.
 - **Cosmic-ray collisions** ({doc}`pahchem-spec`, "Cosmic-ray collisions").
   The fast-particle part is calibrated on NIST stopping. Two items are now
   covered:

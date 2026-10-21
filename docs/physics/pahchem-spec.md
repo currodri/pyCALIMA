@@ -1854,7 +1854,14 @@ cascades (supplement, extracted from the vector paths of the PDF;
   (detuning 0.1 cm⁻¹), so its fundamental came out at 2870 cm⁻¹. After the
   fix, 6H-pyrene's rms with polyads is 0.13 / 0.10 / 0.09 / 0.09 at
   3 / 5 / 7 / 9 eV, the 2885 cm⁻¹ merging gone.
-- **9-methylanthracene does not work yet** (rms 0.19–0.22 after the fix). Their sharp
+- **9-methylanthracene does not work yet** (rms 0.19–0.22 after the fix).
+  - The polyad construction is not the cause. Pyrene's cold CH polyad lands
+    on PAHdb anharmonic v1.00 (intensity centroid 3057.0 against
+    3058.4 cm⁻¹, strong lines within a few cm⁻¹).
+  - No interaction-strength cut-off helps, and no permutation of the CH
+    intensities does: the rank mapping is the best of 16.
+  - What is missing is their VPT2 intensities and possibly the
+    Darling–Dennison terms. Asked in {doc}`pahchem-data-requests`. Their sharp
   2935 cm⁻¹ methyl band is too weak in ours, and their aromatic band splits
   into peaks near 3080, 3060 and 3030 cm⁻¹ while ours sits ~30 cm⁻¹ redder.
   The suspects are the missing inputs: VPT2 intensities (including the
