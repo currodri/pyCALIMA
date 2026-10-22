@@ -73,11 +73,28 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 
 - **e + PAH^Z (Z ≥ 1):** keep `electron_capture` with s = 1.
   - Lab check: the FALP data at 300 K (N_C 6–16) are 0.03–0.37 × pahchem's capture (§D of the
-    diagnostic). The ratio rises steeply with N_C and extrapolates to 1 near N_C ≈ 26. No measurement
-    exists above N_C = 16, and none gives a T dependence.
-  - Uncertainty: a factor of 2 between the DS87 image-potential form and the Spitzer form.
-- **e + PAH⁰:** keep the statistical sticking. Validate it on anthracene (1–3×10⁻⁹, flat over 48–300 K) and
-  C₆₀ (1.2×10⁻⁶ at 400 K).
+    diagnostic). The ratio rises with N_C, but where it extrapolates to 1 depends on the fit: N_C ≈ 26 for the
+    ten PAH points (N_C 10–16, slope 2.8), N_C ≈ 66 for `chemistry.lab_recombination_fit`, which includes
+    benzene (slope 1.15). Neither extrapolation is constrained above N_C = 16.
+  - Every point with N_C ≥ 10 is at 300 K, from two methods: FlAPI photo-ions, and FALP-MS ions made by
+    charge transfer, which can be internally hot (Biennier+06). The method is now a column of
+    `pah_electron_recombination.csv`.
+  - No PAH has a measured T dependence. The small aromatics give T^−0.69 (C₆D₆⁺) and T^−0.83 (C₆D₇⁺)
+    (Hamberg+11, storage ring). So the T^−½ of the capture formula is an assumption.
+  - Tielens (2021, eq. 8.106), 1.3×10⁻⁶ N_C^½ (300/T)^½, is the Spitzer form with an ad hoc 0.8 planarity
+    factor: 0.46 × pahchem's capture at every N_C. The data reach it near N_C ≈ 20 (ten-point fit) or 34
+    (pahchem's fit), so they cannot tell the two forms apart. This is the factor-2 uncertainty of this rate.
+- **e + PAH⁰:** keep the statistical sticking (the low-density, radiatively stabilised limit). Validate it on:
+  - anthracene: 1.0×10⁻⁹ ± 30 % at 300 K (FALP, Canosa+94; no pressure dependence, so radiative), and
+    0.84–2.6×10⁻⁹ over 48–300 K with no trend (CRESU, normalised to that value; Moustefaoui+98);
+  - C₆₀: 1.2×10⁻⁶ at 400 K.
+  - Bounds:
+    - Flower & Pineau des Forêts (2026) recommend a constant 10⁻⁶ from classical theory. Their own
+      model ignores the anthracene value, 0.002 of Langevin, so this is at most a labelled upper bound for
+      large, high-EA PAHs.
+    - Tielens (2021, §8.7.2) notes that capture needs low-energy s-wave anion resonances, which not every
+      PAH has. The Langevin form of his eq. 8.107 is 1.27×10⁻⁷ N_C^½ (printed with N_C, a typo), with s = 1
+      for N_C > 30.
 - **Recombination cooling:** each capture removes ⟨E⟩ = kT Λ̃/J̃ from the gas (DS87; already in
   `shared_physics.DS87_lambda_scalar`). That is ≈ kT on cations and 1.5–2 kT on neutrals:
 
@@ -95,21 +112,32 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 
     k_MN = P_MN g πa² v_X J̃(τ_X, Z)
 
-- No PAH⁻ + X⁺ rate has been measured.
-- The polyatomic law of Shuman+14 (VENDAMS), 2.7×10⁻⁷ μ^−½ (T/300)^−0.9, is **0.58 × DS87** in pahchem's
-  geometry for C₅₀H₁₈⁻ at 300 K, for every ion (§B).
-- Proposed default: P_MN = 0.58, the value implied by that law. It is labelled an assumption, since it
-  transfers a small-anion law to PAH anions.
+- No PAH⁻ + X⁺ rate has been measured. Three estimates of P_MN, in pahchem's geometry for C₅₀H₁₈⁻ at
+  300 K, for every ion (§B of the diagnostic):
+
+  | law | P_MN |
+  |---|---|
+  | Tielens 2021 eq. 8.112 ("by lack of better": the electron form with the cation mass) | 0.46 |
+  | Shuman+14 (VENDAMS), 2.7×10⁻⁷ μ^−½ (T/300)^−0.9, measured on small polyatomic anions | 0.58 |
+  | Hickman 1979 eq. 28, 5.35×10⁻⁷ μ^−½ (T/300)^−½ EA^−0.4 (EA 2.5–1.5 eV; fitted for EA 0.75–4 eV, ±30 %) | 0.80–0.98 |
+
+- Proposed default: P_MN = 0.58, the measured polyatomic law. The range 0.46–0.98 is its uncertainty. It
+  is labelled an assumption, since it transfers a small-anion law to PAH anions.
+  - Both lab laws are size-independent. Relative to DS87, P_MN therefore falls as N_C^−½. A constant P_MN
+    quietly assumes DS87's N_C^½ scaling, and that is stated wherever it is used.
   - The T dependence follows DS87 (T^−½), as the C₆₀⁺ + C₆₀⁻ Landau–Zener calculation does (Gatchell+25).
-    The lab law gives T^−0.9 over 300–550 K.
+    The Shuman law gives T^−0.9 over 300–550 K.
   - Molecular ions take 50 % dissociative products (Thi+20).
-  - Uncertainty: ×2–3.
+  - For comparison, Bakes & Tielens (1998) use a flat 10⁻⁷ (T/300)^−½ for every ion, which is 0.18–1.27 ×
+    DS87.
 
 **Ion–neutral reactions, X⁺ + PAH⁰ → products with ΔZ = +1, only if IP(X) > IP_m(0):**
 
     k = P_react · 2π e (α_m/μ)^½
 
-- α_m = 1.75 N_C Å³. P_react ≈ 0.9 is the **total** reaction efficiency measured on anthracene at 293 K
+- α_m = 1.75 N_C Å³ by default. Tielens (2021, Table 6.5) gives 125 Å³ for circumcoronene (2.31 per C), with
+  α → N_C^{3/2} for large PAHs, so 1.75 N_C is ≈ 1.3× low at N_C ≥ 50. DFT polarisabilities are used where
+  available. P_react ≈ 0.9 is the **total** reaction efficiency measured on anthracene at 293 K
   (Canosa+95 Table 1): He⁺ 5.1–5.4×10⁻⁹ and C⁺ 3 ± 1.5×10⁻⁹, i.e. 0.90 and 0.88 of Langevin with their
   α = 25.4 Å³.
 - **It is not all charge transfer.** For C⁺ the products are 60 % C + C₁₄H₁₀⁺ and 40 % C₁₅H₉⁺ + H, carbon
@@ -122,6 +150,12 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
   DS87 falls from 0.74–0.78 (N_C = 24) to 0.51 (N_C = 100) (§C).
 - The threshold is decided per molecule. Mg⁺ (7.65 eV), Fe⁺ (7.90 eV) and Si⁺ (8.15 eV) transfer only to
   low-IP PAHs, which pahchem's per-molecule IPs handle directly. No rate has been measured for these three.
+- **Below the threshold, no reaction is not assumed silently.** Two unmeasured alternatives are offered as
+  labelled options:
+  - [M–PAH]⁺ adducts at near-Langevin rates for low-IP metal ions (Tielens 2021, §8.7.3). The binding
+    energies are Na⁺/K⁺ 1–1.2 eV on benzene and Fe⁺ ≈ 2.4–2.5 eV on benzene and coronene. This removes
+    Fe⁺, Mg⁺ and Na⁺ from the gas even where charge transfer is closed. Fe–coronene⁻ is stable (EA ≈ 1 eV).
+  - H abstraction, X⁺ + PAH → XH⁺ + PAH′, as Lepp & Dalgarno (1988) assume for Na⁺, K⁺, Ca⁺ and Al⁺.
 
 **Smaller channels:**
 - X⁺ + PAH^(Z≥1): zero below 10⁴ K (Coulomb barrier).
@@ -152,19 +186,48 @@ From `PAHNetwork.fluxes`, extended with named per-ion processes. All are per H n
    n(H) = n_H, which holds only in atomic gas.
 5. **f(Z), ⟨Z⟩ and f(N_H) per molecule and per population.** Table axes: ψ = G₀ √T/n_e, T, and
    n_ion/n_e (or explicit n(C⁺) and n(H⁺)).
+6. **Diagnostics of who carries the negative charge:**
+   - x(PAH⁻)/x_e: PAH⁻ out-neutralise the electrons only when this exceeds ≈ 43 (Flower & Pineau des Forêts
+     2026, dark clouds, which needs x_PAH ≳ 10⁻⁶);
+   - Tielens (2021, §10.5.3): PAH⁻ dominate the negative charge when x_e < 2×10⁻⁷ (x_PAH/10⁻⁷).
+   - In diffuse gas, H⁺ + PAH⁻ can remove most H⁺ (Tielens 2021 §9.5.3). A ζ derived from OH⁺, H₂O⁺ or HD
+     depends on this rate.
 
 ### 2.5 H₂ formation on PAHs
 
-These follow from the H₂ section of the literature page. They are **opt-in and labelled until derived**:
-- Eley–Rideal per excess H, (N_H − N_H0) σ(Z) v_H n(H), with 0.06 Å² for Z ≤ 0 and ≥ 0.45 Å² for cations
-  (Foley+18). pahchem now applies it once per molecule.
-- Photolytic H₂ loss from superhydrogenated states: RRKM with E₀ = 1.6 eV (neutral) and 3.2 eV (cation),
-  after Boschman+15 and Le Page.
-- Alternating cation addition barriers (Boschman+15).
-- `h2_formation_rate` made net: today H₂-consuming channels are not subtracted (e.g. `lepage01.py`).
+These follow from the H₂ section of the literature page and the primary papers (Andrews+16, Mennella+12,
+Thrower+12). They are **opt-in and labelled until derived**:
+- **Eley–Rideal per aliphatic C–H bond.** Mennella+12 measured 0.06 ± 0.02 Å² per aliphatic C–H bond, on
+  coronene films at 300 K. An extra H on an edge carbon makes a CH₂ with two abstractable H, so the
+  per-molecule rate lies between 1× and 2× (N_H − N_H0) σ(Z) v_H n(H). Cations take ≥ 0.45 Å² (Foley+18).
+  - pahchem now applies 8.7×10⁻¹³ (T/100)^½ n(H) once per molecule, as Andrews+16 (eqs. 9–10) do.
+  - Tielens (2021, §11.6.3) calls the ER route unimportant.
+- **Photolytic H₂ loss from superhydrogenated states: the barrier is disputed.**
+  - The proposed RRKM uses E₀ = 1.6 eV (neutral) and 3.2 eV (cation), after Boschman+15 and Le Page.
+  - Andrews+16 (p. 7) reject the channel, with DFT barriers of 3.89 eV (duo) and 2.2 eV (solo),
+    ΔS = −53.1 J K⁻¹ mol⁻¹.
+  - Thrower+12's DFT gives H₂ release at nearly no cost for 19, 20, 23 and 24 extra H.
+  - So any super-H H₂ channel is run with both brackets and reported, never with one chosen value.
+- **H addition.** The measured rates are below the Andrews+16 prescription, geometric × exp(−0.06 eV/kT):
+  - ≈ 3× lower at 300 K (Mennella+12: 1.1 Å²);
+  - ≈ 40× lower at 2000 K (Thrower+12: 0.7 ± 0.4 Å² per molecule);
+  - with no Arrhenius rise between the two (surface-bound molecules; flux uncertain by 2×).
+  - The lab reaches +24 H (peak near +20), against the N_H0 + 4 cap used by Andrews+16.
+  - Alternating cation addition barriers follow Boschman+15. The first extra-H barriers are 10–30 meV
+    (cation) and 60 meV (neutral) (Tielens 2021).
+- **The pyrene⁺ H₂-loss barrier differs between sources.** Tielens (2021, Table 8.1) gives E₀ = 3.5 eV,
+  ΔS = −12.7 J K⁻¹ mol⁻¹; pahchem uses West+18's 4.58 eV and 40. To be reconciled, not tuned.
+- **`h2_formation_rate` made net:** today H₂-consuming channels are not subtracted (e.g. `lepage01.py`).
+- Any H₂ produced through dissociative recombination stays labelled: the H against H₂ branching is not
+  measured (Hamberg+11).
 
 Targets:
 - Castellanos+18 efficiency of 1–2 %;
+- Andrews+16:
+  - Fig. 10: ξ_ER < 1 %, and ξ_photo < 10⁻⁴ for normally hydrogenated C₅₄;
+  - eq. 13: R_PAH ≈ 10⁻¹⁹–10⁻¹⁸ cm³ s⁻¹;
+  - eq. 12: the grain rate, 6×10⁻¹⁸;
+- Mennella+12's upper limit, 1.2×10⁻¹⁶ cm³ s⁻¹ at 330 K;
 - Habart+04 PDR rates of 3×10⁻¹⁷ to 1.5×10⁻¹⁶ cm³ s⁻¹;
 - the upper bound R_PAH ≲ ½ κ_add x_PAH ≈ 3.5×10⁻¹⁷ (f_C/0.1)(50/N_C) for cations.
 
@@ -182,6 +245,8 @@ larger than the PAHs:
   surface. Use the grain bins without the PAHs.
 - **Electrons.** Remove the network's own grain-electron terms when pahchem's net electron source is used.
 - **Φ inside γ.** W03, W08 and W22 heating use γ′ = γ/Φ. Never apply Φ on top of pahchem's f(Z).
+- **Φ and ζ are calibrated together** (Liszt 2011: ζ_H = 10⁻¹⁶ with PAHs, 10⁻¹⁷ without). Comparisons with
+  W08 or Liszt use their ζ.
 
 ## 4. Validation
 
@@ -191,39 +256,61 @@ The exact numbers are in the literature page, section 8.
 |---|---|---|
 | V1 | Wolfire+08 Table 2 from DS87 (and Hollenbach+12 at N_C = 100) | passes (§A, ≤ 2.6 %) |
 | V2 | W03/W08 three-state charge balance (N_C = 35; G₀ = 1.7, T = 100, n = 30): with W08's rates exactly, then with pahchem's, giving the effective Φ (expected 0.4–0.6) | to do |
-| V3 | the W08 C I/C II regimes (their eq. B15) | to do |
+| V3 | the W08 C I/C II regimes (their eq. B15), on both C I data sets: W08's compilation and Burgh+10, which is ×4–21 lower on three of four common sight lines (Liszt 2011 Table 1). At fixed n/G₀, eq. B15 then implies a Φ lower by 2.1–4.6, unless n is pinned independently. Burgh+10 measure no C II. | to do |
 | V4 | α_PAH against WD01b for ψ = 10²–10⁶, T = 10–10³ K (C⁺, H⁺, S⁺, Mg⁺, Fe⁺); WD01b §7, x_e 8.0 → 4.5×10⁻⁴ | to do |
-| V5 | FALP e + PAH⁺ (10 points; trend −3.94 + 2.78 log N_C against DS87) | §D lists them |
-| V6 | attachment: anthracene and C₆₀ | to do |
-| V7 | mutual neutralisation: the Shuman law, and C₆₀⁺ + C₆₀⁻ (2.5×10⁻⁸ at 300 K, 1.35×10⁻⁷ at 10 K) | §B |
-| V8 | charge transfer: anthracene (Canosa+95) | §C |
+| V5 | FALP e + PAH⁺ (10 points, attributions and methods checked against Abouelaziz+93 and Biennier+06); the fits' extrapolations (§2.2) | §D lists them |
+| V6 | attachment: anthracene 1.0×10⁻⁹ ± 30 % (300 K) and 0.84–2.6×10⁻⁹ (48–300 K); C₆₀ 1.2×10⁻⁶ (400 K); Tielens 2021's autodetachment, eqs. 8.101–8.103 | to do |
+| V7 | mutual neutralisation: the Shuman, Hickman and Tielens laws; C₆₀⁺ + C₆₀⁻ (2.5×10⁻⁸ at 300 K, 1.35×10⁻⁷ at 10 K) | §B |
+| V8 | ion–neutral: anthracene (Canosa+95 Table 1, with the C⁺ 60/40 products) | §C |
 | V9 | PE heating: BT94 ε(γ); Berné+22 ε_PAH(γ) (N_C = 54) and its diffuse-ISM ε = 0.037, Γ = 2.7×10⁻²⁶ erg s⁻¹ H⁻¹; the W22 ratios of WD01 to BT94 | to do |
 | V10 | Thi+20 Table B.3 (C₅₄ recombination) | to do |
-| V11 | H₂: the ER constant, Castellanos+18, Boschman+15, Habart+04, Thi+20 R_max | to do |
+| V11 | H₂: the targets of §2.5 (Andrews+16 Fig. 10 and eqs. 12–13, Mennella+12, Castellanos+18, Boschman+15, Habart+04, Thi+20 R_max) | to do |
 | V12 | energy closure per process: absorbed = IR + photoelectron + ionisation work, returned on recombination | to do |
+| V13 | Lepp & Dalgarno 1988 Table 2: neutral-to-ion ratios of C, Mg, S, Ca and Fe toward ζ Per and ζ Oph against x_PAH (they infer x_PAH 1×10⁻⁷ and 6×10⁻⁷, ×2) | to do |
+| V14 | Tielens 2021 Fig. 12.34: f(Z) of C₅₄H₁₈ and C₉₆H₂₄ for a diffuse cloud (G₀ 2, n 50, T 80), the NGC 7023 PDR (2600, 2×10⁴, 500) and its cavity (2×10⁴, 5×10³, 500), x_e = 1.6×10⁻⁴; and its ε examples (0.05 at γ ≈ 10³, 0.008 at 10⁵) | to do |
+| V15 | dense clouds: Tielens 2021 eq. 10.77, x_e ≃ 2×10⁻⁷ (ζ/3×10⁻¹⁷)^½ (10⁴/n)^½, and Fig. 10.22 (PAH⁻ take over at n ≈ 3×10³); Flower & Pineau des Forêts 2026 (n_H = 10⁴, T = 10 K) | to do |
 | — | pahchem's existing gates and the PDRs4All fits unchanged with ions and the opt-in deposit off | to do |
 
 **Open item.** W08 (Φ = 0.4, x_PAH = 6×10⁻⁷) against WD01b at CNM conditions gives ×1.8 for C⁺ but ×6 for
 H⁺, and the H⁺ factor is unexplained (WD01b's H⁺ ≈ its C⁺, where the DS87 mass scaling gives √12×). Check
 it against WD01b Fig. 1 before V4.
 
-**A possible grain-side bug, not changed.** `models/dust_chemistry/dust_h2_formation.py` and RAMSES
-`dust_surface_chemistry.f90` use 2πa² with v = (2kT/m)^½. Cazaux & Spaans 2004 use ½ v_H πa² with the
-mean speed, so the code may be 1.77× high.
+**A grain-side bug, not changed.** `models/dust_chemistry/dust_h2_formation.py` (l. 303–319) and RAMSES
+`dust_surface_chemistry.f90` compute 0.5 n_H (2kT/m)^½ n_d 2πa². Cazaux & Spaans 2004 (eq. 2) and Tielens 2021
+(eq. 9.9: R = ½ S η n_d σ_d n(H) v̄_H, with the mean speed v̄_H = 1.5×10⁴ T^½) give a rate 1.77× lower. Both
+sources agree, so this is a bug, to fix with its own test and benchmark re-run.
+
+**A deviation in the Andrews+16 reproduction, not changed.** `pahchem/andrews16.py` calls `electron_capture`
+with sticking 1 for neutrals. Andrews+16 use an EA- and N_H-dependent sticking (≈ 10⁻⁵ at EA = 0.47 eV). So
+attachment to coronene and C₉₆ is up to ≈ 10⁵× too high there (C₅₄, EA 1.44 eV, is barely affected). Other
+departures: C₉₆ Z = −2 is missing (unpopulated in their Fig. 8); Li & Draine cross sections replace Malloci's;
+the × N_C/24 scaling of the geometric addition cross section is pahchem's own.
 
 ## 5. Items for the user to supply
 
-Supplied and read on 2026-10-21: Bakes & Tielens 1998, Bréchignac+14, Canosa+95 and Moustefaoui+98. Their
-corrections are applied above: the origin of γ_e = 0.46, and the total efficiency and products of the ion–neutral
-reactions. Bakes & Tielens 1998 has no atomic X⁺ + PAH⁰ charge transfer at all; its mutual neutralisation is a
-flat 10⁻⁷ (T/300)^−½ for every ion (0.18–1.27× DS87).
+Supplied and read on 2026-10-21. Their corrections are applied above:
+- Tielens 2021, chapters 6–12;
+- Bakes & Tielens 1998; Lepp & Dalgarno 1988; Flower & Pineau des Forêts 2026; Liszt 2011; Burgh+10;
+  Hickman 1979;
+- Bréchignac+14; Canosa+94/95; Moustefaoui+98; Abouelaziz+93; Biennier+06; Hamberg+11;
+- Andrews+16; Mennella+12; Thrower+12.
 
-The full list is in section 13 of the literature page. The main items:
-- **Tielens:** 2005 §3.3, §6.3, §8.7; 2021 §8.6–8.7, §12.8. The 2021 book was supplied in OneDrive, which
-  macOS does not let this session read; a copy elsewhere is needed.
-- **Rate theory:** Lepp+88; Liszt 2011; Burgh+10.
-- **Lab papers:**
-  - Canosa+94; Biennier+06; Abouelaziz+93;
-  - Hamberg+11; Hickman 1979;
-  - Flower & Pineau des Forêts 2026;
-  - Andrews+16; Mennella+12; Thrower+12.
+**Tielens 2021: what the book confirms and corrects.**
+- Eq. 12.26, ε = 0.06/(1 + 7×10⁻⁵ γ), is confirmed. Its 7×10⁻⁵ rests on eq. 8.106, which is 0.46 ×
+  pahchem's capture, so pahchem's own estimate would give ≈ 3.2×10⁻⁵ γ.
+- Eq. 8.106 is confirmed; its meaning is in §2.2.
+- Eq. 8.107 (attachment) is printed with the wrong power of N_C: it should be N_C^½.
+- The book has internal inconsistencies, so it is cited by equation number:
+  - Y = 0.3 at 10 eV against its own Y = (hν − IP)/9 = 0.44;
+  - f(0) = 0.85 against 0.92 from eq. 12.25;
+  - a work function of 4.2 against 4.4 eV;
+  - a coronene⁺ IP of 10.58 against 11.4 eV.
+- Tielens says the photoelectron energy "has not been quantified" and that half the excess energy is
+  assumed "rather arbitrarily". This supports the γ_e(E) option of §2.1.
+- H₂ formation on PAHs: no rate coefficient is given anywhere in chapters 7, 9, 11 or 12. The
+  "2×10⁻¹⁷ (T/100)^½" attributed to it second-hand is unverified.
+
+**Still to supply** (section 13 of the literature page):
+- Lepp & Dalgarno 1988a (ApJ 335, 769);
+- Rebrion-Rowe+03 and Hassouna+03, the primary sources of two rows of `pah_electron_recombination.csv`;
+- Tielens 2005 §3.3, §6.3, §8.7.

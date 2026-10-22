@@ -7,8 +7,10 @@ sticking 1).
 
 A. **Wolfire+08 Table 2** (N_C = 35, Phi = 1) reproduced by DS87 for a sphere of radius (N_C/1.222)^1/2 A with
    sticking 1 and no disc factor; and pahchem's geometry against it.
-B. **Mutual neutralisation, X+ + PAH- (C50H18).** The polyatomic law of Shuman+14,
-   2.7e-7 mu^-1/2 (T/300)^-0.9, against DS87 with s = 1. Their ratio is the effective P_MN.
+B. **Mutual neutralisation, X+ + PAH- (C50H18).** Two size-independent laws against DS87 with s = 1: the
+   polyatomic law of Shuman+14, 2.7e-7 mu^-1/2 (T/300)^-0.9, and Hickman (1979, eq. 28),
+   5.35e-7 mu^-1/2 (T/300)^-1/2 EA^-0.4 (mu in amu, EA in eV; 1.5-2.5 eV here); and Tielens (2021, eq. 8.112),
+   3e-8 N_C^1/2 (300/T)^1/2 mu^-1/2. Their ratio is the effective P_MN.
 C. **Ion-neutral reactions, X+ + PAH0.** Langevin, k_L = 2 pi e (alpha/mu)^1/2 with alpha = 1.75 N_C A^3, times
    the total efficiency 0.9 measured on anthracene (Canosa+95: He+ 0.90, C+ 0.88; for C+ 60 % of it is charge
    transfer and 40 % carbon accretion), against DS87 for a neutral sphere (which is Langevin with alpha = a^3).
@@ -46,12 +48,16 @@ def main():
         print(f"  {lab:10s} W08 {w:.2e}  DS87 sphere {k:.2e} ({k / w:.3f})  pahchem geometry {kp:.2e} ({kp / w:.2f})")
 
     nc, m_pah = 50, 50 * 12.011 + 18 * 1.008
-    print("\nB. Mutual neutralisation on C50H18-, T = 300 K: Shuman+14 law / DS87 (pahchem geometry)")
+    print("\nB. Mutual neutralisation on C50H18-, T = 300 K: Shuman+14, Hickman 1979 and Tielens 2021 laws / DS87 (pahchem geometry)")
     for ion, m in IONS.items():
         mu = m * m_pah / (m + m_pah)
         shuman = 2.7e-7 * mu**-0.5
+        hickman = [5.35e-7 * mu**-0.5 * ea**-0.4 for ea in (2.5, 1.5)]
+        tielens = 3e-8 * np.sqrt(nc) * mu**-0.5
         k = ds87(nc, -1, 1, mu, 300.0, disc=0.82)
-        print(f"  {ion:5s} Shuman {shuman:.2e}  DS87 {k:.2e}  ratio {shuman / k:.2f}")
+        print(f"  {ion:5s} DS87 {k:.2e} | Shuman {shuman:.2e} ({shuman / k:.2f}) | Hickman EA 2.5-1.5 eV "
+              f"{hickman[0]:.2e}-{hickman[1]:.2e} ({hickman[0] / k:.2f}-{hickman[1] / k:.2f}) | Tielens 8.112 "
+              f"{tielens:.2e} ({tielens / k:.2f})")
 
     print("\nC. Ion-neutral reactions on neutral PAHs, T = 100 K: 0.9 Langevin (alpha = 1.75 N_C A^3) / DS87")
     for nc_ in (24, 50, 100):
