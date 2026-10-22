@@ -361,6 +361,11 @@ Following the rule that conditions are inputs, not predictions, these come
 from a sourced **profile card**: two bracketing families, each with its
 source.
 
+A third source is planned: the self-consistent PDR models of the calima-pdr
+code (`calima-pdr/docs/design.md`), whose profiles enter the card as a
+labelled model source. The PAH–gas coupling it needs is specified in
+{doc}`pahchem-gas-coupling`.
+
 - **Empirical family.**
   - G$_0$(IF) from O I 1.317 µm (Peeters+24).
   - G$_0$(x) attenuated by A$_V$(x) from n$_{\rm H}$(x): the Habart+24 AIB

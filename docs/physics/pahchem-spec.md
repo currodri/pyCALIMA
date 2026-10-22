@@ -2756,7 +2756,7 @@ N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the same molecule absorbs
 | H addition | $\sigma v$, barrier | per site and charge | {cite:t}`Boschman2015`, {cite:t}`Cazaux2016` (coronene$^+$) | B | site × charge × $n$ | T2 | 1 |
 | H abstraction (Eley–Rideal) | $\sigma_{\rm er} v n_{\rm H}$ | $\sigma_{\rm er}$, barriers | {cite:t}`Mennella2012` | A | site and charge | T2 | 1 |
 | Recombination, attachment | DS87 $\tilde J$ capture | $s_e$, EA, product branching | {cite:t}`BakesTielens1994` | B | products after recombination | RRKM on the neutral | 1 |
-| Mutual neutralisation | Langevin | — | — | E | — | us | 2 |
+| Mutual neutralisation, charge transfer | P_MN DS87 J̃; P_CT Langevin | P_MN, P_CT, IP(X) > IP | Shuman+14, Canosa+95, {cite:t}`Wolfire2008` ({doc}`pahchem-gas-coupling`) | D | no PAH⁻ measurement | {doc}`pahchem-gas-coupling` | 1 |
 | CR collisions: energy transfer | Bethe over df/dW, distant + close | df/dW to 30 keV, IP | Li & Draine + {cite:t}`Henke1993`; NIST STAR (G1) | B | slow electrons (< 100 eV); PAH EII | literature, lab | 2 |
 | CR collisions: fragmentation | sequential RRKM | $E_0$, $\Delta S^\ddagger$ of C loss; Coulomb limit | {cite:t}`West2018`, Micelotta+10b, {cite}`Chabot2020` | D | C loss of benzenoid PAHs; $q_{\rm CE}$ | T2, lab | 2 |
 | CR spectra at the PAH | CSDA through N(H$_2$) | L/H, nuclei, secondaries | {cite:t}`Padovani2018`, {cite:t}`PDG2022` | C | secondary e⁻ spectrum | literature | 2 |

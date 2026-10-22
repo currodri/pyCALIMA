@@ -84,5 +84,7 @@ pahchem-spec
 pahchem-briefing
 pahchem-audit
 pahchem-pdrs4all-comparison
+pahchem-gas-coupling
+pahchem-gas-coupling-literature
 pahchem-data-requests
 ```
