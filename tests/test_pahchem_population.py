@@ -361,7 +361,7 @@ def test_lab_recombination_factor_is_the_falp_power_law():
     from pycalima.pahchem import chemistry
 
     a, b, n = chemistry.lab_recombination_fit()
-    assert n == 10 and b == pytest.approx(1.15, abs=0.1)
+    assert n == 9 and b == pytest.approx(1.01, abs=0.1)          # 9 points: one fluoranthene duplicate removed
     f = chemistry.lab_recombination_factor([6, 16, 54, 100])
     assert f[0] < 0.2 and 0.1 < f[1] < 0.4 and np.all(np.diff(f) > 0)
     assert chemistry.lab_recombination_factor(1000, cap=3.0) == 3.0

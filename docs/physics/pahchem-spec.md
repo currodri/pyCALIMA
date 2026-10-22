@@ -1373,9 +1373,12 @@ with `--ip-shift/--yield-model/--detachment/--capture-scale`).**
   leaves through the other modes (test).
 - **Recombination.** `Params.capture_model = "lab_trend"` multiplies BT94
   capture by cations and dications by
-  `chemistry.lab_recombination_factor` = 10^−2.09 N_C^1.15. That is the power
-  law fitted to the 10 FALP measurements: 0.79 at C54, 1.5 at C96, 2.5 at
+  `chemistry.lab_recombination_factor` = 10^−1.96 N_C^1.01. That is the power
+  law fitted to the 9 FALP measurements: 0.62 at C54, 1.1 at C96, 1.7 at
   C150. `capture_cap` bounds it; capture by neutrals is unchanged.
+  (Until 2026-10-22 it was 10^−2.09 N_C^1.15 over 10 points: one fluoranthene
+  experiment, Rebrion-Rowe+03, was counted twice. The scans below used that
+  version; they were withdrawn with finding C1 in any case.)
 - **Scans** (v4.00, IPs calibrated, spline continuum; ⟨N_C⟩ carbon-weighted):
 
   | inputs | χ² (5 templates) | best γ | allowed γ (Δχ² < 9) | ⟨N_C⟩ |

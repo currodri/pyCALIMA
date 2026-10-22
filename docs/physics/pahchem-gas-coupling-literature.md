@@ -114,6 +114,26 @@ For electrons on large PAH⁺ (N_C ≳ 25), the data are consistent with s ≈ 1
 
 ### 1.2 Key references of W08: rate prescription in each
 
+- **Lepp & Dalgarno 1988b**, ApJ 324, 553 ("PAHs in interstellar chemistry", dense clouds) [read, supplied 2026-10-22]
+  - For x_PAH > 1e-8 the free electrons attach to PAHs and PAH⁻ carry most of the negative charge. Mutual
+    neutralisation with PAH⁻ then replaces dissociative recombination as the main loss of positive ions, and
+    it is non-destructive.
+  - Rates, all "of the order" of Omont (1986): attachment ≈ 6e-7; M⁺ + PAH⁻ ≈ 1.3e-6 T^−½, depending on M⁺ only
+    as m^−½ (the reference mass is not stated); X⁺ + PAH charge transfer near Langevin, with the polarisability
+    of Omont (1986). PAH⁻ + O detachment is neglected in cold clouds (barrier).
+  - x_PAH = 1e-7 raises the steady-state C and C₃H₂ by two orders of magnitude, and the chemistry no longer
+    depends on the metal abundance.
+  - Upper limit from DCO⁺/HCO⁺ (H₂D⁺ + PAH⁻): x_PAH ≲ 6e-6 at most.
+- **Lepp & Dalgarno 1988a**, ApJ 335, 769 ("Heating of interstellar gas by large molecules or small grains")
+  [read, supplied 2026-10-22]
+  - A single N_C = 50 molecule with IP = 6.8 eV and a constant σ = 1e-16 cm²; the photoelectron carries **all**
+    of E − 6.8 eV (γ_e = 1). Ionisation from deeper levels, which gives slower electrons, is set aside as smaller
+    than the uncertainty of a single IP.
+  - Photodetachment of PAH⁻ can be a significant heat source in diffuse clouds.
+  - For x_LM > 2e-7 the PAH heating (ionisation plus detachment) exceeds the standard grain heating. With the
+    abundances inferred from C⁺/C toward ζ Oph and ζ Per, it balances the cooling in the cloud cores but not at
+    the boundaries.
+
 - **Wolfire, McKee, Hollenbach & Tielens 2003**, ApJ 587, 278 (astro-ph/0207098) [read §5, App. C]
   - Single N_C = 35 PAH, the "mean size of the 3–15 Å distribution", n_PAH/n = 6e-7, Φ_PAH = 0.5 fitted to CI/CII ≲ 3e-3.
   - Photoionisation and detachment from BT94: 7.85e-9 G0′ and 2.00e-8 G0′, with G0′ in Draine-like units.
@@ -317,7 +337,7 @@ Two efficiency definitions are in use:
 - No storage-ring measurement exists for any PAH⁺ with N_C ≥ 10, nor for C60⁺. No ab initio theory exists.
 
 **Trend** [derived by the lab agent, `scripts/rec_compare.py`]
-- Measured / (pahchem BT94-DS87) = 10^−3.94 N_C^2.78. The ratio is 0.03–0.37 for N_C = 10–16 and extrapolates to 1 at N_C ≈ 26.
+- Measured / (pahchem BT94-DS87) = 10^−4.13 N_C^2.95 over the 8 PAH points with N_C 10–16 (10^−3.94 N_C^2.78 before one fluoranthene experiment counted twice was removed, 2026-10-22). The ratio is 0.03–0.37 for N_C = 10–16 and extrapolates to 1 at N_C ≈ 25. `chemistry.lab_recombination_fit`, which includes benzene, gives 10^−1.96 N_C^1.01 (9 points) and reaches 1 only at N_C ≈ 87.
 - At N_C = 50 and 300 K, the classical estimates span 3.3e-6 (FPdF03) to 2.0e-5 (DS87). The data favour 1–2e-5, i.e. BT94 with s ≈ 1. They argue against WD01 sticking (3.4e-6) and FPdF03.
 
 **Attachment**
@@ -600,7 +620,7 @@ pahchem run with W08's rates should reproduce these. pahchem run with its own ra
 
 **V5. Lab recombination.**
 - The ten FALP points above (all at 300 K).
-- The trend log10(k/k_DS87) = −3.94 + 2.78 log10 N_C.
+- The trend log10(k/k_DS87) = −4.13 + 2.95 log10 N_C (8 PAH points; −1.96 + 1.01 log10 N_C with benzene).
 - At N_C = 50, 300 K: k between 1e-5 and 2e-5.
 
 **V6. Attachment.** Anthracene 1–3e-9 (48–300 K, flat); C60 1.2e-6 at 400 K. Both from `attachment.py` with the right EA.
@@ -642,7 +662,7 @@ All rates are per molecule m (N_C, N_H, IP_m(Z), EA_m, α_m) in charge state Z. 
 |---|---|---|---|---|
 | photoionisation and detachment | ∫σYF dE | existing | existing | — |
 | PE heating per event | γ_e (E − IP_m(Z)); detachment E − EA | γ_e = 0.46 (Berné+22 unweighted mean) | γ_e(E) spans 0.05–1 (coronene, 7.1–10.1 eV); 0.5 classical | Berne+22 from Bréchignac+14, V90, BT94 |
-| e + PAH^Z⁺ | g πa² v_e J̃(τ_e, −Z) s_rec | s_rec = 1 (N_C ≥ 26); lab trend 10^−3.94 N_C^2.78 below | ×2 (image form); T law assumed | FALP, DS87 |
+| e + PAH^Z⁺ | g πa² v_e J̃(τ_e, −Z) s_rec | s_rec = 1 (N_C ≥ 25); lab trend 10^−4.13 N_C^2.95 below (PAH-only fit; the code's `lab_trend` is the benzene-inclusive 10^−1.96 N_C^1.01) | ×2 (image form); T law assumed | FALP, DS87 |
 | e + PAH0 | statistical s_e × g πa² v_e J̃(τ_e, 0) | EA_m (+0.37 eV shift) | must span 1e-9 (EA 0.5) to 1e-6 (EA 2.7) | Moustefaoui, Viggiano |
 | recombination cooling | kT Λ̃/J̃ per capture | — | ±20 % | DS87, WD01 eq. 42 |
 | X⁺ + PAH^Z⁻ | P_MN g πa² v_X J̃(τ_X, Z) | P_MN = 0.58 (Shuman+14 in this geometry; Hickman 1979: 0.8–1.0) | ×2–3; T^−½ (theory) vs T^−0.9 (lab, 300–550 K); both laws are size-independent, so a constant P_MN assumes DS87's N_C^½ scaling | Shuman+14, Hickman 1979, Gatchell+25, W08 Φ |
@@ -876,9 +896,9 @@ The free lecture-note route was not pursued. A third-party PDF of the 2005 book 
 
 ## 13. Paywalled or unread items for the user to supply
 
-**Supplied by the user and read (2026-10-21):** Bakes & Tielens 1998; Bréchignac+14; Canosa+94; Canosa+95; Moustefaoui+98; Wolfire+22 (journal version); Lepp & Dalgarno 1988 (ApJ 329, 418); Flower & Pineau des Forêts 2026 (MNRAS 552, 1); Liszt 2011; Burgh+10; Hickman 1979; Hamberg+11; Abouelaziz+93; Biennier+06; Andrews+16; Mennella+12; Thrower+12.
+**Supplied by the user and read (2026-10-21):** Bakes & Tielens 1998; Bréchignac+14; Canosa+94; Canosa+95; Moustefaoui+98; Wolfire+22 (journal version); Lepp & Dalgarno 1988 (ApJ 329, 418; ApJ 324, 553; ApJ 335, 769); Rebrion-Rowe+03; Flower & Pineau des Forêts 2026 (MNRAS 552, 1); Liszt 2011; Burgh+10; Hickman 1979; Hamberg+11; Abouelaziz+93; Biennier+06; Andrews+16; Mennella+12; Thrower+12.
 
-**New requests from that reading:** Lepp & Dalgarno 1988a (ApJ 335, 769); Rebrion-Rowe et al. 2003 (Int. J. Mass Spectrom. 223–224, 236) and Hassouna et al. 2003 (Kluwer), the primary sources of two rows of `pah_electron_recombination.csv`. Local copies: `~/Documents/GitHub/pdr_refs/literature/pah_gas/supplied/`. The Tielens 2021 book was supplied as a copy outside OneDrive.
+**Requests from that reading:** Lepp & Dalgarno 1988a (ApJ 335, 769) and Rebrion-Rowe et al. 2003 (Int. J. Mass Spectrom. 223–224, 237) were supplied on 2026-10-22, with Lepp & Dalgarno 1988b (ApJ 324, 553). Hassouna et al. 2003 (Kluwer conference proceedings), the source of the phenanthrene row of `pah_electron_recombination.csv`, is not obtainable; that row stays as quoted by Biennier+06. Local copies: `~/Documents/GitHub/pdr_refs/literature/pah_gas/supplied/`. The Tielens 2021 book was supplied as a copy outside OneDrive.
 
 **Rate theory and models**
 - Draine B. T., Sutin B. 1987, ApJ 320, 803: read by a sub-agent from the ADS scan. A clean copy is advisable.
@@ -887,7 +907,7 @@ The free lecture-note route was not pursued. A third-party PDF of the 2005 book 
 - Tielens 2005 and 2021 chapters (§12 above).
 
 **Laboratory papers**
-- Rebrion-Rowe C. et al. 2003, Int. J. Mass Spectrom. 223–224, 236.
+- Rebrion-Rowe C. et al. 2003, Int. J. Mass Spectrom. 223–224, 237 (supplied and read 2026-10-22).
 - Hassouna M. et al. 2003, in *Dissociative Recombination of Molecular Ions with Electrons* (Kluwer), pp. 49–57.
 - Rowe B. R. et al. 1995 (book chapter).
 - Adams N. G., Babcock L. M. 2005, J. Phys. Conf. Ser. 4, 38.

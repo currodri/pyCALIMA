@@ -45,7 +45,7 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 ### 2.1 Photoelectric emission, with the photoelectron energy
 
 - **Mean photoelectron energy:** ⟨E_k⟩ = γ_e (E − IP_m(Z)) for Z ≥ 0. The default is γ_e = 0.46 ± 0.06; the
-  classical value is 0.5 (V90, BT94).
+  classical value is 0.5 (V90, BT94), and Lepp & Dalgarno (1988a) gave the electron all of it (γ_e = 1).
   - 0.46 is not a measured constant. It is Berné+22's unweighted average over 7.1–10.1 eV of γ_e(E),
     which they derived from the coronene photoelectron spectra of Bréchignac+14 (Fig. 2). Bréchignac+14
     itself gives no partition.
@@ -73,16 +73,20 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 
 - **e + PAH^Z (Z ≥ 1):** keep `electron_capture` with s = 1.
   - Lab check: the FALP data at 300 K (N_C 6–16) are 0.03–0.37 × pahchem's capture (§D of the
-    diagnostic). The ratio rises with N_C, but where it extrapolates to 1 depends on the fit: N_C ≈ 26 for the
-    ten PAH points (N_C 10–16, slope 2.8), N_C ≈ 66 for `chemistry.lab_recombination_fit`, which includes
-    benzene (slope 1.15). Neither extrapolation is constrained above N_C = 16.
+    diagnostic). The ratio rises with N_C, but where it extrapolates to 1 depends on the fit: N_C ≈ 25 for the
+    eight PAH points (N_C 10–16, slope 2.95), N_C ≈ 87 for `chemistry.lab_recombination_fit`, which includes
+    benzene (9 points, slope 1.01). Neither extrapolation is constrained above N_C = 16.
+  - Fluoranthene is one experiment (Rebrion-Rowe+03: (2.5 ± 1.5)×10⁻⁶ for a mixture of C₁₆H₁₀₋ₙ⁺ and N-bearing
+    ions made by charge transfer with 6.6–7.7 eV to spare); a second row quoting the same experiment was
+    removed on 2026-10-22. Their own "physical limit" for the monomer, 5.3×10⁻⁶, is 0.47 × pahchem's capture.
+    Phenanthrene (Hassouna+03, conference proceedings) could not be obtained and stays as quoted by Biennier+06.
   - Every point with N_C ≥ 10 is at 300 K, from two methods: FlAPI photo-ions, and FALP-MS ions made by
     charge transfer, which can be internally hot (Biennier+06). The method is now a column of
     `pah_electron_recombination.csv`.
   - No PAH has a measured T dependence. The small aromatics give T^−0.69 (C₆D₆⁺) and T^−0.83 (C₆D₇⁺)
     (Hamberg+11, storage ring). So the T^−½ of the capture formula is an assumption.
   - Tielens (2021, eq. 8.106), 1.3×10⁻⁶ N_C^½ (300/T)^½, is the Spitzer form with an ad hoc 0.8 planarity
-    factor: 0.46 × pahchem's capture at every N_C. The data reach it near N_C ≈ 20 (ten-point fit) or 34
+    factor: 0.46 × pahchem's capture at every N_C. The data reach it near N_C ≈ 19 (PAH-only fit) or 40
     (pahchem's fit), so they cannot tell the two forms apart. This is the factor-2 uncertainty of this rate.
 - **e + PAH⁰:** keep the statistical sticking (the low-density, radiatively stabilised limit). Validate it on:
   - anthracene: 1.0×10⁻⁹ ± 30 % at 300 K (FALP, Canosa+94; no pressure dependence, so radiative), and
@@ -120,6 +124,9 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
   | Tielens 2021 eq. 8.112 ("by lack of better": the electron form with the cation mass) | 0.46 |
   | Shuman+14 (VENDAMS), 2.7×10⁻⁷ μ^−½ (T/300)^−0.9, measured on small polyatomic anions | 0.58 |
   | Hickman 1979 eq. 28, 5.35×10⁻⁷ μ^−½ (T/300)^−½ EA^−0.4 (EA 2.5–1.5 eV; fitted for EA 0.75–4 eV, ±30 %) | 0.80–0.98 |
+
+  Lepp & Dalgarno (1988b), after Omont (1986), quote "of the order" 1.3×10⁻⁶ T^−½ scaling as m^−½ with no stated
+  reference mass, so it cannot be placed in this table.
 
 - Proposed default: P_MN = 0.58, the measured polyatomic law. The range 0.46–0.98 is its uncertainty. It
   is labelled an assumption, since it transfers a small-anion law to PAH anions.
@@ -190,6 +197,8 @@ From `PAHNetwork.fluxes`, extended with named per-ion processes. All are per H n
    - x(PAH⁻)/x_e: PAH⁻ out-neutralise the electrons only when this exceeds ≈ 43 (Flower & Pineau des Forêts
      2026, dark clouds, which needs x_PAH ≳ 10⁻⁶);
    - Tielens (2021, §10.5.3): PAH⁻ dominate the negative charge when x_e < 2×10⁻⁷ (x_PAH/10⁻⁷).
+  - Lepp & Dalgarno (1988b): in dense clouds PAH⁻ carry most of the negative charge for x_PAH > 10⁻⁸, which
+    raises C and C₃H₂ by two orders of magnitude at x_PAH = 10⁻⁷; DCO⁺/HCO⁺ limits x_PAH to ≲ 6×10⁻⁶.
    - In diffuse gas, H⁺ + PAH⁻ can remove most H⁺ (Tielens 2021 §9.5.3). A ζ derived from OH⁺, H₂O⁺ or HD
      depends on this rate.
 
@@ -322,6 +331,6 @@ Supplied and read on 2026-10-21. Their corrections are applied above:
   "2×10⁻¹⁷ (T/100)^½" attributed to it second-hand is unverified.
 
 **Still to supply** (section 13 of the literature page):
-- Lepp & Dalgarno 1988a (ApJ 335, 769);
-- Rebrion-Rowe+03 and Hassouna+03, the primary sources of two rows of `pah_electron_recombination.csv`;
 - Tielens 2005 §3.3, §6.3, §8.7.
+- Hassouna+03 (conference proceedings) is not obtainable; Rebrion-Rowe+03 and both Lepp & Dalgarno 1988 papers
+  (ApJ 324, 553; ApJ 335, 769) were supplied on 2026-10-22.
