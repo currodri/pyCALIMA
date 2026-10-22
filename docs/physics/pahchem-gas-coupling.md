@@ -264,7 +264,7 @@ The exact numbers are in the literature page, section 8.
 | | target | status |
 |---|---|---|
 | V1 | Wolfire+08 Table 2 from DS87 (and Hollenbach+12 at N_C = 100) | passes (§A, ≤ 2.6 %) |
-| V2 | W03/W08 three-state charge balance (N_C = 35; G₀ = 1.7, T = 100, n = 30): with W08's rates exactly, then with pahchem's, giving the effective Φ (expected 0.4–0.6) | to do |
+| V2 | W03/W08 three-state charge balance (N_C = 35; G₀ = 1.7, T = 100, n = 30): with W08's rates exactly, then with pahchem's, giving the effective Φ (expected 0.4–0.6) | **passes** (2026-10-22, `check_wolfire08_cplus.py`): untuned, pahchem's α(C⁺) for the 72 v4.00 molecules with N_C 32–40 at x_PAH = 6×10⁻⁷ is 0.99× W08's calibrated value (Φ = 0.4), 0.86× with statistical detachment; f(PAH⁻, PAH⁰, PAH⁺) = 0.14–0.17, 0.81–0.83, 0.03 against W08's 0.22, 0.75, 0.03 |
 | V3 | the W08 C I/C II regimes (their eq. B15), on both C I data sets: W08's compilation and Burgh+10, which is ×4–21 lower on three of four common sight lines (Liszt 2011 Table 1). At fixed n/G₀, eq. B15 then implies a Φ lower by 2.1–4.6, unless n is pinned independently. Burgh+10 measure no C II. | to do |
 | V4 | α_PAH against WD01b for ψ = 10²–10⁶, T = 10–10³ K (C⁺, H⁺, S⁺, Mg⁺, Fe⁺); WD01b §7, x_e 8.0 → 4.5×10⁻⁴ | to do |
 | V5 | FALP e + PAH⁺ (10 points, attributions and methods checked against Abouelaziz+93 and Biennier+06); the fits' extrapolations (§2.2) | §D lists them |
@@ -274,7 +274,7 @@ The exact numbers are in the literature page, section 8.
 | V9 | PE heating: BT94 ε(γ); Berné+22 ε_PAH(γ) (N_C = 54) and its diffuse-ISM ε = 0.037, Γ = 2.7×10⁻²⁶ erg s⁻¹ H⁻¹; the W22 ratios of WD01 to BT94 | to do |
 | V10 | Thi+20 Table B.3 (C₅₄ recombination) | to do |
 | V11 | H₂: the targets of §2.5 (Andrews+16 Fig. 10 and eqs. 12–13, Mennella+12, Castellanos+18, Boschman+15, Habart+04, Thi+20 R_max) | to do |
-| V12 | energy closure per process: absorbed = IR + photoelectron + ionisation work, returned on recombination | to do |
+| V12 | energy closure per process: absorbed = IR + photoelectron + ionisation work, returned on recombination | **passes** per state to < 10⁻⁴ on the 5–500 eV grid (`test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy`) |
 | V13 | Lepp & Dalgarno 1988 Table 2: neutral-to-ion ratios of C, Mg, S, Ca and Fe toward ζ Per and ζ Oph against x_PAH (they infer x_PAH 1×10⁻⁷ and 6×10⁻⁷, ×2) | to do |
 | V14 | Tielens 2021 Fig. 12.34: f(Z) of C₅₄H₁₈ and C₉₆H₂₄ for a diffuse cloud (G₀ 2, n 50, T 80), the NGC 7023 PDR (2600, 2×10⁴, 500) and its cavity (2×10⁴, 5×10³, 500), x_e = 1.6×10⁻⁴; and its ε examples (0.05 at γ ≈ 10³, 0.008 at 10⁵) | to do |
 | V15 | dense clouds: Tielens 2021 eq. 10.77, x_e ≃ 2×10⁻⁷ (ζ/3×10⁻¹⁷)^½ (10⁴/n)^½, and Fig. 10.22 (PAH⁻ take over at n ≈ 3×10³); Flower & Pineau des Forêts 2026 (n_H = 10⁴, T = 10 K) | to do |
@@ -305,6 +305,17 @@ radiative P(E) at G₀ = 1; `sticking_neutral=1.0` restores the old behaviour.
 - C₉₆ (EA 0.56 eV at N_H0): ≈ 1, falling to 0.56 at 500 K for two extra H (EA 0.36 eV).
 - Still departing from the paper: C₉₆ Z = −2 is missing (unpopulated in their Fig. 8); Li & Draine cross sections
   replace Malloci's; the × N_C/24 scaling of the geometric addition cross section is pahchem's own.
+
+## 4b. Implementation status (2026-10-22)
+
+| step | what | where | status |
+|---|---|---|---|
+| 1 | photoelectric heating per state, from the charge balance's rates | `photo.photoelectron_power`, `Population.photoelectric_heating` | done; reproduces Berné+22's code to ≤ 0.3 % with their inputs (`check_berne22_pe_heating.py`) |
+| 1b | anion photodetachment: prompt (WD01 σ_pdt) plus delayed (detailed-balance autodetachment, thermionic electrons) | `Params.detachment = "statistical"`, `population.statistical_detachment`, `Attachment.delayed_detachment` | done, opt-in; C₅₄H₁₈ efficiency 0.02–0.04 instead of 0.3–0.6 |
+| 1c | the EUV: 5–500 eV grid, Y = 1 above 20 eV, measured photoelectron share to 21.9 eV, constant ion internal energy above, deposits into the cascades | `population.E_PH`, `photo.photoelectron_energy`, `population.deposit_spectrum`, `Environment.field_e_max_ev` | done; Lyman-cut fields unchanged (≤ 3×10⁻⁷); top-state ionisations reported by `chain_overflow` |
+| 2 | recombination cooling, kT Λ̃/J̃ per capture | `Population.recombination_cooling` | done |
+| 3 | ion–PAH collisions: mutual neutralisation, ion–neutral reactions, optional adducts | `chemistry.mutual_neutralisation`, `chemistry.ion_neutral_rate`, `population.ion_up_rate`, `Environment.ions` | done |
+| 4 | outputs for a gas network: α_PAH(X), carbon accretion, net electron source, Γ_PE, Λ_rec, f(Z) | `Population.gas_rates` | done, except H₂ formation (needs the hydrogenation network) and the RAMSES group tables |
 
 ## 5. Items for the user to supply
 

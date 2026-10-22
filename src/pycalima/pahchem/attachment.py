@@ -142,9 +142,10 @@ class Attachment:
         pre = 2.0 * ME_G * g_neutral / (g_anion * np.pi**2 * HBAR_CGS**3)
         # numerator and rho_a averaged over the same window, as the IR rates are (cooling)
         half = max(int(round(0.5 * window_cm / grain_cm)), 1)
-        m = n - self.i_ea - 1
+        # the neutral's grid is rounded on its own, so it can be one bin shorter than the anion's range above EA
+        m = min(n - self.i_ea - 1, conv.size - 1)
         num = np.zeros(n)
-        num[self.i_ea + 1:] = conv[1:m + 1]
+        num[self.i_ea + 1:self.i_ea + 1 + m] = conv[1:m + 1]
         num_w = cooling._window_sum(num, half)
         rho_a_erg = cooling._window_sum(counts_a, half) / (grain_cm * ERG_PER_CM)   # [erg^-1] x window bins
         self.k_detach = np.zeros(n)
@@ -161,7 +162,7 @@ class Attachment:
         conv_e = np.zeros(counts_n.size)
         conv_e[1:] = np.convolve(g * eps, counts_n)[:counts_n.size - 1]
         num_e = np.zeros(n)
-        num_e[self.i_ea + 1:] = conv_e[1:m + 1]
+        num_e[self.i_ea + 1:self.i_ea + 1 + m] = conv_e[1:m + 1]
         num_e_w = cooling._window_sum(num_e, half)
         self.eps_detach = np.zeros(n)
         with np.errstate(divide="ignore", invalid="ignore"):

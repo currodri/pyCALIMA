@@ -340,6 +340,27 @@ def test_ions_neutralise_anions_and_charge_neutrals_above_their_threshold():
     assert population.ion_up_rate(mol, 0, replace(bare, ions=(low,)), Params(metal_adducts=True)) > 0.0
 
 
+def test_gas_rates_conserve_charge_in_steady_state():
+    """Without ions the PAHs make as many electrons as they capture; with ions the net electron source equals minus
+    the ion-driven up-flux (the PAHs pass the ions' charge to electrons), and alpha(X) is the abundance-weighted
+    flux of each ion."""
+    from dataclasses import replace
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    pop = population.Population([mol], WINDOWS)
+    bare = Environment("cnm", 1.7, 30.0, 0.04, 100.0, None)
+    x = np.array([3e-7])
+    r0 = pop.gas_rates(bare, x)
+    made = float(x @ (r0["f"] * bare.g0 * pop._stack(population.field_shape(bare))[0]).sum(axis=1))
+    assert abs(r0["electron_source"]) < 1e-9 * made and r0["alpha_mn"] == {}
+    env = replace(bare, ions=(("C+", 0.04), ("H+", 1e-3)))
+    r = pop.gas_rates(env, x)
+    ion_flux = sum(r["alpha_mn"][i] * n + r["alpha_ct"][i] * n for i, n in env.ions)
+    assert r["electron_source"] == pytest.approx(-ion_flux, rel=1e-6)
+    assert r["alpha_mn"]["C+"] > 0 and r["carbon_accretion"] == pytest.approx(0.4 * r["alpha_ct"]["C+"])
+    assert r["gamma_pe"] > 0 and r["lambda_rec"] > 0
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

@@ -88,7 +88,7 @@ import functools
 import hashlib
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -984,6 +984,48 @@ class Population:
         f = self.charge_matrix(env)
         lz = env.n_e * f * self._capture_rates(env.temperature_k) * self._capture_energy(env.temperature_k) * chemistry.EV_ERG
         return lz.sum(axis=1), lz
+
+    def gas_rates(self, env, abundance):
+        """What the PAHs give a gas network at ``env``, for ``abundance[s]`` molecules per H nucleus.
+
+        Per H nucleus, from one steady state of ``charge_matrix``:
+        - ``alpha_mn[ion]``, ``alpha_ct[ion]`` [cm^3 s^-1]: dn(X+)/dt = -(alpha_mn + alpha_ct) n(X+) n_H, mutual
+          neutralisation on anions and ion-neutral reactions on neutrals (``ion_up_rate``);
+        - ``carbon_accretion`` [cm^3 s^-1]: the share of C+ + PAH0 that keeps the C (0.4, Canosa+95), within
+          alpha_ct["C+"]; the rest returns C to the gas;
+        - ``electron_source`` [s^-1]: electrons made by photoionisation, photodetachment and associative detachment
+          minus those captured
+          (in steady state it equals minus the ion-driven up-flux: PAHs pass the ions' charge to electrons);
+          ``electron_overflow`` adds the top state's EUV ionisations, which the chain does not follow;
+        - ``gamma_pe``, ``lambda_rec`` [erg s^-1]: photoelectric heating and recombination cooling;
+        - ``f``: the charge fractions [s, slot] over ``self.zs``.
+        H2 formation on PAHs is not here: it needs the hydrogenation network (``network.PAHNetwork``).
+        """
+        x = np.asarray(abundance, dtype=float)
+        f = self.charge_matrix(env)
+        k_up, _, _ = self._stack(field_shape(env))
+        photo_up = env.g0 * k_up
+        photo_up[:, -1] = 0.0
+        tops = np.array([max(m.charges) - self.zmin for m in self.library])
+        photo_up[np.arange(len(self.library)), tops] = 0.0                     # no chain step out of the top state
+        if self.zmin == -1:
+            photo_up[:, 0] += 7.8e-10 * env.n_h                    # associative detachment frees an electron too
+        capture = self._capture_rates(env.temperature_k) * env.n_e
+        alpha_mn, alpha_ct = {}, {}
+        for ion, _ in getattr(env, "ions", ()):
+            unit = replace(env, ions=((ion, 1.0),))
+            mn = np.array([f[s, -1 - self.zmin] * ion_up_rate(m, -1, unit, self.p) if -1 in m.charges else 0.0
+                           for s, m in enumerate(self.library)])
+            ct = np.array([f[s, 0 - self.zmin] * ion_up_rate(m, 0, unit, self.p) if 1 in m.charges else 0.0
+                           for s, m in enumerate(self.library)])
+            alpha_mn[ion], alpha_ct[ion] = float(x @ mn), float(x @ ct)
+        gamma = self.photoelectric_heating(env)[0]
+        lam = self.recombination_cooling(env)[0]
+        return {"alpha_mn": alpha_mn, "alpha_ct": alpha_ct,
+                "carbon_accretion": 0.4 * alpha_ct.get("C+", 0.0),
+                "electron_source": float(x @ ((f * photo_up).sum(axis=1) - (f * capture).sum(axis=1))),
+                "electron_overflow": float(x @ self.chain_overflow(env)),
+                "gamma_pe": float(x @ gamma), "lambda_rec": float(x @ lam), "f": f}
 
     def chain_overflow(self, env):
         """Ionisations out of each molecule's top charge state [s^-1 per molecule]: EUV photons above Y_UNITY_EV
