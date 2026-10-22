@@ -964,6 +964,29 @@ def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, name, nh, nh0, n
     assert sum(r.network_rates.values()) <= r.r_abs
 
 
+def test_andrews16_neutral_sticking_rises_with_ea(pah_states):
+    """Andrews+16 App. A.3: the neutral sticking rises with EA (which falls with N_H, eq. 1) and is unity for
+    EA >~ 1 eV. The network used sticking 1 for every neutral, which overstated coronene attachment
+    (EA 0.47 eV) by orders of magnitude."""
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.andrews16 import Andrews16Model
+
+    modes = {}
+    for f in sorted(pah_states.glob("C24*.dat")):
+        sp = PAHSpecies.from_states_file(f)
+        modes[(sp.charge, sp.nh)] = sp
+    if (-1, 12) not in modes:
+        pytest.skip("model_data/PAH_states/ has no C24H12_-1.dat")
+    m = Andrews16Model("C24", modes, de_cm=150.0)
+    s = [m.sticking_neutral(nh, 100.0) for nh in (8, 12, 14)]           # EA 0.87, 0.47, 0.27 eV
+    assert s[0] > 0.9 and s[0] > s[1] > s[2] and s[1] < 0.1
+    net = m.network(m.photo_rates(1e2), 1e4, 1.0, 100.0)
+    rec = next(p for p in net.processes if p.name == "recombination")
+    z0, n12 = m.charges.index(0), m.nh_values.index(12)
+    assert rec.rate[z0, n12] == pytest.approx(chemistry.electron_capture(24, 0, 100.0, sticking=s[1]))
+    assert Andrews16Model("C24", modes, sticking_neutral=1.0).sticking_neutral(12, 100.0) == 1.0
+
+
 def test_baseline_rates_are_physical_and_respond_to_g0(pah_states):
     """Baseline (sink cascades): every photo-rate <= r_abs; more UV per H atom
     means more dehydrogenation and more cations."""

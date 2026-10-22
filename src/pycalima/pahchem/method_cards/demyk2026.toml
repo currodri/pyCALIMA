@@ -21,6 +21,9 @@ status = "reproduced (3 um profiles, photon temperatures); 6.9/3.3 um not"
 molecules = { value = "pyrene, 2H- (4,5-dihydro-), 4H- (4,5,9,10-tetrahydro-), 6H- (1,2,3,6,7,8-hexahydro-) and 1-methylpyrene; emission modelled for 6H- and Me-pyrene", source = "Sects. 2, 4.3", confidence = "A" }
 phase = { value = "gas, 423-673 K, ESPOIRS high-temperature cell, 2 cm^-1 resolution", source = "Sect. 2.1; IRDB infos.csv", confidence = "A" }
 
+[dissociation]
+modelled = "no: single-photon IR emission only (no dissociation channels in the cascade)"
+
 [laws]
 form = { value = "position chi0' + chi1' T, FWHM chi0'' + chi1'' T, first-order polynomials over a low and a high temperature range per band (main component)", source = "Sect. 3, Appendix F Fig. 20", confidence = "A" }
 values = { value = "CosmicPAH-IRDB per-dataset JSON, IDs 22 (pyrene, multi-component + rotation), 9, 12, 4 (6H, 1.1.2 rotation-corrected), 17 (Me, 1.1.2)", source = "database listing; Table 4 equals IDs 4 and 17 (the high-T piece where Table 4 gives one law)", confidence = "A" }

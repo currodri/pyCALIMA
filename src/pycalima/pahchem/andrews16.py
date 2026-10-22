@@ -144,10 +144,13 @@ class Andrews16Model:
         (their rule, Sect. 2.3.3).
     """
 
-    def __init__(self, parent, mode_files, e_max_ev=50.0, de_cm=100.0, temperature_template=15000):
+    def __init__(self, parent, mode_files, e_max_ev=50.0, de_cm=100.0, temperature_template=15000,
+                 sticking_neutral="statistical"):
         from pycalima.pahchem import photo as _photo
 
         self.parent = parent
+        self.sticking_neutral_rule = sticking_neutral
+        self._sticking = {}
         self.nc, self.nh0, self.n_solo = PARENTS[parent]
         self.charges = tuple(sorted(IONISATION[parent])) + (max(IONISATION[parent]) + 1,)
         self.nh_values = tuple(range(0, self.nh0 + 5))
@@ -178,6 +181,43 @@ class Andrews16Model:
         k = {c: rates.arrhenius_effective_temperature(st.species.freqs_cm, E, Ea * dos.CM_PER_EV, dS)
              for c, (Ea, dS) in channels(nh, self.nh0, self.n_solo, z).items()}
         return st, k
+
+    def sticking_neutral(self, nh, temperature_k):
+        """Electron sticking on the neutral of N_H at gas temperature T (App. A.3).
+
+        Andrews+16 take an EA-dependent sticking (Allamandola+89; ~1e-5 at EA = 0.47 eV, unity for EA >~ 1 eV)
+        that depends on N_H through the EA of eq. 1. Their formula is not given, so "statistical" uses pahchem's
+        ``attachment.Attachment`` (detailed-balance autodetachment against IR stabilisation) for this state's
+        neutral and anion modes and EA(N_H). The neutral's internal energy is its radiative P(E) under the
+        model's Kurucz field at G0 = 1, as ``baseline.BaselineModel.sticking_neutral`` does (P(E) moves s_e by
+        < 10 % up to G0 = 1e4). A number is used as given (1.0 is the earlier behaviour).
+        """
+        s = self.sticking_neutral_rule
+        if not isinstance(s, str):
+            return float(s)
+        if s != "statistical":
+            raise ValueError(f"sticking_neutral must be a number or 'statistical', not {s!r}")
+        from pycalima.pahchem import chemistry
+        from pycalima.pahchem.attachment import Attachment
+
+        kn, ka, ea = self._species_for(0, nh), self._species_for(-1, nh), self.ionisation_energy(-1, nh)
+        if ea is None:
+            return 1.0
+        key = (kn, ka, round(ea, 6), round(float(temperature_k), 6))
+        if key not in self._sticking:
+            ak = (kn, ka, round(ea, 6))
+            if ak not in self._sticking:
+                from pycalima.pahchem import fields as _fields, photo as _photo
+
+                at = Attachment(self._modes[kn], self._modes[ka], ea, chemistry.disc_radius_cm(self.nc),
+                                e_excess_cm=8000.0)
+                st, _ = self._state(0, nh)
+                h = _photo.heating_spectrum(_fields.kurucz(self._teff, 1.0), self._sigma[0],
+                                            np.zeros_like(self._E_ph), self._E_ph)
+                self._sticking[ak] = (at, st.cm.energy_cm, st.cm.steady_state(self._E_ph, h, {}).probability)
+            at, e_n, p_n = self._sticking[ak]
+            self._sticking[key] = at.sticking(temperature_k, e_n, p_n)
+        return self._sticking[key]
 
     def photo_rates(self, g0):
         """{(Z, N_H): {"H": r P_H, "H2": r P_H2, "ion": k_ion}} at Habing ``g0``."""
@@ -221,8 +261,9 @@ class Andrews16Model:
         net.add("H loss", get("H"), dnh=-1)
         net.add("H2 loss", get("H2"), dnh=-2, h2_released=1)
         net.add("photoionisation", np.where(Z < top_z, get("ion"), 0.0), dz=+1)
-        capture = np.array([[chemistry.electron_capture(self.nc, z, temperature_k) for _ in self.nh_values]
-                            for z in self.charges])
+        capture = np.array([[chemistry.electron_capture(self.nc, z, temperature_k,
+                                                        sticking=self.sticking_neutral(nh, temperature_k) if z == 0 else 1.0)
+                             for nh in self.nh_values] for z in self.charges])
         net.add("recombination", np.where(Z > min(self.charges), capture * n_e, 0.0), dz=-1)
         # H addition (Sect. 2.4.4)
         sigma_geo = CORONENE_GEOMETRIC_A2 * self.nc / 24.0

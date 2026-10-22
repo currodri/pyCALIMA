@@ -275,16 +275,27 @@ The exact numbers are in the literature page, section 8.
 H⁺, and the H⁺ factor is unexplained (WD01b's H⁺ ≈ its C⁺, where the DS87 mass scaling gives √12×). Check
 it against WD01b Fig. 1 before V4.
 
-**A grain-side bug, not changed.** `models/dust_chemistry/dust_h2_formation.py` (l. 303–319) and RAMSES
-`dust_surface_chemistry.f90` compute 0.5 n_H (2kT/m)^½ n_d 2πa². Cazaux & Spaans 2004 (eq. 2) and Tielens 2021
-(eq. 9.9: R = ½ S η n_d σ_d n(H) v̄_H, with the mean speed v̄_H = 1.5×10⁴ T^½) give a rate 1.77× lower. Both
-sources agree, so this is a bug, to fix with its own test and benchmark re-run.
+**A grain-side bug, fixed 2026-10-21.** `models/dust_chemistry/dust_h2_formation.py` computed
+0.5 n_H (2kT/m)^½ n_d 2πa². Cazaux & Spaans 2004 (eqs. 1, 2 and 4) and Tielens 2021 (eq. 9.9: R = ½ S η n_d σ_d
+n(H) v̄_H, with the mean speed v̄_H = 1.5×10⁴ T^½) give a rate 1.77× lower. It now uses πa² and the mean speed
+(`mean_h_speed`) in the rate and in the H flux; `tests/test_models_physics.py` reproduces their eq. 4. Nothing in
+pyCALIMA consumes the rate, so no pyCALIMA benchmark moves.
+- **RAMSES:** the same fix is e7b5165a in part 02 of the PR stack (#16) and all later parts, but not in `staging`
+  or `calima_tva`. The recommendation (land #16, re-check results made without it, refresh pyCALIMA's Fortran
+  mirror `solvers/ramses_source/dust_surface_chemistry.f90`) is in `RAMSES_dev/OPEN_ISSUES.md`.
 
-**A deviation in the Andrews+16 reproduction, not changed.** `pahchem/andrews16.py` calls `electron_capture`
-with sticking 1 for neutrals. Andrews+16 use an EA- and N_H-dependent sticking (≈ 10⁻⁵ at EA = 0.47 eV). So
-attachment to coronene and C₉₆ is up to ≈ 10⁵× too high there (C₅₄, EA 1.44 eV, is barely affected). Other
-departures: C₉₆ Z = −2 is missing (unpopulated in their Fig. 8); Li & Draine cross sections replace Malloci's;
-the × N_C/24 scaling of the geometric addition cross section is pahchem's own.
+**The Andrews+16 reproduction's neutral sticking, fixed 2026-10-21.** `pahchem/andrews16.py` used sticking 1 for
+every neutral. Andrews+16 (App. A.3) take an EA-dependent sticking from Allamandola+89 (≈ 10⁻⁵ at EA = 0.47 eV,
+unity for EA ≳ 1 eV), N_H-dependent through eq. 1, but give no formula. `Andrews16Model` now uses pahchem's
+statistical sticking (`attachment.Attachment`, as `BaselineModel` does) per (N_H, EA(N_H)), with the neutral's
+radiative P(E) at G₀ = 1; `sticking_neutral=1.0` restores the old behaviour.
+- Coronene (EA 0.47 eV): 4.5×10⁻³ at 100 K and 1.0×10⁻³ at 500 K, so its attachment falls 200–1000×. That is
+  still above Allamandola's ≈ 10⁻⁵, and the difference is pahchem's physics against a formula not given; it is
+  recorded, not tuned.
+- C₅₄ (EA 1.44 eV): 1, so the NGC 7023 benchmark (`check_andrews16_ngc7023.py`) is identical.
+- C₉₆ (EA 0.56 eV at N_H0): ≈ 1, falling to 0.56 at 500 K for two extra H (EA 0.36 eV).
+- Still departing from the paper: C₉₆ Z = −2 is missing (unpopulated in their Fig. 8); Li & Draine cross sections
+  replace Malloci's; the × N_C/24 scaling of the geometric addition cross section is pahchem's own.
 
 ## 5. Items for the user to supply
 

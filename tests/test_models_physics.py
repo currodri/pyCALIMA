@@ -689,6 +689,23 @@ class TestDustChemistry:
                if inspect.isfunction(o) and not n.startswith("_")]
         assert fns, "dust_h2_formation exposes no public functions"
 
+    @pytest.mark.parametrize("tgas", [30.0, 100.0, 1000.0])
+    def test_h2_formation_rate_reproduces_cazaux_spaans_eq4(self, tgas):
+        """CS04 eq. 2 with n_d sigma_d = n_d pi a^2 and the mean H speed gives their eq. 4 for 0.1 um grains of
+        3 g cm^-3: R_d = 3.025e-17 eps S (xi/0.01) (T/100)^1/2 n_H n(H). The code used 2 pi a^2 and
+        (2kT/m)^1/2, 1.77x high."""
+        from pycalima.models.dust_chemistry import dust_h2_formation as m
+
+        nh, xi, td, a_um = 100.0, 0.01, 15.0, 0.1
+        mgrain = 4.0 / 3.0 * np.pi * (a_um * 1e-4) ** 3 * 3.0           # 1.256e-14 g
+        rho_dust = 1.329e-10 * xi * nh * mgrain                          # CS04: n_d = 1.329e-10 xi n_H
+        rate = m.h2_formation_rate(nh, tgas, [rho_dust], [td], [a_um], [mgrain], [1])
+        v = m.mean_h_speed(tgas)
+        eps = m.recombination_efficiency(tgas, td, nh, v, m.h_flux(nh, v), 1)
+        expected = 3.025e-17 * eps * m.h2_sticking_coef(tgas, td) * np.sqrt(tgas / 100.0) * nh * nh
+        assert rate == pytest.approx(expected, rel=2e-3)
+        assert v == pytest.approx(1.45e5 * np.sqrt(tgas / 100.0), rel=3e-3)   # CS04: v_H ~ 1.45e5 (T/100)^1/2
+
 
 # ===========================================================================
 # models/tools
