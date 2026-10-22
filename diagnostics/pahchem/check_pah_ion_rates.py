@@ -9,9 +9,9 @@ A. **Wolfire+08 Table 2** (N_C = 35, Phi = 1) reproduced by DS87 for a sphere of
    sticking 1 and no disc factor; and pahchem's geometry against it.
 B. **Mutual neutralisation, X+ + PAH- (C50H18).** The polyatomic law of Shuman+14,
    2.7e-7 mu^-1/2 (T/300)^-0.9, against DS87 with s = 1. Their ratio is the effective P_MN.
-C. **Charge transfer, X+ + PAH0.** Langevin, k_L = 2 pi e (alpha/mu)^1/2 with alpha = 1.75 N_C A^3, times the
-   measured 0.85 (anthracene; Canosa+95), against DS87 for a neutral sphere (which is Langevin with
-   alpha = a^3).
+C. **Ion-neutral reactions, X+ + PAH0.** Langevin, k_L = 2 pi e (alpha/mu)^1/2 with alpha = 1.75 N_C A^3, times
+   the total efficiency 0.9 measured on anthracene (Canosa+95: He+ 0.90, C+ 0.88; for C+ 60 % of it is charge
+   transfer and 40 % carbon accretion), against DS87 for a neutral sphere (which is Langevin with alpha = a^3).
 D. **Electron + PAH+ at 300 K:** the FALP data (``labdata.electron_recombination``) against pahchem's capture.
 
     check_pah_ion_rates.py
@@ -53,14 +53,14 @@ def main():
         k = ds87(nc, -1, 1, mu, 300.0, disc=0.82)
         print(f"  {ion:5s} Shuman {shuman:.2e}  DS87 {k:.2e}  ratio {shuman / k:.2f}")
 
-    print("\nC. Charge transfer on neutral PAHs, T = 100 K: 0.85 Langevin (alpha = 1.75 N_C A^3) / DS87")
+    print("\nC. Ion-neutral reactions on neutral PAHs, T = 100 K: 0.9 Langevin (alpha = 1.75 N_C A^3) / DS87")
     for nc_ in (24, 50, 100):
         for ion in ("H+", "C+", "S+"):
             m = IONS[ion]
             mu = m * (nc_ * 12.011) / (m + nc_ * 12.011) * AMU_G
-            k_l = 0.85 * 2 * np.pi * E_STATC * np.sqrt(1.75 * nc_ * 1e-24 / mu)
+            k_l = 0.9 * 2 * np.pi * E_STATC * np.sqrt(1.75 * nc_ * 1e-24 / mu)
             k = ds87(nc_, 0, 1, m, 100.0, disc=0.82)
-            print(f"  N_C {nc_:3d} {ion:3s} 0.85 k_L {k_l:.2e}  DS87 {k:.2e}  ratio {k_l / k:.2f}")
+            print(f"  N_C {nc_:3d} {ion:3s} 0.9 k_L {k_l:.2e}  DS87 {k:.2e}  ratio {k_l / k:.2f}")
 
     print("\nD. e + PAH+ at 300 K: FALP / pahchem capture (s = 1)")
     for r in labdata.electron_recombination().itertuples():

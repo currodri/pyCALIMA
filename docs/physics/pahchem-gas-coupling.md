@@ -44,8 +44,16 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 
 ### 2.1 Photoelectric emission, with the photoelectron energy
 
-- **Mean photoelectron energy:** ⟨E_k⟩ = γ_e (E − IP_m(Z)) for Z ≥ 0, with γ_e = 0.46 ± 0.06. This was
-  measured on coronene (Bréchignac+14, analysed by Berné+22); the classical value is 0.5 (V90, BT94).
+- **Mean photoelectron energy:** ⟨E_k⟩ = γ_e (E − IP_m(Z)) for Z ≥ 0. The default is γ_e = 0.46 ± 0.06; the
+  classical value is 0.5 (V90, BT94).
+  - 0.46 is not a measured constant. It is Berné+22's unweighted average over 7.1–10.1 eV of γ_e(E),
+    which they derived from the coronene photoelectron spectra of Bréchignac+14 (Fig. 2). Bréchignac+14
+    itself gives no partition.
+  - Per photon energy, γ_e(E) runs from ≈ 1 (direct ionisation to D0, 7.5–7.8 eV) to 0.05–0.37
+    (autoionisation, 9.1–9.6 eV; Bréchignac+14 Table I). Nothing constrains 10.1–13.6 eV, where most
+    of the heating photons of an O-star field are.
+  - So the ±0.06 is the spread of the mean. An option γ_e(E), digitised from Bréchignac+14 for coronene,
+    is to be offered and compared against the default; neither choice is tuned to a fit.
   - The rest, (1 − γ_e)(E − IP), stays in the PAH as vibrational energy.
   - For photodetachment, E_k = E − EA.
 - **Gas heating:**
@@ -97,13 +105,21 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
   - Molecular ions take 50 % dissociative products (Thi+20).
   - Uncertainty: ×2–3.
 
-**Charge transfer, X⁺ + PAH⁰ → X + PAH⁺, only if IP(X) > IP_m(0):**
+**Ion–neutral reactions, X⁺ + PAH⁰ → products with ΔZ = +1, only if IP(X) > IP_m(0):**
 
-    k_CT = P_CT · 2π e (α_m/μ)^½
+    k = P_react · 2π e (α_m/μ)^½
 
-- α_m = 1.75 N_C Å³, and P_CT = 0.85 is measured on anthracene (Canosa+95: He⁺ 5.2×10⁻⁹, C⁺ 3×10⁻⁹).
-- This is Langevin, not DS87: DS87's neutral sphere is Langevin with α = a³. Their ratio falls from 0.71
-  (N_C = 24) to 0.48 (N_C = 100) (§C).
+- α_m = 1.75 N_C Å³. P_react ≈ 0.9 is the **total** reaction efficiency measured on anthracene at 293 K
+  (Canosa+95 Table 1): He⁺ 5.1–5.4×10⁻⁹ and C⁺ 3 ± 1.5×10⁻⁹, i.e. 0.90 and 0.88 of Langevin with their
+  α = 25.4 Å³.
+- **It is not all charge transfer.** For C⁺ the products are 60 % C + C₁₄H₁₀⁺ and 40 % C₁₅H₉⁺ + H, carbon
+  accretion (p. 412). For the charge balance both give ΔZ = +1. For the gas network, the second does not
+  return C to the gas. He⁺ gives the parent ion, fragments and possibly the dication, with the branching not
+  measured.
+- **The efficiency is ion-dependent.** Ar⁺, exothermic by ≈ 8 eV, reacts at only ≈ 0.5 of Langevin. Applying
+  0.9 to H⁺, N⁺, O⁺ and S⁺ is an extrapolation, labelled as such; no T dependence is measured.
+- This is Langevin, not DS87: DS87's neutral sphere is Langevin with α = a³. With P_react = 0.9 the ratio to
+  DS87 falls from 0.74–0.78 (N_C = 24) to 0.51 (N_C = 100) (§C).
 - The threshold is decided per molecule. Mg⁺ (7.65 eV), Fe⁺ (7.90 eV) and Si⁺ (8.15 eV) transfer only to
   low-IP PAHs, which pahchem's per-molecule IPs handle directly. No rate has been measured for these three.
 
@@ -197,11 +213,17 @@ mean speed, so the code may be 1.77× high.
 
 ## 5. Items for the user to supply
 
+Supplied and read on 2026-10-21: Bakes & Tielens 1998, Bréchignac+14, Canosa+95 and Moustefaoui+98. Their
+corrections are applied above: the origin of γ_e = 0.46, and the total efficiency and products of the ion–neutral
+reactions. Bakes & Tielens 1998 has no atomic X⁺ + PAH⁰ charge transfer at all; its mutual neutralisation is a
+flat 10⁻⁷ (T/300)^−½ for every ion (0.18–1.27× DS87).
+
 The full list is in section 13 of the literature page. The main items:
-- **Tielens:** 2005 §3.3, §6.3, §8.7; 2021 §8.6–8.7, §12.8.
-- **Rate theory:** Bakes & Tielens 1998; Lepp+88; Liszt 2011; Burgh+10.
+- **Tielens:** 2005 §3.3, §6.3, §8.7; 2021 §8.6–8.7, §12.8. The 2021 book was supplied in OneDrive, which
+  macOS does not let this session read; a copy elsewhere is needed.
+- **Rate theory:** Lepp+88; Liszt 2011; Burgh+10.
 - **Lab papers:**
-  - Moustefaoui+98; Canosa+94/95; Biennier+06; Abouelaziz+93;
-  - Hamberg+11; Hickman 1979; Bréchignac+14;
+  - Canosa+94; Biennier+06; Abouelaziz+93;
+  - Hamberg+11; Hickman 1979;
   - Flower & Pineau des Forêts 2026;
   - Andrews+16; Mennella+12; Thrower+12.

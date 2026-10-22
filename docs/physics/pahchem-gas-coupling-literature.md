@@ -33,12 +33,12 @@ Section 9 has the details. Each rate below is per molecule m in charge state Z.
 | R1 | e + PAH^Z (Z ≥ 1) | s_rec · 0.82 πa² v_e J̃(τ_e, −Z), as pahchem does now | s_rec = 1 for N_C ≳ 25. Optional capped lab trend below that (FALP, 300 K). | ×2 from the image-potential form (DS87 vs Spitzer). For N_C ≤ 16, ×0.03–0.4 against the data. T law ∝ T^−½ is assumed (measured T^−0.7…−1.1 for small aromatics). |
 | R2 | e + PAH0 → PAH− | statistical sticking (`attachment.py`) × capture | as now | Lab values span 1e-9 (anthracene, EA 0.53 eV) to 1.2e-6 (C60, EA 2.68 eV). pahchem must reproduce both. |
 | R3 | X⁺ + PAH^Z (Z ≤ −1) → X + PAH^(Z+1) (mutual neutralisation) | P_MN · 0.82 πa² v_X J̃(τ_X, Z), with v_X from the reduced mass (≈ m_X) | P_MN = 0.5 | ×2–3. No PAH⁻ measurement exists. T^−½ below 300 K (theory); T^−0.9 measured for 300–550 K. |
-| R4 | X⁺ + PAH^0 → X + PAH⁺ (charge transfer), only if IP(X) > IP_m(0) | P_CT · k_L, with k_L = 2.34e-9 (α_m/Å³)^½ (μ/amu)^−½ and α_m ≈ 1.75 N_C Å³ | P_CT = 0.85 (H⁺, He⁺, C⁺, N⁺, O⁺, S⁺) | ×2. For Mg⁺, Fe⁺ and Si⁺ the energetics are decided per molecule and no rate has been measured. |
+| R4 | X⁺ + PAH^0 → X + PAH⁺ (charge transfer), only if IP(X) > IP_m(0) | P_CT · k_L, with k_L = 2.34e-9 (α_m/Å³)^½ (μ/amu)^−½ and α_m ≈ 1.75 N_C Å³ | P_react = 0.9 total (ΔZ = +1), measured for He⁺ and C⁺ only; for C⁺ the products are 60 % charge transfer (C + PAH⁺) and 40 % carbon accretion (C₁₅H₉⁺ + H) (Canosa+95 p. 412) [read] | ×2. Ar⁺ reacts at only ≈ 0.5 k_L, so applying 0.9 to H⁺, N⁺, O⁺ and S⁺ is an extrapolation. For Mg⁺, Fe⁺ and Si⁺ the energetics are decided per molecule and no rate has been measured. |
 | R5 | X⁺ + PAH^Z (Z ≥ 1) | 0 below 10⁴ K (Coulomb barrier, exp(−θ/τ) ≲ e^−100 at 100 K) | — | — |
 | R6 | He⁺ + PAH^0 | dissociative or double charge transfer; total ≈ k_L | Tielens 2005 (via Thi+20): He + PAH²⁺ + e at 1.1e-8 Φ (N_C/50)^½ | Product branching is unknown. |
 | R7 | H3⁺ / HCO⁺ / H3O⁺ + PAH^0 → HPAH⁺ + … (proton transfer) | ≈ k_L | P = 1 | Non-dissociative for aromatics (Milligan+02 [abs]). |
 | R8 | PAH⁺ + PAH⁻ | ≈ 3e-8 (300/T)^½ (C60 Landau–Zener; Coulomb estimate for two C50) | — | ×5 high, ×1 low. This is second order in x_PAH. |
-| E1 | photoelectron kinetic energy | ⟨E_k⟩ = γ_e (hν − IP_m(Z)) for Z ≥ 0, with the remainder (1 − γ_e)(hν − IP) left in the PAH. Detachment: E_k = hν − EA. | γ_e = 0.46 ± 0.06 (coronene, Bréchignac+14 via Berne+22). The classical value is 0.5 (V90, BT94). | ±15 % |
+| E1 | photoelectron kinetic energy | ⟨E_k⟩ = γ_e (hν − IP_m(Z)) for Z ≥ 0, with the remainder (1 − γ_e)(hν − IP) left in the PAH. Detachment: E_k = hν − EA. | γ_e = 0.46 ± 0.06: Berné+22's unweighted average over 7.1–10.1 eV of the coronene photoelectron spectra of Bréchignac+14 (not a number in Bréchignac+14). Per photon energy it runs from ≈ 1 (7.5–7.8 eV) to 0.05–0.37 (9.1–9.6 eV). The classical value is 0.5 (V90, BT94). | ±0.06 is the spread of the mean; γ_e(E) spans 0.05–1 |
 | E2 | recombination cooling | ⟨E⟩ per capture = kT Λ̃(τ, ν)/J̃(τ, ν) (DS87; `shared_physics.DS87_lambda_scalar`) | ≈ kT for Coulomb-focused capture on cations, ≈ 1.5–2 kT on neutrals | small |
 | E3 | MN energy release IP(X) − EA_m | goes mostly into X* (radiated) and kinetic energy | 0 deposited in the PAH by default. Optional: half (C60 analogue). | unknown |
 | H | H2 from PAHs | existing channels plus the fixes in §6 | — | see §6 |
@@ -46,7 +46,7 @@ Section 9 has the details. Each rate below is per molecule m in charge state Z.
 **Effective Φ_PAH (main conclusion).** Three independent routes give an effective efficiency of about 0.4–0.5 relative to Draine & Sutin with s = 1, for ions on PAH⁻ and PAH⁰:
 - the W08 observational calibration;
 - the universal polyatomic mutual-neutralisation law (Shuman+14: 0.47–0.48 × DS87 for all cations at 300 K) [derived];
-- for neutral PAHs, Langevin with the measured polarisability × the measured 0.85 efficiency, against DS87's conducting sphere (about 0.5) [derived].
+- for neutral PAHs, Langevin with the measured polarisability × the measured ≈ 0.9 total reaction efficiency (Canosa+95; for C⁺ only 60 % of it is charge transfer), against DS87's conducting sphere (about 0.5) [derived].
 
 For electrons on large PAH⁺ (N_C ≳ 25), the data are consistent with s ≈ 1. pahchem's capture is already 0.81 × W08 at N_C = 35 [derived]. So a pahchem that implements R1–R4 physically should reproduce W08's calibrated C⁺ neutralisation without a free Φ_PAH. That is the key validation (§8, V1–V4).
 
@@ -132,7 +132,10 @@ For electrons on large PAH⁺ (N_C ≳ 25), the data are consistent with s ≈ 1
   - DS87 Λ̃ for recombination cooling.
   - Fits: ε(γ) (their eqs. 42–43) and Λ = 3.49e-30 T^0.944 γ^β n_e n_H with β = 0.735/T^0.068 (their eq. 44).
   - MRN-like N_C^−11/6 distribution, 14 ≤ N_C ≤ 4.6e5.
-- **Bakes & Tielens 1998**, ApJ 499, 258 [not read]. PAH effects on dense-PDR chemistry; charge exchange with PAHs sets N(C I). The ADS download failed; this item is for the user to supply.
+- **Bakes & Tielens 1998**, ApJ 499, 258 [read, supplied 2026-10-21]. One PAH size (N_C = 50, x_PAH = 2e-7; PAH, PAH⁺, PAHH⁺, PAH⁻), 45 species and 464 reactions.
+  - Table 3: PAH⁺ + e 2.4e-5 (T/300)^−½; attachment 1.6e-6 (s = 1, EA > 1 eV for N_C > 25); PAH⁻ + X⁺ 1.0e-7 (T/300)^−½ for every atomic ion, with no mass scaling; molecular ions dissociative at 1e-7 per channel; PAH⁺ + PAH⁻ and PAHH⁺ + PAH⁻ 3.2e-8 (T/300)^−½; PAHH⁺ + e 2.4e-5. Table 2: photoionisation 7.9e-9 G0 e^(−1.8 A_V).
+  - Table 1 ("charge exchange") is proton transfer only, 3.9e-9 for every donor. BT98 has **no** X⁺ + PAH⁰ charge transfer for atomic ions, and no Φ.
+  - Results: anions dominate the PAH charge at A_V ≈ 3, and PAH⁻ becomes the main negative carrier once x_e < 1e-7; metals are neutralised at k_PAH/k_RR ≈ 3e-3/X(e) (neutral metals ×10, up to ×100 deep in); the C⁺/C/CO transition moves ≈ 1 mag toward the surface; [C I] lines rise ×2–3 (Orion Bar [C I] 609 µm 1.3e-5 against 1e-5 observed). C I peaks at A_V = 3.5 from C⁺ + PAH⁻ and at A_V = 5 from S + C⁺ → S⁺ + C.
 - **Draine & Sutin 1987**, ApJ 320, 803 [read by sub-agent from the ADS scan]
   - J̃(ν=0) = 1 + (π/2τ)^½. This is the Langevin limit with α = a³.
   - J̃(ν<0) = (1 − ν/τ)[1 + (2/(τ − 2ν))^½]. This is 2× the Spitzer (1+φ) form for τ ≪ 1 (image-potential focusing).
@@ -195,7 +198,9 @@ There are three choices for ⟨E_k⟩:
 
 1. **Mean partition.** ⟨E_k⟩ = γ_e (E − IP_Z).
    - γ_e = 0.5 classically (V90 and BT94, from Terenin & Vilessov 1964 on benzene).
-   - γ_e = 0.46 ± 0.06 from coronene VUV photoelectron spectra at 7.3–10.5 eV (Bréchignac+14, analysed by Berne+22 App. C.4) [read in Berne+22].
+   - γ_e = 0.46 ± 0.06 is Berné+22's (App. C.4, Fig. C.2) unweighted average of γ_e(E) from the coronene photoelectron spectra of Bréchignac+14 (Fig. 2), which cover 7.1–10.1 eV for the monomer (cold beam, 120 K translational, 200–350 K vibrational) [read, both]. Bréchignac+14 itself gives no partition.
+   - What the data imply: below 8.6 eV direct ionisation goes to the D0 0–0 band, so the electron carries almost all of hν − IP; autoionisation dominates the yield, and from Bréchignac Table I the electron's share is ≈ 1 at 7.5–7.8 eV, 0.3–0.7 at 8.31 eV and 0.05–0.37 at 9.06–9.58 eV. The ±0.06 is the spread of the mean, not of γ_e(E), and nothing constrains 10.1–13.6 eV.
+   - Coronene IP = 7.310 ± 0.005 eV; cation states D0 7.310, D1 8.615, D2 9.11, D3 10.04, D4 10.21 eV (Bréchignac Table III).
    - IP_Z already contains the Coulomb term, so E − IP_Z is the energy at infinity.
 2. **WD01 parabolic distribution** (WD01 eq. 10) [read]
    - f_E0(E) = 6 (E − E_low)(E_high − E)/(E_high − E_low)³.
@@ -314,7 +319,9 @@ Two efficiency definitions are in use:
 - At N_C = 50 and 300 K, the classical estimates span 3.3e-6 (FPdF03) to 2.0e-5 (DS87). The data favour 1–2e-5, i.e. BT94 with s ≈ 1. They argue against WD01 sticking (3.4e-6) and FPdF03.
 
 **Attachment**
-- Anthracene: 1e-9 ± 30 % (Canosa+94 [sec]); 1–3e-9 from 48–300 K, nearly T-independent (CRESU, Moustefaoui+98 [abs]).
+- Anthracene: 1e-9 at 300 K (FALP, Canosa+94 [sec]; the ±30 % is in neither paper read). CRESU (Moustefaoui+98 Table 3 [read]): 1.7e-9 (47.7 K), 8.4e-10 (74.5 K), 2.6e-9 (169.7 K), 1.0e-9 (300 K), normalised ×2.7 to the 300 K FALP value; the one independent absolute value is 1.0e-9 at 75 K (Langmuir probe). No systematic T trend (×3 scatter; "preliminary").
+  - Caveat (Moustefaoui+98): the lab buffer is N₂ at 0.6–2.7e16 cm⁻³, where collisions can stabilise the anion; in space it must be radiative. pahchem's statistical sticking (the low-density limit) should match the lab value or fall below it.
+  - Earlier data they quote [sec]: anthracene ≈ 2e-9 at 380–480 K (flat); naphthalene 3.1e-13 at 400 K. A large EA need not mean fast low-T attachment (p. 81).
 - C60: 1.2e-6 at 400 K and 8e-7 at 625 K, a factor-3 absolute uncertainty (Viggiano+10 [read]). This supersedes the 1990s values (3e-9) on which WD01's "C60 sticking is low" rests.
 - Tobita+92: no long-lived parent anion when EA ≲ 0.5 eV (naphthalene, phenanthrene, triphenylene) [abs].
 - Electron Langevin capture is 1.0e-7 (α/Å³)^½: 5.2e-7 for anthracene, 6.5e-7 for coronene.
@@ -378,19 +385,21 @@ Two efficiency definitions are in use:
 
 **Physics.** Ion–induced-dipole (Langevin) capture, followed by charge transfer if it is exothermic: IP(X) > IP_m(0).
 - CT is exothermic with every PAH for H⁺ (13.60 eV), O⁺ (13.62), N⁺ (14.53), He⁺ (24.59), C⁺ (11.26) and S⁺ (10.36).
-- Si⁺ (8.15), Fe⁺ (7.90) and Mg⁺ (7.65) decide per molecule. IP: naphthalene 8.14, pyrene 7.43, coronene 7.29 eV, C54 about 5.9–6.2 eV.
+- Si⁺ (8.15), Fe⁺ (7.90) and Mg⁺ (7.65) decide per molecule. IP: naphthalene 8.14, pyrene 7.43, coronene 7.310 eV (Bréchignac+14), C54 about 5.9–6.2 eV.
 - pahchem's per-molecule IP (shifted DFT) makes this a natural, library-resolved threshold. WD01b uses the same θ test.
 
 **Rates**
 - k_L = 2πe (α/μ)^½ = 2.34e-9 (α/Å³)^½ (μ/amu)^−½, independent of T.
 - Polarisabilities: α = 17.4 (naphthalene), 26.7 (anthracene), 42.5 (coronene), 79 (C60) Å³. That is about 1.75 N_C Å³ per carbon.
 - k_L for a C50 PAH (α ≈ 88 Å³): H⁺ 2.2e-8, He⁺ 1.1e-8, C⁺ 6.4e-9, S⁺ 4.0e-9, Fe⁺ 3.1e-9.
-- Measured on anthracene, 293 K (Canosa+95 [sec/abs]): He⁺ 5.2e-9 (0.85 k_L), C⁺ 3e-9 (0.83 k_L), Ar⁺ 1e-9 (0.47 k_L).
+- Measured on anthracene, 293 K (Canosa+95 Table 1 [read]): He⁺ 5.4 ± 2.1 / 5.1 ± 1.5e-9 (high / low n_e), C⁺ 3 ± 1.5e-9 (one measurement), Ar⁺ 0.8 ± 0.7 / 1.2 ± 0.4e-9. With the paper's α = 25.4 Å³ these are 0.90 (He⁺), 0.88 (C⁺) and ≈ 0.5 (Ar⁺) of Langevin.
+  - These are **total** reaction efficiencies. For C⁺: 60 % C14H10⁺ (charge transfer) and 40 % C15H9⁺ (carbon accretion with H loss) (p. 412), so charge transfer alone is ≈ 0.53 k_L. He⁺ gives the parent ion, fragments and possibly the dication (branching not measured).
+  - Ar⁺ is exothermic by ≈ 8 eV yet reacts at only 0.5 k_L: the efficiency is ion-dependent. Nothing on Mg⁺, Fe⁺, Si⁺, S⁺, N⁺ or O⁺, and no T dependence.
 - CT and proton transfer to naphthalene and other aromatics run at about the collision rate (Midey+00, Milligan+02 [abs]).
 
-**Comparison with DS87.** The DS87 neutral J̃ is exactly Langevin with α = a³. For N_C = 35, a³ = 153 Å³ against the measured α ≈ 61 Å³, so DS87 is 1.6× too high. That again gives an effective Φ ≈ 0.85/1.6 ≈ 0.5 [derived].
+**Comparison with DS87.** The DS87 neutral J̃ is exactly Langevin with α = a³. For N_C = 35, a³ = 153 Å³ against the measured α ≈ 61 Å³, so DS87 is 1.6× too high. That again gives an effective Φ ≈ 0.9/1.6 ≈ 0.55 for the total rate [derived].
 
-**Recommendation.** P_CT · k_L, with α_m = 1.75 N_C Å³ (or DFT polarisabilities if available) and P_CT = 0.85.
+**Recommendation.** P_react · k_L for ΔZ = +1, with α_m = 1.75 N_C Å³ (or DFT polarisabilities if available) and P_react = 0.9 (He⁺, C⁺ measured; other ions extrapolated and labelled), split into products: for C⁺, 0.6 C + PAH⁺ and 0.4 carbon accretion (the C is not returned to the gas).
 
 **Other cases**
 - **He⁺:** dissociative CT or PAH²⁺ formation. Tielens 2005 [sec, via Thi+20] gives He⁺ + PAH → He + PAH²⁺ + e at 1.1e-8 Φ (N_C/50)^½. This is a Δz = +2 step, which the nearest-neighbour chain cannot hold; put it in `BaselineModel.network` only.
@@ -630,12 +639,12 @@ All rates are per molecule m (N_C, N_H, IP_m(Z), EA_m, α_m) in charge state Z. 
 | process | rate | parameters | uncertainty | basis |
 |---|---|---|---|---|
 | photoionisation and detachment | ∫σYF dE | existing | existing | — |
-| PE heating per event | γ_e (E − IP_m(Z)); detachment E − EA | γ_e = 0.46 | ±0.06 (coronene only); 0.5 classical | Berne+22, V90, BT94 |
+| PE heating per event | γ_e (E − IP_m(Z)); detachment E − EA | γ_e = 0.46 (Berné+22 unweighted mean) | γ_e(E) spans 0.05–1 (coronene, 7.1–10.1 eV); 0.5 classical | Berne+22 from Bréchignac+14, V90, BT94 |
 | e + PAH^Z⁺ | g πa² v_e J̃(τ_e, −Z) s_rec | s_rec = 1 (N_C ≥ 26); lab trend 10^−3.94 N_C^2.78 below | ×2 (image form); T law assumed | FALP, DS87 |
 | e + PAH0 | statistical s_e × g πa² v_e J̃(τ_e, 0) | EA_m (+0.37 eV shift) | must span 1e-9 (EA 0.5) to 1e-6 (EA 2.7) | Moustefaoui, Viggiano |
 | recombination cooling | kT Λ̃/J̃ per capture | — | ±20 % | DS87, WD01 eq. 42 |
 | X⁺ + PAH^Z⁻ | P_MN g πa² v_X J̃(τ_X, Z) | P_MN = 0.5 | ×2–3; T^−½ (theory) vs T^−0.9 (lab, 300–550 K) | Shuman+14, Gatchell+25, W08 Φ |
-| X⁺ + PAH0 (IP(X) > IP_m) | P_CT · 2.34e-9 (α_m/μ)^½ | α_m = 1.75 N_C Å³; P_CT = 0.85 | ×2; thresholds for Mg⁺, Fe⁺, Si⁺ | Canosa+95, Langevin |
+| X⁺ + PAH0 (IP(X) > IP_m) | P_CT · 2.34e-9 (α_m/μ)^½ | α_m = 1.75 N_C Å³; P_react = 0.9 total, for C⁺ 60 % charge transfer + 40 % accretion | ×2; ion-dependent (Ar⁺ 0.5); thresholds for Mg⁺, Fe⁺, Si⁺ | Canosa+95, Langevin |
 | He⁺ + PAH0 | ≈ k_L; split between PAH⁺ + fragments and PAH²⁺ + e | 1.1e-8 Φ (N_C/50)^½ for the double channel | branching unknown | Tielens 05 [sec] |
 | proton transfer from H3⁺, HCO⁺, H3O⁺ | k_L, giving HPAH⁺ | P = 1 | ×1.5 | Milligan+02 [abs] |
 | X⁺ + PAH^Z⁺ | 0 | — | — | DS87 Coulomb barrier |
@@ -856,8 +865,9 @@ The free lecture-note route was not pursued. A third-party PDF of the 2005 book 
 
 ## 13. Paywalled or unread items for the user to supply
 
+**Supplied by the user and read (2026-10-21):** Bakes & Tielens 1998; Bréchignac+14; Canosa+95; Moustefaoui+98; Wolfire+22 (journal version). Local copies: `~/Documents/GitHub/pdr_refs/literature/pah_gas/supplied/`. The Tielens 2021 book was supplied but could not be read yet (macOS blocks access to its OneDrive folder).
+
 **Rate theory and models**
-- Bakes E. L. O., Tielens A. G. G. M. 1998, ApJ 499, 258 (1998ApJ...499..258B): PAH effects on chemistry. The ADS download failed.
 - Lepp S., Dalgarno A., van Dishoeck E. F., Black J. H. 1988, ApJ 329, 418 (1988ApJ...329..418L): atomic ions in diffuse clouds. Only one page was retrieved.
 - Liszt H. 2011, A&A 527, A45 (doi:10.1051/0004-6361/201015824): no arXiv version. Liszt H. 2003, A&A 398, 621 (astro-ph/0211369): abstract only.
 - Burgh E. B., France K., Jenkins E. B. 2010, ApJ 708, 334: C I columns for the Φ recalibration.
@@ -879,13 +889,11 @@ The free lecture-note route was not pursued. A third-party PDF of the 2005 book 
 - Novotny O. et al. 2005, J. Phys. Conf. Ser. 4, 198. The IOP bot wall blocked it.
 - McLain J. L. et al. 2004, J. Phys. Chem. A 108, 6704.
 - Hamberg M. et al. 2011, EAS Publ. Ser. 46, 241 (CRYRING C6D6⁺, C6D7⁺).
-- Moustefaoui T. et al. 1998, Faraday Discuss. 109, 71 (CRESU attachment).
-- Canosa A. et al. 1994, Chem. Phys. Lett. 228, 26 (attachment). Canosa A. et al. 1995, Int. J. Mass Spectrom. Ion Process. 149/150, 137 (ion + anthracene).
+- Canosa A. et al. 1994, Chem. Phys. Lett. 228, 26 (attachment).
 - Tobita S. et al. 1992, Chem. Phys. 161, 501.
 - Carelli F., Gianturco F. A. 2012, MNRAS 422, 3643; Sanz A. G. et al. 2013, New J. Phys. 15, 013018.
 - Rienstra-Kiracofe J. C. et al. 2002, Chem. Rev. 102, 231 (electron affinities).
 - Milligan D. B. et al. 2002 (proton transfer to aromatics); Midey A. J. et al. 2000 (CT with naphthalene).
-- Bréchignac P. et al. 2014 (coronene VUV photoelectron spectra), the source of γ_e = 0.46.
 
 **H2 formation** (full list in h2_formation.md §E)
 - Mennella V. et al. 2012, ApJ 745, L2.
@@ -912,6 +920,10 @@ Primary set:
 | Wolfire M. G., McKee C. F., Hollenbach D., Tielens A. G. G. M. 2003, ApJ 587, 278 | 2003ApJ...587..278W; astro-ph/0207098 | [read §5, App. C] |
 | Wolfire M. G., Vallini L., Chevance M. 2022, ARA&A 60, 247 | 2022ARA&A..60..247W; arXiv:2202.05867 | [read] |
 | Bakes E. L. O., Tielens A. G. G. M. 1994, ApJ 427, 822 | 1994ApJ...427..822B | [read, ADS scan, pp. 823–829, 835–836] |
+| Bakes E. L. O., Tielens A. G. G. M. 1998, ApJ 499, 258 | 1998ApJ...499..258B | [read, supplied] |
+| Bréchignac P. et al. 2014, J. Chem. Phys. 141, 164325 | doi:10.1063/1.4900427 | [read, supplied; supplementary material not seen] |
+| Canosa A. et al. 1995, Chem. Phys. Lett. 245, 407 | ScienceDirect PII 000926149501040G | [read, supplied] |
+| Moustefaoui T. et al. 1998, Faraday Discuss. 109, 71 | doi:10.1039/a800490k | [read, supplied] |
 | Draine B. T., Sutin B. 1987, ApJ 320, 803 | 1987ApJ...320..803D | [read by sub-agent, ADS scan] |
 | Weingartner J. C., Draine B. T. 2001, ApJS 134, 263 | 2001ApJS..134..263W; astro-ph/9907251 | [read relevant sections] |
 | Weingartner J. C., Draine B. T. 2001, ApJ 563, 842 | 2001ApJ...563..842W; astro-ph/0105237 | [read] |
