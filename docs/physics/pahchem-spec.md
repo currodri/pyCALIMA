@@ -1999,6 +1999,43 @@ band, medians per N$_C$ bin, shifts from 50 K [cm⁻¹]:
   - The width law is pyrene's, unscaled (FWHM 32–35 against the observed
     35–37.5 cm⁻¹).
 
+**Aromatic overtone and combination bands in the 3.4 µm window (2026-10-21;
+`diagnostics/pahchem/check_anharmonic_34um.py`).** Harmonic spectra put
+nothing at 3.36–3.60 µm in a purely aromatic PAH; PAHdb anharmonic v1.00
+(B3LYP/N07D, 0 K) does.
+- **Method.** Each pure-CH species with a PAHdb v4.00 counterpart (same UID)
+  goes through pahchem's harmonic cascade (one UV photon). Every anharmonic
+  line then emits from bin j at P$_j$ A ρ(E$_j$ − ν)/ρ(E$_j$). For a
+  combination this is the fraction of states with both modes excited, at
+  first order. Ratios are emitted energy in 3.36–3.60 µm over 3.20–3.36 µm:
+
+  | | 0 K absorption | emitted, 5 / 8 / 11 eV | 3.4 window / 6–9 µm (absorption) |
+  |---|---|---|---|
+  | naphthalene | 0.106 | 0.109 / 0.106 / 0.105 | 0.26 |
+  | anthracene | 0.053 | 0.056 / 0.054 / 0.053 | 0.12 |
+  | pyrene | 0.064 | 0.067 / 0.065 / 0.064 | 0.10 |
+  | tetracene | 0.061 | 0.065 / 0.063 / 0.062 | 0.14 |
+  | phenanthrene⁺ | 1.27 | 1.34 / 1.28 / 1.25 | 0.035 |
+  | pyrene⁺ | 2.40 | 2.63 / 2.46 / 2.37 | 0.028 |
+
+- **Reading.**
+  - The emitted ratio is the absorption ratio to 3–9 % at every
+    excitation energy: the combinations sit close to the CH fundamentals,
+    so the cascade weights them alike.
+  - Neutral PAHs put 5–7 % of their 3.3 µm power in the 3.4 µm window.
+  - Cations put more there than at 3.3 µm, because their CH fundamentals
+    nearly vanish. In absolute terms the window holds 2–6× the neutral's
+    intensity: pyrene⁺ 18 against 8.6 km/mol, phenanthrene⁺ 45 against
+    ~7. Its ratio to the 6–9 µm band is 0.028–0.035 in both cations and
+    0.10–0.14 in the neutrals beyond naphthalene.
+  - With a population ~half cations, purely aromatic combination bands
+    could carry a large share of the observed 3.4 µm window, which the
+    harmonic model gives to CH$_2$/CH$_3$. Whether large cations keep a
+    0.03 ratio to their 6–9 µm band is the open step: two cations, N$_C$ ≤ 16.
+- **Data error.** In PAHdb anharmonic v1.00 the phenanthrene entry (UID
+  273) holds pyrene's 2675 transitions (UID 334), line for line. It is
+  excluded here; reported in {doc}`pahchem-data-requests`.
+
 **The Extended Red Emission test (preliminary, 2026-10-06;
 `diagnostics/pahchem/check_ere.py`).** Can RF of PAH cations make the ERE?
 - **What it should match** (Lai+17, Gordon+98, Smith & Witt 2002, Berné+08,

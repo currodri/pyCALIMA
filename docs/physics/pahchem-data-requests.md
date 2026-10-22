@@ -257,6 +257,12 @@ An earlier draft put H addition first.
   CH$_3$ (MNRAS 535, 3239). The ask: χ and VPT2 intensities of those molecules
   (the supplement holds only harmonic data), and any methylated PAH with N$_C$
   ≥ 16.
+- **NASA Ames PAHdb team (anharmonic library v1.00).** Report: the phenanthrene
+  entry (UID 273) holds pyrene's transitions (UID 334), line for line. The asks:
+  anharmonic spectra of larger cations (coronene⁺ and up). Their 3.4 µm-window
+  combination bands hold 2–6× a neutral's intensity and ~0.03 of their 6–9 µm
+  band ({doc}`pahchem-spec`, "Aromatic overtone and combination bands"). This
+  decides how much of the 3.4 µm complex needs aliphatic carriers at all.
 - **Ricca, Sloan, Peeters, Cami et al. (arXiv:2609.30574, JWST Proto-PAH).** Their
   C$_{130}$H$_{96}$ aliphatic-rich carrier matches post-AGB 3.4 µm positions to
   ~0.001 µm with one 0.959 scale. The ask: the spectrum and mode list (promised
