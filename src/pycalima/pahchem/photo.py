@@ -219,6 +219,23 @@ def ionisation_rate(field, sigma_cm2, yield_, energy_ev) -> float:
     return field.photon_rate(np.asarray(sigma_cm2) * np.asarray(yield_), energy_ev)
 
 
+#: mean share of E - IP carried by the photoelectron for Z >= 0: Berné+22 (App. C.4), the unweighted average over
+#: 7.1-10.1 eV of the coronene photoelectron spectra of Bréchignac+14; 0.5 is the classical value (V90, BT94)
+PHOTOELECTRON_PARTITION = 0.46
+
+
+def photoelectron_power(field, sigma_cm2, yield_, energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION) -> float:
+    """Kinetic energy given to the gas by photoelectrons, int sigma Y F partition (E - threshold) dE [eV s^-1].
+
+    The same sigma, yield and threshold as ``ionisation_rate``, so the heating and the charge balance share
+    one rate. ``partition`` is the share of E - threshold the electron carries: the default for photoionisation;
+    1 for photodetachment, where the electron takes all of E - EA.
+    """
+    E = np.asarray(energy_ev, dtype=float)
+    excess = np.clip(E - threshold_ev, 0.0, None)
+    return field.photon_rate(np.asarray(sigma_cm2) * np.asarray(yield_) * partition * excess, E)
+
+
 def heating_spectrum(field, sigma_cm2, yield_, energy_ev) -> np.ndarray:
     """h(E) = sigma (1 - Y) F [s^-1 eV^-1]: absorptions that heat, per photon energy."""
     return np.asarray(sigma_cm2) * (1.0 - np.asarray(yield_)) * field.flux_at(energy_ev)

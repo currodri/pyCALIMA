@@ -23,6 +23,7 @@ KB_CGS = 1.380649e-16
 AMU_G = 1.66053907e-24
 ME_G = 9.1093837e-28
 KB_EV = 8.617333262e-5
+EV_ERG = 1.602176634e-12
 
 
 def thermal_speed(temperature_k, mass_g):

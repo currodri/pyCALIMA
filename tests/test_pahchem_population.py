@@ -171,6 +171,48 @@ def test_recombination_heating_deposits_the_threshold_at_the_ionisation_rate():
     assert b0.emitted.sum() > 1.2 * off.basis(mol, 0, shape).emitted.sum()  # neutrals: tens of per cent more power
 
 
+def test_photoelectron_power_is_the_partitioned_excess_energy():
+    """int sigma Y F p (E - IP) dE: zero above the field's edge, linear in p, and the analytic value for flat inputs."""
+    from pycalima.pahchem import fields, photo
+
+    field = fields.draine1978(g0=1.0)
+    sigma, y = np.full(E_PH.size, 1e-16), np.ones(E_PH.size)
+    ip = 7.0
+    on = E_PH >= ip
+    exact = np.trapezoid((1e-16 * (E_PH - ip) * field.flux_at(E_PH))[on], E_PH[on])
+    assert photo.photoelectron_power(field, sigma, y, E_PH, ip, 1.0) == pytest.approx(exact, rel=2e-3)
+    assert photo.photoelectron_power(field, sigma, y, E_PH, ip, 0.46) == pytest.approx(
+        0.46 * photo.photoelectron_power(field, sigma, y, E_PH, ip, 1.0))
+    assert photo.photoelectron_power(field, sigma, y, E_PH, 13.6, 1.0) == 0.0
+
+
+def test_photoelectric_heating_shares_the_charge_balance_rates():
+    """Per state, Gamma / (p k_up) is the mean photoelectron excess, between 0 and 13.6 - IP, with k_up the basis
+    rate that sets the charge balance; the anion detaches with p = 1; eps falls as gamma = G0 T^0.5 / n_e rises."""
+    from pycalima.pahchem import photo
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    pop = population.Population([mol], WINDOWS)
+    env = Environment("test", 1e3, 1e4, 3.0, 300.0, 40000)
+    shape = population.field_shape(env)
+    G, _ = pop._pe_stack(shape, photo.PHOTOELECTRON_PARTITION)
+    for z in mol.charges[:-1]:
+        p = 1.0 if z < 0 else photo.PHOTOELECTRON_PARTITION
+        mean_excess = G[0, z - pop.zmin] / (p * pop.basis(mol, z, shape).k_up)
+        assert 0.0 < mean_excess < 13.6 - mol.ionisation_ev[z]
+    assert G[0, max(mol.charges) - pop.zmin] == 0.0                       # the top of the chain does not ionise
+    gamma, gz, eps = pop.photoelectric_heating(env)
+    assert gamma[0] == pytest.approx(gz[0].sum()) and 0.0 < eps[0] < 0.2
+    _, gz5, _ = pop.photoelectric_heating(env, partition=0.5)
+    i0, i1 = 0 - pop.zmin, 1 - pop.zmin
+    assert gz5[0, i0] == pytest.approx(gz[0, i0] * 0.5 / photo.PHOTOELECTRON_PARTITION)
+    if -1 in mol.charges:
+        assert gz5[0, -1 - pop.zmin] == pytest.approx(gz[0, -1 - pop.zmin])     # detachment: p = 1 either way
+    assert gz5[0, i1] == 0.0 or gz5[0, i1] == pytest.approx(gz[0, i1] * 0.5 / photo.PHOTOELECTRON_PARTITION)
+    _, _, eps_hi = pop.photoelectric_heating(Environment("bright", 1e5, 1e4, 3.0, 300.0, 40000))
+    assert eps_hi[0] < eps[0]                                              # more charge, higher barrier
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

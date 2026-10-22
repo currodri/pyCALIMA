@@ -766,6 +766,43 @@ class Population:
         f = np.exp(logf - logf.max(axis=1, keepdims=True))
         return f / f.sum(axis=1, keepdims=True)
 
+    def _pe_stack(self, shape, partition):
+        """(G[s, slot] photoelectron power, A[s, slot] absorbed power on E_PH), both at G0 = 1 [eV s^-1]; 0 where absent.
+
+        G is ``photo.photoelectron_power`` with each state's own sigma, yield and threshold (``_yield``,
+        ``mol.ionisation_ev``), so it shares the charge balance's rates; anions detach with partition 1.
+        """
+        key = ("pe", shape, float(partition))
+        if key not in self._arrays:
+            field1 = _unit_field(shape)
+            n, m = len(self.library), len(self.zs)
+            G, A = np.zeros((n, m)), np.zeros((n, m))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * self.p.sigma_scale
+                    i = z - self.zmin
+                    A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
+                    if z != max(mol.charges):
+                        G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
+                                                            mol.ionisation_ev[z], 1.0 if z < 0 else partition)
+            self._arrays[key] = (G, A)
+        return self._arrays[key]
+
+    def photoelectric_heating(self, env, partition=photo.PHOTOELECTRON_PARTITION):
+        """Gas heating by photoelectrons at ``env``: (Gamma[s] [erg s^-1 per molecule], Gamma_z[s, slot], eps[s]).
+
+        Gamma_z = G0 f(z) int sigma Y F gamma (E - IP_z) dE over the charge distribution of ``charge_matrix``,
+        gamma = ``partition`` for Z >= 0 and 1 for detachment. eps is the photoelectric efficiency, Gamma over
+        the power the molecule absorbs on E_PH (5-13.6 eV), as Berné+22 define it on their energy range.
+        Recombination cooling is not subtracted here.
+        """
+        G, A = self._pe_stack(field_shape(env), partition)
+        f = self.charge_matrix(env)
+        gz = env.g0 * f * G * chemistry.EV_ERG
+        gamma = gz.sum(axis=1)
+        absorbed = env.g0 * (f * A).sum(axis=1) * chemistry.EV_ERG
+        return gamma, gz, np.divide(gamma, absorbed, out=np.zeros_like(gamma), where=absorbed > 0)
+
     def band_fluxes(self, env):
         """(F[s, b] charge-weighted band power per molecule, {name: {Z: f}}) for the whole library."""
         _, _, B = self._stack(field_shape(env))
