@@ -323,11 +323,43 @@ def _yield(mol, z, params=Params()):
         return np.zeros_like(E_PH)
     if z == -1 and params.detachment == "unity":
         return (E_PH >= threshold).astype(float)
+    if z == -1 and params.detachment == "statistical":
+        return statistical_detachment(mol, params)[0]
     if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
         return photo.yield_wenzel2020(E_PH, threshold, mol.nc)
     if params.yield_model == "lepage":
         return photo.yield_lepage2001(E_PH, threshold, form="lepage01")
     return photo.yield_jochims1996(E_PH, threshold)
+
+
+def statistical_detachment(mol, params=Params(), grain_cm=10.0):
+    """(Y(E_PH), <E_k>(E_PH) [eV]) of photodetachment of the anion: prompt plus delayed (``Params.detachment``
+    = "statistical").
+
+    - Prompt: the WD01 photodetachment cross section (eq. 20, ``shared_physics.photodetachment_cross_section_vec``,
+      threshold EA), as a share of the absorption; the electron takes E - EA.
+    - Delayed: every other absorption converts internally and the anion, at internal energy E, autodetaches with
+      the detailed-balance probability P_det(E) before IR emission takes it below EA (``attachment``,
+      ``Attachment.delayed_detachment``); the electron leaves with the autodetachment spectrum's mean energy, a
+      few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
+    """
+    key = ("detach_stat", params.sigma_scale, float(grain_cm))
+    if key not in mol._cache:
+        from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
+        from pycalima.pahchem.attachment import Attachment
+
+        ea = mol.ionisation_ev[-1]
+        sigma = photo.sigma_li_draine(mol.nc, -1, E_PH) * params.sigma_scale
+        y_p = np.clip(np.divide(photodetachment_cross_section_vec(E_PH, ea, -1), sigma,
+                                out=np.zeros_like(E_PH), where=sigma > 0), 0.0, 1.0)
+        at = Attachment(mol.species[0], mol.species[-1], ea, chemistry.disc_radius_cm(mol.nc),
+                        e_excess_cm=(E_PH[-1] - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
+        p_det, eps_cm = at.delayed_detachment(E_PH * dos.CM_PER_EV)
+        y = y_p + (1.0 - y_p) * p_det
+        ek = np.divide(y_p * np.clip(E_PH - ea, 0.0, None) + (1.0 - y_p) * p_det * eps_cm / dos.CM_PER_EV, y,
+                       out=np.zeros_like(E_PH), where=y > 0)
+        mol._cache[key] = (y, ek)
+    return mol._cache[key]
 
 
 def shift_thresholds(library, shifts_ev):
@@ -783,8 +815,10 @@ class Population:
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
                     if z != max(mol.charges):
+                        ek = (statistical_detachment(mol, self.p)[1]
+                              if z == -1 and self.p.detachment == "statistical" else None)
                         G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
-                                                            mol.ionisation_ev[z], 1.0 if z < 0 else partition)
+                                                            mol.ionisation_ev[z], 1.0 if z < 0 else partition, ek)
             self._arrays[key] = (G, A)
         return self._arrays[key]
 
@@ -792,7 +826,8 @@ class Population:
         """Gas heating by photoelectrons at ``env``: (Gamma[s] [erg s^-1 per molecule], Gamma_z[s, slot], eps[s]).
 
         Gamma_z = G0 f(z) int sigma Y F gamma (E - IP_z) dE over the charge distribution of ``charge_matrix``,
-        gamma = ``partition`` for Z >= 0 and 1 for detachment. eps is the photoelectric efficiency, Gamma over
+        gamma = ``partition`` for Z >= 0 and 1 for detachment; with ``Params.detachment = "statistical"`` the
+        anion's electrons take the energies of ``statistical_detachment`` (prompt E - EA, delayed ~0.1 eV). eps is the photoelectric efficiency, Gamma over
         the power the molecule absorbs on E_PH (5-13.6 eV), as Berné+22 define it on their energy range.
         Recombination cooling is not subtracted here.
         """

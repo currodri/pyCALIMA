@@ -224,16 +224,21 @@ def ionisation_rate(field, sigma_cm2, yield_, energy_ev) -> float:
 PHOTOELECTRON_PARTITION = 0.46
 
 
-def photoelectron_power(field, sigma_cm2, yield_, energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION) -> float:
-    """Kinetic energy given to the gas by photoelectrons, int sigma Y F partition (E - threshold) dE [eV s^-1].
+def photoelectron_power(field, sigma_cm2, yield_, energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION,
+                        electron_energy_ev=None) -> float:
+    """Kinetic energy given to the gas by photoelectrons, int sigma Y F <E_k> dE [eV s^-1].
 
     The same sigma, yield and threshold as ``ionisation_rate``, so the heating and the charge balance share
-    one rate. ``partition`` is the share of E - threshold the electron carries: the default for photoionisation;
-    1 for photodetachment, where the electron takes all of E - EA.
+    one rate. <E_k> = ``partition`` (E - threshold), the share of the excess the electron carries (the default
+    for photoionisation; 1 if the electron takes all of it), unless ``electron_energy_ev`` gives the mean
+    energy per event on ``energy_ev`` directly (e.g. ``population.statistical_detachment``).
     """
     E = np.asarray(energy_ev, dtype=float)
-    excess = np.clip(E - threshold_ev, 0.0, None)
-    return field.photon_rate(np.asarray(sigma_cm2) * np.asarray(yield_) * partition * excess, E)
+    if electron_energy_ev is None:
+        ek = partition * np.clip(E - threshold_ev, 0.0, None)
+    else:
+        ek = np.asarray(electron_energy_ev, dtype=float)
+    return field.photon_rate(np.asarray(sigma_cm2) * np.asarray(yield_) * ek, E)
 
 
 def heating_spectrum(field, sigma_cm2, yield_, energy_ev) -> np.ndarray:

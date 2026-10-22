@@ -79,6 +79,33 @@ else:  # pragma: no cover
     _stabilisation = _stabilisation_numpy
 
 
+def _cascade_yield_numpy(k_modes, k_tot, steps, i_ea, source):
+    """X(E) = [source(E) + sum_i k_i(E) X(E - h nu_i)] / k_tot(E) above EA, X = 0 at and below it."""
+    n = k_modes.shape[1]
+    X = np.zeros(n)
+    for i in range(i_ea + 1, n):
+        X[i] = (source[i] + k_modes[:, i] @ X[np.maximum(i - steps, 0)]) / k_tot[i] if k_tot[i] > 0 else X[i - 1]
+    return X
+
+
+if HAVE_NUMBA:
+    @njit(cache=True)
+    def _cascade_yield(k_modes, k_tot, steps, i_ea, source):
+        n = k_modes.shape[1]
+        X = np.zeros(n)
+        for i in range(i_ea + 1, n):
+            if k_tot[i] > 0:
+                s = source[i]
+                for m in range(steps.size):
+                    s += k_modes[m, i] * X[max(i - steps[m], 0)]
+                X[i] = s / k_tot[i]
+            else:
+                X[i] = X[i - 1]
+        return X
+else:  # pragma: no cover
+    _cascade_yield = _cascade_yield_numpy
+
+
 class Attachment:
     """Electron sticking on one neutral PAH, from its and its anion's modes.
 
@@ -129,6 +156,34 @@ class Attachment:
         self.k_ir = k_modes.sum(axis=0)
         steps = np.maximum(np.rint(np.asarray(anion.freqs_cm) / grain_cm).astype(np.int64), 1)
         self.p_stab = _stabilisation(np.ascontiguousarray(k_modes), self.k_ir + self.k_detach, steps, self.i_ea)
+        # mean kinetic energy of an electron autodetached at E: the same integral weighted by eps (detailed
+        # balance, sigma_c(eps) eps rho_n(E - EA - eps)), over the same window
+        conv_e = np.zeros(counts_n.size)
+        conv_e[1:] = np.convolve(g * eps, counts_n)[:counts_n.size - 1]
+        num_e = np.zeros(n)
+        num_e[self.i_ea + 1:] = conv_e[1:m + 1]
+        num_e_w = cooling._window_sum(num_e, half)
+        self.eps_detach = np.zeros(n)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            self.eps_detach[hi] = np.where(num_w[hi] > 0, num_e_w[hi] / num_w[hi], 0.0)
+        # expected electron energy carried off by delayed detachment over the cascade from E [cm^-1]
+        self.w_detach = _cascade_yield(np.ascontiguousarray(k_modes), self.k_ir + self.k_detach, steps, self.i_ea,
+                                       self.k_detach * self.eps_detach)
+
+    def delayed_detachment(self, energy_cm):
+        """(P_det, mean electron energy [cm^-1]) of an anion with internal energy ``energy_cm`` (from its ground state).
+
+        P_det = 1 - P_stab: the anion autodetaches before IR emission takes it below EA. The electron energy is
+        the detailed-balance autodetachment spectrum averaged over where along the cascade it leaves. These
+        are the thermionic electrons of internally converted UV absorptions (Bull+15); direct detachment is
+        separate. Energies above the grid raise.
+        """
+        e = np.asarray(energy_cm, dtype=float)
+        if (e > self.energy_cm[-1]).any():
+            raise ValueError("energy above the attachment grid; raise e_excess_cm")
+        p = 1.0 - np.interp(e, self.energy_cm, self.p_stab)
+        w = np.interp(e, self.energy_cm, self.w_detach)
+        return p, np.divide(w, p, out=np.zeros_like(p), where=p > 1e-300)
 
     def sticking(self, temperature_k, neutral_energy_cm=None, neutral_weights=None, t_vib_k=None):
         """s_e = <P_stab(EA + E_n + eps)> over the capture flux and the neutral's E_n.

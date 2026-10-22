@@ -104,3 +104,29 @@ def test_stabilisation_kernel_matches_the_numpy_loop():
     steps = np.maximum(np.rint(fa / at.grain).astype(np.int64), 1)
     slow = attachment._stabilisation_numpy(k_modes, at.k_ir + at.k_detach, steps, at.i_ea)
     assert np.max(np.abs(at.p_stab - slow)) < 1e-13
+
+
+def test_delayed_detachment_is_a_probability_with_slow_electrons():
+    """1 - P_stab: zero at and below EA, rising with the internal energy to 1; the autodetached electron's
+    mean energy is positive and far below E - EA (thermionic); the numba and NumPy cascades agree."""
+    from pycalima.pahchem import attachment
+
+    rng = np.random.default_rng(5)
+    fn = np.sort(rng.uniform(150, 1600, 30)).round()
+    fa = (0.97 * fn).round()
+    at = Attachment(PAHSpecies(12, 0, 0, fn, np.ones(30)), PAHSpecies(12, 0, -1, fa, np.ones(30)), 0.5, 3e-8,
+                    e_excess_cm=40000.0, grain_cm=5.0)
+    E = np.linspace(0.0, at.energy_cm[-1], 400)
+    p, eps = at.delayed_detachment(E)
+    ea = 0.5 * dos.CM_PER_EV
+    assert np.all((p >= 0) & (p <= 1 + 1e-12)) and np.all(p[E <= ea] < 1e-12)
+    assert np.all(np.diff(p) > -1e-9) and p[-1] > 0.99
+    hot = p > 1e-3
+    assert np.all(eps[hot] > 0) and np.all(eps[hot] < E[hot] - ea)
+    far = E - ea > 2.0 * dos.CM_PER_EV
+    assert np.all(eps[far] < 0.2 * (E[far] - ea))                     # thermionic: a small share of the excess
+    _, counts = dos.beyer_swinehart(fa, at.energy_cm[-1], at.grain)
+    k_modes = cooling.mode_emission_rates(at.energy_cm, counts, fa, np.ones(30), window_cm=20.0)
+    steps = np.maximum(np.rint(fa / at.grain).astype(np.int64), 1)
+    slow = attachment._cascade_yield_numpy(k_modes, at.k_ir + at.k_detach, steps, at.i_ea, at.k_detach * at.eps_detach)
+    assert np.max(np.abs(at.w_detach - slow)) <= 1e-10 * max(np.max(np.abs(slow)), 1e-300)

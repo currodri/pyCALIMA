@@ -213,6 +213,27 @@ def test_photoelectric_heating_shares_the_charge_balance_rates():
     assert eps_hi[0] < eps[0]                                              # more charge, higher barrier
 
 
+def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
+    """detachment = "statistical": the yield is a probability at least the prompt WD01 share; detached electrons
+    carry less than E - EA (mostly thermionic, < 0.5 eV above ~6 eV); with anions present the PE efficiency
+    stays in the BT94/WD01 range instead of the ~0.3-0.6 that full-excess electrons give."""
+    from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
+    from pycalima.pahchem import photo
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    y, ek = population.statistical_detachment(mol)
+    ea = mol.ionisation_ev[-1]
+    prompt = photodetachment_cross_section_vec(E_PH, ea, -1) / photo.sigma_li_draine(mol.nc, -1, E_PH)
+    assert np.all((y >= np.clip(prompt, 0, 1) - 1e-12) & (y <= 1 + 1e-12))
+    assert np.all(ek[E_PH > ea] < E_PH[E_PH > ea] - ea) and np.all(ek[E_PH > 7.0] < 0.5)
+    env = Environment("cnm", 1.7, 0.0, 0.04, 100.0, None)
+    stat = population.Population([mol], WINDOWS, params=Params(detachment="statistical"))
+    assert stat.charge_matrix(env)[0, -1 - stat.zmin] > 0.1                 # anions matter here
+    assert 0.0 < stat.photoelectric_heating(env)[2][0] < 0.08
+    assert population.Population([mol], WINDOWS).photoelectric_heating(env)[2][0] > 0.15   # full-excess electrons
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

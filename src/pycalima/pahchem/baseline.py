@@ -70,7 +70,7 @@ class Params:
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
-    detachment: str = "jochims"              # anion photodetachment yield: Jochims at the EA, or "unity" above it
+    detachment: str = "jochims"              # anion photodetachment: Jochims at the EA, "unity" above it, or "statistical" (population: WD01 prompt + detailed-balance delayed)
     capture_model: str = "bt94"              # cation capture: BT94, or "lab_trend" (chemistry.lab_recombination_factor)
     capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
