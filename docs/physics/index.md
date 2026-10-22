@@ -83,5 +83,6 @@ radiation
 pahchem-spec
 pahchem-briefing
 pahchem-audit
+pahchem-pdrs4all-comparison
 pahchem-data-requests
 ```
