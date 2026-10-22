@@ -315,7 +315,73 @@ radiative P(E) at G₀ = 1; `sticking_neutral=1.0` restores the old behaviour.
 | 1c | the EUV: 5–500 eV grid, Y = 1 above 20 eV, measured photoelectron share to 21.9 eV, constant ion internal energy above, deposits into the cascades | `population.E_PH`, `photo.photoelectron_energy`, `population.deposit_spectrum`, `Environment.field_e_max_ev` | done; Lyman-cut fields unchanged (≤ 3×10⁻⁷); top-state ionisations reported by `chain_overflow` |
 | 2 | recombination cooling, kT Λ̃/J̃ per capture | `Population.recombination_cooling` | done |
 | 3 | ion–PAH collisions: mutual neutralisation, ion–neutral reactions, optional adducts | `chemistry.mutual_neutralisation`, `chemistry.ion_neutral_rate`, `population.ion_up_rate`, `Environment.ions` | done |
-| 4 | outputs for a gas network: α_PAH(X), carbon accretion, net electron source, Γ_PE, Λ_rec, f(Z) | `Population.gas_rates` | done, except H₂ formation (needs the hydrogenation network) and the RAMSES group tables |
+| 4 | outputs for a gas network: α_PAH(X), carbon accretion, net electron source, Γ_PE, Λ_rec, f(Z) | `Population.gas_rates` | done, except H₂ formation (needs the hydrogenation network) |
+| 4c | the same outputs per PAH bin for RAMSES-RT photon groups (§4c) | `pahchem.group_tables` | Python side done; RAMSES side not started |
+
+## 4c. Per-bin tables for RAMSES-RT photon groups (2026-10-22)
+
+`pahchem.group_tables` follows the WDB06rt grain tables (`models/dust_charge/rt_group_charging.py`). It uses
+the same 8 RTZ groups and the same family of blackbody in-group shapes (T_s = 3×10³–3×10⁶ K, chosen by the run's
+group mean energies). It also carries the same UV background: the Mathis ISRF at G₀ = 1 Habing, 1–13.6 eV.
+
+**A bin** is a set of v4.00 molecules with weights. `nc_range_weights` gives equal weights over an N_C range.
+The CALIMA bin scheme is still open, so any other weights (e.g. a size distribution) work too.
+
+**What is tabulated.** For the charges −1, 0, +1 and +2, averaged over the bin's molecules:
+- the photon kernels ⟨σY⟩_g, ⟨σY E_k⟩_g and ⟨σ⟩_g, per group and per T_s;
+- the same three for the background;
+- in T: the electron capture coefficients and the energy they remove;
+- mutual neutralisation of the anion by each RTZ ion;
+- the ion–neutral rates;
+- associative detachment.
+
+The physics is `Population`'s, through shared functions:
+- `_yield` and `statistical_detachment`, now on any photon grid;
+- `electron_energy`, `capture_coefficient` and `capture_energy`, factored out of `Population`.
+
+**Per cell** (`PAHGroupTable.solve`, the algorithm RAMSES would run):
+- one 4-state detailed-balance chain per bin, in closed form;
+- outputs per PAH: f(Z), Γ_PE, Λ_rec, the net electron source, α_mn and α_ct per ion, and the carbon accretion;
+- photoionisation out of +2 is reported as overflow, as `Population` does for its top states.
+
+A cell with no RT photons uses the background kernels only. A 4-state chain is cheap enough that no separate
+WDB06isrf-style table is needed.
+
+**Against `Population`** (`diagnostics/pahchem/check_pah_group_tables.py`):
+- **Setup:**
+  - Kurucz 40 000 K field cut at 13.6 eV;
+  - G₀ = 1–10⁴, T = 100 and 1000 K, γ = 10²–10⁵, n(C⁺) = n_e;
+  - four test bins: N_C 22–40, 40–70, 70–120 and 120–270, with 82–291 molecules each.
+- **In-group shape** (blackbody in place of the true spectrum): ≤ 0.7 % in f(Z) and ≤ 1.1 % in Γ_PE, Λ_rec and
+  α(C⁺).
+- **One chain per bin** (rates averaged over the molecules before the balance is solved): ≤ 4 % in f(Z), ≤ 1.5 %
+  in Γ_PE, ≤ 2.5 % in Λ_rec, ≤ 2.9 % in α(C⁺).
+- So even wide bins lose little in charge physics. The number of PAH bins has to be set by the size evolution
+  (photodestruction, growth, coagulation), not by the charge.
+
+**Photons below 5 eV.** The tables integrate from each group's lower edge, so the 1–5.6 eV group detaches anions.
+The population's grid starts at 5 eV, so the population misses this. In the Mathis ISRF, photons between the
+electron affinity and 5 eV raise the detachment rate of N_C 32–40 anions:
+- by ≈ 35 % with the Jochims yields;
+- by ≈ 90 % with the statistical detachment.
+
+In the bin tables (T = 100 K, n(C⁺) = n_e, γ = 10²–10⁵), switching the 1–5.6 eV group on changes:
+- **Mathis ISRF:**
+  - α(C⁺): ×0.88–0.98 with the Jochims yields; ×0.78–0.97 with the statistical detachment for N_C < 120;
+  - N_C 120–270, statistical: ×0.71 at γ = 10⁴, where f(−1) falls from 0.52 to 0.36, and ×0.39 at γ = 10⁵;
+  - Γ_PE: up to +30 % with the statistical detachment.
+- **Kurucz 40 000 K:** ≤ 8 %, except α(C⁺) ×0.75 for N_C 120–270 at γ = 10⁵.
+
+This matters for the anions in cold neutral gas under a starlight-like field, and therefore for V2. V2 used the
+Draine field, which has no photons below 5 eV.
+
+**Open.**
+- The RAMSES reader and per-cell solve (Fortran), replacing the Berné+22 γ-tables of `init_pah_peh_tables`.
+- The bin scheme and its weights.
+- Whether the population's grid should start below 5 eV. That would change its cascades too: the visible
+  absorption of the cations.
+- Li & Draine anions use the neutral cross section (`photo.sigma_li_draine`), which is 7× below the ion one at
+  2 eV. That sets the delayed detachment by optical photons.
 
 ## 5. Items for the user to supply
 

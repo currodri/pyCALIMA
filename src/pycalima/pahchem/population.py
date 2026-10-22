@@ -335,29 +335,30 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
 
 
 # -- charge ----------------------------------------------------------------------------------------
-def _yield(mol, z, params=Params()):
-    """Ionisation (or detachment) yield out of charge z on E_PH; zero at the top of the chain.
+def _yield(mol, z, params=Params(), energy_ev=E_PH):
+    """Ionisation (or detachment) yield out of charge z on ``energy_ev`` (default E_PH); zero at the top of the chain.
 
     As the baseline (``Params``): Jochims+96 (or ``yield_model="lepage"``, Le
     Page+01 eq. 14 as printed), and Wenzel+20 from the cation up where it
     applies (``yield_cation``). Anions detach with the same yield at the EA,
     or with unit yield above it (``detachment="unity"``).
     """
-    euv = (E_PH >= Y_UNITY_EV).astype(float)
+    E = np.asarray(energy_ev, dtype=float)
+    euv = (E >= Y_UNITY_EV).astype(float)
     if z == max(mol.charges):
         return euv                     # the top state ionises out of the chain only above Y_UNITY_EV (``chain_overflow``)
     threshold = mol.ionisation_ev[z]
     if z == -1 and params.detachment == "unity":
-        return (E_PH >= threshold).astype(float)
+        return (E >= threshold).astype(float)
     if z == -1 and params.detachment == "statistical":
-        return statistical_detachment(mol, params)[0]
+        return statistical_detachment(mol, params, energy_ev=E)[0]
     if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
-        y = photo.yield_wenzel2020(E_PH, threshold, mol.nc)
+        y = photo.yield_wenzel2020(E, threshold, mol.nc)
     elif params.yield_model == "lepage":
-        y = photo.yield_lepage2001(E_PH, threshold, form="lepage01")
+        y = photo.yield_lepage2001(E, threshold, form="lepage01")
     else:
-        y = photo.yield_jochims1996(E_PH, threshold)
-    return np.where(E_PH >= Y_UNITY_EV, 1.0, y)
+        y = photo.yield_jochims1996(E, threshold)
+    return np.where(E >= Y_UNITY_EV, 1.0, y)
 
 
 def top_threshold(mol):
@@ -373,9 +374,19 @@ def state_threshold(mol, z):
     return top_threshold(mol) if z == max(mol.charges) else mol.ionisation_ev[z]
 
 
-def statistical_detachment(mol, params=Params(), grain_cm=10.0):
-    """(Y(E_PH), <E_k>(E_PH) [eV]) of photodetachment of the anion: prompt plus delayed (``Params.detachment``
-    = "statistical").
+def electron_energy(mol, z, params=Params(), partition=photo.PHOTOELECTRON_PARTITION, energy_ev=E_PH):
+    """<E_k> [eV] of the electron of each ionisation (detachment) out of charge z on ``energy_ev``: the share
+    ``partition`` of the excess over ``state_threshold`` for Z >= 0, all of it for the anion below 13.6 eV
+    (``photo.photoelectron_energy``), or the energies of ``statistical_detachment``."""
+    if z == -1 and params.detachment == "statistical":
+        return statistical_detachment(mol, params, energy_ev=energy_ev)[1]
+    return photo.photoelectron_energy(energy_ev, state_threshold(mol, z), 1.0 if z < 0 else partition)[0]
+
+
+def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH):
+    """(Y, <E_k> [eV]) on ``energy_ev`` (default E_PH) of photodetachment of the anion: prompt plus delayed
+    (``Params.detachment`` = "statistical"). Any grid works, also below 5 eV, where the photons above the EA
+    detach too.
 
     - Prompt: the WD01 photodetachment cross section (eq. 20, ``shared_physics.photodetachment_cross_section_vec``,
       threshold EA), as a share of the absorption; the electron takes E - EA.
@@ -384,28 +395,35 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0):
       ``Attachment.delayed_detachment``); the electron leaves with the autodetachment spectrum's mean energy, a
       few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
     """
-    key = ("detach_stat", params.sigma_scale, float(grain_cm))
+    grid = np.asarray(energy_ev, dtype=float)
+    key = ("detach_stat", params.sigma_scale, float(grain_cm), grid.tobytes())
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
         from pycalima.pahchem.attachment import Attachment
 
         ea = mol.ionisation_ev[-1]
-        E = E_PH_FUV
+        lyman = E_PH_FUV[-1]
+        lo = grid <= lyman
+        E = np.append(grid[lo], lyman)                    # with 13.6 eV, where the EUV ramp starts
         sigma = photo.sigma_li_draine(mol.nc, -1, E) * params.sigma_scale
         y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
                                 out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
-        at = Attachment(mol.species[0], mol.species[-1], ea, chemistry.disc_radius_cm(mol.nc),
-                        e_excess_cm=(E[-1] - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
+        akey = ("attach_detach", float(grain_cm))
+        if akey not in mol._cache:
+            mol._cache[akey] = Attachment(mol.species[0], mol.species[-1], ea,
+                                                     chemistry.disc_radius_cm(mol.nc),
+                                                     e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
+        at = mol._cache[akey]
         p_det, eps_cm = at.delayed_detachment(E * dos.CM_PER_EV)
         y = y_p + (1.0 - y_p) * p_det
         ek = np.divide(y_p * np.clip(E - ea, 0.0, None) + (1.0 - y_p) * p_det * eps_cm / dos.CM_PER_EV, y,
                        out=np.zeros_like(E), where=y > 0)
         # above 13.6 eV: valence photoemission from the anion, rising to unity at Y_UNITY_EV, with the
         # electron energy of photo.photoelectron_energy (threshold EA)
-        hi = E_PH[E_PH > E[-1]]
-        y_hi = np.clip(y[-1] + (1.0 - y[-1]) * (hi - E[-1]) / (Y_UNITY_EV - E[-1]), 0.0, 1.0)
-        mol._cache[key] = (np.concatenate([y, y_hi]),
-                           np.concatenate([ek, photo.photoelectron_energy(hi, ea)[0]]))
+        hi = grid[~lo]
+        y_hi = np.clip(y[-1] + (1.0 - y[-1]) * (hi - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0)
+        mol._cache[key] = (np.concatenate([y[:-1], y_hi]),
+                           np.concatenate([ek[:-1], photo.photoelectron_energy(hi, ea)[0]]))
     return mol._cache[key]
 
 
@@ -445,6 +463,24 @@ def neutral_sticking(mol, temperature_k):
     if t not in done:
         done[t] = at.sticking(temperature_k, np.array([0.0]), np.array([1.0]))
     return done[t]
+
+
+def capture_coefficient(mol, z, temperature_k, params=Params()):
+    """Electron capture coefficient of charge z [cm^3 s^-1]: BT94/DS87 (``chemistry.electron_capture``), with the
+    statistical sticking on the neutral (``neutral_sticking``) and the cation factor of ``Params.capture_model``."""
+    st = neutral_sticking(mol, temperature_k) if z == 0 else 1.0
+    return chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) * _capture_factor(mol, z, params)
+
+
+def capture_energy(mol, z, temperature_k):
+    """Mean kinetic energy a captured electron takes from the gas [eV]: kT Lambda~/J~ of Draine & Sutin 1987
+    (eqs. 3.4-3.6) at the capture radius (``chemistry.disc_radius_cm``)."""
+    from pycalima.models.dust_charge.shared_physics import DS87_lambda_scalar
+    from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
+
+    a = chemistry.disc_radius_cm(mol.nc)
+    return (chemistry.KB_EV * temperature_k * DS87_lambda_scalar(z, -1, a, temperature_k)
+            / J_function_DS87(z, -1, a, temperature_k))
 
 
 def ion_up_rate(mol, z, env, params=Params()):
@@ -884,9 +920,7 @@ class Population:
             a = np.zeros((len(self.library), len(self.zs)))
             for s, mol in enumerate(self.library):
                 for z in mol.charges[1:]:
-                    st = neutral_sticking(mol, temperature_k) if z == 0 else 1.0
-                    a[s, z - self.zmin] = chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) \
-                        * _capture_factor(mol, z, self.p)
+                    a[s, z - self.zmin] = capture_coefficient(mol, z, temperature_k, self.p)
             self._capture[t] = a
         return self._capture[t]
 
@@ -927,13 +961,9 @@ class Population:
                     sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * self.p.sigma_scale
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
-                    thr = state_threshold(mol, z)
-                    if z == -1 and self.p.detachment == "statistical":
-                        ek = statistical_detachment(mol, self.p)[1]
-                    else:
-                        ek = photo.photoelectron_energy(E_PH, thr, 1.0 if z < 0 else partition)[0]
-                    G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH, thr,
-                                                        electron_energy_ev=ek)
+                    G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
+                                                        state_threshold(mol, z),
+                                                        electron_energy_ev=electron_energy(mol, z, self.p, partition))
             self._arrays[key] = (G, A)
         return self._arrays[key]
 
@@ -958,18 +988,13 @@ class Population:
     def _capture_energy(self, temperature_k):
         """E[s, slot]: mean kinetic energy an electron captured by each state takes from the gas [eV], kT Lambda~/J~
         of Draine & Sutin 1987 (eqs. 3.4-3.6) at the capture radius (``chemistry.disc_radius_cm``)."""
-        from pycalima.models.dust_charge.shared_physics import DS87_lambda_scalar
-        from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
-
         t = round(float(temperature_k), 6)
         key = ("capture_energy", t)
         if key not in self._capture:
-            kt = chemistry.KB_EV * temperature_k
             E = np.zeros((len(self.library), len(self.zs)))
             for s, mol in enumerate(self.library):
-                a = chemistry.disc_radius_cm(mol.nc)
                 for z in mol.charges[1:]:
-                    E[s, z - self.zmin] = kt * DS87_lambda_scalar(z, -1, a, temperature_k) / J_function_DS87(z, -1, a, t)
+                    E[s, z - self.zmin] = capture_energy(mol, z, t)
             self._capture[key] = E
         return self._capture[key]
 

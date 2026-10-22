@@ -33,7 +33,7 @@ E_STATC = 4.80320471e-10
 #: ions that collide with PAHs: name -> (mass [amu], ionisation energy of the neutral atom [eV], NIST ASD)
 IONS = {"H+": (1.008, 13.598), "He+": (4.003, 24.587), "C+": (12.011, 11.260), "N+": (14.007, 14.534),
         "O+": (15.999, 13.618), "Si+": (28.086, 8.152), "S+": (32.06, 10.360), "Mg+": (24.305, 7.646),
-        "Fe+": (55.845, 7.902), "Na+": (22.990, 5.139)}
+        "Fe+": (55.845, 7.902), "Na+": (22.990, 5.139), "Ne+": (20.180, 21.565)}
 #: metal ions that may form [M-PAH]+ adducts below the charge-transfer threshold (Tielens 2021, Sect. 8.7.3)
 ADDUCT_IONS = ("Na+", "Mg+", "Fe+", "Si+")
 #: mutual-neutralisation efficiency on the DS87 capture in pahchem's geometry: the Shuman+14 polyatomic law at
