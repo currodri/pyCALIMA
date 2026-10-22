@@ -931,6 +931,36 @@ class Population:
         absorbed = env.g0 * (f * A).sum(axis=1) * chemistry.EV_ERG
         return gamma, gz, np.divide(gamma, absorbed, out=np.zeros_like(gamma), where=absorbed > 0)
 
+    def _capture_energy(self, temperature_k):
+        """E[s, slot]: mean kinetic energy an electron captured by each state takes from the gas [eV], kT Lambda~/J~
+        of Draine & Sutin 1987 (eqs. 3.4-3.6) at the capture radius (``chemistry.disc_radius_cm``)."""
+        from pycalima.models.dust_charge.shared_physics import DS87_lambda_scalar
+        from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
+
+        t = round(float(temperature_k), 6)
+        key = ("capture_energy", t)
+        if key not in self._capture:
+            kt = chemistry.KB_EV * temperature_k
+            E = np.zeros((len(self.library), len(self.zs)))
+            for s, mol in enumerate(self.library):
+                a = chemistry.disc_radius_cm(mol.nc)
+                for z in mol.charges[1:]:
+                    E[s, z - self.zmin] = kt * DS87_lambda_scalar(z, -1, a, temperature_k) / J_function_DS87(z, -1, a, t)
+            self._capture[key] = E
+        return self._capture[key]
+
+    def recombination_cooling(self, env):
+        """Gas cooling by electron capture at ``env``: (Lambda[s] [erg s^-1 per molecule], Lambda_z[s, slot]).
+
+        Lambda_z = n_e f(z) alpha(z) <E>(z): the capture rate of ``charge_matrix`` (BT94/DS87 capture, the
+        statistical sticking on neutrals, ``Params.capture_model``) times the kinetic energy each captured electron
+        takes, ``_capture_energy`` (~kT on cations, 1.5-2 kT on neutrals). For neutrals the DS87 flux-weighted
+        energy is used for the stuck electrons as well (their energy-dependent sticking is not followed).
+        """
+        f = self.charge_matrix(env)
+        lz = env.n_e * f * self._capture_rates(env.temperature_k) * self._capture_energy(env.temperature_k) * chemistry.EV_ERG
+        return lz.sum(axis=1), lz
+
     def chain_overflow(self, env):
         """Ionisations out of each molecule's top charge state [s^-1 per molecule]: EUV photons above Y_UNITY_EV
         whose product the chain does not hold. Small against the chain's rates means the truncation is harmless."""

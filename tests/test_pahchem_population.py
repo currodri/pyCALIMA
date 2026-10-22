@@ -285,6 +285,28 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     assert heat.chain_overflow(cut)[0] == 0.0 < heat.chain_overflow(euv)[0]
 
 
+def test_recombination_cooling_takes_kt_per_capture_and_grows_with_temperature():
+    """Each captured electron takes kT Lambda~/J~ (DS87): ~1 kT on cations (focused), 1.5-2 kT on neutrals. The
+    cooling is the charge balance's capture flux times that energy, and at fixed gamma it rises against the
+    photoelectric heating with T (BT94: it matters above ~3e3 K)."""
+    from pycalima.pahchem import chemistry
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)        # neutral capture needs the anion
+    pop = population.Population([mol], WINDOWS)
+    for T in (100.0, 8000.0):
+        e = pop._capture_energy(T)[0] / (chemistry.KB_EV * T)
+        assert 1.0 <= e[1 - pop.zmin] < 1.3 and 1.45 < e[0 - pop.zmin] < 2.0
+    ratio = []
+    for T, ne in ((300.0, 3.0), (8000.0, 3.0 * np.sqrt(8000.0 / 300.0))):          # same gamma = G0 T^0.5 / n_e
+        env = Environment("x", 1e4, 0.0, ne, T, None)
+        lam, lz = pop.recombination_cooling(env)
+        f = pop.charge_matrix(env)[0]
+        flux = ne * f * pop._capture_rates(T)[0] * pop._capture_energy(T)[0] * chemistry.EV_ERG
+        assert lam[0] == pytest.approx(flux.sum()) and np.allclose(lz[0], flux)
+        ratio.append(lam[0] / pop.photoelectric_heating(env)[0][0])
+    assert ratio[1] > 3.0 * ratio[0]
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)
