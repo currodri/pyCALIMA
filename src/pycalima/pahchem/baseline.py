@@ -76,6 +76,10 @@ class Params:
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
+    # ion-PAH collisions (population; Environment.ions): efficiencies on DS87 (anions) and Langevin (neutrals)
+    mn_efficiency: float = 0.58
+    ion_neutral_efficiency: float = 0.9
+    metal_adducts: bool = False              # [M-PAH]+ of Na+, Mg+, Fe+, Si+ below the charge-transfer threshold
     # hydrogen chemistry
     addition_cation: float = 1.4e-10         # cm^3 s^-1
     addition_neutral_scale: float = 1.0
@@ -98,6 +102,7 @@ class Environment:
     temperature_k: float
     teff_k: int | None = 15000   # Kurucz template; None for the Draine (1978) ISRF shape
     field_e_max_ev: float = fields.LYMAN_EV   # Kurucz cut: 13.6 eV for neutral gas; higher to let EUV in (population)
+    ions: tuple = ()                          # ((name, n [cm^-3]), ...) of chemistry.IONS, inputs like n_e (population)
 
     def field(self):
         return (fields.kurucz(self.teff_k, self.g0, e_max=self.field_e_max_ev) if self.teff_k is not None

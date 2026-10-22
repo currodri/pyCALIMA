@@ -307,6 +307,39 @@ def test_recombination_cooling_takes_kt_per_capture_and_grows_with_temperature()
     assert ratio[1] > 3.0 * ratio[0]
 
 
+def test_ion_collision_rates_match_their_lab_anchors():
+    """Mutual neutralisation is 0.58 x DS87 (the Shuman+14 law for C50H18- + C+ at 300 K, 7.9e-8); the ion-neutral
+    rate is 0.9 x Langevin (anthracene + C+ measured 3 +- 1.5e-9 at 293 K, Canosa+95)."""
+    from pycalima.pahchem import chemistry
+
+    mu = 12.011 * (50 * 12.011 + 18 * 1.008) / (12.011 + 50 * 12.011 + 18 * 1.008)
+    assert chemistry.mutual_neutralisation(50, 18, -1, "C+", 300.0) == pytest.approx(2.7e-7 * mu**-0.5, rel=0.02)
+    assert 1.5e-9 < chemistry.ion_neutral_rate(14, 10, "C+") < 4.5e-9
+    assert chemistry.mutual_neutralisation(50, 18, -1, "H+", 100.0) > chemistry.mutual_neutralisation(50, 18, -1, "H+", 300.0)
+
+
+def test_ions_neutralise_anions_and_charge_neutrals_above_their_threshold():
+    """C+ in cold neutral gas removes PAH anions (mutual neutralisation competes with photodetachment) and adds
+    cations by charge transfer; an ion whose atom's IP is below the molecule's does nothing unless adducts are on;
+    the scalar and vectorised chains agree with ions."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    pop = population.Population([mol], WINDOWS)
+    bare = Environment("cnm", 1.7, 30.0, 0.04, 100.0, None)
+    cplus = replace(bare, ions=(("C+", 0.04),))
+    f0, f1 = pop.charge_matrix(bare)[0], pop.charge_matrix(cplus)[0]
+    i_m, i_p = -1 - pop.zmin, 1 - pop.zmin
+    assert f1[i_m] < f0[i_m] and f1[i_p] > f0[i_p]
+    scalar = population.charge_fractions(mol, cplus)
+    assert np.allclose([scalar[z] for z in mol.charges], f1[[z - pop.zmin for z in mol.charges]], rtol=1e-6)
+    low = ("Na+", 0.04)                                                     # IP(Na) 5.14 eV < any PAH IP
+    assert population.ion_up_rate(mol, 0, replace(bare, ions=(low,))) == 0.0
+    assert population.ion_up_rate(mol, 0, replace(bare, ions=(low,)), Params(metal_adducts=True)) > 0.0
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

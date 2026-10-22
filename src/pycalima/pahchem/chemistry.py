@@ -13,6 +13,10 @@ Multiply by the partner's density to get a rate in s^-1.
 - ``lab_recombination_factor``: the measured PAH-cation recombination
   coefficient over BT94, as a power law in N_C fitted to the FALP data
   (pah_electron_recombination.csv, N_C 6-16, 300 K).
+- ``mutual_neutralisation`` and ``ion_neutral_rate``: ion-PAH collisions
+  (docs/physics/pahchem-gas-coupling.md, 2.3): X+ + PAH- at an efficiency
+  times the DS87 capture with the ion's reduced mass; X+ + PAH0 at an
+  efficiency times Langevin, alpha = 1.75 N_C A^3.
 """
 
 from __future__ import annotations
@@ -24,6 +28,21 @@ AMU_G = 1.66053907e-24
 ME_G = 9.1093837e-28
 KB_EV = 8.617333262e-5
 EV_ERG = 1.602176634e-12
+E_STATC = 4.80320471e-10
+
+#: ions that collide with PAHs: name -> (mass [amu], ionisation energy of the neutral atom [eV], NIST ASD)
+IONS = {"H+": (1.008, 13.598), "He+": (4.003, 24.587), "C+": (12.011, 11.260), "N+": (14.007, 14.534),
+        "O+": (15.999, 13.618), "Si+": (28.086, 8.152), "S+": (32.06, 10.360), "Mg+": (24.305, 7.646),
+        "Fe+": (55.845, 7.902), "Na+": (22.990, 5.139)}
+#: metal ions that may form [M-PAH]+ adducts below the charge-transfer threshold (Tielens 2021, Sect. 8.7.3)
+ADDUCT_IONS = ("Na+", "Mg+", "Fe+", "Si+")
+#: mutual-neutralisation efficiency on the DS87 capture in pahchem's geometry: the Shuman+14 polyatomic law at
+#: 300 K for C50H18- (check_pah_ion_rates.py; Hickman 1979 gives 0.80-0.98, Tielens 2021 eq. 8.112 0.46)
+MN_EFFICIENCY = 0.58
+#: total ion-neutral reaction efficiency on Langevin: anthracene + He+ and C+ at 293 K (Canosa+95, 0.88-0.90)
+ION_NEUTRAL_EFFICIENCY = 0.9
+#: PAH polarisability per C atom [A^3] for the Langevin rate (spec 2.3; Tielens 2021 Table 6.5 gives ~2.3 at C54)
+ALPHA_PER_C_A3 = 1.75
 
 
 def thermal_speed(temperature_k, mass_g):
@@ -83,3 +102,30 @@ def lab_recombination_factor(nc, cap=None):
     a, b, _ = lab_recombination_fit()
     f = 10.0 ** (a + b * np.log10(np.asarray(nc, dtype=float)))
     return np.minimum(f, cap) if cap is not None else f
+
+
+def _reduced_mass_g(ion, nc, nh):
+    m_x = IONS[ion][0]
+    m_pah = 12.011 * nc + 1.008 * nh
+    return m_x * m_pah / (m_x + m_pah) * AMU_G
+
+
+def mutual_neutralisation(nc, nh, charge, ion, temperature_k, efficiency=MN_EFFICIENCY, disc_factor=0.82):
+    """X+ + PAH^Z (Z <= -1) -> X + PAH^(Z+1) [cm^3 s^-1]: efficiency x 0.82 pi a^2 v J~(Z, +1) (DS87, attractive)."""
+    from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
+
+    if charge > -1:
+        raise ValueError("mutual neutralisation needs a negative PAH")
+    a = disc_radius_cm(nc)
+    v = np.sqrt(8.0 * KB_CGS * temperature_k / (np.pi * _reduced_mass_g(ion, nc, nh)))
+    return efficiency * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k))
+
+
+def ion_neutral_rate(nc, nh, ion, efficiency=ION_NEUTRAL_EFFICIENCY, alpha_per_c_a3=ALPHA_PER_C_A3):
+    """X+ + PAH0 -> products with Delta Z = +1 [cm^3 s^-1]: efficiency x Langevin 2 pi e (alpha/mu)^1/2.
+
+    Whether it happens is decided by the caller (charge transfer needs IP(X) > IP of the PAH; adducts are an
+    option below that). For C+ the products are 60 % charge transfer and 40 % carbon accretion (Canosa+95).
+    """
+    alpha = alpha_per_c_a3 * nc * 1e-24
+    return efficiency * 2.0 * np.pi * E_STATC * np.sqrt(alpha / _reduced_mass_g(ion, nc, nh))

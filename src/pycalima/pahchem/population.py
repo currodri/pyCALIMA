@@ -447,6 +447,24 @@ def neutral_sticking(mol, temperature_k):
     return done[t]
 
 
+def ion_up_rate(mol, z, env, params=Params()):
+    """Rate [s^-1] at which ions take the molecule from charge z to z + 1 at ``env`` (``env.ions``).
+
+    Anions: mutual neutralisation with every ion (``chemistry.mutual_neutralisation``). Neutrals: the ion-neutral
+    reaction (``chemistry.ion_neutral_rate``) for ions whose atom's IP exceeds the molecule's, plus the [M-PAH]+
+    adducts of ``chemistry.ADDUCT_IONS`` below it if ``Params.metal_adducts``. Cations and above: none (Coulomb
+    barrier, below 1e4 K).
+    """
+    up = 0.0
+    for ion, n in getattr(env, "ions", ()):
+        if z == -1:
+            up += n * chemistry.mutual_neutralisation(mol.nc, mol.nh, -1, ion, env.temperature_k, params.mn_efficiency)
+        elif z == 0:
+            if chemistry.IONS[ion][1] > mol.ionisation_ev[0] or (params.metal_adducts and ion in chemistry.ADDUCT_IONS):
+                up += n * chemistry.ion_neutral_rate(mol.nc, mol.nh, ion, params.ion_neutral_efficiency)
+    return up
+
+
 def charge_fractions(mol, env, params=Params()):
     """{Z: f} of the chain -1/0/+1 at ``env`` (a ``baseline.Environment``)."""
     field_ = env.field()
@@ -458,6 +476,7 @@ def charge_fractions(mol, env, params=Params()):
         up = photo.ionisation_rate(field_, sigma, _yield(mol, z, params), E_PH)
         if z == -1:
             up += 7.8e-10 * env.n_h                                   # associative detachment
+        up += ion_up_rate(mol, z, env, params)
         s = neutral_sticking(mol, T) if z + 1 == 0 else 1.0
         down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * _capture_factor(mol, z + 1, params) * env.n_e
         f[z + 1] = f[z] * up / down
@@ -878,6 +897,11 @@ class Population:
         up = env.g0 * k_up
         if self.zmin == -1:
             up[:, 0] += 7.8e-10 * env.n_h                           # associative detachment of anions
+        if getattr(env, "ions", ()):
+            for s, mol in enumerate(self.library):
+                for z in (-1, 0):
+                    if z in mol.charges and z + 1 in mol.charges:
+                        up[s, z - self.zmin] += ion_up_rate(mol, z, env, self.p)
         down = self._capture_rates(env.temperature_k) * env.n_e
         both = self.present[:, :-1] & self.present[:, 1:]
         logr = np.zeros_like(up[:, :-1])
