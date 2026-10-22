@@ -95,7 +95,8 @@ import numpy as np
 
 from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, photo, rates
 from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2
-from pycalima.pahchem.baseline import CH_STRETCH_CM, E_PH, LAB_STRETCH_SCALE, Params, scaled_einstein_a  # noqa: F401
+from pycalima.pahchem.baseline import E_PH as E_PH_FUV
+from pycalima.pahchem.baseline import CH_STRETCH_CM, LAB_STRETCH_SCALE, Params, scaled_einstein_a  # noqa: F401
 
 try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers
     from numba import njit
@@ -106,6 +107,32 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only without numba
 HARTREE_EV = 27.211386
 _FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
 EDGES = ("solo", "duo", "trio", "quartet")
+
+#: above this every state ionises (or detaches) on absorption: WDB06's rule for a <~ 6 A (their eq. 15), and the
+#: lab yields reach ~1 by 20-25 eV (Jochims+96, Wenzel+20). Below it the lab laws hold.
+Y_UNITY_EV = 20.0
+#: the RAMSES-RTZ group edges above 13.6 eV, the PARTITION_NODES energies and the C K edge [eV]
+EUV_NODES_EV = (15.2, 18.0, 20.0, 21.9, 24.59, 54.42, 284.2, 291.0)
+
+
+def _euv_grid(e_max_ev=500.0, n=161):
+    """Log-spaced from 13.6 eV with EUV_NODES_EV, plus a node 1e-6 eV above 13.6 eV: fields cut at the Lyman limit
+    then fall to zero at once, and no trapezoid or interpolation spreads their edge over the first EUV step."""
+    g = np.unique(np.concatenate([np.geomspace(E_PH_FUV[-1], e_max_ev, n), EUV_NODES_EV, [E_PH_FUV[-1] + 1e-6]]))
+    return g[g > E_PH_FUV[-1]]
+
+
+#: photon-energy grid of the population [eV]: the baseline's 5-13.6 eV grid, then log-spaced to 500 eV
+E_PH = np.concatenate([E_PH_FUV, _euv_grid()])
+#: energy-deposit grid of the cascades [eV]. Non-ionising absorptions deposit E (always < Y_UNITY_EV); ionisations
+#: deposit the ion's internal energy (``photo.photoelectron_energy``) if ``Params.ionising_photons_heat``. It holds
+#: every 5-13.6 eV photon node (so cut fields integrate exactly as before), steps of the same 0.025 eV from 0.1 to
+#: 21 eV, and nodes 1e-6 eV outside 5 and 13.6 eV for sharp edges; the lowest 0.1 eV (a fraction of a cascade
+#: bin) is left out.
+_D_STEP = (E_PH_FUV[-1] - E_PH_FUV[0]) / (E_PH_FUV.size - 1)
+E_DEP = np.unique(np.concatenate([E_PH_FUV[0] + _D_STEP * np.arange(-int(round((E_PH_FUV[0] - 0.1) / _D_STEP)),
+                                                                    int(round((21.0 - E_PH_FUV[0]) / _D_STEP)) + 1),
+                                  E_PH_FUV, [E_PH_FUV[0] - 1e-6, E_PH_FUV[-1] + 1e-6]]))
 
 
 @dataclass
@@ -316,20 +343,34 @@ def _yield(mol, z, params=Params()):
     applies (``yield_cation``). Anions detach with the same yield at the EA,
     or with unit yield above it (``detachment="unity"``).
     """
+    euv = (E_PH >= Y_UNITY_EV).astype(float)
     if z == max(mol.charges):
-        return np.zeros_like(E_PH)
+        return euv                     # the top state ionises out of the chain only above Y_UNITY_EV (``chain_overflow``)
     threshold = mol.ionisation_ev[z]
-    if threshold >= 13.6:
-        return np.zeros_like(E_PH)
     if z == -1 and params.detachment == "unity":
         return (E_PH >= threshold).astype(float)
     if z == -1 and params.detachment == "statistical":
         return statistical_detachment(mol, params)[0]
     if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
-        return photo.yield_wenzel2020(E_PH, threshold, mol.nc)
-    if params.yield_model == "lepage":
-        return photo.yield_lepage2001(E_PH, threshold, form="lepage01")
-    return photo.yield_jochims1996(E_PH, threshold)
+        y = photo.yield_wenzel2020(E_PH, threshold, mol.nc)
+    elif params.yield_model == "lepage":
+        y = photo.yield_lepage2001(E_PH, threshold, form="lepage01")
+    else:
+        y = photo.yield_jochims1996(E_PH, threshold)
+    return np.where(E_PH >= Y_UNITY_EV, 1.0, y)
+
+
+def top_threshold(mol):
+    """Ionisation energy out of the top state [eV], extrapolated from the last two steps of the ladder (or
+    the last step plus 3 eV): only for the electron energy of the EUV ionisations that leave the chain."""
+    zs = sorted(mol.ionisation_ev)
+    if len(zs) >= 2:
+        return 2.0 * mol.ionisation_ev[zs[-1]] - mol.ionisation_ev[zs[-2]]
+    return mol.ionisation_ev[zs[-1]] + 3.0
+
+
+def state_threshold(mol, z):
+    return top_threshold(mol) if z == max(mol.charges) else mol.ionisation_ev[z]
 
 
 def statistical_detachment(mol, params=Params(), grain_cm=10.0):
@@ -349,16 +390,22 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0):
         from pycalima.pahchem.attachment import Attachment
 
         ea = mol.ionisation_ev[-1]
-        sigma = photo.sigma_li_draine(mol.nc, -1, E_PH) * params.sigma_scale
-        y_p = np.clip(np.divide(photodetachment_cross_section_vec(E_PH, ea, -1), sigma,
-                                out=np.zeros_like(E_PH), where=sigma > 0), 0.0, 1.0)
+        E = E_PH_FUV
+        sigma = photo.sigma_li_draine(mol.nc, -1, E) * params.sigma_scale
+        y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
+                                out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
         at = Attachment(mol.species[0], mol.species[-1], ea, chemistry.disc_radius_cm(mol.nc),
-                        e_excess_cm=(E_PH[-1] - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
-        p_det, eps_cm = at.delayed_detachment(E_PH * dos.CM_PER_EV)
+                        e_excess_cm=(E[-1] - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
+        p_det, eps_cm = at.delayed_detachment(E * dos.CM_PER_EV)
         y = y_p + (1.0 - y_p) * p_det
-        ek = np.divide(y_p * np.clip(E_PH - ea, 0.0, None) + (1.0 - y_p) * p_det * eps_cm / dos.CM_PER_EV, y,
-                       out=np.zeros_like(E_PH), where=y > 0)
-        mol._cache[key] = (y, ek)
+        ek = np.divide(y_p * np.clip(E - ea, 0.0, None) + (1.0 - y_p) * p_det * eps_cm / dos.CM_PER_EV, y,
+                       out=np.zeros_like(E), where=y > 0)
+        # above 13.6 eV: valence photoemission from the anion, rising to unity at Y_UNITY_EV, with the
+        # electron energy of photo.photoelectron_energy (threshold EA)
+        hi = E_PH[E_PH > E[-1]]
+        y_hi = np.clip(y[-1] + (1.0 - y[-1]) * (hi - E[-1]) / (Y_UNITY_EV - E[-1]), 0.0, 1.0)
+        mol._cache[key] = (np.concatenate([y, y_hi]),
+                           np.concatenate([ek, photo.photoelectron_energy(hi, ea)[0]]))
     return mol._cache[key]
 
 
@@ -442,13 +489,18 @@ def _band_matrix(freqs_cm, windows_um, local=(), fwhm_cm=15.0, shift_cm=-15.0):
 
 @functools.lru_cache(maxsize=None)
 def _unit_field(shape):
-    """The field of ``shape`` at G0 = 1: ("kurucz", T_eff) or ("draine",)."""
-    return fields.kurucz(shape[1], 1.0) if shape[0] == "kurucz" else fields.draine1978(g0=1.0)
+    """The field of ``shape`` at G0 = 1: ("kurucz", T_eff[, e_max_ev]) or ("draine",)."""
+    if shape[0] == "kurucz":
+        return fields.kurucz(shape[1], 1.0, e_max=shape[2] if len(shape) > 2 else fields.LYMAN_EV)
+    return fields.draine1978(g0=1.0)
 
 
 def field_shape(env):
-    """The field-shape key of a ``baseline.Environment``."""
-    return ("kurucz", int(env.teff_k)) if env.teff_k is not None else ("draine",)
+    """The field-shape key of a ``baseline.Environment``; the Kurucz key carries its cut only if it is not 13.6 eV."""
+    if env.teff_k is None:
+        return ("draine",)
+    e_max = float(getattr(env, "field_e_max_ev", fields.LYMAN_EV))
+    return ("kurucz", int(env.teff_k)) if e_max == fields.LYMAN_EV else ("kurucz", int(env.teff_k), e_max)
 
 
 #: G0 at which ``StateBasis.k_h`` is tabulated (the multiphoton steady state at each)
@@ -517,11 +569,12 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
     return dict(freqs=sp.freqs_cm, einstein_a=_einstein_a(sp, params), nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
                 sigma_scale=params.sigma_scale, recomb_ev=recomb, ladder=tuple(ladder),
-                h_odd=tuple(params.h_odd), h2=tuple(params.h2))
+                h_odd=tuple(params.h_odd), h2=tuple(params.h2), threshold_ev=float(state_threshold(mol, z)),
+                ionising_heat=bool(params.ionising_photons_heat))
 
 
 #: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key)
-BASIS_VERSION = 4
+BASIS_VERSION = 5
 
 
 def _feed(h, v):
@@ -560,6 +613,42 @@ def _basis_key(inp, legacy=False):
 LOSS_E_MAX_EV, LOSS_DE_CM = (45.0, 30.0, 20.0), 200.0
 
 
+def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat):
+    """h(E_DEP) [s^-1 eV^-1]: the rate at which absorptions leave internal energy E_dep in the molecule.
+
+    Non-ionising absorptions, sigma (1 - Y) F, deposit the photon energy. Ionisations, sigma Y F, deposit the ion's
+    internal energy of ``photo.photoelectron_energy`` if ``ionising_heat``, else nothing (as before 2026-10-22).
+    Each photon bin's rate is split between its two neighbouring deposit bins, conserving the rate.
+    """
+    F = field.flux_at(E_PH)
+    y = np.asarray(yield_, dtype=float)
+    non = np.asarray(sigma) * (1.0 - y) * F
+    if np.any(non[E_PH > E_DEP[-1]] > 0.0):
+        raise ValueError("non-ionising absorption above the deposit grid (a yield below 1 above Y_UNITY_EV)")
+    h = np.interp(E_DEP, E_PH, non, left=0.0, right=0.0)
+    if ionising_heat:
+        w = np.asarray(sigma) * y * F * _trapezoid_weights(E_PH)          # ionisations per photon bin [s^-1]
+        _, e_int = photo.photoelectron_energy(E_PH, threshold_ev)
+        keep = (w > 0) & (e_int >= E_DEP[0]) & (e_int <= E_DEP[-1])
+        i = np.clip(np.searchsorted(E_DEP, e_int[keep], side="right") - 1, 0, E_DEP.size - 2)
+        f = (e_int[keep] - E_DEP[i]) / (E_DEP[i + 1] - E_DEP[i])
+        dep = np.zeros(E_DEP.size)
+        np.add.at(dep, i, (1.0 - f) * w[keep])
+        np.add.at(dep, i + 1, f * w[keep])
+        h = h + dep / _trapezoid_weights(E_DEP)
+    return h
+
+
+def _trapezoid_weights(x):
+    """w_i with sum_i w_i f_i = trapezoid(f, x)."""
+    x = np.asarray(x, dtype=float)
+    w = np.zeros(x.size)
+    dx = np.diff(x)
+    w[:-1] += 0.5 * dx
+    w[1:] += 0.5 * dx
+    return w
+
+
 def _loss_grid(freqs, einstein_a):
     """(CascadeModel, E, counts) on the highest ``LOSS_E_MAX_EV`` ceiling whose state counts stay finite."""
     for e_ev in LOSS_E_MAX_EV:
@@ -586,14 +675,14 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2):
                               h2[0] * dos.CM_PER_EV, degeneracy=2)[pick]
     kh, kh2 = [], []
     for g in K_H_G0_GRID:
-        r = cm.steady_state(E_PH, g * h, ch).rates
+        r = cm.steady_state(E_DEP, g * h, ch).rates
         kh.append(r["H"])
         kh2.append(r.get("H2", 0.0))
     return np.array(kh), np.array(kh2)
 
 
 def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
-                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0)):
+                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False):
     """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
 
     ``recomb_ev`` is the energy each recombination (attachment) into this state
@@ -601,7 +690,7 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     """
     field1 = _unit_field(shape)
     sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
-    h = photo.heating_spectrum(field1, sigma, yield_, E_PH)
+    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
     recomb_power = k_up * recomb_ev * dos.CM_PER_EV
     if not np.any(h > 0.0) and recomb_power <= 0.0:   # every absorption ionises or detaches: nothing to emit
@@ -609,10 +698,10 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
                           np.zeros(K_H_G0_GRID.size), 0.0)
     cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
     N = emission.cascade_photons(cm)
-    e = E_PH * dos.CM_PER_EV / cm.de_cm
+    e = E_DEP * dos.CM_PER_EV / cm.de_cm
     j = np.floor(e).astype(int)
     w = e - j
-    emitted = freqs * np.trapezoid(h * ((1.0 - w) * N[:, j] + w * N[:, j + 1]), E_PH, axis=1)
+    emitted = freqs * np.trapezoid(h * ((1.0 - w) * N[:, j] + w * N[:, j + 1]), E_DEP, axis=1)
     if recomb_power > 0.0:
         x = recomb_ev * dos.CM_PER_EV / cm.de_cm
         i0 = int(np.floor(x))
@@ -621,12 +710,12 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     ts = rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5)
     k = rates.rrkm(E, counts, ts, h_even[0] * dos.CM_PER_EV, degeneracy=nh)
     k = k[np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)]
-    k_h = np.array([cl.steady_state(E_PH, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
+    k_h = np.array([cl.steady_state(E_DEP, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
     lh, lh2 = np.zeros((4, K_H_G0_GRID.size)), np.zeros((4, K_H_G0_GRID.size))
     for k, (f_, a_, n_, ok_) in enumerate(ladder):
         lh[k], lh2[k] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2)
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
-                     float(np.trapezoid(h * E_PH * dos.CM_PER_EV, E_PH)), float(recomb_power), lh, lh2)
+                     float(np.trapezoid(h * E_DEP * dos.CM_PER_EV, E_DEP)), float(recomb_power), lh, lh2)
     if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
             and np.isfinite([out.k_up, out.absorbed]).all()):
         raise ValueError(f"basis of N_C {nc}, Z {z} is not finite")
@@ -646,7 +735,7 @@ class Population:
     bases on disk (None: memory only).
     """
 
-    def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=16.0, params=Params(), cache_dir=None):
+    def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=21.5, params=Params(), cache_dir=None):
         self.library, self.windows, self.p = list(library), dict(windows_um), params
         self.local = tuple(local)
         self.bands = tuple(self.windows)
@@ -814,11 +903,13 @@ class Population:
                     sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * self.p.sigma_scale
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
-                    if z != max(mol.charges):
-                        ek = (statistical_detachment(mol, self.p)[1]
-                              if z == -1 and self.p.detachment == "statistical" else None)
-                        G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
-                                                            mol.ionisation_ev[z], 1.0 if z < 0 else partition, ek)
+                    thr = state_threshold(mol, z)
+                    if z == -1 and self.p.detachment == "statistical":
+                        ek = statistical_detachment(mol, self.p)[1]
+                    else:
+                        ek = photo.photoelectron_energy(E_PH, thr, 1.0 if z < 0 else partition)[0]
+                    G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH, thr,
+                                                        electron_energy_ev=ek)
             self._arrays[key] = (G, A)
         return self._arrays[key]
 
@@ -826,9 +917,11 @@ class Population:
         """Gas heating by photoelectrons at ``env``: (Gamma[s] [erg s^-1 per molecule], Gamma_z[s, slot], eps[s]).
 
         Gamma_z = G0 f(z) int sigma Y F gamma (E - IP_z) dE over the charge distribution of ``charge_matrix``,
-        gamma = ``partition`` for Z >= 0 and 1 for detachment; with ``Params.detachment = "statistical"`` the
-        anion's electrons take the energies of ``statistical_detachment`` (prompt E - EA, delayed ~0.1 eV). eps is the photoelectric efficiency, Gamma over
-        the power the molecule absorbs on E_PH (5-13.6 eV), as Berné+22 define it on their energy range.
+        gamma = ``partition`` for Z >= 0 and 1 for detachment below 13.6 eV, and ``photo.photoelectron_energy``
+        above; with ``Params.detachment = "statistical"`` the anion's electrons take the energies of
+        ``statistical_detachment`` (prompt E - EA, delayed ~0.1 eV). The top state's EUV ionisations
+        (``chain_overflow``) heat the gas too, although the chain does not follow their charge. eps is the photoelectric efficiency, Gamma over
+        the power the molecule absorbs on E_PH (5-500 eV; 5-13.6 eV for fields cut at the Lyman limit).
         Recombination cooling is not subtracted here.
         """
         G, A = self._pe_stack(field_shape(env), partition)
@@ -837,6 +930,15 @@ class Population:
         gamma = gz.sum(axis=1)
         absorbed = env.g0 * (f * A).sum(axis=1) * chemistry.EV_ERG
         return gamma, gz, np.divide(gamma, absorbed, out=np.zeros_like(gamma), where=absorbed > 0)
+
+    def chain_overflow(self, env):
+        """Ionisations out of each molecule's top charge state [s^-1 per molecule]: EUV photons above Y_UNITY_EV
+        whose product the chain does not hold. Small against the chain's rates means the truncation is harmless."""
+        k_up, _, _ = self._stack(field_shape(env))
+        f = self.charge_matrix(env)
+        top = np.array([max(m.charges) - self.zmin for m in self.library])
+        rows = np.arange(len(self.library))
+        return env.g0 * f[rows, top] * k_up[rows, top]
 
     def band_fluxes(self, env):
         """(F[s, b] charge-weighted band power per molecule, {name: {Z: f}}) for the whole library."""

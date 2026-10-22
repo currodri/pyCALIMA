@@ -224,6 +224,32 @@ def ionisation_rate(field, sigma_cm2, yield_, energy_ev) -> float:
 PHOTOELECTRON_PARTITION = 0.46
 
 
+#: (hv [eV], <E_k>/(hv - IP)) above 13.6 eV: the means over 8 PAHs (C13-C20) of the Verstraete+25 photoelectron
+#: matrices (Zenodo; their 7-22 eV SOLEIL data, reduced 2026-10-22): 0.43-0.48 at 13.6, 0.47-0.52 at 15,
+#: 0.53-0.59 at 18, 0.55-0.61 at 20, 0.54-0.62 at 21.9 eV
+PARTITION_NODES = ((13.6, 0.46), (15.0, 0.49), (18.0, 0.56), (20.0, 0.58), (21.9, 0.58))
+
+
+def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION):
+    """(<E_k>, E_int) [eV] of the photoelectron and of the ion after an ionisation at ``energy_ev``.
+
+    - E <= 13.6 eV: <E_k> = ``partition`` (E - threshold).
+    - 13.6-21.9 eV: the measured share (``PARTITION_NODES``, scaled by ``partition`` / 0.46 so that the two join).
+    - Above 21.9 eV: the ion keeps the internal energy it has at 21.9 eV (the hole energy, ~6 eV for these
+      PAHs), and the electron takes the rest, E - threshold - E_int. No photoelectron spectra of PAHs exist
+      above 22 eV; this is the molecular limit (KE = hv - binding energy), not the solid-state WDB06 parabola.
+    Zero below the threshold. A share above 1 is capped (the electron cannot take more than the excess).
+    """
+    E = np.asarray(energy_ev, dtype=float)
+    excess = np.clip(E - threshold_ev, 0.0, None)
+    e_n, f_n = np.array(PARTITION_NODES).T
+    scale = partition / PHOTOELECTRON_PARTITION
+    share = np.minimum(np.where(E <= e_n[0], partition, scale * np.interp(E, e_n, f_n)), 1.0)
+    e_int_top = (1.0 - min(scale * f_n[-1], 1.0)) * max(e_n[-1] - threshold_ev, 0.0)
+    e_int = np.where(E <= e_n[-1], (1.0 - share) * excess, np.minimum(e_int_top, excess))
+    return excess - e_int, e_int
+
+
 def photoelectron_power(field, sigma_cm2, yield_, energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION,
                         electron_energy_ev=None) -> float:
     """Kinetic energy given to the gas by photoelectrons, int sigma Y F <E_k> dE [eV s^-1].

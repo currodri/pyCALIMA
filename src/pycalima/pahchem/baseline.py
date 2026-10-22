@@ -97,9 +97,10 @@ class Environment:
     n_e: float           # [cm^-3]
     temperature_k: float
     teff_k: int | None = 15000   # Kurucz template; None for the Draine (1978) ISRF shape
+    field_e_max_ev: float = fields.LYMAN_EV   # Kurucz cut: 13.6 eV for neutral gas; higher to let EUV in (population)
 
     def field(self):
-        return (fields.kurucz(self.teff_k, self.g0) if self.teff_k is not None
+        return (fields.kurucz(self.teff_k, self.g0, e_max=self.field_e_max_ev) if self.teff_k is not None
                 else fields.draine1978(g0=self.g0))
 
 

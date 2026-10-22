@@ -87,17 +87,18 @@ def _state_table(job):
     inp = population._basis_inputs(mol, z, ("kurucz", 40000), DE_CM, E_MAX_CM, PARAMS)
     field1 = population._unit_field(inp["shape"])
     sigma = photo.sigma_li_draine(mol.nc, z, population.E_PH) * PARAMS.sigma_scale
-    h = photo.heating_spectrum(field1, sigma, inp["yield_"], population.E_PH)
+    h = population.deposit_spectrum(field1, sigma, inp["yield_"], inp["threshold_ev"], inp["ionising_heat"])
     k_up = float(photo.ionisation_rate(field1, sigma, inp["yield_"], population.E_PH))
     cm = energy_me.CascadeModel(inp["freqs"], inp["einstein_a"], E_MAX_CM, DE_CM)
     # start: the absorbed heating spectrum plus recombination heating, as population.build_state_basis
-    e = population.E_PH * dos.CM_PER_EV / DE_CM
+    on = h > 0                                       # deposits on population.E_DEP (as build_state_basis)
+    e = population.E_DEP[on] * dos.CM_PER_EV / DE_CM
     lo = np.floor(e).astype(int)
     w = e - lo
-    dE = np.gradient(population.E_PH)
+    dE = population._trapezoid_weights(population.E_DEP)[on]
     s = np.zeros(cm.n)
-    np.add.at(s, lo, (1 - w) * h * dE)
-    np.add.at(s, lo + 1, w * h * dE)
+    np.add.at(s, lo, (1 - w) * h[on] * dE)
+    np.add.at(s, lo + 1, w * h[on] * dE)
     if inp["recomb_ev"] > 0:
         x = inp["recomb_ev"] * dos.CM_PER_EV / DE_CM
         i0 = int(np.floor(x))

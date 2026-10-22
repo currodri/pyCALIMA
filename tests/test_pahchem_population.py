@@ -223,6 +223,8 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
 
     mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
     y, ek = population.statistical_detachment(mol)
+    y, ek = y[: E_PH.size], ek[: E_PH.size]                                 # the 5-13.6 eV part (population.E_PH starts with it)
+    assert np.array_equal(population.E_PH[: E_PH.size], E_PH)
     ea = mol.ionisation_ev[-1]
     prompt = photodetachment_cross_section_vec(E_PH, ea, -1) / photo.sigma_li_draine(mol.nc, -1, E_PH)
     assert np.all((y >= np.clip(prompt, 0, 1) - 1e-12) & (y <= 1 + 1e-12))
@@ -232,6 +234,55 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
     assert stat.charge_matrix(env)[0, -1 - stat.zmin] > 0.1                 # anions matter here
     assert 0.0 < stat.photoelectric_heating(env)[2][0] < 0.08
     assert population.Population([mol], WINDOWS).photoelectric_heating(env)[2][0] > 0.15   # full-excess electrons
+
+
+def test_photoelectron_energy_conserves_the_excess_and_follows_the_measured_share():
+    """<E_k> + E_int = E - IP; share 0.46 up to 13.6 eV, the Verstraete+25 means to 21.9 eV, then a constant E_int."""
+    from pycalima.pahchem import photo
+
+    E = np.array([5.0, 8.0, 13.6, 18.0, 21.9, 50.0, 300.0])
+    ke, ei = photo.photoelectron_energy(E, 6.5)
+    assert np.allclose(ke + ei, np.clip(E - 6.5, 0, None)) and ke[0] == 0.0 == ei[0]
+    assert ke[1] == pytest.approx(0.46 * 1.5) and ke[2] == pytest.approx(0.46 * 7.1)
+    assert ke[3] == pytest.approx(0.56 * 11.5) and ei[5] == pytest.approx(ei[4]) == pytest.approx(ei[6])
+
+
+def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
+    """For a field cut at 13.6 eV the EUV grid adds nothing (rates as on the 5-13.6 eV grid alone). With EUV and
+    ionising deposits, every absorbed eV ends up as vibrational deposit, photoelectron energy or ionisation
+    work; the EUV raises the charge and the heating, and the top state's ionisations are reported."""
+    from dataclasses import replace
+
+    from pycalima.pahchem import dos, photo
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    fuv = population.E_PH <= 13.6
+    pop = population.Population([mol], WINDOWS)
+    f1 = population._unit_field(("kurucz", 40000))
+    for z in mol.charges[:-1]:
+        sig = photo.sigma_li_draine(mol.nc, z, population.E_PH)
+        y = population._yield(mol, z, pop.p)
+        assert pop.basis(mol, z, ("kurucz", 40000)).k_up == pytest.approx(
+            photo.ionisation_rate(f1, sig[fuv], y[fuv], population.E_PH[fuv]), rel=1e-6)
+    heat = population.Population([mol], WINDOWS, params=replace(Params(), ionising_photons_heat=True))
+    shape = ("kurucz", 40000, 99.0)
+    fe = population._unit_field(shape)
+    for z in mol.charges:
+        b = heat.basis(mol, z, shape)
+        sig = photo.sigma_li_draine(mol.nc, z, population.E_PH)
+        thr = population.state_threshold(mol, z)
+        y = population._yield(mol, z, heat.p)
+        ke, _ = photo.photoelectron_energy(population.E_PH, thr)
+        parts = (b.absorbed / dos.CM_PER_EV + thr * b.k_up
+                 + photo.photoelectron_power(fe, sig, y, population.E_PH, thr, electron_energy_ev=ke))
+        assert parts == pytest.approx(fe.photon_rate(sig * population.E_PH, population.E_PH), rel=1e-3)
+    cut = Environment("cut", 1e4, 1e3, 30.0, 500.0, 40000)
+    euv = Environment("euv", 1e4, 1e3, 30.0, 500.0, 40000, 99.0)
+    z_mean = lambda env: float(heat.charge_matrix(env)[0] @ np.array(heat.zs))      # noqa: E731
+    assert z_mean(euv) > z_mean(cut)
+    assert heat.photoelectric_heating(euv)[0][0] > 2.0 * heat.photoelectric_heating(cut)[0][0]
+    assert heat.chain_overflow(cut)[0] == 0.0 < heat.chain_overflow(euv)[0]
 
 
 def test_vectorised_charges_equal_the_scalar_chain():
@@ -256,14 +307,15 @@ def test_k_h_table_interpolates_the_multiphoton_steady_state():
     assert np.all(np.diff(b.k_h / population.K_H_G0_GRID) >= -1e-12 * b.k_h[1:] / population.K_H_G0_GRID[1:])
     g0 = np.sqrt(population.K_H_G0_GRID[8] * population.K_H_G0_GRID[9])
     sp = mol.species[1]
-    sigma = photo.sigma_li_draine(mol.nc, 1, E_PH)
-    h = photo.heating_spectrum(population._unit_field(shape), sigma, population._yield(mol, 1), E_PH)
+    sigma = photo.sigma_li_draine(mol.nc, 1, population.E_PH)
+    h = population.deposit_spectrum(population._unit_field(shape), sigma, population._yield(mol, 1),
+                                    population.state_threshold(mol, 1), False)
     cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, pop.e_max_cm, pop.de_cm)
     E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
     ts = rates.transition_state_for_entropy(sp.freqs_cm, 3050.0, pop.p.h_even[1], n_scaled=5)
     k = rates.rrkm(E, counts, ts, pop.p.h_even[0] * dos.CM_PER_EV, degeneracy=mol.nh)
     k = k[np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)]
-    direct = cm.steady_state(E_PH, g0 * h, {"H": k}).rates["H"]
+    direct = cm.steady_state(population.E_DEP, g0 * h, {"H": k}).rates["H"]
     assert b.k_h_at(g0) == pytest.approx(direct, rel=0.05)
 
 
