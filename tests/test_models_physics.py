@@ -556,6 +556,299 @@ class TestDustRadiation:
 
         assert hasattr(ds, "__doc__")
 
+    def test_microcanonical_correction_vanishes_for_large_grains(self):
+        """f_corr -> 1 for large grains. It used to be a difference of four
+        lnGamma values ~1e13, which returned 0.94 at 1 um and anything from 0
+        to 1e14 at 10 um (so 10 um grains never sublimated)."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        for material in ("graphite", "silicate"):
+            for a_cm in (1e-5, 1e-4, 3e-4, 1e-3):
+                for T in (1000.0, 1500.0, 2200.0, 3000.0):
+                    f = ds.correction_factor(material, a_cm, T)
+                    assert f == pytest.approx(1.0, abs=1e-4), (material, a_cm, T)
+
+    def test_large_grain_sublimation_tends_to_the_bulk_gd89_rate(self):
+        """For large grains the size and microcanonical corrections vanish, so
+        the GD89 model must reduce to the bulk rate of Waxman & Draine (2000)
+        eq. 10. Graphite agrees to ~1%. The silicate prefactor sits 1.7x below
+        the one WD00 quote (they leave the monomer unit ambiguous), so it is
+        only bounded here."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        for a_cm in (1e-5, 1e-4):
+            for T in (1500.0, 1850.0, 2200.0):
+                r = ds.sublimation_timescale("graphite", a_cm, T, dataset="GD89") / \
+                    ds.wd00_sublimation_timescale("graphite", a_cm, T)
+                assert r == pytest.approx(1.0, rel=0.03), (a_cm, T)
+                r = ds.sublimation_timescale("silicate", a_cm, T, dataset="GD89") / \
+                    ds.wd00_sublimation_timescale("silicate", a_cm, T)
+                assert 0.5 < r < 2.0, (a_cm, T)
+
+    def test_recondensation_balances_sublimation_at_the_saturated_density(self):
+        """n_sat is where the kinetic condensation flux equals the GD89
+        evaporation flux: the lifetime diverges there and is the vacuum one
+        divided by (1 - n/n_sat) below it."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        for material in ("graphite", "silicate"):
+            a, T, Tg = 1e-5, 1700.0, 1e4
+            n_sat = float(ds.saturated_key_density(material, a, T, Tg))
+            tau_vac = float(ds.sublimation_timescale(material, a, T))
+            assert ds.net_sublimation_timescale(material, a, T, 0.0, Tg) == tau_vac
+            assert ds.net_sublimation_timescale(material, a, T, 0.5 * n_sat, Tg) == \
+                pytest.approx(2.0 * tau_vac)
+            assert np.isinf(ds.net_sublimation_timescale(material, a, T, 1.01 * n_sat, Tg))
+            # hotter gas brings the atoms back faster: n_sat ~ T_gas^-1/2
+            assert ds.saturated_key_density(material, a, T, 4 * Tg) == \
+                pytest.approx(0.5 * n_sat)
+
+    def test_sublimation_temperature_inverts_the_lifetime(self):
+        """T_sub(t_exp) round-trips, falls with exposure, and with gas never
+        drops below the saturation temperature."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+
+        yr = 3.1556952e7
+        for material in ("graphite", "silicate"):
+            T = [ds.sublimation_temperature(material, 1e-5, t * yr) for t in (1e-2, 1, 1e2)]
+            assert T[0] > T[1] > T[2]
+            assert float(ds.sublimation_timescale(material, 1e-5, T[1])) == \
+                pytest.approx(yr, rel=1e-2)
+            n = 1e3
+            T_long = ds.sublimation_temperature(material, 1e-5, 1e12 * yr, n_key=n)
+            assert float(ds.saturated_key_density(material, 1e-5, T_long, 1e4)) == \
+                pytest.approx(n, rel=0.02)
+            assert ds.sublimation_temperature(material, 1e-5, 1e3 * yr, n_key=n) > \
+                ds.sublimation_temperature(material, 1e-5, 1e3 * yr)
+
+
+    def test_steady_nucleation_reproduces_nozawa_kozasa_2013(self):
+        """NK13 (ApJ 776, 24) steady model for C grains in homologously cooling
+        gas, c10 = 1e8 cm^-3, gamma = 1.25, t0 = 300 d, with their
+        thermodynamics (Nozawa+03 Table 2) and s = 1: the onset is at
+        x_on ~ 1.08 with tau_sat ~ 10 d, and the final radius follows their
+        fit (eq. 64, Table 1) for Lambda_on > 30 to their quoted 5%.
+        (Full scan: diagnostics/dust_radiation/check_nucleation_nozawa_kozasa2013.py.)"""
+        from scipy.integrate import solve_ivp
+        from scipy.optimize import brentq
+
+        from pycalima.models.dust_radiation.dust_sublimation import (
+            classical_nucleation_rate)
+
+        kB, day = 1.380649e-16, 86400.0
+        A, B, sigma, a0, m1 = 8.64726e4, 19.0422, 1400.0, 1.281e-8, 12.011 * 1.66053906660e-24
+        c10, gamma, t0 = 1e8, 1.25, 300 * day
+        lnS = lambda c, T: A / T - B + np.log(c * kB * T / 1e6)
+        T0 = brentq(lambda T: lnS(c10, T), 300.0, 1e4)
+        v = np.sqrt(kB / (2 * np.pi * m1))
+        omega0 = 4 * np.pi * a0 ** 3 / 3
+
+        def rhs(t, K):
+            x = t / t0
+            c_nom, T = c10 * x ** -3, T0 * x ** (-3 * (gamma - 1))
+            c1 = c_nom * max(1.0 - K[3], 0.0)
+            ls = lnS(c1, T) if c1 > 0 else -np.inf
+            J, n_star = classical_nucleation_rate(c1, ls, T, T, a0, sigma, m1)
+            I, nc = J / c_nom, (1.0 + n_star if np.isfinite(n_star) else 0.0)
+            g = omega0 * v * np.sqrt(T) * c1 * (1 - np.exp(-ls)) / a0 if ls > 0 else 0.0
+            return [I, I * nc ** (1 / 3) + g * K[0], I * nc ** (2 / 3) + 2 * g * K[1],
+                    I * nc + 3 * g * K[2]]
+
+        onset = lambda t, K: K[3] - 1e-10
+        sol = solve_ivp(rhs, (t0, 20 * t0), np.zeros(4), method="LSODA", rtol=1e-8,
+                        atol=1e-40, events=onset)
+        t_on = sol.t_events[0][0]
+        T_on, c_on = T0 * (t_on / t0) ** (-3 * (gamma - 1)), c10 * (t_on / t0) ** -3
+        tau_sat = 1 / (3 * (gamma - 1) / t_on * (A / T_on - gamma / (gamma - 1)))
+        lam = tau_sat * 4 * np.pi * a0 ** 2 * c_on * v * np.sqrt(T_on)
+        K = sol.y[:, -1]
+        a_ave_um = a0 * (K[3] / K[0]) ** (1 / 3) * 1e4
+        a_fit_um = 5.946e-4 * (1 + 10 ** (-1.21 + 0.854 * np.log10(lam)))
+
+        assert T0 == pytest.approx(2000.0, rel=0.02)            # NK13 Fig. 1
+        assert t_on / t0 == pytest.approx(1.08, abs=0.01)
+        assert tau_sat / day == pytest.approx(10.0, rel=0.1)
+        assert K[3] == pytest.approx(1.0, rel=1e-3)
+        assert a_ave_um == pytest.approx(a_fit_um, rel=0.05)
+
+    def test_nonsteady_nucleation_reproduces_the_nk13_low_density_case(self):
+        """NK13 s. 4.2 (C, c10 = 1e5, gamma = 1.25): with cluster kinetics up to
+        n* = 100 the non-steady model gives a_ave,inf = 0.0007 um and
+        f_con,inf ~ 0.3 (their eq. 65 decline), while the steady model gives
+        0.0004 um and 1. The models live in the diagnostic script."""
+        import importlib.util
+        from pathlib import Path
+
+        path = (Path(__file__).resolve().parents[1] / "diagnostics" / "dust_radiation"
+                / "check_nucleation_nozawa_kozasa2013.py")
+        if not path.is_file():
+            pytest.skip("diagnostics are not part of the installed package")
+        spec = importlib.util.spec_from_file_location("nk13_check", path)
+        nk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(nk)
+
+        lam, a, f, *_ = nk.run_nonsteady(1e5, 1.25)
+        assert a == pytest.approx(0.0007, rel=0.1)
+        assert 0.2 < f < 0.35
+        assert abs(np.log10(f / nk.nk13_f_con(lam))) < 0.15
+        lam_s, a_s, f_s, *_ = nk.run(1e5, 1.25)
+        assert a_s == pytest.approx(0.0004, rel=0.15) and f_s == pytest.approx(1.0, abs=1e-3)
+
+
+class TestSublimationKinetics:
+    def test_every_material_and_dataset_gives_a_positive_flux(self):
+        from pycalima.models.dust_radiation import sublimation_kinetics as sk
+
+        assert {"graphite", "silicate", "forsterite", "iron", "corundum"} <= set(
+            sk.available_materials())
+        for m in sk.available_materials():
+            assert "fiducial" in sk.available_datasets(m), m
+            for d in sk.available_datasets(m):
+                model = sk.get_sublimation_model(m, d)
+                J = model.flux(np.array([1000.0, 1500.0, 2000.0]))
+                assert np.all(np.isfinite(J) & (J > 0)), (m, d)
+                assert np.all(np.diff(J) > 0), (m, d)          # rises with T
+                a = model.condensation_alpha(1500.0)
+                assert 0.0 < float(a) <= 1.0, (m, d)
+
+    def test_gd89_dataset_is_the_gd89_rate(self):
+        """J = alpha_N P0 exp(-B/T) with the GD89 constants."""
+        from pycalima.models.dust_radiation import dust_sublimation as ds
+        from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+        for mat in ("graphite", "silicate"):
+            p = ds.GD89_PARAMS[mat]
+            model = get_sublimation_model(mat, "GD89")
+            T = np.array([1200.0, 1800.0, 2500.0])
+            np.testing.assert_allclose(
+                model.flux(T),
+                ds.alpha_N * p["evaporation_rate_prefactor"]
+                * np.exp(-p["B_saturation_temperature_K"] / T), rtol=1e-12)
+            assert model.theta == p["surface_free_energy_K"]
+
+    def test_fiducial_rates_reproduce_the_compilation_checks(self):
+        """COMPILATION_NOTES s.3: fiducial graphite is 1.4x / 2.8x GD89 at
+        2000 / 2500 K; forsterite free evaporation is 7-40x GD89 at 1500-2000 K."""
+        from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+        g_f, g_g = (get_sublimation_model("graphite", d) for d in ("fiducial", "GD89"))
+        assert float(g_f.flux(2000.0) / g_g.flux(2000.0)) == pytest.approx(1.4, rel=0.05)
+        assert float(g_f.flux(2500.0) / g_g.flux(2500.0)) == pytest.approx(2.8, rel=0.05)
+        s_f, s_g = (get_sublimation_model("silicate", d) for d in ("fiducial", "GD89"))
+        r = s_f.flux(np.array([1500.0, 2000.0])) / s_g.flux(np.array([1500.0, 2000.0]))
+        assert np.all((r > 7) & (r < 40))
+
+    def test_surface_energy_sets_the_small_grain_term(self):
+        """theta = (32 pi/3)^(1/3) (m/rho)^(2/3) sigma / k; graphite with
+        Nozawa's 1400 erg cm^-2 gives ~13,900 K (COMPILATION_NOTES s.3)."""
+        from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+        assert get_sublimation_model("graphite").theta == pytest.approx(13900, rel=0.01)
+
+    def test_default_dataset_can_be_switched(self):
+        from pycalima.models.dust_radiation import dust_sublimation as ds
+        from pycalima.models.dust_radiation import sublimation_kinetics as sk
+
+        fid = float(ds.radius_loss_rate("silicate", 1e-5, 1600.0))
+        sk.set_default_dataset("GD89")
+        try:
+            gd = float(ds.radius_loss_rate("silicate", 1e-5, 1600.0))
+        finally:
+            sk.set_default_dataset("fiducial")
+        assert gd == pytest.approx(float(ds.radius_loss_rate("silicate", 1e-5, 1600.0,
+                                                             dataset="GD89")))
+        assert fid > 5 * gd
+
+    def test_unknown_material_or_dataset_raises(self):
+        from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+        with pytest.raises(KeyError, match="unknown material"):
+            get_sublimation_model("kryptonite")
+        with pytest.raises(KeyError, match="no dataset"):
+            get_sublimation_model("iron", "GD89")
+
+    def test_bundled_models_file_is_what_the_builder_writes(self, tmp_path, monkeypatch):
+        """sublimation_models.toml is generated from compilation.csv; it must
+        not drift from it."""
+        import importlib.util
+        import shutil
+
+        from pycalima import _paths
+
+        src = _paths.get_external_data_path("sublimation_kinetics")
+        if not (src / "make_sublimation_models.py").is_file():
+            pytest.skip("builder not part of the installed data")
+        for name in ("make_sublimation_models.py", "compilation.csv"):
+            shutil.copy(src / name, tmp_path / name)
+        spec = importlib.util.spec_from_file_location("bsm", tmp_path / "make_sublimation_models.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.build()
+        assert (tmp_path / "sublimation_models.toml").read_text() == \
+            (src / "sublimation_models.toml").read_text()
+
+
+class TestAGNHotDust:
+    def test_skirtor_sed_integrates_to_the_bolometric_luminosity(self):
+        from pycalima.models.dust_radiation.agn_hot_dust import skirtor_sed
+
+        lam = np.logspace(-7, -1, 20001)
+        assert np.trapezoid(skirtor_sed(lam, 1e46), lam) == pytest.approx(1e46, rel=1e-3)
+
+    @pytest.mark.parametrize("law", ["isotropic", "cos", "skirtor"])
+    def test_disk_anisotropy_averages_to_one_over_the_sphere(self, law):
+        from pycalima.models.dust_radiation.agn_hot_dust import disk_anisotropy
+
+        mu = np.linspace(-1.0, 1.0, 200001)
+        assert np.trapezoid(disk_anisotropy(mu, law), mu) / 2.0 == pytest.approx(1.0, rel=1e-6)
+
+    def test_unknown_anisotropy_law_raises(self):
+        from pycalima.models.dust_radiation.agn_hot_dust import disk_anisotropy
+
+        with pytest.raises(ValueError, match="law"):
+            disk_anisotropy(0.5, "conical")
+
+    def test_grain_power_table_round_trips_and_matches_its_spectrum(self):
+        from pycalima.models.dust_radiation.agn_hot_dust import HotGrain
+
+        g = HotGrain("graphite", 0.1)
+        T = np.array([50.0, 800.0, 1500.0, 2500.0])
+        np.testing.assert_allclose(g.temperature(g.emitted_power(T)), T, rtol=1e-4)
+        assert np.isnan(g.temperature(1e-60)) and np.isnan(g.temperature(1e60))
+        lam = np.logspace(-6, -1, 20001)
+        L = np.trapezoid(g.luminosity_density(lam, 1500.0), lam)
+        assert L == pytest.approx(float(g.emitted_power(1500.0)), rel=5e-3)
+
+    @pytest.mark.parametrize("material,a_um", [("graphite", 0.1), ("silicate", 0.1),
+                                              ("graphite", 1.0)])
+    def test_equilibrium_temperature_matches_the_root_finder(self, material, a_um):
+        """The tabulated inversion must agree with
+        dust_sublimation.compute_bin_temperature where that one is valid."""
+        import pycalima.models.dust_radiation.dust_sublimation as ds
+        from pycalima.models.dust_radiation.agn_hot_dust import (
+            PC_CM, AGNIllumination, HotGrain)
+
+        g, agn = HotGrain(material, a_um), AGNIllumination(1e46, law="isotropic")
+        for r_pc in (0.3, 1.0, 3.0):
+            ref = ds.compute_bin_temperature(g.a_cm, g.wav_cm, g.C_abs, agn.lam_cm,
+                                             agn.flux(r_pc * PC_CM))
+            assert float(agn.temperature(g, r_pc * PC_CM)) == pytest.approx(ref, rel=2e-3)
+
+    def test_sublimation_radius_scales_with_luminosity_and_anisotropy(self):
+        """Optically thin: R(T) ~ (f(theta) L)^1/2, and it inverts T(r)."""
+        from pycalima.models.dust_radiation.agn_hot_dust import (
+            AGNIllumination, HotGrain, disk_anisotropy)
+
+        g = HotGrain("graphite", 0.1)
+        a1, a2 = AGNIllumination(1e45), AGNIllumination(1e46)
+        R1 = a1.radius_at_temperature(g, 1500.0, cos_theta=1.0)
+        assert a2.radius_at_temperature(g, 1500.0, cos_theta=1.0) == \
+            pytest.approx(np.sqrt(10.0) * R1)
+        assert float(a1.temperature(g, R1, cos_theta=1.0)) == pytest.approx(1500.0, rel=1e-4)
+        R_eq = a1.radius_at_temperature(g, 1500.0, cos_theta=0.2)
+        ratio = np.sqrt(disk_anisotropy(0.2) / disk_anisotropy(1.0))
+        assert R_eq / R1 == pytest.approx(ratio)
+
 
 # ===========================================================================
 # models/dust_gas_collisions
@@ -669,6 +962,26 @@ class TestTools:
         for name, df in frames.items():
             assert len(df) > 0, name
             assert df["Grain Size"].notna().any(), name
+
+    def test_spherex_channels_tile_the_band_at_the_quoted_resolution(self):
+        from pycalima.models.tools.spherex import SPHEREX_BANDS, spherex_channels
+
+        ch = spherex_channels()
+        assert ch["lam_um"].size == 102
+        np.testing.assert_allclose(ch["lo_um"][1:], ch["hi_um"][:-1])
+        assert ch["lo_um"][0] == 0.75 and ch["hi_um"][-1] == 5.0
+        R_eff = ch["lam_um"] / (ch["hi_um"] - ch["lo_um"])
+        assert np.all(np.abs(R_eff / ch["R"] - 1.0) < 0.15)
+        assert len(SPHEREX_BANDS) == 6
+
+    def test_spherex_photometry_preserves_a_flat_and_a_linear_spectrum(self):
+        from pycalima.models.tools.spherex import spherex_photometry
+
+        lam = np.linspace(0.5, 5.5, 5001)
+        ch, F = spherex_photometry(lam, np.stack([np.full_like(lam, 3.0), lam]))
+        np.testing.assert_allclose(F[0], 3.0)
+        # photon-weighted mean of lambda over a narrow top-hat ~ its centre
+        np.testing.assert_allclose(F[1], ch["lam_um"], rtol=1e-3)
 
 
 # ===========================================================================

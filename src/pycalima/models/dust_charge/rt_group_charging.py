@@ -920,6 +920,18 @@ class GroupChargingTable:
             sigma, chord = np.sqrt(-1.0 / slope), (lo, hi, glo, ghi)
         return sigma, chord
 
+    def exact_distribution(self, Zs, width, tail=1e-12):
+        """The exact P(Z) of the cell set by the last solve: g on every integer within
+        8 width + 10 of Z*, trimmed where P < tail x its maximum (the reference that
+        the Gaussian of a wide P(Z) approximates). Returns the charges and P."""
+        Z = np.arange(max(self.t["Zmin"], np.floor(Zs - 8 * width - 10)),
+                      min(self.t["Zmax"], np.ceil(Zs + 8 * width + 10)) + 1.0)
+        lnf = np.concatenate([[0.0], np.cumsum(self._g_arr(Z[:-1]))])
+        lnf -= lnf.max()
+        k = lnf > np.log(tail)
+        P = np.exp(lnf[k])
+        return Z[k], P / P.sum()
+
     def _averages(self, nodes, weights, discrete):
         """Gamma, Lambda (+ autoionisation at Zmin) averaged over the charge nodes."""
         gam = lam = 0.0

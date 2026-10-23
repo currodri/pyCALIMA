@@ -1,0 +1,155 @@
+# Grain materials of the collapse model (pycalima.collapse.materials).
+#
+# The ten species of Pop III supernova dust (Nozawa et al. 2003, ApJ 598, 785;
+# Chiaki et al. 2015, MNRAS 446, 2659).
+#
+# [species.<name>.key]: growth by accretion of the gas-phase key species
+#   (Chiaki+15 Table 2, values from Nozawa+03): the reaction, the molecular
+#   weight mu of the solid per key nucleus [amu] and the hypothetical radius a0
+#   of a monomer per key nucleus [Angstrom]. The bulk density follows,
+#   rho_s = mu m_u / (4 pi a0^3 / 3). A species with two key species lists both;
+#   the one with the shorter collision time controls growth.
+#   m_gas: mass of the gas-phase key species [amu].
+# surface_amu: mean atomic mass of the solid (formula mass / atoms per formula
+#   unit), for mass-dependent thermal accommodation.
+# optics: "bundled:<file>" in data/optical_props/stx3141_supp (Kitzmann & Heng
+#   2018, MNRAS 475, 94, their compilation), or "dataset:<name>/<file>", a file
+#   of a dataset registered in data/registry.toml (fetched with calima-fetch-data).
+
+[species.Si]
+formula = "Si"
+surface_amu = 28.086
+optics = "dataset:optical-franta-2017-si/Franta-300K.yml"
+optics_ref = "Franta et al. (2017), crystalline Si, 300 K, via refractiveindex.info"
+  [[species.Si.key]]
+  gas = "Si"
+  m_gas = 28.086
+  reaction = "Si(g) -> Si(s)"
+  mu = 28.0
+  a0_angstrom = 1.684
+
+[species.Fe]
+formula = "Fe"
+surface_amu = 55.845
+optics = "bundled:Fe.dat"
+optics_ref = "Lynch & Hunter (1991), in Palik, via Kitzmann & Heng (2018)"
+  [[species.Fe.key]]
+  gas = "Fe"
+  m_gas = 55.845
+  reaction = "Fe(g) -> Fe(s)"
+  mu = 56.0
+  a0_angstrom = 1.411
+
+[species.Mg2SiO4]
+formula = "Mg2SiO4"
+surface_amu = 20.10     # 140.69 / 7
+optics = "bundled:Mg2SiO4_amorph_sol-gel.dat"
+optics_ref = "Jaeger et al. (2003, A&A 408, 193), amorphous sol-gel, via Kitzmann & Heng (2018)"
+  [[species.Mg2SiO4.key]]
+  gas = "Mg"
+  m_gas = 24.305
+  reaction = "2Mg(g) + SiO(g) + 3H2O(g) -> Mg2SiO4(s) + 3H2(g)"
+  mu = 70.0
+  a0_angstrom = 2.055
+  [[species.Mg2SiO4.key]]
+  gas = "SiO"
+  m_gas = 44.085
+  reaction = "2Mg(g) + SiO(g) + 3H2O(g) -> Mg2SiO4(s) + 3H2(g)"
+  mu = 140.0
+  a0_angstrom = 2.589
+
+[species.MgSiO3]
+formula = "MgSiO3"
+surface_amu = 20.08     # 100.39 / 5
+optics = "bundled:MgSiO3_amorph_sol-gel.dat"
+optics_ref = "Jaeger et al. (2003, A&A 408, 193), amorphous sol-gel, via Kitzmann & Heng (2018)"
+  [[species.MgSiO3.key]]
+  gas = "Mg"
+  m_gas = 24.305
+  reaction = "Mg(g) + SiO(g) + 2H2O(g) -> MgSiO3(s) + 2H2(g)"
+  mu = 100.0
+  a0_angstrom = 2.319
+  [[species.MgSiO3.key]]
+  gas = "SiO"
+  m_gas = 44.085
+  reaction = "Mg(g) + SiO(g) + 2H2O(g) -> MgSiO3(s) + 2H2(g)"
+  mu = 100.0
+  a0_angstrom = 2.319
+
+[species.Fe3O4]
+formula = "Fe3O4"
+surface_amu = 33.08     # 231.53 / 7
+optics = "dataset:optical-triaud-magnetite/mag_interp.dat"
+optics_ref = "Triaud (unpublished), Jena Database of Optical Constants for Cosmic Dust"
+  [[species.Fe3O4.key]]
+  gas = "Fe"
+  m_gas = 55.845
+  reaction = "3Fe(g) + 4H2O(g) -> Fe3O4(s) + 4H2(g)"
+  mu = 77.3
+  a0_angstrom = 1.805
+
+[species.C]
+formula = "C"
+surface_amu = 12.011
+optics = "dataset:optical-zubko-1996-acar/nk.acar"
+optics_ref = "Zubko et al. (1996, MNRAS 282, 1321), amorphous carbon ACAR"
+  [[species.C.key]]
+  gas = "C"
+  m_gas = 12.011
+  reaction = "C(g) -> C(s)"
+  mu = 12.0
+  a0_angstrom = 1.281
+
+[species.SiO2]
+formula = "SiO2"
+surface_amu = 20.03     # 60.08 / 3
+optics = "bundled:SiO2_amorph.dat"
+optics_ref = "Henning & Mutschke (1997, A&A 327, 743); Philipp (1985) in Palik; via Kitzmann & Heng (2018)"
+  [[species.SiO2.key]]
+  gas = "SiO2"
+  m_gas = 60.08
+  reaction = "SiO2(g) -> SiO2(s)"
+  mu = 60.0
+  a0_angstrom = 2.080
+
+[species.MgO]
+formula = "MgO"
+surface_amu = 20.15     # 40.30 / 2
+optics = "bundled:MgO.dat"
+optics_ref = "Roessler & Huffman (1981), in Palik, via Kitzmann & Heng (2018)"
+  [[species.MgO.key]]
+  gas = "Mg"
+  m_gas = 24.305
+  reaction = "Mg(g) + H2O(g) -> MgO(s) + H2(g)"
+  mu = 40.0
+  a0_angstrom = 1.646
+
+[species.FeS]
+formula = "FeS"
+surface_amu = 43.96     # 87.91 / 2
+optics = "bundled:FeS.dat"
+optics_ref = "Pollack et al. (1994, ApJ 421, 615); Henning & Mutschke (1997); via Kitzmann & Heng (2018)"
+  [[species.FeS.key]]
+  gas = "Fe"
+  m_gas = 55.845
+  reaction = "Fe(g) + S(g) -> FeS(s)"
+  mu = 88.0
+  a0_angstrom = 1.932
+  [[species.FeS.key]]
+  gas = "S"
+  m_gas = 32.06
+  reaction = "Fe(g) + S(g) -> FeS(s)"
+  mu = 88.0
+  a0_angstrom = 1.932
+
+[species.Al2O3]
+formula = "Al2O3"
+surface_amu = 20.39     # 101.96 / 5
+optics = "bundled:Al2O3.dat"
+optics_ref = "Begemann et al. (1997, ApJ 476, 199), amorphous; Koike et al. (1995); via Kitzmann & Heng (2018)"
+  [[species.Al2O3.key]]
+  gas = "Al"
+  m_gas = 26.982
+  reaction = "2Al(g) + 3H2O(g) -> Al2O3(s) + 3H2(g)"
+  mu = 51.0
+  a0_angstrom = 1.718

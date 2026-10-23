@@ -212,18 +212,18 @@ $$ (eq-coulomb)
 (`models/dust_charge/Coulomb_enhancement.py:39`–`43`). No export stage calls
 this module.
 
-On the solver side, `solvers/dust_init.py:420`–`421` loads each bin's
+On the solver side, `solvers/dust_init.py:516`–`517` loads each bin's
 uniform-ISRF charging table, when present, into `DustBinParams.isrf_table`,
 with the solver's own reader (`solvers/table_io.py`, so that solvers/ does not
-import models/). `_get_coulomb_D` (`solvers/dust_rates.py:132`–`164`) looks it
+import models/). `_get_coulomb_D` (`solvers/dust_rates.py:138`–`170`) looks it
 up at $(G_0,T,n_e)$, with $G_0$ in Habing units as in the table. For impactor
 charges $j=-1,1,2,3$ it returns the table's $D_j$, Eq. {eq}`eq-coulomb` averaged
 over the exact $P(Z)$; for any other charge, the point-charge factor at the
 table's $\langle Z\rangle$ (`_coulomb_factor_WD99`). Nothing calls
 `_get_coulomb_D`. Instead, `accretion_rate` multiplies
-its rate by a fixed per-bin factor $E_C$ (`solvers/dust_rates.py:308`–`320`),
+its rate by a fixed per-bin factor $E_C$ (`solvers/dust_rates.py:314`–`326`),
 applied when $T<2\times10^4$ K or $n_{\rm H}>10$ cm$^{-3}$
-(`solvers/dust_rates.py:262`):
+(`solvers/dust_rates.py:268`):
 
 | Bin | $E_C$ |
 |---|---|
@@ -323,6 +323,6 @@ says erg cm$^3$ s$^{-1}$ (`models/dust_gas_collisions/dust_collisional_cooling.p
 
 | Directory / file | Exporter | Contents | Read by |
 |---|---|---|---|
-| `dust_charging_isrf_data/dust_charging_isrf_<bin>.dat` | `export_dust_charging_isrf` | 4 `#` lines; `version nT nX nQ a` (version 2; $a$ the grain radius [cm], which RAMSES checks against the bin's); $\log T$; $\log(n_e/G_0)$; 18 planes of $n_T$ rows × $n_X$: $\langle Z\rangle$, $\sigma_Z$, $\ln\Gamma_1$, $\lambda_1$, $\ln D_{-1}$, $\ln D_{+1}$, $\ln D_{+2}$, $\ln D_{+3}$, then $\ln\alpha_i$ [cm$^3$ s$^{-1}$ per grain] of the ten `RECOMB_IONS` (H, He, C, N, O, Ne, Mg, Si, S, Fe) | RAMSES (`charging_model='WDB06isrf'`); `solvers/dust_init.py:420` |
+| `dust_charging_isrf_data/dust_charging_isrf_<bin>.dat` | `export_dust_charging_isrf` | 4 `#` lines; `version nT nX nQ a` (version 2; $a$ the grain radius [cm], which RAMSES checks against the bin's); $\log T$; $\log(n_e/G_0)$; 18 planes of $n_T$ rows × $n_X$: $\langle Z\rangle$, $\sigma_Z$, $\ln\Gamma_1$, $\lambda_1$, $\ln D_{-1}$, $\ln D_{+1}$, $\ln D_{+2}$, $\ln D_{+3}$, then $\ln\alpha_i$ [cm$^3$ s$^{-1}$ per grain] of the ten `RECOMB_IONS` (H, He, C, N, O, Ne, Mg, Si, S, Fe) | RAMSES (`charging_model='WDB06isrf'`); `solvers/dust_init.py:516` |
 | `PAH_photoelectric_heating_data/peh_ISRF_<rad>_<opt>_<att>_<bin>.dat` | `export_PAH_photoelectric_heating_tables` | $\log\gamma$, $\log\epsilon$, $\log P_{\rm abs}$, $f_{-1}$, $f_0$, $f_1$, $f_2$ | none in the solver |
 | `collisional_cooling_data/cooling_<bin>_Z_<Zi>` | `export_collisional_cooling_bins` | `nT nφ`; $\phi$ [eV]; rows of $\log T$, $\log_{10}H$. `Z_0` is electrons; the ions are H, He, C, N, O, Ne, Mg, Si, S, Fe | `models/dust_radiation/dust_emission.py:966` |

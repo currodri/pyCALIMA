@@ -26,25 +26,31 @@ and ``y_eq = C_j / max(D_j, 1e-300)`` is the analytic equilibrium density.
 
 Gas conservation
 ----------------
-Instead of updating the gas phase via ``y_gas + h * dydt_gas`` (which
-would double-count the Euler approximation already embedded in the per-bin
-formula), we propagate the *actual* per-bin dust delta exactly through the
-element-mass-fraction arrays — matching the Fortran implementation.
+The gas is updated from the *actual* per-bin dust change, propagated through
+the bin's element mass fractions (all carbon for a PAH bin), so gas + dust is
+conserved element by element whatever branch a bin takes. This is what the
+Fortran does. (An earlier Python port used ``y_gas + h * dydt_gas``, which
+disagrees with the per-bin update outside the Euler branch and created mass
+when a large source and sink nearly cancel.)
 
 Step-size control
 -----------------
-The quasi-implicit step is **always accepted** — the analytic formulas in cases 3
-and 4 are exact solutions for constant-coefficient ODEs, so even a large relative
-change (e.g. dust sputtered to near-zero in one step) is physically correct.
+As in the Fortran, a step is rejected and ``h`` halved if any component goes
+negative, and otherwise accepted only if the largest relative change::
 
-A 1st-order error metric is computed *after* the step solely to size the next step::
+    max_error = max(|y_new - y| / max(|y|, y_min)),
 
-    max_error = max(|y_new - y| / max(|y|, y_min))
-    scale     = 0.9 × errmax / max(max_error, 1e-10)
-    h_new     = h × clip(scale, 0.1, 2.0)
+is at most ``errmax`` (the "10% rule"); in both accepted and rejected cases
 
-The only hard rejection is negativity: if any component of ``y_new`` goes negative
-the step is rejected and ``h`` is halved.
+    h_new = h × clip(0.9 × errmax / max(max_error, 1e-10), 0.1, 2.0).
+
+Limitation
+----------
+Each bin's creation rate is evaluated with the gas at the start of the step,
+so the gas is treated explicitly. When gas–grain exchange dominates in both
+directions (sublimation with recondensation) the gas is the stiff variable:
+the scheme is then only stable for steps shorter than the gas relaxation time
+and settles into a biased oscillation otherwise. Use ``mprk22`` there.
 """
 
 from __future__ import annotations
@@ -140,33 +146,26 @@ class AnninosSolver(DustSolverBase):
         processes: List[DustProcess],
         first_call: bool = False,
     ) -> tuple:
-        """Adaptive quasi-implicit step.
+        """Adaptive quasi-implicit step (Fortran ``anninos_step``).
 
-        On ``first_call`` the maximum characteristic rate ``kmax`` is
-        used to cap the initial step size.
+        On ``first_call`` a zero ``kmax`` (no active process) stops the
+        integration; as in the Fortran, ``h`` is not capped by ``1/kmax``.
 
         Returns
         -------
         y_gas_new, y_dust_new, h_new, accepted, break_flag, error
         """
-        dydt_gas, src, snk, kmax = _compute_rhs_split(
-            state, y_gas, y_dust, processes
-        )
+        _, src, snk, kmax = _compute_rhs_split(state, y_gas, y_dust, processes)
 
-        if first_call:
-            if kmax == 0.0:
-                return y_gas.copy(), y_dust.copy(), h, True, True, 0.0
-            h = min(1.0 / kmax, h)
+        if first_call and kmax == 0.0:
+            return y_gas.copy(), y_dust.copy(), h, True, True, 0.0
 
         y_min = self._y_min
-
-        # ------------------------------------------------------------------
-        # Per-bin quasi-implicit update
-        # ------------------------------------------------------------------
+        y_gas_new = y_gas.copy()
         y_dust_new = y_dust.copy()
-        nbins = len(y_dust)
+        negative = False
 
-        for j in range(nbins):
+        for j in range(len(y_dust)):
             yj    = y_dust[j]
             Cj    = src[j]
             Djr   = snk[j]
@@ -189,42 +188,24 @@ class AnninosSolver(DustSolverBase):
                     y_eq = Cj / max(Dj, 1e-300)
                     y_dust_new[j] = y_eq + (yj - y_eq) * exp(-Dj * h)
 
-        # ------------------------------------------------------------------
-        # Gas update: Euler step using the net gas rate from the RHS.
-        #
-        # This matches the Fortran Anninos implementation, which uses
-        # ``y_gas_new = y_gas + h * dydt_gas`` rather than propagating
-        # per-bin dust deltas through el_mfractions.
-        #
-        # The key advantage: dydt_gas is identically zero for redistribution
-        # processes (coagulation, shattering), so those processes cannot
-        # spuriously modify the gas phase regardless of how the per-bin
-        # dust update is computed.  Accretion and sputtering contribute
-        # correctly through dydt_gas from _compute_rhs_split.
-        # ------------------------------------------------------------------
-        y_gas_new = y_gas + h * dydt_gas
+            if y_dust_new[j] < 0.0:
+                # Cannot happen for Cj, Dj >= 0; leave the bin (and so the
+                # gas) unchanged and reject the step.
+                negative = True
+                y_dust_new[j] = yj
 
-        # ------------------------------------------------------------------
-        # Negativity guard: any negative component → hard reject, halve h
-        # ------------------------------------------------------------------
-        if float(y_dust_new.min()) < 0.0 or float(y_gas_new.min()) < 0.0:
+            # Move the actual change in this bin out of / into the gas.
+            delta = y_dust_new[j] - yj
+            if j < state.npah:
+                y_gas_new[state.pah_bins[j].C_index] -= delta
+            else:
+                db = state.dust_bins[j - state.npah]
+                for el_idx, mfrac in zip(db.el_indices, db.el_mfractions):
+                    y_gas_new[el_idx] -= delta * mfrac
+
+        if negative or float(y_gas_new.min()) < 0.0:
             return y_gas.copy(), y_dust.copy(), h * 0.5, False, False, 1e10
 
-        # ------------------------------------------------------------------
-        # Step-size controller (1st-order) — step is ALWAYS accepted.
-        #
-        # The quasi-implicit formula is unconditionally stable: the analytic
-        # exponential (case 4) and linear (case 3) updates are exact solutions
-        # to the per-bin ODE with constant coefficients, so a large relative
-        # change (e.g. dust sputtered to near-zero in one step) is physically
-        # correct, not a numerical error.  Rejecting based on max_error here
-        # would cause an infinite loop for fast-sputtering cells.
-        #
-        # The error metric is only used to SIZE the next step so that changes
-        # remain smooth.  This matches the Fortran anninos_mod behaviour where
-        # the quasi-implicit step is always accepted and only negativity causes
-        # a hard reject (handled above).
-        # ------------------------------------------------------------------
         err_dust = np.abs(y_dust_new - y_dust) / np.maximum(np.abs(y_dust), y_min)
         err_gas  = np.abs(y_gas_new  - y_gas)  / np.maximum(np.abs(y_gas),  y_min)
         max_error = max(float(np.max(err_dust)), float(np.max(err_gas)))
@@ -232,4 +213,6 @@ class AnninosSolver(DustSolverBase):
         scale = 0.9 * self._errmax / max(max_error, 1e-10)
         h_new = h * min(2.0, max(0.1, scale))
 
+        if max_error > self._errmax:
+            return y_gas.copy(), y_dust.copy(), h_new, False, False, max_error
         return y_gas_new, y_dust_new, h_new, True, False, max_error

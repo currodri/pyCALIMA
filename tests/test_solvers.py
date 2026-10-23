@@ -288,13 +288,15 @@ def test_table_reader_rejects_a_missing_file(tmp_path):
 # solver classes
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("name", ["rk4", "rk54", "anninos"])
+@pytest.mark.parametrize("name", ["rk4", "rk54", "anninos", "mprk22"])
 def test_time_integrators_construct(name):
     from pycalima.solvers.anninos import AnninosSolver
+    from pycalima.solvers.mprk22 import MPRK22Solver
     from pycalima.solvers.rk4 import RK4Solver
     from pycalima.solvers.rk54 import RK54Solver
 
-    cls = {"rk4": RK4Solver, "rk54": RK54Solver, "anninos": AnninosSolver}[name]
+    cls = {"rk4": RK4Solver, "rk54": RK54Solver, "anninos": AnninosSolver,
+           "mprk22": MPRK22Solver}[name]
     solver = cls()
     from pycalima.solvers.solver_base import DustSolverBase
 
@@ -490,6 +492,7 @@ EXPECTED_SOLVERS = {
     "rk4": "RK4Solver",
     "rk54": "RK54Solver",
     "anninos": "AnninosSolver",
+    "mprk22": "MPRK22Solver",
     "newton_krylov": "NewtonKrylovEquilibriumSolver",
     "sparse_newton": "SparseNewtonEquilibriumSolver",
 }
@@ -711,3 +714,519 @@ def test_table_lookup_tolerates_the_pah_bin_id_case_difference(tmp_path):
     # callers can treat it as "not exported yet".
     missing = _resolve_table(tmp_path, "sputtering_DustBin_77_Z_1")
     assert not missing.exists()
+
+
+# ---------------------------------------------------------------------------
+# thermal sublimation: the table is log10(epsilon) against *dust* temperature
+# ---------------------------------------------------------------------------
+
+def _write_sublimation_table(path, T, col2, log10=True, a_cm=1.0e-5):
+    unit = "log10(epsilon/[s^-1])" if log10 else "epsilon [s^-1]"
+    lines = [
+        f"# Dust bin: DustBin_01, Material: graphite, Grain radius "
+        f"(representative): {a_cm:.6e} cm",
+        f"# Columns: T_d [K] (dust temperature) | {unit}",
+    ]
+    lines += [f"{t:14.6E} {v:14.6E}" for t, v in zip(T, col2)]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_sublimation_reader_decodes_log10_tables(tmp_path):
+    """The exporter writes log10(epsilon); reading it as linear epsilon made
+    every rate below 1 s^-1 negative, and so silently zero."""
+    from pycalima.solvers.dust_init import _load_erosion_rate_table
+
+    T = np.array([1000.0, 1500.0, 2000.0, 3000.0])
+    log_eps = np.array([-20.0, -12.0, -6.0, 0.5])
+    _write_sublimation_table(tmp_path / "sublimation_rate_DustBin_01.dat", T, log_eps)
+
+    interp, a_cm = _load_erosion_rate_table("DustBin_01", tmp_path)
+    assert a_cm == pytest.approx(1.0e-5)
+    np.testing.assert_allclose(interp(T), 10.0 ** log_eps, rtol=1e-12)
+    assert interp(500.0) == 0.0, "below the table the grain must not sublimate"
+    assert interp(5000.0) == pytest.approx(10.0 ** 0.5), "above it, hold the last row"
+    # log-linear between nodes, so the midpoint is the geometric mean
+    assert interp(1750.0) == pytest.approx(10.0 ** -9.0)
+
+
+def test_sublimation_reader_still_reads_old_linear_tables(tmp_path):
+    from pycalima.solvers.dust_init import _load_erosion_rate_table
+
+    T = np.array([1000.0, 2000.0])
+    eps = np.array([1.0e-20, 1.0e-6])
+    _write_sublimation_table(
+        tmp_path / "sublimation_rate_DustBin_01.dat", T, eps, log10=False
+    )
+    interp, _ = _load_erosion_rate_table("DustBin_01", tmp_path)
+    np.testing.assert_allclose(interp(T), eps, rtol=1e-12)
+
+
+def test_sublimation_tables_match_the_gd89_model(isolated_env, tmp_path):
+    """Export -> solver round trip: the solver's epsilon(T_d) must be the
+    model-layer |da/dt|/a for the radius the table was computed for."""
+    from pycalima.models.dust_radiation.dust_sublimation import (
+        _load_dust_bins, radius_loss_rate, write_sublimation_rate_tables)
+    from pycalima.solvers.dust_init import _load_erosion_rate_table
+
+    write_sublimation_rate_tables(output_dir=str(tmp_path), n_T=60)
+    for meta in _load_dust_bins():
+        interp, a_cm = _load_erosion_rate_table(meta["id"], tmp_path)
+        material = str(meta["composition"]).lower()
+        T_nodes = np.loadtxt(tmp_path / f"sublimation_rate_{meta['id']}.dat")[:, 0]
+        for T in T_nodes[::5]:
+            # the header and rows are printed to 7 significant figures
+            expected = radius_loss_rate(material, a_cm, float(T)) / a_cm
+            assert interp(T) == pytest.approx(expected, rel=1e-4), (meta["id"], T)
+
+
+def _sublimation_config(tmp_path, model_data, **env):
+    cfg = json.loads(resolve_solver_config_path("example_ic").read_text(encoding="utf-8"))
+    cfg["model_data_dir"] = str(model_data)
+    cfg["physics"] = {k: False for k in cfg.get("physics", {})}
+    cfg["physics"]["dust_sublimation"] = True
+    cfg["environment"].update(env)
+    path = tmp_path / "subl_ic.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+def test_sublimation_requires_a_dust_temperature(tmp_path, model_data):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    with pytest.raises(ValueError, match="dust_temperature_K"):
+        load_initial_conditions(_sublimation_config(tmp_path, model_data))
+
+
+def test_sublimation_follows_the_dust_not_the_gas_temperature(tmp_path, model_data):
+    """Hot gas around cold grains must not sublimate them (it used to destroy
+    every grain within seconds in any gas above ~4000 K), and hot grains in
+    cold gas must."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.rhs import build_process_list, compute_rhs
+
+    def rhs(T_gas, T_dust):
+        state, y_gas, y_dust = load_initial_conditions(_sublimation_config(
+            tmp_path, model_data, gas_temperature_K=T_gas, dust_temperature_K=T_dust))
+        if not any(db.erosion_rate_interp for db in state.dust_bins):
+            pytest.skip("no sublimation tables exported")
+        procs = build_process_list(state)
+        assert [p.name for p in procs] == ["sublimation"]
+        dgas, ddust = compute_rhs(state, y_gas, y_dust, procs)
+        return state, y_dust, dgas, ddust
+
+    _, _, dgas, ddust = rhs(T_gas=1.0e6, T_dust=50.0)
+    assert np.all(ddust == 0.0) and np.all(dgas == 0.0)
+
+    state, y_dust, dgas, ddust = rhs(T_gas=10.0, T_dust=1800.0)
+    for db in state.dust_bins:
+        if db.erosion_rate_interp is None:
+            continue
+        i = db.bin_index + state.npah
+        eps = float(db.erosion_rate_interp(1800.0))
+        assert eps > 0.0
+        assert ddust[i] == pytest.approx(-3.0 * eps * y_dust[i], rel=1e-12)
+    # mass leaves the grains and arrives in the gas
+    assert abs(dgas.sum() + ddust.sum()) <= 1e-10 * np.abs(ddust).sum()
+
+
+def test_bin_dust_temperature_overrides_the_environment(tmp_path, model_data):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    path = _sublimation_config(tmp_path, model_data, dust_temperature_K=100.0)
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    cfg["dust_bins"][0]["dust_temperature_K"] = 1500.0
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    state, _, _ = load_initial_conditions(path)
+    temps = [db.dust_temperature_K for db in state.dust_bins]
+    assert temps[0] == 1500.0 and all(t == 100.0 for t in temps[1:])
+
+
+# ---------------------------------------------------------------------------
+# recondensation: the reverse of sublimation, balancing it at n_sat(T_d)
+# ---------------------------------------------------------------------------
+
+_KB = 1.3806488e-16
+_M_C = 12.011 * 1.66053906660e-24
+
+
+def _condensation_config(tmp_path, *, T_gas=1.0e4, T_dust=1700.0, nH=1.0e8,
+                         dust_frac=0.99, physics=None, models=None, env=None):
+    """One 0.1 um graphite bin holding 99% of the carbon, with a synthetic
+    sublimation table log10(epsilon) = -12 + 0.01 (T_d - 1500)."""
+    md = tmp_path / "md"
+    (md / "dust_sublimation").mkdir(parents=True, exist_ok=True)
+    T = np.linspace(1000.0, 3000.0, 201)
+    _write_sublimation_table(md / "dust_sublimation" / "sublimation_rate_DustBin_01.dat",
+                             T, -12.0 + 0.01 * (T - 1500.0))
+    rho = 1.4 * nH * 1.6726219e-24
+    x_C = 10.0 ** -3.44 * 12.011 / 1.4           # C mass fraction
+    cfg = {
+        "model_data_dir": str(md),
+        "environment": {"gas_temperature_K": T_gas,
+                        "hydrogen_number_density_cm3": nH,
+                        "dust_temperature_K": T_dust, **(env or {})},
+        "elemental_abundances": {"C": {"mass_fraction": x_C}},
+        "dust_bins": [{"id": "DustBin_01", "composition": "graphite",
+                       "grain_size_micron": 0.1, "grain_density_gcm3": 2.24,
+                       "elements": [{"name": "C", "mass_fraction": 1.0}],
+                       "initial_mass_density_gcm3": dust_frac * x_C * rho}],
+        "physics": physics or {"dust_sublimation": True, "dust_condensation": True},
+        "models": models or {},
+    }
+    path = tmp_path / "cond_ic.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+def _condensation_only(state, y_gas, y_dust):
+    from pycalima.solvers.dust_rates import condensation_rate
+
+    dgas, ddust = np.zeros_like(y_gas), np.zeros_like(y_dust)
+    condensation_rate(state, y_gas, y_dust, dgas, ddust)
+    return dgas, ddust
+
+
+def test_condensation_is_the_kinetic_flux_of_the_key_species(tmp_path):
+    """dm/dt = alpha pi a^2 n_C v_C(T_gas) m_C per grain, with the GD89 alpha."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(_condensation_config(tmp_path))
+    assert [p.name for p in build_process_list(state)] == ["sublimation", "condensation"]
+    assert state.condensation_coefficient == 0.1
+
+    db = state.dust_bins[0]
+    n_C = y_gas[2] / _M_C
+    v_C = np.sqrt(8.0 * _KB * state.local_Tk / (np.pi * _M_C))
+    dm_dt = 0.1 * np.pi * db.asize_cm ** 2 * n_C * v_C * _M_C
+    dgas, ddust = _condensation_only(state, y_gas, y_dust)
+    assert ddust[0] == pytest.approx(dm_dt / db.mgrain * y_dust[0], rel=1e-10)
+    assert dgas[2] == pytest.approx(-ddust[0], rel=1e-12)
+
+
+def test_sublimation_and_condensation_balance_at_the_saturated_density(tmp_path):
+    """Closed box: the gas-phase carbon relaxes to the density at which
+    condensation cancels the tabulated evaporation, and the dust keeps the
+    rest; hot enough that n_sat exceeds the carbon budget, the dust is gone."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+    from pycalima.solvers.rk54 import RK54Solver
+
+    def relax(T_dust):
+        state, y_gas, y_dust = load_initial_conditions(
+            _condensation_config(tmp_path, T_dust=T_dust))
+        g, d, _ = integrate_dust_ode(state, 1.0e10, y_gas, y_dust,
+                                     build_process_list(state), RK54Solver(errmax=0.01),
+                                     h_init=1.0, h_min=1.0e-6)
+        assert g.sum() + d.sum() == pytest.approx(y_gas.sum() + y_dust.sum(), rel=1e-10)
+        return state, g, d
+
+    # 3 epsilon = alpha (3 / 4 a rho) sqrt(8 k T / pi) rho_C / sqrt(m_C)
+    state, g, d = relax(1600.0)
+    db = state.dust_bins[0]
+    eps = float(db.erosion_rate_interp(1600.0))
+    rho_sat = (4.0 * db.asize_cm * db.sgrain * eps * np.sqrt(_M_C)
+               / (0.1 * np.sqrt(8.0 * _KB * state.local_Tk / np.pi)))
+    assert 0.0 < rho_sat < g[2] + d[0], "test point must keep some dust"
+    assert g[2] == pytest.approx(rho_sat, rel=1e-6)
+
+    _, g, d = relax(1800.0)
+    assert d[0] < 1e-6 * g[2]
+
+
+def test_pressure_balance_scales_the_flux_by_sqrt_gas_over_dust_temperature(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    def ddust(balance):
+        state, y_gas, y_dust = load_initial_conditions(_condensation_config(
+            tmp_path, T_gas=1.0e4, T_dust=1600.0,
+            models={"condensation_balance": balance}))
+        return _condensation_only(state, y_gas, y_dust)[1][0]
+
+    assert ddust("pressure") / ddust("flux") == pytest.approx(np.sqrt(1.0e4 / 1600.0))
+
+
+def test_condensing_ions_are_repelled_by_a_positive_grain(tmp_path):
+    """Singly charged ions onto a grain at +U: suppressed by exp(-eU/kT)."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    def ddust(x_ion, U):
+        state, y_gas, y_dust = load_initial_conditions(_condensation_config(
+            tmp_path, models={"condensation_ion_fraction": x_ion},
+            env={"grain_potential_V": U}))
+        return _condensation_only(state, y_gas, y_dust)[1][0]
+
+    kT_eV = _KB * 1.0e4 / 1.602176634e-12
+    neutral = ddust(0.0, 2.0)
+    assert ddust(1.0, 2.0) / neutral == pytest.approx(np.exp(-2.0 / kT_eV), rel=1e-4)
+    assert ddust(0.5, 2.0) / neutral == pytest.approx(0.5 + 0.5 * np.exp(-2.0 / kT_eV), rel=1e-4)
+
+
+def test_condensation_and_accretion_cannot_both_be_on(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    with pytest.raises(ValueError, match="twice"):
+        load_initial_conditions(_condensation_config(tmp_path, physics={
+            "dust_sublimation": True, "dust_condensation": True, "dust_accretion": True}))
+    with pytest.raises(ValueError, match="condensation_balance"):
+        load_initial_conditions(_condensation_config(
+            tmp_path, models={"condensation_balance": "pressur"}))
+
+
+@pytest.mark.parametrize("solver_type", ["anninos", "newton_krylov"])
+def test_run_chemistry_warns_against_solvers_that_cannot_balance_condensation(
+        tmp_path, solver_type):
+    from pycalima.solvers.run_chemistry import run_chemistry
+
+    path = _condensation_config(tmp_path)
+    with pytest.warns(UserWarning, match="does not reach the right equilibrium"):
+        run_chemistry(path, t_end_Myr=1e-9, verbose=False, solver_type=solver_type)
+
+
+# ---------------------------------------------------------------------------
+# MPRK22 and the Fortran-parity Anninos
+# ---------------------------------------------------------------------------
+
+def _element_totals(state, y_gas, y_dust):
+    from pycalima.solvers.equilibrium import _build_contribution_matrix
+
+    return y_gas + _build_contribution_matrix(state) @ y_dust
+
+
+def test_mprk22_reaches_the_saturated_density_in_a_few_steps(tmp_path):
+    """The case Anninos cannot do: sublimation and condensation in balance.
+    The gas relaxes to n_sat; MPRK22 is implicit in it and gets there in tens
+    of steps however long the run."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _condensation_config(tmp_path, T_dust=1600.0))
+    db = state.dust_bins[0]
+    eps = float(db.erosion_rate_interp(1600.0))
+    rho_sat = (4.0 * db.asize_cm * db.sgrain * eps * np.sqrt(_M_C)
+               / (0.1 * np.sqrt(8.0 * _KB * state.local_Tk / np.pi)))
+    for t_end in (1.0e10, 1.0e17):
+        g, d, diag = integrate_dust_ode(state, t_end, y_gas, y_dust,
+                                        build_process_list(state), MPRK22Solver(),
+                                        h_init=1.0, h_min=1.0e-6)
+        assert g[2] == pytest.approx(rho_sat, rel=1e-3)
+        assert diag["naccepted"] < 200
+        np.testing.assert_allclose(_element_totals(state, g, d),
+                                   _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+
+@pytest.mark.parametrize("config", ["example_ic", "all_processes_test"])
+def test_mprk22_conserves_each_element_and_matches_rk54(config, model_data):
+    from pycalima.solvers.dust_init import SEC2MYR, load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+    from pycalima.solvers.rk54 import RK54Solver
+
+    state, y_gas, y_dust = load_initial_conditions(resolve_solver_config_path(config))
+    procs = build_process_list(state)
+    kw = dict(h_init=1e10, h_min=1.0, h_max=SEC2MYR)
+    g, d, _ = integrate_dust_ode(state, 10 * SEC2MYR, y_gas, y_dust, procs,
+                                 MPRK22Solver(), **kw)
+    _, d_ref, _ = integrate_dust_ode(state, 10 * SEC2MYR, y_gas, y_dust, procs,
+                                     RK54Solver(errmax=1e-3), **kw)
+    M0 = _element_totals(state, y_gas, y_dust)
+    np.testing.assert_allclose(_element_totals(state, g, d), M0,
+                               rtol=1e-12, atol=1e-12 * M0.max())
+    big = d_ref > 1e-6 * d_ref.max()
+    np.testing.assert_allclose(d[big], d_ref[big], rtol=1e-2)
+
+
+def test_anninos_moves_the_actual_bin_change_into_the_gas(tmp_path):
+    """As the Fortran anninos_step: gas + dust is conserved per element in
+    every branch (the Euler gas update created mass when sources and sinks
+    nearly cancel)."""
+    from pycalima.solvers.anninos import AnninosSolver
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _condensation_config(tmp_path, T_dust=1600.0))
+    g, d, _ = integrate_dust_ode(state, 1.0e10, y_gas, y_dust,
+                                 build_process_list(state), AnninosSolver(),
+                                 h_init=1.0, h_min=1.0e-6)
+    np.testing.assert_allclose(_element_totals(state, g, d),
+                               _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+
+def test_mprk22_takes_grains_that_vanish_within_one_step(tmp_path):
+    """Grains far above their sublimation temperature empty within the
+    shortest step; their relative error must not be measured against ~0
+    (every step used to be rejected until countmax)."""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _condensation_config(tmp_path, T_dust=2900.0, nH=1e4))
+    g, d, diag = integrate_dust_ode(state, 3.0e7, y_gas, y_dust,
+                                    build_process_list(state), MPRK22Solver(),
+                                    h_init=3.0e6, h_min=1.0)
+    assert diag["tau"] == pytest.approx(3.0e7)
+    assert diag["naccepted"] < 100
+    assert d[0] < 1e-6 * y_dust[0]
+    np.testing.assert_allclose(_element_totals(state, g, d),
+                               _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# nucleation: new grains from supersaturated gas
+# ---------------------------------------------------------------------------
+
+def _nucleation_config(tmp_path, *, dust_frac=0.0, physics=None, **entry):
+    from pycalima.models.dust_radiation.dust_sublimation import nucleation_parameters
+
+    path = _condensation_config(tmp_path, dust_frac=dust_frac, physics=physics or {
+        "dust_sublimation": True, "dust_condensation": True, "dust_nucleation": True},
+        **{k: entry.pop(k) for k in ("T_dust", "nH", "T_gas") if k in entry})
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    p = nucleation_parameters("graphite")
+    cfg["nucleation"] = [{"target_bin": "DustBin_01", "key_element": "C",
+                          "evaporation_prefactor_cm2s": p["evaporation_prefactor_cm2s"],
+                          "binding_energy_K": p["binding_energy_K"],
+                          "surface_energy_K": p["surface_energy_K"],
+                          "monomer_mass_amu": p["monomer_mass_amu"],
+                          "density_gcm3": p["density_gcm3"], **entry}]
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    return path
+
+
+def _kernel(fn, state, y_gas, y_dust):
+    dgas, ddust = np.zeros_like(y_gas), np.zeros_like(y_dust)
+    fn(state, y_gas, y_dust, dgas, ddust)
+    return dgas, ddust
+
+
+@pytest.mark.parametrize("T_dust", [1300.0, 1500.0, 1650.0])
+def test_nucleation_kernel_matches_the_model_rate(tmp_path, T_dust):
+    from pycalima.models.dust_radiation.dust_sublimation import steady_state_nucleation_rate
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.dust_rates import nucleation_rate
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _nucleation_config(tmp_path, T_dust=T_dust, nH=1e10))
+    n_C = y_gas[2] / _M_C
+    J, _ = steady_state_nucleation_rate("graphite", n_C, T_dust, state.local_Tk)
+    dgas, ddust = _kernel(nucleation_rate, state, y_gas, y_dust)
+    assert J > 0
+    assert ddust[0] == pytest.approx(J * state.dust_bins[0].mgrain, rel=1e-6)
+    assert dgas[2] == pytest.approx(-ddust[0], rel=1e-12)
+
+
+def test_critical_cluster_is_where_gd89_evaporation_balances_growth():
+    """n* = (2 mu / 3 ln S)^3 with mu = 1.5 sigma_GD89 / T, so that
+    S = exp(sigma_GD89 n*^-1/3 / T): the Kelvin balance of the sublimation
+    tables' B(N) = B - sigma N^-1/3."""
+    from pycalima.models.dust_radiation import dust_sublimation as ds
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+    for material, dataset in (("graphite", "GD89"), ("graphite", "fiducial"),
+                              ("forsterite", "fiducial")):
+        model = get_sublimation_model(material, dataset)
+        theta = model.theta * model.key_per_unit ** (-2 / 3)   # per key monomer
+        for T in (1400.0, 1600.0, 1700.0):
+            n = 10 ** -3.44 * 1e10
+            S = float(ds.supersaturation(material, n, T, 1e4, dataset))
+            _, n_star = ds.steady_state_nucleation_rate(material, n, T, 1e4, dataset=dataset)
+            if np.isfinite(n_star):
+                assert S == pytest.approx(np.exp(theta * n_star ** (-1 / 3) / T), rel=1e-9)
+
+
+def test_nucleation_never_exceeds_the_monomer_collision_rate():
+    """However supersaturated, clusters cannot form faster than monomers
+    meet; where the critical cluster is more than a fraction of an atom
+    (T >~ 1000 K here) the rate rises steeply as the clusters cool."""
+    from pycalima.models.dust_radiation import dust_sublimation as ds
+
+    n, T_gas = 10 ** -3.44 * 1e10, 1e4
+    a0 = (3 * 12.011 * 1.66053906660e-24 / 2.24 / (4 * np.pi)) ** (1 / 3)
+    v = np.sqrt(8 * _KB * T_gas / (np.pi * _M_C))
+    J_coll = 0.5 * 0.1 * n ** 2 * np.pi * (2 * a0) ** 2 * np.sqrt(2) * v
+    J = [ds.steady_state_nucleation_rate("graphite", n, T, T_gas)[0]
+         for T in (300.0, 600.0, 1000.0, 1400.0, 1700.0)]
+    assert all(j <= J_coll * (1 + 1e-12) for j in J)
+    assert J[2] > J[3] > J[4]
+
+
+def test_no_nucleation_from_undersaturated_or_ionised_gas(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.dust_rates import nucleation_rate
+
+    for kw in ({"T_dust": 2500.0}, {"T_dust": 1500.0, "neutral_fraction": 0.0}):
+        state, y_gas, y_dust = load_initial_conditions(_nucleation_config(tmp_path, **kw))
+        _, ddust = _kernel(nucleation_rate, state, y_gas, y_dust)
+        assert ddust[0] == 0.0, kw
+
+
+def test_nucleation_config_is_validated(tmp_path):
+    from pycalima.solvers.dust_init import load_initial_conditions
+
+    with pytest.raises(ValueError, match="target_bin"):
+        load_initial_conditions(_nucleation_config(tmp_path, target_bin="DustBin_99"))
+    with pytest.raises(ValueError, match="key_element"):
+        load_initial_conditions(_nucleation_config(tmp_path, key_element="Si"))
+    path = _condensation_config(tmp_path, physics={"dust_sublimation": True,
+                                                   "dust_nucleation": True})
+    with pytest.raises(ValueError, match='"nucleation"'):
+        load_initial_conditions(path)
+
+
+def test_dust_forms_from_pure_gas_and_settles_at_saturation(tmp_path):
+    """Closed box with no dust: nucleation seeds grains, condensation grows
+    them, and the gas ends at the saturated density, conserving carbon.
+    Without nucleation nothing happens. (At n_H = 1e10 and 1400 K the
+    critical cluster is ~1 atom; at 1e8 and 1600 K it is ~180 and nothing
+    nucleates.)"""
+    from pycalima.solvers.dust_init import load_initial_conditions
+    from pycalima.solvers.mprk22 import MPRK22Solver
+    from pycalima.solvers.ode_driver import integrate_dust_ode
+    from pycalima.solvers.rhs import build_process_list
+
+    state, y_gas, y_dust = load_initial_conditions(
+        _nucleation_config(tmp_path, T_dust=1400.0, nH=1e10))
+    assert y_dust[0] == 0.0
+    g, d, _ = integrate_dust_ode(state, 1e9, y_gas, y_dust, build_process_list(state),
+                                 MPRK22Solver(), h_init=1e-3, h_min=1e-9)
+    db = state.dust_bins[0]
+    eps = float(db.erosion_rate_interp(1400.0))
+    rho_sat = (4.0 * db.asize_cm * db.sgrain * eps * np.sqrt(_M_C)
+               / (0.1 * np.sqrt(8.0 * _KB * state.local_Tk / np.pi)))
+    assert d[0] > 0.5 * y_gas[2]
+    assert g[2] == pytest.approx(rho_sat, rel=1e-2)
+    np.testing.assert_allclose(_element_totals(state, g, d),
+                               _element_totals(state, y_gas, y_dust), rtol=1e-12)
+
+    state, y_gas, y_dust = load_initial_conditions(_nucleation_config(
+        tmp_path, T_dust=1400.0, nH=1e10,
+        physics={"dust_sublimation": True, "dust_condensation": True}))
+    _, d, _ = integrate_dust_ode(state, 1e9, y_gas, y_dust, build_process_list(state),
+                                 MPRK22Solver(), h_init=1e-3, h_min=1e-9)
+    assert d[0] == 0.0
+
+
+def test_solver_reads_the_condensation_alpha_of_each_table(tmp_path):
+    """Tables carry the evaporation coefficient of their dataset, and
+    condensation uses it, so the balance with sublimation is exact for any
+    material (iron: alpha = exp(1.44 - 2595/T), not 0.1)."""
+    from pycalima.models.dust_radiation.dust_sublimation import write_sublimation_rate_table
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+    from pycalima.solvers.dust_init import _table_condensation_alpha
+
+    T = np.linspace(800.0, 2500.0, 50)
+    write_sublimation_rate_table("iron", 1e-5, "DustBin_01", str(tmp_path), T)
+    alpha = _table_condensation_alpha("DustBin_01", tmp_path)
+    assert alpha == pytest.approx(float(get_sublimation_model("iron").condensation_alpha(1500.0)),
+                                  rel=1e-5)
+    assert alpha > 0.5
+    assert _table_condensation_alpha("DustBin_99", tmp_path) is None
