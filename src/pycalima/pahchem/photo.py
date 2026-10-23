@@ -18,7 +18,7 @@ Cross sections [cm^2] on an energy grid in eV:
   legacy PAH_photophysics code used the disc radius 0.9 sqrt(N_C) A, which
   overestimates sigma by 1.7-3.3x for C24-C96.
 - ``sigma_malloci_coronene``: Malloci et al. (2007) TD-DFT for C24H12 at
-  Z = -1, 0, +1 (bundled files).
+  Z = 0, +1 (bundled files; the bundled anion file is a C54H18- spectrum, ``malloci2007.INCONSISTENT``).
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ from pycalima import _paths
 
 HC_EV_UM = 1.23984193
 
-_MALLOCI = {-1: "malloci_coronene_anion_sigma.dat",
-            0: "malloci_coronene_neutral_sigma.dat",
+# no anion: the served (and bundled) coronene anion file is a C54H18- spectrum (malloci2007.INCONSISTENT)
+_MALLOCI = {0: "malloci_coronene_neutral_sigma.dat",
             1: "malloci_coronene_cation_sigma.dat"}
 
 
@@ -159,7 +159,7 @@ def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
 def sigma_malloci_coronene(charge, energy_ev) -> np.ndarray:
     """Malloci et al. (2007) C24H12 cross section [cm^2]; zero outside 0-30 eV."""
     if charge not in _MALLOCI:
-        raise ValueError(f"Malloci coronene sigma exists for Z = -1, 0, 1, not {charge}")
+        raise ValueError(f"Malloci coronene sigma exists for Z = 0, 1, not {charge}")
     data = np.loadtxt(_paths.get_external_data_path(_MALLOCI[charge]), comments="#")
     return np.interp(energy_ev, data[:, 0], data[:, 1], left=0.0, right=0.0) * 1e-18
 

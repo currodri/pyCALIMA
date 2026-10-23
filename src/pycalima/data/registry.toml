@@ -441,6 +441,19 @@ notes = """Machine-learning MD IR spectra of 1704 neutral PAHdb PAHs at 50, 300 
 (classical, peak-normalised) and the code. The data are CC BY-NC-SA 4.0 (the code
 Apache 2.0), so they are fetched, never bundled. Read with pycalima.pahchem.mai2025."""
 
+[datasets.malloci2007-spectra]
+kind = "fetch"
+dest = "pahchem/malloci2007"
+files = ["index.csv"]
+size_bytes = 5_500_000
+citation = "Malloci, Joblin & Mulas (2007), Chem. Phys. 332, 353; Malloci, Mulas & Joblin (2004), A&A 426, 105"
+url = "https://www.dsf.unica.it/~gmalloci/pahs"
+url_status = "confirmed"
+fetcher = "pycalima.pahchem.malloci2007:fetch"
+notes = """TD-DFT photo-absorption cross sections (0-30 eV) of the 40 PAHs of the Cagliari
+database, as anion, neutral, cation and dication where computed. No licence is stated,
+so they are fetched, never bundled. Read with pycalima.pahchem.malloci2007."""
+
 [datasets.cagliari-pah]
 kind = "fetch"
 dest = "external_data"
