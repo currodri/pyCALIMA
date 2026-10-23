@@ -11,7 +11,7 @@ The bundled file ``data/external_data/sublimation_kinetics/sublimation_models.to
   2003) or ``vL14a`` (van Lieshout et al. 2014a).
 
 A dataset gives the evaporation flux of the material's units (C atoms, Fe
-atoms, formula units, ...) from a bulk solid at temperature T,
+atoms, formula units, ...) from a bulk solid at temperature T::
 
     "hkl":   J(T) = sum_c n_c alpha_c(T) P_c(T) / sqrt(2 pi m_c k T),
              log10 P_c [dyn cm^-2] = A10_c - B10_c / T,

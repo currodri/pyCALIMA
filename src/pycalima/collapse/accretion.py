@@ -94,8 +94,10 @@ def shift_remap(a_edges, rho, lam, rho_s, da):
     dn/da ∝ a^lam (= 3 beta + 2 for dn/dm ∝ m^beta). Returns (rho_new, overflow mass).
 
     In the bin's own scale-free variable x = u / r0 (u the radius before the
-    shift), the mass that lands in [x0, x1] is
+    shift), the mass that lands in [x0, x1] is::
+
         rho_k [I(l+3) + 3 d I(l+2) + 3 d^2 I(l+1) + d^3 I(l)] / I_bin(l+3),
+
     with I(p) = int_{x0}^{x1} x^p dx and d = da / r0, so no large powers of r0 appear.
     """
     nb = rho.size

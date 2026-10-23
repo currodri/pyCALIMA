@@ -324,7 +324,7 @@ def saturated_key_density(material, a_cm, Td, T_gas, alpha=None, dataset=None):
 
     Condensation adds 1/key_per_unit units per key atom at the kinetic flux
     ``alpha n_X v_X / 4`` with ``v_X = sqrt(8 k T_gas / pi m_X)``, while
-    sublimation removes units at ``|da/dt| / V_unit``. Setting the two equal,
+    sublimation removes units at ``|da/dt| / V_unit``. Setting the two equal::
 
         n_sat = 4 key_per_unit |da/dt| / (V_unit alpha v_X(T_gas)),
 
@@ -342,7 +342,7 @@ def saturated_key_density(material, a_cm, Td, T_gas, alpha=None, dataset=None):
 
 
 def net_sublimation_timescale(material, a_cm, Td, n_key=0.0, T_gas=1.0e4, dataset=None):
-    """Grain lifetime a / |da/dt| [s] with recondensation from gas holding
+    """Grain lifetime a / ``|da/dt|`` [s] with recondensation from gas holding
     ``n_key`` [cm^-3] of the key species at ``T_gas``.
 
     ``da/dt = -|da/dt|_vac (1 - n_key / n_sat)``, so the lifetime is the

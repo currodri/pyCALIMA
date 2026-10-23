@@ -73,8 +73,8 @@ def disk_anisotropy(cos_theta, law='skirtor'):
     hemispheres.
 
     * ``'isotropic'``: f = 1;
-    * ``'cos'``: f = 2 |cos theta| (a flat, optically thick disk);
-    * ``'skirtor'``: f = (6/7) |cos theta| (1 + 2 |cos theta|) (Netzer 1987
+    * ``'cos'``: f = 2 ``|cos theta|`` (a flat, optically thick disk);
+    * ``'skirtor'``: f = (6/7) ``|cos theta|`` (1 + 2 ``|cos theta|``) (Netzer 1987
       limb darkening as used by SKIRTOR, Stalevski et al. 2016).
     """
     mu = np.abs(np.asarray(cos_theta, dtype=float))
@@ -114,7 +114,7 @@ class HotGrain:
         """A grain of radius a_um [um] from tabulated optical constants
         (a ``stx3141_supp`` file of Kitzmann & Heng 2018, e.g. "Fe.dat"):
         Mie absorption (``collapse.optics``: log-log n, k, power-law far-IR
-        tail, small-particle expansion where |m| x < 0.1) on a wavelength grid
+        tail, small-particle expansion where ``|m| x`` < 0.1) on a wavelength grid
         (default 300 points, 0.01 um - 1 mm)."""
         import miepython
 

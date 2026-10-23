@@ -8,7 +8,7 @@ relative speed dV and a systematic relative drift mu:
   from the full closed form of Ormel & Cuzzi (2007, eqs. 16-18;
   ``collapse.velocities.ormel_cuzzi_dv``), continuous across the tightly
   coupled, intermediate and heavy regimes, with Epstein stopping times;
-* mu = |v_d(a1) - v_d(a2)| for a drift velocity v_d(a) of each grain along a
+* mu = ``|v_d(a1) - v_d(a2)|`` for a drift velocity v_d(a) of each grain along a
   common direction (e.g. radiation pressure; ``drift``), 0 by default.
 
 The relative velocity is then an isotropic Gaussian of rms dV shifted by mu,
@@ -25,7 +25,7 @@ equal flux above v_shat, each at its flux quantile speed
 in the node radii and the gas state, unlike fixed velocity directions or a
 step in v(a), which make the sub-step control chatter.
 
-Normalised variables: u = alpha v, s = alpha mu. The flux above u is
+Normalised variables: u = alpha v, s = alpha mu. The flux above u is::
 
     C(u; s) = [J(u; s) - J(u; -s)] / [J(0; s) - J(0; -s)],
     J(u; c) = int_u^inf v^2 exp(-(v - c)^2) dv

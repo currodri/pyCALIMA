@@ -2,7 +2,7 @@
 
 For each material: the complex refractive index from its optical constants
 (``materials.Material.optics``), absorption efficiencies Q_abs(a, lambda)
-(``miepython``, or the small-particle expansion where |m| x < 0.1; see
+(``miepython``, or the small-particle expansion where ``|m| x`` < 0.1; see
 ``qabs_grid``), and the Planck mean
 
     <Q>(a, T) = int Q_abs(a, lambda) B_lambda(T) dlambda / int B_lambda(T) dlambda,
@@ -97,14 +97,14 @@ SMALL_MX = 0.1    # below |m| x the small-particle expansion replaces Mie
 def qabs_small(m, x):
     """Small-particle Q_abs to O(x^4) (Bohren & Huffman 1983, Eq. 5.8): the
     electric dipole plus the next order, which carries the magnetic-dipole
-    absorption that dominates for metals (|m| >> 1). m = n - i k."""
+    absorption that dominates for metals (``|m|`` >> 1). m = n - i k."""
     m2 = m * m
     r = (m2 - 1.0) / (m2 + 2.0)
     return 4.0 * x * np.imag(-r * (1.0 + x ** 2 / 15.0 * r * (m2 ** 2 + 27.0 * m2 + 38.0) / (2.0 * m2 + 3.0)))
 
 
 def qabs_grid(material, radii_cm=RADII_CM, lam_um=LAMBDA_UM):
-    """Q_abs[a, lambda] for a material: Mie, except where |m| x < SMALL_MX.
+    """Q_abs[a, lambda] for a material: Mie, except where ``|m| x`` < SMALL_MX.
 
     There Mie's Q_ext - Q_sca cancels catastrophically when absorption is weak
     (crystalline Si at 1-5 um: Q_abs ~ 1e-13 against Q_sca ~ 1e-7), while the

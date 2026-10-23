@@ -8,7 +8,7 @@ dN/dm = A m^beta. Its mean mass,
 rises monotonically from 1 (beta -> -inf, a spike at m_L) to eta (beta ->
 +inf, a spike at m_R), so every realisable (N, M) pair has exactly one beta.
 In radius, dN/da = A' a^lam with lam = 3 beta + 2. Integrals are taken in
-u = a / a_L, which keeps the powers of order one for |beta| <= BETA_MAX.
+u = a / a_L, which keeps the powers of order one for ``|beta|`` <= BETA_MAX.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class BinProfile:
     ``lam[i]`` is the radius exponent of bin i and ``A[i]`` the normalisation
     such that dN/du = A[i] u^lam[i] on u in [1, u_R], u = a / a_L,i.
     Empty bins get A = 0. A bin whose mean mass lies closer to an edge than
-    the power law with |beta| <= BETA_MAX can reach (a near-monodisperse
+    the power law with ``|beta|`` <= BETA_MAX can reach (a near-monodisperse
     population) is represented exactly as a spike: ``delta[i]`` is True and
     all its grains sit at u_delta[i].
     """

@@ -43,7 +43,7 @@ channels of equal collision flux above v_shat at their quantile speeds, and
 sticking the flux below v_coag, both continuous in grain size and gas
 state; or from a callable ``velocity(a1, a2)`` returning a list of (weight,
 v [cm/s]) arrays, e.g. ``hy09_directions(v_of_a)``, the four cases v1 + v2,
-|v1 - v2|, v1, v2 of HY09/HK13 with weight 1/4 each, with hard thresholds
+``|v1 - v2|``, v1, v2 of HY09/HK13 with weight 1/4 each, with hard thresholds
 (kept for the HK13 benchmarks).
 """
 
@@ -135,7 +135,7 @@ def coagulation_threshold(material, a1, a2, F_stick=10.0):
 
 
 def hy09_directions(v_of_a: Callable):
-    """Relative velocities v1 + v2, |v1 - v2|, v1 and v2, weight 1/4 each,
+    """Relative velocities v1 + v2, ``|v1 - v2|``, v1 and v2, weight 1/4 each,
     from a velocity dispersion v(a) (HY09 s. 2.2; HK13 s. 2.2).
 
     v(a) should be continuous: rates are evaluated at the bin nodes, and a

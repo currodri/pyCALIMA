@@ -36,7 +36,7 @@ when a large source and sink nearly cancel.)
 Step-size control
 -----------------
 As in the Fortran, a step is rejected and ``h`` halved if any component goes
-negative, and otherwise accepted only if the largest relative change,
+negative, and otherwise accepted only if the largest relative change::
 
     max_error = max(|y_new - y| / max(|y|, y_min)),
 

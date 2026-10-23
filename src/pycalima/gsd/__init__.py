@@ -12,8 +12,11 @@ law, ``pl2m``), so the representation is positive and local.
 
 Modules
 -------
-grid      the fixed mass grid
-pl2m      the two-moment power-law reconstruction and its exact integrals
-remap     size-space transport: flow maps, conservative remap of the
-          distribution along characteristics, and nucleation injection
+grid
+    the fixed mass grid
+pl2m
+    the two-moment power-law reconstruction and its exact integrals
+remap
+    size-space transport: flow maps, conservative remap of the
+    distribution along characteristics, and nucleation injection
 """

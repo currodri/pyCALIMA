@@ -711,7 +711,7 @@ def nucleation_rate(
     """Formation of new grains from the gas by steady-state nucleation.
 
     For each entry of ``state.nucleation`` (Kozasa & Hasegawa 1987; Nozawa et
-    al. 2003, eq. 6):
+    al. 2003, eq. 6)::
 
         S   = f_n n_X v_X(T_g) / (4 P0 exp(-B/k T_c)),
         mu  = (3/2) sigma_GD89 / T_c,   sigma = mu k T_c / (4 pi a_0^2),

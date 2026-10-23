@@ -359,7 +359,7 @@ def _mean_ratio(b, le):
 @njit(cache=True)
 def solve_beta(ratio, eta, beta_max, n_iter):
     """Exponents whose mean mass ratios are ``ratio``: Illinois (regula falsi)
-    on the monotone ratio(beta), to |dbeta| < 1e-10 (``n_iter`` caps it)."""
+    on the monotone ratio(beta), to ``|dbeta|`` < 1e-10 (``n_iter`` caps it)."""
     le = math.log(eta)
     out = np.empty_like(ratio)
     r_lo = _mean_ratio(-beta_max, le)
