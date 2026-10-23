@@ -9,13 +9,24 @@ rises monotonically from 1 (beta -> -inf, a spike at m_L) to eta (beta ->
 +inf, a spike at m_R), so every realisable (N, M) pair has exactly one beta.
 In radius, dN/da = A' a^lam with lam = 3 beta + 2. Integrals are taken in
 u = a / a_L, which keeps the powers of order one for ``|beta|`` <= BETA_MAX.
+In wide bins (coarse grids) the cap is ``beta_max(eta)``, which keeps
+eta^beta below e^300; steeper profiles are spikes at an edge either way.
 """
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 BETA_MAX = 150.0
+LN_POWER_MAX = 300.0
+
+
+def beta_max(eta):
+    """Largest ``|beta|`` for a bin of mass ratio eta: BETA_MAX, or less in bins
+    so wide (eta > e^2) that eta^beta would overflow."""
+    return min(BETA_MAX, LN_POWER_MAX / math.log(eta))
 
 
 def mean_mass_ratio(beta, eta):
@@ -36,11 +47,11 @@ def mean_mass_ratio(beta, eta):
 
 def solve_beta(mbar_ratio, eta, n_iter=56):
     """Exponent beta whose mean mass ratio is ``mbar_ratio`` (in (1, eta)),
-    by bisection on [-BETA_MAX, BETA_MAX] (compiled kernel)."""
+    on [-beta_max(eta), beta_max(eta)] (compiled kernel)."""
     from ._kernels import solve_beta as _solve
 
     r = np.atleast_1d(np.asarray(mbar_ratio, float))
-    out = _solve(r.ravel().copy(), float(eta), BETA_MAX, int(n_iter)).reshape(r.shape)
+    out = _solve(r.ravel().copy(), float(eta), beta_max(eta), int(n_iter)).reshape(r.shape)
     return out if np.ndim(mbar_ratio) else float(out[0])
 
 
@@ -60,7 +71,7 @@ class BinProfile:
     ``lam[i]`` is the radius exponent of bin i and ``A[i]`` the normalisation
     such that dN/du = A[i] u^lam[i] on u in [1, u_R], u = a / a_L,i.
     Empty bins get A = 0. A bin whose mean mass lies closer to an edge than
-    the power law with ``|beta|`` <= BETA_MAX can reach (a near-monodisperse
+    the power law with ``|beta|`` <= beta_max(eta) can reach (a near-monodisperse
     population) is represented exactly as a spike: ``delta[i]`` is True and
     all its grains sit at u_delta[i].
     """
@@ -73,7 +84,8 @@ class BinProfile:
         mL = grid.m_edges[:-1]
         filled = N > 0
         ratio = np.where(filled, M / np.where(filled, N, 1.0) / mL, 0.5 * (1 + grid.eta))
-        r_lo, r_hi = mean_mass_ratio(np.array([-BETA_MAX, BETA_MAX]), grid.eta)
+        bm = beta_max(grid.eta)
+        r_lo, r_hi = mean_mass_ratio(np.array([-bm, bm]), grid.eta)
         self.delta = filled & ((ratio <= r_lo) | (ratio >= r_hi))
         self.u_delta = np.clip(ratio, 1.0, grid.eta) ** (1.0 / 3.0)
         self.beta = solve_beta(ratio, grid.eta)

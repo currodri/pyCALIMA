@@ -155,8 +155,12 @@ def _bin(edges, x):
 def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m):
     """One grain per collision (rate r) with mass spread uniformly over
     [mr - hw, mr + hw]: number and mass split across the bins it overlaps
-    (mean exactly mr), so the deposit is continuous in the node masses."""
+    (mean exactly mr), so the deposit is continuous in the node masses.
+    hw is capped at mr / 2: in wide bins a node's interval can be broader
+    than its mass, and the segment must not reach m <= 0."""
     nb = m_edges.size - 1
+    if hw > 0.5 * mr:
+        hw = 0.5 * mr
     lo = mr - hw
     hi = mr + hw
     k = _bin_log(m_edges, math.log(mr), geo_m, mr)

@@ -71,6 +71,24 @@ def test_pl2m_reproduces_the_bin_moments():
     np.testing.assert_allclose(m[filled], M[filled], rtol=1e-6)
 
 
+@pytest.mark.parametrize("n_bins", [1, 2, 4])
+def test_pl2m_profiles_stay_finite_in_very_wide_bins(n_bins):
+    """Coarse grids (a few bins over 12 decades in mass, eta up to 1e12):
+    the exponent cap shrinks with the bin width, so every realisable mean,
+    up to spikes at the edges, gives a finite profile with the bin's N and M."""
+    g = MassGrid(np.geomspace(1e-22, 1e-10, n_bins + 1), RHO)
+    for frac in (1e-9, 1e-3, 0.3, 0.5, 0.9, 1 - 1e-6):
+        r = 1.0 + frac * (g.eta - 1.0)
+        N = np.ones(n_bins)
+        M = r * g.m_edges[:-1]
+        prof = BinProfile(g, N, M)
+        assert np.all(np.isfinite(prof.A)) and np.all(np.isfinite(prof.lam))
+        n = [prof.number(i, 1.0, prof.uR) for i in range(n_bins)]
+        m = [prof.moment(i, 3, 1.0, prof.uR) * g.m_edges[i] for i in range(n_bins)]
+        np.testing.assert_allclose(n, N, rtol=1e-9)
+        np.testing.assert_allclose(m, M, rtol=1e-6)
+
+
 # ---------------------------------------------------------------------------
 # transport along characteristics
 # ---------------------------------------------------------------------------
@@ -721,6 +739,33 @@ def test_turbulent_shattering_and_sticking_run_smoothly_and_conserve_mass():
     assert r["n_steps"] < 200
     small = g.a_centres < 5e-7
     assert (r["M"][small].sum() + r["sink_M"]) > 0.01 * M.sum()
+
+
+@pytest.mark.parametrize("n_bins", [2, 4, 8])
+def test_collisions_conserve_mass_on_coarse_grids(n_bins):
+    """A few bins between 0.45 nm and 1 um (eta up to ~1e5), fragments down
+    to the grid edge: grid + overflow + sink mass is conserved and the step
+    count stays small. In wide bins a node's interval can be broader than
+    its mass, and remnant segments spread over it used to reach m <= 0:
+    negative deposits that the Patankar solve clipped into new mass."""
+    from pycalima.gsd.collisions import collide
+    from pycalima.gsd.shattering import SILICATE, GrainCollisions
+
+    m_lo, m_hi = 4 / 3 * np.pi * SILICATE.rho * np.array([4.5e-8, 1e-4]) ** 3
+    g = MassGrid(np.geomspace(m_lo, m_hi, n_bins + 1), SILICATE.rho)
+    a_e = g.a_edges
+    N, M = np.zeros(g.n_bins), np.zeros(g.n_bins)
+    for i in range(g.n_bins):
+        x1, x2 = max(5e-7, a_e[i]), min(2.5e-5, a_e[i + 1])
+        if x2 > x1:
+            N[i] = (x1 ** -2.5 - x2 ** -2.5) / 2.5
+            M[i] = 4 / 3 * np.pi * SILICATE.rho * (x2 ** 0.5 - x1 ** 0.5) / 0.5
+    scale = 4e-3 * 1.4 * 1.6735e-24 / M.sum()
+    N, M = N * scale, M * scale
+    model = GrainCollisions("silicate", _wim_velocity(), coagulation=True, a_frag_min=4.5e-8)
+    r = collide(g, N, M, model, 3.156e12, errmax=1e-3)
+    assert r["M"].sum() + r["overflow_M"] + r["sink_M"] == pytest.approx(M.sum(), rel=1e-12)
+    assert np.all(r["N"] >= 0) and r["n_steps"] < 400
 
 
 # ---------------------------------------------------------------------------
