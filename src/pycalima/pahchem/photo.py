@@ -224,8 +224,9 @@ def ionisation_rate(field, sigma_cm2, yield_, energy_ev) -> float:
 PHOTOELECTRON_PARTITION = 0.46
 
 
-#: (hv [eV], <E_k>/(hv - IP)) above 13.6 eV: the means over 8 PAHs (C13-C20) of the Verstraete+25 photoelectron
-#: matrices (Zenodo; their 7-22 eV SOLEIL data, reduced 2026-10-22): 0.43-0.48 at 13.6, 0.47-0.52 at 15,
+#: (hv [eV], <E_k>/(hv - IP)) above 13.6 eV: the means over 8 PAHs (C13-C20) of the Hrodmarsson+25 (A&A 698, A202)
+#: photoelectron matrices (Zenodo 10.5281/zenodo.15271348, deposited by Verstraete et al.; their 7-22 eV SOLEIL
+#: data, reduced 2026-10-22; ``pahchem.hrodmarsson2025``): 0.43-0.48 at 13.6, 0.47-0.52 at 15,
 #: 0.53-0.59 at 18, 0.55-0.61 at 20, 0.54-0.62 at 21.9 eV
 PARTITION_NODES = ((13.6, 0.46), (15.0, 0.49), (18.0, 0.56), (20.0, 0.58), (21.9, 0.58))
 

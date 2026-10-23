@@ -37,6 +37,7 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.population
    pycalima.pahchem.group_tables
    pycalima.pahchem.malloci2007
+   pycalima.pahchem.hrodmarsson2025
    pycalima.pahchem.spectral_fit
    pycalima.pahchem.cards
    pycalima.pahchem.montillaud13

@@ -56,6 +56,35 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
     is to be offered and compared against the default; neither choice is tuned to a fit.
   - The rest, (1 − γ_e)(E − IP), stays in the PAH as vibrational energy.
   - For photodetachment, E_k = E − EA.
+- **Hrodmarsson+25 (A&A 698, A202) measures 10.1–13.6 eV**, on nine neutrals of C13–C20 from 7 to 22 eV (SOLEIL
+  DESIRS, i²PEPICO; data on Zenodo 15271348, CC BY 4.0, `pahchem.hrodmarsson2025`;
+  `diagnostics/pahchem/check_hrodmarsson25.py`). The `PARTITION_NODES` above 13.6 eV come from these data
+  (cited as "Verstraete+25" until 2026-10-22).
+  - **Electron share below 13.6 eV:** the median γ_e is 0.77, 0.64, 0.61, 0.55 and 0.51 at 9, 10, 11, 12 and
+    13 eV, against pahchem's 0.46.
+    - Perylene (C20) is the lowest, at 0.50–0.59.
+    - Coronene's 0.46 is the only measurement above C20. So the default is kept for N_C ≥ 21, and the
+      C13–C20 values are not extrapolated.
+    - The paper's single fit, ⟨KE⟩ = 0.55 (hν − 7.74), describes the 13.6–22 eV range better than the range
+      below it.
+  - **Ionisation cross section:** the total ion yield, scaled to 22 Mb/C on the 17 eV peak as the paper does,
+    against σ × Y_Jochims.
+    - The Mathis-weighted 6–13.6 eV rate is 0.70× the data with Li & Draine (median of 8 molecules) and
+      0.66× with Malloci (4).
+    - Independent of the assumed scale, the rate per 17 eV peak is 0.44× and 0.60×. The linear Jochims yield
+      rises too slowly above threshold for these molecules.
+    - Li & Draine's 17 eV peak is 1.57× the 22 Mb/C (34 against 22), so its error partly offsets the yield's.
+  - **Perylene's maximum photoelectric efficiency** in the Mathis ISRF (their eq. 5): 3.0 % (Li & Draine) and
+    2.6 % (Malloci) with pahchem's ingredients, but 4.6 % with the measured σ_ion and ⟨KE⟩ over either
+    absorption. The paper's 1.5 % (eK16) includes WD01's free-space factor Y2, which removes the slow electrons
+    that the ion's Coulomb field would pull back.
+    - Their argument is that the lab's extraction field (440 V/cm) removes this attraction.
+    - It does not. That field equals the ion's Coulomb field only at ≈ 1800 Å, where the potential is 8 meV,
+      and it lowers the threshold by 2(e³F)^½ ≈ 16 meV.
+    - So measured molecular yields and energies are already free-space values, and Y2 on top of a measured
+      IE counts the attraction twice. pahchem does not apply it.
+  - These results are for C13–C20 only. Changing the yield law or γ_e for the library (N_C ≥ 21) needs either
+    data on larger PAHs or a size trend; neither is assumed here.
 - **Gas heating:**
 
       Γ_PE = Σ_m x_m Σ_Z f_m(Z) ∫ σ Y F ⟨E_k⟩ dE

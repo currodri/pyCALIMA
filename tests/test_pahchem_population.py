@@ -237,7 +237,7 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
 
 
 def test_photoelectron_energy_conserves_the_excess_and_follows_the_measured_share():
-    """<E_k> + E_int = E - IP; share 0.46 up to 13.6 eV, the Verstraete+25 means to 21.9 eV, then a constant E_int."""
+    """<E_k> + E_int = E - IP; share 0.46 up to 13.6 eV, the Hrodmarsson+25 means to 21.9 eV, then a constant E_int."""
     from pycalima.pahchem import photo
 
     E = np.array([5.0, 8.0, 13.6, 18.0, 21.9, 50.0, 300.0])

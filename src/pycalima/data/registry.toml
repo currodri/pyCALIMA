@@ -441,6 +441,20 @@ notes = """Machine-learning MD IR spectra of 1704 neutral PAHdb PAHs at 50, 300 
 (classical, peak-normalised) and the code. The data are CC BY-NC-SA 4.0 (the code
 Apache 2.0), so they are fetched, never bundled. Read with pycalima.pahchem.mai2025."""
 
+[datasets.hrodmarsson2025-pes]
+kind = "fetch"
+dest = "pahchem/hrodmarsson2025"
+files = ["Data files.zip"]
+size_bytes = 19_563_889
+citation = "Hrodmarsson, Verstraete, Dartois et al. (2025), A&A 698, A202; Zenodo doi:10.5281/zenodo.15271348"
+url = "https://zenodo.org/api/records/15271348/files/Data%20files.zip/content"
+url_status = "confirmed"
+sha256 = "cedbb87ce2eb94462863d3a7fd2423a48b2dac30c5db42701243565df4234839"
+fetcher = "pycalima.pahchem.hrodmarsson2025:fetch"
+notes = """Photoelectron matrices and total ion yields of nine neutral PAHs (C13-C20), 7-22 eV,
+SOLEIL DESIRS. CC BY 4.0; fetched, not bundled, for its size. Read with
+pycalima.pahchem.hrodmarsson2025."""
+
 [datasets.malloci2007-spectra]
 kind = "fetch"
 dest = "pahchem/malloci2007"
