@@ -27,14 +27,14 @@ def electrons(xyz, charge):
     return sum(VALENCE[a] for a in atoms) - charge
 
 
-def system_block(charge, xc, spacing, radius, polarised):
+def system_block(charge, xc, spacing, radius, polarised, pseudo="standard"):
     return "\n".join([
         "UnitsOutput = eV_angstrom",                 # inputs carry their units; the xyz file is in A
         'XYZCoordinates = "../geom.xyz"',
         f"ExcessCharge = {charge}",
         f"SpinComponents = {'spin_polarized' if polarised else 'unpolarized'}",
         f"XCFunctional = {XC[xc]}",
-        "PseudopotentialSet = standard",
+        f"PseudopotentialSet = {pseudo}",
         f"Spacing = {spacing}*angstrom",
         "BoxShape = minimum",
         f"Radius = {radius}*angstrom",
@@ -48,6 +48,8 @@ def main():
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--axes", nargs="+", default=["x", "y", "z"], choices=["x", "y", "z"])
     ap.add_argument("--xc", default="lda", choices=sorted(XC))
+    ap.add_argument("--pseudo", default="standard", choices=["standard", "hgh_lda"],
+                    help="standard: Octopus's Troullier-Martins LDA set (as Malloci); hgh_lda: Hartwigsen-Goedecker-Hutter")
     # 0.25 A, not Malloci's 0.3: with Octopus 16.4's standard pseudopotentials coronene's spectrum at 0.3 A has
     # 10 % too much oscillator strength to 30 eV and bands 0.2 eV blue; 0.25 and 0.2 A agree to < 1 %
     ap.add_argument("--spacing", type=float, default=0.25)
@@ -61,7 +63,7 @@ def main():
     n_el = electrons(a.xyz, a.charge)
     polarised = n_el % 2 == 1
     radius = a.edge + a.absorb
-    sysb = system_block(a.charge, a.xc, a.spacing, radius, polarised)
+    sysb = system_block(a.charge, a.xc, a.spacing, radius, polarised, a.pseudo)
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "geom.xyz").write_text(a.xyz.read_text())
     (a.out / "gs").mkdir(exist_ok=True)
@@ -95,11 +97,14 @@ module load gnu15 openmpi5 openblas fftw scalapack gsl hdf5
 export PATH=$HOME/opt/octopus-16.4/bin:$PATH LD_LIBRARY_PATH=$HOME/opt/deps/lib64:$HOME/opt/deps/lib:${{LD_LIBRARY_PATH:-}}
 export OMP_NUM_THREADS=1
 NP=${{NP:-8}}
+# every mpirun binds its ranks from core 0 by default, so concurrent runs share the same cores (seen on megatron:
+# 144 ranks on 16 physical cores); unbound, the kernel spreads them
+BIND="--bind-to none"
 cd "$(dirname "$0")"
-(cd gs && nice -n 19 mpirun -np $NP octopus > out.log 2>&1)
+(cd gs && nice -n 19 mpirun $BIND -np $NP octopus > out.log 2>&1)
 for d in {axes}; do
   rm -rf $d/restart && mkdir -p $d/restart && cp -r gs/restart/gs $d/restart/gs
-  (cd $d && nice -n 19 mpirun -np $NP octopus > out.log 2>&1) &
+  (cd $d && nice -n 19 mpirun $BIND -np $NP octopus > out.log 2>&1) &
 done
 wait
 # the kicks as multipoles.1-3, so oct-propagation_spectrum builds the tensor and its orientation average

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""An Octopus spectrum (``make_run.py``) against the Malloci+07 spectrum of the same molecule and charge.
+"""An Octopus spectrum (``make_run.py``) against the Malloci+07 spectrum of the same molecule and charge, or against
+another Octopus run (``--against``, for convergence tests).
 
 Reads ``<run>/spectrum/cross_section_tensor`` (energy [eV], (1/3) Tr sigma [A^2], ...) and compares:
 - the oscillator strength to 30 eV and its share of the valence electrons (``malloci2007.oscillator_strength``);
@@ -7,7 +8,7 @@ Reads ``<run>/spectrum/cross_section_tensor`` (energy [eV], (1/3) Tr sigma [A^2]
 - the strongest peak in 5-8 eV and in 14-20 eV;
 - the Mathis-ISRF absorption rate in 1-5 and 5-13.6 eV.
 
-    compare_malloci.py <run dir> --name coronene --charge 0 --nc 24 --nh 12
+    compare_malloci.py <run dir> --name coronene --charge 0 --nc 24 --nh 12 [--against <run dir>]
 """
 import argparse
 from pathlib import Path
@@ -32,11 +33,15 @@ def main():
     ap.add_argument("--charge", type=int, default=0)
     ap.add_argument("--nc", type=int, required=True)
     ap.add_argument("--nh", type=int, required=True)
+    ap.add_argument("--against", type=Path, default=None, help="reference Octopus run instead of Malloci")
     a = ap.parse_args()
     ours = read_octopus(a.run)
-    theirs = M.spectra()[a.name]["sigma"].get(a.charge)
-    if theirs is None:
-        raise SystemExit(f"no usable Malloci spectrum for {a.name} Z = {a.charge} (malloci2007.INCONSISTENT?)")
+    if a.against is not None:
+        theirs, ref = read_octopus(a.against), str(a.against)
+    else:
+        theirs, ref = M.spectra()[a.name]["sigma"].get(a.charge), "Malloci+07"
+        if theirs is None:
+            raise SystemExit(f"no usable Malloci spectrum for {a.name} Z = {a.charge} (malloci2007.INCONSISTENT?)")
     ma = fields.mathis1983(1.0, e_min=0.5)
     n_val = M.valence_electrons(a.nc, a.nh, a.charge)
 
@@ -56,10 +61,10 @@ def main():
         return out
 
     o, t = summary(*ours), summary(*theirs)
-    print(f"{a.name} Z = {a.charge:+d} ({n_val} valence electrons): Octopus run {a.run} against Malloci+07")
+    print(f"{a.name} Z = {a.charge:+d} ({n_val} valence electrons): Octopus run {a.run} against {ref}")
     for key in o:
         ratio = "" if key.startswith("peak") else f"   ratio {o[key] / t[key]:.3f}"
-        print(f"  {key:16s} ours {o[key]:10.4g}   Malloci {t[key]:10.4g}{ratio}")
+        print(f"  {key:16s} run {o[key]:10.4g}   reference {t[key]:10.4g}{ratio}")
 
 
 if __name__ == "__main__":
