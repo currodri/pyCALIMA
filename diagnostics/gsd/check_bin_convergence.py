@@ -589,6 +589,7 @@ def plot(rows, refs):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import NullFormatter, ScalarFormatter
     from pycalima.plotting_style import use_calima_style
 
     use_calima_style()
@@ -610,6 +611,9 @@ def plot(rows, refs):
             ax.axhline(0.05, color="0.5", lw=0.8, ls="--")
             ax.minorticks_on()
             ax.tick_params(which="both", axis="both", direction="in")
+            ax.xaxis.set_major_formatter(ScalarFormatter())
+            ax.xaxis.set_minor_formatter(NullFormatter())
+        axes[0, j].set_xticks([2, 4, 8, 16, 32])
         axes[0, j].set_title(sc.replace("_", " "), fontsize=13)
         axes[0, j].set_xlabel(r"bins per composition", fontsize=13)
         axes[1, j].set_xlabel(r"scalars per cell", fontsize=13)
