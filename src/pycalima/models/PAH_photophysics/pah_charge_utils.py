@@ -188,7 +188,7 @@ def J_function_DS87(Z: int, q: float, a: float, T: float) -> float:
     else:
         nup       = max(nu, TINY)
         tp        = max(tau, TINY)
-        theta_nu  = 1.0 / (1.0 + 1.0 / np.sqrt(nup))
+        theta_nu  = nup / (1.0 + 1.0 / np.sqrt(nup))  # DS87 eq. 3.6
         root_term = 1.0 / np.sqrt(4.0 * tp + 3.0 * nup)
         value     = (1.0 + root_term)**2 * np.exp(-theta_nu / tp)
         return value if np.isfinite(value) else 0.0
