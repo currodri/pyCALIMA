@@ -37,6 +37,11 @@ Verified against Wagner's (LSW) self-similar ripening and against Nozawa &
 Kozasa (2013) dust formation in expanding gas (within ~1-4% in
 $a_{\rm ave}$; see the review, s. 7.6).
 
+`sputtering` erodes grains in hot gas along $\dot a(a) < 0$ through the same
+remap: the yield of `dust_sputtering` (the CALIMA tables) averaged over each
+ion's Maxwellian, with the Bocchio et al. (2016) size correction that spares
+nm grains, and all mass lost from the grains returned to the gas.
+
 `coagulation` collides grains of one population: each bin's profile is
 represented by two nodes (its number halves) that reproduce $N$ and $M$
 exactly, node pairs deposit their products in the bin containing
@@ -154,6 +159,7 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.pl2m
    pycalima.gsd.remap
    pycalima.gsd.exchange
+   pycalima.gsd.sputtering
    pycalima.gsd.collisions
    pycalima.gsd.coagulation
    pycalima.gsd.shattering

@@ -182,6 +182,45 @@ def test_nucleation_at_constant_rate_and_growth_gives_the_top_hat():
     assert dM.sum() == pytest.approx(mtot, rel=1e-9)
 
 
+def test_constant_sputtering_is_the_exact_shift_and_returns_the_mass():
+    """Without the size correction the erosion rate is one da/dt for all
+    radii; sputtering is then the exact shift a -> a - |adot| dt, and the
+    mass the grains lose is what is returned to the gas."""
+    from pycalima.gsd.sputtering import erosion_rate, sputter
+
+    g = _grid()
+    N, M = _lognormal(g)
+    adot = erosion_rate("silicate", 1e7, 1.0, rho=RHO, size_correction=False)
+    rate = adot(np.geomspace(1e-7, 1e-4, 5))
+    assert np.all(rate < 0) and np.ptp(rate) == 0.0
+    dt = 1.5e-6 / -rate[0]
+    N1, M1, dM = sputter(g, N, M, adot, dt)
+    N2, M2, *_ = remap(g, N, M, lambda a: np.maximum(a - 1.5e-6, 0.0))
+    np.testing.assert_allclose(N1, N2, rtol=1e-9, atol=1e-12 * N.sum())
+    np.testing.assert_allclose(M1, M2, rtol=1e-9, atol=1e-12 * M.sum())
+    assert M1.sum() + dM == pytest.approx(M.sum(), rel=1e-13)
+
+
+def test_size_corrected_sputtering_spares_the_smallest_grains():
+    """Ions cross nm grains without depositing their energy (Bocchio et al.
+    2016): at 1e7 K the corrected rate tends to the semi-infinite one for
+    large grains and is < 3% of it at 0.5 nm. Mass is still conserved with
+    the gas."""
+    from pycalima.gsd.sputtering import erosion_rate, sputter
+
+    for material in ("graphite", "silicate"):
+        bulk = erosion_rate(material, 1e7, 1.0, size_correction=False)(1e-4)
+        corr = erosion_rate(material, 1e7, 1.0, size_correction=True)
+        assert corr(1e-4) == pytest.approx(bulk, rel=0.02)
+        assert abs(corr(5e-8)) < 0.03 * abs(bulk)
+    g = _grid()
+    N, M = _lognormal(g, a0=3e-7, sig=1.0)
+    adot = erosion_rate("graphite", 1e6, 1.0, rho=RHO)
+    N1, M1, dM = sputter(g, N, M, adot, 5e-6 / abs(adot(1e-4)))
+    assert 0.0 < dM < M.sum()
+    assert M1.sum() + dM == pytest.approx(M.sum(), rel=1e-13)
+
+
 # ---------------------------------------------------------------------------
 # gas-grain exchange
 # ---------------------------------------------------------------------------
