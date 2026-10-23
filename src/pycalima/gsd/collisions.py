@@ -152,15 +152,26 @@ def _bin(edges, x):
 
 
 @njit(cache=True, nogil=True)
+def _node_lo(m_edges, wid, i, ia):
+    """Lower mass edge of node ia's interval in bin i ([m_L, m_med] or [m_med, m_R])."""
+    return m_edges[i] if ia == 0 else m_edges[i + 1] - wid[i, 1]
+
+
+@njit(cache=True, nogil=True)
+def _bounded_hw(hw, mr, lo, hi):
+    """Half-width of a product's deposit, kept inside [lo, hi], the image of
+    its parents' node intervals (in wide bins a node is far from the centre
+    of its interval, and a symmetric segment would leak out of the bin)."""
+    return max(0.0, min(hw, mr - lo, hi - mr))
+
+
+@njit(cache=True, nogil=True)
 def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m):
     """One grain per collision (rate r) with mass spread uniformly over
     [mr - hw, mr + hw]: number and mass split across the bins it overlaps
     (mean exactly mr), so the deposit is continuous in the node masses.
-    hw is capped at mr / 2: in wide bins a node's interval can be broader
-    than its mass, and the segment must not reach m <= 0."""
+    Callers bound hw with ``_bounded_hw``."""
     nb = m_edges.size - 1
-    if hw > 0.5 * mr:
-        hw = 0.5 * mr
     lo = mr - hw
     hi = mr + hw
     k = _bin_log(m_edges, math.log(mr), geo_m, mr)
@@ -611,10 +622,15 @@ def _pair_rows(t, T, P, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, G
                     if mr > 0.0:
                         # spread like the parent node(s): a cratered remnant of
                         # p keeps p's width scaled by mr/mp, a merger both widths
-                        m_own, w_own, m_oth, w_oth = ((mp, wid[i, ia], mq, wid[j, jb]) if st == 0
-                                                      else (mq, wid[j, jb], mp, wid[i, ia]))
-                        hw = 0.5 * (w_own * min(mr / m_own, 1.0)
-                                    + w_oth * max(0.0, min((mr - m_own) / m_oth, 1.0)))
+                        lop, loq = _node_lo(m_edges, wid, i, ia), _node_lo(m_edges, wid, j, jb)
+                        m_own, w_own, l_own, m_oth, w_oth, l_oth = (
+                            (mp, wid[i, ia], lop, mq, wid[j, jb], loq) if st == 0
+                            else (mq, wid[j, jb], loq, mp, wid[i, ia], lop))
+                        s_own = min(mr / m_own, 1.0)
+                        s_oth = max(0.0, min((mr - m_own) / m_oth, 1.0))
+                        hw = _bounded_hw(0.5 * (w_own * s_own + w_oth * s_oth), mr,
+                                         l_own * s_own + l_oth * s_oth,
+                                         (l_own + w_own) * s_own + (l_oth + w_oth) * s_oth)
                         _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small,
                                          geo_m)
                     mf = frag[st, c, p, q]

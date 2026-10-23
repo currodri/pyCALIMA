@@ -745,8 +745,8 @@ def test_turbulent_shattering_and_sticking_run_smoothly_and_conserve_mass():
 def test_collisions_conserve_mass_on_coarse_grids(n_bins):
     """A few bins between 0.45 nm and 1 um (eta up to ~1e5), fragments down
     to the grid edge: grid + overflow + sink mass is conserved and the step
-    count stays small. In wide bins a node's interval can be broader than
-    its mass, and remnant segments spread over it used to reach m <= 0:
+    count stays small. In wide bins a node lies far from the centre of its
+    interval, and remnant segments centred on it used to reach m <= 0:
     negative deposits that the Patankar solve clipped into new mass."""
     from pycalima.gsd.collisions import collide
     from pycalima.gsd.shattering import SILICATE, GrainCollisions
@@ -766,6 +766,37 @@ def test_collisions_conserve_mass_on_coarse_grids(n_bins):
     r = collide(g, N, M, model, 3.156e12, errmax=1e-3)
     assert r["M"].sum() + r["overflow_M"] + r["sink_M"] == pytest.approx(M.sum(), rel=1e-12)
     assert np.all(r["N"] >= 0) and r["n_steps"] < 400
+
+
+@pytest.mark.parametrize("n_bins", [4, 8, 32])
+def test_sticking_never_moves_mass_to_smaller_bins(n_bins):
+    """Merging grains only grows them: the mass in bins >= k cannot fall for
+    any k. On coarse grids it did, because products were spread symmetrically
+    about a node that sits far from the centre of its wide interval, so part
+    of every merger with a tiny grain landed in the bin below; deposits now
+    stay inside the image of the parents' node intervals."""
+    from pycalima.gsd.collisions import collide
+    from pycalima.gsd.shattering import GRAPHITE, GrainCollisions
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    m_lo, m_hi = 4 / 3 * np.pi * GRAPHITE.rho * np.array([3.5e-8, 1e-4]) ** 3
+    g = MassGrid(np.geomspace(m_lo, m_hi, n_bins + 1), GRAPHITE.rho)
+    a_e = g.a_edges
+    N, M = np.zeros(g.n_bins), np.zeros(g.n_bins)
+    for i in range(g.n_bins):
+        x1, x2 = max(3.5e-8, a_e[i]), min(2.5e-5, a_e[i + 1])
+        if x2 > x1:
+            N[i] = (x1 ** -2.5 - x2 ** -2.5) / 2.5
+            M[i] = 4 / 3 * np.pi * GRAPHITE.rho * (x2 ** 0.5 - x1 ** 0.5) / 0.5
+    scale = 1e-3 * 1.4 * 1.6735e-24 * 1e4 / M.sum()
+    N, M = N * scale, M * scale
+    rv = RelativeVelocity(T=10.0, n_H=1e4, mu=1.4, v_turb=1.5e5, L=3.086e18)
+    model = GrainCollisions("graphite", rv, coagulation=True, v_shat=1e30, a_frag_min=3.5e-8)
+    r = collide(g, N, M, model, 3.156e12, errmax=1e-3)
+    above0 = np.cumsum(M[::-1])[::-1]
+    above1 = np.cumsum(r["M"][::-1])[::-1] + r["overflow_M"]
+    assert np.all(above1 >= above0 * (1 - 1e-12))
+    assert np.any(above1[1:] > above0[1:] * (1 + 1e-6))  # and mass did move up
 
 
 # ---------------------------------------------------------------------------
