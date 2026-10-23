@@ -2,7 +2,7 @@
 (``compute_Coulomb_focusing_ions`` in calima/dust_charging.f90).
 
 D(j) is the mean, over the grain's charge distribution P(Z), of the Weingartner & Draine (1999,
-eqs. 6-7) factor for an impactor of charge j, with c = |j| e^2/(a k T):
+eqs. 6-7) factor for an impactor of charge j, with ``c = |j| e^2/(a k T)``::
 
     Z j < 0 (attractive)    1 + |Z| c
     Z j > 0 (repulsive)     exp(-|Z| c)
