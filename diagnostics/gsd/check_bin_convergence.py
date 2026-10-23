@@ -32,19 +32,20 @@ correction). The coarse runs step at a fixed hydro dt (``--dt-hydro``), the
 cadence at which RAMSES would re-impose the in-bin shape; the reference takes
 the per-phase steps of PHASES (``--ref-check`` halves them).
 
-Phases are HY09 Table 1 (Hirashita & Yan 2009, MNRAS 394, 1061: T, n_H,
-injection scale L and velocity V, here the Ormel & Cuzzi driving), plus a
-hot post-shock phase for sputtering. The parcel is Lagrangian: abundances per
-H are kept and scaled by each phase's n_H.
+Scenarios: each process alone from the WD01 distribution (accretion in a
+molecular cloud, shattering in the WNM and the WIM, coagulation in a dense
+cloud, sputtering in hot gas), and the four in series. Phases are HY09
+Table 1 (Hirashita & Yan 2009, MNRAS 394, 1061: T, n_H, injection scale L
+and velocity V, here the Ormel & Cuzzi driving), plus hot post-shock gas.
+Abundances per H are kept and scaled by each phase's n_H.
 
-Accuracy: at fixed snapshot times, per composition the dust mass, the mass
-fractions in [a_min, 1 nm], [1, 10 nm], [10, 100 nm], [0.1, 1 um], > 1 um,
-below 0.03 um (D_S / (D_S + D_L), Hirashita 2015), the grain area per H and the
-mass-weighted radius; for the mixture A_V/N_H, A_lambda/A_V at 0.1, 0.15,
-0.2175, 0.3 and 2.2 um and R_V (Mie, Draine & Lee 1984 optics, integrated
-over the in-bin profiles). Errors are relative, with a floor of 0.01 for the
-mass fractions. Cost: scalars per cell, collision sub-steps and wall time
-per hydro step.
+Accuracy, at fixed snapshot times: per composition the dust mass, the
+power-law slope of dn/da (mass-weighted fit over 3 nm - 0.25 um) and the
+shape (mass-weighted mean and width of ln a); for the mixture A_V/N_H, R_V,
+the 2175 A bump over its continuum, the far-UV slope A(0.1)/A(0.15) and the
+curve A_lambda/A_V from 0.1 to 2.2 um (Mie, Draine & Lee 1984 optics,
+integrated over the in-bin profiles). Errors are relative. Cost: scalars
+per cell, collision sub-steps and wall time per hydro step.
 
 Usage
 -----
@@ -85,7 +86,9 @@ F_DEP0 = 0.5                 # initial fraction of the key element in dust
 SOLAR = {"C": 2.69e-4, "Si": 3.24e-5}   # Asplund et al. 2009, per H
 N_BINS = (2, 3, 4, 6, 8, 12, 16, 24, 32)
 SCHEMES = ("pl2m", "1m-mrn", "1m-limiter")
-LAMBDAS_UM = (0.1, 0.15, 0.2175, 0.3, 0.44, 0.55, 2.2)
+LAMBDAS_UM = (0.1, 0.12, 0.15, 0.18, 0.2175, 0.25, 0.3, 0.36, 0.44, 0.55, 0.7, 0.9, 1.25,
+              1.65, 2.2)
+SLOPE_RANGE = (3e-7, 2.5e-5)  # [cm] range of the power-law fit of dn/da
 
 # HY09 Table 1 (T [K], n_H [cm^-3], L [pc], V [km/s]) and a hot phase.
 # dt_ref [yr]: the reference macro-step.
@@ -98,16 +101,20 @@ PHASES = {
     "HOT": dict(T=3e6, n_H=1.0, L=0.0, V=0.0, dt_ref=2e2),
 }
 
-# segments (phase, duration [Myr]) and the processes switched on
+# each process alone, then all four in series: segments of (phase,
+# duration [Myr], processes switched on)
+_ACC = ("MC", 100.0, {"accretion"})
+_SHAT_WNM = ("WNM", 100.0, {"shattering"})
+_SHAT_WIM = ("WIM", 30.0, {"shattering"})
+_COAG = ("DC", 30.0, {"coagulation"})
+_SPUT = ("HOT", 0.03, {"sputtering"})
 SCENARIOS = {
-    "accretion": dict(segments=[("MC", 100.0)], processes={"accretion"}),
-    "shattering_wnm": dict(segments=[("WNM", 100.0)], processes={"shattering"}),
-    "shattering_wim": dict(segments=[("WIM", 30.0)], processes={"shattering"}),
-    "coagulation": dict(segments=[("DC", 30.0)], processes={"coagulation"}),
-    "sputtering": dict(segments=[("HOT", 0.03)], processes={"sputtering"}),
-    "cycle": dict(segments=[("WNM", 30.0), ("CNM", 10.0), ("MC", 10.0), ("DC", 1.0),
-                            ("WNM", 30.0), ("WIM", 10.0), ("HOT", 0.01)] * 5,
-                  processes={"accretion", "shattering", "coagulation", "sputtering"}),
+    "accretion": [_ACC],
+    "shattering_wnm": [_SHAT_WNM],
+    "shattering_wim": [_SHAT_WIM],
+    "coagulation": [_COAG],
+    "sputtering": [_SPUT],
+    "series": [_ACC, _SHAT_WNM, _COAG, _SPUT],
 }
 SNAP_FRACTIONS = (0.1, 0.3, 1.0)
 
@@ -310,17 +317,6 @@ def mie_table():
     return tab
 
 
-def _mass_between(prof, grid, a1, a2):
-    """Mass of grains with a1 <= a < a2 from the in-bin profiles."""
-    tot = 0.0
-    for i in np.nonzero(prof.N > 0)[0]:
-        u1 = max(a1 / prof.aL[i], 1.0)
-        u2 = min(a2 / prof.aL[i], prof.uR)
-        if u2 > u1:
-            tot += prof.moment(i, 3, u1, u2) * grid.m_edges[i]
-    return tot
-
-
 def _integrate(prof, f):
     """sum over grains of f(a) (f vectorised, trailing axes allowed)."""
     tot = 0.0
@@ -346,43 +342,70 @@ def metrics(comps, mie):
     for c in comps:
         prof = BinProfile(c.grid, c.number(), c.M)
         g = c.grid
-        top = g.a_edges[-1]
-        above = c.over_M + (_mass_between(prof, g, A_MAX, top * 1.0001) if top > A_MAX * 1.0001 else 0.0)
-        M_tot = c.M.sum() + c.over_M
         n = c.mat.name
-        out[f"{n}:M_dust"] = M_tot
-        edges = (c.mat.a_min, 1e-7, 1e-6, 1e-5, A_MAX)
-        for lo, hi, lab in zip(edges[:-1], edges[1:], ("<1nm", "1-10nm", "10-100nm", "0.1-1um")):
-            out[f"{n}:f({lab})"] = _mass_between(prof, g, lo, hi) / M_tot
-        out[f"{n}:f(>1um)"] = above / M_tot
-        # D_S / D_L as the bounded small-grain fraction D_S / (D_S + D_L): the
-        # ratio itself diverges once shattering has removed the large grains
-        out[f"{n}:f(<30nm)"] = _mass_between(prof, g, c.mat.a_min, 3e-6) / M_tot
-        out[f"{n}:area"] = _integrate(prof, lambda a: np.pi * a ** 2)
-        out[f"{n}:a_m"] = _integrate(prof, lambda a: g.mass(a) * a) / c.M.sum()
+        out[f"{n}:M_dust"] = c.M.sum() + c.over_M
+        out[f"{n}:slope"] = _power_law_slope(prof, g)
+        # shape: mass-weighted mean and width of ln a
+        Mg = max(c.M.sum(), 1e-300)
+        l1 = _integrate(prof, lambda a: g.mass(a) * np.log(a)) / Mg
+        l2 = _integrate(prof, lambda a: g.mass(a) * np.log(a) ** 2) / Mg
+        out[f"{n}:a_m"] = np.exp(l1)
+        out[f"{n}:width"] = np.sqrt(max(l2 - l1 ** 2, 0.0))
         la = np.log(mie["a"])
         lC = np.log(mie[n])
         A_lam = A_lam + _integrate(prof, lambda a: np.exp(np.array(
             [np.interp(np.log(a), la, lC[:, k]) for k in range(lC.shape[1])]).T))
     A = 1.086 * A_lam                                          # A_lambda / N_H [mag cm^2]
-    iV, iB = LAMBDAS_UM.index(0.55), LAMBDAS_UM.index(0.44)
-    out["ext:A_V/N_H"] = A[iV]
-    out["ext:R_V"] = A[iV] / (A[iB] - A[iV])
-    for k, lam in enumerate(LAMBDAS_UM):
-        if lam not in (0.44, 0.55):
-            out[f"ext:A({lam})/A_V"] = A[k] / A[iV]
+    i = {lam: k for k, lam in enumerate(LAMBDAS_UM)}
+    AV = A[i[0.55]]
+    out["ext:A_V/N_H"] = AV
+    out["ext:R_V"] = AV / (A[i[0.44]] - AV)
+    # 2175 A bump over the continuum interpolated linearly in 1/lambda
+    # between 0.15 and 0.3 um; UV slope as the far-UV rise
+    t = (1 / 0.2175 - 1 / 0.3) / (1 / 0.15 - 1 / 0.3)
+    out["ext:bump"] = A[i[0.2175]] / (A[i[0.3]] + t * (A[i[0.15]] - A[i[0.3]]))
+    out["ext:UV_slope"] = A[i[0.1]] / A[i[0.15]]
+    for k, lam in enumerate(LAMBDAS_UM):         # the curve's shape, A_lambda / A_V
+        if lam != 0.55:
+            out[f"ext:curve({lam})"] = A[k] / AV
     return out
 
 
-FLOORED = ("f(",)                 # mass fractions: relative error with a floor
+def _power_law_slope(prof, grid):
+    """Exponent of the best power law dn/da ~ a^p over SLOPE_RANGE: a fit of
+    ln(dN/d ln a) on 12 log intervals, weighted by the mass in each."""
+    e = np.geomspace(*SLOPE_RANGE, 13)
+    Nk = np.zeros(12)
+    Mk = np.zeros(12)
+    for i in np.nonzero(prof.N > 0)[0]:
+        for k in range(12):
+            u1 = max(e[k] / prof.aL[i], 1.0)
+            u2 = min(e[k + 1] / prof.aL[i], prof.uR)
+            if u2 > u1:
+                Nk[k] += prof.number(i, u1, u2)
+                Mk[k] += prof.moment(i, 3, u1, u2) * grid.m_edges[i]
+    ok = (Nk > 0) & (Mk > 0)
+    if ok.sum() < 3:
+        return np.nan
+    x = 0.5 * np.log(e[:-1] * e[1:])[ok]
+    y = np.log(Nk[ok] / np.log(e[1] / e[0]))
+    w = Mk[ok] / Mk[ok].sum()
+    xm, ym = (w * x).sum(), (w * y).sum()
+    return (w * (x - xm) * (y - ym)).sum() / (w * (x - xm) ** 2).sum() - 1.0
 
 
 def errors(m, ref):
-    """Relative error of each metric against the reference."""
+    """Relative error of each metric against the reference (the slope
+    relative to max(|p|, 1)); an undefined value where the reference has one
+    counts as infinite."""
     out = {}
     for k, v in ref.items():
-        scale = max(abs(v), 0.01) if any(s in k for s in FLOORED) else abs(v)
-        out[k] = abs(m[k] - v) / max(scale, 1e-300)
+        x = m[k]
+        if np.isnan(v) or np.isnan(x):
+            out[k] = 0.0 if np.isnan(v) and np.isnan(x) else np.inf
+            continue
+        scale = max(abs(v), 1.0) if k.endswith(":slope") else abs(v)
+        out[k] = abs(x - v) / max(scale, 1e-300)
     return out
 
 
@@ -391,14 +414,13 @@ def errors(m, ref):
 # ---------------------------------------------------------------------------
 
 def schedule(scenario, quick):
-    """[(phase, t_start, t_end)] intervals between snapshots [s]."""
-    sc = SCENARIOS[scenario]
+    """[(phase, processes, t_start, t_end)] intervals between snapshots [s]."""
     out, t = [], 0.0
-    for ph, dur in sc["segments"]:
+    for ph, dur, processes in SCENARIOS[scenario]:
         d = dur * MYR * (0.1 if quick else 1.0)
         prev = 0.0
         for f in SNAP_FRACTIONS:
-            out.append((ph, t + prev * d, t + f * d))
+            out.append((ph, processes, t + prev * d, t + f * d))
             prev = f
         t += d
     return out
@@ -432,11 +454,10 @@ def run_one(scenario, scheme, n_bins, a_min_c, a_min_si, ic, dt_hydro_yr, quick,
         gas[mat.key] = SOLAR[mat.key] * (1.0 - F_DEP0)
     totals0 = {c.mat.key: gas[c.mat.key] + c.M.sum() * c.per_gram for c in comps}
     mie = mie_table()
-    processes = SCENARIOS[scenario]["processes"]
     stats = dict(coll_substeps=0, t_coll=0.0, t_acc=0.0, t_sput=0.0, hydro_steps=0)
     times, rows, gases = [0.0], [metrics(comps, mie)], [dict(gas)]
     wall0 = time.perf_counter()
-    for ph, t0, t1 in schedule(scenario, quick):
+    for ph, processes, t0, t1 in schedule(scenario, quick):
         if n_bins is None:
             # small steps only where operators are split or the gas couples
             # (the backward-Euler exchange); collisions alone sub-step
