@@ -63,7 +63,7 @@ def test_grackle_dust_free_tracks_do_not_fragment(lz):
 
 
 @pytest.mark.parametrize("M", [13, 20, 25, 30])
-def test_grackle_grains_have_grackle_cross_sections(M):
+def test_grackle_grains_have_grackle_cross_sections(M, collapse_optics):
     pops, _, info = nozawa_ccsn(M, 1e-5, n_amb=1, grains="grackle")
     gg = grackle_grains()[float(M)]
     assert info["f_dep"] == pytest.approx(sum(v[0] for v in gg.values()), rel=1e-6)
@@ -73,7 +73,7 @@ def test_grackle_grains_have_grackle_cross_sections(M):
         assert _S(p) == pytest.approx(3 * r2 / (4 * get_material(p.material).rho_s * r3), rel=0.03)
 
 
-def test_grackle_silicon_is_as_transparent_as_ours():
+def test_grackle_silicon_is_as_transparent_as_ours(collapse_optics):
     """Nozawa+08 / Chiaki+15 silicon (Piller 1985) absorbs like ours (Franta+17)
     to a factor of a few, about 1e3 below carbon: the low far-IR emissivity of pure Si is
     not an artefact of our optical constants."""
@@ -106,7 +106,7 @@ def _zcr(M, track):
 
 
 @pytest.mark.parametrize("M", [13, 20])
-def test_grackle_gas_brings_critical_metallicity_towards_grackle(M):
+def test_grackle_gas_brings_critical_metallicity_towards_grackle(M, collapse_optics):
     """Static dust with Grackle's grains: Grackle's gas lowers [Z_cr] by 0.15-0.35 dex
     from the Omukai+05 Z = 0 track, and leaves it at most 0.45 dex above Grackle's
     own (the energy-equation limitation in the module docstring; 0.19 and 0.37 now)."""

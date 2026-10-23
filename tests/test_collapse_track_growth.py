@@ -130,7 +130,7 @@ def test_growth_onset_scales_as_z_to_the_minus_two_at_chiaki13_densities(mgsio3_
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("material,a_peak", [("MgSiO3", 3e-6), ("C", 1e-6)])
-def test_critical_dust_to_gas_times_cross_section_is_schneider12_eq16(z0, material, a_peak):
+def test_critical_dust_to_gas_times_cross_section_is_schneider12_eq16(z0, material, a_peak, collapse_optics):
     """S D_cr = 1.4e-3 cm^2/g (T/1e3 K)^-1/2 at 1e12 cm^-3 (Schneider+12a Eq. 16,
     obeyed by their one-zone models): within 25 % for S differing 4x."""
     make = lambda D: ([lognormal_population(material, D * RHO_PER_H, a_peak=a_peak)], None)
@@ -184,7 +184,7 @@ def test_accretion_focus_speeds_up_only_the_limiting_key_species():
     assert da3[0] == pytest.approx(da1[0], rel=1e-12)
 
 
-def test_accretion_focus_may_depend_on_density(z0):
+def test_accretion_focus_may_depend_on_density(z0, collapse_optics):
     """A callable focus of (n_H, T) acts like the fixed one where it returns it, and
     not at all where it returns nothing."""
     from pycalima.collapse.ics import nozawa_ccsn

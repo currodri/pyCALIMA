@@ -36,7 +36,7 @@ def z0():
 
 
 @pytest.mark.parametrize("M", [13, 20, 25, 30])
-def test_ics_reproduce_chiaki15_dust_to_metal_ratios(M):
+def test_ics_reproduce_chiaki15_dust_to_metal_ratios(M, collapse_optics):
     pops, y, info = nozawa_ccsn(M, 1e-5)
     model = chiaki2015_models()[float(M)]
     assert info["f_dep"] == pytest.approx(model["f_dep"], rel=1e-9)
@@ -49,7 +49,7 @@ def test_ics_reproduce_chiaki15_dust_to_metal_ratios(M):
     assert y["C"] == 0.0      # O-rich: carbon in CO
 
 
-def test_ics_carbon_and_silicate_shares_match_chiaki15():
+def test_ics_carbon_and_silicate_shares_match_chiaki15(collapse_optics):
     """N07M20n0: f_dep,C = 0.023, f_dep,Sil = 0.049 (Table 3)."""
     pops, y, info = nozawa_ccsn(20, 1e-5)
     x = {p.material: p.x.sum() for p in pops}
@@ -102,7 +102,7 @@ def test_dust_cooling_lowers_the_temperature_and_fragments(z0):
     assert frag and all(m < 0.8 for _, _, m in frag)
 
 
-def test_static_dust_critical_metallicity_matches_chiaki15_table3(z0):
+def test_static_dust_critical_metallicity_matches_chiaki15_table3(z0, collapse_optics):
     """N07M20n0 without growth: [Z_cr] = -5.2 (Chiaki+15), within 0.35 dex. The
     gamma criterion converges for d ln n <= 0.1 (-4.91, -4.95, -4.97 at 0.1, 0.05,
     0.025); 0.2 is too coarse for the energy step (-4.47)."""
