@@ -17,7 +17,7 @@ recursive-include src/pycalima/solvers *.json
 recursive-include src/pycalima/solvers/ramses_source *.f90 *.md
 recursive-include src/pycalima/galaxysam/yield_files *
 recursive-include src/pycalima/galaxysam/external_yields *
-recursive-include tests *.py *.json
+recursive-include tests *.py *.json *.txt
 
 # ------------------------------------------------------------------ prune ---
 # .claude/worktrees/ holds TWO FULL COPIES of this repository (~226 MB, as git
