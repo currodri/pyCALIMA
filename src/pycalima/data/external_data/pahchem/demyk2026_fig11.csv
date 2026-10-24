@@ -1,0 +1,14 @@
+# Digitised 2026-10-20 from the arXiv v2 source PNGs of Demyk et al. (2026), arXiv:2607.16018, by colour
+# (matplotlib default cycle) and the axes frames; pycalima diagnostics/pahchem/check_demyk2026.py compares them.
+# Fig. 11: emission temperatures of the 6H-pyrene 2946.9 cm^-1 band photons after one 4 eV photon, 1e4 cascades;
+# 100 K bins (edges read as 1200, 1100, ..., 300 K).
+t_hi_k,t_lo_k,counts
+1200,1100,4157
+1100,1000,5742
+1000,901,5404
+901,800,4424
+800,700,3540
+700,601,2247
+601,500,975
+500,400,182
+400,300,0

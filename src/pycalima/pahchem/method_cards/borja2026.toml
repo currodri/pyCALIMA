@@ -1,0 +1,34 @@
+# Method card: Borja, Calvo, Parneix & Falvo 2026, J. Chem. Phys. 164, 134106 ("B26").
+#
+# Conventions as in andrews16.toml (source, A-E confidence). Read from
+# arXiv:2601.02173v3 (the revised manuscript; equation numbers counted from its
+# source). Fig. 8 read from its vector paths (borja2026_fig8_krf.csv).
+#
+# Status (2026-10-06): k_RF(E) of every state recovered by pahchem's simpler RF
+# rate with their Table I inputs (tests/test_pahchem_recurrent_fluorescence.py).
+
+[card]
+name = "Borja2026"
+bib_key = "Borja2026"
+citation = "Borja, Calvo, Parneix & Falvo 2026, J. Chem. Phys. 164, 134106 (doi:10.1063/5.0318065; arXiv:2601.02173)"
+read_from = "arXiv v3 LaTeX source; Fig. 8 from the vector figure; the published version was not accessible"
+status = "recovered"
+
+[species]
+molecules = "naphthalene+, anthracene+, pyrene+ (D2h); states D1, D2 (and D3 for pyrene+)"
+electronic_structure = { value = "wB97XD/cc-pVTZ DFT and TD-DFT (Gaussian16), unscaled frequencies", source = "Sect. II", confidence = "C" }
+gaps = { value = "experimental photoelectron D0-Dn: Np+ 0.73, 1.93; An+ 1.10, 1.76; Py+ 0.85, 1.59, 1.88 eV", source = "Table I (exp. column; used for the rates)", confidence = "A" }
+oscillator_strengths = { value = "Table I: f_FC (allowed) and f_HT at 0 and 2000 K (borja2026_table1.csv)", source = "Table I", confidence = "C" }
+
+[dissociation]
+modelled = "no: RF rates and spectra only; no cascade, IR cooling or dissociation"
+
+[rf]
+rate = { value = "k_RF(omega; E) from the Herzberg-Teller dipole correlation function, P_e(E) = Omega_e/(Omega_g + Omega_e), T_av inside each state", source = "eqs. 10-16, 21-32, App. B", confidence = "C" }
+pahchem_form = "cooling.recurrent_fluorescence_rates: k_n = 0.667 nu_n^2 f_0n rho_g(E - E_n)/rho_g(E) (ground-state density for both states; Leger+88), PAHdb v4.00 cation modes (UIDs 359, 266, 360)"
+
+[targets]
+fig8 = "per-state k_RF(E), 4-13 eV: allowed states -0.18 to +0.16 dex (0.07 at 6-10 eV); forbidden D1 (pure Herzberg-Teller) -0.14 to +0.49 dex, ours high at low E"
+interpretation = "Above ~6-7 eV, where RF competes with dissociation, the allowed states dominate and the simple form is within 0.1 dex of the full treatment. The D1 difference is the Duschinsky and mode-resolved Herzberg-Teller physics the simple form leaves out (f_HT is interpolated linearly in T)"
+text_vs_figure = "v3 text: Np+ D1 dominates up to 6.41 eV, which is what the v1 figure gives; the v3 Fig. 8 gives 6.09 eV (Np+ D1 lowered by up to 0.66 dex at 2 eV between v1 and v3)"
+not_in_paper = "storage-ring cooling rates; vibrational frequencies, dipole derivatives, Duschinsky matrices (on request from the authors)"

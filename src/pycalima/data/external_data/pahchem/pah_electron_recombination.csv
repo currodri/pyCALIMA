@@ -1,0 +1,22 @@
+# Measured electron-PAH cation recombination rate coefficients at ~300 K [cm^3 s^-1].
+# Compiled from Bierbaum, Le Page & Snow 2011 (EAS Publ. Ser. 46, 427, doi:10.1051/eas/1146044) and the primary papers.
+# Re-checked 2026-10-21 against Abouelaziz et al. 1993 (Table I) and Biennier et al. 2006 (Table 2): every value and err_frac agrees.
+# method: FALP-MS = flowing afterglow with ions made by charge transfer (can be internally hot); FlAPI = flowing afterglow with
+# photo-ions made 0.11-0.5 eV above threshold (Biennier et al. 2006); VENDAMS = Wiens, Shuman & Viggiano 2015.
+# err_frac is the quoted fractional uncertainty. The two naphthalene values disagree by 3x: a measure of the systematic error.
+# Fluoranthene: one experiment, Rebrion-Rowe et al. 2003 (read 2026-10-22), alpha_1 = (2.5 +- 1.5)e-6 for its "primary
+# ions", a mixture of C16H10-n+ (some dehydrogenated) and N-bearing ions made by N+/N2+ charge transfer (6.6-7.7 eV excess).
+# The 3.0e-6 +- 0.30 row quoted by Biennier et al. 2006 Table 2 is that experiment's typical fit (their Fig. 8), so it was
+# removed on 2026-10-22: it counted the same measurement twice in chemistry.lab_recombination_fit (10 -> 9 points).
+# Phenanthrene (Hassouna et al. 2003, conference proceedings) is not accessible and stays as quoted by Biennier et al. 2006.
+# Excluded: acenaphthene FALP-MS 1.5 +- 0.5e-6 (Hassouna et al. 2003), from internally excited ions (Biennier et al. 2006 Sect. 3.1).
+species,formula,n_c,k_cm3_s,err_frac,source,doi,method
+benzene,C6H6,6,1.0e-6,0.30,"Abouelaziz et al. 1993 (J. Chem. Phys. 99, 237)",10.1063/1.465801,FALP-MS
+naphthalene,C10H8,10,3.0e-7,0.33,"Abouelaziz et al. 1993 (J. Chem. Phys. 99, 237)",10.1063/1.465801,FALP-MS
+naphthalene,C10H8,10,9.0e-7,0.33,Wiens Shuman & Viggiano 2015,10.1063/1.4913829,VENDAMS
+azulene,C10H8,10,1.1e-6,0.27,Biennier et al. 2006,10.1039/b516858a,FlAPI
+acenaphthene,C12H10,12,5.0e-7,0.40,Biennier et al. 2006,10.1039/b516858a,FlAPI
+anthracene,C14H10,14,2.4e-6,0.33,Novotny et al. 2005,10.1063/1.2000927,FlAPI
+phenanthrene,C14H10,14,1.7e-6,0.29,"Hassouna et al. 2003 (Dissociative Recombination of Molecular Ions with Electrons V, Kluwer, p. 49), as quoted by Biennier et al. 2006 Table 2",,FALP-MS
+fluoranthene,C16H10,16,2.5e-6,0.60,"Rebrion-Rowe et al. 2003 (Int. J. Mass Spectrom. 223-224, 237); mixed primary ions",10.1016/S1387-3806(02)00794-7,FALP-MS
+pyrene,C16H10,16,4.1e-6,0.29,Novotny et al. 2005,10.1063/1.2000927,FlAPI

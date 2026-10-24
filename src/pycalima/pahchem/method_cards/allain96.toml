@@ -1,0 +1,319 @@
+# Method card: Allain, Leach & Sedlmayr 1996, A&A 305, 602 (paper I) and
+# A&A 305, 616 (paper II).
+#
+# Conventions as in andrews16.toml. Each number has a `source` in the paper
+# (I = 305, 602; II = 305, 616) and a `confidence`: A experiment, B benchmarked
+# theory, C theory, D extrapolation, E assumption. "not stated" marks what the
+# papers do not give; a reproduction is free there and must say what it chose.
+# Remarks starting "check:" are arithmetic done while transcribing (2026-10-05),
+# not statements of the paper.
+
+[card]
+name = "Allain1996"
+bib_key = "Allain1996a"
+citation = "Allain, Leach & Sedlmayr 1996, A&A 305, 602 (I: C2H2 loss) and A&A 305, 616 (II: ionisation and hydrogenation states)"
+read_from = "ADS full-text scans (1996A&A...305..602A, 1996A&A...305..616A), every page of both papers, tables zoomed at 300 dpi"
+status = "draft"
+companion_bib_key = "Allain1996b (paper II; not yet in refs.bib)"
+
+[species]
+paperI_rates = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C"]   # I Table 4
+paperI_photophysics = ["C6H6", "C10H8", "C14H10", "C16H10", "C24H12"]      # I Table 2, Figs. 2-4
+paperII_rates = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C", "PAH 100 C"]  # II Tables 2-3
+paperII_equilibrium = "benzene, pyrene, coronene, ovalene, NC = 50, NC = 100 (Figs. 5, 8); C32H14, C50Hn, C60Hm (Fig. 14); NC 6-100 (Figs. 7, 10, 15)"
+nh_of_large_pahs = "not stated (PAH 50 C, PAH 100 C, C50Hn, C60Hm: N_H0 never given, though the RRK exponent 3N-7 depends on it)"
+geometry_of_large_pahs = "not stated (compact implied by a = 0.9 NC^1/2 A)"
+paperI_hydrogenation = "fully hydrogenated neutrals only (I Sect. 4)"
+nh_range_paperII = "0 to N_H0; no superhydrogenated states (II eqs. 13-14, footnote 1)"
+alpha_h = "alpha_H = N_H / N_H0 (II eq. 7); a PAH 'at alpha_H' has N_H = INT(alpha_H N_H0) (II Sect. 2.3)"
+charges = "paper I: Z = 0 only. Paper II: Z = 0, +1; no dications (cation ionisation < 1e-10 s^-1, II Sect. 3.1.1); no anions"
+acetylenic = "phenylacetylene and PAH-C2H with up to 50 C (I Sect. 3.3, Figs. 9-10)"
+source = "I Tables 2, 4; II Sects. 2.2, 2.3, 3.1.1, 3.2.1"
+
+[field]
+# Photon flux N(E) [photons cm^-2 s^-1 eV^-1], integrated over all directions.
+range = { e_min = 2.8, e_max = 13.6, unit = "eV", source = "I Sect. 3.1; II Sect. 2.3", confidence = "E" }
+set1 = "Draine 1978: N1(E)/4pi = 6.919e3 E^3 - 2.152e5 E^2 + 1.658e6 E (5-13.6 eV, eq. 18); 2.8-5.2 eV: N1(E) = 4.89085e6 E^4 - 9.133074e7 E^3 + 6.36590e8 E^2 - 1.96811e9 E + 2.28706e9 (eq. 19, from Witt & Johnson 1973); E in eV"
+set1_source = "I Sect. 3.1, eqs. 18-19"
+set1_confidence = "B"
+set1_overlap = "not stated how eqs. 18 and 19 join over 5.0-5.2 eV"
+set1_check = "check: eq. 19 as printed gives 4.2e7 at 3 eV and 1.7e6 at 5 eV, while 4pi x eq. 18 gives 4.7e7 at 5 eV. 4pi x eq. 19 (5.3e8 at 3 eV) matches Fig. 5 near 3 eV, so eq. 19 is probably per steradian too, but even then it falls 2x below eq. 18 at 5 eV. Use Fig. 5 (digitised) for 2.8-5.2 eV, or flag the choice."
+set2 = "Gondhalekar, Phillips & Wilson 1980 over 4.5-13.3 eV, extended to 2.8-13.6 eV with Mathis et al. 1983 (I Sect. 3.1); shown only in I Fig. 5, no table"
+set2_source = "I Sect. 3.1, Fig. 5; II Sect. 2.3"
+set2_confidence = "A"
+set_ratio = { value = 1.6, unit = "Set 1 / Set 2 rates", source = "I Sect. 3.2", confidence = "C" }
+chi = "chi multiplies the Set 2 (Gondhalekar) photon flux (II Table 4 note 3; I Sect. 4). It is not Habing G0; the papers give no chi -> G0 conversion"
+paperII_field = "Set 2 only, scaled by chi (II eq. 6)"
+spectral_shape_of_sources = "the same ISRF shape for every environment, including the PN and HII region (I Table 7, II Table 4)"
+pahchem_note = "pahchem.fields has draine1978 (from 5 eV) and mathis1983; no Gondhalekar+80 field and no below-5-eV Draine extension"
+
+[field.environments]
+# II Table 4 (I Table 7 has the same objects, n and chi; its diffuse medium is n = 0.6, chi = 1).
+medium = ["NGC 7027 (PN)", "Orion Bar (PDR)", "NGC 7023 (RN)", "M82 (GN)", "HI region", "diffuse warm medium"]
+n_H_cm3 = [7e4, 1e5, 4e3, 1e4, 5e1, 5e-1]
+n_e_cm3 = [7e1, 3e1, 1e0, 3e0, 2e-2, 4e-3]
+T_K = [5e2, 5e2, 2.5e2, 2.5e2, 8e1, 8e3]
+chi = [4.6e5, 4.3e3, 2.5e3, 2.9e3, 1.0, 1.0]
+source = "II Table 4; I Table 7"
+confidence = "D"
+
+[photophysics]
+model = "step-ladder: only S0, S1, T1 for neutrals; upper levels convert to S1 instantly (I Sect. 2.3, Fig. 1)"
+cation_model = "doublet D0 only: IC to D0, no visible fluorescence or phosphorescence; IR the only luminescence (II Sect. 2.1)"
+sigma_small = "Joblin 1992 gas-phase spectra (benzene, anthracene, pyrene, coronene, ovalene); naphthalene from Koch et al. 1972 (I Table 2, Sect. 3.2)"
+sigma_large = "Verstraete & Leger 1992 (graphite-based theory) for PAHs larger than ovalene (I Sect. 3.2; II Sect. 2.1)"
+sigma_cations = "matrix spectra of naphthalene+, pyrene+, perylene+, coronene+ (Salama & Allamandola 1991, 1992; Lee & Wdowiak 1993a) without their continuum; other cations = parent neutral (II Sect. 2.1)"
+sigma_cations_detail = "not stated which cation spectra entered which rate, nor how the matrix spectra were extended to 13.6 eV"
+sigma_dehydrogenated = "sigma(N_H) = sigma(N_H0) (2.5 N_H + 8 N_C) / (2.5 N_H0 + 8 N_C)  (II eq. 3, geometric, C-H 1.077 A)"
+sigma_acetylenic = "sigma(PAH-C2H) = sigma(PAH) (NC + 2)/NC, e.g. 26/24 for acetylcoronene (I Sect. 3.3)"
+source = "I Sects. 2.3, 3.2, 3.3; II Sects. 2.1, 2.2"
+confidence = "C"
+radius = { value = 0.9, unit = "A x NC^1/2", source = "I eq. 13; II eq. 4 (Omont 1986)", confidence = "C" }
+ip_large = "IP = 4.8 + 10.9 / a[A] eV, a = 0.9 NC^1/2 A, for PAHs with unknown IP (I eq. 12, Verstraete+90)"
+ip_large_coeffs = { value = 4.8, slope_eV_A = 10.9, unit = "eV", source = "I eq. 12", confidence = "C" }
+ip_cations = "about 13 eV (Leach 1986, Tobita+94); cation ionisation neglected in 2.8-13.6 eV (II Sect. 2.1)"
+ion_yield = "Y_ion = 0 (E < IP); 0.10 (E - IP)/(8.90 - IP) on [IP, 8.9]; 0.25 E - 2.125 on [8.9, 11]; 0.0596 E - 0.03 on [11, 13.6]  (E in eV; I eq. 11)"
+ion_yield_source = "I eq. 11, interpolated from Verstraete+90 pyrene and coronene; size independent"
+ion_yield_confidence = "D"
+ion_yield_check = "check: continuous at 8.9 eV (0.100) and 11 eV (0.625/0.626); Y_ion(13.6) = 0.78"
+ion_yield_cations = "linear increase with internal energy (Jochims+94b, in prep.); no numbers given (II Sect. 2.1)"
+ionisation_energy_partition = "not stated; in eq. 17 k_ion = Y_ion k_tot, so the ionising fraction of photons heats nothing"
+
+[photophysics.table2]
+# I Table 2, neutral molecules (Birks 1970 unless noted in the paper).
+species = ["C6H6", "C10H8", "C14H10", "C16H10", "C24H12"]
+IP_eV = [9.24, 8.15, 7.41, 7.41, 7.29]          # Eilfeld & Schmidt 1981
+S1_eV = [4.72, 3.97, 3.42, 3.34, 2.95]
+S2_eV = [6.08, 5.77, 3.72, 3.71, 3.51]
+T1_eV = [3.66, 2.64, 1.82, 2.08, 2.37]
+fluorescence_s = [2.2e6, 1.0e7, 4.9e7, 6.2e5, 2.5e6]
+phosphorescence_s = [1.0e-15, 2.0e-2, 1.1e-7, 5.9e1, 5.9e1]   # benzene printed 1.0 (-15)
+S1_T1_s = [7.8e6, 2.5e3, 1.1e7, 3.0e4, 2.1e6]
+S1_S0_s = [4.0e4, 2.0e5, 1.0e6, 3.0e5, 4.0e5]
+T1_S0_s = [2.9e-2, 3.9e-1, 2.2e1, 2.0e0, 1.2e1]
+source = "I Table 2"
+confidence = "A"
+note = "rates at zero excess energy; mostly from solution data (I Sect. 2.3)"
+
+[photophysics.excess_energy_laws]
+k_r = "Phi_f / tau_f;  k_nr = (1 - Phi_f)/tau_f  (I eq. 5)"
+k_nr_S1S0 = "k_nr = k0 exp(alpha E_vib[cm^-1]), alpha = 2e-2 + 4.38e-8 (E_S1-S0[cm^-1] - 25500)  (I eqs. 6-7, Lim 1985); printed as such, though 2e-2 cm would make k_nr explode within 1000 cm^-1"
+other_radiationless = "linear or exponential laws in excess energy from Avouris+77 and Lim 1985; coefficients not stated except eq. 6-7"
+fluorescence_vs_excess_energy = "constant up to the S2 and T2 quenching levels when no beam data (I Sect. 2.3); Hermine 1994 beam data otherwise; values not stated"
+inverse_ic = "k_IIC = k_IC rho(E - Delta E)/rho(E)  (I eq. 14, detailed balance, Leger+88)"
+poincare = "k_fluo^P = (k_S0->S1 + k_T1->S1) k_fluo/sum k_i;  k_phos^P = (k_S0->T1 + k_S1->T1) k_phos/sum k_i  (I eq. 15)"
+large_pahs = "ovalene and larger: no IIC and no Einstein-A correction; larger than ovalene: no phosphorescence, fluorescence 1e7 s^-1, E_S1-S0 = 2 beta / N_ring with 2 beta = 4.8 eV (Robertson 1986)  (I Sect. 3.2, eq. 21)"
+large_fluorescence = { value = 1.0e7, unit = "s^-1", source = "I Sect. 3.2", confidence = "E" }
+large_fluorescence_competition = "not stated how a constant 1e7 s^-1 fluorescence competes with internal conversion above S1 (taken literally it would dominate k_tot)"
+source = "I Sect. 2.3, eqs. 5-7, 14-15, 21; Fig. 3 (naphthalene)"
+confidence = "C"
+
+[heating]
+photons = "single photon; rates linear in N(E) (I eq. 20; II eq. 6); no multiphoton absorption, even at chi = 4.6e5"
+internal_energy = "E = h nu: Fig. 4 and eq. 20 use the photon energy as the internal energy of a cold molecule (implied, not stated); no thermal or residual energy"
+cascade = "none: yields are first-event branching ratios at E, Y_i(E) = k_i(E)/k_tot(E) (I eqs. 16-17)"
+k_tot = "k_tot = k_lum + k_diss + k_ion, k_lum = k_IR + k_fluo + k_phos, k_ion = Y_ion k_tot (I eq. 17); i.e. Y_diss = (1 - Y_ion) k_diss/(k_lum + k_diss)"
+assumption = "no relaxation other than luminescence, photodissociation and ionisation after absorption (I Sect. 2.4)"
+vibrational_temperature = "T* from E = sum h nu_i / (exp(h nu_i/kT*) - 1) over 3N-6 modes (I eq. 9; II eq. 2, Fig. 3)"
+source = "I Sects. 2.4, 3.2, eqs. 9, 16-17, 20; II eq. 6"
+confidence = "E"
+
+[dissociation]
+rate_form = "classical RRK, k(E) = k0 (1 - E0/E)^(s-1), s = 3N - 6, N = all atoms (C + H); k = 0 for E <= E0"
+source = "I eq. 4 (exponent 3N-7); II eq. 1 (s-1, s = 3N-6), Table 1"
+pahchem_form = "pahchem.rates.rrk(E, n_modes = 3N - 6, A_s = k0, E0)"
+params_origin = "single (k0, E0) per channel for every PAH, fitted by Jochims+94 to PAH-cation appearance energies; applied to neutrals (I Sect. 2.2) and, unchanged, to cations and dehydrogenated PAHs (II Sects. 2.1-2.2)"
+H_loss = { value = 2.8, k0_s = 1e16, unit = "eV", source = "I Table 1; II Table 1 (Jochims+94 RRK fit)", confidence = "B" }
+H2_loss = { value = 2.9, k0_s = 1e16, unit = "eV", source = "I Table 1; II Table 1 (Jochims+94 RRK fit)", confidence = "B" }
+C2H2_loss = { value = 2.9, k0_s = 1e15, unit = "eV", source = "I Table 1; II Table 1 (Jochims+94 RRK fit)", confidence = "B" }
+e0_meaning = "E0 is a fitting parameter, only approximately the bond energy (I Sect. 2.2)"
+extrapolation = "Jochims+94 observed no C2H2 loss for coronene and larger: those rates are extrapolations (I Table 4 note c, Table 6 note b)"
+dehydrogenated = "same k0, E0; N drops with N_H (fewer modes); C loss assumed still as C2 'acetylene-like' unit (II Sect. 2.2)"
+h2_needs = "H2 loss needs N_H >= 2 (II Table 2: benzene at alpha_H = 0.25 has no H2 entry)"
+site_dependence = "none: solo/duo/trio H neglected (II Sect. 2.2)"
+fig2_check = "check: RRK C2H2 (k0 = 1e15, E0 = 2.9, exponent 3N-7, N incl. H) gives log k(13.6 eV) = 12.0, 10.1, 8.2, 7.6, 4.5 for B, N, A, P, C, and log k(6 eV) = -14.0 for coronene, matching the dashed curves of I Fig. 2 by eye. This fixes the convention."
+comparison_model = "Leger+89a thermo-photodissociation (Forst inverse-Laplace, Whitten-Rabinovitch rho): k0 = 2.4e14 s^-1, E0 = 4.5 eV (H); k0 = 1e17, E0 = 8 eV (C) (I eqs. 1-3, Fig. 2); not used for the results"
+sensitivity = "E0 shifted -0.5 to +1 eV and k0 x 0.01 to x 10, all channels together, Set 2 (I Figs. 7-8)"
+
+[dissociation.acetylenic]
+phenylacetylene_thermo = { value = 5.2, k0_s = 1e17, unit = "eV", source = "I Sect. 3.3, eq. 23 (Benson 1976 group additivity), Fig. 9", confidence = "C" }
+phenylacetylene_modes = "Csaszar+89 force field (I Sect. 3.3)"
+rrk_fit = { value = 3.3, k0_s = 1.4e15, unit = "eV", source = "I eq. 24, fit to the thermo curve of Fig. 9", confidence = "D" }
+fig9_alternatives = "RRK (k0; E0) = (7.5e18; 4.5), (1.6e17; 4.0), (1.4e15; 3.3), (2.1e14; 3.0), (1.1e13; 2.5) (I Fig. 9 labels)"
+larger = "eq. 24 reused for every PAH-C2H; fluorescence, phosphorescence, ionisation = parent PAH; sigma and IR A scaled by NC (I Sect. 3.3)"
+exponent_atoms = "not stated whether N in 3N-7 counts the C2H atoms"
+
+[cooling]
+law = "k_IR(E) = A_3.3 + A_6.2 + A_7.7 + A_8.6 + A_11.3 (I eq. 17): an IR photon emission rate entering the first-event branching, not an energy-loss rate"
+band_groups = "modes grouped as C-H stretch 3.3, C-C stretch 6.2, C-C bend 8.6, skeleton 7.7, C-H bend 11.3 um (I Sect. 2.3)"
+einstein_a_values = "not stated (Leger+89b model PAH for large PAHs; Bishop & Cheung 1982, Dunbar+87, Klippenstein+93 for small ones)"
+multi_quanta = "A^(n,n-1) = n A^(1,0) (I eq. 8), n the Bose occupation at T*(E) (I eqs. 9-10); kept for small PAHs, neglected above ~25 C and from ovalene up (corrections < 10x even for benzene)"
+modes = "3N-6 frequencies from the literature for N < 25 atoms (I Table 2 refs k-q); Leger+89b otherwise"
+dehydrogenated = "drop the H modes (3.3, 8.6, 11.3 um); A of those bands scaled by the number of C-H bonds; other modes unchanged (II Sect. 2.2, Fig. 2)"
+cations = "same IR rates as the neutral (Dunbar 1986 found benzene+ 4-5x faster; not adopted; II Sect. 2.1)"
+recurrent_fluorescence = "Poincare fluorescence and phosphorescence included via IIC for small PAHs (I eqs. 14-15); found minor"
+source = "I Sect. 2.3, eqs. 8-10, 17; II Sect. 2.2"
+confidence = "C"
+
+[electrons]
+recombination_cross_section = "sigma = P pi a^2 (1 + e U(a)/(m_e v^2 / 2)), U = e/a  (II eq. 8, Spitzer 1978)"
+recombination_rate_eq9 = "n_e k_rec = n_e P pi a^2 (8 kT/pi m_e)^1/2 (1 + 2e^2/(a kT))  (II eq. 9, as printed)"
+recombination_rate_eq10 = "n_e k_rec = 2.13e-6 n_e NC^1/2 T^-1/2 [1 + 3.82e-3 (T/100)(NC/50)^1/2] s^-1  (II eq. 10, as printed)"
+disc_factor = { value = 0.8, source = "II Sect. 3.1.1 (Verstraete+90)", confidence = "C" }
+sticking = { value = 0.30, source = "II Sect. 3.1.1: eq. 9 fitted to benzene+ alpha(300 K) = 1e-6 cm^3 s^-1 (Abouelaziz+93)", confidence = "D" }
+lab_benzene = { value = 1.0e-6, unit = "cm^3 s^-1 at 300 K, T^-1/2", source = "II Sect. 3.1.1, Abouelaziz+93", confidence = "A" }
+lab_naphthalene = { value = 3.0e-7, unit = "cm^3 s^-1 at 300 K (not used: geometry)", source = "II Sect. 3.1.1, Abouelaziz+93", confidence = "A" }
+consistency_check = "check: 0.8 x 0.30 x pi a^2 v (1 + e^2/(a kT)) gives 1.00e-6 for benzene+ at 300 K, and 5.5e-6 (benzene) and 2.2e-5 (NC = 100) at 10 K, matching Fig. 5 (10^6 k ~ 5 and ~22). Eq. 10's bracket (3.82e-3 = akT/e^2 at NC 50, 100 K) also needs e^2/a, not eq. 9's 2e^2/a. Eq. 10's prefactor 2.13e-6 is 3.3x lower (benzene+ 300 K -> 3.0e-7). Use 7.0e-6 NC^1/2 T^-1/2 [1 + 3.82e-3 ...] if following Fig. 5 and the P fit; record the choice."
+dissociative_recombination = "not a destruction channel here (II Sect. 3.1.1)"
+anions_attachment = "not modelled"
+electron_density = "n_e = n_H+ + n_M+ ~ xi n_H + 5e-4 n_H, M = C, Si, S, Fe at solar abundance, singly ionised (II eq. 22); used for the xi studies (Figs. 11-14), Table 4 n_e otherwise"
+metals_ne = { value = 5e-4, unit = "n_e / n_H from metals", source = "II eq. 22", confidence = "E" }
+
+[hydrogen]
+neutral_addition = { value = 1.7e-11, unit = "cm^3 s^-1, no T dependence, x sqrt(NC/6)", source = "II Sect. 3.1.2, Frenklach+85 reaction 21 (radical + H)", confidence = "D" }
+cation_addition = { value = 1.0e-9, unit = "cm^3 s^-1, Langevin, probability 1, no T dependence, x sqrt(NC/6)", source = "II Sect. 3.1.2 (Tielens+87, Allamandola+89)", confidence = "E" }
+addition_to_closed_shell = "not stated separately: eq. 13 adds H to every i < N_H0 with the same rate"
+abstraction_hi = { value = 4.15e-10, E_act = 8060.0, unit = "cm^3 s^-1; E_act in K; T >= 1000 K", source = "II eq. 12, Kiefer+85 C6H6 + H -> C6H5 + H2", confidence = "A" }
+abstraction_lo = { value = 5e-12, E_act = 4080.0, unit = "cm^3 s^-1; E_act in K; T < 1000 K", source = "II eq. 12, Nicovich & Ravishankara 1984", confidence = "A" }
+abstraction_scaling = "x N_H/N_H0 (zero at N_H = 0) x sqrt(NC/6); for cations also x (cation addition / neutral addition) = 1e-9/1.7e-11 (II Sect. 3.1.2)"
+size_scaling = { value = 0.5, unit = "exponent of NC/6 on every collision rate, for NC > 6", source = "II Sect. 3.1.2", confidence = "E" }
+proton_reactions = "H+ + PAH(0, i) -> PAH(+, i+1) at the cation + H addition rate; H+ + PAH(0, i) -> PAH(+, i-1) + H2 at the cation abstraction rate; no H+ + cation (Coulomb); H+ sputtering neglected (II Sect. 3.1.2, eq. 14)"
+superhydrogenation = "excluded (saturation of rings neglected, II Sect. 3.1.2)"
+photo_h_loss = "k_H^UV, k_H2^UV from the RRK first-event yields times chi (II eqs. 13-14); H2 loss removes 2 H"
+fig6_check = "check: eq. 12 gives 1.3e-13 (high branch) and 8.5e-14 (low branch) at 1000 K, 1e-29 at 100 K; addition 1.7e-11; crossing ~2500 K: consistent with II Fig. 6"
+source = "II Sect. 3.1.2, eqs. 11-12, Fig. 6"
+
+[network]
+unknowns = "n_i (neutral) and c_i (cation), i = 0..N_H0, fractions of N_PAH (II Sect. 3.2.1)"
+equations = "steady state of II eqs. 13-14, one equation replaced by sum n_i + sum c_i = 1 (eq. 16)"
+destruction = "C loss not in the network; used afterwards as k_C^UV = sum chi n_i k_C,i^(n) + sum chi c_i k_C,i^(c) (II eq. 24), tau^UV = 1/k_C^UV"
+validity = "tau_dest >= 10 tau_hyd, tau_ion in every case (II Sect. 3.2.1)"
+alpha_ion = "alpha_ion = sum c_i (eqs. 17-18); closed form eq. 19 with hydrogenation-averaged k_ion, k_hyd (eq. 20)"
+alpha_h_def = "alpha_H(n) = sum (i/N_H0) n_i; alpha_H(c) = sum (i/N_H0) c_i (II eq. 21)"
+growth = "tau_gr = 1/(n_C k_C) with X(C) = 3e-4, k_C = 1e-12 (I eq. 26, Omont 1986); II eq. 23: tau_gr ~ 1e12 (n_C / 1 cm^-3)^-1 s"
+carbon_abundance = { value = 3e-4, source = "I Sect. 4", confidence = "E" }
+carbon_accretion = { value = 1e-12, unit = "cm^3 s^-1 (printed s^-1 in I Sect. 4; cm^3 s^-1 in II Fig. 15 text)", source = "I Sect. 4 (Omont 1986); II Sect. 4", confidence = "E" }
+survival_criterion = "smallest surviving size where chi k_C2H2(NC) = n_H X(C) k_C (I eq. 25-26, Fig. 11; II Fig. 15)"
+large_size_fit = "k_loss(NC) = k_loss(50) 10^(-0.3373 (NC - 50)); k_ion(NC) = k_ion(50) NC/50, for NC > 50 (I eq. 22)"
+large_size_fit_check = "check: eq. 22 from Set 2 C2H2 3.56e-18 gives 1.5e-27 yr^-1 at NC = 100; II Table 3 gives 1.0e-28 yr^-1 (15x lower)"
+
+[targets]
+# Ranked by benchmark value (cheap, tabulated and well-posed first).
+rank1_rrk_kE = "I Fig. 2 (dashed, C2H2 loss, log k [s^-1] -30..20 vs E 0-14 eV, benzene..coronene) and II Fig. 1 (C loss, benzene N_H 0-6, coronene N_H 0-12): analytic from Table 1; level-1 gate of rates.rrk; digitise only to confirm"
+rank2_table4 = "I Table 4: per-molecule H, H2, C2H2 rates, two ISRFs (tabulated, [targets.paperI_table4]); needs Joblin-92 sigma, k_IR (Einstein A), Table 2 luminescence"
+rank3_table5 = "I Table 5: photoionisation rates, two ISRFs (tabulated; tests sigma x eq. 11 alone, no k_IR)"
+rank4_paperII_tables23 = "II Tables 2-3: cation and dehydrogenated H, H2, C loss, Set 2, yr^-1 (tabulated)"
+rank5_recombination = "II Fig. 5: 10^6 k_rec [cm^3 s^-1] 0-22 vs T 10-1e4 K, benzene, pyrene, coronene, ovalene, NC 50, 100 (analytic; see [electrons].consistency_check)"
+rank6_survival_size = "I Fig. 11 (minimal NC in log chi - log n_H, lines 50, 60, 70 C, plus benzene, pyrene, coronene, ovalene; left axis n_H, right n_C) and II Fig. 15 (log k_C/n_C [s^-1 cm^3] vs NC 10-100, six media, threshold -12): analytic from the tables plus eq. 26; digitise to check"
+rank7_paperII_table5 = "II Table 5: destruction times [yr] for benzene, pyrene, ovalene in six media, as totally dehydrogenated cation, neutral, and network mean (tabulated; full network test)"
+rank8_ionisation = "II Fig. 7 (alpha_ion [%] vs NC 10-100, six media), Fig. 8 (alpha_ion = 1, 50, 99 % contours in T - log(n_e/chi)): digitise"
+rank9_hydrogenation = "II Figs. 9 (N_H histograms C6Hn, C24Hn, neutral and cation, NGC 7027 and Orion Bar), 10 (alpha_H vs NC, six media), 11 (alpha_H vs T, NC > 50), 12 (pyrene alpha_H = 1, 50, 99 % in T - log(n_H/chi), xi = 0, 0.5, 0.99/1), 13 (benzene, ovalene, PAH 50 C cations), 14 (alpha_H, alpha_ion vs log(n_H/chi), T = 500 K xi = 0; T = 1e4 K xi = 1): digitise"
+rank10_yields = "I Fig. 4 (stacked yields [%] of fluorescence+phosphorescence, IR, ionisation, C2H2, H2, H loss vs E 0-13.6 eV for C6H6, C10H8, C14H10, C16H10, C24H12) and Table 3 (tabulated: E for Y_C2H2 > 1 %): need the unstated Einstein A"
+rank11_size_rates = "I Fig. 6 (log k vs NC 6-50, Set 2, H/H2/C2H2, and ionisation 1e-9 s^-1 linear right axis) = Tables 4-5 Set 2; I Figs. 7-8 (E0, k0 sensitivity): digitise"
+rank12_acetylenic = "I Fig. 9 (log k vs E 6-20 eV, phenylacetylene, thermo vs 5 RRK pairs; analytic for RRK) and Fig. 10 (internal vs external C2H2 loss vs NC, Set 2): digitise"
+low_value = "I Fig. 3 (naphthalene radiationless rates vs excess energy), II Fig. 2 (coronene mode histograms), II Fig. 3 (T* vs E): input checks, not chemistry outputs"
+
+[targets.paperI_table4]
+quantity = "photodissociation rate k^ISM (I eq. 20), chi = 1, s^-1"
+species = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C"]
+H_set1 = [4.76e-9, 6.17e-9, 3.73e-9, 2.56e-9, 2.07e-10, 2.27e-16]
+H_set2 = [2.89e-9, 3.40e-9, 2.05e-9, 1.49e-9, 1.78e-10, 2.31e-16]
+H2_set1 = [2.51e-9, 2.15e-9, 1.28e-9, 7.61e-10, 5.58e-11, 3.51e-17]
+H2_set2 = [1.50e-9, 1.19e-9, 7.13e-10, 4.55e-10, 4.85e-11, 3.61e-17]
+C2H2_set1 = [2.51e-10, 2.14e-10, 1.29e-11, 7.61e-11, 5.59e-12, 3.49e-18]
+C2H2_set2 = [1.49e-10, 1.89e-10, 7.13e-11, 4.55e-11, 4.85e-12, 3.56e-18]
+set1 = "Draine 1978"
+set2 = "Gondhalekar+80 (with Mathis+83 extension)"
+extrapolated = "C2H2 for C24H12, C32H14, PAH 50 C (note c)"
+invariant = "H2 and C2H2 share E0 and the RRK exponent, so k_C2H2/k_H2 = 1e15/1e16 = 0.1 at every E, hence in the integral"
+invariant_check = "check: holds to 1 % for 10 of 12 pairs; fails for C14H10 Set 2 (1.89e-10 vs 0.1 x 1.19e-9) and C16H10 Set 1 (1.29e-11 vs 0.1 x 1.28e-9). Probable misprints: expected 1.19e-10 and 1.28e-10. The 1.89e-10 was carried into I Table 6 and II Table 3 (6.0e-3 yr^-1)."
+source = "I Table 4"
+confidence = "C"
+
+[targets.paperI_table5]
+quantity = "photoionisation rate, chi = 1, s^-1"
+species = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C"]
+set1 = [2.01e-9, 4.63e-9, 3.84e-9, 7.53e-9, 8.43e-9, 9.79e-9]
+set2 = [1.23e-9, 2.79e-9, 2.34e-9, 4.54e-9, 5.09e-9, 6.24e-9]
+source = "I Table 5"
+confidence = "C"
+
+[targets.paperI_table3]
+quantity = "lowest photon energy with C2H2-loss yield > 0.01"
+species = ["C6H6", "C10H8", "C14H10", "C16H10", "C24H12"]
+energy_eV = [4.96, 5.72, 7.23, 7.77, "never"]
+text = "'The yield of acetylene loss for a coronene molecule is always less than 0.8%' (I Sect. 2.4)"
+source = "I Table 3, Sect. 2.4"
+confidence = "C"
+
+[targets.paperI_table6]
+quantity = "tau^UV = 1/(chi k_C2H2), chi = 1, Set 2"
+species = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C"]
+k_C2H2_s = [1.49e-10, 1.89e-10, 7.13e-11, 4.55e-11, 4.85e-12, 3.56e-18]
+tau_yr = [213, 168, 442, 692, 6.50e3, 8.91e9]
+source = "I Table 6, eq. 25"
+confidence = "C"
+
+[targets.paperII_table2]
+quantity = "H and H2 photo-loss rates, Gondhalekar field, chi = 1, yr^-1"
+species = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C", "PAH 100 C"]
+cation_H = [1.1e-1, 1.7e-1, 1.1e-1, 1.3e-1, 2.2e-2, 2.7e-8, 1.4e-25]
+cation_H2 = [6.2e-2, 6.4e-2, 4.4e-2, 4.1e-2, 6.0e-3, 4.2e-9, 4.5e-27]
+aH050_H = [8.0e-2, 1.5e-1, 1.6e-1, 1.0e-1, 3.2e-2, 6.7e-6, 2.3e-22]
+aH050_H2 = [5.2e-2, 5.5e-2, 5.0e-2, 3.3e-2, 9.4e-3, 1.4e-6, 1.0e-23]
+aH025_H = [1.3e-1, 2.9e-1, 2.0e-1, 1.3e-1, 5.7e-2, 1.7e-4, 2.2e-20]
+aH025_H2 = ["none (N_H = 1)", 9.2e-2, 6.7e-2, 4.4e-2, 1.8e-2, 3.9e-5, 1.2e-21]
+note = "the alpha_H columns are neutral dehydrogenated molecules, N_H = INT(alpha_H N_H0)"
+invariant_check = "check: cation and alpha_H = 0.5 H2 columns are exactly 10x the matching II Table 3 C-loss columns"
+source = "II Table 2"
+confidence = "C"
+
+[targets.paperII_table3]
+quantity = "C-loss photo rates, Gondhalekar field, chi = 1, yr^-1"
+species = ["C6H6", "C14H10", "C16H10", "C24H12", "C32H14", "PAH 50 C", "PAH 100 C"]
+neutral = [4.7e-3, 6.0e-3, 2.2e-3, 1.4e-3, 1.5e-4, 1.1e-10, 1.0e-28]
+cation = [6.2e-3, 6.4e-3, 4.4e-3, 4.1e-3, 6.0e-4, 4.2e-10, 4.5e-28]
+aH050 = [5.2e-3, 5.5e-3, 5.0e-3, 3.3e-3, 9.4e-4, 1.4e-7, 1.0e-24]
+aH000 = [1.4e-1, 4.2e-1, 2.8e-1, 2.0e-1, 6.7e-2, 1.5e-4, 1.6e-20]
+check = "check: neutral column = I Table 4 C2H2 Set 2 x 3.156e7 s/yr to 2 digits"
+text = "abstract: ovalene cation 4x the neutral, totally dehydrogenated ovalene 3 orders of magnitude higher; Sect. 2.3: up to 8 orders for NC = 100; Conclusion: cations on average 5x, totally dehydrogenated coronene 2 orders"
+source = "II Table 3, abstract, Sects. 2.3, 5"
+confidence = "C"
+
+[targets.paperII_table5]
+quantity = "photodestruction time tau^UV = 1/k_C^UV (II eq. 24), years"
+medium = ["NGC 7027", "Orion Bar", "NGC 7023", "M82", "HI region", "diffuse warm medium"]
+benzene_dehydrogenated_cation = [1.2e-5, 1.3e-3, 2.3e-3, 2.0e-3, 5.7e0, 5.7e0]
+benzene_neutral = [4.7e-4, 5.0e-2, 8.6e-2, 7.4e-2, 2.2e2, 2.2e2]
+benzene_mean = [1.8e-5, 2.1e-2, 9.0e-3, 1.2e-2, 3.6e1, 2.5e1]
+pyrene_dehydrogenated_cation = [6.0e-6, 6.4e-2, 1.1e-3, 9.6e-4, 2.8e0, 2.8e0]
+pyrene_neutral = [9.7e-4, 1.6e-1, 1.8e-1, 1.5e-1, 4.5e2, 4.5e2]
+pyrene_mean = [1.7e-5, 1.2e-1, 1.5e-2, 2.4e-2, 8.2e1, 3.9e1]
+ovalene_dehydrogenated_cation = [1.1e-5, 1.2e-3, 2.1e-3, 1.8e-3, 5.2e0, 5.2e0]
+ovalene_neutral = [1.4e-2, 1.5e0, 2.6e0, 2.3e0, 6.5e3, 6.5e3]
+ovalene_mean = [1.1e-4, 1.2e0, 7.0e-1, 9.9e-1, 5.8e3, 3.7e2]
+check = "check: the neutral and dehydrogenated-cation columns scale as 1/chi (neutral = 1/(chi x II Table 3 neutral)) to 2 digits, except pyrene in the Orion Bar: dehydrogenated cation 6.4e-2 (1/chi scaling gives 6.5e-4) and neutral 1.6e-1 (gives 1.05e-1). Probable misprints; the Orion Bar pyrene mean 1.2e-1 is then suspect too"
+derived = "chi = 1 rates of the totally dehydrogenated cations: benzene 0.175, pyrene 0.36, ovalene 0.19 yr^-1 (1/HI-region column)"
+source = "II Table 5, Sect. 4"
+confidence = "C"
+
+[targets.text_results]
+critical_size_paperI = "'only PAHs with more than 50 carbon atoms may survive the UV radiation field of these regions' (I abstract); 'for all media showing the UIR bands the minimal size of surviving PAHs is between 40 and 50 carbon atoms' (I Sect. 4, Fig. 11)"
+lifetimes_paperI = "coronene and ovalene 'destroyed within a few years' (I abstract); ovalene (NC = 32) and smaller 'not longer than a few years' in strong-UV media (I Sect. 5); diffuse medium 'about 10^3 years' (I Sect. 4)"
+critical_size_paperII = "'surviving PAHs in all these media have more than 40 carbon atoms. The smallest size is obtained for the Photodissociation Region of the Orion Bar and for the HI cloud ... 50 carbon atoms in NGC 7027 and 55 carbon atoms in the warm diffuse medium' (II Sect. 4, Fig. 15)"
+ionisation_thresholds = "alpha_ion >= 99 % for n_e/chi < 1e-6 T^0.42 cm^-3; alpha_ion <= 1 % for n_e/chi > 1e-2 T^0.42 cm^-3 (II Sect. 3.2.2, Fig. 8)"
+pyrene_hydrogenation = "alpha_H > 99 % only for T < 1000 K and n_H/chi > 1e4 cm^-3 at 100 K (pyrene cations, xi = 0); alpha_H < 1 % for n_H/chi < 2 cm^-3 at 100 K (II Sect. 3.2.3, Fig. 12)"
+large_pah_hydrogenation = "alpha_H = 100 % up to 1000 K; a few per cent above 1e4 K (II Sect. 3.2.3, Fig. 11); plateau for NC > 50 (Fig. 10)"
+uir_media = "n_H/chi from 1e-1 to 1e2 cm^-3 and T below some 1e3 K: PAHs < 50 C partially dehydrogenated, larger ones fully hydrogenated (II Sect. 3.2.3)"
+sensitivity = "for NC < 20, < 1 dex change for +-1 eV in E0 or a 100x change in k0 (I Sect. 3.2, Figs. 7-8)"
+source = "I and II, as quoted"
+
+[deviations_expected]
+# What a pahchem run in this card's configuration cannot match without new pieces.
+first_event_branching = "pahchem integrates an IR cascade (energy_me); Allain branch once at E = h nu. Needs a 'first-event' mode: Y_i = (1 - Y_ion) k_i(E)/(k_lum(E) + k_diss(E))"
+k_ir_photon_rate = "pahchem.cooling gives mode emission rates from PAHdb A; Allain's summed band A (Leger+89b) are not stated, so k_IR(E) must be rebuilt (sum of A_i <n_i>(T*))"
+sigma = "Joblin 1992 gas-phase spectra and Verstraete & Leger 1992 are not bundled; pahchem has Li & Draine 2001 and Malloci coronene"
+fields = "Gondhalekar+80 field missing; Draine 1978 below 5 eV needs eq. 19 (see [field].set1_check)"
+electronic_luminescence = "S1/T1 fluorescence, phosphorescence, ISC and IIC (I Table 2, eqs. 5-7, 14-15) are not in pahchem; they only matter below ~6 eV for NC <= 24"
+ion_yield = "I eq. 11 (piecewise linear) and the IP law of I eq. 12 are not in pahchem.photo"
+network_rates = "pahchem.chemistry has BT94 capture; Allain use eq. 9 (P = 0.3, x0.8, e^2/a), constant hydrogenation 1.7e-11 / 1e-9 x sqrt(NC/6), benzene abstraction eq. 12, and H+ reactions; Z in {0, +1}; N_H <= N_H0"

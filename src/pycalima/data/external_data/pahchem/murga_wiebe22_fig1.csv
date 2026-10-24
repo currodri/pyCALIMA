@@ -1,0 +1,57 @@
+# Murga & Wiebe 2022, Bull. Lebedev Phys. Inst. 49, 416 (doi:10.3103/S1068335622120077), Fig. 1: C66H20
+# dehydrogenation rate R_H (product H) and carbon-skeleton dissociation rate R_C (product C) [yr^-1] against
+# the MMP83 field scale chi, by four rate forms (their Table 1). R_x = int k_diss dp/dE dE (their eq. 1),
+# dp/dE the multiphoton energy distribution. Read exactly from the vector figure of the journal PDF (page 418)
+# with diagnostics/pahchem/digitise_vector_figure.py (tick calibration residual <= 5e-4 dex), 2026-10-05.
+# Curves are piecewise linear in log-log between the plotted vertices (chi = 0.1, 1, 10, ..., 1e5); Arrh. 2
+# and Laplace C-loss enter the frame at chi = 10 and 1.
+product,method,chi,rate_per_yr
+C,Arrh. 1,0.10001,1.4409e-07
+C,Arrh. 1,10.0,1.4437e-05
+C,Arrh. 1,100.02,0.00014543
+C,Arrh. 1,1000.1,0.0015599
+C,Arrh. 1,10001.0,0.026682
+C,Arrh. 1,100010.0,1.6133
+C,Arrh. 2,10.0,8.4645e-10
+C,Arrh. 2,100.02,9.3011e-09
+C,Arrh. 2,1000.1,1.2711e-07
+C,Arrh. 2,10001.0,6.5074e-06
+C,Arrh. 2,100010.0,0.00078984
+C,Laplace,1.0001,4.0042e-10
+C,Laplace,10.0,4.6952e-09
+C,Laplace,100.02,9.4979e-07
+C,Laplace,1000.1,1.7824e-05
+C,Laplace,10001.0,0.0056073
+C,Laplace,100010.0,0.75775
+C,RRK,0.10001,1.177e-09
+C,RRK,1.0001,1.0584e-08
+C,RRK,10.0,1.1641e-07
+C,RRK,100.02,6.9952e-06
+C,RRK,1000.1,0.00019438
+C,RRK,10001.0,0.032267
+C,RRK,100010.0,4.6388
+H,Arrh. 1,0.099939,2.7903e-06
+H,Arrh. 1,99.969,0.002805
+H,Arrh. 1,999.82,0.02944
+H,Arrh. 1,9999.6,0.43065
+H,Arrh. 1,100010.0,19.869
+H,Arrh. 2,0.099939,2.4389e-10
+H,Arrh. 2,9.9956,2.4446e-08
+H,Arrh. 2,99.969,2.5531e-07
+H,Arrh. 2,999.82,3.1026e-06
+H,Arrh. 2,9999.6,0.00010561
+H,Arrh. 2,100010.0,0.011156
+H,Laplace,0.099939,3.0262e-05
+H,Laplace,0.99952,0.00030144
+H,Laplace,9.9956,0.0030324
+H,Laplace,99.969,0.03646
+H,Laplace,999.82,0.57405
+H,Laplace,9999.6,42.012
+H,Laplace,100010.0,5476.8
+H,RRK,0.099939,6.8067e-09
+H,RRK,0.99952,6.2291e-08
+H,RRK,9.9956,6.7484e-07
+H,RRK,99.969,3.4573e-05
+H,RRK,999.82,0.00095699
+H,RRK,9999.6,0.15413
+H,RRK,100010.0,22.129

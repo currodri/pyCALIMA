@@ -147,6 +147,33 @@ def pah_efficiencies(filename, verbose=False):
     return nwav, data, columns, dust_type
 
 
+def _np_interp_columns(x, xp, fp):
+    """np.interp(x, xp, fp[:, j]) for every column j at once, with np.interp's
+    own arithmetic (slope * (x - xp[k]) + fp[k]) and edge clamping."""
+    if x <= xp[0]:
+        return fp[0].copy()
+    if x >= xp[-1]:
+        return fp[-1].copy()
+    k = int(np.searchsorted(xp, x, side="right")) - 1
+    slope = (fp[k + 1] - fp[k]) / (xp[k + 1] - xp[k])
+    return slope * (x - xp[k]) + fp[k]
+
+
+def _interp_columns(log_x, log_xp, log_fp, x, xp, fp, log, fallback_zero=False):
+    """Per wavelength column: 10^interp in log-log where the whole column of fp
+    is positive, else linear interp (or 0 if ``fallback_zero``), as the loop
+    it replaces in interpolate_pah_cross_sections_2d."""
+    linear = _np_interp_columns(x, xp, fp)
+    if not log:
+        return linear
+    positive = (fp > 0).all(axis=0)
+    out = np.zeros(fp.shape[1]) if fallback_zero else linear
+    if positive.any():
+        out = out.copy()
+        out[positive] = 10.0 ** _np_interp_columns(log_x, log_xp, log_fp[:, positive])
+    return out
+
+
 def interpolate_pah_cross_sections_2d(pah_type, grain_size, target_wavelengths=None,
                                       efficiency=False, data_table=None):
     """
@@ -230,46 +257,35 @@ def interpolate_pah_cross_sections_2d(pah_type, grain_size, target_wavelengths=N
         qsca_native = arr[:, columns.index('Q_sca')] if 'Q_sca' in columns else np.zeros_like(qabs_native)
         g_native = arr[:, columns.index('g=<cos>')] if 'g=<cos>' in columns else np.zeros_like(qabs_native)
         
-        # Interpolate in log-log
+        # Interpolate in log-log (the branch depends only on the native table,
+        # so all target wavelengths go through one np.interp call)
         log_native_wav = np.log10(native_wav)
-        for j, tw in enumerate(target_wav):
-            if qext_native is not None and (qext_native > 0).all():
-                Q_ext_table[i, j] = 10.0 ** np.interp(np.log10(tw), log_native_wav, np.log10(qext_native))
-            if (qabs_native > 0).all():
-                Q_abs_table[i, j] = 10.0 ** np.interp(np.log10(tw), log_native_wav, np.log10(qabs_native))
-            else:
-                Q_abs_table[i, j] = np.interp(tw, native_wav, qabs_native)
-            if (qsca_native > 0).all():
-                Q_sca_table[i, j] = 10.0 ** np.interp(np.log10(tw), log_native_wav, np.log10(qsca_native))
-            else:
-                Q_sca_table[i, j] = np.interp(tw, native_wav, qsca_native)
-            g_table[i, j] = np.interp(tw, native_wav, g_native)
-    
-    # Interpolate over size to the desired grain_size
+        log_target_wav = np.log10(target_wav)
+        if qext_native is not None and (qext_native > 0).all():
+            Q_ext_table[i] = 10.0 ** np.interp(log_target_wav, log_native_wav, np.log10(qext_native))
+        if (qabs_native > 0).all():
+            Q_abs_table[i] = 10.0 ** np.interp(log_target_wav, log_native_wav, np.log10(qabs_native))
+        else:
+            Q_abs_table[i] = np.interp(target_wav, native_wav, qabs_native)
+        if (qsca_native > 0).all():
+            Q_sca_table[i] = 10.0 ** np.interp(log_target_wav, log_native_wav, np.log10(qsca_native))
+        else:
+            Q_sca_table[i] = np.interp(target_wav, native_wav, qsca_native)
+        g_table[i] = np.interp(target_wav, native_wav, g_native)
+
+    # Interpolate over size to the desired grain_size, every wavelength column
+    # at once: log-log where the whole column is positive, linear otherwise
     log_native_a = np.log10(native_sizes)
     log_target_a = np.log10(grain_size)
-    
-    Q_abs_target = np.zeros(ntarget_wav)
-    Q_sca_target = np.zeros(ntarget_wav)
-    Q_ext_target = np.zeros(ntarget_wav)
-    g_target = np.zeros(ntarget_wav)
-    
-    for j in range(ntarget_wav):
-        qext_vs_a = Q_ext_table[:, j] if qext_native is not None else None
-        qabs_vs_a = Q_abs_table[:, j]
-        qsca_vs_a = Q_sca_table[:, j]
-        
-        if qext_vs_a is not None and (qext_vs_a > 0).all():
-            Q_ext_target[j] = 10.0 ** np.interp(log_target_a, log_native_a, np.log10(qext_vs_a))
-        if (qabs_vs_a > 0).all():
-            Q_abs_target[j] = 10.0 ** np.interp(log_target_a, log_native_a, np.log10(qabs_vs_a))
-        else:
-            Q_abs_target[j] = np.interp(grain_size, native_sizes, qabs_vs_a)
-        if (qsca_vs_a > 0).all():
-            Q_sca_target[j] = 10.0 ** np.interp(log_target_a, log_native_a, np.log10(qsca_vs_a))
-        else:
-            Q_sca_target[j] = np.interp(grain_size, native_sizes, qsca_vs_a)
-        g_target[j] = np.interp(grain_size, native_sizes, g_table[:, j])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Q_abs_target = _interp_columns(log_target_a, log_native_a, np.log10(Q_abs_table), grain_size,
+                                       native_sizes, Q_abs_table, log=True)
+        Q_sca_target = _interp_columns(log_target_a, log_native_a, np.log10(Q_sca_table), grain_size,
+                                       native_sizes, Q_sca_table, log=True)
+        Q_ext_target = (_interp_columns(log_target_a, log_native_a, np.log10(Q_ext_table), grain_size,
+                                        native_sizes, Q_ext_table, log=True, fallback_zero=True)
+                        if qext_native is not None else np.zeros(ntarget_wav))
+    g_target = _interp_columns(None, None, None, grain_size, native_sizes, g_table, log=False)
     
     # Compute Q_rp and convert to cross sections if requested
     Q_rp = Q_abs_target + (1.0 - g_target) * Q_sca_target

@@ -7,14 +7,16 @@ configuration or to the underlying physics.
 
 ## Stages and what they cost
 
-A full export runs eleven stages. The table below is a measured profile of the
+A full export runs twelve stages. The table below is a measured profile of the
 25-bin `5PAH10C10Sil` configuration (20 dust + 5 PAH), recorded in that model's
 `export_profile.json`, less the stages since removed; the total and the shares
 are of the stages listed, from that same measurement. It predates the two
 charging stages for RAMSES, `dust_charging_rtgroups` (RT-group tables, a few
 seconds per bin) and `dust_charging_isrf` (uniform-ISRF tables built from them,
-about half a minute per dust bin). Of the stages measured, two take most of the
-time:
+about half a minute per dust bin), and the `pahchem_dissociation_tables` stage
+(the N-D carbon-loss tables of {doc}`/physics/pahchem-spec`, ~1 s per $G_0$
+value per free-PAH bin, ~15 s per bin at the default axes, bins in parallel).
+Of the stages measured, two take most of the time:
 
 | Stage | Writes | Seconds | Share |
 |---|---|---:|---:|
@@ -27,6 +29,7 @@ time:
 | `pah_optical_properties` | `optical_properties/` | 2.7 | 2.0% |
 | `pah_dissociation_tables` | `PAH_dissociation_data/` | 1.2 | 0.9% |
 | `dust_band_luminosities` | `optical_properties/` | 0.0 | 0.0% |
+| `pahchem_dissociation_tables` | `PAH_dissociation_data/pahchem_*` | ~15 per free-PAH bin | (not in this timing run) |
 | **total** | | **131.3** | **2.2 min** |
 
 It scales per dust bin, so the default configuration — 4 dust and 2 PAH bins —

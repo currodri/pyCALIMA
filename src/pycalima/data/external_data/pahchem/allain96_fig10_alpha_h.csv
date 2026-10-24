@@ -1,0 +1,53 @@
+# Allain, Leach & Sedlmayr 1996, A&A 305, 616 (paper II), Fig. 10: hydrogenation coefficient alpha_H (II eq. 21,
+# sum_i (i/N_H0) x_i over the hydrogenation states of one charge state, normalised to that charge state) against
+# N_C, at steady state in the Set 2 field scaled by chi, media of II Table 4. Digitised from the ADS scan
+# (1996A&A...305..616A) with WebPlotDigitizer, 2026-10-05: the Orion Bar (PDR) cations and neutrals, and NGC 7027
+# (PN), where the cation and neutral curves coincide and were digitised once (charge = both).
+# medium: as in II Table 4; charge: cation, neutral or both; n_c: number of C atoms (read off the curve);
+# alpha_h_percent: [%] (values a few tenths above 100 are digitising scatter).
+medium,charge,n_c,alpha_h_percent
+Orion Bar,cation,6.118,49.51
+Orion Bar,cation,9.363,59.55
+Orion Bar,cation,11.830,68.41
+Orion Bar,cation,14.146,76.09
+Orion Bar,cation,16.001,81.6
+Orion Bar,cation,18.335,85.54
+Orion Bar,cation,21.757,91.26
+Orion Bar,cation,23.939,94.22
+Orion Bar,cation,27.221,96.41
+Orion Bar,cation,29.565,97.99
+Orion Bar,cation,31.755,99.19
+Orion Bar,cation,36.456,99.81
+Orion Bar,cation,42.415,99.65
+Orion Bar,cation,53.545,100.1
+Orion Bar,cation,68.283,100.2
+Orion Bar,cation,80.043,100.1
+Orion Bar,cation,92.274,99.98
+Orion Bar,cation,99.957,100
+Orion Bar,neutral,6.093,21.42
+Orion Bar,neutral,10.401,38.93
+Orion Bar,neutral,12.859,49.55
+Orion Bar,neutral,15.471,60.97
+Orion Bar,neutral,18.095,69.82
+Orion Bar,neutral,20.562,78.68
+Orion Bar,neutral,23.803,89.7
+Orion Bar,neutral,28.483,94.84
+Orion Bar,neutral,31.913,98.99
+Orion Bar,neutral,37.398,99.42
+Orion Bar,neutral,44.140,99.46
+Orion Bar,neutral,49.941,99.7
+Orion Bar,neutral,57.936,99.95
+Orion Bar,neutral,77.692,100.1
+Orion Bar,neutral,99.643,100
+NGC 7027,both,6.194,0.002054
+NGC 7027,both,13.876,0.05237
+NGC 7027,both,22.811,0.7003
+NGC 7027,both,31.739,2.527
+NGC 7027,both,36.181,24.95
+NGC 7027,both,41.071,51.9
+NGC 7027,both,44.285,68.82
+NGC 7027,both,48.110,88.88
+NGC 7027,both,50.096,100.1
+NGC 7027,both,67.657,100
+NGC 7027,both,85.060,100.3
+NGC 7027,both,99.642,100.2

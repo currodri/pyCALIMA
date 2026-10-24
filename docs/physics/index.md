@@ -82,4 +82,12 @@ grain-collisions
 charging-heating
 pah
 radiation
+pahchem-spec
+pahchem-briefing
+pahchem-audit
+pahchem-pdrs4all-comparison
+pahchem-gas-coupling
+pahchem-gas-coupling-literature
+pahchem-uv-absorption
+pahchem-data-requests
 ```

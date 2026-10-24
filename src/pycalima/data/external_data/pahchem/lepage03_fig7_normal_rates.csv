@@ -1,0 +1,17 @@
+# Le Page, Snow & Bierbaum 2003, ApJ 584, 316, Fig. 7: photodissociation rates [s^-1] against N_C, for PAHs with their normal H coverage (C14H10, C16H10, C24H12, C32H14, C50H20),
+# at nt = 25 cm^-3 and chi = 1 (Draine + Mathis field). Sect. 4.3 compares them with H addition to cations,
+# 2.5e-9 s^-1, and C+ insertion on neutral PAHs, 3.5e-12 s^-1. Channels (Sect. 4.3): H loss 4.8 eV / 5 cal/K;
+# C2H2 loss 4.5 eV for small PAHs, 5.5 eV for pyrene+, 6.0 eV for large cations, 10 cal/K, x6 paths in compact
+# PAHs; C2 loss ~8 eV. Digitised from the journal PDF with WebPlotDigitizer, 2026-10-05. n_c is read off the curve.
+channel,n_c,k_s
+C2H2,13.992,3.2536e-09
+C2H2,15.967,2.1107e-09
+C2H2,23.912,6.9945e-12
+C2H2,28.660,1.0151e-13
+H,13.939,6.7875e-09
+H,15.847,6.9722e-09
+H,19.503,6.3212e-09
+H,24.002,2.6646e-09
+H,26.179,1.1273e-09
+H,31.975,6.2938e-11
+H,39.950,6.5133e-13

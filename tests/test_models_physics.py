@@ -197,6 +197,26 @@ class TestPAHTemperature:
         assert np.isfinite(u_high)
 
 
+class TestPAHAcetyleneDissociation:
+    @pytest.mark.parametrize("nc", [52, 418])
+    def test_rate_is_finite_and_non_negative(self, nc):
+        """Nc = 418 (a0 = 10 A) once gave an all-NaN photolysis table."""
+        from types import SimpleNamespace
+
+        from pycalima.models.PAH_photophysics.PAH_photophysics import (
+            compute_acetylene_dissociation_rate,
+            dissociation_parameters,
+        )
+
+        E = np.linspace(4.0, 14.0, 200)
+        wav = 1.2398 / E                                   # micron
+        sigma = np.full_like(E, 1e-21 * nc)                # m^2
+        dist = SimpleNamespace(a0=1e-3, Nc=nc)
+        R = compute_acetylene_dissociation_rate(
+            (wav, sigma, dist, dissociation_parameters['Murga2020']))
+        assert np.isfinite(R) and R >= 0.0
+
+
 # ===========================================================================
 # models/PAH_charge
 # ===========================================================================
@@ -236,6 +256,20 @@ class TestPAHPhotoelectricHeating:
 
         assert recombination_rate_Tielens21(54, temperature) > 0
         assert attachment_rate_Tielens05(54) > 0
+
+    @pytest.mark.parametrize("ne", [1e-3, 1e-1, 10.0])
+    def test_four_state_fractions_obey_detailed_balance(self, ne):
+        from pycalima.models.PAH_charge.PAH_photoelectric_heating import (
+            four_state_charge_fractions,
+        )
+
+        k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2 = 3e-9, 2e-8, 5e-8, 1e-9, 4e-6, 9e-6
+        fm, f0, f1, f2 = four_state_charge_fractions(
+            k_att, k_det, k_pe_0, k_pe_1, k_rec_1, k_rec_2, ne)
+        assert np.isclose(fm + f0 + f1 + f2, 1.0)
+        assert np.isclose(fm * k_det, f0 * k_att * ne, rtol=1e-12)
+        assert np.isclose(f0 * k_pe_0, f1 * k_rec_1 * ne, rtol=1e-12)
+        assert np.isclose(f1 * k_pe_1, f2 * k_rec_2 * ne, rtol=1e-12)
 
 
 # ===========================================================================
@@ -928,6 +962,23 @@ class TestDustChemistry:
         fns = [n for n, o in vars(mod).items()
                if inspect.isfunction(o) and not n.startswith("_")]
         assert fns, "dust_h2_formation exposes no public functions"
+
+    @pytest.mark.parametrize("tgas", [30.0, 100.0, 1000.0])
+    def test_h2_formation_rate_reproduces_cazaux_spaans_eq4(self, tgas):
+        """CS04 eq. 2 with n_d sigma_d = n_d pi a^2 and the mean H speed gives their eq. 4 for 0.1 um grains of
+        3 g cm^-3: R_d = 3.025e-17 eps S (xi/0.01) (T/100)^1/2 n_H n(H). The code used 2 pi a^2 and
+        (2kT/m)^1/2, 1.77x high."""
+        from pycalima.models.dust_chemistry import dust_h2_formation as m
+
+        nh, xi, td, a_um = 100.0, 0.01, 15.0, 0.1
+        mgrain = 4.0 / 3.0 * np.pi * (a_um * 1e-4) ** 3 * 3.0           # 1.256e-14 g
+        rho_dust = 1.329e-10 * xi * nh * mgrain                          # CS04: n_d = 1.329e-10 xi n_H
+        rate = m.h2_formation_rate(nh, tgas, [rho_dust], [td], [a_um], [mgrain], [1])
+        v = m.mean_h_speed(tgas)
+        eps = m.recombination_efficiency(tgas, td, nh, v, m.h_flux(nh, v), 1)
+        expected = 3.025e-17 * eps * m.h2_sticking_coef(tgas, td) * np.sqrt(tgas / 100.0) * nh * nh
+        assert rate == pytest.approx(expected, rel=2e-3)
+        assert v == pytest.approx(1.45e5 * np.sqrt(tgas / 100.0), rel=3e-3)   # CS04: v_H ~ 1.45e5 (T/100)^1/2
 
 
 # ===========================================================================
