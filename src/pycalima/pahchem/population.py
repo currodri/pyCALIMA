@@ -54,8 +54,10 @@ the molecules' abundances are fitted. In outline:
   these sizes at G0 <~ 1e5. The bands use the PAHdb Lorentzian (FWHM 15 cm^-1,
   redshift 15 cm^-1), integrated analytically over the caller's wavelength
   windows, which should be the windows of the observations.
-- **Cost.** Heating is single-photon and every field is a fixed shape times G0,
-  so per charge state and field shape a ``StateBasis`` at G0 = 1 holds the IR
+- **Cost.** Heating is single-photon and every field is a fixed shape times G0
+  (a Draine field with old-star light, which does not scale with G0, is one
+  shape per G0: ``field_shape``), so per charge state and field shape a
+  ``StateBasis`` at G0 = 1 holds the IR
   power per mode, the photo-ionisation (or detachment) rate and the absorbed
   power, each G0 times its basis value. H loss is not linear in G0: for small
   PAHs two photons within one cooling time dominate it. So the basis
@@ -122,14 +124,20 @@ def _euv_grid(e_max_ev=500.0, n=161):
     return g[g > E_PH_FUV[-1]]
 
 
-#: photon-energy grid of the population [eV]: the baseline's 5-13.6 eV grid, then log-spaced to 500 eV
-E_PH = np.concatenate([E_PH_FUV, _euv_grid()])
+_D_STEP = (E_PH_FUV[-1] - E_PH_FUV[0]) / (E_PH_FUV.size - 1)
+#: lowest photon energy of the population [eV]: the RTZ 1-5.6 eV group's edge; below 5 eV photons detach anions
+#: (EA ~0.5-2.5 eV) and heat the cations, which absorb in the visible
+E_PH_MIN_EV = 1.0
+#: photon-energy grid of the population [eV]: 1-5 eV in the baseline's 0.025 eV steps with a node 1e-6 eV below
+#: 5 eV (fields cut at 5 eV then fall to zero at once), the baseline's 5-13.6 eV grid, then log-spaced to 500 eV
+E_PH_VIS = np.concatenate([E_PH_FUV[0] + _D_STEP * np.arange(-round(float(E_PH_FUV[0] - E_PH_MIN_EV) / _D_STEP), 0),
+                           [E_PH_FUV[0] - 1e-6]])
+E_PH = np.concatenate([E_PH_VIS, E_PH_FUV, _euv_grid()])
 #: energy-deposit grid of the cascades [eV]. Non-ionising absorptions deposit E (always < Y_UNITY_EV); ionisations
 #: deposit the ion's internal energy (``photo.photoelectron_energy``) if ``Params.ionising_photons_heat``. It holds
-#: every 5-13.6 eV photon node (so cut fields integrate exactly as before), steps of the same 0.025 eV from 0.1 to
+#: every 1-13.6 eV photon node (so cut fields integrate exactly as before), steps of the same 0.025 eV from 0.1 to
 #: 21 eV, and nodes 1e-6 eV outside 5 and 13.6 eV for sharp edges; the lowest 0.1 eV (a fraction of a cascade
 #: bin) is left out.
-_D_STEP = (E_PH_FUV[-1] - E_PH_FUV[0]) / (E_PH_FUV.size - 1)
 E_DEP = np.unique(np.concatenate([E_PH_FUV[0] + _D_STEP * np.arange(-int(round((E_PH_FUV[0] - 0.1) / _D_STEP)),
                                                                     int(round((21.0 - E_PH_FUV[0]) / _D_STEP)) + 1),
                                   E_PH_FUV, [E_PH_FUV[0] - 1e-6, E_PH_FUV[-1] + 1e-6]]))
@@ -501,9 +509,16 @@ def ion_up_rate(mol, z, env, params=Params()):
     return up
 
 
+def env_field(env):
+    """The radiation field of a ``baseline.Environment`` as the population sees it: G0 times ``_unit_field`` of its
+    ``field_shape`` (with the 1 eV start and the unscaled old stars of a Draine cell)."""
+    f1 = _unit_field(field_shape(env))
+    return fields.RadiationField(f1.energy_ev, env.g0 * f1.photon_flux, f1.name)
+
+
 def charge_fractions(mol, env, params=Params()):
     """{Z: f} of the chain -1/0/+1 at ``env`` (a ``baseline.Environment``)."""
-    field_ = env.field()
+    field_ = env_field(env)
     T = env.temperature_k
     zs = mol.charges
     f = {zs[0]: 1.0}
@@ -544,17 +559,40 @@ def _band_matrix(freqs_cm, windows_um, local=(), fwhm_cm=15.0, shift_cm=-15.0):
 
 @functools.lru_cache(maxsize=None)
 def _unit_field(shape):
-    """The field of ``shape`` at G0 = 1: ("kurucz", T_eff[, e_max_ev]) or ("draine",)."""
+    """The field of ``shape`` at G0 = 1.
+
+    - ("kurucz", T_eff[, e_max_ev[, e_min_ev]]): the star's whole spectrum from ``E_PH_MIN_EV`` (or e_min_ev);
+    - ("draine",): Draine's (1978) far-UV fit from 5 eV, nothing below;
+    - ("draine", r[, e_min_ev]): the same plus r x the solar-circle old-star light below 5 eV (``fields.old_stars_flux``),
+      r = ``Environment.optical_isrf`` / G0, so that G0 times this field leaves the old stars unscaled.
+    """
     if shape[0] == "kurucz":
-        return fields.kurucz(shape[1], 1.0, e_max=shape[2] if len(shape) > 2 else fields.LYMAN_EV)
-    return fields.draine1978(g0=1.0)
+        e_max = shape[2] if len(shape) > 2 else fields.LYMAN_EV
+        e_min = shape[3] if len(shape) > 3 else E_PH_MIN_EV
+        return fields.kurucz(shape[1], 1.0, e_max=e_max, e_min=e_min)
+    if len(shape) == 1:
+        return fields.draine1978(g0=1.0)
+    e_min = shape[2] if len(shape) > 2 else E_PH_MIN_EV
+    return fields.draine1978(g0=1.0, e_min=e_min, old_stars=shape[1])
 
 
 def field_shape(env):
-    """The field-shape key of a ``baseline.Environment``; the Kurucz key carries its cut only if it is not 13.6 eV."""
+    """The field-shape key of a ``baseline.Environment``; the keys carry their cuts only where they differ from
+    13.6 eV and ``E_PH_MIN_EV``.
+
+    The Draine shape carries the old-star light per unit G0, ``optical_isrf / g0`` (none if the field starts at
+    5 eV or above): one shape per G0 for such cells, within which every rate is again G0 times its basis value.
+    """
+    e_min = float(getattr(env, "field_e_min_ev", E_PH_MIN_EV))
     if env.teff_k is None:
-        return ("draine",)
+        optical = float(getattr(env, "optical_isrf", 0.0))
+        if optical <= 0.0 or e_min >= fields.DRAINE_E_MIN_EV:
+            return ("draine",)
+        r = optical / env.g0
+        return ("draine", r) if e_min == E_PH_MIN_EV else ("draine", r, e_min)
     e_max = float(getattr(env, "field_e_max_ev", fields.LYMAN_EV))
+    if e_min != E_PH_MIN_EV:
+        return ("kurucz", int(env.teff_k), e_max, e_min)
     return ("kurucz", int(env.teff_k)) if e_max == fields.LYMAN_EV else ("kurucz", int(env.teff_k), e_max)
 
 
@@ -628,8 +666,9 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
                 ionising_heat=bool(params.ionising_photons_heat))
 
 
-#: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key)
-BASIS_VERSION = 5
+#: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key).
+#: The result caches of the diagnostics key on it too: 6 is the photon grid from 1 eV.
+BASIS_VERSION = 6
 
 
 def _feed(h, v):
@@ -975,7 +1014,9 @@ class Population:
         above; with ``Params.detachment = "statistical"`` the anion's electrons take the energies of
         ``statistical_detachment`` (prompt E - EA, delayed ~0.1 eV). The top state's EUV ionisations
         (``chain_overflow``) heat the gas too, although the chain does not follow their charge. eps is the photoelectric efficiency, Gamma over
-        the power the molecule absorbs on E_PH (5-500 eV; 5-13.6 eV for fields cut at the Lyman limit).
+        the power the molecule absorbs on E_PH: all of it, 1-500 eV (1-13.6 eV for fields cut at the Lyman limit), as
+        Berné+22 and WD01 define it and as the observed I_gas / (I_PAH + I_gas) measures it (5-13.6 eV before
+        2026-10-24; BT94's 6-13.6 eV convention differs).
         Recombination cooling is not subtracted here.
         """
         G, A = self._pe_stack(field_shape(env), partition)

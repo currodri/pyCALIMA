@@ -103,6 +103,8 @@ class Environment:
     teff_k: int | None = 15000   # Kurucz template; None for the Draine (1978) ISRF shape
     field_e_max_ev: float = fields.LYMAN_EV   # Kurucz cut: 13.6 eV for neutral gas; higher to let EUV in (population)
     ions: tuple = ()                          # ((name, n [cm^-3]), ...) of chemistry.IONS, inputs like n_e (population)
+    field_e_min_ev: float = 1.0               # lowest photon energy the field reaches (population; 5.0: as before 2026-10-24)
+    optical_isrf: float = 1.0                 # old-star light below 5 eV, x the solar circle's, not scaled by g0 (Draine shape, population)
 
     def field(self):
         return (fields.kurucz(self.teff_k, self.g0, e_max=self.field_e_max_ev) if self.teff_k is not None

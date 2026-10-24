@@ -24,15 +24,20 @@ G0, N, T = 1.7, 30.0, 100.0
 XC, XH = 1.4e-4, 3e-4
 
 
-def wolfire08(phi, x=6e-7):
-    """(alpha(C+) per H [cm^3 s^-1], (f-, f0, f+)) of W08's Table 2 rates in a three-state balance."""
+#: W08 Table 2 at T = 100 K, Phi = 1 [cm^3 s^-1]: (X+ + PAH-, X+ + PAH0)
+W08_ION = {"C+": (2.4e-7, 8.8e-9), "H+": (8.3e-7, 3.1e-8)}
+
+
+def wolfire08(phi, x=6e-7, ion="C+"):
+    """(alpha(ion) per H [cm^3 s^-1], (f-, f0, f+)) of W08's Table 2 rates in a three-state balance."""
     ne, t2 = (XC + XH) * N, T / 100.0
     att, det = 1.3e-6 * phi * ne, 1.2e-8 * G0
-    mn = phi * t2**-0.5 * (2.4e-7 * XC * N + 8.3e-7 * XH * N)
-    ion = 4.6e-9 * G0 + phi * (8.8e-9 * XC * N + 3.1e-8 * XH * N)
-    rm, rp = att / (det + mn), ion / (3.5e-5 * phi * t2**-0.5 * ne)
+    mn = phi * t2**-0.5 * (W08_ION["C+"][0] * XC * N + W08_ION["H+"][0] * XH * N)
+    up = 4.6e-9 * G0 + phi * (W08_ION["C+"][1] * XC * N + W08_ION["H+"][1] * XH * N)
+    rm, rp = att / (det + mn), up / (3.5e-5 * phi * t2**-0.5 * ne)
     f0 = 1.0 / (1.0 + rm + rp)
-    return x * phi * (2.4e-7 * t2**-0.5 * rm * f0 + 8.8e-9 * f0), (rm * f0, f0, rp * f0)
+    k_mn, k_ct = W08_ION[ion]
+    return x * phi * (k_mn * t2**-0.5 * rm * f0 + k_ct * f0), (rm * f0, f0, rp * f0)
 
 
 def main():

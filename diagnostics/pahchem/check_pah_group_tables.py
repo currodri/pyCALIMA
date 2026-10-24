@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """The per-bin PAH group tables (``pahchem.group_tables``) against ``Population`` at the same cells.
 
-``Population`` solves the charge chain of every molecule on its 5-500 eV grid with the exact spectrum. The table
+``Population`` solves the charge chain of every molecule on its 1-500 eV grid with the exact spectrum. The table
 solves one chain per bin with group-averaged kernels. Three things separate them, each measured here:
 
 A. The in-group shape (blackbody T_s against the true spectrum): tables of single molecules, solved one by one and
    averaged, against ``Population``. Groups 5-5.6-11.2-13.6 eV, so both see the same photons.
 B. Averaging the rates over the bin before the balance: the bin table against the average of the single-molecule
    solves of A.
-C. Photons below 5 eV (RTZ group 1-5.6 eV): they detach anions, and the population's grid leaves them out. The
+C. Photons below 5 eV (RTZ group 1-5.6 eV): they detach anions (the population's grid reaches them since 2026-10-24). The
    bin table on the RTZ groups against the same table with that group zeroed, for the Kurucz field and the Mathis
    ISRF, with the default (Jochims) and the statistical detachment.
 

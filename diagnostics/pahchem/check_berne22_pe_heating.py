@@ -21,6 +21,16 @@ Li & Draine sigma; pahchem's thresholds, yields and chain (EA 1.52, IPs 6.51, 9.
 Jochims at the EA, up to +3); pahchem's cation recombination (DS87, 0.82 disc); pahchem's neutral attachment
 (DS87 capture x statistical sticking, against their coronene law).
 
+Result (2026-10-23, T = 100 K, n_e 3e-4 to 30, i.e. gamma 0.6 to 6e4):
+- step 0 equals their code to <= 0.3 % in eps, Gamma/H and f(Z), and their code reproduces their Table 4
+  diffuse-ISM point (T = 80 K, n_e = 3e-2): eps 0.0364 and Gamma 2.71e-26 erg s^-1 H^-1 (published 0.037, 2.7e-26);
+- steps 1-5a move Gamma/H by 0.9-2.6x; step 5a (DS87 cation recombination, 2.0x their Spitzer form) makes the
+  PAHs more neutral at gamma >~ 1e4, e.g. 1.5x Gamma/H at 6e4;
+- step 5 alone breaks the agreement below gamma ~ 1e4: pahchem's attachment on C54H18^0 (DS87 capture x
+  statistical sticking, EA 1.52 eV) is 1.5e-6 cm^3 s^-1, ~600x their coronene law (2.5e-9 at 100 K, for EA 0.47 eV).
+  The anion fraction rises from 0.001 to 0.44 at gamma = 513, and with the Jochims detachment every detached electron
+  takes E - EA, so Gamma/H is 6.9x theirs there and 4.5-12x at gamma <= 200.
+
     check_berne22_pe_heating.py --berne-dir ~/Documents/GitHub/photoelectric-heating [--berne-json run.json]
 """
 import argparse
@@ -126,7 +136,7 @@ def main():
 
     def pahchem_inputs(E, sig_fn):
         sigma = {z: sig_fn(z, E) for z in zs_p}
-        yields = {z: np.interp(E, E_PH, population._yield(mol, z, pop.p)) for z in zs_p[:-1]}
+        yields = {z: population._yield(mol, z, pop.p, energy_ev=E) for z in zs_p[:-1]}
         th = {z: mol.ionisation_ev[z] for z in zs_p[:-1]}
         return sigma, yields, th, {z: (1.0 if z < 0 else PARTITION) for z in zs_p[:-1]}
 

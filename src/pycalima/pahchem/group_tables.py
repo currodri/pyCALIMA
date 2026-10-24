@@ -14,8 +14,8 @@ blackbody photon spectrum n_E ~ E^2 / (exp(E/kT_s) - 1) for each T_s of ``TS_GRI
     A_g(z) = < sigma >_g              [cm^2 per PAH]       absorption
 
 with sigma, Y and <E_k> of ``population`` (``photo.sigma_li_draine``, ``population._yield``,
-``population.electron_energy``) on a grid from the lowest group edge: photons below 5 eV, which the population's
-5-500 eV grid leaves out, detach anions too. The same three are given for the UV background (``K_bg`` etc.,
+``population.electron_energy``) on a grid from the lowest group edge: photons below 5 eV detach anions too (the
+population's grid starts at 1 eV). The same three are given for the UV background (``K_bg`` etc.,
 rates per PAH in the Mathis ISRF at G0 = 1 Habing, 1-13.6 eV, as WDB06rt). Collisions are tabulated in T:
 
     alpha(z, T)  electron capture by z = 0, +1, +2 [cm^3 s^-1] (``population.capture_coefficient``)

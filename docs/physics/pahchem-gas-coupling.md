@@ -293,25 +293,88 @@ The exact numbers are in the literature page, section 8.
 | | target | status |
 |---|---|---|
 | V1 | Wolfire+08 Table 2 from DS87 (and Hollenbach+12 at N_C = 100) | passes (§A, ≤ 2.6 %) |
-| V2 | W03/W08 three-state charge balance (N_C = 35; G₀ = 1.7, T = 100, n = 30): with W08's rates exactly, then with pahchem's, giving the effective Φ (expected 0.4–0.6) | **passes** (2026-10-22, `check_wolfire08_cplus.py`): untuned, pahchem's α(C⁺) for the 72 v4.00 molecules with N_C 32–40 at x_PAH = 6×10⁻⁷ is 0.99× W08's calibrated value (Φ = 0.4), 0.86× with statistical detachment; f(PAH⁻, PAH⁰, PAH⁺) = 0.14–0.17, 0.81–0.83, 0.03 against W08's 0.22, 0.75, 0.03 |
+| V2 | W03/W08 three-state charge balance (N_C = 35; G₀ = 1.7, T = 100, n = 30): with W08's rates exactly, then with pahchem's, giving the effective Φ (expected 0.4–0.6) | **passes** (2026-10-22, `check_wolfire08_cplus.py`): untuned, pahchem's α(C⁺) for the 72 v4.00 molecules with N_C 32–40 at x_PAH = 6×10⁻⁷ is 0.99× W08's calibrated value (Φ = 0.4), 0.86× with statistical detachment; f(PAH⁻, PAH⁰, PAH⁺) = 0.14–0.17, 0.81–0.83, 0.03 against W08's 0.22, 0.75, 0.03. **Rerun 2026-10-24** on the 1 eV grid with the solar-circle old stars (§4d): 0.91× (Jochims) and 0.73× (statistical), f(PAH⁻) 0.15 and 0.11 |
 | V3 | the W08 C I/C II regimes (their eq. B15), on both C I data sets: W08's compilation and Burgh+10, which is ×4–21 lower on three of four common sight lines (Liszt 2011 Table 1). At fixed n/G₀, eq. B15 then implies a Φ lower by 2.1–4.6, unless n is pinned independently. Burgh+10 measure no C II. | to do |
-| V4 | α_PAH against WD01b for ψ = 10²–10⁶, T = 10–10³ K (C⁺, H⁺, S⁺, Mg⁺, Fe⁺); WD01b §7, x_e 8.0 → 4.5×10⁻⁴ | to do |
+| V4 | α_PAH against WD01b for ψ = 10²–10⁶, T = 10–10³ K (C⁺, H⁺, S⁺, Mg⁺, Fe⁺); WD01b §7, x_e 8.0 → 4.5×10⁻⁴ | **partial** (2026-10-23, `check_wd01b_alpha.py`; T = 10² / 10³ / 6×10³ K, 7 ions; see below). The x_e test needs a gas network and is not done |
 | V5 | FALP e + PAH⁺ (10 points, attributions and methods checked against Abouelaziz+93 and Biennier+06); the fits' extrapolations (§2.2) | §D lists them |
 | V6 | attachment: anthracene 1.0×10⁻⁹ ± 30 % (300 K) and 0.84–2.6×10⁻⁹ (48–300 K); C₆₀ 1.2×10⁻⁶ (400 K); Tielens 2021's autodetachment, eqs. 8.101–8.103 | to do |
 | V7 | mutual neutralisation: the Shuman, Hickman and Tielens laws; C₆₀⁺ + C₆₀⁻ (2.5×10⁻⁸ at 300 K, 1.35×10⁻⁷ at 10 K) | §B |
 | V8 | ion–neutral: anthracene (Canosa+95 Table 1, with the C⁺ 60/40 products) | §C |
-| V9 | PE heating: BT94 ε(γ); Berné+22 ε_PAH(γ) (N_C = 54) and its diffuse-ISM ε = 0.037, Γ = 2.7×10⁻²⁶ erg s⁻¹ H⁻¹; the W22 ratios of WD01 to BT94 | to do |
+| V9 | PE heating: BT94 ε(γ); Berné+22 ε_PAH(γ) (N_C = 54) and its diffuse-ISM ε = 0.037, Γ = 2.7×10⁻²⁶ erg s⁻¹ H⁻¹; the W22 ratios of WD01 to BT94 | **partial** (2026-10-23, `check_pe_efficiency.py`; see below). Berné+22's own ε(γ) is matched by `check_berne22_pe_heating.py`; the W22 ratios compare WD01 with BT94 and do not involve pahchem |
 | V10 | Thi+20 Table B.3 (C₅₄ recombination) | to do |
 | V11 | H₂: the targets of §2.5 (Andrews+16 Fig. 10 and eqs. 12–13, Mennella+12, Castellanos+18, Boschman+15, Habart+04, Thi+20 R_max) | to do |
 | V12 | energy closure per process: absorbed = IR + photoelectron + ionisation work, returned on recombination | **passes** per state to < 10⁻⁴ on the 5–500 eV grid (`test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy`) |
 | V13 | Lepp & Dalgarno 1988 Table 2: neutral-to-ion ratios of C, Mg, S, Ca and Fe toward ζ Per and ζ Oph against x_PAH (they infer x_PAH 1×10⁻⁷ and 6×10⁻⁷, ×2) | to do |
-| V14 | Tielens 2021 Fig. 12.34: f(Z) of C₅₄H₁₈ and C₉₆H₂₄ for a diffuse cloud (G₀ 2, n 50, T 80), the NGC 7023 PDR (2600, 2×10⁴, 500) and its cavity (2×10⁴, 5×10³, 500), x_e = 1.6×10⁻⁴; and its ε examples (0.05 at γ ≈ 10³, 0.008 at 10⁵) | to do |
+| V14 | Tielens 2021 Fig. 12.34: f(Z) of C₅₄H₁₈ and C₉₆H₂₄ for a diffuse cloud (G₀ 2, n 50, T 80), the NGC 7023 PDR (2600, 2×10⁴, 500) and its cavity (2×10⁴, 5×10³, 500), x_e = 1.6×10⁻⁴; and its ε examples (0.05 at γ ≈ 10³, 0.008 at 10⁵) | **diffuse and cavity pass, PDR partial** (2026-10-23, `check_tielens21_fz.py`, values read from the figure ±0.01; ε examples in V9; see below) |
 | V15 | dense clouds: Tielens 2021 eq. 10.77, x_e ≃ 2×10⁻⁷ (ζ/3×10⁻¹⁷)^½ (10⁴/n)^½, and Fig. 10.22 (PAH⁻ take over at n ≈ 3×10³); Flower & Pineau des Forêts 2026 (n_H = 10⁴, T = 10 K) | to do |
-| — | pahchem's existing gates and the PDRs4All fits unchanged with ions and the opt-in deposit off | to do |
+| — | pahchem's existing gates and the PDRs4All fits unchanged with ions and the opt-in deposit off | **passes** (2026-10-23): `tests/test_pahchem_*.py` 312 passed, 33 skipped, 18 xfailed (all marked); the Orion Bar shape fit recomputed from scratch equals the 2026-10-22 cache (`pahchem_spectral_shape_4154c0c24afa.pkl`) to ≤ 5×10⁻⁸ in every number |
 
-**Open item.** W08 (Φ = 0.4, x_PAH = 6×10⁻⁷) against WD01b at CNM conditions gives ×1.8 for C⁺ but ×6 for
-H⁺, and the H⁺ factor is unexplained (WD01b's H⁺ ≈ its C⁺, where the DS87 mass scaling gives √12×). Check
-it against WD01b Fig. 1 before V4.
+**V4, V9 and V14 (2026-10-23).** Nothing tuned; v4.00 molecules with the calibrated IP shifts.
+- **V4, α_PAH against WD01b.**
+  - **Set-up:** the v4.00 molecules with charges −1..+2 (N_C 22–268) in four N_C bins (`group_tables`, Mathis
+    background), each carrying the WD01 graphite grains of the same carbon count (a = 3.5–8.3 Å). These are
+    compared with pyCALIMA's WD01-physics charging integrated over the same grains, over all sizes, and with
+    the WD01b fit.
+  - **PAH share of WD01b:** PAH sizes carry 0.8–0.93 of WD01's α at ψ ≤ 10⁴. At ψ = 10⁶ they carry 0.3–0.7
+    for H⁺, He⁺, C⁺ and S⁺, and all of it for Mg⁺, Si⁺ and Fe⁺.
+  - **pahchem against WD01 on the same carriers (ψ ≤ 10³):** 2.0× at T = 100 K, 1.2–1.5× at 10³ K and
+    0.9–1.1× at 6000 K.
+  - **At ψ ≥ 10⁵:** 6–9× (T ≤ 10³ K). The excess is in f(Z), not in the collision rates. For N_C 40–70 at
+    100 K, pahchem has f(−) = 0.60 against WD01's 0.18 at ψ = 10², and f(0) = 0.155 against 0.016 at 10⁵.
+    pahchem's IPs are higher (C₅₄H₁₈: 6.5 against WD01's 5.7 eV) and its yields are Jochims'.
+  - **Truncation:** above ψ ≈ 10⁵ the chain's +2 cap makes the ratio partly an upper bound.
+  - **pyCALIMA's WD01 physics against the WD01b fit:** 0.55–2.5×.
+- **V9, photoelectric efficiency** (C₅₄H₁₈ and C₉₆H₂₄, Draine field, no ions). The numbers below are from the
+  first run on the old 5–13.6 eV grid and normalisation.
+  - **γ ≥ 10⁵:** pahchem is Tielens eq. 12.26 with pahchem's own capture (3.2×10⁻⁵ γ), to 3 % at 10⁵ and
+    20 % at 10⁶. It is 3–5× BT94, the direction Berné+22 found against WD01.
+  - **γ ≤ 10³, default Jochims detachment:** ε = 0.19–0.59, 4–12× BT94 and eq. 12.26, and Berné+22's
+    diffuse-ISM Γ is exceeded 6×.
+    - C₅₄H₁₈ is 81–94 % anionic at γ = 10², and every detached electron takes E − EA.
+  - **With `detachment = "statistical"`:** ε = 0.024–0.044 for C₅₄H₁₈, and Γ = 0.81× Berné+22's
+    diffuse-ISM value.
+    - C₉₆H₂₄ (detachment threshold 2.14 eV) is then 93 % anionic in the diffuse cloud (23 % with Jochims),
+      with ε = 0.005–0.009.
+  - **Rerun 2026-10-24** (1 eV grid, old stars, ε over all absorption). The old stars detach anions, and ε's
+    denominator gains the optical absorption.
+    - Jochims: ε = 0.15–0.40 at γ ≤ 10³; the Berné+22 diffuse Γ is exceeded 5.8×.
+    - Statistical: ε = 0.028–0.034. At the Berné+22 diffuse point, Γ = 0.90× theirs and ε = 0.032 against
+      their 0.037, now on the same normalisation. C₉₆H₂₄ is 81 % anionic.
+    - γ = 10⁵: ε = 0.0100, against 0.0143 for eq. 12.26 with pahchem's capture (its normalisation is not
+      all-absorption).
+  - **So the default detachment is not usable for gas heating below γ ≈ 10⁴.** Which default to use is a
+    decision, not a fit.
+  - **γ = 10⁵:** C₅₄H₁₈ is less ionised than in Berné+22: {f⁺⁺, f⁺, f⁰} = {0.31, 0.51, 0.17} against
+    {0.5, 0.4, 0.1}. Their values are for T_eff = 3×10⁴ K (their Fig. 6), not the Draine field used here, so
+    this is not yet a like-for-like comparison. In the Draine field their code gives {0.36, 0.53, 0.11} at 100 K.
+  - **Berné+22 recovered** (`check_berne22_pe_heating.py`, run against their code on 2026-10-23).
+    - Their code gives their Table 4 point, ε 0.0364 and Γ 2.71×10⁻²⁶ (published 0.037 and 2.7×10⁻²⁶).
+      For Habing it gives 0.0574 and for Mathis 0.0391, as their Table 4; the text of their §5.2.1 swaps
+      these two. The published A&A version (667, A159) has the same content as arXiv v2.
+    - Rebuilt from their inputs, the chain equals their code to ≤ 0.3 % for γ = 0.6 to 6×10⁴.
+    - Of the ingredients swapped one at a time, two move the result:
+      - **Attachment on the neutral:** pahchem's, 1.5×10⁻⁶ for C₅₄H₁₈ (EA 1.52 eV), is ~600× their
+        coronene law (EA 0.47 eV). Alone, it takes f(−) from 0.001 to 0.44 and Γ to 6.9× at γ = 513.
+      - **Cation recombination:** pahchem's DS87 rate is 2.0× their Spitzer form, which makes the PAHs more
+        neutral at γ ≳ 10⁴ (Γ 1.5× at 6×10⁴).
+    - pahchem's attachment is in line with Tielens' s = 1 for N_C > 30 and with C₆₀'s 1.2×10⁻⁶. Applying
+      coronene's law to C₅₄ is Berné+22's assumption.
+    - So the gap is the attachment, combined with each detached electron taking E − EA.
+- **V14, Tielens Fig. 12.34** (n_H = 0, as his balance).
+  - **Diffuse cloud:** every f(Z) within 0.04 on the old grid, within 0.05 with the old stars (2026-10-24; C₅₄H₁₈
+    f(−1) 0.11 against 0.13). The PDR and cavity cells do not change at their G₀.
+  - **C₉₆H₂₄ cavity:** ⟨Z⟩ +2.62 against +2.57.
+  - **NGC 7023 PDR:** pahchem is less ionised, ⟨Z⟩ +0.36 against +0.55 (C₅₄H₁₈) and +0.54 against +0.78
+    (C₉₆H₂₄). This is the same direction as V4 and V9 at high γ.
+  - **The figure itself:** its C₅₄H₁₈ cavity panel repeats the C₉₆H₂₄ PDR panel bar for bar. Its caption
+    swaps the PDR and cavity columns; the panel labels and the γ order are taken.
+
+**Closed 2026-10-23: W08 against WD01b.** At CNM conditions, W08 (Φ = 0.4, x_PAH = 6×10⁻⁷) is 1.61× WD01b
+for both C⁺ and H⁺ (`check_pah_ion_rates.py` §E).
+- WD01b's H⁺/C⁺ is 3.46, the DS87 mass scaling √12.
+- The ×6 for H⁺ quoted before came from a transcribed H⁺ coefficient (C2 = 1.578 for 1.378).
+- Codes print the C⁺ row of WD01b differently (DESPOTIC's C4 is 10× pyCALIMA's, giving 5× lower α). The
+  paper's Table 2 is the reference for V4.
 
 **A grain-side bug, fixed 2026-10-21.** `models/dust_chemistry/dust_h2_formation.py` computed
 0.5 n_H (2kT/m)^½ n_d 2πa². Cazaux & Spaans 2004 (eqs. 1, 2 and 4) and Tielens 2021 (eq. 9.9: R = ½ S η n_d σ_d
@@ -339,9 +402,9 @@ radiative P(E) at G₀ = 1; `sticking_neutral=1.0` restores the old behaviour.
 
 | step | what | where | status |
 |---|---|---|---|
-| 1 | photoelectric heating per state, from the charge balance's rates | `photo.photoelectron_power`, `Population.photoelectric_heating` | done; reproduces Berné+22's code to ≤ 0.3 % with their inputs (`check_berne22_pe_heating.py`) |
+| 1 | photoelectric heating per state, from the charge balance's rates | `photo.photoelectron_power`, `Population.photoelectric_heating` | done; reproduces Berné+22's code to ≤ 0.3 % with their inputs (`check_berne22_pe_heating.py`; rerun 2026-10-23 after fixing its yield grid for the 5–500 eV `E_PH`) |
 | 1b | anion photodetachment: prompt (WD01 σ_pdt) plus delayed (detailed-balance autodetachment, thermionic electrons) | `Params.detachment = "statistical"`, `population.statistical_detachment`, `Attachment.delayed_detachment` | done, opt-in; C₅₄H₁₈ efficiency 0.02–0.04 instead of 0.3–0.6 |
-| 1c | the EUV: 5–500 eV grid, Y = 1 above 20 eV, measured photoelectron share to 21.9 eV, constant ion internal energy above, deposits into the cascades | `population.E_PH`, `photo.photoelectron_energy`, `population.deposit_spectrum`, `Environment.field_e_max_ev` | done; Lyman-cut fields unchanged (≤ 3×10⁻⁷); top-state ionisations reported by `chain_overflow` |
+| 1c | the EUV: 5–500 eV grid (1–500 eV since 2026-10-24, §4d), Y = 1 above 20 eV, measured photoelectron share to 21.9 eV, constant ion internal energy above, deposits into the cascades | `population.E_PH`, `photo.photoelectron_energy`, `population.deposit_spectrum`, `Environment.field_e_max_ev` | done; Lyman-cut fields unchanged (≤ 3×10⁻⁷); top-state ionisations reported by `chain_overflow` |
 | 2 | recombination cooling, kT Λ̃/J̃ per capture | `Population.recombination_cooling` | done |
 | 3 | ion–PAH collisions: mutual neutralisation, ion–neutral reactions, optional adducts | `chemistry.mutual_neutralisation`, `chemistry.ion_neutral_rate`, `population.ion_up_rate`, `Environment.ions` | done |
 | 4 | outputs for a gas network: α_PAH(X), carbon accretion, net electron source, Γ_PE, Λ_rec, f(Z) | `Population.gas_rates` | done, except H₂ formation (needs the hydrogenation network) |
@@ -389,8 +452,8 @@ WDB06isrf-style table is needed.
   (photodestruction, growth, coagulation), not by the charge.
 
 **Photons below 5 eV.** The tables integrate from each group's lower edge, so the 1–5.6 eV group detaches anions.
-The population's grid starts at 5 eV, so the population misses this. In the Mathis ISRF, photons between the
-electron affinity and 5 eV raise the detachment rate of N_C 32–40 anions:
+Until 2026-10-24 the population's grid started at 5 eV, so the population missed this (it now starts at 1 eV, §4d).
+In the Mathis ISRF, photons between the electron affinity and 5 eV raise the detachment rate of N_C 32–40 anions:
 - by ≈ 35 % with the Jochims yields;
 - by ≈ 90 % with the statistical detachment.
 
@@ -402,15 +465,82 @@ In the bin tables (T = 100 K, n(C⁺) = n_e, γ = 10²–10⁵), switching the 1
 - **Kurucz 40 000 K:** ≤ 8 %, except α(C⁺) ×0.75 for N_C 120–270 at γ = 10⁵.
 
 This matters for the anions in cold neutral gas under a starlight-like field, and therefore for V2. V2 used the
-Draine field, which has no photons below 5 eV.
+Draine field, which then had no photons below 5 eV.
+
+The tables' UV background is the whole Mathis field times `G0_bg`, optical included. In the population the old-star
+light below 5 eV no longer scales with G₀ (§4d); the tables do not follow this yet.
 
 **Open.**
 - The RAMSES reader and per-cell solve (Fortran), replacing the Berné+22 γ-tables of `init_pah_peh_tables`.
 - The bin scheme and its weights.
-- Whether the population's grid should start below 5 eV. That would change its cascades too: the visible
-  absorption of the cations.
+- ~~Whether the population's grid should start below 5 eV.~~ Done 2026-10-24 (§4d).
+- The tables' background: scale only its far UV with `G0_bg` and keep the old stars fixed, as the population now does.
 - Li & Draine anions use the neutral cross section (`photo.sigma_li_draine`), which is 7× below the ion one at
   2 eV. That sets the delayed detachment by optical photons.
+
+## 4d. Photons below 5 eV in the population (2026-10-24)
+
+The user's decisions: the grid starts at 1 eV; ε is normalised to all absorbed power; the optical ISRF is old-star
+light that does not scale with G₀.
+
+**The grid.** `population.E_PH` now runs:
+- 1–5 eV in the baseline's 0.025 eV steps, with a node 10⁻⁶ eV below 5 eV;
+- then the old 5–13.6 eV grid;
+- then the EUV grid up to 500 eV.
+
+Every 1–5 eV node is also a node of the cascades' deposit grid. Because the cache key hashes the grid, every
+stored basis is rebuilt on first use.
+
+**What reaches below 5 eV.** Only the anions' detachment, since EA ≈ 0.5–2.5 eV. The neutral and cation thresholds
+lie above 5 eV. Every state absorbs more, the cations especially in the visible, so their cascades and IR emission
+change.
+
+**Reproducing the old results.** `Environment.field_e_min_ev = 5.0` gives the rates of the old grid. Two tests
+check this:
+- `test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone`: rates equal to 10⁻⁶;
+- `test_old_star_light_below_5ev_does_not_scale_with_g0`.
+
+**The fields below 5 eV**, following the PDR codes (checked in their sources):
+- **Cloudy:** `table Draine` stops at 5 eV (Draine & Bertoldi 1996, eq. 23), and `table ISM` (Black 1987) is the
+  full-spectrum field.
+- **Meudon PDR 7.1:** Draine's polynomial is extrapolated, and a separate stellar component is added that is not
+  scaled by G₀ (three diluted blackbodies after Mathis+83, refitted to DIRBE). Meudon's default shape is Mathis.
+- **3D-PDR:** no spectrum, only an FUV scale and parametric photorates.
+
+The extrapolated Draine polynomial gives 10–170× fewer 1–5 eV photons than the old-star light. So in pahchem:
+- **`fields.draine1978`** evaluates its fit from 5 eV only. Its `old_stars` argument adds, without scaling by G₀,
+  `fields.old_stars_flux`: the published Mathis+83 blackbodies (7500, 4000 and 3000 K) below their 5.04 eV break.
+- **`fields.mathis1983(fixed_optical=True)`** scales only its far UV. The default still scales the whole field, as
+  the reproduced papers (Murga+20, Montillaud+13, Maragkoudakis+20, SHIVA) do.
+- **In the population**, a Draine cell gets `Environment.optical_isrf` (default 1) × the solar-circle old stars.
+  - The shape key carries `optical_isrf / G0`, so each G₀ is its own shape, with exact bases.
+  - Between the nodes of the multiphoton k_H table, the old stars scale with the node's G₀. They add little energy
+    per photon, so the H loss barely feels this.
+- **Kurucz fields** keep the star's whole spectrum, now from 1 eV.
+
+**ε** is now the heating over all the power absorbed (1–13.6 eV, or up to 500 eV with the EUV). That is Berné+22's
+and WD01's definition, and what the observed I_gas / (I_PAH + I_gas) measures. BT94's 6–13.6 eV convention differs.
+
+**Still Li & Draine below 5 eV.** Malloci+07 absorbs 2.2–3.6× more at 1–5 eV (Mathis field, median of 27
+molecules), so the sub-5 eV effects computed with the current default are lower bounds until the cross-section
+switch (Malloci and Octopus, opt-in) lands. For neutrals, part of Malloci's excess is the Lorentzian wing of the
+exponential time window their spectra carry, not absorption: about a quarter of coronene's Mathis 1–5 eV rate
+({doc}`pahchem-uv-absorption` §2). The cations' visible bands are real.
+
+**To rerun on the new grid:** V2, V9 and V14 (Draine cells, which gain the old stars), the Berné+22 comparison, and
+the PDRs4All fits. The last means rebuilding the Kurucz 40 000 K bases of all 1424 v4.00 molecules.
+
+**PDRs4All rerun (2026-10-24).** The bases (4315 states) took 14 min with 8 workers. The comparison script is
+`diagnostics/pahchem/check_sub5ev_pdrs4all.py`. The Orion Bar fits hardly feel the sub-5 eV light:
+- 9 of 10 fits keep their best cell, and γ stays ≈ 10⁴.
+- rms improves by ~1 %.
+- Charge shares of the emitted power move by ≤ 0.006.
+- 3.3/11.2 falls by 1.3–3.2 % and 6.2/11.2 by 1.3–2.5 %; 12.7/11.2 rises by 0.8–2.3 %. The emission is slightly
+  cooler.
+
+The reason is the hot star: little of its absorbed power lies below 5 eV. With Malloci-level cation absorption the
+ratio changes might reach ~3–13 %. Cooler fields (the ISRF, B-star nebulae) are where the sub-5 eV light matters.
+`population.BASIS_VERSION` is now 6, so the result caches of the fit scripts no longer return 5 eV results.
 
 ## 5. Items for the user to supply
 

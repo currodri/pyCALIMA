@@ -473,6 +473,26 @@ def test_fields_scale_to_the_requested_g0(make):
         10 * f.photon_rate(np.ones_like(E_PH), E_PH), rel=1e-10)
 
 
+def test_old_star_light_below_5ev_does_not_scale_with_g0():
+    """Below 5 eV the ISRF is old-star light (Mathis+83's blackbodies), which G0 neither measures nor scales, as in
+    Meudon PDR. Draine's far-UV fit stops at 5 eV; added old stars leave G0 and the far UV unchanged, and a Kurucz
+    field cut at e_min integrates above it exactly as the uncut one."""
+    lo = np.linspace(1.0, 4.9, 40)
+    for g0 in (1.7, 170.0):
+        d = fields.draine1978(g0=g0, e_min=1.0, old_stars=2.0)
+        assert d.g0() == pytest.approx(g0, rel=1e-10)
+        assert d.flux_at(lo) == pytest.approx(2.0 * fields.old_stars_flux(lo), rel=1e-4)     # log-linear between nodes
+        assert d.flux_at(E_PH) == pytest.approx(fields.draine1978(g0=g0).flux_at(E_PH), rel=1e-12)
+        m = fields.mathis1983(g0=g0, fixed_optical=True)
+        assert m.g0() == pytest.approx(g0, rel=1e-10)
+        assert m.flux_at(lo) == pytest.approx(fields.mathis1983().flux_at(lo), rel=1e-12)
+    assert fields.draine1978(e_min=1.0).flux_at(lo).max() == 0.0
+    full, cut = fields.kurucz(40000, 10.0), fields.kurucz(40000, 10.0, e_min=5.0)
+    assert cut.flux_at(np.array([4.99])) == 0.0
+    sig = np.ones_like(E_PH)
+    assert cut.photon_rate(sig, E_PH) == pytest.approx(full.photon_rate(sig, E_PH), rel=1e-12)
+
+
 def test_li_draine_radius_and_cross_section():
     assert photo.li_draine_radius_um(468) == pytest.approx(1e-3)
     for nc, Z in ((24, 0), (54, 1), (96, 0)):

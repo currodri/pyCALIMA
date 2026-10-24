@@ -223,8 +223,9 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
 
     mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
     y, ek = population.statistical_detachment(mol)
-    y, ek = y[: E_PH.size], ek[: E_PH.size]                                 # the 5-13.6 eV part (population.E_PH starts with it)
-    assert np.array_equal(population.E_PH[: E_PH.size], E_PH)
+    fuv = slice(population.E_PH_VIS.size, population.E_PH_VIS.size + E_PH.size)   # the 5-13.6 eV part
+    y, ek = y[fuv], ek[fuv]
+    assert np.array_equal(population.E_PH[fuv], E_PH)
     ea = mol.ionisation_ev[-1]
     prompt = photodetachment_cross_section_vec(E_PH, ea, -1) / photo.sigma_li_draine(mol.nc, -1, E_PH)
     assert np.all((y >= np.clip(prompt, 0, 1) - 1e-12) & (y <= 1 + 1e-12))
@@ -283,6 +284,35 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     assert z_mean(euv) > z_mean(cut)
     assert heat.photoelectric_heating(euv)[0][0] > 2.0 * heat.photoelectric_heating(cut)[0][0]
     assert heat.chain_overflow(cut)[0] == 0.0 < heat.chain_overflow(euv)[0]
+
+
+def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():
+    """The 1-5 eV grid: a field cut at 5 eV gives the rates of the old 5-13.6 eV grid; the photons below 5 eV only
+    reach the anion's detachment (EA ~1.5 eV), not the neutral's or the cation's thresholds, and every state absorbs
+    more (the cations in the visible). The Draine shape carries the old stars per unit G0."""
+    from pycalima.pahchem import fields, photo
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    pop = population.Population([mol], WINDOWS)
+    full, cut = ("kurucz", 40000), ("kurucz", 40000, 13.6, 5.0)
+    uncut = fields.kurucz(40000, 1.0)
+    for z in mol.charges[:-1]:
+        b_full, b_cut = pop.basis(mol, z, full), pop.basis(mol, z, cut)
+        y_fuv = population._yield(mol, z, pop.p, energy_ev=E_PH)
+        assert b_cut.k_up == pytest.approx(
+            photo.ionisation_rate(uncut, photo.sigma_li_draine(mol.nc, z, E_PH), y_fuv, E_PH), rel=1e-6)
+        if mol.ionisation_ev[z] < 5.0:
+            assert b_full.k_up > 1.05 * b_cut.k_up
+        else:
+            assert b_full.k_up == pytest.approx(b_cut.k_up, rel=1e-9)
+        assert b_full.absorbed > b_cut.absorbed
+    lo = Environment("lo", 1.7, 50.0, 8e-3, 80.0, None)
+    hi = Environment("hi", 170.0, 50.0, 8e-3, 80.0, None)
+    assert population.field_shape(Environment("old", 1.7, 50.0, 8e-3, 80.0, None, field_e_min_ev=5.0)) == ("draine",)
+    E = np.linspace(1.0, 4.9, 20)
+    for env in (lo, hi):
+        f = population._unit_field(population.field_shape(env))
+        assert env.g0 * f.flux_at(E) == pytest.approx(fields.old_stars_flux(E), rel=1e-4)
 
 
 def test_recombination_cooling_takes_kt_per_capture_and_grows_with_temperature():
@@ -540,11 +570,12 @@ def test_unit_detachment_leaves_an_anion_nothing_to_emit():
 
     mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
     pop = population.Population([mol], WINDOWS, params=Params(detachment="unity", recombination_heating=False))
-    b = pop.basis(mol, -1, ("kurucz", 40000))
+    b = pop.basis(mol, -1, ("kurucz", 40000, 13.6, 5.0))                 # every photon above the EA detaches
     assert b.absorbed == 0.0 and not b.emitted.any() and b.k_up > 0.0
+    assert pop.basis(mol, -1, ("kurucz", 40000)).absorbed > 0.0          # 1 eV - EA: absorbed, not detached
     # with recombination heating the anion still emits what electron attachment deposits (EA per event)
     hot = population.Population([mol], WINDOWS, params=Params(detachment="unity"))
-    bh = hot.basis(mol, -1, ("kurucz", 40000))
+    bh = hot.basis(mol, -1, ("kurucz", 40000, 13.6, 5.0))
     assert bh.absorbed == 0.0 and bh.emitted.sum() == pytest.approx(bh.recombination, rel=0.01) and bh.recombination > 0
 
 

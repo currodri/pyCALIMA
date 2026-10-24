@@ -260,7 +260,7 @@ Two efficiency definitions are in use:
   - Γ_PAH = 3.0 ± 0.6e-31 ε_PAH G0 f_C W/H.
   - Diffuse ISM (T = 80, n_e = 3e-2, f_C = 0.1, Draine field): ε = 0.037 and Γ = 2.7e-33 W/H (2.7e-26 erg s⁻¹ H⁻¹).
   - At γ = 100 Berne agrees with WD01 for a = 4.9 Å. At γ ≳ 1e5 Berne is up to 10× higher.
-  - Charge fractions F = {f++, f+, f0, f−}: at γ = 1e5, Berne gives {0.5, 0.4, 0.1, 0} and WD01 gives {0.7, 0.2, 0.1, 0}.
+  - Charge fractions F = {f++, f+, f0, f−}: at γ = 1e5 and T_eff = 3e4 K (their Fig. 6), Berne gives {0.5, 0.4, 0.1, 0} and WD01 gives {0.7, 0.2, 0.1, 0}.
 - **Tielens 2021** eq. 12.26 [read]: ε_PAH = 0.06/(1 + 7e-5 γ), using Y(10 eV) = 0.3 (see §12).
 - **V90** [read]: ⟨E_e⟩ = 2.2 eV and R_ion = 3.2e-8 s⁻¹ (N_C = 80, Draine field). Cut-off temperature T_c = ⟨E_e⟩/2k = 1.3e4 K.
 - **ProDiMo (Woitke+11; Thi+19/20)** [read via the citations agent]
@@ -575,14 +575,16 @@ Upper bound [derived by the agent]: R_PAH ≤ ½ κ_add x_PAH ≈ 3.5e-17 (f_C/0
 1. **WD01b α_g already contains PAHs.** It integrates the WD01a distribution (b_C = 6e-5, PAH log-normals down to 3.5 Å).
    - Any external network using α_g (Gong+17, Kim+23 TIGRESS-NCR, UCLCHEM 4.0, HYACINTH, Hu+21) must drop it, or restrict it to a ≳ 10–15 Å, when pahchem's α_PAH is supplied.
    - Gong+17 and UCLCHEM multiply WD01 by 0.6 "to match W08" (Φ = 0.4, x_PAH = 2e-7) [read by agent].
-   - My comparison [derived, `scripts/wd01b_vs_w08.py`], W08 Table 2 with Φ = 0.4 and x_PAH = 6e-7 against WD01b, for G0 = 1.7, T = 100, n = 30, x_e = 4.5e-4 (ψ = 1.3e3):
+   - W08 Table 2 with Φ = 0.4 and x_PAH = 6e-7 against WD01b, for G0 = 1.7, T = 100, n = 30, x_e = 4.4e-4 (ψ = 1.3e3) [derived, `diagnostics/pahchem/check_pah_ion_rates.py` §E]:
 
      | ion | W08 | WD01b α_g | ratio |
      |---|---|---|---|
-     | C⁺ | 1.6e-14 | 8.9e-15 | ~1.8 |
-     | H⁺ | 5.5e-14 | 9.1e-15 | ~6 |
+     | C⁺ | 1.41e-14 | 8.74e-15 | 1.61 |
+     | H⁺ | 4.88e-14 | 3.02e-14 | 1.61 |
 
-     The PAH⁻ fraction is 0.25. The H⁺ mismatch (WD01b H⁺ ≈ C⁺ where DS87 mass scaling gives √12 × C⁺) is unexplained; check it against WD01b Fig. 1.
+     The PAH⁻ fraction is 0.22. WD01b's H⁺/C⁺ is 3.46, the DS87 mass scaling √(m_C/m_H) = 3.45, as in W08.
+     - Until 2026-10-23 this table gave H⁺ 9.1e-15 and a ratio of ~6. That value is reproduced only with C2 = 1.578 for H⁺; WD01b's coefficient is 1.378, as pyCALIMA, 3D-PDR and DESPOTIC/Gong+17 all print.
+     - The C⁺ row is not printed the same everywhere: DESPOTIC's `GOW.py` has C4 = 0.4845 where pyCALIMA and 3D-PDR have 4.845e-2, giving 1.8e-15 here (5× lower). 3D-PDR's second copy has C3 = 411.3 for 433.1 (+5 %). Not yet checked against the WD01b paper.
    - pyCALIMA itself does not use WD01b. `dust_ion_recombination.py` uses single-radius grain bins (≥ 50 Å) and excludes PAH bins, and nothing consumes it (code_notes §3).
 2. **Photoelectric heating fits.** BT94, W03, W22-ε and WD01 eq. 44 are dominated by PAHs and small grains: half the heating comes from < 15 Å (W22), and 75–96 % from < 100 Å (WD01 h_s).
    - If pahchem supplies Γ_PE, drop these fits or rebuild them for a > a_PAH,max.
@@ -636,7 +638,7 @@ pahchem run with W08's rates should reproduce these. pahchem run with its own ra
 - BT94 ε(γ) (eq. 43) and Λ (eq. 44) for the BT94 size distribution.
 - Berne+22 Table 5 ε_PAH(γ) for N_C = 54, T = 500 K.
 - Berne+22 Table 4: diffuse ISM ε = 0.037, Γ = 2.7e-26 erg s⁻¹ H⁻¹ (Draine field, T = 80, n_e = 3e-2, f_C = 0.1).
-- Berne+22 charge fractions at γ = 1e5: {f++, f+, f0, f−} = {0.5, 0.4, 0.1, 0}.
+- Berne+22 charge fractions at γ = 1e5, T_eff = 3e4 K: {f++, f+, f0, f−} = {0.5, 0.4, 0.1, 0}.
 - V90: R_ion = 3.2e-8 s⁻¹ and ⟨E_e⟩ = 2.2 eV for N_C = 80 in the Draine field.
 - W22 ratios: WD01 is 1/1.7 of BT94 at γ = 1e5, 1/4.1 at 1e6, and 2.6× at 1e2.
 
