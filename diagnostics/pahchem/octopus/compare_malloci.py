@@ -5,7 +5,7 @@ another Octopus run (``--against``, for convergence tests).
 Reads ``<run>/spectrum/cross_section_tensor`` (energy [eV], (1/3) Tr sigma [A^2], ...) and compares:
 - the oscillator strength to 30 eV and its share of the valence electrons (``malloci2007.oscillator_strength``);
 - the integrals over 1-5, 5-13.6 and 13.6-30 eV;
-- the strongest peak in 5-8 eV and in 14-20 eV;
+- the strongest peak in 1-5, 5-8 and 14-20 eV;
 - the Mathis-ISRF absorption rate in 1-5 and 5-13.6 eV.
 
     compare_malloci.py <run dir> --name coronene --charge 0 --nc 24 --nh 12 [--against <run dir>]
@@ -26,6 +26,24 @@ def read_octopus(run):
     return d[:, 0], d[:, 1] * A2_CM2
 
 
+def summary(E, s, n_val):
+    """f to 30 eV and its share of ``n_val``, band integrals, the strongest peaks and the Mathis absorption rates."""
+    ma = fields.mathis1983(1.0, e_min=0.5)
+    k = E > 0
+    E, s = E[k], s[k]
+    out = {"f30": M.oscillator_strength(E, s, 0, 30)}
+    out["share"] = out["f30"] / n_val
+    for lo, hi in ((1, 5), (5, 13.6), (13.6, 30)):
+        out[f"f {lo}-{hi}"] = M.oscillator_strength(E, s, lo, hi)
+    for lo, hi in ((1, 5), (5, 8), (14, 20)):
+        w = (E >= lo) & (E <= hi)
+        out[f"peak {lo}-{hi} eV"] = E[w][np.argmax(s[w])]
+    for lo, hi in ((1, 5), (5, 13.6)):
+        w = (E >= lo) & (E <= hi)
+        out[f"Mathis {lo}-{hi}"] = ma.photon_rate(s[w], E[w])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("run", type=Path)
@@ -42,25 +60,8 @@ def main():
         theirs, ref = M.spectra()[a.name]["sigma"].get(a.charge), "Malloci+07"
         if theirs is None:
             raise SystemExit(f"no usable Malloci spectrum for {a.name} Z = {a.charge} (malloci2007.INCONSISTENT?)")
-    ma = fields.mathis1983(1.0, e_min=0.5)
     n_val = M.valence_electrons(a.nc, a.nh, a.charge)
-
-    def summary(E, s):
-        k = E > 0
-        E, s = E[k], s[k]
-        out = {"f30": M.oscillator_strength(E, s, 0, 30)}
-        out["share"] = out["f30"] / n_val
-        for lo, hi in ((1, 5), (5, 13.6), (13.6, 30)):
-            out[f"f {lo}-{hi}"] = M.oscillator_strength(E, s, lo, hi)
-        for lo, hi in ((5, 8), (14, 20)):
-            w = (E >= lo) & (E <= hi)
-            out[f"peak {lo}-{hi} eV"] = E[w][np.argmax(s[w])]
-        for lo, hi in ((1, 5), (5, 13.6)):
-            w = (E >= lo) & (E <= hi)
-            out[f"Mathis {lo}-{hi}"] = ma.photon_rate(s[w], E[w])
-        return out
-
-    o, t = summary(*ours), summary(*theirs)
+    o, t = summary(*ours, n_val), summary(*theirs, n_val)
     print(f"{a.name} Z = {a.charge:+d} ({n_val} valence electrons): Octopus run {a.run} against {ref}")
     for key in o:
         ratio = "" if key.startswith("peak") else f"   ratio {o[key] / t[key]:.3f}"
