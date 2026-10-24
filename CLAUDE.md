@@ -57,19 +57,6 @@ calima-export
 calima-export --config path/to/custom_config.json
 ```
 
-**Run individual exporters** (each also accepts `--config`):
-```bash
-python -m pycalima.models.dust_radiation.export_dust_optical_properties
-python -m pycalima.models.PAH_radiation.export_pah_optical_properties
-python -m pycalima.models.dust_gas_collisions.export_collisional_cooling_bins
-python -m pycalima.models.dust_gas_collisions.export_sputtering_rates_bins
-python -m pycalima.models.PAH_gas_collisions.export_pah_sputtering_rates_bins
-python -m pycalima.models.dust_charge.export_dust_charging_vs_gamma
-python -m pycalima.models.dust_charge.export_dust_photoelectric_heating
-python -m pycalima.models.PAH_charge.export_PAH_photoelectric_heating_tables
-python -m pycalima.models.PAH_photophysics.export_pah_dissociation_tables
-```
-
 **Run the chemistry solver:**
 ```bash
 # Adaptive RK4 time integration
@@ -138,57 +125,17 @@ Everything flows from `src/pycalima/models/grain_size_distribution.json`. This J
 
 ### Two-layer structure
 
-**Layer 1 — `src/pycalima/models/`**: Physics modules that compute rates, cross-sections, and properties. Organized by physical domain:
-- `dust_radiation/`, `PAH_radiation/` — optical properties and radiative processes
-- `dust_charge/`, `PAH_charge/` — charging, photoelectric heating
-- `dust_gas_collisions/`, `PAH_gas_collisions/` — sputtering, collisional cooling
-- `dust_collisions/`, `PAH_collisions/` — grain-grain/PAH-PAH collisional outcomes
-- `dust_chemistry/` — surface chemistry (H₂ formation)
-- `PAH_photophysics/` — PAH photodissociation and acetylene-loss tables
-- `tools/` — radiation field definitions, Mie theory, SED readers, unit helpers
-- `yields/` — dust yield table builders
-
-Each subpackage contains:
-- Core physics module(s)
-- `export_*.py` — batch exporter that writes tables to `model_data/`
-- `test_*.py` — standalone diagnostic/validation scripts (not pytest-collected)
+**Layer 1 — `src/pycalima/models/`**: physics modules (rates, cross-sections, properties), one subpackage per
+physical domain. Each has `export_*.py` batch exporters that write to `model_data/` (all accept `--config`); its
+`test_*.py` files are standalone diagnostic scripts, not pytest-collected.
 
 **Layer 2 — `src/pycalima/solvers/`**: ODE solver that consumes the precomputed tables from `model_data/` and integrates dust/PAH mass evolution. Entry points are `run_chemistry.py` (single point) and `run_grid.py` (parallelized 2-D sweep). The solver mirrors the RAMSES-CALIMA Fortran modules.
 
-### Data flow
+### Solvers
 
-```
-BUNDLED, READ-ONLY  (inside the installed package)
-  data/optical_props/   reference optical datasets
-  data/external_data/   literature rates, cross-sections, yields
-       │  _paths.get_optical_props_path() / get_external_data_path()
-       ▼
-  pycalima.models  ──calima-export──▶  model_data/   precomputed lookup tables
-                                          │
-WRITABLE  ($CALIMA_DATA, else ./model_data,  │  _paths.get_model_data_dir()
-           else per-user data dir)           ▼
-                                    pycalima.solvers  ──▶  results/
-                                                            evolution .txt + .png
-                                            _paths.get_results_dir()
-
-NOT BUNDLED, registered in data/registry.toml
-  the PAHdb archives   ──▶  calima-fetch-data import ...
-```
-
-### Solver internals
-
-- `chemistry_state.py` — `DustChemistryState`, `DustBinParams`, `PAHBinParams` dataclasses
-- `rhs.py` / `dust_rates.py` — assembles and evaluates rate kernels per physics flag
-- `rk4.py` / `rk54.py` — adaptive Cash–Karp RK4 and RK5(4) integrators
-- `anninos.py` — quasi-implicit per-bin integrator (Anninos+1997), stable for
-  destruction-dominated bins where explicit steps would be prohibitive
-- `equilibrium.py` — Newton–Krylov and sparse-Newton steady-state solvers
-
-All five are registered in `SOLVER_REGISTRY` in `solvers/run_chemistry.py`;
-adding a solver means adding it there and subclassing `DustSolverBase`.
+The solvers (RK4, RK5(4), Anninos, Newton–Krylov, sparse Newton) are registered in `SOLVER_REGISTRY` in
+`solvers/run_chemistry.py`; adding a solver means adding it there and subclassing `DustSolverBase`.
 Select one with `solver.type` in a config, or `--solver` on either CLI.
-- `dust_init.py` — parses JSON config, builds initial state and density arrays
-- `table_io.py` — reads sputtering/rate tables from `model_data/`
 
 ### Solver config JSON keys to know
 

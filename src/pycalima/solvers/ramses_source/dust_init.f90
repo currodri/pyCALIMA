@@ -1,10 +1,11 @@
 module dust_init
-    use amr_parameters, only: dp
+    use amr_parameters, only: dp, metal
     use hydro_parameters, only:ndust,ndchemtype,npah,nmetals
     use constants
     use dust_utils
     use dustbin_types
     use dust_commons
+    use dust_charging, only: init_dust_charging_isrf
     use dust_cooling, only: init_dust_coll_heating_BH80_cache
 #ifdef RTZ
     use rtz_module, only:elements
@@ -22,11 +23,22 @@ module dust_init
 
         write(*,*) '>>> DUST PARAMETERS ======================================'
         write(*,*) '   idust      = ',idust,',   ndust    = ',ndust,',   ndchemtype = ',ndchemtype
+        if (dust_solver_type == 1) then
+            write(*,*) 'dust_solver_type      = ',dust_solver_type, ' (RK4)'
+        else if (dust_solver_type == 2) then
+            write(*,*) 'dust_solver_type      = ',dust_solver_type, ' (Anninos)'
+        else if (dust_solver_type == 3) then
+            write(*,*) 'dust_solver_type      = ',dust_solver_type, ' (RK54)'
+        else
+            write(*,*) 'dust_solver_type      = ',dust_solver_type, ' (Unknown)'
+        end if
         write(*,*) 'dust_acc              = ',dust_accretion  ,',        dust_sput     = ',dust_sputtering
         write(*,*) 'dust_coa              = ',dust_coagulation,',        dust_sha      = ',dust_shattering
         write(*,*) 'dust_acc_coulomb      = ',dust_acc_coulomb,',        dust_ratd     = ',dust_ratd
+        write(*,*) 'max_accretion_rate    = ',max_accretion_rate
         write(*,*) 'dust_turbulent_model  = ',dust_turbulent_model,',        H2ondust      = ',H2ondust
         write(*,*) 'dust_shattering_SN      = ',dust_shattering_SN
+        write(*,*) 'dust_sublimation      = ',dust_sublimation
         do ii = 1, ndchemtype
             write(*,*)'dust chemical group ',ii,' has ',dustbins_per_chemtype(ii),' dust bins',' starting with dust bin ',istart_chemtype(ii)
             write(*,*)'composition: '
@@ -56,6 +68,15 @@ module dust_init
             end do
         end if
 #endif
+        write(*,*) '>>> DUST DYNAMICS ========================================'
+        write(*,*) 'dust_tva             = ',dust_tva,',    dust_radpressure    = ',dust_radpressure
+        if (dust_tva) then
+            write(*,*) 'use_w_drift_test     = ',use_w_drift_test
+            if (use_w_drift_test) write(*,*) '   w_drift_test      = ',w_drift_test
+            write(*,*) 'tva_wmax_cs          = ',tva_wmax_cs,' (cap on |w_drift| / c_s)'
+            write(*,*) 'epstein_coef         = ',epstein_coef,' = sqrt(pi*gamma/8)'
+            write(*,*) 'drag_model           = ',trim(drag_model)
+        end if
         write(*,*) '=============================================================='
     end subroutine print_dust_parameters
 
@@ -64,6 +85,9 @@ module dust_init
         ! This function goes through the hydro and compilation parameters
         ! to make sure that it is compliant with the required dust settings
         use hydro_parameters
+#ifdef RT
+        use rt_parameters, only: rt_isIRtrap, rt_isIR, rt_use_hll
+#endif
         implicit none
         logical :: check_params_dust
         integer,intent(in) :: myid
@@ -72,24 +96,44 @@ module dust_init
         real(dp):: fpah_total
 
         check_params_dust = .true.
-#if NDUST!=4
-        if (myid==1)write(*,*)'ERROR: This only works for NDUST==4 :('
-        check_params_dust = .false.
-#endif
         !-------------------------------------------------
         ! Check we have metals ON for dust
         !-------------------------------------------------
         if(.not. metal)then
-            if(myid==1)write(*,*)'Error: dust requires metal=.true.'
-            check_params_dust = .false.
+            if(myid==1)then
+                write(*,*)'WARNING: metal=.false., gas-phase elements are not defined.'
+                write(*,*)'Disabling CALIMA gas-exchange processes (accretion, sputtering, SN/wind seeding & destruction)'
+            end if
+            dust_accretion = .false.
+            pah_accretion = .false.
+            dust_sputtering = .false.
+            pah_sputtering = .false.
+            dust_inSN = .false.
+            dust_inSNIa = .false.
+            dust_inSW = .false.
+            pah_AGBwinds = .false.
+            dust_SNdest = .false.
+            pah_sn_destruction = .false.
+            pah_acc_spu = .false.
         end if
 #ifdef RTZ 
         metals_for_dust=(N_OXYGEN_IONS>0).and.(N_MAGNESIUM_IONS>0).and.(N_CARBON_IONS>0).and.(N_IRON_IONS>0).and.(N_SILICON_IONS>0)
         if (.not. metals_for_dust) then
-            write(*,*) "ERROR: you are missing metals required to track dust composition"
-            write(*,*) "oxygen_ions,magnesium_ions,carbon_ions,iron_ions,silicon_ions"
-            write(*,*) N_OXYGEN_IONS,N_MAGNESIUM_IONS,N_CARBON_IONS,N_IRON_IONS,N_SILICON_IONS
-            check_params_dust = .false.
+            if (myid==1) then
+                write(*,*) "WARNING: missing metals required to track dust composition."
+                write(*,*) "Disabling CALIMA gas-exchange processes."
+            end if
+            dust_accretion = .false.
+            pah_accretion = .false.
+            dust_sputtering = .false.
+            pah_sputtering = .false.
+            dust_inSN = .false.
+            dust_inSNIa = .false.
+            dust_inSW = .false.
+            pah_AGBwinds = .false.
+            dust_SNdest = .false.
+            pah_sn_destruction = .false.
+            pah_acc_spu = .false.
         end if
 #endif
         !-------------------------------------------------
@@ -114,6 +158,116 @@ module dust_init
             end if
         end if
 
+        !-------------------------------------------------
+        ! Check everything is correct to do dust dynamics
+        !-------------------------------------------------
+#ifndef RT
+        if (dust_radpressure) then
+            if(myid==1)write(*,*)'Error: dust_radpressure can only be used with RT'
+            check_params_dust=.false.
+        end if
+#endif
+        if (dust_tva .and. ndust <= 0) then
+            if(myid==1)write(*,*)'Error: dust_tva requires at least one dust bin (NDUST>0)'
+            check_params_dust=.false.
+        end if
+        if (dust_radpressure .and. .not.dust_tva) then
+            if(myid==1)write(*,*)'Error: dust_radpressure has no effect without dust_tva=.true.'
+            check_params_dust=.false.
+        end if
+        if (trim(drag_model).ne.'epstein' .and. .not.draine_drag()) then
+            if(myid==1)write(*,*)'Error: drag_model must be epstein, draine2011 or draine2011_pz, not ',trim(drag_model)
+            check_params_dust=.false.
+        end if
+        ! The Draine drag needs n_H, T and the grain charge, which the TVA gets
+        ! from the per-cell radiation-pressure call; the pure-drag path has none.
+        if (draine_drag() .and. .not.dust_radpressure) then
+            if(myid==1)write(*,*)'Error: drag_model=',trim(drag_model),' requires dust_radpressure=.true.'
+            check_params_dust=.false.
+        end if
+        if (dust_tva .and. myid==1) then
+            if (use_w_drift_test) then
+                write(*,*)'WARNING: use_w_drift_test=.true. replaces the physical drift ', &
+                          'with the constant w_drift_test. This is a test mode, not physics.'
+            end if
+            if (npah > 0) then
+                write(*,*)'WARNING: TVA advects the ',ndust,' dust bins only. The ',npah, &
+                          ' PAH bins stay perfectly coupled to the gas (see calima/README.md).'
+            end if
+            if (tva_wmax_cs <= 0d0) then
+                write(*,*)'WARNING: tva_wmax_cs<=0 disables the drift cap. TVA assumes ', &
+                          'Stokes<<1; without a cap dt can collapse in hot/diffuse cells.'
+            end if
+        end if
+#ifdef RT
+        ! Trapped-IR radiation pressure on the dust
+        if (dust_tva .and. rt_isIRtrap) then
+            if (nener <= 0) then
+                if(myid==1)write(*,*)'Error: rt_isIRtrap needs a non-thermal energy ', &
+                                     'variable; recompile with NENER>=1 (and NVAR+1)'
+                check_params_dust=.false.
+            end if
+            if (.not. rt_isIR) then
+                if(myid==1)write(*,*)'Error: rt_isIRtrap requires rt_isIR=.true. ', &
+                                     '(the trapped variable is the IR group)'
+                check_params_dust=.false.
+            end if
+            if (ndust <= 0) then
+                if(myid==1)write(*,*)'Error: trapped-IR pressure on dust requires NDUST>0'
+                check_params_dust=.false.
+            end if
+            if (rt_use_hll) then
+                ! Rosdahl & Teyssier 2015, footnote 3: the trapped/streaming
+                ! partition is matched to the numerical diffusion of the GLF
+                ! flux, so it is only consistent with rt_flux_scheme='glf'.
+                if(myid==1)write(*,*)'Error: rt_isIRtrap is only consistent with ', &
+                                     "rt_flux_scheme='glf', not 'hll'"
+                check_params_dust=.false.
+            end if
+        end if
+#endif
+        select case (trim(charging_model))
+        case ('Ibanez2019', 'WDB06isrf')
+        case ('WDB06rt')
+#ifndef RT
+            if (myid == 1) write(*,*) 'Error: charging_model='//trim(charging_model)//' needs RT photon groups; ', &
+                'use WDB06isrf (uniform ISRF) or Ibanez2019'
+            check_params_dust = .false.
+#endif
+        case default
+            if (myid == 1) write(*,*) 'Error: unknown charging_model='//trim(charging_model)//' (WDB06rt, ', &
+                'WDB06isrf or Ibanez2019; the old (gamma, T) charge tables and WDB06tab were removed)'
+            check_params_dust = .false.
+        end select
+        if (dust_ion_recombination .and. trim(charging_model) /= 'WDB06rt' .and. trim(charging_model) /= 'WDB06isrf') then
+            if (myid == 1) write(*,*) 'WARNING: dust_ion_recombination needs charging_model WDB06rt or WDB06isrf; ', &
+                'the RTZ chemistry keeps its grain recombination fit'
+        end if
+#if defined(RT) && !defined(RTZ)
+        ! RT + CALIMA without RTZ. The radiative dust coupling is ported into
+        ! rt_cooling_module, but the dust<->gas THERMAL coupling is not: it
+        ! lives in rtz_coolrates_module's all_cooling, which does not exist in
+        ! this build. Warn rather than fail -- the configuration is useful and
+        ! deliberate -- but do not let the limitation pass silently.
+        if (myid == 1) then
+            write(*,*)'------------------------------------------------------------'
+            write(*,*)'WARNING: CALIMA is compiled without RTZ.'
+            write(*,*)'  ACTIVE : per-bin dust temperature, IR Rosseland/Planck'
+            write(*,*)'           opacities, dust radiation pressure, dust drift.'
+            write(*,*)'  MISSING: dust->gas thermal coupling. Dust recombination'
+            write(*,*)'           cooling, photoelectric heating and dust-gas'
+            write(*,*)'           collisional cooling are computed but NOT applied'
+            write(*,*)'           to the gas temperature.'
+            write(*,*)'  MISSING: metal abundances. The gas state handed to the'
+            write(*,*)'           grain physics carries H and He only, so T_dust is'
+            write(*,*)'           biased LOW (no heavy-species collisional heating)'
+            write(*,*)'           and grain charging sees no metal-donated'
+            write(*,*)'           electrons. See rt_calima_gas_state.'
+            write(*,*)'  With rt_kIR_RT15=.true. the one-temperature RT15 closure'
+            write(*,*)'  is used instead and the gas DOES receive IR heating.'
+            write(*,*)'------------------------------------------------------------'
+        end if
+#endif
     end function check_params_dust
 
     subroutine init_dust_depletion(myq,Hfrac,force_zero)
@@ -142,7 +296,7 @@ module dust_init
         if (DTMinit.eq.-1d0) then
             ! OPTION A: Initialise based on G/D for the MW
             if (GDinit.eq.-1d0) then
-                GD = GD_RR14(myq(imetal+8-1),Hfrac) ! O mass fraction
+                GD = GD_RR14(myq(imetal+8-1)/mO_amu, Hfrac/mH_amu)
             else
                 GD = GDinit
             end if
@@ -154,7 +308,10 @@ module dust_init
                     Z_interest = Z_interest + myq(imetal + dustbins_props(jj1)%el_index(jj) - 1)
                 end do
             end do
-            if (Z_interest .eq. 0d0) myforce = .true.; GD = 0d0
+            if (Z_interest .eq. 0d0) then
+                myforce = .true.
+                GD = 0d0
+            end if
             if ((GD.ne.0d0).and. (.not.myforce)) then
                 if (GD.lt.1d0/Z_interest) then
                     GD = 1d0/Z_interest
@@ -290,7 +447,7 @@ module dust_init
         ! for the equilibrium test runs in rtz_cooling_module.f90.
         ! nElement <--> element number densities [cm^-3]
         ! rho_dust <--> dust mass densities [g/cm^3]
-        ! rho_pah <--> PAH mass densities [g/cm^3]
+        ! rho_pah  <--> PAH mass densities [g/cm^3]
         implicit none
 
         ! ---- Input/Output ----
@@ -300,12 +457,26 @@ module dust_init
 
         ! ---- Local variables ----
         integer :: ii,ii1,ii2,jj,kk,ilim
-        real(dp) :: DTM_factor
+        real(dp) :: DTM_factor, GD
         real(dp) :: dustC,dustPAH,dustMass
         real(dp) :: total_dust_pah, total_metals, dust_fraction
         real(dp),dimension(:),allocatable :: M_el
 
-        DTM_factor = DTMinit / DTM_solar
+        if (DTMinit .eq. -1d0) then
+            ! G/D-based initialisation (mirrors OPTION A of init_dust_depletion)
+            if (GDinit .eq. -1d0) then
+                if (nElement(1) .gt. 0d0) then
+                    GD = GD_RR14(nElement(8), nElement(1))
+                else
+                    GD = GD_solar
+                end if
+            else
+                GD = GDinit
+            end if
+            DTM_factor = GD_solar / GD
+        else
+            DTM_factor = DTMinit / DTM_solar
+        end if
 
         do ii = 1, ndchemtype
             ii1 = istart_chemtype(ii)
@@ -401,14 +572,15 @@ module dust_init
         end if
     end subroutine init_dust_depletion_tests
 
-    function GD_RR14(Omass_frac,Hmass_frac)
-        ! This function returns an estimate of the gas to dust ration
+    function GD_RR14(nO,nH)
+        ! This function returns an estimate of the gas to dust ratio
         ! (G/D) based on a broken power-law fit by Remy-Ruyer et al. (2014)
         ! (see their parameters in Table 1:
         ! https://ui.adsabs.harvard.edu/abs/2014A%26A...563A..31R/abstract)
         ! This assumes that the solar abundance is (O/H)sun = 4.9e-4
+        ! nO and nH are any quantities proportional to the O and H number densities
         implicit none
-        real(dp),intent(in) :: Omass_frac, Hmass_frac ! Oxygen and hydrogen mass fractions
+        real(dp),intent(in) :: nO, nH
         real(dp) :: a, alpha_H, b, alpha_L, x_t, xsun
         real(dp) :: GD_RR14,x,y
 
@@ -416,7 +588,7 @@ module dust_init
         a = 2.21d0; alpha_H = 1d0; b = 0.96d0
         alpha_L = 3.10d0; x_t = 8.10d0; xsun = 8.69d0
 
-        x = 12 + log10(max((Omass_frac*mH_amu)/(Hmass_frac*mO_amu),1.d-40))
+        x = 12 + log10(max(nO/nH,1.d-40))
         if (x .gt. x_t) then
             y = a + alpha_H * (xsun - x)
         else
@@ -428,6 +600,7 @@ module dust_init
     subroutine init_dust_processes
         use dust_rates
         implicit none
+        integer :: ii
 
         ! 1. We begin by counting how many dust processes will be included based on
         ! on the namelist parameters, and allocate the array of dust_processes_list
@@ -437,6 +610,9 @@ module dust_init
                 ndust_processes = ndust_processes + 1
             end if
             if (dust_sputtering) then
+                ndust_processes = ndust_processes + 1
+            end if
+            if (dust_sublimation) then
                 ndust_processes = ndust_processes + 1
             end if
             if (dust_coagulation) then
@@ -456,7 +632,10 @@ module dust_init
                     dust_processes_list(ndust_processes)%name = 'accretion'
                     dust_processes_list(ndust_processes)%source = .true.
                     dust_processes_list(ndust_processes)%sink = .false.
-                    if (accretion_model.eq.'LeBourlot2012') then
+                    if (dust_acc_coulomb) then
+                        carry_gas_ions = .true.
+                        dust_processes_list(ndust_processes)%comp_rate => coulomb_accretion_rate
+                    else if (accretion_model.eq.'LeBourlot2012') then
                         dust_processes_list(ndust_processes)%comp_rate => LeBourlot2012_accretion_rate
                     else
                         dust_processes_list(ndust_processes)%comp_rate => LeBourlot2012_accretion_rate
@@ -477,6 +656,13 @@ module dust_init
                     else
                         dust_processes_list(ndust_processes)%comp_rate => sputtering_rate
                     end if
+                end if
+                if (dust_sublimation) then
+                    ndust_processes = ndust_processes + 1
+                    dust_processes_list(ndust_processes)%name = 'sublimation'
+                    dust_processes_list(ndust_processes)%source = .false.
+                    dust_processes_list(ndust_processes)%sink = .true.
+                    dust_processes_list(ndust_processes)%comp_rate => sublimation_rate
                 end if
                 if (dust_coagulation) then
                     ndust_processes = ndust_processes + 1
@@ -511,6 +697,7 @@ module dust_init
                     dust_processes_list(ndust_processes)%name = 'ratd'
                     dust_processes_list(ndust_processes)%source = .false.
                     dust_processes_list(ndust_processes)%sink = .true.
+                    ! comp_rate not yet implemented for RATD; guard below will abort.
                 end if
             end if
         end if
@@ -544,6 +731,7 @@ module dust_init
                 if (pah_accretion) then
                     npah_processes = npah_processes + 1
                     pah_processes_list(npah_processes)%name = 'accretion'
+                    ! comp_rate not yet implemented for PAH accretion; guard below will abort.
                 end if
                 if (pah_sputtering) then
                     npah_processes = npah_processes + 1
@@ -579,6 +767,7 @@ module dust_init
                 if (pah_desorption) then
                     npah_processes = npah_processes + 1
                     pah_processes_list(npah_processes)%name = 'desorption'
+                    ! comp_rate not yet implemented for PAH desorption; guard below will abort.
                 end if
                 if (pah_cluster_evaporation) then
                     npah_processes = npah_processes + 1
@@ -604,6 +793,30 @@ module dust_init
                 end if
             end if
         end if
+
+        ! 3. Guard: abort at startup if any registered process has no comp_rate.
+        !    This catches stub entries ('ratd', PAH 'accretion', PAH 'desorption')
+        !    before they trigger a null procedure-pointer call at runtime.
+        if (allocated(dust_processes_list)) then
+            do ii = 1, ndust_processes
+                if (.not. associated(dust_processes_list(ii)%comp_rate)) then
+                    write(*,'(a,a,a)') 'ERROR: dust process "', &
+                        trim(dust_processes_list(ii)%name), &
+                        '" has no comp_rate implementation (not yet supported).'
+                    call clean_stop()
+                end if
+            end do
+        end if
+        if (allocated(pah_processes_list)) then
+            do ii = 1, npah_processes
+                if (.not. associated(pah_processes_list(ii)%comp_rate)) then
+                    write(*,'(a,a,a)') 'ERROR: PAH process "', &
+                        trim(pah_processes_list(ii)%name), &
+                        '" has no comp_rate implementation (not yet supported).'
+                    call clean_stop()
+                end if
+            end do
+        end if
     end subroutine init_dust_processes
 
     subroutine init_CALIMA_dust(nGroups)
@@ -612,17 +825,55 @@ module dust_init
         ! This is called during init_time.f90
         use hydro_parameters
         use amr_commons, only:myid
+        use amr_parameters, only:condinit_kind
         use dust_photoelectric_heating, only: most_negative_allowed_charge
         use dust_optics, only:getRATCrosssection
+        use rk4_mod, only: rk4_step
+        use anninos_mod, only: anninos_step
+        use rk54_mod, only: rk54_step
+        use ode_interface_mod, only: dust_solver_step
         implicit none
         integer, intent(in) :: nGroups
         logical :: check_for_pahs
-        integer :: ii,jj,kk,kk_loc,n_el,nd_ctype,id_start,id_end,ichemtype
+        integer :: ii,jj,kk,kk_loc,n_el,nd_ctype,id_start,id_end,ichemtype,i
         integer :: jbin,kbin,idest
         integer :: idust_pah_interact
         real(dp) :: mf_max,mf_min,prefactor,chi_total,frac_tot,mcoag
         real(dp) :: R
         integer :: iend_chemtype
+        ! external :: run_dust_solver_test
+
+        ! Epstein drag coefficient. t_s = rho_s*a/(rho_g*v_th) with v_th the MEAN thermal
+        ! speed sqrt(8kT/(pi mu mH)); the solver's c_s is adiabatic, and
+        ! v_th = sqrt(8/(pi*gamma))*c_s, so the coefficient is sqrt(pi*gamma/8) = 0.809 for
+        ! gamma=5/3. Cf. patch/mrn-scratch/synchro_fine.f90, which carries the isothermal
+        ! form of the same constant, sqrt(pi/8) = 0.62665706865775.
+        epstein_coef = sqrt(pi * gamma / 8d0)
+
+        ! Resolve the TVA test IC once, here, instead of string-comparing condinit_kind
+        ! inside the per-cell/per-face/per-bin solver loops.
+        select case (trim(condinit_kind))
+        case ('dustydiffuse'); tva_test_mode = TVA_TEST_DIFFUSE
+        case ('dustyshock');   tva_test_mode = TVA_TEST_SHOCK
+        case ('dustyblast1d'); tva_test_mode = TVA_TEST_BLAST1D
+        case ('dustyspress');  tva_test_mode = TVA_TEST_SPRESS
+        case ('dustygauss');   tva_test_mode = TVA_TEST_GAUSS
+        case ('dustyirtrap');  tva_test_mode = TVA_TEST_IRTRAP
+        case default;          tva_test_mode = TVA_TEST_NONE
+        end select
+        if (myid == 1 .and. tva_test_mode /= TVA_TEST_NONE) then
+            if (tva_test_mode == TVA_TEST_IRTRAP) then
+                ! This one keeps the real Epstein drag and real thermodynamics;
+                ! it only freezes the analytic trapped-IR profile from condinit
+                ! by skipping the re-partition in cooling_fine.
+                write(*,*) 'WARNING: condinit_kind="',trim(condinit_kind),'" selects a TVA TEST ', &
+                           'branch: the trapped-IR energy is held at its analytic profile ', &
+                           '(no trapped/streaming re-partition). Drag and thermodynamics are physical.'
+            else
+                write(*,*) 'WARNING: condinit_kind="',trim(condinit_kind),'" selects a TVA TEST ', &
+                           'branch: the stopping time and/or thermodynamics are hardcoded, not physical.'
+            end if
+        end if
 
         ! 0. Build the bin-to-chemtype mapping from per-chemtype bin counts
         if (sum(dustbins_per_chemtype) /= ndust) then
@@ -677,7 +928,9 @@ module dust_init
             if (allocated(dustbins_props(ii)%el_atomic_masses_amu)) deallocate(dustbins_props(ii)%el_atomic_masses_amu)
             if (allocated(dustbins_props(ii)%el_atomic_masses_g)) deallocate(dustbins_props(ii)%el_atomic_masses_g)
             if (allocated(dustbins_props(ii)%el_conv_factors)) deallocate(dustbins_props(ii)%el_conv_factors)
+#ifdef RTZ
             if (allocated(dustbins_props(ii)%el_nions)) deallocate(dustbins_props(ii)%el_nions)
+#endif
             if (allocated(dustbins_props(ii)%el_names)) deallocate(dustbins_props(ii)%el_names)
             if (allocated(dustbins_props(ii)%el_atomic_number)) deallocate(dustbins_props(ii)%el_atomic_number)
             allocate(dustbins_props(ii)%el_index(1:n_el), &
@@ -686,9 +939,11 @@ module dust_init
                      dustbins_props(ii)%el_atomic_masses_amu(1:n_el), &
                      dustbins_props(ii)%el_atomic_masses_g(1:n_el), &
                      dustbins_props(ii)%el_conv_factors(1:n_el), &
-                     dustbins_props(ii)%el_nions(1:n_el), &
                      dustbins_props(ii)%el_names(1:n_el), &
                      dustbins_props(ii)%el_atomic_number(1:n_el))
+#ifdef RTZ
+            allocate(dustbins_props(ii)%el_nions(1:n_el))
+#endif
             kk = 0
             do jj = 1, n_elements
                 if (dust_composition(ichemtype,jj) > 0d0) then
@@ -708,7 +963,7 @@ module dust_init
                     end if
                     dustbins_props(ii)%el_mfractions(kk) = elements(jj)%atomic_mass * dust_composition(ichemtype,jj)
                     dustbins_props(ii)%el_atomic_masses_amu(kk) = elements(jj)%atomic_mass
-                    dustbins_props(ii)%el_atomic_masses_g(kk) = elements(jj)%atomic_mass * amu2g
+                    dustbins_props(ii)%el_atomic_masses_g(kk) = elements(jj)%atomic_mass_g
                     dustbins_props(ii)%el_nions(kk) = elements(jj)%n_ions
                     dustbins_props(ii)%el_names(kk) = elements(jj)%symbol
 #else
@@ -831,6 +1086,7 @@ module dust_init
 #else
             dust_helper%el_atomic_mass_g(jj) = el_atomic_masses_amu(jj) * amu2g
 #endif
+            dust_helper%inv_atomic_mass(jj) = 1.0_dp / max(dust_helper%el_atomic_mass_g(jj), tiny(1.0_dp))
         end do
 
         ! 3. Add the RAT-D parameters
@@ -994,15 +1250,39 @@ module dust_init
             end if
         end do
 
-        ! 6. Initialise the min number of dust chemistry loops
-        nmin_dust_loopcnt = countmax
+        ! 6. Allocate per-process tracking arrays (sizes known after init_dust_processes).
+        !    dM_ode_* are only needed when dust_debug=.true. (mass budget logging).
+        !    ode_reduction_count_* are needed for dust_log=.true. (solver stats).
+        if (ndust_processes > 0) then
+            if (dust_debug) then
+                if (.not. allocated(dM_ode_dust)) &
+                    allocate(dM_ode_dust(ndust+npah, ndust_processes))
+                dM_ode_dust(:,:) = 0.0_dp
+            end if
+            if (.not. allocated(ode_reduction_count_dust)) &
+                allocate(ode_reduction_count_dust(ndust_processes))
+            ode_reduction_count_dust(:) = 0_8
+        end if
+        if (npah_processes > 0) then
+            if (dust_debug) then
+                if (.not. allocated(dM_ode_pah)) &
+                    allocate(dM_ode_pah(ndust+npah, npah_processes))
+                dM_ode_pah(:,:) = 0.0_dp
+            end if
+            if (.not. allocated(ode_reduction_count_pah)) &
+                allocate(ode_reduction_count_pah(npah_processes))
+            ode_reduction_count_pah(:) = 0_8
+        end if
         smallr_dust = smallr
 
         ! 7. Other constants and parameters
 #if NPAH>0
         if (dust_pahs) then
-            call init_pah_sputtering_tables
-            call init_pah_dissociation_tables
+            if (pah_sputtering) call init_pah_sputtering_tables
+            if (pah_photolysis) call init_pah_dissociation_tables
+            ! Always: the PAH charge tables (fcharge_tab) built here are also used by
+            ! the RT absorption (compute_dust_rad_rates), radiation pressure and the
+            ! cooling pre-computation, whether or not pah_pe_heating is on
             call init_pah_peh_tables
         end if
 #endif
@@ -1012,31 +1292,123 @@ module dust_init
             comp_sigma_turb = .true.
         end if
 
-        if (dust_acc_coulomb.or.dust_sputtering_charge.or.dust_coll_charge) then
+        if (dust_acc_coulomb.or.pah_freezing) then
             Coulomb_precompute = .true.
         end if
 
         ! 8. Read the dust thermal sputtering tables
-        if (sputtering_model.eq.'RM2026')  call init_thermal_sputtering_tables
+        if (dust_sputtering .and. sputtering_model.eq.'RM2026')  call init_thermal_sputtering_tables
+
+        ! 8b. Read the dust thermal sublimation tables
+        if (dust_sublimation) call init_dust_sublimation_tables
 
         ! 9. Read the dust collisional tables
-        call init_dust_collisional_tables
+        if (dust_coll_cooling) call init_dust_collisional_tables
 
-        ! 10. Read the dust charging tables
-        call init_dust_charging_tables
+        ! 10. Read the uniform-ISRF charging tables: charging_model='WDB06isrf', the PE heating of the
+        ! models that do not compute their own (WDB06rt does), and the Coulomb factors of the WDB06rt
+        ! cells without local photons
+        if (trim(charging_model) == 'WDB06isrf' .or. (dust_pe_heating .and. trim(charging_model) /= 'WDB06rt') &
+            .or. (Coulomb_precompute .and. trim(charging_model) == 'WDB06rt')) call init_dust_charging_isrf
 
-        ! 11. Read the dust photoelectric heating tables
-        call init_dust_peh_tables
+        ! 11b. Read the dust IR emission tables
+        call init_dust_IR_emission_tables
 
         ! 12. Cache the BH80 collisional heating factors that only depend on the dust bins
-        call init_dust_coll_heating_BH80_cache
+        if (dust_coll_cooling) call init_dust_coll_heating_BH80_cache
+
+
+        ! Select the ODE solver procedure pointer
+        if (dust_solver_type == 1) then
+            dust_solver_step => rk4_step
+            solver_substepped = .true.
+        else if (dust_solver_type == 2) then
+            dust_solver_step => anninos_step
+            solver_substepped = .false.
+        else if (dust_solver_type == 3) then
+            dust_solver_step => rk54_step
+            solver_substepped = .true.
+        else
+            if (myid == 1) then
+                write(*,*) 'ERROR: Invalid dust_solver_type = ', dust_solver_type
+            end if
+            call clean_stop()
+        end if
 
         ! 13. Print the CALIMA dust properties for the user
         if (myid == 1) then
             call print_dust_parameters
         end if
 
+        ! if (dust_test) then
+        !     call run_dust_solver_test()
+        ! end if
+
     end subroutine init_CALIMA_dust
+
+    subroutine read_CALIMA_params(nml_ok,nGroups)
+        use amr_commons, only:myid
+        implicit none
+        logical, intent(inout) :: nml_ok
+        integer, intent(in) :: nGroups
+
+        logical :: check_dust
+
+        namelist/calima_params/&
+                ! Dust physics flags
+                dust_log,dust_debug,dust_solver_type,dust_only_rtadv,dust_eq_test,dust_SNdest,dust_inSN,dust_inSNIa,dust_inSW,&
+                dust_test,test_nH,test_Tk,test_nsteps,test_dt,test_ne,test_mu,&
+                dust_coagulation,dust_coagulation_boost,dust_shattering,dust_shattering_all,dust_shattering_dest,dust_shattering_SN,&
+                dust_accretion,dust_sputtering,dust_sputtering_charge,dust_acc_coulomb,dust_ratd,dust_coll_cooling,dust_coll_lowT,dust_coll_charge,&
+                dust_sublimation,dust_pe_heating,dust_pe_heating_isrf,ratd_only_rtadv,poppe_ice_enhancement,H2ondust,dust_turbulent_model,&
+                ! PAH physics flags
+                pah_accretion,pah_acc_spu,pah_coalescence,pah_freezing,pah_desorption,pah_photolysis,pah_sn_destruction,pah_cluster_evaporation,&
+                pah_AGBwinds,pah_sputtering,pah_pe_heating,pah_pe_heating_isrf,pah_pe_nolyman,H2onpah,&
+                ! Dust dynamics flags
+                dust_tva, dust_radpressure, use_w_drift_test, w_drift_test,drag_coefficient,&
+                tva_wmax_cs,drag_model,&
+                ! Dust modelling options
+                sputtering_model,accretion_model,shattering_model,coagulation_model,dust_velocity_model,charging_model,nZmix,ice_model,&
+                dust_rtgroups_debug,dust_rtgroups_debug_max,dust_rtgroups_verify,dust_charging_timer,dust_ion_recombination,&
+                rtg_predict_tol,rtg_predict_tol_shape,&
+                ! PAH modelling options
+                photolysis_model,peh_attach_model,coalescence_model,pah_h2_model,pah_growth_model,pah_sputtering_model,&
+                cluster_evaporation_model,&
+                ! Efficiency parameters
+                Sconstant,max_accretion_rate,nh_coa,nhmax_acc,nhmax_coa,nhmax_sha,&
+                dust_SNdest_eff,dust_SNsha_eff,dust_SNII_cond_eff,dust_SNIa_cond_eff,dust_AGB_cond_eff,&
+                Coulomb_enhance,tensile_strength,Youngs_modulus,Poisson_ratio,surf_energy,work_function,band_gap,e_escape_length,&
+                separate_refractive_index,slope_frag_func,errmax,countmax,GDinit,DTMinit,fpah_ini,smallr_dust,&
+                ! Dust grain and PAHs bin properties
+                dust_composition,dustbins_per_chemtype,&
+                asize,sgrain,amin,amax,fmass_ej,&
+                pah_nc,pah_nc_min,pah_nc_max,spah,pah_SNdest_eff,fpah_inwind,pah_nc,pah_ncharge_states,&
+                pah_is_cluster, &
+                ! ISM depletion factors
+                fDust_depletions,fCDust_inPAH,GD_solar,DTM_solar,fdustmass_ini,fpahmass_ini,&
+                ! Radiation parameters
+                fixed_rad_ani,fixed_lambda_mean,&
+                ! External dust files
+                dust_tables_dir
+
+        ! Initialise as fine
+        nml_ok = .true.
+
+        ! 1. Read namelist file
+        rewind(1)
+        read(1,NML=calima_params,END=301)
+301     continue ! No harm if no CALIMA namelist
+
+        ! 2. Check that the parameters are consistent and set any internal variables
+        check_dust = check_params_dust(myid)
+        if(.not.check_dust) then
+            nml_ok = .false.
+            return
+        end if
+
+        ! 3. If everything is fine, we initialise CALIMA dust parameters and tables
+        call init_CALIMA_dust(nGroups)
+    end subroutine read_CALIMA_params
 
     subroutine cmp_lim_elem(dust_index,n_el,el_density,lim_index)
         implicit none
@@ -1066,7 +1438,7 @@ module dust_init
         implicit none
 
         logical :: ok, ok_all
-        integer :: nT, nphi, istat, i, j, ii, Zi, nmax, iphi0
+        integer :: nT, nphi, istat, i, j, ii, Zi, nmax, iphi0, n
         character(len=20) :: dustlabel
         character(len=7) :: Zi_str
         character(len=128) :: collisional_filename
@@ -1075,7 +1447,7 @@ module dust_init
         ! 1. Check first that all files are in the expected place
         ok_all = .true.
         do ii = 1, ndust
-            write(dustlabel, '(A,I2.2)') 'dustbin_', ii
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
             do i = 1, n_elements
 #ifdef RTZ
                 if (elements(i)%atomic_number <= 0) cycle
@@ -1103,7 +1475,7 @@ module dust_init
 
         ! 2. Read the files for each dust bin and element
         do ii = 1, ndust
-            write(dustlabel, '(A,I2.2)') 'dustbin_', ii
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
             do i = 1, n_elements
 #ifdef RTZ
                 if (elements(i)%atomic_number <= 0) cycle
@@ -1121,6 +1493,11 @@ module dust_init
                     call clean_stop
                 end if
 
+                ! Skip header lines
+                do n = 1, 6
+                    read(25, *)
+                end do
+
                 ! Read the number of temperature points and number of phi values
                 read(25, *) nT, nphi
 
@@ -1129,6 +1506,7 @@ module dust_init
                     deallocate(dustbins_props(ii)%collisional_tab(i)%npts)
                 end if
                 allocate(dustbins_props(ii)%collisional_tab(i)%npts(1:2))
+                dustbins_props(ii)%collisional_tab(i)%name = 'dust_collisional_'//trim(dustlabel)//'_Z_'//trim(Zi_str)
                 dustbins_props(ii)%collisional_tab(i)%ndim = 2
                 dustbins_props(ii)%collisional_tab(i)%npts(1) = nT
                 dustbins_props(ii)%collisional_tab(i)%npts(2) = nphi
@@ -1168,8 +1546,7 @@ module dust_init
                 end do
                 dustbins_props(ii)%collisional_tab(i)%tab1d(1:nT, 1) = T_grid(1:nT)
 
-                ! Mark table as initialized
-                dustbins_props(ii)%collisional_tab(i)%initialised = .true.
+                call dustbins_props(ii)%collisional_tab(i)%init()
 
                 close(25)
 
@@ -1195,6 +1572,11 @@ module dust_init
                 write(*,*) '  File:', trim(collisional_filename), ' iostat=', istat
                 stop 1
             end if
+
+            ! Skip header lines
+            do n = 1, 6
+                read(25, *)
+            end do
 
             read(25, *, iostat=istat) nT, nphi
             if (istat /= 0) then
@@ -1248,7 +1630,8 @@ module dust_init
             end do
 
             dustbins_props(ii)%collisional_tab(0)%tab1d(1:nT, 1) = T_grid(1:nT)
-            dustbins_props(ii)%collisional_tab(0)%initialised = .true.
+
+            call dustbins_props(ii)%collisional_tab(0)%init()
             close(25)
             if (allocated(phi_grid)) deallocate(phi_grid)
             if (allocated(T_grid)) deallocate(T_grid)
@@ -1271,7 +1654,7 @@ module dust_init
         implicit none
 
         logical :: ok, ok_all
-        integer :: nT, nphi, istat, i, j, ii, Zi, nmax, iphi0
+        integer :: nT, nphi, istat, i, j, ii, Zi, nmax, iphi0, n
         character(len=20) :: dustlabel
         character(len=7) :: Zi_str
         character(len=128) :: sputtering_filename
@@ -1280,7 +1663,7 @@ module dust_init
         ! 1. Check first that all files are in the expected place
         ok_all = .true.
         do ii = 1, ndust
-            write(dustlabel, '(A,I2.2)') 'dustbin_', ii
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
             do i = 1, n_elements
 #ifdef RTZ
                 if (elements(i)%atomic_number <= 0) cycle
@@ -1308,7 +1691,7 @@ module dust_init
 
         ! 2. Read the files for each dust bin and element
         do ii = 1, ndust
-            write(dustlabel, '(A,I2.2)') 'dustbin_', ii
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
             do i = 1, n_elements
 #ifdef RTZ
                 if (elements(i)%atomic_number <= 0) cycle
@@ -1326,6 +1709,11 @@ module dust_init
                     call clean_stop
                 end if
 
+                ! Skip header lines
+                do n = 1, 6
+                    read(25, *)
+                end do
+
                 ! Read the number of temperature points and number of phi values
                 read(25, *) nT, nphi
 
@@ -1334,6 +1722,7 @@ module dust_init
                     deallocate(dustbins_props(ii)%sputtering_tab(i)%npts)
                 end if
                 allocate(dustbins_props(ii)%sputtering_tab(i)%npts(1:2))
+                dustbins_props(ii)%sputtering_tab(i)%name = 'sputtering_'//trim(dustlabel)//'_Z_'//trim(Zi_str)
                 dustbins_props(ii)%sputtering_tab(i)%ndim = 2
                 dustbins_props(ii)%sputtering_tab(i)%npts(1) = nT
                 dustbins_props(ii)%sputtering_tab(i)%npts(2) = nphi
@@ -1373,305 +1762,128 @@ module dust_init
                 end do
                 dustbins_props(ii)%sputtering_tab(i)%tab1d(1:nT, 1) = T_grid(1:nT)
 
-                close(25)
-                dustbins_props(ii)%sputtering_tab(i)%initialised = .true.
+                call dustbins_props(ii)%sputtering_tab(i)%init()
 
+                close(25)
                 deallocate(phi_grid, T_grid)
             end do
         end do
 
     end subroutine init_thermal_sputtering_tables
 
-    subroutine init_dust_charging_tables
-        ! This subroutine reads at the initialisation of dust parameters
-        ! the pre-computed charge distribution parameters of dust grains for
-        ! different charging parameters. This is based on the model built 
-        ! by Weingartner and Draine (2001b). The interpolation tables are
-        ! separated between neutral and ionised gas, as they present very
-        ! distinct behaviour for low gamma values.
-        ! NOTE: Keep in mind that these tables are already in log10, such that easy
-        ! linear interpolation in log-log space can be computed on the fly!
-        use amr_commons,only:myid
+    subroutine init_dust_sublimation_tables
+        ! Reads the pre-computed thermal sublimation erosion rate tables for
+        ! each dust bin. Files are named sublimation_rate_DustBin_xx.dat and
+        ! contain a header (lines starting with '#') followed by two columns:
+        !   col 1: dust temperature T_d [K]
+        !   col 2: fractional erosion rate epsilon = |da/dt|/a [s-1]
+        ! The temperature axis is stored as log10(T_d) and the rate as
+        ! log10(epsilon) so that linear interpolation can be done on the fly
+        ! using the dust temperature saved in the dust chemistry workspace.
+        use amr_commons, only: myid
         implicit none
 
         logical :: ok, ok_all
-        integer :: ngamma,nT,nmax,istat,ii,j,k,n
+        integer :: nT, istat, j, ii, ndata
         character(len=20) :: dustlabel
-        character(len=128) :: charge_filename,sigma_filename
-        real(dp), allocatable :: gamma_grid(:), T_grid(:)
+        character(len=256) :: sublimation_filename
+        character(len=256) :: line
+        real(dp) :: Td, eps
+        real(dp), parameter :: log_floor = -300d0
 
         ! 1. Check first that all files are in the expected place
         ok_all = .true.
-        do ii=1,ndust
-            write(dustlabel, '(A,I2.2)') 'dustbin_', ii
-            write(charge_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_charge_Z_vs_T_', trim(dustlabel)
-            inquire(file=charge_filename,exist=ok)
+        do ii = 1, ndust
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
+            write(sublimation_filename, '(A,A,A,A)') trim(dust_tables_dir), &
+                'sublimation_rate_', trim(dustlabel), '.dat'
+            inquire(file=trim(sublimation_filename), exist=ok)
             ok_all = ok_all .and. ok
-            write(sigma_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_charge_sigma_vs_T_', trim(dustlabel)
-            inquire(file=sigma_filename,exist=ok)
-            ok_all = ok_all .and. ok
-        end do
-
-        if(.not. ok_all) then
-            if(myid.eq.1) then 
-                write(*,*)'ERROR IN DUST CHARGING TABLES'
-                write(*,*)'Cannot access dust directory ',TRIM(dust_tables_dir)
-                write(*,*)'Directory '//TRIM(dust_tables_dir)//' not found'
-                write(*,*)'You need to set this correctly for' // &
-                         ' dust_tables_dir in the namelist.'
-            endif
-            call clean_stop
-        end if
-
-        ! 2. Read per-grain charging tables into dustbins_props DustTables
-        do ii=1,ndust
-            write(dustlabel, '(A,I2.2)') 'dustbin_', ii
-            write(charge_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_charge_Z_vs_T_', trim(dustlabel)
-            write(sigma_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_charge_sigma_vs_T_', trim(dustlabel)
-
-            open(26, file=trim(charge_filename), status='old', action='read', iostat=istat)
-            if (istat /= 0) then
-                write(*, *) 'Error opening file: ', trim(charge_filename)
-                call clean_stop
-            end if
-            open(27, file=trim(sigma_filename), status='old', action='read', iostat=istat)
-            if (istat /= 0) then
-                write(*, *) 'Error opening file: ', trim(sigma_filename)
-                call clean_stop
-            end if
-            
-            ! Skip the 6 first lines of the header
-            do n = 1, 6
-                 read(26,*)
-                 read(27,*)
-            end do
-  
-            ! Read the number of gamma and T points
-            read(26,*) ngamma,nT
-            read(27,*) j,k
-            if (j /= ngamma .or. k /= nT) then
-                write(*,*) 'Error: charge table dimensions mismatch for grain ', ii
-                call clean_stop
-            end if
-
-            ! Allocate charging DustTables for this grain
-            nmax = max(ngamma,nT)
-
-            if (allocated(dustbins_props(ii)%mean_charg_tab%npts)) deallocate(dustbins_props(ii)%mean_charg_tab%npts)
-            allocate(dustbins_props(ii)%mean_charg_tab%npts(1:2))
-            dustbins_props(ii)%mean_charg_tab%ndim = 2
-            dustbins_props(ii)%mean_charg_tab%npts(1) = ngamma
-            dustbins_props(ii)%mean_charg_tab%npts(2) = nT
-            if (allocated(dustbins_props(ii)%mean_charg_tab%tab1d)) deallocate(dustbins_props(ii)%mean_charg_tab%tab1d)
-            allocate(dustbins_props(ii)%mean_charg_tab%tab1d(1:nmax,1:2))
-            dustbins_props(ii)%mean_charg_tab%tab1d = 0d0
-            if (allocated(dustbins_props(ii)%mean_charg_tab%tab2d)) deallocate(dustbins_props(ii)%mean_charg_tab%tab2d)
-            allocate(dustbins_props(ii)%mean_charg_tab%tab2d(1:ngamma,1:nT,1:1))
-
-            if (allocated(dustbins_props(ii)%sigma_charg_tab%npts)) deallocate(dustbins_props(ii)%sigma_charg_tab%npts)
-            allocate(dustbins_props(ii)%sigma_charg_tab%npts(1:2))
-            dustbins_props(ii)%sigma_charg_tab%ndim = 2
-            dustbins_props(ii)%sigma_charg_tab%npts(1) = ngamma
-            dustbins_props(ii)%sigma_charg_tab%npts(2) = nT
-            if (allocated(dustbins_props(ii)%sigma_charg_tab%tab1d)) deallocate(dustbins_props(ii)%sigma_charg_tab%tab1d)
-            allocate(dustbins_props(ii)%sigma_charg_tab%tab1d(1:nmax,1:2))
-            dustbins_props(ii)%sigma_charg_tab%tab1d = 0d0
-            if (allocated(dustbins_props(ii)%sigma_charg_tab%tab2d)) deallocate(dustbins_props(ii)%sigma_charg_tab%tab2d)
-            allocate(dustbins_props(ii)%sigma_charg_tab%tab2d(1:ngamma,1:nT,1:1))
-
-            if (allocated(gamma_grid)) deallocate(gamma_grid)
-            if (allocated(T_grid)) deallocate(T_grid)
-            allocate(gamma_grid(1:ngamma))
-            allocate(T_grid(1:nT))
-
-            ! Read and store the temperature grid
-            read(26,*,iostat=istat) (T_grid(j), j=1,nT)
-            if (istat /= 0) then
-                write(*, *) 'Error reading temperature values from file: ', trim(charge_filename)
-                call clean_stop
-            end if
-            read(27,*,iostat=istat) 
-
-            ! Read and store the gamma grid
-            read(26,*,iostat=istat) (gamma_grid(j), j=1,ngamma)
-            if (istat /= 0) then
-                write(*, *) 'Error reading gamma values from file: ', trim(charge_filename)
-                call clean_stop
-            end if
-            read(27,*,iostat=istat)
-
-            ! Read the data
-            do j = 1, ngamma
-                read(26,*,iostat=istat) (dustbins_props(ii)%mean_charg_tab%tab2d(j,k,1), k=1,nT)
-                if (istat /= 0) then
-                    write(*, *) 'Error reading mean Z values from file: ', trim(charge_filename)
-                    call clean_stop
-                end if
-                read(27,*,iostat=istat) (dustbins_props(ii)%sigma_charg_tab%tab2d(j,k,1), k=1,nT)
-                if (istat /= 0) then
-                    write(*, *) 'Error reading sigma Z values from file: ', trim(sigma_filename)
-                    call clean_stop
-                end if
-            end do
-
-            dustbins_props(ii)%mean_charg_tab%tab1d(1:ngamma,1) = gamma_grid(1:ngamma)
-            dustbins_props(ii)%mean_charg_tab%tab1d(1:nT,2) = T_grid(1:nT)
-            dustbins_props(ii)%mean_charg_tab%initialised = .true.
-
-            dustbins_props(ii)%sigma_charg_tab%tab1d(1:ngamma,1) = gamma_grid(1:ngamma)
-            dustbins_props(ii)%sigma_charg_tab%tab1d(1:nT,2) = T_grid(1:nT)
-            dustbins_props(ii)%sigma_charg_tab%initialised = .true.
-
-            close(26)
-            close(27)
-
-            deallocate(gamma_grid,T_grid)
-        end do
-
-    end subroutine init_dust_charging_tables
-
-    subroutine init_dust_peh_tables
-        ! Initialize per-dust-bin PE heating / recombination tables.
-        ! Each dust bin reads its own files from dust_tables_dir:
-        !   - dust_rates_peh_DustBin_XX.dat
-        !   - dust_rates_rec_DustBin_XX.dat
-        use amr_commons,only:myid
-        implicit none
-
-        logical :: ok_peh, ok_rec, ok_all
-        integer :: ngamma, nT, istat, i, j, k, nmax, n
-        character(len=20) :: dustlabel
-        character(len=128) :: peh_filename, rec_filename
-        real(dp), allocatable :: gamma_grid(:), T_grid(:)
-
-        ok_all = .true.
-        do i = 1, ndust
-            write(dustlabel, '(A,I2.2)') 'DustBin_', i
-            write(peh_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_rates_peh_', trim(dustlabel)//'.dat'
-            write(rec_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_rates_rec_', trim(dustlabel)//'.dat'
-            inquire(file=trim(peh_filename), exist=ok_peh)
-            inquire(file=trim(rec_filename), exist=ok_rec)
-            ok_all = ok_all .and. ok_peh .and. ok_rec
         end do
 
         if (.not. ok_all) then
-            if (myid.eq.1) then
-                write(*,*) 'ERROR IN PE HEATING / RECOMBINATION TABLES'
-                write(*,*) 'Missing per-bin PEH/rec grid or rate tables in ', trim(dust_tables_dir)
-                write(*,*) 'Expected names like dust_rates_peh_DustBin_01.dat, and dust_rates_rec_DustBin_01.dat'
+            if (myid .eq. 1) then
+                write(*, *) 'ERROR IN THERMAL SUBLIMATION TABLES'
+                write(*, *) 'Cannot access dust directory ', TRIM(dust_tables_dir)
+                write(*, *) 'Directory ' // TRIM(dust_tables_dir) // ' not found'
+                write(*, *) 'You need to set this correctly for dust_tables_dir in the namelist.'
             end if
             call clean_stop
         end if
 
-        do i = 1, ndust
-            write(dustlabel, '(A,I2.2)') 'DustBin_', i
-            write(peh_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_rates_peh_', trim(dustlabel)//'.dat'
-            write(rec_filename,'(A,A,A)') trim(dust_tables_dir), 'dust_rates_rec_', trim(dustlabel)//'.dat'
+        ! 2. Read the file for each dust bin
+        do ii = 1, ndust
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
+            write(sublimation_filename, '(A,A,A,A)') trim(dust_tables_dir), &
+                'sublimation_rate_', trim(dustlabel), '.dat'
 
-            open(28, file=trim(peh_filename), status='old', action='read', iostat=istat)
+            ! 2.1 First pass: count the number of data rows (skip comments/blanks)
+            open(25, file=trim(sublimation_filename), status='old', action='read', iostat=istat)
             if (istat /= 0) then
-                if (myid.eq.1) write(*,*) 'Error opening file: ', trim(peh_filename)
+                write(*, *) 'Error opening file: ', trim(sublimation_filename)
                 call clean_stop
             end if
-            open(29, file=trim(rec_filename), status='old', action='read', iostat=istat)
-            if (istat /= 0) then
-                if (myid.eq.1) write(*,*) 'Error opening file: ', trim(rec_filename)
-                call clean_stop
-            end if
-
-            ! Skip the 6 header lines of file 28 and 29
-            do n = 1, 6
-                read(28,*)
-                read(29,*)
+            ndata = 0
+            do
+                read(25, '(A)', iostat=istat) line
+                if (istat /= 0) exit
+                line = adjustl(line)
+                if (len_trim(line) == 0) cycle
+                if (line(1:1) == '#') cycle
+                ndata = ndata + 1
             end do
-            read(28,*,iostat=istat) nT, ngamma
+            close(25)
+
+            if (ndata < 2) then
+                write(*, *) 'Error: sublimation table has too few rows: ', trim(sublimation_filename)
+                call clean_stop
+            end if
+            nT = ndata
+
+            ! 2.2 Allocate the DustTable structure (1D table)
+            if (allocated(dustbins_props(ii)%sublimation_tab%npts)) then
+                deallocate(dustbins_props(ii)%sublimation_tab%npts)
+            end if
+            allocate(dustbins_props(ii)%sublimation_tab%npts(1:1))
+            dustbins_props(ii)%sublimation_tab%name = 'sublimation_rate_'//trim(dustlabel)
+            dustbins_props(ii)%sublimation_tab%ndim = 1
+            dustbins_props(ii)%sublimation_tab%npts(1) = nT
+            if (allocated(dustbins_props(ii)%sublimation_tab%tab1d)) then
+                deallocate(dustbins_props(ii)%sublimation_tab%tab1d)
+            end if
+            allocate(dustbins_props(ii)%sublimation_tab%tab1d(1:nT, 1:2))
+            dustbins_props(ii)%sublimation_tab%tab1d = 0d0
+
+            ! 2.3 Second pass: read the temperature and erosion rate values.
+            !     Store log10(T_d) and log10(epsilon) for on-the-fly interpolation.
+            open(25, file=trim(sublimation_filename), status='old', action='read', iostat=istat)
             if (istat /= 0) then
-                if (myid.eq.1) write(*,*) 'Error reading ngamma and nT: ', trim(peh_filename)
+                write(*, *) 'Error opening file: ', trim(sublimation_filename)
                 call clean_stop
             end if
-            read(29,*,iostat=istat) j,k
-            if (istat /= 0) then
-                if (myid.eq.1) write(*,*) 'Error reading ngamma and nT: ', trim(rec_filename)
-                call clean_stop
-            end if
-            if (j /= ngamma .or. k /= nT) then
-                if (myid.eq.1) write(*,*) 'Error: PEH/rec table dimensions mismatch for grain ', i
-                call clean_stop
-            end if
-            if (allocated(dustbins_props(i)%peh_tab%npts)) deallocate(dustbins_props(i)%peh_tab%npts)
-            allocate(dustbins_props(i)%peh_tab%npts(1:2))
-            dustbins_props(i)%peh_tab%ndim = 2
-            dustbins_props(i)%peh_tab%npts(1) = ngamma
-            dustbins_props(i)%peh_tab%npts(2) = nT
-            if (allocated(dustbins_props(i)%peh_tab%ipos_zero)) deallocate(dustbins_props(i)%peh_tab%ipos_zero)
-            allocate(dustbins_props(i)%peh_tab%ipos_zero(1:2))
-            dustbins_props(i)%peh_tab%ipos_zero(:) = 1
-            nmax = max(ngamma, nT)
-            if (allocated(dustbins_props(i)%peh_tab%tab1d)) deallocate(dustbins_props(i)%peh_tab%tab1d)
-            allocate(dustbins_props(i)%peh_tab%tab1d(1:nmax,1:2))
-            dustbins_props(i)%peh_tab%tab1d = 0d0
-            if (allocated(dustbins_props(i)%peh_tab%tab2d)) deallocate(dustbins_props(i)%peh_tab%tab2d)
-            allocate(dustbins_props(i)%peh_tab%tab2d(1:ngamma,1:nT,1:1))
-
-            if (allocated(dustbins_props(i)%rec_tab%npts)) deallocate(dustbins_props(i)%rec_tab%npts)
-            allocate(dustbins_props(i)%rec_tab%npts(1:2))
-            dustbins_props(i)%rec_tab%ndim = 2
-            dustbins_props(i)%rec_tab%npts(1) = ngamma
-            dustbins_props(i)%rec_tab%npts(2) = nT
-            if (allocated(dustbins_props(i)%rec_tab%ipos_zero)) deallocate(dustbins_props(i)%rec_tab%ipos_zero)
-            allocate(dustbins_props(i)%rec_tab%ipos_zero(1:2))
-            dustbins_props(i)%rec_tab%ipos_zero(:) = 1
-            if (allocated(dustbins_props(i)%rec_tab%tab1d)) deallocate(dustbins_props(i)%rec_tab%tab1d)
-            allocate(dustbins_props(i)%rec_tab%tab1d(1:nmax,1:2))
-            dustbins_props(i)%rec_tab%tab1d = 0d0
-            if (allocated(dustbins_props(i)%rec_tab%tab2d)) deallocate(dustbins_props(i)%rec_tab%tab2d)
-            allocate(dustbins_props(i)%rec_tab%tab2d(1:ngamma,1:nT,1:1))
-
-            if (allocated(gamma_grid)) deallocate(gamma_grid)
-            if (allocated(T_grid)) deallocate(T_grid)
-            allocate(gamma_grid(1:ngamma))
-            allocate(T_grid(1:nT))
-
-            read(28,*,iostat=istat) (T_grid(j), j=1,nT)
-            read(28,*,iostat=istat) (gamma_grid(j), j=1,ngamma)
-            if (istat /= 0) then
-                if (myid.eq.1) write(*,*) 'Error reading gamma grid from file: ', trim(peh_filename)
-                call clean_stop
-            end if
-            read(29,*,iostat=istat) ! Skip the T grid since its the same as in file 28
-            read(29,*,iostat=istat) ! Skip the gamma grid since its the same as in file 28
-            if (istat /= 0) then
-                if (myid.eq.1) write(*,*) 'Error reading T grid from file: ', trim(rec_filename)
-                call clean_stop
-            end if
-
-            dustbins_props(i)%peh_tab%tab1d(1:ngamma,1) = gamma_grid(1:ngamma)
-            dustbins_props(i)%peh_tab%tab1d(1:nT,2) = T_grid(1:nT)
-            dustbins_props(i)%rec_tab%tab1d(1:ngamma,1) = gamma_grid(1:ngamma)
-            dustbins_props(i)%rec_tab%tab1d(1:nT,2) = T_grid(1:nT)
-
-            do j = 1, ngamma
-                read(28,*,iostat=istat) (dustbins_props(i)%peh_tab%tab2d(j,k,1), k=1,nT)
+            j = 0
+            do
+                read(25, '(A)', iostat=istat) line
+                if (istat /= 0) exit
+                line = adjustl(line)
+                if (len_trim(line) == 0) cycle
+                if (line(1:1) == '#') cycle
+                read(line, *, iostat=istat) Td, eps
                 if (istat /= 0) then
-                    if (myid.eq.1) write(*,*) 'Error reading PEH table row ', j, ' from file: ', trim(peh_filename)
+                    write(*, *) 'Error parsing sublimation table row in ', trim(sublimation_filename)
                     call clean_stop
                 end if
-                read(29,*,iostat=istat) (dustbins_props(i)%rec_tab%tab2d(j,k,1), k=1,nT)
-                if (istat /= 0) then
-                    if (myid.eq.1) write(*,*) 'Error reading rec table row ', j, ' from file: ', trim(rec_filename)
-                    call clean_stop
-                end if
+                j = j + 1
+                dustbins_props(ii)%sublimation_tab%tab1d(j, 1) = log10(Td)
+                dustbins_props(ii)%sublimation_tab%tab1d(j, 2) = eps
             end do
+            close(25)
 
-            close(28)
-            close(29)
-
-            dustbins_props(i)%peh_tab%initialised = .true.
-            dustbins_props(i)%rec_tab%initialised = .true.
-
-            deallocate(gamma_grid, T_grid)
+            call dustbins_props(ii)%sublimation_tab%init()
+            dustbins_props(ii)%T_sublimation_min = 10d0**dustbins_props(ii)%sublimation_tab%tab1d(1, 1)
         end do
-    end subroutine init_dust_peh_tables
+
+    end subroutine init_dust_sublimation_tables
 
     subroutine init_pah_sputtering_tables
         ! This subroutine reads at the initialisation of dust parameters
@@ -1697,7 +1909,7 @@ module dust_init
         implicit none
 
         logical :: file_exists
-        integer :: nT, istat, i, ipahbin, iel, Zi
+        integer :: nT, istat, i, ipahbin, iel, Zi, n
         character(len=256) :: pah_filename
         real(dp), allocatable :: T_grid(:), rate_grid(:)
         character(len=8) :: Z_str, ipah_str
@@ -1710,6 +1922,7 @@ module dust_init
 
             ! Reset all PAH sputtering tables for this PAH bin.
             do iel = 0, n_elements
+                pahbins_props(ipahbin)%sputtering_tab(iel)%name = 'pah_sputtering_pahbin_'//trim(adjustl(ipah_str))//'_Z_'//trim(adjustl(Z_str))
                 pahbins_props(ipahbin)%sputtering_tab(iel)%initialised = .false.
                 pahbins_props(ipahbin)%sputtering_tab(iel)%ndim = 0
             end do
@@ -1724,6 +1937,9 @@ module dust_init
             if (file_exists) then
                 open(10, file=trim(pah_filename), status='old', action='read', iostat=istat)
                 if (istat == 0) then
+                    do n = 1, 6
+                        read(10, *)
+                    end do
                     read(10, *) nT
 
                     if (allocated(pahbins_props(ipahbin)%sputtering_tab(0)%npts)) deallocate(pahbins_props(ipahbin)%sputtering_tab(0)%npts)
@@ -1734,7 +1950,6 @@ module dust_init
                     if (allocated(pahbins_props(ipahbin)%sputtering_tab(0)%tab1d)) deallocate(pahbins_props(ipahbin)%sputtering_tab(0)%tab1d)
                     allocate(pahbins_props(ipahbin)%sputtering_tab(0)%tab1d(1:nT, 1:2))
                     pahbins_props(ipahbin)%sputtering_tab(0)%tab1d = 0d0
-                    if (allocated(pahbins_props(ipahbin)%sputtering_tab(0)%tab2d)) deallocate(pahbins_props(ipahbin)%sputtering_tab(0)%tab2d)
 
                     if (allocated(T_grid)) deallocate(T_grid)
                     if (allocated(rate_grid)) deallocate(rate_grid)
@@ -1751,7 +1966,8 @@ module dust_init
                     end do
                     pahbins_props(ipahbin)%sputtering_tab(0)%tab1d(1:nT, 2) = rate_grid(1:nT)
 
-                    pahbins_props(ipahbin)%sputtering_tab(0)%initialised = .true.
+                    call pahbins_props(ipahbin)%sputtering_tab(0)%init()
+
                     close(10)
                     deallocate(T_grid, rate_grid)
                 else
@@ -1780,6 +1996,9 @@ module dust_init
                     cycle
                 end if
 
+                do n = 1, 6
+                    read(10, *)
+                end do
                 ! Read the number of temperature points
                 read(10, *) nT
 
@@ -1796,9 +2015,6 @@ module dust_init
                 end if
                 allocate(pahbins_props(ipahbin)%sputtering_tab(iel)%tab1d(1:nT, 1:2))
                 pahbins_props(ipahbin)%sputtering_tab(iel)%tab1d = 0d0
-                if (allocated(pahbins_props(ipahbin)%sputtering_tab(iel)%tab2d)) then
-                    deallocate(pahbins_props(ipahbin)%sputtering_tab(iel)%tab2d)
-                end if
 
                 ! Allocate temporary arrays for temperature and rate grids
                 if (allocated(T_grid)) deallocate(T_grid)
@@ -1817,7 +2033,8 @@ module dust_init
                     read(10, *) rate_grid(i)
                 end do
                 pahbins_props(ipahbin)%sputtering_tab(iel)%tab1d(1:nT, 2) = rate_grid(1:nT)
-                pahbins_props(ipahbin)%sputtering_tab(iel)%initialised = .true.
+
+                call pahbins_props(ipahbin)%sputtering_tab(iel)%init()
 
                 close(10)
 
@@ -1845,7 +2062,7 @@ module dust_init
         implicit none
 
         logical :: ok_pah
-        integer :: n_G0,n_nH,istat
+        integer :: n_G0,n_nH,istat,n
         integer :: i,j,ipahbin,nmax
         character(len=7) :: i_str
         character(len=128) :: f_diss_filename
@@ -1873,12 +2090,18 @@ module dust_init
                 call clean_stop
             end if
 
+            ! Ignore the first 6 lines (comment)
+            do n = 1, 6
+                read(111,*)
+            end do
+
             ! Read the matrix structure
             read(111,*) n_G0, n_nH
             nmax = max(n_G0,n_nH)
 
             if (allocated(pahbins_props(ipahbin)%dissociation_tab%npts)) deallocate(pahbins_props(ipahbin)%dissociation_tab%npts)
             allocate(pahbins_props(ipahbin)%dissociation_tab%npts(1:2))
+            pahbins_props(ipahbin)%dissociation_tab%name = 'pah_dissociation_pahbin_'//trim(adjustl(i_str))
             pahbins_props(ipahbin)%dissociation_tab%ndim = 2
             pahbins_props(ipahbin)%dissociation_tab%npts(1) = n_G0
             pahbins_props(ipahbin)%dissociation_tab%npts(2) = n_nH
@@ -1904,7 +2127,8 @@ module dust_init
                     read(111, *) pahbins_props(ipahbin)%dissociation_tab%tab2d(i, j, 1)
                 end do
             end do
-            pahbins_props(ipahbin)%dissociation_tab%initialised = .true.
+
+            call pahbins_props(ipahbin)%dissociation_tab%init()
             close(111)
         end do
     end subroutine init_pah_dissociation_tables
@@ -1917,8 +2141,8 @@ module dust_init
         implicit none
 
         logical :: ok_pah
-        integer :: n_gamma,istat
-        integer :: i,j,istate,nstates_interp
+        integer :: n_gamma,istat,n
+        integer :: i,j,istate
         real(dp) :: gamma_i, eff_i, pabs_i, f_anion_i, f_neutral_i, f_cation_i, f_dication_i
         character(len=7) :: i_str
         character(len=128) :: f_peh_filename
@@ -1949,49 +2173,41 @@ module dust_init
                 call clean_stop
             end if
 
-            ! Ignore the first line (comment)
-            read(111,*)
+            ! Ignore the first 6 lines (comment)
+            do n = 1, 6
+                read(111,*)
+            end do
 
             ! Read the number of gamma points
             read(111,*) n_gamma
 
 
-
             ! Fill PAH per-bin PEH tables used by interpolation routines
             if (allocated(pahbins_props(i)%peh_eff_tab%npts)) deallocate(pahbins_props(i)%peh_eff_tab%npts)
             allocate(pahbins_props(i)%peh_eff_tab%npts(1:1))
+            pahbins_props(i)%peh_eff_tab%name = 'pah_photoelectric_heating_pahbin_'//trim(adjustl(i_str))
             pahbins_props(i)%peh_eff_tab%ndim = 1
             pahbins_props(i)%peh_eff_tab%npts(1) = n_gamma
             if (allocated(pahbins_props(i)%peh_eff_tab%tab1d)) deallocate(pahbins_props(i)%peh_eff_tab%tab1d)
-            allocate(pahbins_props(i)%peh_eff_tab%tab1d(1:n_gamma,1:1))
-            if (allocated(pahbins_props(i)%peh_eff_tab%tab2d)) deallocate(pahbins_props(i)%peh_eff_tab%tab2d)
-            allocate(pahbins_props(i)%peh_eff_tab%tab2d(1:n_gamma,1:1,1:1))
-            pahbins_props(i)%peh_eff_tab%initialised = .true.
+            allocate(pahbins_props(i)%peh_eff_tab%tab1d(1:n_gamma,1:2))
 
             if (allocated(pahbins_props(i)%peh_pabs_tab%npts)) deallocate(pahbins_props(i)%peh_pabs_tab%npts)
             allocate(pahbins_props(i)%peh_pabs_tab%npts(1:1))
+            pahbins_props(i)%peh_pabs_tab%name = 'pah_photoelectric_absorption_pahbin_'//trim(adjustl(i_str))
             pahbins_props(i)%peh_pabs_tab%ndim = 1
             pahbins_props(i)%peh_pabs_tab%npts(1) = n_gamma
             if (allocated(pahbins_props(i)%peh_pabs_tab%tab1d)) deallocate(pahbins_props(i)%peh_pabs_tab%tab1d)
-            allocate(pahbins_props(i)%peh_pabs_tab%tab1d(1:n_gamma,1:1))
-            if (allocated(pahbins_props(i)%peh_pabs_tab%tab2d)) deallocate(pahbins_props(i)%peh_pabs_tab%tab2d)
-            allocate(pahbins_props(i)%peh_pabs_tab%tab2d(1:n_gamma,1:1,1:1))
-            pahbins_props(i)%peh_pabs_tab%initialised = .true.
+            allocate(pahbins_props(i)%peh_pabs_tab%tab1d(1:n_gamma,1:2))
 
             if (allocated(pahbins_props(i)%fcharge_tab)) deallocate(pahbins_props(i)%fcharge_tab)
             allocate(pahbins_props(i)%fcharge_tab(1:pahbins_props(i)%ncharge_states))
-            nstates_interp = min(pahbins_props(i)%ncharge_states,4)
             do istate = 1, pahbins_props(i)%ncharge_states
                 if (allocated(pahbins_props(i)%fcharge_tab(istate)%npts)) deallocate(pahbins_props(i)%fcharge_tab(istate)%npts)
                 allocate(pahbins_props(i)%fcharge_tab(istate)%npts(1:1))
                 pahbins_props(i)%fcharge_tab(istate)%ndim = 1
                 pahbins_props(i)%fcharge_tab(istate)%npts(1) = n_gamma
                 if (allocated(pahbins_props(i)%fcharge_tab(istate)%tab1d)) deallocate(pahbins_props(i)%fcharge_tab(istate)%tab1d)
-                allocate(pahbins_props(i)%fcharge_tab(istate)%tab1d(1:n_gamma,1:1))
-                if (allocated(pahbins_props(i)%fcharge_tab(istate)%tab2d)) deallocate(pahbins_props(i)%fcharge_tab(istate)%tab2d)
-                allocate(pahbins_props(i)%fcharge_tab(istate)%tab2d(1:n_gamma,1:1,1:1))
-                pahbins_props(i)%fcharge_tab(istate)%tab2d(1:n_gamma,1,1) = 0d0
-                pahbins_props(i)%fcharge_tab(istate)%initialised = (istate <= nstates_interp)
+                allocate(pahbins_props(i)%fcharge_tab(istate)%tab1d(1:n_gamma,1:2))
             end do
 
             ! Read table data directly into per-bin tables (and keep legacy arrays synced)
@@ -1999,20 +2215,197 @@ module dust_init
                 read(111,*) gamma_i, eff_i, pabs_i, f_anion_i, f_neutral_i, f_cation_i, f_dication_i
 
                 pahbins_props(i)%peh_eff_tab%tab1d(j,1) = gamma_i
-                pahbins_props(i)%peh_eff_tab%tab2d(j,1,1) = eff_i
+                pahbins_props(i)%peh_eff_tab%tab1d(j,2) = eff_i
                 pahbins_props(i)%peh_pabs_tab%tab1d(j,1) = gamma_i
-                pahbins_props(i)%peh_pabs_tab%tab2d(j,1,1) = pabs_i
+                pahbins_props(i)%peh_pabs_tab%tab1d(j,2) = pabs_i
 
                 do istate = 1, pahbins_props(i)%ncharge_states
                     pahbins_props(i)%fcharge_tab(istate)%tab1d(j,1) = gamma_i
                 end do
-                if (nstates_interp >= 1) pahbins_props(i)%fcharge_tab(1)%tab2d(j,1,1) = f_anion_i
-                if (nstates_interp >= 2) pahbins_props(i)%fcharge_tab(2)%tab2d(j,1,1) = f_neutral_i
-                if (nstates_interp >= 3) pahbins_props(i)%fcharge_tab(3)%tab2d(j,1,1) = f_cation_i
-                if (nstates_interp >= 4) pahbins_props(i)%fcharge_tab(4)%tab2d(j,1,1) = f_dication_i
+                pahbins_props(i)%fcharge_tab(1)%tab1d(j,2) = f_anion_i
+                pahbins_props(i)%fcharge_tab(2)%tab1d(j,2) = f_neutral_i
+                pahbins_props(i)%fcharge_tab(3)%tab1d(j,2) = f_cation_i
+                pahbins_props(i)%fcharge_tab(4)%tab1d(j,2) = f_dication_i
             end do
 
+            call pahbins_props(i)%peh_eff_tab%init()
+            call pahbins_props(i)%peh_pabs_tab%init()
+            do istate = 1, pahbins_props(i)%ncharge_states
+                call pahbins_props(i)%fcharge_tab(istate)%init()
+            end do
             close(111)
         end do
     end subroutine init_pah_peh_tables
+
+    subroutine init_dust_IR_emission_tables
+        use amr_commons, only: myid
+        implicit none
+        logical :: ok, ok_all
+        integer :: nT, istat, j, ii, ndata, nbands, iband
+        character(len=20) :: dustlabel
+        character(len=256) :: filename
+        character(len=2048) :: line
+        character(len=64), dimension(200) :: band_names
+        real(dp) :: Td
+        real(dp), dimension(200) :: band_luminosities
+
+        ! 1. Check first that all files are in the expected place
+        ok_all = .true.
+        do ii = 1, ndust
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
+            write(filename, '(A,A,A,A)') trim(dust_tables_dir), &
+                'band_luminosity_', trim(dustlabel), '.txt'
+            inquire(file=trim(filename), exist=ok)
+            ok_all = ok_all .and. ok
+        end do
+
+        if (.not. ok_all) then
+            if (myid .eq. 1) then
+                write(*, *) 'WARNING: Dust IR emission files not found in ', TRIM(dust_tables_dir)
+                write(*, *) 'Skipping IR emission tables initialization.'
+            end if
+            return
+        end if
+
+        ! 2. Read the file for each dust bin
+        do ii = 1, ndust
+            write(dustlabel, '(A,I2.2)') 'DustBin_', ii
+            write(filename, '(A,A,A,A)') trim(dust_tables_dir), &
+                'band_luminosity_', trim(dustlabel), '.txt'
+
+            ! 2.1 First pass: count the number of data rows (skip comments/blanks)
+            open(25, file=trim(filename), status='old', action='read', iostat=istat)
+            if (istat /= 0) then
+                write(*, *) 'Error opening file: ', trim(filename)
+                call clean_stop
+            end if
+            ndata = 0
+            do
+                read(25, '(A)', iostat=istat) line
+                if (istat /= 0) exit
+                line = adjustl(line)
+                if (len_trim(line) == 0) cycle
+                if (line(1:1) == '#') cycle
+                ndata = ndata + 1
+            end do
+            close(25)
+
+            if (ndata < 2) then
+                write(*, *) 'Error: IR emission table has too few rows: ', trim(filename)
+                call clean_stop
+            end if
+            nT = ndata
+
+            ! 2.2 Read column names from the header line containing "T_dust" or "log10(T_dust)"
+            open(25, file=trim(filename), status='old', action='read', iostat=istat)
+            if (istat /= 0) then
+                write(*, *) 'Error opening file: ', trim(filename)
+                call clean_stop
+            end if
+            nbands = 0
+            do
+                read(25, '(A)', iostat=istat) line
+                if (istat /= 0) exit
+                line = adjustl(line)
+                if (index(line, 'T_dust') > 0) then
+                    call parse_header_line(line, band_names, nbands)
+                    exit
+                end if
+            end do
+            close(25)
+
+            if (nbands == 0) then
+                write(*, *) 'Error parsing header line in: ', trim(filename)
+                call clean_stop
+            end if
+
+            ! 2.3 Allocate the IRemission_tab structure
+            if (allocated(dustbins_props(ii)%IRemission_tab)) then
+                deallocate(dustbins_props(ii)%IRemission_tab)
+            end if
+            allocate(dustbins_props(ii)%IRemission_tab(1:nbands))
+
+            do iband = 1, nbands
+                allocate(dustbins_props(ii)%IRemission_tab(iband)%npts(1:1))
+                dustbins_props(ii)%IRemission_tab(iband)%name = band_names(iband)
+                dustbins_props(ii)%IRemission_tab(iband)%ndim = 1
+                dustbins_props(ii)%IRemission_tab(iband)%npts(1) = nT
+                allocate(dustbins_props(ii)%IRemission_tab(iband)%tab1d(1:nT, 1:2))
+                dustbins_props(ii)%IRemission_tab(iband)%tab1d = 0d0
+            end do
+
+            ! 2.4 Second pass: read the temperature and luminosity values.
+            open(25, file=trim(filename), status='old', action='read', iostat=istat)
+            if (istat /= 0) then
+                write(*, *) 'Error opening file: ', trim(filename)
+                call clean_stop
+            end if
+            j = 0
+            do
+                read(25, '(A)', iostat=istat) line
+                if (istat /= 0) exit
+                line = adjustl(line)
+                if (len_trim(line) == 0) cycle
+                if (line(1:1) == '#') cycle
+                
+                read(line, *, iostat=istat) Td, (band_luminosities(iband), iband=1, nbands)
+                if (istat /= 0) then
+                    write(*, *) 'Error parsing IR emission table row in ', trim(filename)
+                    call clean_stop
+                end if
+                j = j + 1
+                do iband = 1, nbands
+                    dustbins_props(ii)%IRemission_tab(iband)%tab1d(j, 1) = Td
+                    dustbins_props(ii)%IRemission_tab(iband)%tab1d(j, 2) = band_luminosities(iband)
+                end do
+            end do
+            close(25)
+
+            do iband = 1, nbands
+                call dustbins_props(ii)%IRemission_tab(iband)%init()
+            end do
+        end do
+    end subroutine init_dust_IR_emission_tables
+
+    subroutine parse_header_line(line, names, n)
+        implicit none
+        character(len=*), intent(in) :: line
+        character(len=64), dimension(:), intent(out) :: names
+        integer, intent(out) :: n
+        integer :: next_pos
+        character(len=2048) :: temp_line
+        character(len=64) :: word
+
+        n = 0
+        temp_line = adjustl(line)
+        
+        ! Skip '#'
+        if (temp_line(1:1) == '#') then
+            temp_line = adjustl(temp_line(2:))
+        end if
+        
+        ! Skip 'log10(T_dust)' or 'T_dust'
+        if (temp_line(1:13) == 'log10(T_dust)') then
+            temp_line = adjustl(temp_line(14:))
+        else if (temp_line(1:6) == 'T_dust') then
+            temp_line = adjustl(temp_line(7:))
+        end if
+        
+        do
+            temp_line = adjustl(temp_line)
+            if (len_trim(temp_line) == 0) exit
+            
+            next_pos = index(temp_line, ' ')
+            if (next_pos == 0) then
+                word = temp_line
+                temp_line = ''
+            else
+                word = temp_line(1:next_pos-1)
+                temp_line = temp_line(next_pos:)
+            end if
+            
+            n = n + 1
+            names(n) = trim(word)
+        end do
+    end subroutine parse_header_line
 end module dust_init

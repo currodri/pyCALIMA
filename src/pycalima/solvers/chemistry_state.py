@@ -103,10 +103,23 @@ class DustBinParams:
     coag_partner_index: Optional[int] = None
     sputtering_interps: Dict[str, Any] = field(default_factory=dict)
     erosion_rate_interp: Optional[Any] = None
-    """Callable ``(T_K) -> epsilon [s^-1]`` for thermal sublimation erosion.
-    Built at initialisation from the pre-computed CALIMA erosion-rate table
-    (``model_data/dust_sublimation/erosion_rate_{bin_id}.dat``).
+    """Callable ``(T_dust_K) -> epsilon [s^-1]`` for thermal sublimation erosion.
+    Built at initialisation from the pre-computed CALIMA sublimation-rate table
+    (``model_data/dust_sublimation/sublimation_rate_{bin_id}.dat``).
     ``None`` when the table is absent or sublimation is disabled."""
+    condensation_alpha: Optional[float] = None
+    """Condensation coefficient of the bin's material, read from its
+    sublimation table header (the dataset's evaporation coefficient, so
+    that ``condensation_rate`` balances ``sublimation_rate`` exactly). None
+    means ``DustChemistryState.condensation_coefficient``."""
+    dust_temperature_K: Optional[float] = None
+    """Grain temperature [K] at which ``erosion_rate_interp`` is evaluated.
+    Taken from the bin's ``dust_temperature_K`` or, failing that, the
+    environment's. Required when sublimation is enabled."""
+    grain_potential_V: float = 0.0
+    """Grain electrostatic potential [V] seen by condensing ions
+    (``condensation_rate``). Taken from the bin's ``grain_potential_V`` or,
+    failing that, the environment's."""
 
     nhmax_acc: float = 1.0e4
     nh_coa: float = 0.1
@@ -123,18 +136,45 @@ class DustBinParams:
     """Whether shattering fragments of this bin can populate PAH bins."""
 
     # --- Grain charge state (for Coulomb enhancement) ---
-    charge_Z_interp: Optional[Any] = None
-    """Callable ``(T [K], gamma) → mean grain charge Z_avg [dimensionless]``.
-    gamma = G0 × √T / ne  (Weingartner & Draine 2001 convention).
-    Built at initialisation from ``model_data/dust_charging_data/dust_charge_Z_vs_T_<bin_id>``.
-    ``None`` when the table is absent or coulomb enhancement is disabled."""
-    charge_sigma_interp: Optional[Any] = None
-    """Callable ``(T [K], gamma) → charge width Z_sigma [dimensionless]``.
-    Built at initialisation from ``model_data/dust_charging_data/dust_charge_sigma_vs_T_<bin_id>``."""
+    isrf_table: Optional[dict] = None
+    """The bin's uniform-ISRF charging table, read from
+    ``model_data/dust_charging_isrf_data/dust_charging_isrf_<bin_id>.dat`` by
+    ``table_io.read_isrf_charging_table``. ``None`` disables the Coulomb
+    factors (D = 1)."""
 
     # --- Turbulent coagulation ---
     vthresh_coag: float = 1.0e4
     """Coagulation threshold velocity [cm s⁻¹] for self-collisions."""
+
+
+@dataclass
+class NucleationParams:
+    """Steady-state nucleation of one composition into a target dust bin.
+
+    The constants are those of the composition's GD89 sublimation model
+    (``models.dust_radiation.dust_sublimation.nucleation_parameters``), so that
+    nucleation, sublimation and recondensation share one thermodynamics.
+    """
+
+    target_bin: int
+    """Dust-bin index (into ``dust_bins``) that receives the new grains."""
+    key_index: int
+    """Element index of the key species in ``y_gas``."""
+    key_mass_g: float
+    evaporation_prefactor: float
+    """Bulk GD89 evaporation-rate prefactor P0 [cm^-2 s^-1]."""
+    binding_energy_K: float
+    """Bulk binding energy B/k [K]."""
+    surface_energy_K: float
+    """GD89 surface term sigma/k [K] of B(N) = B - sigma N^-1/3."""
+    monomer_volume_cm3: float
+    alpha: float = 0.1
+    neutral_fraction: float = 1.0
+    """Fraction of the key species neutral (and so able to build clusters)."""
+    gas_temperature_K: Optional[float] = None
+    """Temperature of the nucleating gas; None means ``local_Tk``."""
+    cluster_temperature_K: Optional[float] = None
+    """Cluster temperature; None means the target bin's dust temperature."""
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +309,8 @@ class DustChemistryState:
     dust_accretion: bool = False
     dust_sputtering: bool = False
     dust_sublimation: bool = False
+    dust_condensation: bool = False
+    dust_nucleation: bool = False
     dust_coagulation: bool = False
     dust_shattering: bool = False
     pah_accretion: bool = False
@@ -301,6 +343,18 @@ class DustChemistryState:
     pah_sputtering_model: str = "RM2026"
     cluster_evaporation_model: str = "Montillaud2014"
 
+    # ---- Recondensation (condensation_rate) ----
+    condensation_coefficient: float = 0.1
+    """Condensation coefficient α. Detailed balance with the sublimation
+    tables needs the α_N they were built with (GD89: 0.1)."""
+    condensation_balance: str = "flux"
+    """``'flux'`` (kinetic, default) | ``'pressure'`` (Baskin & Laor 2018)."""
+    condensation_ion_fraction: float = 0.0
+    """Fraction of the condensing key species that is singly ionised."""
+
+    # ---- Nucleation (nucleation_rate) ----
+    nucleation: List[NucleationParams] = field(default_factory=list)
+
     # ---- Turbulent environment ----
     local_sigma: float = 0.0
     """Turbulent 1-D velocity dispersion [cm s⁻¹]."""
@@ -308,8 +362,12 @@ class DustChemistryState:
     """Turbulence injection scale [cm]."""
 
     # ---- Shattering parameters ----
-    slope_frag_func: float = 1.3 / 3.0
-    """Power-law slope of the fragment mass distribution."""
+    slope_frag_func: float = 0.7 / 3.0
+    """Exponent s of the cumulative fragment mass, M(<m) ∝ m^s (as RAMSES
+    dust_init.f90 / dust_rates.f90 use it). A fragment size distribution
+    n(a) ∝ a^-alpha_f has s = (4 - alpha_f) / 3; Jones, Tielens & Hollenbach
+    (1996) give alpha_f = 3.3, so s = 0.7/3. (RAMSES's 1.3/3 = (3.3 - 2)/3
+    gives n(a) ∝ a^-2.7.)"""
 
     # ---- Optional metadata ----
     radiation_field_model: str = "habing"

@@ -27,6 +27,7 @@ a module scan.
    pycalima.solvers.rk4
    pycalima.solvers.rk54
    pycalima.solvers.anninos
+   pycalima.solvers.mprk22
    pycalima.solvers.equilibrium
    pycalima.solvers.grain_dynamics
    pycalima.solvers.table_io

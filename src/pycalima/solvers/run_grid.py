@@ -68,6 +68,7 @@ from .rhs import build_process_list
 from .anninos import AnninosSolver
 from .rk4 import RK4Solver
 from .rk54 import RK54Solver
+from .mprk22 import MPRK22Solver
 from pycalima._paths import resolve_solver_config_path
 
 from .run_chemistry import _make_solver, compute_element_totals
@@ -200,6 +201,9 @@ def _run_point(
     elif solver_type == "anninos":
         solver = AnninosSolver(**{k: v for k, v in solver_kwargs.items()
                                   if k in _ode_keys})
+    elif solver_type == "mprk22":
+        solver = MPRK22Solver(**{k: v for k, v in solver_kwargs.items()
+                                 if k in _ode_keys})
     elif solver_type == "newton_krylov":
         solver = NewtonKrylovEquilibriumSolver(**solver_kwargs)
     elif solver_type == "sparse_newton":
@@ -315,8 +319,9 @@ def run_grid(
 
     # Default solver kwargs from config
     sc = cfg.get("solver", {})
-    if _stype in ("rk4", "rk54", "anninos") and "errmax" not in _skw:
-        _skw.setdefault("errmax",       float(sc.get("errmax",        0.1)))
+    if _stype in ("rk4", "rk54", "anninos", "mprk22") and "errmax" not in _skw:
+        _skw.setdefault("errmax",       float(sc.get("errmax",
+                                                     0.01 if _stype == "mprk22" else 0.1)))
         _skw.setdefault("h_init_s",     float(sc.get("h_init_s",      1e10)))
         _skw.setdefault("h_min_s",      float(sc.get("h_min_s",       1.0)))
         _skw.setdefault("h_max_s",      float(sc.get("h_max_Myr", 1.0)) * SEC2MYR)
@@ -361,7 +366,7 @@ def run_grid(
         print(f"  {x_param} [{xu}]: {xs.tolist()}")
         print(f"  {y_param} [{yu}]: {ys.tolist()}")
         print(f"  Grid size  : {nx} × {ny} = {nx*ny} points")
-        if _stype in ("rk4", "rk54", "anninos"):
+        if _stype in ("rk4", "rk54", "anninos", "mprk22"):
             if t_end_mode == "freefall":
                 print(f"  t_end      : free-fall time per cell (t_end_Myr={t_end_Myr} Myr fallback)")
             else:
@@ -510,7 +515,7 @@ def _build_parser():
                         "'fixed' uses --t-end-Myr; "
                         "'freefall' uses the local free-fall time sqrt(3π/(32Gρ)) [default: fixed].")
     p.add_argument("--solver",     default=None,
-                   choices=["rk4", "rk54", "anninos", "newton_krylov", "sparse_newton"],
+                   choices=["rk4", "rk54", "anninos", "mprk22", "newton_krylov", "sparse_newton"],
                    help="Override solver type from config.")
     p.add_argument("--output-npz", default=None,
                    help="Save grid results to this .npz file.")

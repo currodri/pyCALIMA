@@ -1,6 +1,7 @@
 # CALIMA dust module layout
 
-This folder contains the CALIMA dust and PAH physics used by RAMSES. The code is split into small modules so that shared state, table loading, physics kernels, and runtime wrappers stay separate.
+This folder contains the CALIMA dust and PAH physics used by RAMSES (a copy of the RAMSES
+`calima/` sources at ramses_chicago_new commit 7ac91268 (feature/wdb06-isrf-tables), for reference). The code is split into small modules so that shared state, table loading, physics kernels, and runtime wrappers stay separate.
 
 ## Module hierarchy
 
@@ -18,6 +19,10 @@ graph TD
     dust_commons --> dust_solver
     dust_commons --> dust_seeding
     dust_commons --> dust_optics
+    dust_commons --> dust_charging_rtgroups
+    dust_commons --> dust_radpressure
+    dust_charging --> dust_charging_rtgroups
+    dust_charging_rtgroups --> dust_interface
 
     dust_rates --> dust_dynamics
     dust_rates --> dust_charging
@@ -36,7 +41,7 @@ The practical layering is:
 1. dustbin_types defines the derived types used everywhere else.
 2. dust_utils provides generic interpolation and helper routines.
 3. dust_commons holds the shared dust and PAH parameters, bin properties, counters, and global switches.
-4. The physics modules build on that shared state: dust_rates, dust_charging, dust_surface_chemistry, dust_dynamics, dust_cooling, dust_optics, and dust_seeding.
+4. The physics modules build on that shared state: dust_rates, dust_charging, dust_charging_rtgroups, dust_surface_chemistry, dust_dynamics, dust_cooling, dust_optics, dust_radpressure, and dust_seeding.
 5. dust_init performs startup validation and table loading.
 6. dust_interface exposes the dust helper routines used by the RTZ cooling path.
 7. dust_solver is the main time-integration driver for dust chemistry.
@@ -49,7 +54,10 @@ The practical layering is:
 | dust_utils.f90 | Generic helpers used throughout CALIMA, including search/interpolation routines, turbulence utilities, and small math helpers. |
 | dust_commons.f90 | Central shared module for dust/PAH flags, namelist-controlled parameters, per-bin properties, global counters, and helper data used by the rest of CALIMA. |
 | dust_rates.f90 | Computes the characteristic timescales for dust and PAH processes: accretion, sputtering, coagulation, shattering, RATD, sublimation, evaporation, freezing, and related update switches. |
-| dust_charging.f90 | Implements dust charge distributions and mean charge estimates, plus Coulomb focusing helpers and charge-state mixing routines. |
+| dust_charging.f90 | Grain charge without RT photon groups: the uniform-ISRF tables of `charging_model='WDB06isrf'` (pyCALIMA `export_dust_charging_isrf`: <Z>, sigma_Z, PE heating, recombination cooling, the Coulomb focusing factors and the grain-assisted ion recombination, all over the exact P(Z)) and the Ibanez2019 fit; Coulomb focusing over a Gaussian charge distribution, and charge-state mixing routines. |
+| dust_charging_rtgroups.f90 | `charging_model='WDB06rt'`: the WDB06 charge balance on the local RT photon groups (pyCALIMA `export_dust_charging_rtgroups` tables), with its PE heating, recombination cooling and grain-assisted ion recombination, the first-order predictor between full solves, the exact-P(Z) Coulomb factors of narrow distributions, and the charge for callers outside the cooling step (the Coulomb drag). |
+| dust_radpressure.f90 | Radiation pressure force on the gas and on each dust and PAH bin, in code units, for the RTZ network. |
+| dust_test.f90 | Dust depletion test setups driven through compute_dust_update. |
 | dust_surface_chemistry.f90 | Handles H2 formation on dust grains, sticking and recombination efficiencies, and related surface chemistry fits. |
 | dust_dynamics.f90 | Provides grain relative velocities and dust destruction in shocks, including PAH-specific shock destruction. |
 | dust_cooling.f90 | Computes dust collisional heating/cooling, including the BH80 low-temperature branch and its cached prefactors. |
@@ -66,9 +74,10 @@ The CALIMA modules are not standalone. They are pulled into the RAMSES startup a
 1. hydro/read_hydro_params.f90 reads the calima_params namelist when CALIMA is enabled. That is where the dust and PAH switches, bin properties, models, timescales, and external table directory are set from input.
 2. hydro/read_hydro_params.f90 also calls check_params_dust so incompatible dust configurations fail before the run starts.
 3. amr/init_time.f90 calls init_CALIMA_dust during startup. That routine is where the dust bin metadata is built, the reusable dust_helper workspace is allocated, the dust and PAH tables are loaded, and the BH80 cache is initialized.
-4. rtz/rtz_cooling_module.f90 resets dust_helper for each cell, fills it with the current dust and PAH state, and then calls compute_dust_rad_rates and compute_dust_precool in the CALIMA branch of the cooling step.
-5. rtz/rtz_coolrates_module.f90 calls compute_dust_coolrates through dust_interface so dust contributions are included in the cooling-rate solve.
-6. hydro/cooling_fine.f90 enables CALIMA-specific helpers in the cooling operator-splitting path, including the turbulence sigma helper from dust_utils.
+4. rtz/rtz_cooling_module.f90 fills dust_helper with the current dust and PAH state of each cell (the per-step quantities are overwritten, not reset), and then calls compute_dust_rad_rates and compute_dust_precool in the CALIMA branch of the cooling step. With dust_ion_recombination, the grain-assisted recombination of WDB06rt or WDB06isrf replaces the RTZ fit.
+5. rt/rt_init.f90 reads the RT-group charging tables (init_dust_charging_rtgroups) for charging_model='WDB06rt'.
+6. rtz/rtz_coolrates_module.f90 calls compute_dust_coolrates through dust_interface so dust contributions are included in the cooling-rate solve.
+7. hydro/cooling_fine.f90 enables CALIMA-specific helpers in the cooling operator-splitting path, including the turbulence sigma helper from dust_utils.
 
 ## Runtime flow
 
@@ -83,6 +92,6 @@ The typical order is:
 
 ## Notes
 
-- The dust optical tables are read from the directory given by dust_tables_dir.
+- The dust optical tables and the charging tables are read from the directory given by dust_tables_dir.
 - The shared per-rank chemistry workspace is the DustChemistryInfo instance dust_helper.
 - Most CALIMA routines depend on dust_commons for bin metadata and on dustbin_types for the storage layout of tables and helper arrays.

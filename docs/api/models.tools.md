@@ -21,5 +21,6 @@ simulation output.
    pycalima.models.tools.read_ramses_sed
    pycalima.models.tools.utils
    pycalima.models.tools.eq_analysis
+   pycalima.models.tools.spherex
 ```
 

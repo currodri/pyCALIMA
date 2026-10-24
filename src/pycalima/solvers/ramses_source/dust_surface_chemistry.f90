@@ -1,6 +1,6 @@
 module dust_surface_chemistry
     use amr_parameters, only:dp
-    use constants, only:twopi,pi,kB,mH,amu2g,mC_amu
+    use constants, only:pi,kB,mH,amu2g,mC_amu
     use dust_commons
 
     implicit none
@@ -20,7 +20,7 @@ module dust_surface_chemistry
 
     real(dp),parameter :: Ns = 2D15 ! Fixed number of sites per cm2 on the surface of the grain
 
-    public :: grain_h2_formation_rate
+    public :: grain_h2_formation_rate,ice_sticking_coefficient
     contains
 
     function h2_sticking_coef(Tgas,Td)
@@ -130,12 +130,17 @@ module dust_surface_chemistry
 
         ! Formation rate of H2 onto dust grains from Cazaux & Spaans (2004)
         ! (https://iopscience.iop.org/article/10.1086/422087/pdf)
-        vH = sqrt(2D0 * kB * Tgas / mH) ! thermal velocity (assuming Mawell-Boltzmann distribution)
+        ! Mean thermal speed of H atoms, sqrt(8kT/(pi m_H)): the v_H of Cazaux & Spaans (2004),
+        ! 1.45e5 (T/100)^0.5 cm/s
+        vH = sqrt(8D0 * kB * Tgas / (pi * mH))
         F = h_flux(nHI,vH)
-        
+        ! Guard: no atomic H flux → no H2 formation on grains (also prevents NaN in high_temp_correction)
+        if (F <= 0d0) return
+
         ! Add the contribution from each dust grain
         do j = 1, ndust
-            sdust = (rho_dust(j)/dustbins_props(j)%mgrain) * twopi * (dustbins_props(j)%asize_cm)**2D0 ! in cm-1
+            ! n_d * sigma_d with the geometric cross section pi a^2 (Cazaux & Spaans 2004, eqs. 2 and 4)
+            sdust = (rho_dust(j)/dustbins_props(j)%mgrain) * pi * (dustbins_props(j)%asize_cm)**2D0 ! in cm-1
             R_H2 = sdust * recombination_efficiency(Tgas,T_dust(j),vH,F,dustbins_props(j)%interact_group) ! in cm-1
             grain_h2_formation_rate = grain_h2_formation_rate + R_H2 * h2_sticking_coef(Tgas,T_dust(j)) ! in cm-1
         end do
@@ -186,4 +191,51 @@ module dust_surface_chemistry
         end if
         f_sh = max(f_sh,0d0)
     end subroutine compute_superhydrogenated_fraction
+
+    subroutine Hollenbach2009_icemodel(G0,nO,Tgas,S)
+        implicit none
+
+        real(dp),intent(in) :: G0,nO,Tgas
+        real(dp),intent(inout) :: S
+
+        real(dp) :: vth, N_mono
+
+        ! 1. Compute the number of monomers based on Eq. 22 in
+        ! Hollenbach et al. (2019) assuming that 50% of the mantle
+        ! is H20 ice and a desorption yield of 3d-3.
+        ! F0 = 1e8 photons/cm2/s
+        vth = 3624.65d0 * sqrt(Tgas)
+        N_mono = 2d0 * nO * vth / (max(G0,1d-5) * 3d5)
+
+        ! 2. Compute the effective sticking coefficient
+        ! assumming that the bare grain coefficient
+        ! is already coming from the original model
+        ! and the ice coefficient is set to S=0.1
+        S = 0.1d0 + (1.d0 - 0.1d0) * exp(-N_mono)
+    end subroutine Hollenbach2009_icemodel
+
+    function ice_sticking_coefficient(G0,nO,Tgas,Td)
+        implicit none
+        real(dp),intent(in) :: G0,nO,Tgas,Td
+        real(dp) :: ice_sticking_coefficient
+
+        if (Td >= 100d0) then
+            ! If grain is hotter than the sublimation of H2O ice
+            ! we assume that there is no mantle formation
+            ice_sticking_coefficient = 1d0
+            return
+        end if
+
+        ! 1. Select the ice model
+        select case (ice_model)
+        
+        case ('Hollenbach2009')
+            call Hollenbach2009_icemodel(G0,nO,Tgas,ice_sticking_coefficient)
+        case default
+            call Hollenbach2009_icemodel(G0,nO,Tgas,ice_sticking_coefficient)
+        end select
+
+        ! 2. Cap the sticking coefficient to a maximum of 1 and minimum of 0.1
+        ice_sticking_coefficient = max(0.1d0, min(ice_sticking_coefficient, 1.0d0))
+    end function ice_sticking_coefficient
 end module dust_surface_chemistry

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Compare full charge-distribution rates vs a Zmean-only approximation.
 
-This script reads dust charging outputs from JSON files produced by
-`models/dust_charge/export_dust_charging_vs_gamma.py`, then compares:
+This script builds a fixed-G0 (T, gamma) grid, takes Zmean at each point from
+a bin's uniform-ISRF charging table (`models/dust_charge/export_dust_charging_isrf.py`),
+then compares:
 
 1) Full model:
    - Solve equilibrium charge distribution P(Z)
@@ -11,6 +12,12 @@ This script reads dust charging outputs from JSON files produced by
    - Take Zmean from the charging table
    - Compute the same rates at only that Z value
 
+The table is the WDB06 charge with H+ ions at n = n_e, in the Mathis ISRF scaled
+to G0 Habing; the full model here has no ions and scales the radiation model by
+G0 (the Mathis field at G0 = 1 is 1.13 Habing). The table Zmean therefore differs
+from the full one by more than the approximation; --use-full-zmean-for-approx
+removes that difference.
+
 Outputs diagnostic plots and a JSON summary of accuracy metrics.
 """
 
@@ -18,17 +25,18 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing as _mp
-import glob
 import json
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+from pycalima import _paths
+from pycalima.models.dust_charge.charging_isrf_tables import isrf_lookup, read_isrf_table
 from pycalima.models.dust_charge.dust_charging import (
     equilibrium_charge_for_grain,
     get_process_rss_bytes,
@@ -48,8 +56,8 @@ from pycalima.models.dust_radiation.dust_emission import interpolate_cross_secti
 from pycalima.models.grain_size_config import get_model_data_dir
 
 
-def _dust_charging_output_dir() -> Path:
-    return get_model_data_dir() / "dust_charging_data"
+def _isrf_table_dir() -> Path:
+    return get_model_data_dir() / "dust_charging_isrf_data"
 
 
 def _safe_float(v, default=np.nan) -> float:
@@ -1317,174 +1325,29 @@ def _compute_single_row(task: Dict[str, object]) -> Dict[str, object]:
         }
 
 
-def _iter_input_rows(files: Iterable[Path]) -> Iterable[Dict[str, float]]:
-    for fp in files:
-        with open(fp, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
-
-        grain_type = str(payload.get("grain_type", "")).strip().lower()
-        if not grain_type:
-            comp = str(payload.get("composition", "")).strip().lower()
-            grain_type = "silicate" if comp == "silicate" else "graphite"
-
-        a_micron = _safe_float(payload.get("grain_size_micron"))
-        if not np.isfinite(a_micron):
-            continue
-        a_cm = float(a_micron) * 1e-4
-
-        bin_id = str(payload.get("bin_id", ""))
-        bin_rank = int(payload.get("bin_rank", -1))
-
-        for r in payload.get("results", []):
-            G0 = _safe_float(r.get("G0"))
-            ne = _safe_float(r.get("ne"))
-            T = _safe_float(r.get("T"))
-            gamma = _safe_float(r.get("gamma"))
-            zmean = _safe_float(r.get("Zmean"))
-            zsigma = _safe_float(r.get("Zsigma"))
-            if not (np.isfinite(G0) and np.isfinite(ne) and np.isfinite(T) and np.isfinite(zmean)):
-                continue
-            if ne <= 0.0 or T <= 0.0:
-                continue
-            yield {
-                "source_file": str(fp),
-                "bin_id": bin_id,
-                "bin_rank": bin_rank,
-                "grain_type": grain_type,
-                "a_cm": a_cm,
-                "a_micron": a_micron,
-                "gamma": gamma,
-                "G0": G0,
-                "ne": ne,
-                "T": T,
-                "Zmean": zmean,
-                "Zsigma": zsigma,
-            }
-
-
-def _find_closest_zmean_table(grain_type: str, a_cm: float) -> Path:
-    mat = "Gra" if str(grain_type).lower().startswith("gra") else "suvSil"
-    candidates = sorted(_dust_charging_output_dir().glob(f"dust_charge_Z_vs_T_*_cm_{mat}.dat"))
-    if not candidates:
-        raise FileNotFoundError(
-            f"No precomputed Zmean tables found in {_dust_charging_output_dir()} for material tag {mat}"
-        )
-
-    rgx = re.compile(r"dust_charge_Z_vs_T_([0-9eE+\-.]+)_cm_")
+def _find_closest_isrf_table(grain_type: str, a_cm: float) -> Path:
+    """The uniform-ISRF charging table of this material closest in radius, from the
+    bin line of its header."""
+    rgx = re.compile(r"^# bin \S*: (\w+), a = ([0-9eE+\-.]+) cm")
     best = None
     best_score = np.inf
     target = float(a_cm)
-    for p in candidates:
-        m = rgx.search(p.name)
-        if m is None:
+    for p in sorted(_isrf_table_dir().glob("dust_charging_isrf_*.dat")):
+        with open(p, "r", encoding="utf-8") as fh:
+            fh.readline()
+            m = rgx.match(fh.readline())
+        if m is None or m.group(1) != str(grain_type).lower():
             continue
-        try:
-            a_file = float(m.group(1))
-        except Exception:
-            continue
-        score = abs(np.log10(max(a_file, 1e-300)) - np.log10(max(target, 1e-300)))
+        score = abs(np.log10(max(float(m.group(2)), 1e-300)) - np.log10(max(target, 1e-300)))
         if score < best_score:
             best_score = score
             best = p
     if best is None:
-        raise FileNotFoundError("Could not parse grain size from any Zmean table filename")
+        raise FileNotFoundError(
+            f"No uniform-ISRF charging table for {grain_type} in {_isrf_table_dir()} "
+            "(python -m pycalima.models.dust_charge.export_dust_charging_isrf)"
+        )
     return best
-
-
-def _read_precomputed_zmean_table(path: Path) -> Dict[str, np.ndarray]:
-    with open(path, "r", encoding="utf-8") as fh:
-        lines = [ln.strip() for ln in fh.readlines() if ln.strip() and not ln.lstrip().startswith("#")]
-
-    if len(lines) < 4:
-        raise ValueError(f"Unexpected short table format in {path}")
-
-    # Support both legacy (ngamma nT) and unified (nT ngamma) count ordering.
-    # The table layout is:
-    #   comments
-    #   count line
-    #   T axis line
-    #   gamma axis line
-    #   matrix rows over gamma
-    try:
-        dims = lines[0].split()
-        dim0 = int(dims[0])
-        dim1 = int(dims[1])
-        T_log = np.fromstring(lines[1], sep=" ", dtype=float)
-        g_log = np.fromstring(lines[2], sep=" ", dtype=float)
-    except Exception as exc:
-        raise ValueError(f"Could not parse precomputed Zmean table header from {path}: {exc}")
-
-    if T_log.size == dim0 and g_log.size == dim1:
-        nT, ng = dim0, dim1
-    elif T_log.size == dim1 and g_log.size == dim0:
-        nT, ng = dim1, dim0
-    else:
-        raise ValueError(
-            f"Header/size mismatch in {path}: got nT={T_log.size} ng={g_log.size}, count line={dim0} {dim1}"
-        )
-
-    raw_rows = lines[3: 3 + ng]
-    if len(raw_rows) < ng:
-        raise ValueError(f"Missing matrix rows in {path}: expected {ng}, got {len(raw_rows)}")
-
-    mat = np.full((ng, nT), np.nan, dtype=float)
-    for i, row in enumerate(raw_rows):
-        vals = np.fromstring(row, sep=" ", dtype=float)
-        if vals.size >= nT:
-            mat[i, :] = vals[:nT]
-
-    return {
-        "gamma_log10": g_log,
-        "T_log10": T_log,
-        "Zmean": mat,
-        "path": np.array([str(path)], dtype=object),
-    }
-
-
-def _lookup_zmean_from_precomputed(table: Dict[str, np.ndarray], gamma: float, T: float) -> float:
-    g_log = np.asarray(table["gamma_log10"], dtype=float)
-    T_log = np.asarray(table["T_log10"], dtype=float)
-    Zmat = np.asarray(table["Zmean"], dtype=float)
-
-    lg = float(np.log10(max(gamma, 1e-300)))
-    lT = float(np.log10(max(T, 1e-300)))
-
-    if g_log.size < 2 or T_log.size < 2:
-        m = np.isfinite(Zmat)
-        if not np.any(m):
-            raise ValueError("No finite Zmean values in precomputed table")
-        return float(np.nanmedian(Zmat[m]))
-
-    ig = int(np.clip(np.searchsorted(g_log, lg) - 1, 0, g_log.size - 2))
-    jT = int(np.clip(np.searchsorted(T_log, lT) - 1, 0, T_log.size - 2))
-
-    g0, g1 = g_log[ig], g_log[ig + 1]
-    t0, t1 = T_log[jT], T_log[jT + 1]
-    q11 = Zmat[ig, jT]
-    q12 = Zmat[ig, jT + 1]
-    q21 = Zmat[ig + 1, jT]
-    q22 = Zmat[ig + 1, jT + 1]
-
-    vals = np.array([q11, q12, q21, q22], dtype=float)
-    if np.all(np.isfinite(vals)) and (g1 > g0) and (t1 > t0):
-        wg = (lg - g0) / (g1 - g0)
-        wt = (lT - t0) / (t1 - t0)
-        return float(
-            (1 - wg) * (1 - wt) * q11
-            + (1 - wg) * wt * q12
-            + wg * (1 - wt) * q21
-            + wg * wt * q22
-        )
-
-    # Fallback nearest finite neighbor in log-space.
-    GG, TT = np.meshgrid(g_log, T_log, indexing="ij")
-    mask = np.isfinite(Zmat)
-    if not np.any(mask):
-        raise ValueError("No finite Zmean values in precomputed table")
-    d2 = (GG - lg) ** 2 + (TT - lT) ** 2
-    d2[~mask] = np.inf
-    ii, jj = np.unravel_index(np.argmin(d2), d2.shape)
-    return float(Zmat[ii, jj])
 
 
 def _build_grid_rows(
@@ -1499,7 +1362,7 @@ def _build_grid_rows(
     n_gamma: int,
     z_table_path: Path,
 ) -> List[Dict[str, float]]:
-    table = _read_precomputed_zmean_table(z_table_path)
+    table = read_isrf_table(z_table_path)
     T_vals = np.logspace(np.log10(Tmin), np.log10(Tmax), nT)
     gamma_vals = np.logspace(np.log10(gamma_min), np.log10(gamma_max), n_gamma)
 
@@ -1508,7 +1371,7 @@ def _build_grid_rows(
         sqrtT = np.sqrt(float(T))
         for gamma in gamma_vals:
             ne = max(1e-300, float(fixed_G0) * sqrtT / float(gamma))
-            zmean = _lookup_zmean_from_precomputed(table, float(gamma), float(T))
+            lk = isrf_lookup(table, float(fixed_G0), float(T), ne)
             rows.append(
                 {
                     "source_file": str(z_table_path),
@@ -1521,30 +1384,16 @@ def _build_grid_rows(
                     "G0": float(fixed_G0),
                     "ne": float(ne),
                     "T": float(T),
-                    "Zmean": float(zmean),
-                    "Zsigma": np.nan,
+                    "Zmean": float(lk["Zmean"]),
+                    "Zsigma": float(lk["Zsigma"]),
                 }
             )
     return rows
 
 
 def parse_args() -> argparse.Namespace:
-    default_pattern = str(get_model_data_dir() / "dust_charging_data" / "charging_vs_gamma_*.json")
-    default_base = str(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison")
-
     p = argparse.ArgumentParser(
         description="Compare full charge-distribution rates against a Zmean-only approximation"
-    )
-    p.add_argument(
-        "--run-mode",
-        choices=["from-json", "grid-fix-g0"],
-        default="grid-fix-g0",
-        help="Use existing charging JSON samples or build an explicit fixed-G0 T-gamma grid",
-    )
-    p.add_argument(
-        "--input",
-        default=default_pattern,
-        help="Input charging JSON path or glob pattern",
     )
     p.add_argument(
         "--output-summary",
@@ -1653,7 +1502,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--z-table",
         default=None,
-        help="Optional explicit precomputed Zmean matrix file (dust_charge_Z_vs_T_*). If omitted, closest-size table is auto-selected.",
+        help="Optional explicit uniform-ISRF charging table (dust_charging_isrf_<bin_id>.dat; relative paths are "
+             "taken in model_data/dust_charging_isrf_data). If omitted, the --grain-type table closest to --a-cm is used.",
     )
     p.add_argument(
         "--annotate-cells",
@@ -1673,33 +1523,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    in_paths: List[Path] = []
-    if args.run_mode == "from-json":
-        in_paths = [Path(p) for p in sorted(glob.glob(args.input))]
-        if len(in_paths) == 0:
-            raise FileNotFoundError(f"No charging JSON files found for pattern: {args.input}")
-        all_rows = list(_iter_input_rows(in_paths))
-        if len(all_rows) == 0:
-            raise RuntimeError("No valid rows found in the provided charging JSON files")
+    if args.z_table is not None:
+        ztab = Path(args.z_table)
+        if not ztab.is_absolute():
+            ztab = (_isrf_table_dir() / ztab).resolve()
     else:
-        if args.z_table is not None:
-            ztab = Path(args.z_table)
-            if not ztab.is_absolute():
-                ztab = (_dust_charging_output_dir() / ztab).resolve()
-        else:
-            ztab = _find_closest_zmean_table(args.grain_type, float(args.a_cm))
-        all_rows = _build_grid_rows(
-            grain_type=args.grain_type,
-            a_cm=float(args.a_cm),
-            fixed_G0=float(args.fixed_g0),
-            Tmin=float(args.Tmin),
-            Tmax=float(args.Tmax),
-            nT=max(2, int(args.nT)),
-            gamma_min=float(args.gamma_min),
-            gamma_max=float(args.gamma_max),
-            n_gamma=max(2, int(args.n_gamma)),
-            z_table_path=ztab,
-        )
+        ztab = _find_closest_isrf_table(args.grain_type, float(args.a_cm))
+    all_rows = _build_grid_rows(
+        grain_type=args.grain_type,
+        a_cm=float(args.a_cm),
+        fixed_G0=float(args.fixed_g0),
+        Tmin=float(args.Tmin),
+        Tmax=float(args.Tmax),
+        nT=max(2, int(args.nT)),
+        gamma_min=float(args.gamma_min),
+        gamma_max=float(args.gamma_max),
+        n_gamma=max(2, int(args.n_gamma)),
+        z_table_path=ztab,
+    )
 
     stride = max(1, int(args.stride))
     selected = all_rows[::stride]
@@ -1713,18 +1554,16 @@ def main() -> None:
     print("=" * 80)
     print("Comparing full model vs Zmean-only approximation")
     print("=" * 80)
-    print(f"Run mode: {args.run_mode}")
-    print(f"Input files: {len(in_paths)}")
+    print(f"Charging table: {ztab}")
     print(f"Total valid rows available: {len(all_rows)}")
     print(f"Rows selected: {len(selected)} (stride={stride}, max_points={args.max_points})")
     print(f"Z mode: {args.z_mode}")
     print(f"Approximation Zmean source: {'full' if args.use_full_zmean_for_approx else 'table'}")
     print(f"Radiation model: {args.radiation_model}")
-    if args.run_mode == "grid-fix-g0":
-        print(
-            f"Grid setup: G0={float(args.fixed_g0):.3e}, T=[{float(args.Tmin):.3e},{float(args.Tmax):.3e}] "
-            f"nT={int(args.nT)}, gamma=[{float(args.gamma_min):.3e},{float(args.gamma_max):.3e}] n_gamma={int(args.n_gamma)}"
-        )
+    print(
+        f"Grid setup: G0={float(args.fixed_g0):.3e}, T=[{float(args.Tmin):.3e},{float(args.Tmax):.3e}] "
+        f"nT={int(args.nT)}, gamma=[{float(args.gamma_min):.3e},{float(args.gamma_max):.3e}] n_gamma={int(args.n_gamma)}"
+    )
     print("=" * 80)
 
     output_rows: List[Dict[str, float]] = []
@@ -1872,9 +1711,7 @@ def main() -> None:
     )
 
     summary = {
-        "run_mode": args.run_mode,
-        "input_pattern": args.input,
-        "input_files": [str(p) for p in in_paths],
+        "z_table": str(ztab),
         "n_rows_available": len(all_rows),
         "n_rows_selected": len(selected),
         "n_high_error_cells": len(high_error_cells),
@@ -1908,7 +1745,7 @@ def main() -> None:
     out_summary = (
         Path(args.output_summary)
         if args.output_summary
-        else Path(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.summary.json")
+        else _paths.get_results_dir("dust_charge") / "zmean_rate_approx_comparison.summary.json"
     )
     out_summary.parent.mkdir(parents=True, exist_ok=True)
     with open(out_summary, "w", encoding="utf-8") as fh:
@@ -1917,7 +1754,7 @@ def main() -> None:
     out_plot = (
         Path(args.output_plot)
         if args.output_plot
-        else Path(get_model_data_dir() / "dust_photoelectric_heating_data" / "zmean_rate_approx_comparison.ratio_map.png")
+        else _paths.get_plots_dir("dust_charge") / "zmean_rate_approx_comparison.ratio_map.png"
     )
     try:
         plot_meta = _plot_ratio_maps(

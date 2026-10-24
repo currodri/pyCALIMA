@@ -41,7 +41,6 @@ from pycalima.models.dust_charge.shared_physics import (
 )
 from pycalima.models.dust_radiation.dust_oppacity import read_dielectric_file, save_imn_file
 from pycalima import _paths
-from pycalima.models.grain_size_config import get_model_data_dir
 from pycalima.plotting_style import use_calima_style
 
 
@@ -102,14 +101,13 @@ _EXTERNAL_DATA_DIR = str(_paths.get_external_data_path())
 
 
 def dust_photoelectric_output_dir(*subdirs):
-    """Directory for generated photoelectric-heating tables.
+    """Directory for this module's figures and heating-rate sweeps.
 
-    Resolved on every call, not at import: it depends on $CALIMA_DATA and on
-    the active configuration's model_name. The previous module-level
-    ``os.makedirs`` ran at *import* time and raised PermissionError on a
-    read-only install prefix.
+    Resolved on every call, not at import: it depends on $CALIMA_RESULTS and
+    $CALIMA_DATA. The previous module-level ``os.makedirs`` ran at *import*
+    time and raised PermissionError on a read-only install prefix.
     """
-    return get_model_data_dir().joinpath('dust_photoelectric_heating_data', *subdirs)
+    return _paths.get_results_dir(os.path.join('dust_charge', 'photoelectric_heating', *subdirs), create=False)
 
 
 def _photoelectric_output_path(path):
@@ -140,49 +138,6 @@ def _grain_output_label(a_cm=None, grain_label=None, a_micron=None):
     if a_cm is None:
         return 'grain'
     return f'a_{float(a_cm):.3e}_cm'
-
-
-def _write_photoelectric_legacy_tables(out_dir, mode, size_tag, T_vals, gamma_vals, peh_log, rec_log):
-    """Write the legacy Fortran-facing photoelectric tables with metadata headers.
-
-    The grid file is omitted: axis values (log10(T) and log10(gamma)) are embedded
-    directly into the rate files to match the charging-table convention.
-    """
-    heating_path = os.path.join(out_dir, f'dust_rates_peh_{size_tag}.dat')
-    cooling_path = os.path.join(out_dir, f'dust_rates_rec_{size_tag}.dat')
-
-    log_T = np.log10(T_vals)
-    log_gamma = np.log10(gamma_vals)
-
-    from pycalima.models.grain_size_config import get_header_lines
-    header_lines = get_header_lines(
-        title=f"Photoelectric heating/cooling rate table metadata (mode={mode})",
-        script_name="models/dust_charge/dust_photoelectric_heating.py",
-        bin_info=f"Dust Bin: {size_tag}",
-        val_desc="Values: log10(rate [erg s^-1])",
-        num_lines=6
-    )
-
-    # Write heating file with embedded axes (nT n_gamma, then temp line, gamma line, then data rows)
-    with open(heating_path, 'w') as fh:
-        fh.write('\n'.join(header_lines) + '\n')
-        fh.write(f'{log_T.size} {log_gamma.size}\n')
-        fh.write(' '.join(f'{value:.12e}' for value in log_T) + '\n')
-        fh.write(' '.join(f'{value:.12e}' for value in log_gamma) + '\n')
-        for row in np.asarray(peh_log, dtype=float).T:
-            fh.write(' '.join(f'{value:.12e}' for value in row) + '\n')
-
-    # Write cooling file similarly
-    with open(cooling_path, 'w') as fh:
-        fh.write('\n'.join(header_lines) + '\n')
-        fh.write(f'{log_T.size} {log_gamma.size}\n')
-        fh.write(' '.join(f'{value:.12e}' for value in log_T) + '\n')
-        fh.write(' '.join(f'{value:.12e}' for value in log_gamma) + '\n')
-        for row in np.asarray(rec_log, dtype=float).T:
-            fh.write(' '.join(f'{value:.12e}' for value in row) + '\n')
-
-    # No separate grid file returned anymore
-    return None, heating_path, cooling_path
 
 
 @njit(cache=True)
@@ -2306,7 +2261,7 @@ def Planck_function(T, nu):
 
 def _compute_rates_point(task):
     """Helper for parallel execution: task is a tuple (G0_used, ne_used, T_used, grain_type, a_cm, radiation_model, ion_species).
-    Returns (peh, rec, Zmean, Zsigma, ion_recomb_rates, ion_recomb_rate_coefficients) (or nan/empty on error).
+    Returns (peh, rec, Zmean, Zsigma) (or nan on error).
     """
     G0_used, ne_used, T_used, grain_type, a_cm, radiation_model = task[:6]
     ion_species = task[6] if len(task) > 6 else []
@@ -2348,277 +2303,7 @@ def _compute_rates_point(task):
     )
     peh = float(rates.get('Gamma_total', np.nan) - float(rates.get('Autoionisation_cooling', 0.0)))
     rec = float(rates.get('Recomb_total', 0.0))
-    ion_recomb_rates = rates.get('ion_recomb_rates', np.array([]))
-    ion_recomb_rate_coefficients = rates.get('ion_recomb_rate_coefficients', np.array([]))
-    return peh, rec, Zmean, Zsigma, ion_recomb_rates, ion_recomb_rate_coefficients
-
-
-def _compute_rates_batch(batch_tasks):
-    """Worker helper: compute a batch of points to reduce process-pool overhead."""
-
-    out = []
-    for task in batch_tasks:
-        pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model = task[:9]
-        ion_species = task[9] if len(task) > 9 else []
-        try:
-            peh, rec, Zm, Zs, ion_rec, ion_coeff = _compute_rates_point((G0, ne, T_task, grain_type, a_cm, radiation_model, ion_species))
-        except Exception as exc:
-            msg = (
-                '[make_rate_gamma_T_tables] Worker batch task failed: '
-                f'pos={pos}, iT={iT}, ig={ig}, T={T_task:.6e} K, '
-                f'G0={G0:.6e}, ne={ne:.6e} cm^-3, '
-                f'grain={grain_type}, a_cm={a_cm:.3e}, radiation_model={radiation_model}'
-            )
-            # raise standard error with context
-            raise RuntimeError(msg) from exc
-        out.append((pos, peh, rec, Zm, Zs, ion_rec, ion_coeff))
-    return out
-
-
-def make_rate_gamma_T_tables(grain_type, a_cm, radiation_model='Mathis',
-                             mode='fix_G0', fixed_value=1.0,
-                             Tmin=10.0, Tmax=1e5, nT=50,
-                             gamma_min=1e-6, gamma_max=1e6, n_gamma=100,
-                             num_workers=None, out_dir='tables', debug=False,
-                             grain_label=None, executor=None, ion_species=None):
-    """
-    Compute grids of photoelectric heating and recombination cooling on a
-    log(T) x log(gamma) grid and write ASCII tables suitable for Fortran
-    linear interpolation in log-log space.
-
-    Returns a dict with arrays and the out_dir path.
-    """
-    use_calima_style()
-    import os
-    out_dir = _photoelectric_output_path(out_dir)
-    os.makedirs(out_dir, exist_ok=True)
-
-    # build grids in log space
-    T_vals = np.logspace(np.log10(Tmin), np.log10(Tmax), nT)
-    gamma_vals = np.logspace(np.log10(gamma_min), np.log10(gamma_max), n_gamma)
-
-    # prepare tasks in same order: rows over T, columns over gamma
-    tasks = []  # (iT, ig, G0, ne, T)
-    for iT, T in enumerate(T_vals):
-        sqrtT = np.sqrt(T)
-        for ig, gamma in enumerate(gamma_vals):
-            if mode == 'fix_G0':
-                G0 = float(fixed_value)
-                ne = max(1e-20, (G0 * sqrtT) / float(gamma))
-            elif mode == 'fix_ne':
-                ne = float(fixed_value)
-                G0 = max(1e-20, (float(gamma) * ne) / sqrtT)
-            else:
-                raise ValueError('mode must be "fix_G0" or "fix_ne"')
-            tasks.append((iT, ig, G0, ne, float(T)))
-
-    N = len(tasks)
-    G0_vals = np.full(N, np.nan)
-    ne_vals = np.full(N, np.nan)
-    peh_vals = np.full(N, np.nan)
-    rec_vals = np.full(N, np.nan)
-    Zmean_vals = np.full(N, np.nan)
-    Zsigma_vals = np.full(N, np.nan)
-    for pos, t in enumerate(tasks):
-        G0_vals[pos] = t[2]
-        ne_vals[pos] = t[3]
-
-    # Optional ion recombination lists to accumulate results per task
-    n_ions = len(ion_species) if ion_species else 0
-    ion_recomb_rates_vals = [None] * N
-    ion_recomb_rate_coeffs_vals = [None] * N
-
-    import concurrent.futures
-    # Debug mode: run in main process for full local traceback visibility.
-    if num_workers == 1:
-        count = 0
-        for pos, t in enumerate(tasks):
-            try:
-                peh, rec, Zm, Zs, ion_rec, ion_coeff = _compute_rates_point((t[2], t[3], t[4], grain_type, a_cm, radiation_model, ion_species))
-            except Exception as exc:
-                iT, ig, G0, ne, T_task = t
-                gamma_task = gamma_vals[ig]
-                msg = (
-                    '[make_rate_gamma_T_tables] In-process task failed: '
-                    f'pos={pos}, iT={iT}, ig={ig}, T={T_task:.6e} K, '
-                    f'gamma={gamma_task:.6e}, G0={G0:.6e}, ne={ne:.6e} cm^-3, '
-                    f'grain={grain_type}, a_cm={a_cm:.3e}, radiation_model={radiation_model}'
-                )
-                raise RuntimeError(msg) from exc
-            peh_vals[pos] = peh
-            rec_vals[pos] = rec
-            Zmean_vals[pos] = Zm
-            Zsigma_vals[pos] = Zs
-            ion_recomb_rates_vals[pos] = ion_rec
-            ion_recomb_rate_coeffs_vals[pos] = ion_coeff
-            count += 1
-            if count % 100 == 0 or count == len(tasks):
-                print(f'[make_rate_gamma_T_tables] Processed {count}/{len(tasks)} tasks (in-process)')
-    else:
-        # Execute in parallel with batched tasks to reduce inter-process overhead.
-        if num_workers is None or int(num_workers) <= 0:
-            num_workers = os.cpu_count() or 1
-
-        worker_inputs = []
-        for pos, t in enumerate(tasks):
-            iT, ig, G0, ne, T_task = t
-            worker_inputs.append((pos, iT, ig, G0, ne, T_task, grain_type, a_cm, radiation_model, ion_species))
-
-        # Heuristic: create multiple batches per worker while keeping enough
-        # work per batch to amortize process communication.
-        target_batches = max(4 * int(num_workers), 1)
-        batch_size = max(16, int(np.ceil(len(worker_inputs) / float(target_batches))))
-        batches = [worker_inputs[i:i + batch_size] for i in range(0, len(worker_inputs), batch_size)]
-
-        exe = executor
-        owns_executor = exe is None
-        if exe is None:
-            exe = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
-
-        try:
-            # progress bar if available
-            try:
-                from tqdm import tqdm
-                iterator = tqdm(exe.map(_compute_rates_batch, batches, chunksize=1),
-                                total=len(batches), desc='Computing rates')
-                use_tqdm = True
-            except Exception:
-                iterator = exe.map(_compute_rates_batch, batches, chunksize=1)
-                use_tqdm = False
-
-            count = 0
-            for batch_out in iterator:
-                for pos, peh, rec, Zm, Zs, ion_rec, ion_coeff in batch_out:
-                    peh_vals[pos] = peh
-                    rec_vals[pos] = rec
-                    Zmean_vals[pos] = Zm
-                    Zsigma_vals[pos] = Zs
-                    ion_recomb_rates_vals[pos] = ion_rec
-                    ion_recomb_rate_coeffs_vals[pos] = ion_coeff
-                count += len(batch_out)
-                if not use_tqdm and (count % 100 == 0 or count == len(worker_inputs)):
-                    print(f'[make_rate_gamma_T_tables] Processed {count}/{len(worker_inputs)} tasks')
-        finally:
-            if owns_executor:
-                exe.shutdown(wait=True)
-
-    # reshape into (nT, n_gamma)
-    G0_mat = G0_vals.reshape((nT, n_gamma))
-    ne_mat = ne_vals.reshape((nT, n_gamma))
-    peh_mat = peh_vals.reshape((nT, n_gamma))
-    rec_mat = rec_vals.reshape((nT, n_gamma))
-    Zmean_mat = Zmean_vals.reshape((nT, n_gamma))
-    Zsigma_mat = Zsigma_vals.reshape((nT, n_gamma))
-
-    if n_ions > 0:
-        ion_recomb_rates_mat = np.array([r if r is not None else np.zeros(n_ions) for r in ion_recomb_rates_vals]).reshape((nT, n_gamma, n_ions))
-        ion_recomb_rate_coefficients_mat = np.array([c if c is not None else np.zeros(n_ions) for c in ion_recomb_rate_coeffs_vals]).reshape((nT, n_gamma, n_ions))
-    else:
-        ion_recomb_rates_mat = None
-        ion_recomb_rate_coefficients_mat = None
-
-    # Table-convention fix (always applied): decompose the signed
-    # recombination channel into cooling (positive part) and heating
-    # (negative part) so saved cooling is non-negative and heating is smooth.
-    peh_save = np.array(peh_mat, copy=True)
-    rec_save = np.array(rec_mat, copy=True)
-    rec_neg = np.where(np.isfinite(rec_save), np.minimum(rec_save, 0.0), 0.0)
-    peh_save = peh_save - rec_neg
-    rec_save = np.where(np.isfinite(rec_save), np.maximum(rec_save, 0.0), np.nan)
-
-    # convert to log10 and replace invalid values
-    fill_bad = -1e30
-    with np.errstate(divide='ignore', invalid='ignore'):
-        log_peh = np.log10(np.where(peh_save > 0.0, peh_save, np.nan))
-        log_rec = np.log10(np.where(rec_save > 0.0, rec_save, np.nan))
-    log_peh[~np.isfinite(log_peh)] = fill_bad
-    log_rec[~np.isfinite(log_rec)] = fill_bad
-
-    # Write files with grain label/bin id as the primary identifier.
-    size_tag = _grain_output_label(a_cm=a_cm, grain_label=grain_label)
-    fn_grid, fn_heating, fn_cooling = _write_photoelectric_legacy_tables(
-        out_dir=out_dir,
-        mode=mode,
-        size_tag=size_tag,
-        T_vals=T_vals,
-        gamma_vals=gamma_vals,
-        peh_log=log_peh,
-        rec_log=log_rec,
-    )
-
-    # plot rates vs gamma for every temperature in the grid
-    fig, ax = plt.subplots(1, 1, figsize=(7, 5), dpi=200, facecolor='w', edgecolor='k')
-    cmap = plt.cm.viridis
-    norm = plt.Normalize(vmin=np.log10(T_vals.min()), vmax=np.log10(T_vals.max()))
-
-    for iT, T in enumerate(T_vals):
-        color = cmap(norm(np.log10(T)))
-        ax.plot(gamma_vals, np.where(peh_save[iT, :] > 0.0, peh_save[iT, :], np.nan),
-                color=color, linewidth=1.5, linestyle='-')
-        ax.plot(gamma_vals, np.where(rec_save[iT, :] > 0.0, rec_save[iT, :], np.nan),
-                color=color, linewidth=1.5, linestyle='--')
-
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.set_xlabel(r'$\gamma = G_0\sqrt{T}/n_e$ [K$^{1/2}$ cm$^3$]')
-    ax.set_ylabel(r'Rate [erg s$^{-1}$]')
-    ax.tick_params(which='both', axis='both', direction='in')
-    ax.xaxis.set_ticks_position('both')
-    ax.yaxis.set_ticks_position('both')
-    ax.minorticks_on()
-
-    from matplotlib.lines import Line2D
-    style_handles = [
-        Line2D([0], [0], color='k', linestyle='-', lw=1.8, label='Heating'),
-        Line2D([0], [0], color='k', linestyle='--', lw=1.8, label='Recombination'),
-    ]
-    ax.legend(handles=style_handles, loc='lower left', fontsize=11, frameon=False)
-
-    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, pad=0.02)
-    cbar.set_label(r'$\log_{10}(T/\mathrm{K})$')
-
-    title_grain = grain_label if grain_label is not None else f'a={a_cm:.3e} cm'
-    fig.suptitle(f'{grain_type}, {title_grain}, {radiation_model}, mode={mode}, fixed={fixed_value:.3e}')
-    fig.subplots_adjust(top=0.90, bottom=0.14, left=0.12, right=0.92)
-    fn_plot = os.path.join(out_dir, f'dust_rates_vs_gamma_by_temperature_{mode}_{size_tag}.pdf')
-    fig.savefig(fn_plot, dpi=200)
-    plt.close(fig)
-
-    # write README
-    readme_path = os.path.join(out_dir, 'README.md')
-    with open(readme_path, 'w') as fh:
-        fh.write('# Dust rate tables\n')
-        fh.write('\n')
-        fh.write('Files:\n')
-        if fn_grid is not None:
-            fh.write(f'- {os.path.basename(fn_grid)} : shared log10(T) and log10(gamma) grid (2 columns)\n')
-        else:
-            fh.write(f'- {os.path.basename(fn_heating)} / {os.path.basename(fn_cooling)} : embed log10(T) and log10(gamma) axes directly (see description)\n')
-        fh.write(f'- {os.path.basename(fn_heating)} : n_gamma rows x nT columns, log10(heating [erg s^-1])\n')
-        fh.write(f'- {os.path.basename(fn_cooling)} : n_gamma rows x nT columns, log10(cooling [erg s^-1])\n')
-        fh.write('\n')
-        fh.write('Rows correspond to increasing gamma (from gamma_min to gamma_max). Columns correspond to increasing T (from Tmin to Tmax).\n')
-        fh.write('The signed recombination channel is always decomposed before writing tables: negative values are transferred to heating and cooling is saved as the non-negative part.\n')
-        fh.write('Missing/invalid values are encoded as -1e30. Tables are plain whitespace-separated ASCII suitable for Fortran reading.\n')
-
-    if debug:
-        print(f'[make_rate_gamma_T_tables] Wrote tables to {out_dir}: shapes T={nT}, gamma={n_gamma}')
-
-    return {
-        'T_vals': T_vals,
-        'gamma_vals': gamma_vals,
-        'G0_vals': G0_mat,
-        'ne_vals': ne_mat,
-        'log_peh': log_peh,
-        'log_rec': log_rec,
-        'Zmean': Zmean_mat,
-        'Zsigma': Zsigma_mat,
-        'ion_recomb_rates_grid': ion_recomb_rates_mat,
-        'ion_recomb_rate_coefficients_grid': ion_recomb_rate_coefficients_mat,
-        'out_dir': os.path.abspath(out_dir)
-    }
+    return peh, rec, Zmean, Zsigma
 
 
 def plot_heating_cooling_surfaces(grain_type, a_cm, radiation_model='Mathis', combination='G0_vs_sqrtT_over_ne',

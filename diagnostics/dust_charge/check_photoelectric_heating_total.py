@@ -154,7 +154,7 @@ def _compute_single_grain(args):
     from pycalima.models.dust_charge.dust_photoelectric_heating import _compute_rates_point
 
     try:
-        peh, rec, _Zm, _Zs, _ir, _ic = _compute_rates_point(
+        peh, rec, _Zm, _Zs = _compute_rates_point(
             (G0, ne, T, grain_type, a_cm, 'Mathis', [])
         )
         # Gamma - Lambda per grain [erg/s], normalised by G0

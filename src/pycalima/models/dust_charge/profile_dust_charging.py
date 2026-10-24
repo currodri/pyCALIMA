@@ -6,7 +6,7 @@ Usage:
   python -m models.dust_charge.profile_dust_charging
 
 Outputs:
-  model_data/dust_charging_data/profiles/dust_charging_profile_report.json
+  <results>/dust_charge/profiles/dust_charging_profile_report.json (pycalima._paths.get_results_dir)
 """
 
 from __future__ import annotations
@@ -19,15 +19,14 @@ import pstats
 import time
 from pathlib import Path
 
+from pycalima import _paths
 from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
-from pycalima.models.grain_size_config import get_model_data_dir
 
 
 
 
 def _output_path() -> Path:
-    out_dir = get_model_data_dir() / "dust_charging_data" / "profiles"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _paths.get_results_dir("dust_charge/profiles")
     return out_dir / "dust_charging_profile_report.json"
 
 

@@ -1,0 +1,12 @@
+# Dust yields of Pop III core-collapse supernovae, unmixed ejecta: Nozawa, Kozasa, Umeda,
+# Maeda & Nomoto (2003, ApJ 598, 785; arXiv:astro-ph/0307108), Fig. 13a, the markers (the
+# computed yields, not the spline fits), read from the vector paths of page 43 of the arXiv
+# PDF, 2026-10-09 (x: 114.27 units per Msun, 13 Msun at the frame; y: 641.43 units per
+# decade, 1e-3 Msun at 4783.6). Al2O3 for 13 Msun lies below the plotted range (< 3.2e-4
+# Msun) and is set to 0. Supersedes galaxysam/external_yields/Nozawa2003_dust_yields.dat,
+# whose Si block repeats Mg2SiO4 and whose FeS/SiO2/MgO/Fe points share snapped values.
+# columns: progenitor mass [Msun], then dust mass [Msun] of Si Fe Mg2SiO4 MgSiO3 C SiO2 MgO FeS Al2O3
+13 0.03652 0.06271 0.01815 0.00106 0.07568 0.01596 0.00309 0.01556 0
+20 0.17485 0.0286 0.12589 0.00582 0.05902 0.05741 0.03236 0.08962 0.00091
+25 0.20691 0.03009 0.22909 0.00301 0.22131 0.08888 0.0634 0.08836 0.00211
+30 0.322 0.0233 0.49204 0.00942 0.02811 0.14826 0.17701 0.10692 0.01162

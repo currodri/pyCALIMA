@@ -1,0 +1,18 @@
+# Pop III core-collapse supernova models of Nozawa et al. (2007) (N07; the progenitors and
+# unmixed-ejecta dust of Nozawa et al. 2003), as summarised by Chiaki et al. (2015, MNRAS 446,
+# 2659; arXiv:1410.8384):
+#  - log A_j: number abundance of element j per H nucleus at cloud metallicity Z = Z_sun,
+#    their Eq. 1, A_j = Z M_j / (mu_j X_H M_metal) with Z_sun = 0.02 and X_H = 0.75; their
+#    Fig. 2 (left), markers read from the vector paths of page 3 of the arXiv PDF, 2026-10-09
+#    (x: 95.1 units per atomic number; y: 535.4 units per decade, 1e-5 at 5408.2).
+#  - their Table 3, models N07M*n0 (no reverse-shock destruction): f_dep,C,0, S_C,0 [1e4 cm^2/g],
+#    f_dep,Sil,0, S_Sil,0 [1e4 cm^2/g], f_dep,0 (dust / metal mass), D_0 [1e-3, at Z = Z_sun],
+#    D_cr,ng [1e-8, without grain growth], [Z_cr,ng] = log10(Z_cr / Z_sun), Z_sun = 0.02.
+#    (Units inferred: D_0 = f_dep,0 Z_sun; [Z_cr] = log10(D_cr / D_0); S matches the size
+#    distributions of Nozawa+03 Fig. 8a.)
+# columns: progenitor mass [Msun], log A_C, log A_O, log A_Mg, log A_Si, log A_Fe,
+# f_dep_C, S_C, f_dep_Sil, S_Sil, f_dep, D0, Dcr_ng, Zcr_ng
+13 -3.229 -3.299 -4.468 -4.216 -4.338 0.101 2.65 0.024 3.83 0.305 6.106 3.06 -5.3
+20 -3.644 -2.986 -4.505 -4.012 -4.826 0.023 4.51 0.049 4.22 0.22 4.402 2.777 -5.2
+25 -3.422 -3.035 -4.473 -4.113 -5.038 0.058 2.42 0.06 3.53 0.24 4.797 3.81 -5.1
+30 -3.941 -2.9 -4.353 -4.152 -5.146 0.004 6.85 0.068 3.99 0.184 3.671 2.916 -5.1
