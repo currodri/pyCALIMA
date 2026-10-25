@@ -14,14 +14,16 @@ real-time, real-space TD-DFT (Octopus) on DFT geometries (Malloci, Mulas & Jobli
 Up to 30 eV every other state of every molecule holds 0.61-0.63 of its C 2s2p + H 1s electrons in oscillator
 strength, and each added electron adds 0.3-2.5 (median 1.0). ``coronene_anion`` holds 142.8, the share of
 C54H18- (circumcoronene's anion: 143.2, same 16.45 eV peak), not of C24H12- (expected ~67); ``benzocoronene_cation``
-holds 14 more than its neutral. ``spectra`` leaves them out unless asked. The ``coronene_anion`` file is the one
-Berné+22's code (``anions/coronene_anion.txt``) and pyCALIMA's bundled ``malloci_coronene_anion_sigma.dat`` carry.
+holds 14 more than its neutral. ``spectra`` and ``sigma_of`` leave them out unless asked. The ``coronene_anion``
+file is the one Berné+22's code (``anions/coronene_anion.txt``) carries; pyCALIMA bundled it too until 2026-10-24,
+when its bundled Malloci copies were dropped for this dataset.
 """
 from __future__ import annotations
 
 import csv
 import re
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -125,6 +127,16 @@ def spectra(root=None, include_inconsistent=False):
                 sig[z] = (d[:, 0], d[:, 1] * MB_CM2)
             out[row["name"]] = dict(nc=int(row["nc"]), nh=int(row["nh"]), formula=row["formula"], sigma=sig)
     return out
+
+
+@lru_cache(maxsize=None)
+def sigma_of(name, charge, root=None, include_inconsistent=False):
+    """(E [eV], sigma [cm^2]) of one served file, e.g. ``sigma_of("coronene", 1)``; an ``INCONSISTENT`` one raises
+    unless ``include_inconsistent``."""
+    if (name, charge) in INCONSISTENT and not include_inconsistent:
+        raise ValueError(f"{name} {STATES[charge]}: {INCONSISTENT[name, charge]}")
+    d = np.loadtxt(_root(root) / f"{name}_{STATES[charge]}")
+    return d[:, 0], d[:, 1] * MB_CM2
 
 
 def oscillator_strength(energy_ev, sigma_cm2, e_min=0.0, e_max=np.inf):

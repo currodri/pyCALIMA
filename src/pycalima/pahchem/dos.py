@@ -70,7 +70,9 @@ def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0):
     energy : ndarray
         Grid energies ``i * grain_cm`` [cm^-1].
     counts : ndarray
-        Number of states whose energy rounds to each grid point. The density
+        Number of states on each grid point, counted with every frequency
+        rounded to the grid (so a state's energy is the sum of its rounded
+        quanta, not its rounded energy). The density
         of states is ``counts / grain_cm`` and the sum of states is
         ``np.cumsum(counts)``.
     """
@@ -107,7 +109,9 @@ def direct_count(freqs_cm, e_max_cm, grain_cm=1.0):
 
     def recurse(i, energy):
         if i == freqs.size:
-            counts[int(np.rint(energy / grain_cm))] += 1
+            j = int(np.rint(energy / grain_cm))
+            if j < n:                      # a state in the last half-grain rounds past the grid
+                counts[j] += 1
             return
         while energy <= e_max_cm + 1e-9:
             recurse(i + 1, energy)

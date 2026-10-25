@@ -8,8 +8,9 @@ itself instead:
     I_nu(nu) = sum_s w_s P_s(nu; conditions) + sum_k c_k B_k(nu),
 
 - P_s is the PAH spectrum of molecule s with its charge states at the stated
-  conditions (``Population.state_spectra``: IR power per mode at G0 = 1, the
-  band profile of ``emission.spectrum``).
+  conditions: the IR power per mode of the Population's state bases
+  (``emitted``, per G0) weighted by the charge fractions, packed by
+  ``ModeTable`` and given band profiles by ``BandShape``.
 - B_k are cubic B-splines in wavelength, with knots no closer than
   ``knot_um``, set separately in each fitted segment.
 - w >= 0 and c >= 0 (a positive continuum), solved together by one NNLS.

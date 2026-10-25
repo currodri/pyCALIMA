@@ -24,7 +24,7 @@ this module chooses as follows. Every choice is confidence E.
 
 - **Cross sections.** Joblin (1992) is not available. Instead:
 
-  - Malloci+07 TD-DFT spectra (``allain96_sigma_malloci2007.csv``) for
+  - Malloci+07 TD-DFT spectra (fetched ``malloci2007-spectra``) for
     naphthalene, anthracene, pyrene, coronene and ovalene, neutral and
     cation;
   - Li & Draine (2001) for the 50 and 100 C PAHs (Allain used Verstraete &
@@ -34,9 +34,10 @@ this module chooses as follows. Every choice is confidence E.
 - **Einstein A.** Allain's Leger+89b band A values are not stated. PAHdb v4
   modes are used, and cations take the neutral's modes (as in II Sect. 2.1).
 - **Dehydrogenated states.** The card says the C-H bands are dropped and the
-  other modes kept. Here, per missing H, the most intense remaining C-H
-  stretch, in-plane bend and out-of-plane bend are removed; a band that runs
-  out of modes stops losing them.
+  other modes kept. Here, per missing H, the least intense remaining C-H
+  stretch, in-plane bend and out-of-plane bend are removed (``strip_h_modes``);
+  the shortfall of a band that runs out of modes is taken from the modes left
+  at or above 650 cm^-1.
 - **"PAH 50 C" and "PAH 100 C".** N_H0 is not stated. They are PAHdb C50H20
   (uid 10508, C2h) and C100H26 (uid 7495, C2h).
 - **Set 1, Draine 1978, below 5 eV.** This is 4 pi times I eq. 19, taken to
@@ -192,11 +193,19 @@ def set2_field(proxy_ok=True):
 
 @lru_cache(maxsize=None)
 def _malloci():
-    return pd.read_csv(_paths.get_external_data_path("pahchem/allain96_sigma_malloci2007.csv"), comment="#")
+    """The Malloci+07 neutral and cation spectra of the ``SPECIES`` that have one [Mb], negatives clipped to 0."""
+    from pycalima.pahchem import malloci2007
+
+    cols = {}
+    for name in sorted({v[2] for v in SPECIES.values() if v[2] is not None}):
+        for z in (0, 1):
+            E, s = malloci2007.sigma_of(name, z)
+            cols["energy_eV"], cols[f"{name}_{z}"] = E, np.clip(s / malloci2007.MB_CM2, 0.0, None)
+    return pd.DataFrame(cols)
 
 
 def sigma(name, charge, nh=None, energy_ev=E_GRID):
-    """Absorption cross section [cm^2]: Malloci+07 where bundled, else Li & Draine.
+    """Absorption cross section [cm^2]: Malloci+07 (fetched ``malloci2007-spectra``) where computed, else Li & Draine.
 
     Dehydrogenated: x (2.5 N_H + 8 N_C)/(2.5 N_H0 + 8 N_C) (II eq. 3).
     """
@@ -220,8 +229,8 @@ def strip_h_modes(species, nh):
     left in each C-H window rescaled to nh / N_H0 of the window's total: the
     card's [cooling].dehydrogenated rule, "A of those bands scaled by the
     number of C-H bonds"), but a band with too few modes loses all it has and
-    the rest are taken from the next C-H window, so 3N - 6 holds for small
-    PAHs too.
+    the rest are taken from the least intense modes left at or above
+    650 cm^-1 (C-C modes included), so 3N - 6 holds for small PAHs too.
     """
     n = species.nh - nh
     f, A = np.asarray(species.freqs_cm, float), np.asarray(species.einstein_a, float).copy()

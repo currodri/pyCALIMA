@@ -78,7 +78,8 @@ def inverse_laplace_arrhenius(energy_cm, counts, A_s, E0_cm, window_cm=100.0):
     log_rho = dos.smoothed_log_density(energy_cm, counts, window_cm)
     i0 = int(round(E0_cm / grain))
     k = np.zeros_like(log_rho)
-    k[i0:] = A_s * np.exp(log_rho[:log_rho.size - i0] - log_rho[i0:])
+    if i0 < k.size:                        # E0 above the grid: no reactive state on it
+        k[i0:] = A_s * np.exp(log_rho[:log_rho.size - i0] - log_rho[i0:])
     return k
 
 

@@ -53,9 +53,9 @@ class RadiationField:
 
     def g0(self) -> float:
         """Habing G0 of this field."""
-        m = (self.energy_ev >= 6.0) & (self.energy_ev <= LYMAN_EV)
-        E, F = self.energy_ev[m], self.photon_flux[m]
-        return float(np.trapezoid(E * F, E) * EV_ERG / HABING_FLUX)
+        m = (self.energy_ev > 6.0) & (self.energy_ev < LYMAN_EV)
+        E = np.concatenate([[6.0], self.energy_ev[m], [LYMAN_EV]])      # whole band, also on a coarse grid
+        return float(np.trapezoid(E * self.flux_at(E), E) * EV_ERG / HABING_FLUX)
 
     def scaled(self, g0: float) -> "RadiationField":
         """The same spectral shape with Habing G0 = ``g0``."""

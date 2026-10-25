@@ -363,7 +363,13 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
         y = photo.yield_wenzel2020(E, threshold, mol.nc)
     elif params.yield_model == "lepage":
-        y = photo.yield_lepage2001(E, threshold, form="lepage01")
+        # Le Page's law is fitted up to 13.6 eV (Verstraete+90's yields) and is a bump about d = 14.9 eV, falling
+        # back to zero above it; above 13.6 eV it rises linearly to unity at Y_UNITY_EV instead (as the anion's
+        # statistical detachment does)
+        lyman = E_PH_FUV[-1]
+        y_ly = float(photo.yield_lepage2001(lyman, threshold, form="lepage01"))
+        y = np.where(E <= lyman, photo.yield_lepage2001(E, threshold, form="lepage01"),
+                     y_ly + (1.0 - y_ly) * np.clip((E - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0))
     else:
         y = photo.yield_jochims1996(E, threshold)
     return np.where(E >= Y_UNITY_EV, 1.0, y)
@@ -429,9 +435,11 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH):
         # above 13.6 eV: valence photoemission from the anion, rising to unity at Y_UNITY_EV, with the
         # electron energy of photo.photoelectron_energy (threshold EA)
         hi = grid[~lo]
-        y_hi = np.clip(y[-1] + (1.0 - y[-1]) * (hi - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0)
-        mol._cache[key] = (np.concatenate([y[:-1], y_hi]),
-                           np.concatenate([ek[:-1], photo.photoelectron_energy(hi, ea)[0]]))
+        y_out, ek_out = np.empty_like(grid), np.empty_like(grid)
+        y_out[lo], ek_out[lo] = y[:-1], ek[:-1]          # in the input order: the grid need not be sorted
+        y_out[~lo] = np.clip(y[-1] + (1.0 - y[-1]) * (hi - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0)
+        ek_out[~lo] = photo.photoelectron_energy(hi, ea)[0]
+        mol._cache[key] = (y_out, ek_out)
     return mol._cache[key]
 
 
@@ -458,15 +466,16 @@ def neutral_sticking(mol, temperature_k):
     for C26H16, C72H22 and C216H36 of the library). Between photons an
     interstellar PAH is cold.
     """
+    from pycalima.pahchem.attachment import Attachment, grid_excess_cm
+
     if mol.ea_ev is None:
         raise ValueError(f"{mol.name}: no anion in the library, so no neutral sticking")
-    if "attachment" not in mol._cache:
-        from pycalima.pahchem.attachment import Attachment
-
+    akey = ("attachment", grid_excess_cm(temperature_k))      # the grid holds the electrons' Maxwellian
+    if akey not in mol._cache:
         at = Attachment(mol.species[0], mol.species[-1], mol.ea_ev, chemistry.disc_radius_cm(mol.nc),
-                        e_excess_cm=8000.0)
-        mol._cache["attachment"] = (at, {})
-    at, done = mol._cache["attachment"]
+                        e_excess_cm=akey[1])
+        mol._cache[akey] = (at, {})
+    at, done = mol._cache[akey]
     t = round(float(temperature_k), 6)
     if t not in done:
         done[t] = at.sticking(temperature_k, np.array([0.0]), np.array([1.0]))
@@ -663,12 +672,15 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
                 sigma_scale=params.sigma_scale, recomb_ev=recomb, ladder=tuple(ladder),
                 h_odd=tuple(params.h_odd), h2=tuple(params.h2), threshold_ev=float(state_threshold(mol, z)),
-                ionising_heat=bool(params.ionising_photons_heat))
+                ionising_heat=bool(params.ionising_photons_heat),
+                # only then does the electron's share enter the basis (and its key)
+                **({"electron_ev": electron_energy(mol, z, params)} if params.ionising_photons_heat else {}))
 
 
 #: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key).
-#: The result caches of the diagnostics key on it too: 6 is the photon grid from 1 eV.
-BASIS_VERSION = 6
+#: The result caches of the diagnostics key on it too: 6 is the photon grid from 1 eV; 7 the Kurucz fields
+#: normalised over the whole 6-13.6 eV band (``fields.RadiationField.g0``, +0.15 %).
+BASIS_VERSION = 7
 
 
 def _feed(h, v):
@@ -690,6 +702,9 @@ def _basis_key(inp, legacy=False):
     h.update(f"v{BASIS_VERSION}".encode())
     h.update(np.ascontiguousarray(E_PH).tobytes())
     h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
+    if not legacy:                     # every grid of build_state_basis, not only the photon grid
+        h.update(np.ascontiguousarray(E_DEP).tobytes())
+        h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, photo.PARTITION_NODES)).encode())
     for k in sorted(inp):
         v = inp[k]
         h.update(k.encode())
@@ -707,11 +722,13 @@ def _basis_key(inp, legacy=False):
 LOSS_E_MAX_EV, LOSS_DE_CM = (45.0, 30.0, 20.0), 200.0
 
 
-def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat):
+def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat, electron_ev=None):
     """h(E_DEP) [s^-1 eV^-1]: the rate at which absorptions leave internal energy E_dep in the molecule.
 
     Non-ionising absorptions, sigma (1 - Y) F, deposit the photon energy. Ionisations, sigma Y F, deposit the ion's
-    internal energy of ``photo.photoelectron_energy`` if ``ionising_heat``, else nothing (as before 2026-10-22).
+    internal energy if ``ionising_heat``, else nothing (as before 2026-10-22): E - threshold - <E_k>, with the
+    electron's <E_k> on E_PH from ``electron_ev`` (``electron_energy``, so that the anion's detached electron and
+    the energy left behind add up to the excess), by default that of ``photo.photoelectron_energy``.
     Each photon bin's rate is split between its two neighbouring deposit bins, conserving the rate.
     """
     F = field.flux_at(E_PH)
@@ -722,7 +739,10 @@ def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat):
     h = np.interp(E_DEP, E_PH, non, left=0.0, right=0.0)
     if ionising_heat:
         w = np.asarray(sigma) * y * F * _trapezoid_weights(E_PH)          # ionisations per photon bin [s^-1]
-        _, e_int = photo.photoelectron_energy(E_PH, threshold_ev)
+        if electron_ev is None:
+            _, e_int = photo.photoelectron_energy(E_PH, threshold_ev)
+        else:
+            e_int = np.clip(E_PH - threshold_ev - np.asarray(electron_ev, dtype=float), 0.0, None)
         keep = (w > 0) & (e_int >= E_DEP[0]) & (e_int <= E_DEP[-1])
         i = np.clip(np.searchsorted(E_DEP, e_int[keep], side="right") - 1, 0, E_DEP.size - 2)
         f = (e_int[keep] - E_DEP[i]) / (E_DEP[i + 1] - E_DEP[i])
@@ -757,13 +777,24 @@ def _loss_grid(freqs, einstein_a):
     raise ValueError("state counts overflow even on the lowest loss-cascade ceiling")
 
 
-def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2):
-    """(k_H, k_H2) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade."""
-    cm, E, counts = _loss_grid(freqs, einstein_a)
-    pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd):
+    """RRKM H loss on the loss grid: even-H (E0, dS) with degeneracy N_H, odd-H radical values with 1."""
     (e0, ds), deg = (h_even, nh) if nh % 2 == 0 else (h_odd, 1)
-    ch = {"H": rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5),
-                          e0 * dos.CM_PER_EV, degeneracy=deg)[pick]}
+    return rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5),
+                      e0 * dos.CM_PER_EV, degeneracy=deg)[pick]
+
+
+def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None):
+    """(k_H, k_H2) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade.
+    ``grid``: this state's ``_loss_grid`` and H-loss rate, if already built ((cm, E, counts), k_H(E))."""
+    if grid is None:
+        cm, E, counts = _loss_grid(freqs, einstein_a)
+        pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+        k_h = _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd)
+    else:
+        (cm, E, counts), k_h = grid
+        pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+    ch = {"H": k_h}
     if h2_ok:
         ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h2[1], n_scaled=5),
                               h2[0] * dos.CM_PER_EV, degeneracy=2)[pick]
@@ -776,7 +807,8 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2):
 
 
 def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
-                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False):
+                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
+                      electron_ev=None):
     """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
 
     ``recomb_ev`` is the energy each recombination (attachment) into this state
@@ -784,30 +816,43 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     """
     field1 = _unit_field(shape)
     sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
-    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat)
+    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
     recomb_power = k_up * recomb_ev * dos.CM_PER_EV
     if not np.any(h > 0.0) and recomb_power <= 0.0:   # every absorption ionises or detaches: nothing to emit
         return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
                           np.zeros(K_H_G0_GRID.size), 0.0)
     cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
-    N = emission.cascade_photons(cm)
+    # molecules placed on the cascade grid by the deposits (trapezoid over E_DEP, split between the two
+    # neighbouring bins) and the recombinations, then followed down once: the same photons as weighting
+    # emission.cascade_photons by them, in O(modes x bins) instead of O(modes x bins^2)
     e = E_DEP * dos.CM_PER_EV / cm.de_cm
     j = np.floor(e).astype(int)
     w = e - j
-    emitted = freqs * np.trapezoid(h * ((1.0 - w) * N[:, j] + w * N[:, j + 1]), E_DEP, axis=1)
+    start = np.zeros(cm.n)
+    hw = h * _trapezoid_weights(E_DEP)
+    np.add.at(start, j, (1.0 - w) * hw)
+    np.add.at(start, j + 1, w * hw)
     if recomb_power > 0.0:
         x = recomb_ev * dos.CM_PER_EV / cm.de_cm
         i0 = int(np.floor(x))
-        emitted = emitted + k_up * freqs * ((1.0 - (x - i0)) * N[:, i0] + (x - i0) * N[:, i0 + 1])
+        start[i0] += k_up * (1.0 - (x - i0))
+        start[i0 + 1] += k_up * (x - i0)
+    emitted = freqs * emission.emission_by_energy(cm, start).sum(axis=1)
+    # the state's loss grid serves its k_h and the first ladder step (the same modes)
     cl, E, counts = _loss_grid(freqs, einstein_a)
-    ts = rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5)
-    k = rates.rrkm(E, counts, ts, h_even[0] * dos.CM_PER_EV, degeneracy=nh)
-    k = k[np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)]
+    pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
+    # k_h (``intact_fractions(method="single")``) takes the even-H values with degeneracy N_H for any N_H;
+    # ladder[0] the odd-H ones for odd N_H, so it shares this rate only for even N_H
+    k = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5),
+                   h_even[0] * dos.CM_PER_EV, degeneracy=nh)[pick]
     k_h = np.array([cl.steady_state(E_DEP, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
     lh, lh2 = np.zeros((4, K_H_G0_GRID.size)), np.zeros((4, K_H_G0_GRID.size))
-    for k, (f_, a_, n_, ok_) in enumerate(ladder):
-        lh[k], lh2[k] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2)
+    for i, (f_, a_, n_, ok_) in enumerate(ladder):
+        grid = None
+        if i == 0 and n_ == nh and np.array_equal(f_, freqs) and np.array_equal(a_, einstein_a):
+            grid = ((cl, E, counts), k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd))
+        lh[i], lh2[i] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid)
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
                      float(np.trapezoid(h * E_DEP * dos.CM_PER_EV, E_DEP)), float(recomb_power), lh, lh2)
     if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
@@ -875,10 +920,13 @@ class Population:
     def _save(self, key, b):
         if self.cache_dir is not None:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
-            np.savez(self.cache_dir / f"{key}.npz", freqs_cm=b.freqs_cm, emitted=b.emitted, k_up=b.k_up,
+            # written under a temporary name and renamed, so a concurrent reader never sees half a file
+            tmp = self.cache_dir / f"{key}.{os.getpid()}.tmp.npz"
+            np.savez(tmp, freqs_cm=b.freqs_cm, emitted=b.emitted, k_up=b.k_up,
                      k_h=b.k_h, absorbed=b.absorbed, recombination=b.recombination,
                      ladder_h=b.ladder_h if b.ladder_h is not None else np.zeros((4, K_H_G0_GRID.size)),
                      ladder_h2=b.ladder_h2 if b.ladder_h2 is not None else np.zeros((4, K_H_G0_GRID.size)))
+            os.replace(tmp, self.cache_dir / f"{key}.npz")
 
     def prepare(self, shape, workers=None):
         """Give every state its basis under ``shape``: from memory, the disk cache, or built in parallel."""
@@ -897,16 +945,29 @@ class Population:
         if not todo:
             return
         workers = workers if workers is not None else (os.cpu_count() or 1)
-        if workers > 1 and len(todo) > 4:
-            from concurrent.futures import ProcessPoolExecutor
 
-            with ProcessPoolExecutor(max_workers=workers) as ex:
-                built = list(ex.map(_build, [t[3] for t in todo], chunksize=1))
-        else:
-            built = [_build(t[3]) for t in todo]
-        for (mol, ck, key, _), b in zip(todo, built):
+        def keep(t, b):
+            mol, ck, key, _ = t
             mol._cache[ck] = b
             self._save(key, b)
+
+        if workers > 1 and len(todo) > 4:
+            from concurrent.futures import ProcessPoolExecutor, as_completed
+
+            # each basis is stored as it arrives, so a failing state does not discard the others
+            failed = None
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                futures = {ex.submit(_build, t[3]): t for t in todo}
+                for fut in as_completed(futures):
+                    try:
+                        keep(futures[fut], fut.result())
+                    except Exception as exc:      # noqa: BLE001 - re-raised once the rest are stored
+                        failed = failed or exc
+            if failed is not None:
+                raise failed
+        else:
+            for t in todo:
+                keep(t, _build(t[3]))
 
     def basis(self, mol, z, shape):
         """``StateBasis`` of ``mol`` at charge z under ``shape``."""

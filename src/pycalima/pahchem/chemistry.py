@@ -95,8 +95,8 @@ def lab_recombination_fit():
 def lab_recombination_factor(nc, cap=None):
     """k_measured / k_BT94 at N_C from ``lab_recombination_fit``, optionally capped at ``cap``.
 
-    The fit spans N_C 6-16 only. Beyond that it is an extrapolation (about 2
-    at N_C = 100), and ``cap`` bounds it. The factor is T-independent: the data
+    The fit spans N_C 6-16 only. Beyond that it is an extrapolation (about
+    1.15 at N_C = 100), and ``cap`` bounds it. The factor is T-independent: the data
     are at 300 K.
     """
     a, b, _ = lab_recombination_fit()

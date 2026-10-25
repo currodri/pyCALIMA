@@ -34,8 +34,9 @@ f(z+1)/f(z) = up(z) / down(z+1) with
 
 F_g = c N_g the group photon flux. The rates are averaged over the bin before the balance is solved: one chain per
 bin, not one per molecule (``check_pah_group_tables.py`` measures what that costs). Photoionisation out of +2 leaves
-the chain (``overflow``): it adds electrons and heat, but the +3 state is not followed (as ``Population`` does for
-its top states).
+the chain (``overflow``): it adds electrons and heat, but the +3 state is not followed. +2 is the top state of every
+molecule (``_chain``), also of the few with a +3 state in PAHdb, so it ionises only above ``population.Y_UNITY_EV``
+as ``Population``'s top states do.
 
 What it gives up against ``Population``: the in-group shape (blackbody), the averaging above, the dehydrogenated
 states (only the parents' thresholds), the multiphoton k_H, and the IR emission.
@@ -77,7 +78,17 @@ def nc_range_weights(library, nc_min, nc_max):
 
 
 def _group_nodes(L0, L1, n_E):
-    return [np.geomspace(l0, l1, n_E) for l0, l1 in zip(L0, L1)]
+    """n_E geometric nodes per group. A group with the top state's step at ``population.Y_UNITY_EV`` inside it
+    gets nodes just below and at the step, so its trapezoid does not smear it (4 % for +2 in 13.6-24.6 eV)."""
+    out = []
+    for l0, l1 in zip(L0, L1):
+        e = pop.Y_UNITY_EV
+        if not l0 < e < l1:
+            out.append(np.geomspace(l0, l1, n_E))
+            continue
+        k = int(np.clip(round(n_E * np.log(e / l0) / np.log(l1 / l0)), 2, n_E - 2))
+        out.append(np.concatenate([np.geomspace(l0, e * (1.0 - 1e-9), k), np.geomspace(e, l1, n_E - k)]))
+    return out
 
 
 def _mathis_flux():
@@ -91,10 +102,24 @@ def _mathis_flux():
     return rg.C_CGS * u / (E * chemistry.EV_ERG)
 
 
+def _chain(mol):
+    """``mol`` with the charge states of ``CHARGES`` only, so that +2 is the top state for every molecule: the few
+    with a +3 state would otherwise ionise out of +2 from ~10 eV (``population._yield``) and the rest only above
+    ``population.Y_UNITY_EV``, two definitions of the overflow in one bin average."""
+    from dataclasses import replace
+
+    if max(mol.charges) <= CHARGES[-1]:
+        return mol
+    keep = [z for z in mol.charges if z <= CHARGES[-1]]
+    return replace(mol, species={z: mol.species[z] for z in keep}, uids={z: mol.uids[z] for z in keep if z in mol.uids},
+                   ionisation_ev={z: v for z, v in mol.ionisation_ev.items() if z < CHARGES[-1]}, _cache={})
+
+
 def molecule_kernels(job):
     """Everything one molecule gives the table: per state, (A, K, H) on the group nodes and the background rates,
     and the collisional tables on ``lT``. ``job`` = (mol, params, partition, L0, L1, n_E, lT)."""
     mol, params, partition, L0, L1, n_E, lT = job
+    mol = _chain(mol)
     nodes = _group_nodes(L0, L1, n_E)
     E = np.concatenate(nodes + [BG_GRID])
     nz, ng = len(CHARGES), len(nodes)

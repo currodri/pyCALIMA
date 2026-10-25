@@ -18,7 +18,8 @@ Cross sections [cm^2] on an energy grid in eV:
   legacy PAH_photophysics code used the disc radius 0.9 sqrt(N_C) A, which
   overestimates sigma by 1.7-3.3x for C24-C96.
 - ``sigma_malloci_coronene``: Malloci et al. (2007) TD-DFT for C24H12 at
-  Z = 0, +1 (bundled files; the bundled anion file is a C54H18- spectrum, ``malloci2007.INCONSISTENT``).
+  Z = 0, +1, from the fetched ``malloci2007-spectra`` (the served anion file is a C54H18- spectrum,
+  ``malloci2007.INCONSISTENT``).
 """
 
 from __future__ import annotations
@@ -27,13 +28,11 @@ from functools import lru_cache
 
 import numpy as np
 
-from pycalima import _paths
 
 HC_EV_UM = 1.23984193
 
-# no anion: the served (and bundled) coronene anion file is a C54H18- spectrum (malloci2007.INCONSISTENT)
-_MALLOCI = {0: "malloci_coronene_neutral_sigma.dat",
-            1: "malloci_coronene_cation_sigma.dat"}
+# no anion: the served coronene anion file is a C54H18- spectrum (malloci2007.INCONSISTENT)
+_MALLOCI_CHARGES = (0, 1)
 
 
 def li_draine_radius_um(nc: int) -> float:
@@ -123,10 +122,11 @@ def rf_levels_from_cross_section(energy_ev, sigma_cm2, e_max_ev=3.1, e_min_ev=0.
     return levels
 
 
-def malloci_rf_levels(path, **kwargs):
-    """``rf_levels_from_cross_section`` of a bundled Malloci+07 cross-section file (Mb)."""
-    data = np.loadtxt(_paths.get_external_data_path(path), comments="#")
-    return rf_levels_from_cross_section(data[:, 0], data[:, 1] * 1e-18, **kwargs)
+def malloci_rf_levels(name, charge, **kwargs):
+    """``rf_levels_from_cross_section`` of a Malloci+07 spectrum (``malloci2007.sigma_of``, e.g. "coronene", 1)."""
+    from pycalima.pahchem import malloci2007
+
+    return rf_levels_from_cross_section(*malloci2007.sigma_of(name, charge), **kwargs)
 
 
 def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
@@ -157,11 +157,13 @@ def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
 
 
 def sigma_malloci_coronene(charge, energy_ev) -> np.ndarray:
-    """Malloci et al. (2007) C24H12 cross section [cm^2]; zero outside 0-30 eV."""
-    if charge not in _MALLOCI:
+    """Malloci et al. (2007) C24H12 cross section [cm^2] (fetched ``malloci2007-spectra``); zero outside 0-30 eV."""
+    from pycalima.pahchem import malloci2007
+
+    if charge not in _MALLOCI_CHARGES:
         raise ValueError(f"Malloci coronene sigma exists for Z = 0, 1, not {charge}")
-    data = np.loadtxt(_paths.get_external_data_path(_MALLOCI[charge]), comments="#")
-    return np.interp(energy_ev, data[:, 0], data[:, 1], left=0.0, right=0.0) * 1e-18
+    E, s = malloci2007.sigma_of("coronene", charge)
+    return np.interp(energy_ev, E, s, left=0.0, right=0.0)
 
 
 def yield_jochims1996(energy_ev, ip_ev) -> np.ndarray:
@@ -202,6 +204,10 @@ def yield_lepage2001(energy_ev, ip_ev, ip_coronene_ev=7.02, form="montillaud13")
     b = 0.00128 um^4). Montillaud's transcription kept b while converting d
     to eV, which lowers Y by ~9x at 7.5 eV and ~1.5x at 10 eV (method card
     lepage01.toml, yield_unit_discrepancy).
+
+    Fitted below 13.6 eV only. The quartic is symmetric about d, so above d
+    the expression falls back to zero; ``population._yield`` replaces it
+    there by a ramp to unity.
     """
     E = np.asarray(energy_ev, dtype=float)
     if form == "montillaud13":

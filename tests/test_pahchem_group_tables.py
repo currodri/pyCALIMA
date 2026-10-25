@@ -36,6 +36,37 @@ def test_yields_on_another_grid_agree_with_E_PH_at_shared_nodes(detachment):
         assert np.allclose(ek[shared], population.electron_energy(mol, z, p)[idx], rtol=0, atol=1e-12)
 
 
+@pytest.mark.parametrize("detachment", ["jochims", "statistical", "unity"])
+def test_yields_follow_the_order_of_an_unsorted_grid(detachment):
+    """molecule_kernels passes the group nodes (to 500 eV) and then BG_GRID (1-13.6 eV), so the grid is unsorted."""
+    mol, p = _molecule(), Params(detachment=detachment)
+    E = population.E_PH[::5]
+    perm = np.random.default_rng(3).permutation(E.size)
+    for z in G.CHARGES:
+        assert np.array_equal(population._yield(mol, z, p, energy_ev=E[perm]),
+                              population._yield(mol, z, p, energy_ev=E)[perm])
+        assert np.allclose(population.electron_energy(mol, z, p, energy_ev=E[perm]),
+                           population.electron_energy(mol, z, p, energy_ev=E)[perm], rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("yield_model", ["jochims", "lepage"])
+def test_yields_never_fall_with_photon_energy(yield_model):
+    """Le Page's law is a bump about 14.9 eV; above 13.6 eV the population ramps it to unity instead."""
+    mol, p = _molecule(), Params(yield_model=yield_model, yield_cation="jochims")
+    for z in (0, 1):
+        assert np.all(np.diff(population._yield(mol, z, p)) >= -1e-12)
+
+
+def test_the_dication_is_the_top_state_of_every_molecule():
+    """Molecules with a +3 state in PAHdb ionise out of +2 in the tables only above Y_UNITY_EV, as the rest do."""
+    _, lib = _v400()
+    mol = next(m for m in lib if G.complete(m) and max(m.charges) > 2)
+    k = G.molecule_kernels((mol, Params(), 0.46, L0, L1, G.N_E_PER_GROUP, G.LT[::10]))
+    nodes = np.concatenate(G._group_nodes(L0, L1, G.N_E_PER_GROUP)).reshape(len(L0), -1)
+    assert np.all(k["K"][-1][nodes < population.Y_UNITY_EV] == 0.0) and np.all(k["K_bg"][-1] == 0.0)
+    assert np.any(population._yield(mol, 2, Params(), energy_ev=nodes.ravel()) > 0)      # Population follows +3
+
+
 @pytest.mark.parametrize("detachment", ["jochims", "statistical"])
 def test_photons_between_the_electron_affinity_and_5_ev_detach_anions(detachment):
     mol = _molecule()
@@ -46,9 +77,11 @@ def test_photons_between_the_electron_affinity_and_5_ev_detach_anions(detachment
 
 
 def test_group_photo_rate_is_the_blackbody_integral():
-    """At a tabulated T_s, F_g K_g is int sigma Y F dE over the group for a blackbody of that T_s."""
+    """At a tabulated T_s, F_g K_g is int sigma Y F dE over the group for a blackbody of that T_s (with the
+    table's chain, +2 the top state)."""
     mol = _molecule()
     tab = _table([mol])
+    mol = G._chain(mol)
     ts = 10 ** tab["log10_Ts"][12]
     bb = fields.blackbody(ts, 1.0, e_min=L0[0], e_max=L1[-1], n=40001)
     F, egy = G.group_fluxes(bb, L0, L1)

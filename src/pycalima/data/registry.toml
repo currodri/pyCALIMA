@@ -141,7 +141,7 @@ transcribed; every Auger group reproduces the paper's printed totals."""
 kind = "bundled"
 dest = "external_data/pahchem"
 files = ["west2018_table1.csv", "jochims94_table1.csv", "jochims94_table2.csv", "pah_electron_recombination.csv",
-         "allain96_sigma_malloci2007.csv", "allain96_set2_field.csv",
+         "allain96_set2_field.csv",
          "allain96_fig7_alpha_ion.csv", "allain96_fig10_alpha_h.csv",
          "lepage01_fig10_kph.csv", "lepage01_fig11_sigma_per_c.csv",
          "lepage03_fig6_dehydrogenated_rates.csv", "lepage03_fig7_normal_rates.csv",
@@ -152,10 +152,12 @@ files = ["west2018_table1.csv", "jochims94_table1.csv", "jochims94_table2.csv", 
          "wenzel2020_cation_ionisation.csv", "wenzel2020_fig9_yield_fit.csv", "ames_suite_cascade_band_fractions.csv",
          "maragkoudakis2020_sample_uids.csv", "maragkoudakis2020_fig2.csv", "maragkoudakis2020_size_fits.csv",
          "rigopoulou2021_fig1.csv", "borja2026_table1.csv", "borja2026_fig8_krf.csv",
-         "malloci2007_circumcoronene_cation_sigma.dat", "pdrs4all_orionbar_band_ratios.csv",
-         "pdrs4all_orionbar_bands.csv", "maragkoudakis2026_table1.csv", "maragkoudakis2026_templates_digitised.csv"]
-size_bytes = 272_000
-citation = "West et al. (2018), PCCP 20, 7195, Table 1; Jochims et al. (1994), ApJ 420, 307, Tables 1-2; PAH-cation recombination compiled by Bierbaum, Le Page & Snow (2011); Malloci, Joblin & Mulas (2007) TD-DFT absorption cross sections (Cagliari PAH database), for the Allain+96 runner; Wenzel et al. (2020), A&A 641, A98 (Zenodo 10.5281/zenodo.3899775, CC-BY-4.0); AmesPAHdb suite cascade() output on PAHdb v4.00 (Bauschlicher et al. 2018, ApJS 234, 32); Maragkoudakis, Peeters & Ricca (2020), MNRAS 494, 642 (Tables H1-H3, 4, F9-F12, Fig. 2); Rigopoulou et al. (2021), MNRAS 504, 5287 (Fig. 1); Borja et al. (2026), J. Chem. Phys. 164, 134106 (Table I, Fig. 8); Maragkoudakis et al. (2026), A&A 709, A38 (Table 1; template values digitised from the figures)"
+         "pdrs4all_orionbar_band_ratios.csv",
+         "pdrs4all_orionbar_bands.csv", "maragkoudakis2026_table1.csv", "maragkoudakis2026_templates_digitised.csv",
+         "demyk2026_table5.csv", "demyk2026_modes.csv", "demyk2026_fig5_insets.csv", "demyk2026_fig10.csv",
+         "demyk2026_fig11.csv", "mackie2018_ch_cascades.csv", "saykally_pyrene_emission.csv"]
+size_bytes = 642_000
+citation = "West et al. (2018), PCCP 20, 7195, Table 1; Jochims et al. (1994), ApJ 420, 307, Tables 1-2; PAH-cation recombination compiled by Bierbaum, Le Page & Snow (2011); Wenzel et al. (2020), A&A 641, A98 (Zenodo 10.5281/zenodo.3899775, CC-BY-4.0); AmesPAHdb suite cascade() output on PAHdb v4.00 (Bauschlicher et al. 2018, ApJS 234, 32); Maragkoudakis, Peeters & Ricca (2020), MNRAS 494, 642 (Tables H1-H3, 4, F9-F12, Fig. 2); Rigopoulou et al. (2021), MNRAS 504, 5287 (Fig. 1); Borja et al. (2026), J. Chem. Phys. 164, 134106 (Table I, Fig. 8); Maragkoudakis et al. (2026), A&A 709, A38 (Table 1; template values digitised from the figures); Demyk et al. (2026), arXiv:2607.16018 (Table 5, Figs. 5, 10, 11; mode lists computed here); Mackie et al. (2018), J. Chem. Phys. 149, 134302 (supplementary cascade spectra); Wagner, Kim & Saykally (2000), ApJ 545, 854 and Cook et al. (1996), Nature 380, 227 (pyrene emission)"
 url_status = "none"
 notes = """Hand-transcribed laboratory tables for the pahchem M2 gates: iPEPICO E0 and
 dS(1000 K) for 25 PAH-cation reactions, and photoion appearance potentials and

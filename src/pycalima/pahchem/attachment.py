@@ -31,6 +31,7 @@ Energies are in cm^-1 on a Beyer-Swinehart grid, as in ``dos``.
 from __future__ import annotations
 
 import numpy as np
+from scipy.special import gamma, gammaincc
 
 from pycalima.pahchem import cooling, dos
 
@@ -50,6 +51,24 @@ def capture_cross_section(eps_cm, radius_cm, disc_factor=0.82):
     """sigma_c(eps) [cm^2] of a neutral conducting disc, eps in cm^-1."""
     eps = np.asarray(eps_cm, dtype=float) * ERG_PER_CM
     return disc_factor * np.pi * radius_cm**2 * (1.0 + np.sqrt(2.0 * E2_CGS / (radius_cm * eps)))
+
+
+def grid_excess_cm(temperature_k, base_cm=8000.0, top_cm=128000.0):
+    """``e_excess_cm`` for sticking at ``temperature_k``: 15 kT (the capture flux beyond it is < 1e-5), from
+    ``base_cm`` doubling (a few grids per molecule), at most ``top_cm`` (~16 eV, above which the flux is kept
+    in the normalisation with the top bin's P_stab)."""
+    e = base_cm
+    while e < 15.0 * dos.KB_CM * temperature_k and e < top_cm:
+        e *= 2.0
+    return e
+
+
+def capture_flux_tail(x_cm, kt_cm, radius_cm, disc_factor=0.82):
+    """int_x^inf sigma_c(eps) eps exp(-eps/kT) deps [cm^2 cm^-2]: the capture flux above x (incomplete gammas)."""
+    b = 2.0 * E2_CGS / (radius_cm * ERG_PER_CM)                                  # sigma_c ~ 1 + sqrt(b / eps)
+    u = x_cm / kt_cm
+    return disc_factor * np.pi * radius_cm**2 * (kt_cm**2 * gammaincc(2.0, u)
+                                                 + np.sqrt(b) * kt_cm**1.5 * gamma(1.5) * gammaincc(1.5, u))
 
 
 def _stabilisation_numpy(k_modes, k_tot, steps, i_ea):
@@ -195,9 +214,15 @@ class Attachment:
         laboratory cell) or the distribution ``neutral_weights`` on
         ``neutral_energy_cm`` (e.g. an ``energy_me.SteadyState`` P(E)).
 
-        Weight that lands above the grid (the hot tail of an irradiated P(E))
-        is given the P_stab of the top bin; more than 1e-3 of it raises.
+        Weight that lands above the grid is given the P_stab of the top bin, an
+        upper bound (P_stab falls with E). From the neutral (the hot tail of an
+        irradiated P(E)) more than 1e-3 of it raises. The electrons' Maxwellian
+        tail above the grid (``capture_flux_tail``) is kept in the flux
+        normalisation, so a hot gas lowers s_e; its P_stab bound is exact where
+        P_stab ~ 0 at the top (small PAHs) or ~1 (large ones), loose in between.
         """
+        if not temperature_k > 0:
+            raise ValueError(f"temperature_k must be positive, not {temperature_k}")
         kt = dos.KB_CM * temperature_k
         n_excess = self.energy_cm.size - self.i_ea
         x = np.arange(n_excess) * self.grain
@@ -221,4 +246,6 @@ class Attachment:
         overflow = total * w_e.sum() - w.sum()
         if overflow > 1e-3 * total * w_e.sum():
             raise ValueError("thermal weights extend above the grid; raise e_excess_cm")
+        # electrons above the grid, in the grid's units (a sum over bins of width grain)
+        overflow += total * capture_flux_tail((n_excess - 0.5) * self.grain, kt, self.radius_cm) / self.grain
         return float((w @ self.p_stab[self.i_ea:] + overflow * self.p_stab[-1]) / (w.sum() + overflow))

@@ -226,8 +226,8 @@ def rate_table(charge, chi, nc_max, nh_top, temperature="dl01", de_ev=0.1, e_max
 
     variant: 0 post/independent, 1 post/compete, 2 time/independent,
     3 time/compete. Channels H, H2, C2H2 (H2 is absent in the super-H set:
-    -300). Points with N_H > N_C + nh_top/... beyond the evaluated range take
-    the last evaluated N_H of their N_C.
+    -300). Points with N_H > 1.7 N_C + 2, beyond the evaluated range, take
+    the values of the last evaluated N_H of their N_C.
 
     ``one_minus_yion``: the rate counts only the absorptions that do not
     ionise, int_5^13.6 C_abs (1 - Y_ion) F dE (Murga+2019 eq. B2's

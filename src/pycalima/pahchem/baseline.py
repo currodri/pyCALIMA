@@ -117,8 +117,7 @@ class Environment:
 #: C54H18+ (1.05, 0.076), (2.40, 1.08). Equilibrium-geometry values, which Subramani+25 find
 #: underestimate measured RF: a lower bound. No spectrum exists for C96H24+ or the dications
 #: (pahchem-data-requests, T3), so RF is off there.
-RF_SPECTRA = {"C24": {1: "malloci_coronene_cation_sigma.dat"},
-              "C54": {1: "pahchem/malloci2007_circumcoronene_cation_sigma.dat"}}
+RF_SPECTRA = {"C24": {1: "coronene"}, "C54": {1: "circumcoronene"}}      # malloci2007-spectra names
 
 #: Carbon loss from the bare skeleton: name -> (rate form, {fragment: (n_C, A [s^-1] or dS [J/K/mol], E0 [eV])}).
 #:
@@ -171,18 +170,20 @@ class BaselineModel:
             raise ValueError("statistical neutral sticking needs the anion's modes (BaselineModel(anion=...))")
         key = round(float(temperature_k), 6)
         if key not in self._sticking:
-            if "attachment" not in self._cm:
-                from pycalima.pahchem.attachment import Attachment
+            from pycalima.pahchem.attachment import Attachment, grid_excess_cm
 
-                at = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
-                                chemistry.disc_radius_cm(self.nc), e_excess_cm=8000.0)
+            if "neutral_pe" not in self._cm:             # the neutral's radiative P(E) under Draine G0 = 1
                 cm = energy_me.CascadeModel(self.species.freqs_cm, scaled_einstein_a(self.species, self.p),
                                             e_max_cm=16.0 * dos.CM_PER_EV, de_cm=10.0, grain_cm=1.0)
                 sigma = photo.sigma_li_draine(self.nc, 0, E_PH)
                 _, h = self._absorption(fields.draine1978(g0=1.0), sigma, 0, self.nh0)
-                self._cm["attachment"] = (at, cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
-            at, e_n, p_n = self._cm["attachment"]
-            self._sticking[key] = at.sticking(temperature_k, e_n, p_n)
+                self._cm["neutral_pe"] = (cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
+            akey = ("attachment", grid_excess_cm(temperature_k))     # the grid holds the electrons' Maxwellian
+            if akey not in self._cm:
+                self._cm[akey] = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
+                                            chemistry.disc_radius_cm(self.nc), e_excess_cm=akey[1])
+            e_n, p_n = self._cm["neutral_pe"]
+            self._sticking[key] = self._cm[akey].sticking(temperature_k, e_n, p_n)
         return self._sticking[key]
 
     # -- per-state molecular inputs ------------------------------------------
@@ -193,10 +194,10 @@ class BaselineModel:
 
     def rf_levels(self, z):
         """Recurrent-fluorescence levels [(E_n cm^-1, f)] of charge z, or () (``RF_SPECTRA``)."""
-        path = RF_SPECTRA.get(self.parent, {}).get(z)
-        if not self.p.recurrent_fluorescence or path is None:
+        name = RF_SPECTRA.get(self.parent, {}).get(z)
+        if not self.p.recurrent_fluorescence or name is None:
             return ()
-        return tuple((e * dos.CM_PER_EV, f) for e, f in photo.malloci_rf_levels(path))
+        return tuple((e * dos.CM_PER_EV, f) for e, f in photo.malloci_rf_levels(name, z))
 
     def _cascade(self, nh, z=None):
         """Cascade of state N_H; with ``z``, including that charge's RF levels."""

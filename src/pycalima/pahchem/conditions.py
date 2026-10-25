@@ -10,7 +10,9 @@ gives it for that place, or the range is pahchem's assumption).
 ``baseline.Environment`` corners that bracket the PAH ionisation and
 dehydrogenation: least ionising (lowest G0, highest n_H and n_e) and most
 ionising (highest G0, lowest n_H and n_e). The electron density is ``n_e``
-where it is measured, else ``x_e`` times n_H. A G0 entry may name its
+where it is measured, else ``x_e`` times the total n_H (``n_h``). The
+Environment's ``n_h`` is the atomic n(H) of ``n_h_atomic``, at most the total
+n_H of the same corner. A G0 entry may name its
 ``definition`` (``G0_DEFINITIONS``); it is converted to the Habing integral
 for the region's field shape.
 """
@@ -61,7 +63,9 @@ def bracketing_environments(region, template):
     card = load(region)
     t = card[template]
     teff = int(card["region"]["field_teff_k"]["value"])
-    g0, nh = bounds(t["g0"]), bounds(t["n_h"])
+    g0, nh = bounds(t["g0"]), bounds(t["n_h"])                 # n_h: total n_H = n(H) + 2 n(H2)
+    nh_atomic = bounds(t["n_h_atomic"])
+    h_least, h_most = min(nh_atomic[1], nh[1]), min(nh_atomic[0], nh[0])
     g0 = tuple(v / g0_conversion(t["g0"], teff) for v in g0)
     temp = bounds(t["t_gas"])[0]
     if "n_e" in t:
@@ -69,5 +73,5 @@ def bracketing_environments(region, template):
     else:
         xe = bounds(t["x_e"])
         ne_least, ne_most = xe[1] * nh[1], xe[0] * nh[0]
-    return {"least ionising": Environment(f"{template} (least ionising)", g0[0], nh[1], ne_least, temp, teff),
-            "most ionising": Environment(f"{template} (most ionising)", g0[1], nh[0], ne_most, temp, teff)}
+    return {"least ionising": Environment(f"{template} (least ionising)", g0[0], h_least, ne_least, temp, teff),
+            "most ionising": Environment(f"{template} (most ionising)", g0[1], h_most, ne_most, temp, teff)}

@@ -152,7 +152,11 @@ def ion_lifetime_yr(nc, e0, f, ions=tuple(IONS), **kwargs) -> float:
 
 
 def total_lifetime_yr(nc, e0=4.6, t0=7.5, f=1.0, **kwargs) -> float:
-    """Ions and electrons together (Fig. 8): 1/tau = 1/tau_ions + 1/tau_e."""
+    """Ions and electrons together (Fig. 8): 1/tau = 1/tau_ions + 1/tau_e.
+
+    The electron term uses orientation = 1, which reproduces Table 2 and Fig. 8
+    (``electron_lifetime_yr``); ``kwargs`` go to the ion term only.
+    """
     return 1.0 / (1.0 / ion_lifetime_yr(nc, e0, f, **kwargs) + 1.0 / electron_lifetime_yr(t0, orientation=1.0))
 
 

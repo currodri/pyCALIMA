@@ -299,7 +299,7 @@ def evolve(G, times_yr=OUTPUT_TIMES_YR, start=2):
     return np.clip(out.real, 0.0, None)
 
 
-def run_model_b(data, profile, R, temperature_k=None, loss_scale=1.0, dx=DX_FLUX, times_yr=OUTPUT_TIMES_YR,
+def run_model_b(data, profile, R, loss_scale=1.0, dx=DX_FLUX, times_yr=OUTPUT_TIMES_YR,
                 law="figshare", er_atoms=ER_ATOMS):
     """Bin fractions [loc, Z, t, bin, size] of model b at every Figshare location.
 

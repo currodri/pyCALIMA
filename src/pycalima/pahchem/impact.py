@@ -744,6 +744,8 @@ def destruction_rates(spectrum: dict, nc: int, nh: int, charge: int, chain: Frag
       N_C / 3 (Micelotta+11's criterion).
     """
     q_ce = int(np.ceil(coulomb_charge_per_c * nc))
+    if charge >= q_ce:
+        raise ValueError(f"charge {charge} is already at the Coulomb-explosion charge {q_ce}")
     out = {}
     for name, ps in spectrum.items():
         P = ps.P * ps.de

@@ -27,7 +27,7 @@ _FAMILIES = {}
 
 
 @pytest.fixture
-def states(model_data):
+def states(model_data, malloci2007):
     d = model_data / "PAH_states"
     if not (d / "C16H10_0.dat").exists():
         pytest.skip("model_data/PAH_states/ has no PAHdb modes for the Allain species (see pahchem.allain96)")
@@ -110,7 +110,7 @@ def test_paper_i_table4_rates_small_pahs(states, name):
 
 
 def test_paper_i_table4_rates_ovalene(states):
-    """k_IR = sum A_i (occupation neglected, card). Measured -0.22 dex on all three
+    """k_IR = sum A_i (occupation neglected, card). Measured -0.24 dex on all three
     channels; with the occupation kept, +0.20."""
     r = A.AllainState("C32H14", A.load_modes("C32H14", states)).rates(A.set1_field())
     for c in A.CHANNELS:
@@ -118,7 +118,7 @@ def test_paper_i_table4_rates_ovalene(states):
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "PAH 50 C is -1.35 dex below I Table 4. Its N_H0 is not stated (each 2 H "
+    "PAH 50 C is -1.39 dex below I Table 4. Its N_H0 is not stated (each 2 H "
     "change the rate ~4x through the RRK exponent), and neither is its k_IR "
     "(keeping the occupation factor raises it 10x). PAHdb C50H20 is a choice."))
 def test_paper_i_table4_rates_pah50(states):

@@ -128,6 +128,8 @@ class ThermalCascade:
         """Energy emitted in each mode [cm^-1] after absorbing ``energy_cm``."""
         if energy_cm > self.energy[-1]:
             raise ValueError("energy beyond the temperature grid; raise t_max")
+        if energy_cm <= 0.0:
+            return np.zeros_like(self.cumulative[0])
         k = np.searchsorted(self.energy, energy_cm)
         f = (energy_cm - self.energy[k - 1]) / (self.energy[k] - self.energy[k - 1])
         return (1 - f) * self.cumulative[k - 1] + f * self.cumulative[k]

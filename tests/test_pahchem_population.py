@@ -237,6 +237,25 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
     assert population.Population([mol], WINDOWS).photoelectric_heating(env)[2][0] > 0.15   # full-excess electrons
 
 
+@pytest.mark.parametrize("detachment", ["jochims", "statistical"])
+def test_ionising_photons_heat_conserves_the_absorbed_energy(detachment):
+    """With ``ionising_photons_heat``, internal energy + electron energy + binding work = absorbed energy, for
+    every charge (the anion's detached electron takes all, or the statistical share, of the excess)."""
+    from pycalima.pahchem import photo
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    p = Params(ionising_photons_heat=True, detachment=detachment)
+    field = population._unit_field(("kurucz", 40000, 500.0))
+    for z in mol.charges:
+        inp = population._basis_inputs(mol, z, ("kurucz", 40000, 500.0), 200.0, 1e5, p)
+        sigma = photo.sigma_li_draine(mol.nc, z, population.E_PH)
+        h = population.deposit_spectrum(field, sigma, inp["yield_"], inp["threshold_ev"], True, inp["electron_ev"])
+        kept = np.trapezoid(h * population.E_DEP, population.E_DEP)
+        out = field.photon_rate(sigma * inp["yield_"] * (inp["electron_ev"] + inp["threshold_ev"]), population.E_PH)
+        assert (kept + out) / field.photon_rate(sigma * population.E_PH, population.E_PH) == pytest.approx(1.0, abs=1e-3)
+
+
 def test_photoelectron_energy_conserves_the_excess_and_follows_the_measured_share():
     """<E_k> + E_int = E - IP; share 0.46 up to 13.6 eV, the Hrodmarsson+25 means to 21.9 eV, then a constant E_int."""
     from pycalima.pahchem import photo

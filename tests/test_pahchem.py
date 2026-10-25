@@ -502,7 +502,7 @@ def test_li_draine_radius_and_cross_section():
         assert 2e-17 < per_c < 2e-16, (nc, Z, per_c)
 
 
-def test_malloci_and_li_draine_agree_for_coronene():
+def test_malloci_and_li_draine_agree_for_coronene(malloci2007):
     """Measured: int sigma dE over 5-13.6 eV differs by 18 %."""
     ld = np.trapezoid(photo.sigma_li_draine(24, 0, E_PH), E_PH)
     ma = np.trapezoid(photo.sigma_malloci_coronene(0, E_PH), E_PH)
@@ -531,7 +531,7 @@ def test_lepage_yield_in_um_units_exceeds_montillaud_transcription_below_d():
     assert np.all(lp >= m13)
 
 
-def test_heating_and_ionisation_add_up_to_absorption():
+def test_heating_and_ionisation_add_up_to_absorption(malloci2007):
     f = fields.draine1978(g0=10.0)
     sigma = photo.sigma_malloci_coronene(1, E_PH)
     Y = photo.yield_jochims1996(E_PH, 11.5)
@@ -886,6 +886,25 @@ def test_stripped_species_keeps_3n_minus_6_and_removes_ch_modes(pah_states):
     assert sp.stripped(10).n_modes == 3 * 64 - 6
 
 
+@pytest.mark.parametrize("parent, dehydrogenated", [("C96H24_0", "C96H23_0"), ("C96H24_0", "C96H22_0"),
+                                                    ("C54H18_1", "C54H17_1")])
+def test_stripped_modes_cool_as_pahdb_dehydrogenated_species(pah_states, parent, dehydrogenated):
+    """A few H lost (the population's range): the stripped modes' thermal IR power at 800 and 1500 K is
+    within 10 % of the PAHdb DFT species of the same N_H (0.91-1.09 measured)."""
+    files = [pah_states / f"{n}.dat" for n in (parent, dehydrogenated)]
+    if not all(f.exists() for f in files):
+        pytest.skip(f"model_data/PAH_states/ lacks {parent} or {dehydrogenated}")
+    sp, ref = (PAHSpecies.from_states_file(f) for f in files)
+    mine = sp.stripped(ref.nh)
+
+    def power(s, t):
+        f = np.asarray(s.freqs_cm, float)
+        return np.sum(np.asarray(s.einstein_a) * f / np.expm1(f / (dos.KB_CM * t)))
+
+    for t in (800.0, 1500.0):
+        assert power(mine, t) / power(ref, t) == pytest.approx(1.0, abs=0.10), t
+
+
 # ===========================================================================
 # M5: reproductions of published models through their method cards
 # ===========================================================================
@@ -959,7 +978,7 @@ def test_montillaud13_circumcoronene_threshold_energy(pah_states):
     ("C54H18", 18, 18, 6, "table_B2_circumcoronene.csv", 0.5),
     ("C96H24", 24, 24, 12, "table_B3_circumcircumcoronene.csv", 0.6),
 ])
-def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, name, nh, nh0, n_solo, table, tol):
+def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, malloci2007, name, nh, nh0, n_solo, table, tol):
     """Andrews+16 Table B is eq. 7, the sink-free average of k_i over the
     stationary distribution. With all absorptions heating and a Kurucz 15000 K
     field, measured |dex| at G0 = 1e2: 0.17 (C24H12), 0.08 (C24H13),
@@ -1124,10 +1143,11 @@ def test_conditions_card_has_sources_and_brackets():
 
     card = conditions.load("orion_bar")
     for t in card["region"]["templates"]:
-        for q in ("g0", "n_h", "t_gas"):
+        for q in ("g0", "n_h", "n_h_atomic", "t_gas"):
             e = card[t][q]
             assert e["source"] and e["confidence"] in "ABCDE" and isinstance(e["stated"], bool), (t, q)
         assert ("n_e" in card[t]) != ("x_e" in card[t]), t
         env = conditions.bracketing_environments("orion_bar", t)
         gamma = {k: v.g0 * np.sqrt(v.temperature_k) / v.n_e for k, v in env.items()}
+        assert all(v.n_h <= conditions.bounds(card[t]["n_h"])[1] for v in env.values()), t   # atomic <= total
         assert gamma["least ionising"] < gamma["most ionising"], t

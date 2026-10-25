@@ -11,7 +11,7 @@ import pytest
 
 from pycalima.pahchem import cooling, dos, energy_me, fields, photo
 from pycalima.pahchem.attachment import (ERG_PER_CM, HBAR_CGS, ME_G, Attachment,
-                                         capture_cross_section)
+                                         capture_cross_section, capture_flux_tail, grid_excess_cm)
 from pycalima.pahchem.molecule import PAHSpecies
 
 KB_CGS = 1.380649e-16
@@ -38,6 +38,26 @@ def test_autodetachment_obeys_detailed_balance(ea_ev, temperature_k):
     k_eq = ((2 * 1 / 2) * (2 * np.pi * ME_G * KB_CGS * temperature_k / h**2) ** 1.5
             * (cn @ np.exp(-En / kt)) / boltz.sum() * np.exp(-ea_ev * dos.CM_PER_EV / kt))
     assert kd_mean / k_cap == pytest.approx(k_eq, rel=2e-3)
+
+
+def test_capture_flux_tail_is_the_integral_of_the_capture_flux():
+    kt, x = dos.KB_CM * 3000.0, 1500.0
+    eps = np.linspace(x, x + 60 * kt, 2_000_001)
+    direct = np.trapezoid(capture_cross_section(eps, 3e-8) * eps * np.exp(-eps / kt), eps)
+    assert capture_flux_tail(x, kt, 3e-8) == pytest.approx(direct, rel=1e-6)
+
+
+def test_sticking_does_not_depend_on_the_grid_ceiling():
+    """The Maxwellian above the grid stays in the flux normalisation: once P_stab ~ 0 at the top, raising
+    ``e_excess_cm`` changes nothing, also at temperatures where most electrons are above the grid."""
+    rng = np.random.default_rng(5)
+    fn = np.sort(rng.uniform(150, 1600, 30)).round()
+    neutral = PAHSpecies(12, 0, 0, fn, np.ones(30))
+    anion = PAHSpecies(12, 0, -1, (0.97 * fn).round(), np.ones(30))
+    short, tall = (Attachment(neutral, anion, 0.5, 3e-8, e_excess_cm=x) for x in (8000.0, 40000.0))
+    for t in (100.0, 3000.0, 1e4, 1e5):
+        g = (np.array([0.0]), np.array([1.0]))
+        assert short.sticking(t, *g) == pytest.approx(tall.sticking(t, *g), rel=1e-6)
 
 
 def test_no_detachment_channel_means_unit_sticking():
@@ -77,6 +97,23 @@ def test_coronene_sticking_in_the_ism(model_data):
     assert s[1.0] == pytest.approx([4.2e-3, 2.5e-3, 2.7e-4], rel=0.05)
     assert np.all(np.array(s[1e4]) / s[1.0] > 0.88)
     assert at.sticking(300.0) == pytest.approx(4.6e-6, rel=0.1)
+
+
+def test_hot_electrons_fall_off_a_large_pah_on_a_grid_sized_to_kt(model_data):
+    """C54H18 (EA 1.2 eV) sticks every electron at 1e3 K but not at 1e4 and 1e5 K, where the electrons
+    reach energies at which autodetachment wins; an 8000 cm^-1 grid, whose top bin still has P_stab = 1, gave
+    ~1 there. The grid of ``grid_excess_cm`` is converged (a twice taller one agrees)."""
+    from pycalima.pahchem.chemistry import disc_radius_cm
+
+    neutral, anion = _pair(model_data, "C54H18")
+    ground = (np.array([0.0]), np.array([1.0]))
+    s = []
+    for t in (1e3, 1e4, 1e5):
+        x = grid_excess_cm(t)
+        at, tall = (Attachment(neutral, anion, 1.2, disc_radius_cm(54), e_excess_cm=e) for e in (x, 2 * x))
+        s.append(at.sticking(t, *ground))
+        assert s[-1] == pytest.approx(tall.sticking(t, *ground), rel=1e-6)
+    assert s[0] > 0.999 and 0.6 < s[1] < 0.9 and s[2] < 0.1
 
 
 def test_circumcoronene_sticks_every_electron(model_data):
