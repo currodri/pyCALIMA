@@ -109,7 +109,10 @@ largest single contributor in DF2) through the chain. These are the steps:
      +0.64 eV (cation and dication).
    - The molecule's spectrum is the f-weighted sum of its states (panel 3).
    - Each molecule is also passed through a dehydrogenation chain at the same
-     conditions. It is kept only where its intact fraction is ≥ 0.5.
+     conditions. It is kept only where its intact fraction is ≥ 0.5 (the
+     numbers on this page; since 2026-10-25 N$_{\rm H0}$−1 … −3 emit as well
+     and the filter is on their joint share, which changes these fits by
+     ≤ 2 %: {doc}`pahchem-spec`, "Dehydrogenated states emit").
 4. **Fit.** One non-negative least squares over the whole library: 1424
    PAHdb v4.00 molecules, N$_{\rm C}$ = 22–268.
    - Only the abundances are fitted.

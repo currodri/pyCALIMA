@@ -50,7 +50,14 @@ the molecules' abundances are fitted. In outline:
   most-ionising corner).
 - **Emission** (``Population.band_fluxes``). The exact microcanonical cascade
   of each charge state for one absorbed photon (``emission.cascade_photons``),
-  folded with that state's heating spectrum. Single-photon heating holds for
+  folded with that state's heating spectrum. With ``dehydrogenated_emission``
+  (the default since 2026-10-25) N_H0-1 ... N_H0-3 emit too, on their stripped
+  modes, in the chain's proportions (``emission_weights``); the share below
+  N_H0-3 is not modelled (``hydrogenation_fractions``), as the stripped modes
+  of a bare skeleton are 5-12x too weak against PAHdb's (``PAHSpecies.stripped``).
+  The chain is nearly all-or-nothing: a molecule is mostly intact or mostly
+  past N_H0-3, so the unmodelled share, not N_H0-1 ... N_H0-3, decides where
+  dehydrogenation matters. Single-photon heating holds for
   these sizes at G0 <~ 1e5. The bands use the PAHdb Lorentzian (FWHM 15 cm^-1,
   redshift 15 cm^-1), integrated analytically over the caller's wavelength
   windows, which should be the windows of the observations.
@@ -621,6 +628,10 @@ class StateBasis:
     recombination: float = 0.0   # recombination heating power at G0 = 1 [cm^-1 s^-1] (included in emitted)
     ladder_h: np.ndarray | None = None    # (4, K_H_G0_GRID): H-loss rates of N_H0 ... N_H0-3 [s^-1]
     ladder_h2: np.ndarray | None = None   # (4, K_H_G0_GRID): H2-loss rates of the same states [s^-1]
+    # N_H0-1 ... N_H0-3 (as far as the ladder goes): their modes and IR power per mode at G0 = 1, heated as
+    # this state (the same sigma, yield and recombinations: ``build_state_basis``)
+    ladder_freqs: tuple = ()
+    ladder_emitted: tuple = ()
 
     def k_h_at(self, g0):
         """k_H [s^-1] at ``g0`` (array), log-log interpolated; rates below 1e-300 s^-1 count as zero."""
@@ -679,8 +690,9 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
 
 #: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key).
 #: The result caches of the diagnostics key on it too: 6 is the photon grid from 1 eV; 7 the Kurucz fields
-#: normalised over the whole 6-13.6 eV band (``fields.RadiationField.g0``, +0.15 %).
-BASIS_VERSION = 7
+#: normalised over the whole 6-13.6 eV band (``fields.RadiationField.g0``, +0.15 %); 8 the emission of the
+#: dehydrogenated states N_H0-1 ... N_H0-3.
+BASIS_VERSION = 8
 
 
 def _feed(h, v):
@@ -720,6 +732,9 @@ def _basis_key(inp, legacy=False):
 #: Where the state counts overflow (the largest PAHs), the ceiling drops to the next value: two 13.6 eV
 #: photons need 27.2 eV, and three-photon events are negligible at that size.
 LOSS_E_MAX_EV, LOSS_DE_CM = (45.0, 30.0, 20.0), 200.0
+
+#: hydrogenation states that emit per charge state: N_H0 and the ladder's N_H0-1 ... N_H0-3 (``StateBasis``)
+N_EMITTING = 4
 
 
 def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat, electron_ev=None):
@@ -839,6 +854,13 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
         start[i0] += k_up * (1.0 - (x - i0))
         start[i0 + 1] += k_up * (x - i0)
     emitted = freqs * emission.emission_by_energy(cm, start).sum(axis=1)
+    # the dehydrogenated states of the ladder, heated by the same deposits (sigma and yield do not depend on N_H
+    # here), each on its own modes (``PAHSpecies.stripped``)
+    l_freqs, l_emitted = [], []
+    for f_, a_, _, _ in ladder[1:]:
+        cm_k = energy_me.CascadeModel(f_, a_, e_max_cm, de_cm)
+        l_freqs.append(np.asarray(f_, dtype=float))
+        l_emitted.append(l_freqs[-1] * emission.emission_by_energy(cm_k, start).sum(axis=1))
     # the state's loss grid serves its k_h and the first ladder step (the same modes)
     cl, E, counts = _loss_grid(freqs, einstein_a)
     pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
@@ -854,8 +876,10 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
             grid = ((cl, E, counts), k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd))
         lh[i], lh2[i] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid)
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
-                     float(np.trapezoid(h * E_DEP * dos.CM_PER_EV, E_DEP)), float(recomb_power), lh, lh2)
+                     float(np.trapezoid(h * E_DEP * dos.CM_PER_EV, E_DEP)), float(recomb_power), lh, lh2,
+                     tuple(l_freqs), tuple(l_emitted))
     if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
+            and all(np.isfinite(e).all() for e in out.ladder_emitted)
             and np.isfinite([out.k_up, out.absorbed]).all()):
         raise ValueError(f"basis of N_C {nc}, Z {z} is not finite")
     return out
@@ -874,8 +898,12 @@ class Population:
     bases on disk (None: memory only).
     """
 
-    def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=21.5, params=Params(), cache_dir=None):
+    def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=21.5, params=Params(), cache_dir=None,
+                 dehydrogenated_emission=True):
         self.library, self.windows, self.p = list(library), dict(windows_um), params
+        # True: N_H0 ... N_H0-3 emit in proportion to the hydrogenation chain (``emission_weights``); False: the
+        # intact molecule alone, as before 2026-10-25 (its callers then filter on ``intact_fractions``)
+        self.dehydrogenated_emission = bool(dehydrogenated_emission)
         self.local = tuple(local)
         self.bands = tuple(self.windows)
         self.de_cm, self.e_max_cm = float(de_cm), e_max_ev * dos.CM_PER_EV
@@ -899,9 +927,12 @@ class Population:
         if f is None or not f.exists():
             return None
         d = np.load(f)
+        n_l = sum(1 for k in range(1, 4) if f"ladder_freqs_{k}" in d)
         return StateBasis(d["freqs_cm"], d["emitted"], float(d["k_up"]), d["k_h"], float(d["absorbed"]),
                           float(d["recombination"]) if "recombination" in d else 0.0,
-                          d["ladder_h"] if "ladder_h" in d else None, d["ladder_h2"] if "ladder_h2" in d else None)
+                          d["ladder_h"] if "ladder_h" in d else None, d["ladder_h2"] if "ladder_h2" in d else None,
+                          tuple(d[f"ladder_freqs_{k}"] for k in range(1, n_l + 1)),
+                          tuple(d[f"ladder_emitted_{k}"] for k in range(1, n_l + 1)))
 
     def _stored(self, inp):
         """(key, stored basis or None) of ``inp``; a basis stored under its legacy key gets a link to the new."""
@@ -925,7 +956,9 @@ class Population:
             np.savez(tmp, freqs_cm=b.freqs_cm, emitted=b.emitted, k_up=b.k_up,
                      k_h=b.k_h, absorbed=b.absorbed, recombination=b.recombination,
                      ladder_h=b.ladder_h if b.ladder_h is not None else np.zeros((4, K_H_G0_GRID.size)),
-                     ladder_h2=b.ladder_h2 if b.ladder_h2 is not None else np.zeros((4, K_H_G0_GRID.size)))
+                     ladder_h2=b.ladder_h2 if b.ladder_h2 is not None else np.zeros((4, K_H_G0_GRID.size)),
+                     **{f"ladder_freqs_{k + 1}": f_ for k, f_ in enumerate(b.ladder_freqs)},
+                     **{f"ladder_emitted_{k + 1}": e for k, e in enumerate(b.ladder_emitted)})
             os.replace(tmp, self.cache_dir / f"{key}.npz")
 
     def prepare(self, shape, workers=None):
@@ -997,6 +1030,38 @@ class Population:
                     lkh[s, i] = np.log(np.maximum(b.k_h, 1e-300))
                     B[s, i] = b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local)
             self._arrays[key] = (k_up, lkh, B)
+        return self._arrays[key]
+
+    def _state_modes(self, b):
+        """[(freqs, IR power per mode at G0 = 1)] of N_H0 ... N_H0-3 of basis ``b``; empty past the ladder."""
+        out = [(b.freqs_cm, b.emitted)] + list(zip(b.ladder_freqs, b.ladder_emitted))
+        return out + [(np.zeros(0), np.zeros(0))] * (N_EMITTING - len(out))
+
+    def _hydrogenation_bands(self, shape):
+        """B[s, slot, k, band]: band power of N_H0 - k at G0 = 1, k < ``N_EMITTING``; 0 where absent."""
+        key = ("hbands", shape, tuple(self.windows.items()), self.local)
+        if key not in self._arrays:
+            self.prepare(shape)
+            B = np.zeros((len(self.library), len(self.zs), N_EMITTING, len(self.bands)))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
+                        if f_.size:
+                            B[s, z - self.zmin, k] = e_ @ _band_matrix(f_, self.windows, self.local)
+            self._arrays[key] = B
+        return self._arrays[key]
+
+    def state_powers(self, shape):
+        """E[s, slot, k]: total IR power of N_H0 - k at G0 = 1 [cm^-1 s^-1] (photon and recombination heating)."""
+        key = ("hpower", shape)
+        if key not in self._arrays:
+            self.prepare(shape)
+            E = np.zeros((len(self.library), len(self.zs), N_EMITTING))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    for k, (_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
+                        E[s, z - self.zmin, k] = float(np.sum(e_))
+            self._arrays[key] = E
         return self._arrays[key]
 
     def _ladders(self, shape):
@@ -1164,10 +1229,10 @@ class Population:
         return env.g0 * f[rows, top] * k_up[rows, top]
 
     def band_fluxes(self, env):
-        """(F[s, b] charge-weighted band power per molecule, {name: {Z: f}}) for the whole library."""
-        _, _, B = self._stack(field_shape(env))
+        """(F[s, b] band power per molecule, weighted over charge and hydrogenation (``emission_weights``),
+        {name: {Z: f}}) for the whole library."""
         f = self.charge_matrix(env)
-        F = env.g0 * np.einsum("sz,szb->sb", f, B)
+        F = env.g0 * np.einsum("szk,szkb->sb", self.emission_weights(env), self._hydrogenation_bands(field_shape(env)))
         fz = {m.name: {z: float(f[s, z - self.zmin]) for z in m.charges} for s, m in enumerate(self.library)}
         return F, fz
 
@@ -1185,10 +1250,26 @@ class Population:
             self._arrays[key] = S
         return self._arrays[key]
 
+    def hydrogenation_state_spectra(self, shape, nu_cm, fwhm_cm=15.0, shift_cm=-15.0):
+        """S[s, slot, k, i]: IR power per cm^-1 of N_H0 - k of every state at G0 = 1 (``state_spectra`` per k)."""
+        nu = np.asarray(nu_cm, dtype=float)
+        key = ("hspectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm)
+        if key not in self._arrays:
+            self.prepare(shape)
+            S = np.zeros((len(self.library), len(self.zs), N_EMITTING, nu.size))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
+                        if f_.size:
+                            S[s, z - self.zmin, k] = emission.spectrum(f_, e_, nu, fwhm_cm, shift_cm)
+            self._arrays[key] = S
+        return self._arrays[key]
+
     def spectra(self, env, nu_cm, **profile):
-        """P[s, i]: the spectrum of every molecule, its charges at ``env`` [cm^-1 s^-1 per cm^-1]."""
-        S = self.state_spectra(field_shape(env), nu_cm, **profile)
-        return env.g0 * np.einsum("sz,szi->si", self.charge_matrix(env), S)
+        """P[s, i]: the spectrum of every molecule, its charge and hydrogenation states at ``env`` (weighted by
+        ``emission_weights``) [cm^-1 s^-1 per cm^-1]."""
+        S = self.hydrogenation_state_spectra(field_shape(env), nu_cm, **profile)
+        return env.g0 * np.einsum("szk,szki->si", self.emission_weights(env), S)
 
     def state_band_fluxes(self, mol, z, env):
         """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
@@ -1210,32 +1291,69 @@ class Population:
 
         ``method="single"`` gives the old first-step ratio k_add / (k_add + k_H).
         """
-        f = self.charge_matrix(env)
-        z = np.array(self.zs)[None, :]
-        neutral = 0.07 * self.p.addition_neutral_scale * chemistry.cross_section_rate(
-            env.temperature_k, CORONENE_GEOMETRIC_A2 * self.nc[:, None] / 24.0)
-        k_add_z = np.where(z > 0, self.p.addition_cation, neutral) * env.n_h            # (s, slot)
-        fs = field_shape(env)
         if method == "single":
-            _, lkh, _ = self._stack(fs)
+            f = self.charge_matrix(env)
+            _, lkh, _ = self._stack(field_shape(env))
             k_h = self._interp_g0(np.exp(lkh), env.g0)
+            k_add_z = self._addition_rates(env)
             return np.sum(f * k_add_z / (k_add_z + k_h), axis=1)
         if method != "chain":
             raise ValueError(f"method must be 'chain' or 'single', not {method!r}")
-        tab_h, tab_h2 = self._ladders(fs)
+        return np.array([p[mol.nh] for p, mol in zip(self._chain_distributions(env), self.library)])
+
+    def _addition_rates(self, env):
+        """H addition rate of every state [s^-1], (s, slot): 1.4e-10 n(H) for cations, 0.07 geometric for the rest."""
+        z = np.array(self.zs)[None, :]
+        neutral = 0.07 * self.p.addition_neutral_scale * chemistry.cross_section_rate(
+            env.temperature_k, CORONENE_GEOMETRIC_A2 * self.nc[:, None] / 24.0)
+        return np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
+
+    def _chain_distributions(self, env):
+        """[f(N_H), N_H = 0 ... N_H0] of every molecule: the chain, its rates averaged over the charge fractions."""
+        f = self.charge_matrix(env)
+        tab_h, tab_h2 = self._ladders(field_shape(env))
         lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0))     # charge-averaged loss rates
         lh2 = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h2, env.g0))
-        k_add = np.einsum("sz,sz->s", f, k_add_z)
-        return np.array([_chain_intact(mol.nh, mol.edges.get("solo", 0), lh[s], lh2[s], k_add[s])
-                         for s, mol in enumerate(self.library)])
+        k_add = np.einsum("sz,sz->s", f, self._addition_rates(env))
+        return [_chain_distribution(mol.nh, mol.edges.get("solo", 0), lh[s], lh2[s], k_add[s])
+                for s, mol in enumerate(self.library)]
+
+    def hydrogenation_fractions(self, env):
+        """(h[s, k], deeper[s]): steady-state shares of N_H0 - k for the states that emit (k < ``N_EMITTING``,
+        N_H >= 1, as far as the ladder has modes) and of the rest, which is not modelled (deeper states, whose
+        stripped modes are not good enough: ``PAHSpecies.stripped``)."""
+        h = np.zeros((len(self.library), N_EMITTING))
+        for s, (p, mol) in enumerate(zip(self._chain_distributions(env), self.library)):
+            for k in range(min(N_EMITTING, mol.nh)):          # N_H = N_H0 - k >= 1
+                h[s, k] = p[mol.nh - k]
+        return h, np.clip(1.0 - h.sum(axis=1), 0.0, 1.0)
+
+    def emission_weights(self, env):
+        """W[s, slot, k]: share of molecule s in charge slot and hydrogenation N_H0 - k. With
+        ``dehydrogenated_emission`` f(Z) times ``hydrogenation_fractions`` (charge and hydrogenation taken as
+        independent, as in the chain); otherwise f(Z) at k = 0."""
+        f = self.charge_matrix(env)
+        if not self.dehydrogenated_emission:
+            h = np.zeros((len(self.library), N_EMITTING))
+            h[:, 0] = 1.0
+        else:
+            h = self.hydrogenation_fractions(env)[0]
+        return f[:, :, None] * h[:, None, :]
+
+    def emitting_fractions(self, env):
+        """Share of each molecule that emits: f(N_H0 ... N_H0-3) with ``dehydrogenated_emission``, else the
+        intact fraction (what the callers' ``intact_min`` filters on)."""
+        if self.dehydrogenated_emission:
+            return self.hydrogenation_fractions(env)[0].sum(axis=1)
+        return self.intact_fractions(env)
 
     def intact_fraction(self, mol, env):
         return float(self.intact_fractions(env)[self._index[id(mol)]])
 
 
 
-def _chain_intact_numpy(nh0, n_solo, lh, lh2, k_add):
-    """Steady-state f(N_H0) of the chain N_H0 ... 0 (H loss, H2 loss, H addition up to N_H0).
+def _chain_distribution_numpy(nh0, n_solo, lh, lh2, k_add):
+    """Steady-state f(N_H), N_H = 0 ... N_H0, of the chain (H loss, H2 loss, H addition up to N_H0).
 
     ``lh``, ``lh2``: H and H2 loss rates of N_H0 ... N_H0-3. Deeper states:
     even (odd) N_H take the N_H0-2 (N_H0-3) rates, H loss scaled by N_H when
@@ -1266,13 +1384,13 @@ def _chain_intact_numpy(nh0, n_solo, lh, lh2, k_add):
     A = np.vstack([Q.T, np.ones(n)])
     b = np.zeros(n + 1)
     b[-1] = 1.0
-    p = np.linalg.lstsq(A, b, rcond=None)[0]
-    return float(np.clip(p[nh0], 0.0, 1.0))
+    p = np.clip(np.linalg.lstsq(A, b, rcond=None)[0], 0.0, None)
+    return p / p.sum()
 
 
 if HAVE_NUMBA:
     @njit(cache=True)
-    def _chain_intact_numba(nh0, n_solo, lh, lh2, k_add):
+    def _chain_distribution_numba(nh0, n_solo, lh, lh2, k_add):
         n = nh0 + 1
         kH, kH2 = np.zeros(n), np.zeros(n)
         for m in range(nh0 + 1):
@@ -1301,15 +1419,21 @@ if HAVE_NUMBA:
         b = np.zeros(n + 1)
         b[-1] = 1.0
         p = np.linalg.lstsq(A, b, rcond=np.finfo(np.float64).eps * (n + 1))[0]
-        return min(max(p[nh0], 0.0), 1.0)
+        p = np.maximum(p, 0.0)
+        return p / p.sum()
+
+
+def _chain_distribution(nh0, n_solo, lh, lh2, k_add):
+    """``_chain_distribution_numpy``, through its numba copy when available."""
+    if HAVE_NUMBA:
+        return _chain_distribution_numba(int(nh0), int(n_solo), np.ascontiguousarray(lh, dtype=float),
+                                         np.ascontiguousarray(lh2, dtype=float), float(k_add))
+    return _chain_distribution_numpy(nh0, n_solo, lh, lh2, k_add)
 
 
 def _chain_intact(nh0, n_solo, lh, lh2, k_add):
-    """``_chain_intact_numpy``, through its numba copy when available."""
-    if HAVE_NUMBA:
-        return float(_chain_intact_numba(int(nh0), int(n_solo), np.ascontiguousarray(lh, dtype=float),
-                                         np.ascontiguousarray(lh2, dtype=float), float(k_add)))
-    return _chain_intact_numpy(nh0, n_solo, lh, lh2, k_add)
+    """f(N_H0) of ``_chain_distribution``."""
+    return float(_chain_distribution(nh0, n_solo, lh, lh2, k_add)[nh0])
 
 # -- fitting -----------------------------------------------------------------------------------
 def fit_abundances(F, observed, reference, rel_err=0.15, floor=0.01, stiffness=1e4):

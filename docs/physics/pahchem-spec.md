@@ -1703,6 +1703,60 @@ carriers and pahchem's emission physics give the complex?
   meaning, and 3.395/3.405 can be separated. The carrier spectra to ask for
   are in {doc}`pahchem-data-requests`.
 
+**Dehydrogenated states emit (2026-10-25; `Population(dehydrogenated_emission=True)`,
+the default; `diagnostics/pahchem/check_dehydrogenated_emission.py`).**
+- **What changed.** Before, only the intact molecule emitted, and the spectral fit kept a molecule
+  where its intact fraction was ≥ 0.5. Now N$_{\rm H0}$−1 … N$_{\rm H0}$−3 emit too, each on its
+  `PAHSpecies.stripped` modes and heated by the same deposits as the parent. They are weighted by the
+  steady state of the hydrogenation chain (`Population.emission_weights`), and a molecule is kept where
+  those four states hold ≥ 0.5 of it.
+  - The share below N$_{\rm H0}$−3 is not modelled (`hydrogenation_fractions`) and is reported as
+    `deep_share`. Against PAHdb's bare C$_{24}$ and C$_{54}$, the stripped modes are 5–12× too weak.
+  - The chain is nearly all-or-nothing: a molecule is mostly intact, or mostly below N$_{\rm H0}$−3.
+    {cite:t}`Montillaud2013` (partials never above 40 %) and {cite:t}`Andrews2016` (C$_{54}$) find the
+    same bimodality.
+- **What others did.** No published chemistry model gives each of its own dehydrogenated states a
+  DFT spectrum:
+
+  | Model | Which states emit | Spectra |
+  |---|---|---|
+  | {cite:t}`Andrews2016` | Every (N$_{\rm H}$, Z) with a spectrum; the rest are dropped (34 % of the C$_{54}$ emitters at A$_V$ = 0, App. F) | PAHdb or their own B3LYP/4-31G per state; C$_{54}$ only at N$_{\rm H}$ = 0, 1, 17–20 |
+  | {cite:t}`Murga2022` | Every X$_{\rm H}$ bin | DL07 with 3.3, 11.2 and 12.6 µm scaled as a X$_{\rm H}$/X$_{\rm H0}$ + b (App. B, Table B1: a ≈ 1 and b ≈ 0, except 12.6 µm at 0.80/0.20); C–C bands untouched |
+  | {cite:t}`Montillaud2013`, {cite:t}`Allain1996b`, {cite:t}`LePage2003` | None (abundances only) | — |
+  | PAHdb fits (Andrews et al. 2015; {cite:t}`Maragkoudakis2020`) | PAHdb species, bare ones (Andrews+15) or partial ones (M20) | Harmonic DFT; bare species take 2.4–4.8 % (Andrews+15 Tables 4, 7) |
+
+  pahchem's rule is Allain's, and in effect Murga's. Murga+22's 17 % "dehydrogenated" share in their
+  ISO fit is really about 5 %: their C$_{34}$H$_{20}^+$ is normally hydrogenated.
+- **Result: a null test, as expected for N$_{\rm C}$ ≳ 54.** The Orion Bar shape fits, `emit` against
+  `intact`, at the best cells:
+  - N$_{\rm H0}$−1 … −3 emit 0.1–1.6 % of the PAH power, and the unmodelled share is 0.01–1.2 %;
+  - rms, γ ≈ 10$^4$ and the best cells do not move (2 of 10 move to an adjacent cell);
+  - ⟨N$_{\rm C}$⟩ falls by ≤ 0.7, and band ratios move by ≤ 2 %.
+
+  This agrees with the observations: Hony et al. (2001, §6.2) find that dehydrogenation "has little
+  influence" on interstellar spectra, and neither {cite:t}`Chown2024` nor {cite:t}`Peeters2024` see it.
+  In the same runs, the atomic n(H) of the conditions card (`conditions.atomic_h`) moves the DF best
+  cells from n(H) = 1.9×10$^4$ to 1.3×10$^4$ cm$^{-3}$ and raises the anion share by 5–8 % of itself.
+- **Where the stripped modes depart from DFT** (PAHdb C$_{96}$H$_{23}$, C$_{96}$H$_{22}$, C$_{54}$H$_{17}^+$,
+  per band, relative to the parent):
+  - 3.3 µm falls about twice as fast as N$_{\rm H}$/N$_{\rm H0}$ for the first H: 0.84 for C$_{96}$H$_{22}$
+    against our 0.92, and 0.80 for C$_{54}$H$_{17}^+$ against 0.94. Pauzat et al. (1997) give 3/4 of
+    statistical after 2 H. So the rule is generous at 3.3 µm, by about 20 % at N$_{\rm H0}$−3.
+  - Even-H loss forms an aryne (C≡C): 6.2 µm rises by 41 % in C$_{96}$H$_{22}$ (35–50 % in C$_{66}$H$_{18}$),
+    which the rule cannot give. This pushes 6.2/11.2 up, in the same direction as ionisation.
+  - The 700–950 cm$^{-1}$ window is rescaled as a whole, so 11.2 (solo) and 12.7 µm (duo, trio) fall
+    together. If 12.7/11.2 is to be read for dehydrogenation (Hony et al. 2001), the stripping must
+    know which site loses the H.
+  - The odd-H radical cation C$_{54}$H$_{17}^+$ departs in every band: 6.2 µm 0.70×, 12.7 µm 3.3×.
+- **Next, if dehydrogenation is ever to be constrained here:**
+  - give the deep share the PAHdb bare-skeleton spectra (C$_{24}$, C$_{54}$, C$_{66}$, C$_{96}$ and
+    cations). Their cations carry a 5.1–5.35 µm C≡C band, 13–32 % of the IR intensity (Bauschlicher &
+    Ricca 2013), testable with NIRSpec and MIRI. Mackie et al. (2015) find that small bare species
+    restructure (pentagons, non-planar), so one planar isomer is a weak stand-in below about 34 C;
+  - use PAHdb's own species for N$_{\rm H0}$−1 … −3 where they exist, as {cite:t}`Andrews2016` did;
+  - reproduce Andrews+16 Fig. 11 (C$_{54}$, C$_{96}$ at NGC 7023 A$_V$ = 0–2), comparing our completeness
+    with their App. F percentages.
+
 **Demyk+26 emission model reproduced (2026-10-20; `pahchem.cosmicpah`,
 `pahchem.demyk2026`, `diagnostics/pahchem/check_demyk2026.py`, figure
 `demyk2026_reproduction`).** Before the laws of {cite:t}`Demyk2026` go into the

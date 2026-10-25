@@ -203,8 +203,9 @@ Reading:
      43 (HII) to 34 cm$^{-1}$ (DF3), and the oop/rest widths change too.
   3. **The free continuum** takes 0.4–0.7 of the 5–15 µm power, so it can
      trade with the 11.2 and 12.7 µm wings.
-  4. **The intact filter** (≥ 0.5) removing small molecules at the surface
-     but not deeper in. That pushes the opposite way, so it would not
+  4. **The intact filter** (≥ 0.5; since 2026-10-25 on the share of
+     N$_{\rm H0}$ … N$_{\rm H0}$−3, which also emit) removing small molecules
+     at the surface but not deeper in. That pushes the opposite way, so it would not
      explain the flat profile.
 
 ## 4. Every degree of freedom in pahchem's fit
@@ -238,7 +239,9 @@ on the same γ grid point.
 - **Lab CH-stretch scale:** 10$^{-0.29}$.
 - **Field:** Kurucz 40 000 K, unattenuated, the same at all depths. G$_0$
   definitions per card entry.
-- **Intact threshold:** 0.5.
+- **Intact threshold:** 0.5, on the intact fraction; since 2026-10-25 on the
+  emitting share N$_{\rm H0}$ … N$_{\rm H0}$−3 ({doc}`pahchem-spec`,
+  "Dehydrogenated states emit": ≤ 2 % on these fits).
 - **Recombination heating:** on.
 - **Not included:** extinction; PANHs, clusters and dehydrogenated states as
   emitters.
@@ -310,7 +313,9 @@ Ranked by information gained per effort.
 7. **Hydrogenation states as emitters.**
    - Put dehydrogenated and side-group states in the main fit, with
      fractions from the H-loss chain, instead of the intact mask and the
-     separate 3.4 µm fit.
+     separate 3.4 µm fit. Done for N$_{\rm H0}$−1 … −3 on 2026-10-25
+     ({doc}`pahchem-spec`, "Dehydrogenated states emit"); the bare skeletons
+     and the side groups are still separate.
    - This gives a hydrogenation profile to compare with Elyajouri's E$_g$
      (more hydrogenated deeper in) and Chown's 3.4/3.3 doubling.
 8. **Extinction.** A foreground screen plus internal extinction, constrained

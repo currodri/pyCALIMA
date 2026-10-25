@@ -13,12 +13,19 @@ I_nu = sum_s w_s P_s(conditions) + continuum (cubic B-splines in lambda, knots
   lines masked (spectral_fit.MASKED_UM).
 - Model: ``Population`` with the stated inputs of fit_pdrs4all_population
   (library, IP shifts, capture, stretch scale), charges at each cell of the
-  conditions grid, molecules kept where the dehydrogenation chain
-  (``Population.intact_fractions``) leaves them intact at that cell.
+  conditions grid (n(H) for the H chemistry, total n_H for n_e = x_e n_H:
+  ``conditions.atomic_h``). With ``--hydrogenation emit`` (the default) each
+  molecule emits from N_H0 ... N_H0-3 in the proportions of the dehydrogenation
+  chain (``Population.emission_weights``) and is kept where those states hold
+  ``--intact-min`` of it; the deeper share is not modelled and is reported
+  (``deep_share``). ``--hydrogenation intact``: the intact molecule alone, kept
+  where its intact fraction is ``--intact-min`` (as before 2026-10-25).
 - Per cell: sse, rms (residual / mean intensity), the population (N_C by number
   and by carbon; charge shares of the emitted power, dications counted with
-  the cations), the derived band ratios of the PAH component, and the
-  continuum share of the 5-15 um power.
+  the cations; the share emitted by dehydrogenated states, ``e_dehydro``, and
+  the unmodelled one, ``deep_share``: what the deeper states would emit as the
+  intact molecule does, over the total), the derived band ratios of the PAH
+  component, and the continuum share of the 5-15 um power.
 - "Allowed" cells: Delta chi^2 < 9 with chi^2 = sse / s^2, s^2 = sse_min / (n - p),
   p the number of non-zero coefficients. This is an approximate scale; the
   statistics are step 3.
@@ -57,7 +64,7 @@ BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3
 
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
-RESULT_VERSION = 6
+RESULT_VERSION = 7
 
 
 def _result_key(args):
@@ -87,17 +94,15 @@ def run(args):
         lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model, stretch_scale=stretch)
-    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
+    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params,
+                                dehydrogenated_emission=getattr(args, "hydrogenation", "emit") == "emit")
     grid = spectral_fit.Grid.build()
     lam, tmpl = C.load_templates(args.templates)
     nc = np.array([m.nc for m in lib], dtype=float)
     zs = np.array(pop.zs)
     shape = ("kurucz", 40000)
     pop.prepare(shape)
-    emitted = np.zeros((len(lib), len(zs)))
-    for s, m in enumerate(lib):
-        for z in m.charges:
-            emitted[s, z - pop.zmin] = pop.basis(m, z, shape).emitted.sum()
+    emitted = pop.state_powers(shape)                        # (s, slot, hydrogenation)
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
     bases = {k: spectral_fit.continuum_basis(grid, k) for k in KNOTS}
@@ -109,21 +114,22 @@ def run(args):
         temp = conditions.bounds(e["t_gas"])[0]
         cells = []
         for g0 in FP._grid(*(v / conditions.g0_conversion(e["g0"], teff) for v in conditions.bounds(e["g0"])), 4):
-            for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
+            for n_tot in FP._grid(*conditions.bounds(e["n_h"]), 3):
                 el = e["n_e"] if "n_e" in e else e["x_e"]
+                n_h = conditions.atomic_h(e, n_tot)
                 for v in FP._grid(*conditions.bounds(el), 4):
-                    ne = v if "n_e" in e else v * n_h
+                    ne = v if "n_e" in e else v * n_tot
                     env = Environment(f"{t}", g0, n_h, ne, temp, teff)
-                    keep = pop.intact_fractions(env) >= args.intact_min           # hydrogenation chain, per cell
+                    keep = pop.emitting_fractions(env) >= args.intact_min         # hydrogenation chain, per cell
                     P = pop.spectra(env, grid.nu)[keep].T
                     F, _ = pop.band_fluxes(env)
-                    f = pop.charge_matrix(env)
-                    cell = {"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne}
+                    W = pop.emission_weights(env)
+                    cell = {"g0": g0, "n_h": n_h, "n_h_total": n_tot, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne}
                     for k in KNOTS:
                         fit = spectral_fit.fit_spectrum(y, P, bases[k])
                         w = np.zeros(len(lib))
                         w[keep] = fit.weights
-                        power = w[:, None] * f * emitted        # emitted power by state (photon + recombination heating)
+                        power = w[:, None, None] * W * emitted  # emitted power by state (photon + recombination heating)
                         band = w @ F
                         tot = power.sum()
                         ok = np.isfinite(y)
@@ -152,10 +158,11 @@ def _cells(card, t):
     out = []
     teff = int(card["region"]["field_teff_k"]["value"])
     for g0 in FP._grid(*(v / conditions.g0_conversion(e["g0"], teff) for v in conditions.bounds(e["g0"])), 4):
-        for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
+        for n_tot in FP._grid(*conditions.bounds(e["n_h"]), 3):
             el = e["n_e"] if "n_e" in e else e["x_e"]
             for v in FP._grid(*conditions.bounds(el), 4):
-                out.append((g0, n_h, v if "n_e" in e else v * n_h, temp))
+                # (G0, n(H), n_e, T, n_H): atomic H for the chemistry, the total for n_e
+                out.append((g0, conditions.atomic_h(e, n_tot), v if "n_e" in e else v * n_tot, temp, n_tot))
     return out
 
 
@@ -180,17 +187,15 @@ def _shape_context(arg_items, knot):
         lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model, stretch_scale=stretch)
-    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
+    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params,
+                                dehydrogenated_emission=getattr(args, "hydrogenation", "emit") == "emit")
     grid = spectral_fit.Grid.build()
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
     fshape = ("kurucz", teff)
     pop.prepare(fshape, workers=1)
     zs = np.array(pop.zs)
-    emitted = np.zeros((len(lib), len(zs)))
-    for s, m in enumerate(lib):
-        for z in m.charges:
-            emitted[s, z - pop.zmin] = pop.basis(m, z, fshape).emitted.sum()
+    emitted = pop.state_powers(fshape)                       # (s, slot, hydrogenation)
     lam, tmpl = C.load_templates(args.templates)
     n_ali = np.array([m.edges.get("aliphatic", 0) for m in lib], dtype=float)       # H off the aromatic edges
     ctx = {"args": args, "lib": lib, "pop": pop, "grid": grid, "card": card, "teff": teff, "fshape": fshape,
@@ -210,7 +215,7 @@ def _template_inputs(ctx, t):
         args, pop, teff = ctx["args"], ctx["pop"], ctx["teff"]
         y = observed_on_grid(ctx["lam"], ctx["tmpl"][t], ctx["grid"])
         cells = _cells(ctx["card"], t)
-        keeps = [pop.intact_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
+        keeps = [pop.emitting_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
         if args.aliphatic == "free":
             # the chain knows only aromatic H loss; the aliphatic species are let in at every cell, so their
             # weights are what the spectrum asks for, not what the conditions allow
@@ -227,15 +232,19 @@ def _scan(ctx, t, shape):
     ok = np.isfinite(y)
     S = spectral_fit.shaped_state_spectra(pop, ctx["fshape"], grid.nu, shape, table=ctx["state_table"])
     rows = []
-    for (g0, n_h, ne, temp), keep in zip(cells, keeps):
+    for (g0, n_h, ne, temp, n_tot), keep in zip(cells, keeps):
         env = Environment(t, g0, n_h, ne, temp, teff)
-        f = pop.charge_matrix(env)
-        P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
+        W = pop.emission_weights(env)
+        P = (g0 * np.einsum("szk,szki->si", W, S))[keep].T
         fit = spectral_fit.fit_spectrum(y, P, ctx["C_"])
         w = np.zeros(len(lib))
         w[keep] = fit.weights
-        power = w[:, None] * f * ctx["emitted"]     # emitted power by state (photon + recombination heating)
+        power = w[:, None, None] * W * ctx["emitted"]   # emitted power by state (photon + recombination heating)
         tot = power.sum()
+        # the deeper states, were they to emit as the intact molecule: the share the model leaves out
+        deep = (w * pop.hydrogenation_fractions(env)[1]) @ np.einsum("sz,sz->s", pop.charge_matrix(env),
+                                                                       ctx["emitted"][:, :, 0]) \
+            if pop.dehydrogenated_emission else 0.0
         wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
         pah_ali = P[:, aliphatic[keep]] @ fit.weights[aliphatic[keep]]
         band = y - fit.cont
@@ -245,7 +254,9 @@ def _scan(ctx, t, shape):
                          "r34_obs": r34(band), "r34_pah": r34(fit.pah), "r34_ali": r34(pah_ali),
                          "rms34": float(np.sqrt(np.mean((band - fit.pah)[w34 & ok] ** 2)) / y[w34 & ok].mean()),
                          "pah_ali": pah_ali,
-                         "g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
+                         "g0": g0, "n_h": n_h, "n_h_total": n_tot, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne,
+                         "sse": fit.sse,
+                         "e_dehydro": float(power[:, :, 1:].sum() / tot), "deep_share": float(deep / (tot + deep)),
                          "rms": fit.rms, "n": int(np.isfinite(y).sum()),
                          "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
                          "mean_nc_carbon": float((w * ctx["nc"]) @ ctx["nc"] / (w @ ctx["nc"])) if w.sum() > 0 else np.nan,
@@ -269,7 +280,7 @@ def _shape_run(arg_items, knot, iterations, t, start):
     ref, shape, history = int(np.argmin([r["sse"] for r in _scan(ctx, t, start)])), start, []
     rows = None
     for it in range(iterations):
-        g0, n_h, ne, temp = cells[ref]
+        g0, n_h, ne, temp, _ = cells[ref]
         shape, _, _ = spectral_fit.fit_band_shape(y, ctx["grid"], ctx["pop"],
                                                   Environment(t, g0, n_h, ne, temp, ctx["teff"]),
                                                   keeps[ref], ctx["C_"], start=shape)
@@ -465,7 +476,10 @@ def main():
     ap.add_argument("--capture-scale", type=float, default=1.0)
     ap.add_argument("--capture-model", choices=("bt94", "lab_trend"), default="bt94")
     ap.add_argument("--stretch-scale", default="1")
-    ap.add_argument("--intact-min", type=float, default=0.5)
+    ap.add_argument("--intact-min", type=float, default=0.5,
+                    help="keep a molecule where this share of it emits (see --hydrogenation)")
+    ap.add_argument("--hydrogenation", choices=("emit", "intact"), default="emit",
+                    help="emit: N_H0 ... N_H0-3 emit in their chain proportions; intact: the intact molecule only")
     ap.add_argument("--aliphatic", choices=("none", "free"), default="none",
                     help="with --fit-shape: add the v4.00 species with H off the aromatic edges; 'free' lets them in "
                          "at every cell (no hydrogenation constraint)")

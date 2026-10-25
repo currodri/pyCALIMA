@@ -92,7 +92,7 @@ def load(cache):
         env = Environment(t, b["g0"], b["n_h"], b["n_e"], conditions.bounds(card[t]["t_gas"])[0], teff)
         S = spectral_fit.shaped_state_spectra(pop, fshape, res["grid"].nu, run["shape"])
         f = pop.charge_matrix(env)
-        by_z = b["g0"] * np.einsum("s,sz,szi->zi", b["weights"], f, S)
+        by_z = b["g0"] * np.einsum("s,szk,szki->zi", b["weights"], pop.emission_weights(env), S)
         if not np.allclose(by_z.sum(0), b["pah"], rtol=1e-8, atol=1e-12 * b["pah"].max()):
             raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum")
         split = {name: by_z[[i for i, z in enumerate(pop.zs) if sel(z)]].sum(0) for name, sel, _ in CLASSES}

@@ -677,11 +677,50 @@ def test_chain_reproduces_the_baseline_network_given_its_rates():
         assert population._chain_intact(nh0, n_solo, lh, lh2, k_add) == pytest.approx(f_net, abs=0.02)
 
 
+def _hydrogenation_pair():
+    mols = [next(m for m in _library() if m.nc == n) for n in (24, 54)]
+    return (population.Population(mols, WINDOWS), population.Population(mols, WINDOWS, dehydrogenated_emission=False))
+
+
+def test_dehydrogenated_states_emit_what_they_absorb():
+    """N_H0-1 ... N_H0-3 are heated by the same deposits as N_H0, so each emits the same total power."""
+    pop, _ = _hydrogenation_pair()
+    E = pop.state_powers(("kurucz", 40000))
+    ok = E[:, :, :1] > 0
+    assert np.allclose(np.where(ok, E[:, :, 1:], 1.0), np.where(ok, E[:, :, :1], 1.0), rtol=1e-6)
+
+
+def test_hydrogenation_shares_and_the_unmodelled_rest_add_up():
+    pop, _ = _hydrogenation_pair()
+    for env in (Environment("dim", 1e2, 1e4, 10.0, 500.0, 40000), Environment("hot", 1e4, 1e3, 10.0, 500.0, 40000)):
+        h, deep = pop.hydrogenation_fractions(env)
+        assert np.all(h >= 0) and np.allclose(h.sum(axis=1) + deep, 1.0)
+        assert np.allclose(h[:, 0], pop.intact_fractions(env))
+        assert np.allclose(pop.emitting_fractions(env), h.sum(axis=1))
+
+
+def test_dehydrogenated_emission_lowers_the_ch_bands_and_leaves_intact_molecules_alone():
+    """C54H18 stays intact here: both treatments give its bands. C24H14 is 0.34 intact and 0.71 in the
+    emitting states: its total power falls to that share (the rest is not modelled) and its C-H bands
+    fall against the C-C 6.2 um band (3.3/6.2 and 11.2/6.2 by 5-8 %)."""
+    pop, old = _hydrogenation_pair()
+    env = Environment("dim", 1e2, 1e4, 10.0, 500.0, 40000)
+    F, _ = pop.band_fluxes(env)
+    F0, _ = old.band_fluxes(env)
+    assert F[1] == pytest.approx(F0[1], rel=1e-6)
+    assert F[0].sum() / F0[0].sum() == pytest.approx(pop.emitting_fractions(env)[0], rel=0.01)
+    assert F[0, 0] / F[0, 1] < 0.97 * F0[0, 0] / F0[0, 1] and F[0, 2] / F[0, 1] < 0.95 * F0[0, 2] / F0[0, 1]
+    nu = np.linspace(600.0, 3300.0, 2000)
+    assert np.allclose(pop.spectra(env, nu)[1], old.spectra(env, nu)[1], rtol=1e-6, atol=0.0)
+
+
 def test_chain_kernel_matches_the_numpy_solve():
     rng = np.random.default_rng(5)
     for nh0 in (2, 5, 12, 30):
         for _ in range(5):
             lh, lh2 = 10 ** rng.uniform(-8, -2, 4), 10 ** rng.uniform(-9, -3, 4)
             k_add = 10 ** rng.uniform(-7, -2)
-            fast = population._chain_intact(nh0, nh0 // 3, lh, lh2, k_add)
-            assert fast == pytest.approx(population._chain_intact_numpy(nh0, nh0 // 3, lh, lh2, k_add), abs=1e-12)
+            fast = population._chain_distribution(nh0, nh0 // 3, lh, lh2, k_add)
+            slow = population._chain_distribution_numpy(nh0, nh0 // 3, lh, lh2, k_add)
+            assert fast.sum() == pytest.approx(1.0) and np.all(fast >= 0)
+            assert fast == pytest.approx(slow, abs=1e-12)

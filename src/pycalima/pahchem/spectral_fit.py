@@ -260,20 +260,23 @@ def window_fluxes(grid, spectrum, windows_um):
 
 
 def molecule_table(pop, env, nu_cm, index=None):
-    """``ModeTable`` of the molecules ``index`` (all if None) at ``env``: each column one molecule, its
-    charge states' modes weighted by f(Z) and G0 (``molecule_spectra`` without the band shape)."""
+    """``ModeTable`` of the molecules ``index`` (all if None) at ``env``: each column one molecule, the modes of
+    its charge and hydrogenation states weighted by ``Population.emission_weights`` and G0 (``molecule_spectra``
+    without the band shape)."""
     from pycalima.pahchem.population import field_shape
 
     fs = field_shape(env)
-    f = pop.charge_matrix(env)
+    W = pop.emission_weights(env)
     idx = range(len(pop.library)) if index is None else index
     cols = []
     for s in idx:
         mol = pop.library[s]
         col = []
         for z in mol.charges:
-            b = pop.basis(mol, z, fs)
-            col.append((b.freqs_cm, env.g0 * f[s, z - pop.zmin] * np.asarray(b.emitted, dtype=float)))
+            for k, (f_, e_) in enumerate(pop._state_modes(pop.basis(mol, z, fs))):
+                w = W[s, z - pop.zmin, k]
+                if f_.size and w > 0.0:
+                    col.append((f_, env.g0 * w * np.asarray(e_, dtype=float)))
         cols.append(col)
     return ModeTable(cols, nu_cm)
 
@@ -284,25 +287,28 @@ def molecule_spectra(pop, env, nu_cm, shape=BandShape(), index=None):
 
 
 def state_table(pop, fshape, nu_cm):
-    """``ModeTable`` with one column per (molecule, charge slot) at G0 = 1 (empty slots are empty columns)."""
+    """``ModeTable`` with one column per (molecule, charge slot, hydrogenation N_H0 - k) at G0 = 1, k <
+    ``population.N_EMITTING`` (empty states are empty columns)."""
+    from pycalima.pahchem.population import N_EMITTING
+
     pop.prepare(fshape)
     cols = []
     for mol in pop.library:
-        for slot, z in enumerate(pop.zs):
-            if z in mol.charges:
-                b = pop.basis(mol, z, fshape)
-                cols.append([(b.freqs_cm, b.emitted)])
-            else:
-                cols.append([])
+        for z in pop.zs:
+            modes = pop._state_modes(pop.basis(mol, z, fshape)) if z in mol.charges else [()] * N_EMITTING
+            cols.extend([[m] if len(m) and m[0].size else [] for m in modes])
     return ModeTable(cols, nu_cm)
 
 
 def shaped_state_spectra(pop, fshape, nu_cm, shape=BandShape(), table=None):
-    """S[s, slot, i]: every state's IR power per cm^-1 at G0 = 1 with ``shape`` (independent of the cell).
+    """S[s, slot, k, i]: IR power per cm^-1 at G0 = 1 of every charge and hydrogenation state with ``shape``
+    (independent of the cell; combine with ``Population.emission_weights``).
 
     ``table``: a ``state_table`` to reuse across shapes."""
+    from pycalima.pahchem.population import N_EMITTING
+
     table = state_table(pop, fshape, nu_cm) if table is None else table
-    return table.spectra(shape).reshape(len(pop.library), len(pop.zs), np.size(nu_cm))
+    return table.spectra(shape).reshape(len(pop.library), len(pop.zs), N_EMITTING, np.size(nu_cm))
 
 
 #: bounds of the BandShape parameters fitted by ``fit_band_shape`` [cm^-1]

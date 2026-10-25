@@ -46,6 +46,17 @@ G0_DEFINITIONS = {"habing_6_13.6": "Habing: int_6^13.6 E F(E) dE / 1.6e-3 erg cm
                   "fnu_1030A": "F_nu at the O I pump lines 1027/1040 A over 8.7e-19 erg cm^-2 s^-1 Hz^-1 (Peeters+24 App. A)"}
 
 
+def atomic_h(template, n_h_total):
+    """n(H) of a template card entry (``n_h_atomic``) for a total n_H within its ``n_h`` range: at the same
+    relative position in log over its own range, at most n_H (so the corners pair low with low)."""
+    import math
+
+    lo, hi = bounds(template["n_h"])
+    a_lo, a_hi = bounds(template["n_h_atomic"])
+    u = 0.0 if hi <= lo else min(max(math.log(n_h_total / lo) / math.log(hi / lo), 0.0), 1.0)
+    return min(a_lo * (a_hi / a_lo) ** u, float(n_h_total))
+
+
 def g0_conversion(entry, teff_k):
     """Stated G0 over pahchem's Habing G0 for a card entry, given the field shape (Kurucz ``teff_k``)."""
     from pycalima.pahchem import fields
@@ -64,8 +75,7 @@ def bracketing_environments(region, template):
     t = card[template]
     teff = int(card["region"]["field_teff_k"]["value"])
     g0, nh = bounds(t["g0"]), bounds(t["n_h"])                 # n_h: total n_H = n(H) + 2 n(H2)
-    nh_atomic = bounds(t["n_h_atomic"])
-    h_least, h_most = min(nh_atomic[1], nh[1]), min(nh_atomic[0], nh[0])
+    h_least, h_most = atomic_h(t, nh[1]), atomic_h(t, nh[0])
     g0 = tuple(v / g0_conversion(t["g0"], teff) for v in g0)
     temp = bounds(t["t_gas"])[0]
     if "n_e" in t:
