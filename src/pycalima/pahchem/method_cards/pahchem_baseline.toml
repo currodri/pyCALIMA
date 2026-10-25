@@ -39,7 +39,7 @@ recurrent_fluorescence_gaps = "equilibrium-geometry f, a lower bound (Subramani+
 
 [photophysics]
 sigma = "Li & Draine 2001 at the LD01 radius, neutral tables for Z <= 0, ionised for Z > 0"
-yield = "Jochims+96 linear ramp; cation -> dication: Wenzel+20 eqs. 4-5 where stated (N_C >= 32, IP2 < 11.3 eV), gated against their measured sigma_I to 0.09 dex rms (test_pahchem_wenzel2020.py); photodetachment with IP = EA"
+yield = "Jochims+96 linear ramp; cation -> dication: Wenzel+20 eqs. 4-5 where stated (N_C >= 32, IP2 < 11.3 eV), gated against their measured sigma_I to 0.09 dex rms (test_pahchem_wenzel2020.py); anion photodetachment (default since 2026-10-25, Params.detachment = valence): WD01 prompt plus detailed-balance delayed detachment at the EA, plus valence photodetachment with the Jochims ramp above 2 IP(0) - IP(+1) (population.anion_valence_threshold); before, Jochims at IP = EA with every electron taking E - EA, which overheats the gas at gamma <~ 1e4 (pahchem-gas-coupling.md V9)"
 ionising_photons_heat = "no (sensitivity: yes)"
 ip_ladder = "Andrews+16 Table A.1 + 0.1 eV per missing H"
 

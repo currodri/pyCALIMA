@@ -20,8 +20,11 @@ Result (2026-10-24, 1 eV grid with the solar-circle old stars below 5 eV, n_H = 
   and +0.54 against +0.78 (C96H24); f(0) 0.61 against 0.47 and 0.49 against 0.35, the same direction as against
   WD01 at high psi (V4);
 - cavity, C96H24: <Z> +2.62 against +2.57, f(+2, +3) 0.27, 0.68 against 0.35, 0.61.
+By detachment (2026-10-25, ``--detachment``), the anion fraction f(-1) of C96H24, against Tielens' 0.13 (diffuse)
+and 0.015 (PDR): Jochims 0.11 and 0.025; statistical 0.75 and 0.53 (a large anion keeps its electron below
+~10 eV: fails); valence 0.155 and 0.034 (passes). C54H18 and the cavity are the same for all three.
 
-    check_tielens21_fz.py [--workers 4]
+    check_tielens21_fz.py [--workers 4] [--detachment jochims|statistical|valence]
 """
 import argparse
 
@@ -29,7 +32,7 @@ import numpy as np
 
 from pycalima import _paths
 from pycalima.pahchem import population
-from pycalima.pahchem.baseline import Environment
+from pycalima.pahchem.baseline import Environment, Params
 
 IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
 X_E = 1.6e-4
@@ -53,12 +56,14 @@ def molecules():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--detachment", default=Params().detachment, choices=("jochims", "statistical", "valence"))
     args = ap.parse_args()
     mols = molecules()
-    pop = population.Population(mols, {"all": (1.0, 1e4)}, cache_dir=BASIS_CACHE)
+    pop = population.Population(mols, {"all": (1.0, 1e4)}, cache_dir=BASIS_CACHE,
+                                params=Params(detachment=args.detachment))
     zs = (-1, 0, 1, 2, 3)
     cols = [pop.zs.index(z) for z in zs]
-    print(f"f(Z) for Z = {zs}; Draine field, x_e = {X_E:g}, no ions")
+    print(f"f(Z) for Z = {zs}; Draine field, x_e = {X_E:g}, no ions, detachment {args.detachment}")
     for env_name, (g0, n, t) in ENVIRONMENTS.items():
         ne = X_E * n
         print(f"\n{env_name}: G0 = {g0:g}, n = {n:g}, T = {t:g} K, gamma = {g0 * np.sqrt(t) / ne:.2e}")

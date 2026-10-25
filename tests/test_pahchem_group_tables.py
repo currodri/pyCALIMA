@@ -23,7 +23,7 @@ def _table(mols, params=Params()):
     return G.combine(ks, np.ones(len(ks)), L0, L1, lT=G.LT[::10])
 
 
-@pytest.mark.parametrize("detachment", ["jochims", "statistical", "unity"])
+@pytest.mark.parametrize("detachment", ["jochims", "statistical", "valence", "unity"])
 def test_yields_on_another_grid_agree_with_E_PH_at_shared_nodes(detachment):
     mol, p = _molecule(), Params(detachment=detachment)
     E = np.concatenate([np.linspace(1.0, 4.9, 40), population.E_PH[::7]])
@@ -36,7 +36,7 @@ def test_yields_on_another_grid_agree_with_E_PH_at_shared_nodes(detachment):
         assert np.allclose(ek[shared], population.electron_energy(mol, z, p)[idx], rtol=0, atol=1e-12)
 
 
-@pytest.mark.parametrize("detachment", ["jochims", "statistical", "unity"])
+@pytest.mark.parametrize("detachment", ["jochims", "statistical", "valence", "unity"])
 def test_yields_follow_the_order_of_an_unsorted_grid(detachment):
     """molecule_kernels passes the group nodes (to 500 eV) and then BG_GRID (1-13.6 eV), so the grid is unsorted."""
     mol, p = _molecule(), Params(detachment=detachment)
@@ -57,6 +57,21 @@ def test_yields_never_fall_with_photon_energy(yield_model):
         assert np.all(np.diff(population._yield(mol, z, p)) >= -1e-12)
 
 
+def test_valence_detachment_adds_a_channel_and_conserves_the_excess():
+    """The valence channel adds prompt detachment above ``anion_valence_threshold`` (>= EA): the yield is a
+    probability at least the statistical one, and no electron takes more than E - EA."""
+    mol = _molecule(96)
+    E = population.E_PH
+    y_s, e_s = population.statistical_detachment(mol)
+    y_v, e_v = population.statistical_detachment(mol, valence=True)
+    ea = mol.ionisation_ev[-1]
+    assert population.anion_valence_threshold(mol) >= ea
+    assert np.all((y_v >= y_s - 1e-12) & (y_v <= 1 + 1e-12))
+    assert np.all(e_v <= np.clip(E - ea, 0, None) + 1e-9) and np.all(e_v >= 0)
+    mid = (E >= 5.0) & (E <= 9.0)          # below ~10 eV a large anion detaches only through the valence channel
+    assert y_v[mid].min() > 0.15 and y_s[mid].max() < 0.1
+
+
 def test_the_dication_is_the_top_state_of_every_molecule():
     """Molecules with a +3 state in PAHdb ionise out of +2 in the tables only above Y_UNITY_EV, as the rest do."""
     _, lib = _v400()
@@ -67,7 +82,7 @@ def test_the_dication_is_the_top_state_of_every_molecule():
     assert np.any(population._yield(mol, 2, Params(), energy_ev=nodes.ravel()) > 0)      # Population follows +3
 
 
-@pytest.mark.parametrize("detachment", ["jochims", "statistical"])
+@pytest.mark.parametrize("detachment", ["jochims", "statistical", "valence"])
 def test_photons_between_the_electron_affinity_and_5_ev_detach_anions(detachment):
     mol = _molecule()
     E = np.linspace(0.5, 4.9, 200)

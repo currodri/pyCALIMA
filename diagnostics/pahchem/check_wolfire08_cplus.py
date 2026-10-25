@@ -8,6 +8,8 @@ v4.00 molecules with N_C 32-40 share x_PAH = 6e-7 at W08's CNM conditions (G0 = 
 T = 100 K, x(C+) = 1.4e-4, x(H+) = 3e-4, x_e = 4.5e-4), and alpha(C+) per H is compared with W08's three-state
 balance at Phi = 0.4 (and 1).
 
+alpha(C+) / W08 (Phi = 0.4), 2026-10-25: Jochims 0.91, statistical 0.73, valence 0.72 (f(-1) 0.15, 0.11, 0.11).
+
     check_wolfire08_cplus.py
 """
 import sys
@@ -47,7 +49,7 @@ def main():
     lib = [m for m in S.library() if 32 <= m.nc <= 40 and -1 in m.charges]
     ne = (XC + XH) * N
     env = Environment("cnm", G0, N, ne, T, None, ions=(("C+", XC * N), ("H+", XH * N)))
-    for det in ("jochims", "statistical"):
+    for det in ("jochims", "statistical", "valence"):
         pop = P.Population(lib, {"all": (1.0, 1e4)}, params=Params(detachment=det))
         pop.prepare(P.field_shape(env), workers=8)
         x = np.full(len(lib), 6e-7 / len(lib))

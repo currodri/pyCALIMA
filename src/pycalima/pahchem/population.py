@@ -365,8 +365,8 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     threshold = mol.ionisation_ev[z]
     if z == -1 and params.detachment == "unity":
         return (E >= threshold).astype(float)
-    if z == -1 and params.detachment == "statistical":
-        return statistical_detachment(mol, params, energy_ev=E)[0]
+    if z == -1 and params.detachment in ("statistical", "valence"):
+        return statistical_detachment(mol, params, energy_ev=E, valence=params.detachment == "valence")[0]
     if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
         y = photo.yield_wenzel2020(E, threshold, mol.nc)
     elif params.yield_model == "lepage":
@@ -399,25 +399,45 @@ def electron_energy(mol, z, params=Params(), partition=photo.PHOTOELECTRON_PARTI
     """<E_k> [eV] of the electron of each ionisation (detachment) out of charge z on ``energy_ev``: the share
     ``partition`` of the excess over ``state_threshold`` for Z >= 0, all of it for the anion below 13.6 eV
     (``photo.photoelectron_energy``), or the energies of ``statistical_detachment``."""
-    if z == -1 and params.detachment == "statistical":
-        return statistical_detachment(mol, params, energy_ev=energy_ev)[1]
+    if z == -1 and params.detachment in ("statistical", "valence"):
+        return statistical_detachment(mol, params, energy_ev=energy_ev, valence=params.detachment == "valence")[1]
     return photo.photoelectron_energy(energy_ev, state_threshold(mol, z), 1.0 if z < 0 else partition)[0]
 
 
-def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH):
+def anion_valence_threshold(mol):
+    """Threshold [eV] for removing a valence electron (not the extra one) from the anion, which leaves the neutral
+    excited: the molecule's own ladder one Coulomb step down, 2 IP(0) - IP(+1), as WD01 eq. 2 steps IP_V(Z) with
+    the charge (the DFT ladder's steps are 1.28x WD01's e^2/a (1 + 0.3 A/a) at the disc radius). At least the EA.
+    C24H12 3.55, C54H18 3.75, C96H24 3.88 eV with the calibrated shifts."""
+    th = mol.ionisation_ev
+    if 1 in th:
+        ipv = 2.0 * th[0] - th[1]
+    else:
+        a = chemistry.disc_radius_cm(mol.nc) * 1e8                                    # A
+        ipv = th[0] - 14.39964 / a * (1.0 + 0.3 / a)
+    return max(float(ipv), float(th[-1]))
+
+
+def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, valence=False):
     """(Y, <E_k> [eV]) on ``energy_ev`` (default E_PH) of photodetachment of the anion: prompt plus delayed
-    (``Params.detachment`` = "statistical"). Any grid works, also below 5 eV, where the photons above the EA
-    detach too.
+    (``Params.detachment`` = "statistical"), and with ``valence`` (``Params.detachment`` = "valence") the prompt
+    removal of a valence electron too. Any grid works, also below 5 eV, where the photons above the EA detach too.
 
     - Prompt: the WD01 photodetachment cross section (eq. 20, ``shared_physics.photodetachment_cross_section_vec``,
       threshold EA), as a share of the absorption; the electron takes E - EA.
+    - Valence (``valence``): of the other absorptions, a share y_v leaves promptly with a valence electron, the
+      neutral left excited: WD01's valence-band photoemission of a negative grain (their eq. 2 and Sect. 2), with
+      pahchem's photoionisation yield (``photo.yield_jochims1996``) above ``anion_valence_threshold`` and the
+      photoelectron share of the excess (``photo.photoelectron_energy``). Without it a large anion, whose delayed
+      detachment loses to IR emission, keeps its electron in the UV (C96H24 0.75 anionic in Tielens' diffuse
+      cloud, against his 0.13).
     - Delayed: every other absorption converts internally and the anion, at internal energy E, autodetaches with
       the detailed-balance probability P_det(E) before IR emission takes it below EA (``attachment``,
       ``Attachment.delayed_detachment``); the electron leaves with the autodetachment spectrum's mean energy, a
       few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
     """
     grid = np.asarray(energy_ev, dtype=float)
-    key = ("detach_stat", params.sigma_scale, float(grain_cm), grid.tobytes())
+    key = ("detach_stat", params.sigma_scale, float(grain_cm), grid.tobytes(), bool(valence))
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
         from pycalima.pahchem.attachment import Attachment
@@ -436,16 +456,23 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH):
                                                      e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
         at = mol._cache[akey]
         p_det, eps_cm = at.delayed_detachment(E * dos.CM_PER_EV)
-        y = y_p + (1.0 - y_p) * p_det
-        ek = np.divide(y_p * np.clip(E - ea, 0.0, None) + (1.0 - y_p) * p_det * eps_cm / dos.CM_PER_EV, y,
-                       out=np.zeros_like(E), where=y > 0)
+        if valence:
+            ipv = anion_valence_threshold(mol)
+            y_v = photo.yield_jochims1996(E, ipv)
+            ek_v = photo.photoelectron_energy(E, ipv)[0]
+        else:
+            ipv, y_v, ek_v = ea, np.zeros_like(E), np.zeros_like(E)
+        rest = (1.0 - y_p) * (1.0 - y_v)                 # absorptions that convert internally
+        y = y_p + (1.0 - y_p) * y_v + rest * p_det
+        ek = np.divide(y_p * np.clip(E - ea, 0.0, None) + (1.0 - y_p) * y_v * ek_v
+                       + rest * p_det * eps_cm / dos.CM_PER_EV, y, out=np.zeros_like(E), where=y > 0)
         # above 13.6 eV: valence photoemission from the anion, rising to unity at Y_UNITY_EV, with the
-        # electron energy of photo.photoelectron_energy (threshold EA)
+        # electron energy of photo.photoelectron_energy (threshold the valence one, else EA)
         hi = grid[~lo]
         y_out, ek_out = np.empty_like(grid), np.empty_like(grid)
         y_out[lo], ek_out[lo] = y[:-1], ek[:-1]          # in the input order: the grid need not be sorted
         y_out[~lo] = np.clip(y[-1] + (1.0 - y[-1]) * (hi - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0)
-        ek_out[~lo] = photo.photoelectron_energy(hi, ea)[0]
+        ek_out[~lo] = photo.photoelectron_energy(hi, ipv)[0]
         mol._cache[key] = (y_out, ek_out)
     return mol._cache[key]
 
@@ -1137,8 +1164,9 @@ class Population:
 
         Gamma_z = G0 f(z) int sigma Y F gamma (E - IP_z) dE over the charge distribution of ``charge_matrix``,
         gamma = ``partition`` for Z >= 0 and 1 for detachment below 13.6 eV, and ``photo.photoelectron_energy``
-        above; with ``Params.detachment = "statistical"`` the anion's electrons take the energies of
-        ``statistical_detachment`` (prompt E - EA, delayed ~0.1 eV). The top state's EUV ionisations
+        above; with ``Params.detachment = "statistical"`` or ``"valence"`` the anion's electrons take the energies of
+        ``statistical_detachment`` (prompt E - EA, valence the photoelectron share above
+        ``anion_valence_threshold``, delayed ~0.1 eV). The top state's EUV ionisations
         (``chain_overflow``) heat the gas too, although the chain does not follow their charge. eps is the photoelectric efficiency, Gamma over
         the power the molecule absorbs on E_PH: all of it, 1-500 eV (1-13.6 eV for fields cut at the Lyman limit), as
         Berné+22 and WD01 define it and as the observed I_gas / (I_PAH + I_gas) measures it (5-13.6 eV before

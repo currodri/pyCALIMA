@@ -31,6 +31,12 @@ Result (2026-10-23, T = 100 K, n_e 3e-4 to 30, i.e. gamma 0.6 to 6e4):
   The anion fraction rises from 0.001 to 0.44 at gamma = 513, and with the Jochims detachment every detached electron
   takes E - EA, so Gamma/H is 6.9x theirs there and 4.5-12x at gamma <= 200.
 
+Steps 6 and 7 (2026-10-25) swap the anion detachment on top of pahchem's chain: statistical (step 6) takes Gamma/H
+back to 0.87x theirs at gamma = 513 (eps 0.039 against 0.037) but to 0.16-0.40x at gamma <= 11, where C54H18 is
+0.97-0.998 anionic; with the valence channel (step 7) 2.1x at 513 and 1.2-3.1x at gamma <= 200 (most, ~3x, at
+gamma 30-75; eps 0.12-0.16):
+the remaining gap is the anion population their coronene attachment law leaves out, and what each anion heats.
+
     check_berne22_pe_heating.py --berne-dir ~/Documents/GitHub/photoelectric-heating [--berne-json run.json]
 """
 import argparse
@@ -40,7 +46,7 @@ from pathlib import Path
 import numpy as np
 
 from pycalima.pahchem import chemistry, fields, photo, population
-from pycalima.pahchem.baseline import E_PH, Environment
+from pycalima.pahchem.baseline import E_PH, Environment, Params
 
 H_EV_S, C_CM, EV_ERG = 4.135667696e-15, 2.99792458e10, 1.602176634e-12
 NC, T, PARTITION = 54, 100.0, photo.PHOTOELECTRON_PARTITION
@@ -85,8 +91,10 @@ class Flux:
         return float(np.trapezoid(s * self.F, self.E))
 
 
-def chain(E, flux, sigma, yields, thresholds, partitions, down, absorb_min_ev):
-    """(f[z], Gamma [erg s^-1 per molecule], eps) of the chain; ``down[z]`` [s^-1] is the capture into z from z+1."""
+def chain(E, flux, sigma, yields, thresholds, partitions, down, absorb_min_ev, energies=None):
+    """(f[z], Gamma [erg s^-1 per molecule], eps) of the chain; ``down[z]`` [s^-1] is the capture into z from z+1;
+    ``energies[z]``: the electron's mean energy per event on E [eV], where it is not a share of E - threshold."""
+    energies = energies or {}
     zs = sorted(sigma)
     f, up = {zs[0]: 1.0}, {}
     for z in zs[:-1]:
@@ -94,7 +102,8 @@ def chain(E, flux, sigma, yields, thresholds, partitions, down, absorb_min_ev):
         f[z + 1] = f[z] * up[z] / down[z]
     tot = sum(f.values())
     f = {z: v / tot for z, v in f.items()}
-    gamma = sum(f[z] * photo.photoelectron_power(flux, sigma[z], yields[z], E, thresholds[z], partitions[z])
+    gamma = sum(f[z] * photo.photoelectron_power(flux, sigma[z], yields[z], E, thresholds[z], partitions[z],
+                                                 electron_energy_ev=energies.get(z))
                 for z in zs[:-1]) * EV_ERG
     m = E >= absorb_min_ev
     absorbed = sum(f[z] * np.trapezoid((sigma[z] * flux.F * E)[m], E[m]) for z in zs) * EV_ERG
@@ -125,7 +134,7 @@ def main():
         sigma = {z: sig_fn(z, E) for z in zs_b}
         yields = {-1: (E >= 6.0).astype(float), 0: photo.yield_jochims1996(E, ip0),
                   1: photo.yield_wenzel2020(E, ip1, NC)}
-        return sigma, yields, {-1: 6.0, 0: ip0, 1: ip1}, {-1: 1.0, 0: PARTITION, 1: PARTITION}
+        return sigma, yields, {-1: 6.0, 0: ip0, 1: ip1}, {-1: 1.0, 0: PARTITION, 1: PARTITION}, {}
 
     def berne_down(ne):
         phi = 1.85e5 / (T * np.sqrt(NC))
@@ -134,11 +143,15 @@ def main():
 
     zs_p = mol.charges
 
-    def pahchem_inputs(E, sig_fn):
+    def pahchem_inputs(E, sig_fn, params=None):
+        """pahchem's sigma, yields and thresholds; with a detachment other than Jochims, the anion's electrons take
+        the energies of ``population.statistical_detachment``."""
+        p = params or pop.p
         sigma = {z: sig_fn(z, E) for z in zs_p}
-        yields = {z: population._yield(mol, z, pop.p, energy_ev=E) for z in zs_p[:-1]}
+        yields = {z: population._yield(mol, z, p, energy_ev=E) for z in zs_p[:-1]}
         th = {z: mol.ionisation_ev[z] for z in zs_p[:-1]}
-        return sigma, yields, th, {z: (1.0 if z < 0 else PARTITION) for z in zs_p[:-1]}
+        ek = {} if p.detachment == "jochims" else {-1: population.electron_energy(mol, -1, p, energy_ev=E)}
+        return sigma, yields, th, {z: (1.0 if z < 0 else PARTITION) for z in zs_p[:-1]}, ek
 
     def pahchem_down(ne, capture):
         if capture == "cation":                                          # pahchem recombination, their attachment
@@ -170,11 +183,15 @@ def main():
          lambda ne: pahchem_down(ne, "cation"), 5.0),
         ("5 + statistical neutral attachment (= pahchem)", Ep, Flux(Ep, Fp), lambda: pahchem_inputs(Ep, ld),
          lambda ne: pahchem_down(ne, "pahchem"), 5.0),
+        ("6 + statistical detachment", Ep, Flux(Ep, Fp),
+         lambda: pahchem_inputs(Ep, ld, Params(detachment="statistical")), lambda ne: pahchem_down(ne, "pahchem"), 5.0),
+        ("7 + valence detachment", Ep, Flux(Ep, Fp),
+         lambda: pahchem_inputs(Ep, ld, Params(detachment="valence")), lambda ne: pahchem_down(ne, "pahchem"), 5.0),
     ]
     rows = {}
     for name, E, flux, inputs, down, amin in steps:
-        sigma, yields, th, part = inputs()
-        rows[name] = [chain(E, flux, sigma, yields, th, part, down(ne), amin) for ne in n_es]
+        sigma, yields, th, part, ek = inputs()
+        rows[name] = [chain(E, flux, sigma, yields, th, part, down(ne), amin, ek) for ne in n_es]
     per_h = 0.1 / NC * 2.7e-4                                           # their f_C = 0.1, C/H = 2.7e-4
     for i, ne in enumerate(n_es):
         gam = g0 * np.sqrt(T) / ne

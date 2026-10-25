@@ -234,7 +234,8 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
     stat = population.Population([mol], WINDOWS, params=Params(detachment="statistical"))
     assert stat.charge_matrix(env)[0, -1 - stat.zmin] > 0.1                 # anions matter here
     assert 0.0 < stat.photoelectric_heating(env)[2][0] < 0.08
-    assert population.Population([mol], WINDOWS).photoelectric_heating(env)[2][0] > 0.15   # full-excess electrons
+    jochims = population.Population([mol], WINDOWS, params=Params(detachment="jochims"))
+    assert jochims.photoelectric_heating(env)[2][0] > 0.15                     # full-excess electrons
 
 
 @pytest.mark.parametrize("detachment", ["jochims", "statistical"])

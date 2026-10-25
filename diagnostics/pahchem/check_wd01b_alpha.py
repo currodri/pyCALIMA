@@ -76,8 +76,45 @@ def per_h(dn_da, sizes, alpha):
     return np.trapezoid(alpha * dn.reshape((-1,) + (1,) * (alpha.ndim - 1)), sizes, axis=0)
 
 
-def compute(workers):
-    G_mathis = R.mathis_G()
+def mathis_G():
+    """Habing G of the unscaled Mathis ISRF that ``equilibrium_charge_for_grain`` uses at G0 = 1."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+    from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
+
+    E = np.geomspace(6.0, 13.6, 400)
+    uE = np.array([Mathis83_radiation_field(e) for e in E])     # erg cm^-3 eV^-1
+    return float(rg.C_CGS * np.trapezoid(uE, E) / rg.HABING_FLUX)
+
+
+def _alpha_full(args):
+    """WD01 grain-assisted recombination alpha_i [cm^3 s^-1 per grain] of ``rt_group_charging.RECOMB_IONS`` over
+    the full-spectrum P(Z): sum_Z P(Z) pi a^2 v_i J~(Z) theta(IP(X) - IP(a, Z)) (WD01 "case a"). The reference that
+    ``models/dust_charge/dust_ion_recombination.py`` held until its removal (6a56802); kept here for V4 only."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+    from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
+    from pycalima.models.dust_charge.shared_physics import (DS87_J_function_vec, KB_CGS,
+                                                            electron_affinity_graphite_vec,
+                                                            electron_affinity_silicate_vec,
+                                                            ionisation_potential_valence_vec)
+
+    G0_mathis, ne, T, material, a, yield_model = args
+    Zs, P, _, _, _ = equilibrium_charge_for_grain(G0_mathis, ne, T, material, a,
+                                                  yield_params={"yield_model": yield_model},
+                                                  ion_species=[{"n": ne, "T": T, "m": 1.67262192e-24, "z": 1.0}])
+    Zs, P = np.asarray(Zs, dtype=float), np.asarray(P, dtype=float)
+    graphite = material.lower().startswith(("gra", "car"))
+    ea = electron_affinity_graphite_vec if graphite else electron_affinity_silicate_vec
+    ip_grain = np.where(Zs >= 0, ionisation_potential_valence_vec(4.4 if graphite else 8.0, Zs, a), ea(Zs + 1, a))
+    J = DS87_J_function_vec(Zs, np.array([1.0]), a, T)
+    out = []
+    for _el, m_u, ip_x in rg.RECOMB_IONS:
+        v = np.sqrt(8.0 * KB_CGS * T / (np.pi * m_u * rg.M_U))
+        out.append(float(np.sum(P * np.pi * a * a * v * J * (ip_x - ip_grain >= 0.0))))
+    return np.array(out)
+
+
+def compute(workers, detachment=Params().detachment):
+    G_mathis = mathis_G()
     jobs, keys = [], []
     for iT, T in enumerate(T_GRID):
         for ip, psi in enumerate(PSI_GRID):
@@ -89,7 +126,7 @@ def compute(workers):
                     keys.append((part, iT, ip, ia))
     print(f"WD01 physics: {len(jobs)} full-spectrum grain solves on {workers} workers", flush=True)
     with ProcessPoolExecutor(workers) as ex:
-        res = dict(zip(keys, ex.map(R._alpha_full, jobs, chunksize=4), strict=True))
+        res = dict(zip(keys, ex.map(_alpha_full, jobs, chunksize=4), strict=True))
     cols = [R.ION_INDEX[i] for i in IONS]
     wd = {}
     for part, dn_da, sizes in (("pah", gsd.graphite_dn_da, A_PAH), ("graphite", gsd.graphite_dn_da, A_GRAPHITE),
@@ -108,7 +145,7 @@ def compute(workers):
         a = a_fine[(a_fine >= radius_cm(lo)) & (a_fine <= radius_cm(hi))]
         n_bin = float(np.trapezoid([gsd.graphite_dn_da(x) for x in a], a))
         print(f"pahchem bin N_C {lo}-{hi}: {int(w.sum())} molecules, {n_bin:.3e} per H", flush=True)
-        tab = G.PAHGroupTable(G.build_bin_table(lib, w, params=Params(), workers=workers, label=f"{lo}-{hi}"))
+        tab = G.PAHGroupTable(G.build_bin_table(lib, w, params=Params(detachment=detachment), workers=workers, label=f"{lo}-{hi}"))
         bins.append({"nc": (lo, hi), "n_mol": int(w.sum()), "n_per_h": n_bin, "mean_nc": tab.t["nc"]})
         for iT, T in enumerate(T_GRID):
             for ip, psi in enumerate(PSI_GRID):
@@ -166,12 +203,14 @@ def plot(d, path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--detachment", default=Params().detachment, choices=("jochims", "statistical", "valence"))
     ap.add_argument("--plot-only", action="store_true")
     ap.add_argument("--out", type=Path, default=None, help="plot directory (default results/plots/pahchem)")
     args = ap.parse_args()
-    js = _paths.get_results_dir() / "pahchem_wd01b_alpha.json"
+    js = _paths.get_results_dir() / ("pahchem_wd01b_alpha.json" if args.detachment == "jochims"
+                                      else f"pahchem_wd01b_alpha_{args.detachment}.json")
     if not args.plot_only:
-        d = compute(args.workers)
+        d = compute(args.workers, args.detachment)
         js.parent.mkdir(parents=True, exist_ok=True)
         js.write_text(json.dumps(d))
     d = json.loads(js.read_text())
