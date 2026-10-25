@@ -2,7 +2,7 @@
 
 The question was: before asking collaborators and authors for missing inputs,
 does pahchem itself contain bugs or physical errors behind the benchmarks that
-fail ({doc}`pahchem-spec`; 33 open and 24 partial in
+fail ({doc}`pahchem-spec`; 33 open and 24 partial before the fixes in
 `diagnostics/pahchem/briefing_benchmarks.csv`)?
 
 **Method.** Seven read-only audits were run in parallel. Each covered a code
@@ -103,8 +103,8 @@ effect on every benchmark is in section 5.
   M20's printed equations.
 
 **C4. The Li & Draine cross section is clamped in size below N$_C$ = 21.**
-- Where: `pah_oppacity.py:150` (reached through `photo.sigma_li_draine`,
-  `shiva`, `murga_charge`).
+- Where: `pah_oppacity.py:153–156` (reached through `photo.sigma_li_draine`,
+  `shiva`, `murga_charge`); fixed in `photo.ld01_radius_and_volume_factor`.
 - **Cause.** Q$_{\rm abs}$ is held at the smallest table radius (N$_C$ =
   20.9), but C$_{\rm abs}$ = Q πa² still scales with a².
 - **Effect:** σ per C is too high by (20.9/N$_C$)$^{1/3}$:
@@ -126,7 +126,7 @@ effect on every benchmark is in section 5.
   test at C$_{14}$.
 
 **C5. The electron-impact denominator uses the excitation form for ionisation.**
-- Where: `impact.py:227`.
+- Where: `impact.py:246–249` (`collisions`).
 - **Cause.** T/(T + IP + W) is Kim's excitation scaling. For ionisation Kim's
   form is T/(T + B + U), with U ≈ 2B for the PAH valence orbitals (HF). The
   two forms coincide for H (U = B), which is why the scheme passes for H.
@@ -134,8 +134,9 @@ effect on every benchmark is in section 5.
 
   | | before | after |
   |---|---|---|
-  | model/BEB (C$_{10}$–C$_{26}$, coronene), 15 eV–5 keV | 1.3–2.4 | 0.9–1.5 |
-  | model/BEB (C$_{54}$H$_{18}$) | 1.40–2.77 | 1.12–1.64 |
+  | model/BEB (anthracene, with C4), 15 eV–5 keV | 1.36–2.30 | 0.99–1.41 |
+  | model/BEB (coronene) | 1.28–2.21 | 1.10–1.55 |
+  | model/BEB (C$_{54}$H$_{18}$) | 1.40–2.58 | 1.39–1.80 |
   | peak position | 54 eV | 67 eV (BEB 72 eV) |
   | stopping vs Joy carbon at 50 eV | 1.26 | 0.98 |
 
@@ -266,7 +267,9 @@ effect on every benchmark is in section 5.
 These are measured, but their resolution is a modelling choice.
 
 - **P1. Photon grid and photodetachment.**
-  - Photons start at 5 eV everywhere (`E_PH`).
+  - Photons started at 5 eV everywhere (`E_PH`). Since 2026-10-24 the
+    population starts at 1 eV ({doc}`pahchem-gas-coupling`, §4d);
+    `baseline.E_PH` and `montillaud13.E_PH` still start at 5 eV.
   - **Absorption missed below 5 eV:** 10 % of absorptions under a
     40 000 K Kurucz field, 45 % under 15 000 K, and more than 100 % extra
     under the Mathis field.
@@ -341,7 +344,7 @@ These are measured, but their resolution is a modelling choice.
 - the Le Page k$_{\rm ion}$ size trend and the naphthalene E$_0$;
 - the carriers (7.7/12.7 µm, the 3.4 µm complex, the CC shift, ERE).
 
-**Proposed order of fixes** (none applied):
+**Proposed order of fixes** (C1–C7 applied 2026-10-20, section 5; P1–P3 not):
 1. C1, C2, C3, C4, C6 and C7, which are mechanical, then re-run the affected
    gates and the briefing figures;
 2. C5 together with a decision on gate G2;
@@ -360,9 +363,8 @@ them:
 
 How the comparison was made:
 - **Before:** every check script was run on a frozen copy of the code from
-  before the fixes; the whole pahchem suite was run on the unchanged
-  worktree (374 passed, 21 xfailed, plus the Murga set: 34 passed, 9
-  xfailed).
+  before the fixes; the whole pahchem suite, the Murga set included, was run
+  on the unchanged worktree.
 - **After:** the same scripts and suite were run on the fixed code. Outputs
   were diffed line by line.
 

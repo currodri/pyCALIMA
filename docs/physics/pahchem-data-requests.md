@@ -164,15 +164,17 @@ An earlier draft put H addition first.
 
 ## Asked of others
 
-- **Electron recombination of large PAH cations (experimental groups).** This
-  is the input that now decides the PDR charge balance ({doc}`pahchem-spec`,
-  "Charge inputs").
+- **Electron recombination of large PAH cations (experimental groups).** With
+  the photoionisation yields, this rate sets the PDR charge balance
+  ({doc}`pahchem-spec`, "Charge inputs").
   - The data: measured PAH⁺ + e⁻ coefficients stop at pyrene (N_C = 16).
-    There they are 0.03–0.37 of the BT94 capture theory, and the ratio rises
-    as N_C^1.15 (`chemistry.lab_recombination_factor`).
-  - The constraint: the PDRs4All population fits fall inside the stated
-    conditions only if capture by N_C ≈ 100 cations is ≈ 3× BT94. The lab
-    power law gives 1.5× there; extrapolated, it is a guess.
+    There the fit to them gives 0.07–0.18 of the BT94 capture theory, and
+    the ratio rises as 10$^{-1.96}$ N_C$^{1.01}$ (`chemistry.lab_recombination_factor`),
+    ≈ 1.15 at N_C = 100 if extrapolated, which is a guess.
+  - Why it matters: it is the factor-2 uncertainty of this rate
+    ({doc}`pahchem-gas-coupling`, §2.2). (The earlier conclusion that the
+    PDRs4All fits need capture ≈ 3× BT94 was withdrawn: {doc}`pahchem-spec`,
+    finding C1.)
   - The ask: one or two coefficients for a compact cation with N_C ≥ 24, at
     100–1000 K. Coronene⁺ is the minimum, circumcoronene⁺ the ideal.
   - Who could measure it: FALP or CRESU flow tubes (Biennier and Rowe,
@@ -215,6 +217,10 @@ An earlier draft put H addition first.
   give the observed 3.4/3.29 ({doc}`pahchem-spec`, "The 3.4 µm aliphatic
   complex"): 28 molecules with N_C ≥ 21 have both a neutral and a cation, and
   most carry 1–3 off-edge H. What would close the gap:
+  - (CH$_2$ and CH$_3$ side groups radiating from the fitted population's own
+    cascades already give the complex with 2.3–4.5 % aliphatic carbon,
+    {doc}`pahchem-spec`, "Aliphatic side groups on the fitted population";
+    these spectra would replace that approximation with computed carriers)
   - their coronene + methyl / ethyl / vinyl spectra (B3LYP/6-311++G(d,p),
     harmonic) as frequency and intensity tables, and the cascade emission
     behind their Fig. 3;
@@ -302,12 +308,16 @@ An earlier draft put H addition first.
   - **For T3:** σ(E) up to ~100 eV for the coronene family. The distant
     collisions use df/dW to 30 keV; above 40 eV it is atomic Henke C + H.
 
-- **Joblin/Montillaud:** the mode sets (and whether they were scaled) and the
-  Monte Carlo $k_{\rm IR}(E)$, $e_{\rm IR}(E)$ used in {cite:t}`Montillaud2013`.
-  With their published $A$ and $E_0$ and PAHdb modes we get $E_{\rm th}$ =
-  19.5 eV for C$_{54}$H$_{18}$ against their 17 eV, and their Fig. 10 needs
-  1.2 dex less $G_0$ than ours. These two inputs are the only unpublished ones
-  left in that comparison ({doc}`pahchem-spec`, M5).
+- **Joblin/Montillaud:** for {cite:t}`Montillaud2013`, two questions
+  ({doc}`pahchem-audit`, section 4):
+  - whether their $k_{\rm IR}$ is the energy e-folding rate $(dE/dt)/E$. With
+    it and cation modes, $E_{\rm th}$ = 17.15 eV for C$_{54}$H$_{18}$ against
+    their 17 eV, and it accounts for 0.4–0.55 dex of their Fig. 10;
+  - which C$_{54}$ modes they used (Malloci's, scaled or not). The remaining
+    ~0.7 dex of Fig. 10 must lie there or in the Monte Carlo $k_{\rm IR}(E)$.
+
+  Coronene's $k(E)$ (their Fig. 3) now matches to −0.04…+0.02 dex, so it is
+  not asked.
 - **Mayer/West:** the iPEPICO $k(E)$ curves behind {cite:t}`West2018`, as
   tables. (The ESI spreadsheet gives them for 7 of 25 reactions consistently
   with Table 1; see {doc}`pahchem-spec`, M2.)
@@ -315,7 +325,9 @@ An earlier draft put H addition first.
   - how $G_n(T)$ is normalised;
   - which temperature range enters $k_{\rm IR}$ in their eq. 8;
   - the neutral electron sticking coefficients they computed;
-  - whether ionising photons are included in $G(T,E)$.
+  - whether ionising photons are included in $G(T,E)$;
+  - the $G_0$ unit of their NGC 7023 profile;
+  - the electron affinity they used for C$_{96}$H$_{24}$.
 
   Their Table B is reproduced only if they are, and their Fig. 7
   hydrogenation needs a $k_{\rm IR}$ in eq. 8 ~$10^3$ smaller than the
@@ -334,15 +346,26 @@ An earlier draft put H addition first.
   - how the super-H threshold is applied when $N_{\rm H}$ is real-valued
     (Murga+2020 Fig. 4 needs a super-H contribution $10^2$–$10^4$× below
     eq. 6 as printed);
-  - the H-addition and super-H loss rates of Murga+2022, under which PAHs
-    $\ge$ 6 Å stay normally hydrogenated (with the Murga+2020 rates they end
-    60–90 % super-hydrogenated);
+  - for PAHs $\ge$ 6 Å, only a confirmation: the Figshare files fix the
+    H-addition and super-H loss rates under which they stay normally
+    hydrogenated ({doc}`pahchem-audit`, C3); is the bin step, and the
+    Eley–Rideal event removing 2 H, as we read them;
   - the charge settings: the electron sticking coefficient, the
     $Z_{\rm min}$ rounding, C$^+$ collisions, and the $\chi$ field shape.
     The Murga+2022 files imply $s_e = 1$, eq. 24 truncated and no ions,
     but Murga+2020 Fig. 3 needs the floor $Z_{\rm min}$;
   - the $T(E)$ relation of Murga & Wiebe 2022, which behaves like Tielens'
     rather than the DL01 relation of Murga+2020/2022.
+- **Allain/Léger:** for {cite:t}`Allain1996a`, what "multi-quanta neglected"
+  means for $k_{\rm IR}$ above 24 C: with the occupation factor dropped (the
+  card's reading) PAH 50 C is −1.39 dex below their I Table 4, with it kept
+  −0.34 dex ({doc}`pahchem-spec`, "Allain+96 runner"). $N_{\rm H0}$ is not asked: the
+  audit found it would have to be 15–16, below the compact minimum.
+- **Le Page/Snow/Bierbaum:** for {cite:t}`LePage2001`, the $E_0$ of the
+  naphthalene⁺ rate check they quote (Table 2's 4.5 eV gives log k 2.8–2.9
+  and 6.8–6.9 at 7 and 10 eV against the quoted 3.9 and 7.5; ~4.2 eV
+  reproduces it), and the ionisation potentials behind the $k_{\rm ion}$ size
+  trend of their Table 2.
 - **Rigopoulou group:** for {cite:t}`Rigopoulou2021` (method card
   `rigopoulou2021.toml`). Their Fig. 1 is reproduced exactly with the thermal
   cascade and FWHM 15 cm$^{-1}$; the binned diagnostics are not. The

@@ -2,6 +2,8 @@
 
 Compiled on 2026-10-21 for the branch `feature/pahchem-anharmonic`. The specification built on it is {doc}`pahchem-gas-coupling`. The companion notes and derivation scripts named below are kept in `calima-pdr/docs/literature/pah_gas/` (the calima-pdr repository), and the arXiv PDFs read in `~/Documents/GitHub/pdr_refs/literature/pah_gas/pdfs/` (local only). The reproducible check of the derived rates is `diagnostics/pahchem/check_pah_ion_rates.py`.
 
+**Implementation status:** see {doc}`pahchem-gas-coupling` §4b. The "How it enters pahchem" proposals below are recorded as written on 2026-10-21; most are now implemented, some under other names.
+
 **Status markers**
 - [read]: full text, or the stated full sections, read here or by a sub-agent.
 - [abs]: abstract or a snippet only.
@@ -228,7 +230,7 @@ There are three choices for ⟨E_k⟩:
    - f_E0(E) = 6 (E − E_low)(E_high − E)/(E_high − E_low)³.
    - For Z ≥ 0: E_low = −(Z+1)e²/a and E_high = hν − hν_pet. The escaping fraction is y2 = E_high²(E_high − 3E_low)/(E_high − E_low)³ (eq. 11).
    - For a molecule with a measured IP_Z, the escape barrier is already in IP. The consistent choice is then E_low = 0 and E_high = E − IP_Z, which gives a mean of ½(E − IP), i.e. equivalent to choice 1 with γ = 0.5.
-   - pyCALIMA implements the WD01 form as `attempting_electron_energy_dist` (dust_photoelectric_heating.py l.569).
+   - pyCALIMA implements the WD01 form as `attempting_electron_energy_dist` (dust_photoelectric_heating.py l.524).
 3. **BT94 partition** (eq. 29) [read]: g(N_C, IP_Z) = ½ (hν − IP_Z)/hν of the photon energy, i.e. the same as γ = 0.5.
 
 **Photodetachment (Z = −1).** E_k = E − EA, all of it to the electron (Berne+22). WD01 adds a separate photodetachment cross section, σ_pdt = 1.2e-17 |Z| x/(1 + x²/3)², x = (E − E_pdt)/3 eV, with E_k = hν − hν_pdt + E_min (WD01 eq. 40; `shared_physics` l.161).
@@ -288,7 +290,7 @@ Two efficiency definitions are in use:
 
 ### Physics and formulas
 
-**Cations.** k_e(Z) = s_rec · 0.82 πa² v_e J̃(τ_e, ν = −Z), with v_e = (8kT/πm_e)^½ (pahchem `chemistry.electron_capture`, l.44).
+**Cations.** k_e(Z) = s_rec · 0.82 πa² v_e J̃(τ_e, ν = −Z), with v_e = (8kT/πm_e)^½ (pahchem `chemistry.electron_capture`, l.64).
 - For τ ≪ 1, J̃ → 2Z/τ. So k ∝ a T^−½ and is 2× the Spitzer/V90 form (2.17× Tielens 2021 eq. 8.106, which adds a 0.8 planarity factor).
 - V90/Spitzer: k = 1.28e-10 N_C T^½ (1 + Φ), with Φ = 1.85e5/(N_C^½ T).
 - Tielens 2021 eq. 8.106 [read]: 1.3e-6 N_C^½ (300/T)^½, 0.46 × pahchem's capture (see §12).
@@ -447,19 +449,19 @@ Two efficiency definitions are in use:
 - **Up rates (z → z+1).**
   - Z ≥ 0: Σ_X n_X P_CT k_L θ[IP(X) − IP_m(Z)]. This is in practice Z = 0 only, plus Z = 1 for H⁺ and He⁺ with small PAHs when IP2 < 13.6 eV, which then needs the Coulomb factor.
   - Z < 0: Σ_X n_X k_MN.
-  - Add these to k_up(z) in `population.charge_fractions` (l.371) and `charge_matrix` (l.754), and as Δz = +1 transitions in `BaselineModel.network` (l.307).
+  - Add these to k_up(z) in `population.charge_fractions` (l.521) and `charge_matrix` (l.993), and as Δz = +1 transitions in `BaselineModel.network` (l.315).
   - Δz = +2 (He⁺) and the proton-transfer Δz = +1, ΔN_H = +1 step go in the network only.
 - **Detailed balance in the chain.** Ions only add to k_up, so the nearest-neighbour form f(z+1)/f(z) = k_up(z)/k_down(z+1) still holds. The down rate stays n_e α(z+1), plus the rare X + PAH⁺ → X⁺ + PAH.
 - **Reuse grain-side code.**
   - `shared_physics.DS87_J_function_vec(Z, z_i, a, T)` and `collisional_rates_ions_vector` (ion mass and charge).
-  - `dust_ion_recombination.ATOMIC_RADII` and `IONIZATION_POTENTIALS`, and its `case_a` θ test. The `case_b` image-energy correction changes WD01b rates by ≲ 10 %.
+  - `dust_ion_recombination.ATOMIC_RADII` and `IONIZATION_POTENTIALS`, and its `case_a` θ test. The `case_b` image-energy correction changes WD01b rates by ≲ 10 %. (That module was removed on 2026-10-04, 6a56802; these are in its git history only.)
 - **Geometry.** Keep pahchem's 0.82 πa² with a = 0.9√N_C Å for every capture: electrons, mutual neutralisation, and the DS87 option for neutrals. One geometry factor then enters all rates. The Langevin form for neutrals needs no radius.
 
 ---------------------------------------------------------------------------------------------------
 
 ## 5. Process 4: outputs to a gas chemical network
 
-`PAHNetwork.fluxes(f)` (network.py l.194) already returns events per PAH per s for each named process. `h2_formation_rate` (l.198) returns H2. What is needed:
+`PAHNetwork.fluxes(f)` (network.py l.200) already returns events per PAH per s for each named process. `h2_formation_rate` (l.204) returns H2. What is needed:
 
 1. **Per-ion neutralisation coefficient per H nucleus**, the drop-in replacement for WD01b α_g:
 
@@ -485,11 +487,11 @@ Full notes are in `h2_formation.md` (23 papers read; sections 0, A–F).
 
 ### 6.0 What pahchem counts now (h2_formation.md §0; code_notes §1)
 
-**Bookkeeping.** `PAHNetwork.h2_formation_rate` (network.py l.198–200) sums `h2_released` × flux. It is exported as `h2_per_pah_per_s` (export_pah_tables.py l.112).
+**Bookkeeping.** `PAHNetwork.h2_formation_rate` (network.py l.204–206) sums `h2_released` × flux. It is exported as `h2_per_pah_per_s` (export_pah_tables.py l.112).
 
 **H2 channels in the baseline**
-- **Photolytic H2 loss** (baseline.py l.316): RRKM, West+18 E0 = 4.58 eV, ΔS = 40 J K⁻¹ mol⁻¹, degeneracy 2. It is open only for even N_H ≤ N_H0 with N_H > n_solo.
-- **Eley–Rideal** (l.331–332): 0.06 Å² × v_H n_H = 8.7e-13 (T/100)^½ n_H. It applies to all charges with N_H > N_H0, once per molecule rather than per excess H.
+- **Photolytic H2 loss** (baseline.py l.324): RRKM, West+18 E0 = 4.58 eV, ΔS = 40 J K⁻¹ mol⁻¹, degeneracy 2. It is open only for even N_H ≤ N_H0 with N_H > n_solo.
+- **Eley–Rideal** (l.339–340): 0.06 Å² × v_H n_H = 8.7e-13 (T/100)^½ n_H. It applies to all charges with N_H > N_H0, once per molecule rather than per excess H.
 
 **Channels that feed them**
 - Cation H addition: 1.4e-10 n_H, no barrier.
@@ -564,9 +566,9 @@ The recommended changes are all opt-in and labelled ad hoc until derived. None h
 
 Upper bound [derived by the agent]: R_PAH ≤ ½ κ_add x_PAH ≈ 3.5e-17 (f_C/0.1)(50/N_C) for cations.
 
-### 6.4 Possible pyCALIMA grain-side issue (not changed)
+### 6.4 Possible pyCALIMA grain-side issue (fixed 2026-10-21)
 
-`dust_h2_formation.py` and `dust_surface_chemistry.f90` l.133–142 use 2πa² with v = (2kT/m)^½. Cazaux & Spaans 2004 eq. 2 uses ½ v_H πa² with the mean speed. The code may be 1.77× high relative to that.
+`dust_h2_formation.py` used 2πa² with v = (2kT/m)^½. Cazaux & Spaans 2004 eq. 2 uses ½ v_H πa² with the mean speed. The code was 1.77× high relative to that. It now uses πa² and the mean speed (`mean_h_speed`; {doc}`pahchem-gas-coupling` §4). The Fortran mirror `dust_surface_chemistry.f90` (l.133–142) already used πa² and √(8kT/πm_H).
 
 ---------------------------------------------------------------------------------------------------
 
@@ -585,7 +587,7 @@ Upper bound [derived by the agent]: R_PAH ≤ ½ κ_add x_PAH ≈ 3.5e-17 (f_C/0
      The PAH⁻ fraction is 0.22. WD01b's H⁺/C⁺ is 3.46, the DS87 mass scaling √(m_C/m_H) = 3.45, as in W08.
      - Until 2026-10-23 this table gave H⁺ 9.1e-15 and a ratio of ~6. That value is reproduced only with C2 = 1.578 for H⁺; WD01b's coefficient is 1.378, as pyCALIMA, 3D-PDR and DESPOTIC/Gong+17 all print.
      - The C⁺ row is not printed the same everywhere: DESPOTIC's `GOW.py` has C4 = 0.4845 where pyCALIMA and 3D-PDR have 4.845e-2, giving 1.8e-15 here (5× lower). 3D-PDR's second copy has C3 = 411.3 for 433.1 (+5 %). Not yet checked against the WD01b paper.
-   - pyCALIMA itself does not use WD01b. `dust_ion_recombination.py` uses single-radius grain bins (≥ 50 Å) and excludes PAH bins, and nothing consumes it (code_notes §3).
+   - pyCALIMA itself does not use WD01b. Its `dust_ion_recombination.py`, which used single-radius grain bins (≥ 50 Å) and excluded PAH bins, was removed on 2026-10-04 (6a56802).
 2. **Photoelectric heating fits.** BT94, W03, W22-ε and WD01 eq. 44 are dominated by PAHs and small grains: half the heating comes from < 15 Å (W22), and 75–96 % from < 100 Å (WD01 h_s).
    - If pahchem supplies Γ_PE, drop these fits or rebuild them for a > a_PAH,max.
    - RAMSES `pah_pe_heating` (Berne+22, from `PAH_photoelectric_heating.py`) and a pahchem Γ_PE on the same PAH bins would double count. Choose one owner.
@@ -751,7 +753,7 @@ ARA&A 60, 247; 2022ARA&A..60..247W; arXiv:2202.05867 [read].
 
 ---------------------------------------------------------------------------------------------------
 
-## 11. The user's paper: Thi et al. 2020, A&A 634, A42 (2020A&A...634A..42T)
+## 11. Thi et al. 2020, A&A 634, A42 (2020A&A...634A..42T)
 
 Thi, Hocuk, Kamp, Woitke, Rab, Cazaux & Caselli, "Warm dust surface chemistry. H2 and HD formation". doi:10.1051/0004-6361/201731746; arXiv:1812.06730 [read in full: main text and Appendices A–F].
 
@@ -829,12 +831,12 @@ Thi, Hocuk, Kamp, Woitke, Rab, Cazaux & Caselli, "Warm dust surface chemistry. H
 | neutral rates' N_C scaling | (N_C/50)^½ for CT and attachment | DS87 ∝ N_C^¾ | DS87 | Thi's ½ power is wrong for neutral targets (should be ¾ in DS87, ½ for Langevin) |
 | charge exchange T dependence | (100/T)^½ | none | none | none (Langevin is T-independent); Thi inherits W03 eq. C7's slip |
 | attachment | WD01 S × 8.5e-7 | 1.3e-6 Φ | statistical | statistical; validate on anthracene and C60 |
-| mutual neutralisation | φ = 0.2 × W08-scaled | Φ × DS87 | none | P_MN = 0.58 (§4.1) |
+| mutual neutralisation | φ = 0.2 × W08-scaled | Φ × DS87 | P_MN = 0.58 × DS87 (`chemistry.mutual_neutralisation`, since 2026-10-22) | P_MN = 0.58 (§4.1) |
 | ion CT on PAH⁺ | Coulomb-suppressed to zero | not included | none | zero below 1e4 K |
 | He⁺ double CT | 1.1e-8 φ | — | none | network-only option |
 | CR-induced UV ionisation | 0.15 ζ n_H g y | — | none (`cosmic_rays.py` exists) | adopt as an option in dark gas |
 | H2 on PAHs | addition (Boschman barriers), ER 0.06 Å², cation abstraction (Montillaud) | not in W08; W22 qualitative | ER 0.06 Å² once per molecule, photolytic H2 loss | per-excess-H ER, charge-dependent σ, add super-H photolysis (§6.3) |
-| H2 on grains | full LH/ER with chemisorption | 3e-17 standard (W08 fits R) | pyCALIMA CS04 | keep; consider Le Bourlot ER; check the 1.77 factor |
+| H2 on grains | full LH/ER with chemisorption | 3e-17 standard (W08 fits R) | pyCALIMA CS04 | keep; consider Le Bourlot ER; the 1.77 factor was fixed on 2026-10-21 (§6.4) |
 
 **What Thi+20 adds**
 - The most complete published PAH charge and hydrogenation network coupled into a full gas network. It includes every ion through mutual neutralisation and charge transfer, multiply charged states, CR-induced photo-processes, collisional detachment, and H/D isotopologues.

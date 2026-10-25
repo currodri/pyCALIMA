@@ -1,4 +1,4 @@
-# PAHchem: coupling the PAHs to the gas (specification, 2026-10-21)
+# PAHchem: coupling the PAHs to the gas (specification, 2026-10-21; status to 2026-10-24)
 
 PAHs carry a large share of the free charge in neutral gas. They neutralise C⁺, H⁺ and the metal ions,
 and they dominate the photoelectric heating. So the C chemistry, the electron abundance and the thermal
@@ -15,7 +15,9 @@ roadmap (`calima-pdr/docs/design.md`), and it is modelled here, in pyCALIMA, bef
   (H⁺, He⁺, C⁺, S⁺, Si⁺, Mg⁺, Fe⁺, HCO⁺, H₃O⁺, H₃⁺) become inputs, like n_e and T, taken from a sourced
   card or a PDR model.
 
-## 1. What pahchem has, and what is missing
+## 1. What pahchem had, and what was missing (2026-10-21, before stage P)
+
+Most of the missing items are now implemented; their status is in §4b.
 
 **Has:**
 - photoionisation (Jochims+96; Wenzel+20 for cations with N_C ≥ 32; IPs shifted +0.6 / +0.64 eV) and
@@ -28,12 +30,13 @@ roadmap (`calima-pdr/docs/design.md`), and it is modelled here, in pyCALIMA, bef
   (`network.PAHNetwork.h2_formation_rate`).
 
 **Missing:**
-- **Ion–PAH collisions.** There are none (`murga_charge.py`: "no ion collisions").
+- **Ion–PAH collisions.** There are none (`murga_charge.py`: "no ion collisions"). Now §4b step 3.
 - **Photoelectron kinetic energy.** pahchem treats every ionising photon as depositing no internal energy,
-  which implicitly gives the electron all of E − IP. That contradicts the measured partition (§2.1).
-- **Gas heating and cooling.** No gas photoelectric heating, no recombination cooling.
+  which implicitly gives the electron all of E − IP. That contradicts the measured partition (§2.1). Now
+  §4b steps 1 and 1c (the deposit is opt-in).
+- **Gas heating and cooling.** No gas photoelectric heating, no recombination cooling. Now §4b steps 1 and 2.
 - **Rates for a gas network.** Per-ion neutralisation, the net electron source and H₂ formation per H are
-  not exported.
+  not exported. Now §4b step 4, except H₂ formation.
 - **Three PAH charge models in pyCALIMA:** `pahchem`, `models/PAH_charge` (the Berné+22 table builder)
   and `models/PAH_photophysics`. This page makes pahchem the owner of the PAH terms.
 
@@ -226,8 +229,8 @@ From `PAHNetwork.fluxes`, extended with named per-ion processes. All are per H n
    - x(PAH⁻)/x_e: PAH⁻ out-neutralise the electrons only when this exceeds ≈ 43 (Flower & Pineau des Forêts
      2026, dark clouds, which needs x_PAH ≳ 10⁻⁶);
    - Tielens (2021, §10.5.3): PAH⁻ dominate the negative charge when x_e < 2×10⁻⁷ (x_PAH/10⁻⁷).
-  - Lepp & Dalgarno (1988b): in dense clouds PAH⁻ carry most of the negative charge for x_PAH > 10⁻⁸, which
-    raises C and C₃H₂ by two orders of magnitude at x_PAH = 10⁻⁷; DCO⁺/HCO⁺ limits x_PAH to ≲ 6×10⁻⁶.
+   - Lepp & Dalgarno (1988b): in dense clouds PAH⁻ carry most of the negative charge for x_PAH > 10⁻⁸, which
+     raises C and C₃H₂ by two orders of magnitude at x_PAH = 10⁻⁷; DCO⁺/HCO⁺ limits x_PAH to ≲ 6×10⁻⁶.
    - In diffuse gas, H⁺ + PAH⁻ can remove most H⁺ (Tielens 2021 §9.5.3). A ζ derived from OH⁺, H₂O⁺ or HD
      depends on this rate.
 
@@ -275,7 +278,8 @@ When pahchem supplies these terms, each has one owner. Drop the overlapping fit,
 larger than the PAHs:
 - **Ion neutralisation.** WD01b α_g includes PAHs down to 3.5 Å. This matters for Gong+17, TIGRESS-NCR,
   UCLCHEM 4.0 and HYACINTH, and for any network that uses α_g.
-  - pyCALIMA's `dust_ion_recombination.py` already excludes the PAH bins, and nothing uses it.
+  - pyCALIMA has no grain-assisted recombination of its own: `dust_ion_recombination.py` was removed on
+    2026-10-04 (6a56802).
 - **Photoelectric heating and recombination cooling.** The BT94, WD01 eq. 44/45 and W22 fits are
   PAH-dominated: half the heating comes from grains < 15 Å.
   - RAMSES `pah_pe_heating` (Berné+22) and pahchem's Γ_PE on the same bins must not both run.
@@ -307,7 +311,7 @@ The exact numbers are in the literature page, section 8.
 | V13 | Lepp & Dalgarno 1988 Table 2: neutral-to-ion ratios of C, Mg, S, Ca and Fe toward ζ Per and ζ Oph against x_PAH (they infer x_PAH 1×10⁻⁷ and 6×10⁻⁷, ×2) | to do |
 | V14 | Tielens 2021 Fig. 12.34: f(Z) of C₅₄H₁₈ and C₉₆H₂₄ for a diffuse cloud (G₀ 2, n 50, T 80), the NGC 7023 PDR (2600, 2×10⁴, 500) and its cavity (2×10⁴, 5×10³, 500), x_e = 1.6×10⁻⁴; and its ε examples (0.05 at γ ≈ 10³, 0.008 at 10⁵) | **diffuse and cavity pass, PDR partial** (2026-10-23, `check_tielens21_fz.py`, values read from the figure ±0.01; ε examples in V9; see below) |
 | V15 | dense clouds: Tielens 2021 eq. 10.77, x_e ≃ 2×10⁻⁷ (ζ/3×10⁻¹⁷)^½ (10⁴/n)^½, and Fig. 10.22 (PAH⁻ take over at n ≈ 3×10³); Flower & Pineau des Forêts 2026 (n_H = 10⁴, T = 10 K) | to do |
-| — | pahchem's existing gates and the PDRs4All fits unchanged with ions and the opt-in deposit off | **passes** (2026-10-23): `tests/test_pahchem_*.py` 312 passed, 33 skipped, 18 xfailed (all marked); the Orion Bar shape fit recomputed from scratch equals the 2026-10-22 cache (`pahchem_spectral_shape_4154c0c24afa.pkl`) to ≤ 5×10⁻⁸ in every number |
+| — | pahchem's existing gates and the PDRs4All fits unchanged with ions and the opt-in deposit off | **passes** (2026-10-23): `tests/test_pahchem_*.py` pass, every xfail a marked one; the Orion Bar shape fit recomputed from scratch equals the 2026-10-22 cache (`pahchem_spectral_shape_4154c0c24afa.pkl`) to ≤ 5×10⁻⁸ in every number |
 
 **V4, V9 and V14 (2026-10-23).** Nothing tuned; v4.00 molecules with the calibrated IP shifts.
 - **V4, α_PAH against WD01b.**
@@ -382,8 +386,9 @@ n(H) v̄_H, with the mean speed v̄_H = 1.5×10⁴ T^½) give a rate 1.77× lowe
 (`mean_h_speed`) in the rate and in the H flux; `tests/test_models_physics.py` reproduces their eq. 4. Nothing in
 pyCALIMA consumes the rate, so no pyCALIMA benchmark moves.
 - **RAMSES:** the same fix is e7b5165a in part 02 of the PR stack (#16) and all later parts, but not in `staging`
-  or `calima_tva`. The recommendation (land #16, re-check results made without it, refresh pyCALIMA's Fortran
-  mirror `solvers/ramses_source/dust_surface_chemistry.f90`) is in `RAMSES_dev/OPEN_ISSUES.md`.
+  or `calima_tva`. The recommendation (land #16, re-check results made without it) is in
+  `RAMSES_dev/OPEN_ISSUES.md`. pyCALIMA's Fortran mirror `solvers/ramses_source/dust_surface_chemistry.f90`
+  already has the fix (πa² and the mean speed √(8kT/πm_H), lines 133–142).
 
 **The Andrews+16 reproduction's neutral sticking, fixed 2026-10-21.** `pahchem/andrews16.py` used sticking 1 for
 every neutral. Andrews+16 (App. A.3) take an EA-dependent sticking from Allamandola+89 (≈ 10⁻⁵ at EA = 0.47 eV,
@@ -527,8 +532,9 @@ switch (Malloci and Octopus, opt-in) lands. For neutrals, part of Malloci's exce
 exponential time window their spectra carry, not absorption: about a quarter of coronene's Mathis 1–5 eV rate
 ({doc}`pahchem-uv-absorption` §2). The cations' visible bands are real.
 
-**To rerun on the new grid:** V2, V9 and V14 (Draine cells, which gain the old stars), the Berné+22 comparison, and
-the PDRs4All fits. The last means rebuilding the Kurucz 40 000 K bases of all 1424 v4.00 molecules.
+**Rerun on the new grid** (2026-10-24): V2, V9 and V14 (Draine cells, which gain the old stars; see §4) and the
+PDRs4All fits (below), which meant rebuilding the Kurucz 40 000 K bases of all 1424 v4.00 molecules. The Berné+22
+comparison is still to rerun.
 
 **PDRs4All rerun (2026-10-24).** The bases (4315 states) took 14 min with 8 workers. The comparison script is
 `diagnostics/pahchem/check_sub5ev_pdrs4all.py`. The Orion Bar fits hardly feel the sub-5 eV light:

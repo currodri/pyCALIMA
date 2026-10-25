@@ -12,7 +12,9 @@ Sources:
 - pahchem numbers: the current spectral fit (`fit_pdrs4all_spectra.py
   --fit-shape`, result `392313363fe8`: v4.00, IPs calibrated, lab CH-stretch
   scale, BT94 capture, Gaussian profiles). The M26 metrics were recomputed at
-  our best cells for this page.
+  our best cells for this page. The 2026-10-24 refit with photons from 1 eV
+  (`14f2f8878d10`) barely moves them: the same best cell in 9 of 10 fits, rms
+  ~1 % better, charge shares within 0.006 ({doc}`pahchem-gas-coupling` §4d).
 
 ## 1. Summary
 
@@ -62,7 +64,7 @@ Sources:
 ### 2.1 Methods, ranked by how close they are to pahchem
 
 **M26: pyPAHdb per pixel** ({cite:t}`Maragkoudakis2026`, arXiv:2601.23282;
-numbered XIX in A&A, XVIII on arXiv). The closest analogue.
+PDRs4All XVIII, A&A 709, A38). The closest analogue.
 - Data: MIRI-MRS 5–15 µm, about 8 500 pixels and the five templates.
 - Preprocessing: lines, baseline and continuum are removed first
   (pybaselines morphological, then imodpoly). No extinction correction.
@@ -117,7 +119,7 @@ and size profile.
   spline continuum. Two surprises:
   - 6.2/11.2 changes by only 12 % against a ≈ 40× change in ionising flux;
   - 3.4/3.3 doubles from the APDR to DF3.
-- **Khan+26, PDRs4All XX** (arXiv:2510.06167). Band maps and a cut.
+- **Khan+26, PDRs4All XIX** (A&A 709, A39; arXiv:2510.06167). Band maps and a cut.
   - 6.2/11.2 is the best charge proxy; 6.2/8.6 and 7.7/8.6 are size proxies.
   - It gives synthetic-filter prescriptions.
 - **Habart+24, PDRs4All II.** Six imaging cuts.
@@ -183,7 +185,7 @@ Reading:
   fillers. Our charge balance allows ≤ 1 %. This is the clearest gain from
   using physical charges.
 - **γ.**
-  - Ours is 0.99–1.07 × 10$^4$ in all five templates. That uniformity is
+  - Ours is 0.98–1.07 × 10$^4$ in all five templates. That uniformity is
     suspicious.
   - In four templates the best G$_0$ sits at the low edge of the card range.
   - So the fit is selecting the γ that the band-shape and library
@@ -211,7 +213,7 @@ Reading:
 
 | quantity | number | how chosen | what it absorbs |
 |---|---|---|---|
-| molecule abundances w$_s$ ≥ 0 | 1424 candidates; 55–93 non-zero | NNLS | everything spectral: band ratios, positions through isomer choice |
+| molecule abundances w$_s$ ≥ 0 | 1424 candidates; 55–81 non-zero at the best cells | NNLS | everything spectral: band ratios, positions through isomer choice |
 | continuum | 4 B-splines (3.1–3.65 µm) + ~10 (5–15 µm), ≥ 0, knots 1.5 µm | NNLS, with the w$_s$ | the plateaus, band wings, VSG emission |
 | band shape | 5: CH shift, CH FWHM, CC shift, oop shift, rest FWHM | alternation with the scan | anharmonicity, emission temperature, carrier mismatch (CC blue shift) |
 | profile type | Gaussian or Lorentzian | best sse | — |
