@@ -64,14 +64,15 @@ BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3
 
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
-RESULT_VERSION = 7
+#: (8: no associative detachment of the parent anions, the Wenzel yield on the cation only; 2026-10-26)
+RESULT_VERSION = 8
 
 
 def _result_key(args):
-    """Cache key of a run: every argument plus the versions of the code that produce the result."""
+    """Cache key of a run: every argument, the versions of the code that produce the result and the conditions card."""
     stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot", "workers")}
     stamp.update(result=RESULT_VERSION, basis=population.BASIS_VERSION, masks=repr(spectral_fit.MASKED_UM),
-                 broad=repr(BROAD_START))
+                 broad=repr(BROAD_START), card=json.dumps(conditions.load("orion_bar"), sort_keys=True))
     return hashlib.sha1(json.dumps(stamp, sort_keys=True).encode()).hexdigest()[:12]
 
 def observed_on_grid(lam, fnu, grid):

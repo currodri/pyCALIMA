@@ -46,12 +46,12 @@ ip_ladder = "Andrews+16 Table A.1 + 0.1 eV per missing H"
 [electrons]
 capture = "BT94 with DS87 J~, a = 0.9 sqrt(N_C) A, x0.82"
 sticking_cation = { value = 1.0, source = "extrapolation of C6-C16 recombination data (pah_electron_recombination.csv)", confidence = "D" }
-sticking_neutral = { value = "statistical", source = "pahchem.attachment: detailed-balance autodetachment vs harmonic IR stabilisation, PAHdb parent and anion modes, EA of Andrews+16 Table A.1, neutral at its radiative P(E) at G0 = 1; C24H12 2.5e-3 at 100 K, C54H18 and C96H24 1. Capture efficiency eta = 1 (C60, Viggiano+10); where autodetachment dominates the rate does not depend on eta", confidence = "C" }
+sticking_neutral = { value = "statistical", source = "pahchem.attachment: detailed-balance autodetachment vs harmonic IR stabilisation, PAHdb parent and anion modes, EA of Andrews+16 Table A.1, neutral at its radiative P(E) at G0 = 1; C24H12 2.5e-3 at 100 K, C54H18 and C96H24 1. Capture efficiency eta = 1 (C60, Viggiano+10); where autodetachment dominates the rate does not depend on eta. Params.attachment_fraction (since 2026-10-26) sets eta, scaling autodetachment with it: unmeasured above N_C = 14 (anthracene flow tube ~0.002, Carelli+13 coronene ~0.003, C60 ~0.7)", confidence = "C" }
 
 [hydrogen]
 cation_addition = { value = 1.4e-10, unit = "cm^3 s^-1", source = "Betts+06 coronene+ (as Andrews+16)", confidence = "A" }
 neutral_addition = "geometric 35.7 A^2 x N_C/24 with Rauls & Hornekaer barriers; 7 % for dehydrogenated (Andrews+16)"
-associative_detachment = { value = 7.8e-10, unit = "cm^3 s^-1", source = "Demarais+12 (as Andrews+16)", confidence = "D" }
+associative_detachment = { value = 7.8e-10, unit = "cm^3 s^-1", source = "Demarais+12, measured on dehydrogenated anions: N_H < N_H0 only since 2026-10-26 (Params.associative_detachment; \"all\" for every anion, as Andrews+16)", confidence = "D" }
 eley_rideal = { value = 0.06, unit = "A^2", source = "Mennella+12", confidence = "A" }
 
 [targets]

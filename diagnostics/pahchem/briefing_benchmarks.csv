@@ -2,6 +2,7 @@
 # the 2026-10-20 audit fixes updated, see docs/physics/pahchem-audit.md section 5).
 # status: PASS (within the stated tolerance), PARTIAL (in part, or a looser bound), OPEN (fails, strict xfail,
 # unexplained, or not yet run), WITHDRAWN (superseded or withdrawn).
+# Milestone GC: the PAH-gas coupling validations V1-V16 of docs/physics/pahchem-gas-coupling.md (2026-10-25).
 # Read by plot_briefing_extras.py; regenerate this table when the spec's verdicts change.
 id,milestone,compared,metric,status,cause,needs
 andrews16_tableB_definition,M5,sink-free eq.(7) from Andrews' inputs vs Table B.1,C24H12 1.8e-6 vs 1.6e-6 (+0.06 dex); C24H13 1.0e4 vs 6.2e3 (+0.22 dex); C24H3 bracketed -1.9 to +0.8 dex,PASS,C24H3 modes unknown (bracketed by C24H12/C24 modes),-
@@ -135,3 +136,23 @@ cr_lifetimes_vs_micelotta11,CR,"lifetimes with their spectra, f=1","20 Myr (C54)
 cr_vs_chabot2020,CR,Coulomb-explosion lifetime C54H18 vs Chabot+20,"explosions alone 5e8 yr (L, N(H2)=1e22) vs 'billions of years'",PARTIAL,total shorter from statistical C loss of sub-explosion deposits,-
 cr_chabot_threshold_c24,CR,Chabot criterion vs lab coronene dications,criterion explodes C24H12 dications; lab ones stable,OPEN,C60-scaled threshold 4 N_C/60,laboratory anchor for threshold
 cr_emission_old,CR,earlier CR/UV 3.3/11.2 (emission stopped at first dissociation),x1.3-1.4 (now x1.65-1.78),WITHDRAWN,dropped hot tail above 40 eV,-
+gc_v1_w08_table2,GC,Wolfire+08 Table 2 rates from DS87 (N_C = 35),DS87 sphere within 2.6 % of every rate; pahchem's 0.82 disc 0.79-0.82x,PASS,-,-
+gc_v2_w08_cplus,GC,C+ neutralisation on PAHs vs W08 three-state balance (Phi = 0.4),0.84x at the W08 CNM (valence; Jochims 1.16x); 0.84-1.15x over n = 3-300 (2026-10-26),PASS,untuned; inside W08's Phi 0.4-0.6 range,-
+gc_v3_w08_cicii,GC,C I/C II on W08's and Burgh+10's sight lines (W08 eq. B15),effective Phi 0.35-0.45 (W08 0.2-0.4); obs/model C I/C II median 0.68-0.85 (2026-10-26),PASS,-,-
+gc_v4_alpha_wd01b,GC,"alpha_PAH(X+) vs WD01b alpha_g, psi 1e2-1e6, 7 ions",1-2x at psi <= 1e3; 6-9x at psi >= 1e5 (T <= 1e3 K),PARTIAL,"pahchem's f(Z): higher IPs, Jochims yields, +2 cap",-
+gc_v4_xe_wd01b,GC,WD01b Sect. 7 x_e (8.0 -> 4.5e-4),2.7-2.9e-4 vs 3.12e-4 from WD01b's published alpha_g (2026-10-26),PARTIAL,printed 4.5e-4 needs the arXiv v2 coefficients,journal Sect. 7 check
+gc_v5_falp,GC,"e + PAH+ at 300 K vs FALP (10 points, N_C 6-16)",lab 0.03-0.37x pahchem's capture,PARTIAL,no data above N_C = 16; extrapolation unconstrained,e + PAH+ for N_C > 16
+gc_v6_attachment,GC,"electron attachment: C60 (400 K), anthracene (48-300 K)",C60 1.39x Viggiano+10; anthracene 0.005-0.18x the lab,PARTIAL,lab buffer gas stabilises collisionally; pahchem is the zero-density limit,-
+gc_v7_mutual_neutralisation,GC,"X+ + PAH- laws (Shuman+14, Hickman 1979, Tielens 2021) vs DS87",P_MN 0.46-0.98; pahchem uses Shuman's 0.58,PARTIAL,no PAH- + X+ rate has been measured,a measured PAH- + X+ rate
+gc_v8_ion_neutral,GC,X+ + PAH0: 0.9 Langevin (Canosa+95 anthracene) vs DS87,0.5-0.78x DS87 for N_C 24-100,PASS,efficiency taken from the measurement,-
+gc_v9_eps_bt94_tielens,GC,"PE efficiency eps(gamma) vs BT94, Tielens eq. 12.26 and his examples",eps 0.045/0.052 at Tielens' diffuse example (~0.05); 2-3x BT94 at gamma = 1e2; 3-5x BT94 at gamma >= 1e5,PARTIAL,anions dominate at gamma <~ 1e3; their UV detachment yield is not measured,anion photodetachment yields
+gc_v9_berne22_rebuilt,GC,Berné+22 four-state model rebuilt from their data (step 0),"<= 0.3 % in eps, Gamma/H and f(Z); their Table 4 diffuse point",PASS,-,-
+gc_v9_berne22_gamma,GC,"pahchem Gamma/H vs Berné+22, C54H18 diffuse ISM",1.86x (2.1x at gamma = 513; 1.2-3.1x at gamma <= 200),PARTIAL,their coronene attachment law leaves out the anions,-
+gc_v10_thi20,GC,C54 recombination vs Thi+20 Table B.3,1+: 2.1-2.3x (1.3-1.4x lab trend); 2+/3+: 1e-3-0.9x,PARTIAL,"Thi's 2+/3+ (1 + W/kT) repeats the Coulomb focusing (transcription checked against the paper, 2026-10-25)",-
+gc_v11_h2,GC,"H2 on PAHs: Andrews+16, Castellanos+18, Boschman+15, Habart+04",ER constant 0.9995x; Andrews Fig. 10 matched; Castellanos fails; PAHs give <= 2.4 % of Habart's R_f,PARTIAL,Castellanos' xi = 1-2 % not reproduced,-
+gc_v12_energy_closure,GC,"absorbed = IR + photoelectron + ionisation work, per state",closes to < 1e-4 on the 5-500 eV grid,PASS,-,-
+gc_v13_lepp88,GC,Lepp+88 neutral/ion ratios toward zeta Per and zeta Oph,x_PAH 0.7-1.1e-7 and 3.5-4.8e-7 vs their 1e-7 and 6e-7 (x2) (2026-10-26),PASS,-,-
+gc_v14_tielens_diffuse_cavity,GC,"f(Z) of C54H18, C96H24 vs Tielens Fig. 12.34: diffuse cloud and cavity","diffuse: every f(Z) within 0.07, <Z> -0.04/-0.07 vs -0.04/0.00, C96H24 f(-1) 0.155 vs 0.13; C96H24 cavity <Z> +2.46 vs +2.57 (2026-10-26)",PASS,-,-
+gc_v14_tielens_pdr,GC,f(Z) vs Tielens Fig. 12.34: NGC 7023 PDR,<Z> +0.37/+0.52 vs +0.55/+0.78; f(0) 0.62/0.49 vs 0.47/0.35,PARTIAL,"pahchem less ionised at high gamma: its electron capture (s = 1) is 2.2x Tielens' (0.8 planarity, Spitzer)",-
+gc_v15_dense,GC,dense clouds: Tielens eq. 10.77 and Fig. 10.22; Flower & Pineau des Forets 2026,PAH- overtake electrons at n(H2) = 1.3e2 vs ~3e3 (8.3e3 with associative detachment of every anion); eq. 10.77 <= 0.1x,PARTIAL,attachment is the full classical capture (s_e = 1); its capture-to-anion share is unmeasured above N_C = 14,-
+gc_group_tables,GC,per-bin RAMSES group tables vs Population,"<= 4 % in f(Z), <= 2.5 % in Gamma_PE, Lambda_rec, alpha(C+)",PASS,-,-

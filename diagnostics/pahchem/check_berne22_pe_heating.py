@@ -5,7 +5,8 @@ A four-to-six-state charge chain with swappable inputs. Step 0 is the Berné+22 
 ``four_levels_model.py``) rebuilt from their own data files. It must reproduce the output of their code
 (``--berne-json``), which validates the kernel ``photo.photoelectron_power`` and the chain. Each later step
 replaces one input by pahchem's, cumulatively. The last step must equal ``Population.photoelectric_heating``
-for PAHdb v4.00 circumcoronene (C54H18, calibrated IPs).
+for PAHdb v4.00 circumcoronene (C54H18, calibrated IPs): with the valence default since 2026-10-25 that is step 7,
+which agrees to <= 4 % (the population's 1 eV grid and old stars).
 
 Berné+22 inputs (their code):
 - the field: their ``ISRF/draine1978.txt`` (one-sided, 2 pi), G0 from 91.2-240 nm;
@@ -37,16 +38,24 @@ back to 0.87x theirs at gamma = 513 (eps 0.039 against 0.037) but to 0.16-0.40x 
 gamma 30-75; eps 0.12-0.16):
 the remaining gap is the anion population their coronene attachment law leaves out, and what each anion heats.
 
+The figure (``pahchem_berne22_steps.png``): Gamma/H against gamma for the steps, and each over step 0.
+
     check_berne22_pe_heating.py --berne-dir ~/Documents/GitHub/photoelectric-heating [--berne-json run.json]
 """
 import argparse
 import json
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 
+from pycalima import _paths
 from pycalima.pahchem import chemistry, fields, photo, population
 from pycalima.pahchem.baseline import E_PH, Environment, Params
+from pycalima.plotting_style import use_calima_style
 
 H_EV_S, C_CM, EV_ERG = 4.135667696e-15, 2.99792458e10, 1.602176634e-12
 NC, T, PARTITION = 54, 100.0, photo.PHOTOELECTRON_PARTITION
@@ -114,6 +123,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--berne-dir", type=Path, required=True)
     ap.add_argument("--berne-json", type=Path, help="output of their code over the same n_e scan, for step 0")
+    ap.add_argument("--out", type=Path, default=None, help="plot directory (default results/plots/pahchem)")
     args = ap.parse_args()
     import fit_34um_sidegroups as S
 
@@ -145,8 +155,8 @@ def main():
 
     def pahchem_inputs(E, sig_fn, params=None):
         """pahchem's sigma, yields and thresholds; with a detachment other than Jochims, the anion's electrons take
-        the energies of ``population.statistical_detachment``."""
-        p = params or pop.p
+        the energies of ``population.statistical_detachment``. Steps 4-5 are Jochims (the default before 2026-10-25)."""
+        p = params or Params(detachment="jochims")
         sigma = {z: sig_fn(z, E) for z in zs_p}
         yields = {z: population._yield(mol, z, p, energy_ev=E) for z in zs_p[:-1]}
         th = {z: mol.ionisation_ev[z] for z in zs_p[:-1]}
@@ -181,11 +191,11 @@ def main():
          lambda ne: pahchem_down(ne, "berne"), 5.0),
         ("5a pahchem cation recombination (DS87)", Ep, Flux(Ep, Fp), lambda: pahchem_inputs(Ep, ld),
          lambda ne: pahchem_down(ne, "cation"), 5.0),
-        ("5 + statistical neutral attachment (= pahchem)", Ep, Flux(Ep, Fp), lambda: pahchem_inputs(Ep, ld),
+        ("5 + statistical neutral attachment (Jochims)", Ep, Flux(Ep, Fp), lambda: pahchem_inputs(Ep, ld),
          lambda ne: pahchem_down(ne, "pahchem"), 5.0),
         ("6 + statistical detachment", Ep, Flux(Ep, Fp),
          lambda: pahchem_inputs(Ep, ld, Params(detachment="statistical")), lambda ne: pahchem_down(ne, "pahchem"), 5.0),
-        ("7 + valence detachment", Ep, Flux(Ep, Fp),
+        ("7 + valence detachment (= pahchem)", Ep, Flux(Ep, Fp),
          lambda: pahchem_inputs(Ep, ld, Params(detachment="valence")), lambda ne: pahchem_down(ne, "pahchem"), 5.0),
     ]
     rows = {}
@@ -207,6 +217,45 @@ def main():
         env = Environment("berne", g0, 0.0, ne, T, None)
         gp, _, ep = pop.photoelectric_heating(env)
         print(f"   {'Population.photoelectric_heating':44s} eps {ep[0]:.4f}  Gamma/H {gp[0] * per_h:.3e}")
+    plot(np.array([g0 * np.sqrt(T) / ne for ne in n_es]),
+         {k: np.array([r[1] for r in v]) * per_h for k, v in rows.items()},
+         (args.out or _paths.get_plots_dir("pahchem")) / "pahchem_berne22_steps.png")
+
+
+#: steps drawn (step 1 changes eps only, step 2 the field to <= 2 %), in the order of the chain
+SHOWN = {"0 Berne+22 (their inputs)": ("k", "-"), "3 Li & Draine sigma": ("#8a5cc2", "-"),
+         "4 pahchem thresholds, yields, -1..+3": ("#e87ba4", "-"),
+         "5a pahchem cation recombination (DS87)": ("#1baf7a", "-"),
+         "5 + statistical neutral attachment (Jochims)": ("#eb6834", "-"),
+         "6 + statistical detachment": ("#eda100", "--"), "7 + valence detachment (= pahchem)": ("#2a78d6", "-")}
+
+
+def plot(gam, heat, path):
+    """Gamma/H of the steps against gamma, and each over step 0."""
+    use_calima_style()
+    fig, (ax, rx) = plt.subplots(2, 1, figsize=(7.5, 7.5), sharex=True, gridspec_kw={"height_ratios": (3, 2)})
+    ref = heat["0 Berne+22 (their inputs)"]
+    for name, (c, ls) in SHOWN.items():
+        lab = name.replace("&", r"\&") if plt.rcParams["text.usetex"] else name
+        lw = 2.4 if name.startswith(("0", "7")) else 1.6
+        ax.loglog(gam, heat[name], color=c, ls=ls, lw=lw, label=lab)
+        rx.semilogx(gam, heat[name] / ref, color=c, ls=ls, lw=lw)
+    rx.axhline(1.0, color="0.6", lw=1)
+    rx.set_yscale("log")
+    ax.set_ylabel(r"$\Gamma_{\rm PE}$ [erg s$^{-1}$ H$^{-1}$]", fontsize=14)
+    rx.set_ylabel(r"step / Bern\'e+22", fontsize=14)
+    rx.set_xlabel(r"$\gamma = G_0\sqrt{T}/n_e$", fontsize=14)
+    ax.set_title(r"C$_{54}$H$_{18}$, $T = 100$ K, Draine field: Bern\'e+22 to pahchem, one input at a time",
+                 fontsize=12)
+    ax.legend(frameon=False, fontsize=9, loc="lower left")
+    for a in (ax, rx):
+        a.minorticks_on()
+        a.tick_params(which="both", direction="in", top=True, right=True)
+    fig.subplots_adjust(hspace=0.05)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote", path)
 
 
 if __name__ == "__main__":

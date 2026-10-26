@@ -11,17 +11,20 @@ Updated after the code audit of 2026-10-20 ({doc}`pahchem-audit`):
 ```
 
 This page goes with the figure set in `<plots dir>/pahchem/briefing/` (run
-`calima-paths` to see where the plots dir resolves). It covers four things:
+`calima-paths` to see where the plots dir resolves). It covers five things:
 - what pahchem can already reproduce;
 - how a model spectrum is computed and fitted to the PDRs4All Orion Bar spectra;
 - what those fits imply;
-- what is still wrong or unexplained.
+- what is still wrong or unexplained;
+- what the PAHs give the gas: charge, ion neutralisation, photoelectric heating and recombination cooling,
+  against the published balances (section E, added 2026-10-25).
 
 The figures are in presentation order:
 - **A**: overview;
 - **B**: spectral fits;
 - **C**: reproduced benchmarks;
-- **D**: open problems.
+- **D**: open problems;
+- **E**: PAH–gas coupling ({doc}`pahchem-gas-coupling` §4).
 
 Each entry gives the result, then the points to discuss. The full record is
 {doc}`pahchem-spec`. The questions for collaborators are in
@@ -32,7 +35,8 @@ PDRs4All methods in {doc}`pahchem-pdrs4all-comparison`.
 `diagnostics/pahchem/make_briefing.sh <PAH_states dir> <West+18 ESI .xlsx>`,
 run from the worktree root with `$CALIMA_PAHDB_DIR` set, rebuilds every
 figure in pyCALIMA's style (`pycalima.plotting_style`).
-- The benchmark runners take ~30 min.
+- The benchmark runners take ~30 min, and the gas-coupling runs of section E ~2.5 h more (`SKIP_RUNS=1`
+  reuses the figures in the plots dir; `BERNE_DIR` adds the Berné+22 step-by-step figure).
 - The spectral fits are not refitted: they are read from the cached
   `fit_pdrs4all_spectra.py --fit-shape` result. The numbers on this page are
   from key `392313363fe8` (refitted 2026-10-20 after the audit fixes, 5 eV
@@ -49,15 +53,16 @@ figure in pyCALIMA's style (`pycalima.plotting_style`).
 
 ## A. Overview
 
-**A1 — benchmark scorecard.** These are all 131 comparisons recorded in
-{doc}`pahchem-spec`, grouped by milestone. Verdicts are taken from the spec
+**A1 — benchmark scorecard.** These are all 151 comparisons recorded in
+{doc}`pahchem-spec` (131) and {doc}`pahchem-gas-coupling` (20, milestone GC, added 2026-10-25), grouped by
+milestone. Verdicts are taken from those pages
 (table: `diagnostics/pahchem/briefing_benchmarks.csv`, one row each, with the
 metric, cause and spec line).
 
 | Verdict | Count | Meaning |
 |---|---|---|
-| Reproduced | 63 | within the stated tolerance |
-| Partly | 25 | some of it, or within a looser bound |
+| Reproduced | 72 | within the stated tolerance |
+| Partly | 36 | some of it, or within a looser bound |
 | Fails or open | 32 | |
 | Withdrawn | 11 | |
 

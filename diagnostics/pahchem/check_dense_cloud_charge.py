@@ -22,15 +22,23 @@ Model: a minimal dark-cloud balance, steady state, no photons (G0 = 0), the gas 
 - PAHs: the v4.00 molecules with N_C 50-100 and an anion (349, the calibrated IP shifts), equal shares of
   x_PAH (per H nucleus), each in pahchem's dark chain: attachment (statistical s_e, ``capture_coefficient``),
   recombination of the cation, mutual neutralisation with M+ and Mg+ (0.58 DS87), M+ and Mg+ + PAH0 (0.9
-  Langevin, IP(X) > IP(PAH)), and associative detachment of PAH- by atomic H at 7.8e-10. n(H) is zeta / R_gr
-  with R_gr = 3e-17 (T/100)^1/2 (H2 formation on grains against CR destruction; 3.2 cm^-3 at 3e-17, 10 K), or
-  0 (``--n-h 0``: no associative detachment, as the classical balances).
+  Langevin, IP(X) > IP(PAH)), and associative detachment of PAH- by atomic H at 7.8e-10 with
+  ``--associative-detachment all`` (``population.anion_associative_detachment``; since 2026-10-26 pahchem's default
+  leaves the parent anions without it, as Demarais+12 measured it on dehydrogenated anions only). n(H) is
+  zeta / R_gr with R_gr = 3e-17 (T/100)^1/2 (H2 formation on grains against CR destruction; 3.2 cm^-3 at 3e-17,
+  10 K), or 0 (``--n-h 0``: no associative detachment, as the classical balances).
 - n is n(H2); x_e = n_e / n(H2) as in eq. 10.77; n_H = 2 n(H2).
 The charge fractions are pahchem's: they are recomputed with ``population.charge_fractions`` over the whole
 library, and with ``Population.charge_matrix`` / ``gas_rates`` (G0 = 0 and 1e-6) for three molecules, for each
 ``Params(detachment=...)``.
 
-Result (2026-10-25; T = 10 K, alpha_dr "od", x_metal 1e-6 per H2, n(H) = zeta/R_gr; ~100 s, 1 core):
+Default since 2026-10-26 (no associative detachment of these parents): the "without AD" numbers below.
+Fig. 10.22 (x_PAH 1e-7): n(PAH-) = n_e at n(H2) = 1.3e2 (5.5e2 at 5e-8) against ~3e3; PAHs lower x_e at 1e4
+63x; FPdF's x(PAH-)/x_e = 66 at x_PAH 1e-6 (zeta 5e-17), 6.0 at 1e-7. Both sit on the attachment, the full
+classical capture for these EAs (s_e = 1), whose capture-to-anion share is not measured above N_C = 14.
+
+Result (2026-10-25, with associative detachment, i.e. ``--associative-detachment all``; T = 10 K, alpha_dr "od",
+x_metal 1e-6 per H2, n(H) = zeta/R_gr; ~100 s, 1 core):
 - G0 = 0 works in ``Population.charge_matrix`` / ``gas_rates`` (a divide-by-zero warning in a log where an up-rate
   is 0, harmless); f equals this chain's and ``charge_fractions``' to 2e-16 for jochims, statistical and valence
   (the dark chain has no photodetachment); f(Z > 1) = 0; G0 = 1e-6 (Kurucz 40 kK) moves f by <= 3e-6;
@@ -45,7 +53,8 @@ Result (2026-10-25; T = 10 K, alpha_dr "od", x_metal 1e-6 per H2, n(H) = zeta/R_
 - FPdF 2026 (n_H 1e4): x(PAH-)/x_e >= 43 needs x_PAH ~ 1e-6 without AD (66 at zeta 5e-17, 26 at 3e-16; 6 and 2 at
   1e-7), as they find; with AD (n(H) 5-32 cm^-3) it stays <= 12 even at 3e-6: AD by H sets f(PAH-) ~
   k_att n_e / (7.8e-10 n(H)) <= 0.15.
-    check_dense_cloud_charge.py [--alpha-dr od|hco+|h3+] [--x-metal 1e-6] [--n-h -1] [--temperature 10] [--out DIR]
+    check_dense_cloud_charge.py [--alpha-dr od|hco+|h3+] [--x-metal 1e-6] [--n-h -1] [--associative-detachment all]
+                                [--temperature 10] [--out DIR]
 """
 import argparse
 import time
@@ -73,7 +82,6 @@ ALPHA_DR = {"od": lambda t: 1e-6 * (t / 300.0) ** -0.5,
             "hco+": lambda t: 2.4e-7 * (t / 300.0) ** -0.69,
             "h3+": lambda t: 6.8e-8 * (t / 300.0) ** -0.52}
 K_CT_METAL = 2.9e-9                                   # HCO+ + Mg -> Mg+ + HCO [cm^3 s^-1]
-AD = 7.8e-10                                          # PAH- + H -> PAH-H + e (pahchem, Demarais+12)
 N_H2 = np.logspace(2.0, 6.0, 25)
 ZETAS = (1e-17, 3e-17, 1e-16)
 X_PAH = (5e-8, 1e-7, 3e-7, 6e-7)
@@ -106,6 +114,7 @@ class DarkChain:
 
     def __init__(self, lib, t, params=Params()):
         self.t = t
+        self.ad = population.anion_associative_detachment(params)       # PAH- + H -> PAH-H + e
         self.att = np.array([population.capture_coefficient(m, 0, t, params) for m in lib])
         self.rec = np.array([population.capture_coefficient(m, 1, t, params) for m in lib])
         self.mn, self.ct = {}, {}
@@ -117,7 +126,7 @@ class DarkChain:
 
     def fractions(self, ne, ions, n_h):
         """(f-, f0, f+)[s] at n_e, {ion: n} and atomic n(H) [cm^-3]."""
-        up_m = AD * n_h + sum(n * self.mn[i] for i, n in ions.items())
+        up_m = self.ad * n_h + sum(n * self.mn[i] for i, n in ions.items())
         up_0 = sum(n * self.ct[i] for i, n in ions.items())
         r1, r2 = up_m / (ne * self.att), up_0 / (ne * self.rec)
         fm = 1.0 / (1.0 + r1 + r1 * r2)
@@ -234,7 +243,7 @@ def cross_check(lib, chain, point, args):
     rep = [i for i, m in enumerate(lib) if m.name in REPRESENTATIVE]
     out = {}
     for d in DETACHMENT:
-        p = Params(detachment=d)
+        p = Params(detachment=d, associative_detachment=args.associative_detachment)
         cf = np.array([[population.charge_fractions(m, env, p)[z] for z in (-1, 0, 1)] for m in lib])
         sub = [lib[i] for i in rep]
         pop = population.Population(sub, {"all": (1.0, 1e4)}, params=p)
@@ -263,13 +272,15 @@ def main():
     ap.add_argument("--x-metal", type=float, default=1e-6, help="total metal (Mg) per H2")
     ap.add_argument("--n-h", type=float, default=-1.0,
                     help="atomic n(H) [cm^-3] for associative detachment; < 0: zeta / R_gr (default); 0: off")
+    ap.add_argument("--associative-detachment", default=Params().associative_detachment, choices=("dehydrogenated", "all"),
+                    help="'all': PAH- + H detaches every anion; 'dehydrogenated' (pahchem's default): none of these parents")
     ap.add_argument("--temperature", type=float, default=10.0)
     ap.add_argument("--out", type=Path, default=None, help="plot directory (default results/plots/pahchem)")
     args = ap.parse_args()
     chemistry.IONS.setdefault(*MOLECULAR_ION)
     t0 = time.time()
     lib = library()
-    chain = DarkChain(lib, args.temperature)
+    chain = DarkChain(lib, args.temperature, Params(associative_detachment=args.associative_detachment))
     t = args.temperature
     print(f"{len(lib)} v4.00 molecules, N_C 50-100 with an anion; T = {t:g} K, alpha_dr '{args.alpha_dr}' = "
           f"{ALPHA_DR[args.alpha_dr](t):.2e}, alpha_rr(Mg+) = {alpha_rr(t):.2e}, x_metal = {args.x_metal:g} per H2, "

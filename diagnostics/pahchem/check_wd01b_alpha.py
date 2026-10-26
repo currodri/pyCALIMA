@@ -23,7 +23,7 @@ at T = 6000 K and psi >= 3e4, where it spreads 1.2-4x between ions):
   to 6-9 at psi >= 1e5 for T <= 1000 K (3.7-7.8 at 6000 K). The excess is in the charge distribution, not the
   collision rates. For N_C 40-70 at T = 100 K, pahchem has f(-) = 0.60 against WD01's 0.18 at psi = 1e2, and
   f(0) = 0.155 against 0.016 at 1e5, where charge transfer on neutrals dominates (pahchem's measured-and-shifted
-  IPs, e.g. 6.5 eV for C54H18 against WD01's 5.7, and the Jochims yields). Above psi ~ 1e5 pahchem's chain stops
+  IPs, e.g. 6.5 eV for C54H18 against WD01's 6.24 (eq. 2 at a = 4.87 A), and the Jochims yields). Above psi ~ 1e5 pahchem's chain stops
   at +2 (WD01 reaches +3), so the ratio there is partly an upper bound;
 - WD01 physics against its own WD01b fit: 0.55-2.5 over the grid.
 
@@ -89,7 +89,8 @@ def mathis_G():
 def _alpha_full(args):
     """WD01 grain-assisted recombination alpha_i [cm^3 s^-1 per grain] of ``rt_group_charging.RECOMB_IONS`` over
     the full-spectrum P(Z): sum_Z P(Z) pi a^2 v_i J~(Z) theta(IP(X) - IP(a, Z)) (WD01 "case a"). The reference that
-    ``models/dust_charge/dust_ion_recombination.py`` held until its removal (6a56802); kept here for V4 only."""
+    ``models/dust_charge/dust_ion_recombination.py`` held until its removal (6a56802); kept here for V4 only.
+    Appended: the same solve's photoelectric heating and recombination cooling [erg s^-1 per grain] and <Z>."""
     from pycalima.models.dust_charge import rt_group_charging as rg
     from pycalima.models.dust_charge.dust_charging import equilibrium_charge_for_grain
     from pycalima.models.dust_charge.shared_physics import (DS87_J_function_vec, KB_CGS,
@@ -98,7 +99,7 @@ def _alpha_full(args):
                                                             ionisation_potential_valence_vec)
 
     G0_mathis, ne, T, material, a, yield_model = args
-    Zs, P, _, _, _ = equilibrium_charge_for_grain(G0_mathis, ne, T, material, a,
+    Zs, P, rates, z_mean, _ = equilibrium_charge_for_grain(G0_mathis, ne, T, material, a,
                                                   yield_params={"yield_model": yield_model},
                                                   ion_species=[{"n": ne, "T": T, "m": 1.67262192e-24, "z": 1.0}])
     Zs, P = np.asarray(Zs, dtype=float), np.asarray(P, dtype=float)
@@ -110,7 +111,7 @@ def _alpha_full(args):
     for _el, m_u, ip_x in rg.RECOMB_IONS:
         v = np.sqrt(8.0 * KB_CGS * T / (np.pi * m_u * rg.M_U))
         out.append(float(np.sum(P * np.pi * a * a * v * J * (ip_x - ip_grain >= 0.0))))
-    return np.array(out)
+    return np.array([*out, rates["Gamma_total"], rates["Recomb_total"], z_mean])
 
 
 def compute(workers, detachment=Params().detachment):
@@ -127,19 +128,22 @@ def compute(workers, detachment=Params().detachment):
     print(f"WD01 physics: {len(jobs)} full-spectrum grain solves on {workers} workers", flush=True)
     with ProcessPoolExecutor(workers) as ex:
         res = dict(zip(keys, ex.map(_alpha_full, jobs, chunksize=4), strict=True))
-    cols = [R.ION_INDEX[i] for i in IONS]
+    n_ion = len(R.ION_INDEX)
+    cols = [R.ION_INDEX[i] for i in IONS] + [n_ion, n_ion + 1]               # the ions, then heating and cooling
     wd = {}
     for part, dn_da, sizes in (("pah", gsd.graphite_dn_da, A_PAH), ("graphite", gsd.graphite_dn_da, A_GRAPHITE),
                                ("silicate", gsd.silicate_dn_da, A_SILICATE)):
         al = np.array([[[res[(part, iT, ip, ia)][cols] for ip in range(PSI_GRID.size)]
                         for iT in range(len(T_GRID))] for ia in range(sizes.size)])
-        wd[part] = per_h(dn_da, sizes, al)                                   # (T, psi, ion)
+        wd[part] = per_h(dn_da, sizes, al)                                   # (T, psi, ion + 2)
     wd_total = wd["pah"] + wd["graphite"] + wd["silicate"]
+    z_wd = [[[res[("pah", iT, ip, ia)][n_ion + 2] for ia in range(A_PAH.size)] for ip in range(PSI_GRID.size)]
+            for iT in range(len(T_GRID))]
 
     lib = population.shift_thresholds(population.library_v400(), IP_SHIFTS)
     a_fine = np.geomspace(gsd.A_MIN, radius_cm(NC_EDGES[-1]), 400)
     pah = np.zeros_like(wd_total)
-    bins = []
+    bins, z_bins = [], []
     for lo, hi in pairwise(NC_EDGES):
         w = G.nc_range_weights(lib, lo, hi)
         a = a_fine[(a_fine >= radius_cm(lo)) & (a_fine <= radius_cm(hi))]
@@ -147,15 +151,41 @@ def compute(workers, detachment=Params().detachment):
         print(f"pahchem bin N_C {lo}-{hi}: {int(w.sum())} molecules, {n_bin:.3e} per H", flush=True)
         tab = G.PAHGroupTable(G.build_bin_table(lib, w, params=Params(detachment=detachment), workers=workers, label=f"{lo}-{hi}"))
         bins.append({"nc": (lo, hi), "n_mol": int(w.sum()), "n_per_h": n_bin, "mean_nc": tab.t["nc"]})
+        z_bin = np.zeros((len(T_GRID), PSI_GRID.size))
         for iT, T in enumerate(T_GRID):
             for ip, psi in enumerate(PSI_GRID):
                 ne = np.sqrt(T) / psi
                 r = tab.solve(np.zeros(tab.t["L0"].size), T, ne, 0.0, (("H+", ne),), G0_bg=1.0)
-                pah[iT, ip] += n_bin * np.array([r["alpha_mn"][i] + r["alpha_ct"][i] for i in IONS])
+                pah[iT, ip] += n_bin * np.array([r["alpha_mn"][i] + r["alpha_ct"][i] for i in IONS]
+                                                + [r["gamma"], r["lam"]])
+                z_bin[iT, ip] = r["f"] @ np.array(G.CHARGES, dtype=float)
+        z_bins.append(z_bin.tolist())
     fit = np.array([[[gsd.get_analytical_recomb_coefficient(i, 1.0, np.sqrt(T) / psi, T) for i in IONS]
                      for psi in PSI_GRID] for T in T_GRID])
-    return {"ions": IONS, "T": T_GRID, "psi": PSI_GRID.tolist(), "bins": bins, "pahchem": pah.tolist(),
-            "wd01_pah": wd["pah"].tolist(), "wd01_total": wd_total.tolist(), "fit": fit.tolist()}
+    n = len(IONS)
+    return {"ions": IONS, "T": T_GRID, "psi": PSI_GRID.tolist(), "bins": bins, "pahchem": pah[..., :n].tolist(),
+            "wd01_pah": wd["pah"][..., :n].tolist(), "wd01_total": wd_total[..., :n].tolist(), "fit": fit.tolist(),
+            "heat": {"pahchem": pah[..., n:].tolist(), "wd01_pah": wd["pah"][..., n:].tolist(),
+                     "wd01_total": wd_total[..., n:].tolist()},
+            "z": {"a_wd01": A_PAH.tolist(), "wd01": z_wd, "pahchem": z_bins}}
+
+
+#: WD01 (ApJS 134, 263) eqs. 44 and 45 for the ISRF, R_V = 3.1, b_C = 6e-5 (Table 2 rows; literature page)
+WD01_EQ44 = (9.30, 0.248, 0.00697, 0.01848, 0.365, 0.633, 0.509)
+WD01_EQ45 = (0.3632, 2.937, -7.601, 1.742, 0.06228)
+
+
+def heating_fits(T, psi):
+    """{name: (Gamma / (G n_H), Lambda / (n_e n_H))} [erg s^-1 cm^3 or cm^3] of WD01 eqs. 44-45 and BT94 eqs. 43-44
+    (gamma = psi, G0 in Habing)."""
+    c = WD01_EQ44
+    d = WD01_EQ45
+    x = np.log(psi)
+    wd_g = 1e-26 * (c[0] + c[1] * T ** c[4]) / (1.0 + c[2] * psi ** c[5] * (1.0 + c[3] * psi ** c[6]))
+    wd_l = 1e-28 * T ** (d[0] + d[1] / x) * np.exp(d[2] + d[3] * x - d[4] * x * x)
+    eps = 4.87e-2 / (1.0 + 4e-3 * psi ** 0.73) + 3.65e-2 * (T / 1e4) ** 0.7 / (1.0 + 2e-4 * psi)
+    bt_l = 3.49e-30 * T ** 0.944 * psi ** (0.735 / T ** 0.068)
+    return {"WD01 eqs. 44-45": (wd_g, wd_l), "BT94 eqs. 43-44": (1e-24 * eps, bt_l)}
 
 
 def report(d):
@@ -169,6 +199,98 @@ def report(d):
                 p, a, t, f = pah[iT, ip, k], wp[iT, ip, k], wt[iT, ip, k], fit[iT, ip, k]
                 print(f"  {T:6.0f} {psi:8.0e}  {p:.2e}  {a:.2e}   {t:.2e}   {f:.2e} | {p / a:17.2f}  {a / t:9.2f}  "
                       f"{p / f:11.2f}  {t / f:13.2f}")
+
+
+def report_heat(d):
+    h, wp, wt = (np.array(d["heat"][k]) for k in ("pahchem", "wd01_pah", "wd01_total"))
+    psi = np.array(d["psi"])
+    print("\nPhotoelectric heating Gamma and recombination cooling Lambda per H (G = 1 Habing, n_H = 1)")
+    print("      T      psi | Gamma: pahchem  WD01(PAH)  WD01(all)  eq.44   BT94 | Lambda: pahchem  WD01(PAH)  "
+          "WD01(all)  eq.45   BT94 | pahchem/WD01(PAH) G, L")
+    for iT, T in enumerate(d["T"]):
+        fits = heating_fits(T, psi)
+        for ip, ps in enumerate(psi):
+            ne = np.sqrt(T) / ps
+            wg, wl = (fits["WD01 eqs. 44-45"][k][ip] for k in (0, 1))
+            bg, bl = (fits["BT94 eqs. 43-44"][k][ip] for k in (0, 1))
+            print(f"  {T:6.0f} {ps:8.0e} | {h[iT, ip, 0]:.2e} {wp[iT, ip, 0]:.2e} {wt[iT, ip, 0]:.2e} {wg:.2e} "
+                  f"{bg:.2e} | {h[iT, ip, 1]:.2e} {wp[iT, ip, 1]:.2e} {wt[iT, ip, 1]:.2e} {wl * ne:.2e} {bl * ne:.2e} "
+                  f"| {h[iT, ip, 0] / wp[iT, ip, 0]:5.2f} {h[iT, ip, 1] / wp[iT, ip, 1]:5.2f}")
+
+
+def _ticks(ax):
+    ax.minorticks_on()
+    ax.tick_params(which="both", direction="in", top=True, right=True)
+
+
+def plot_heat(d, path):
+    """Gamma / (G n_H), Lambda / (n_e n_H) and Lambda / Gamma against psi, per T."""
+    use_calima_style()
+    h, wp, wt = (np.array(d["heat"][k]) for k in ("pahchem", "wd01_pah", "wd01_total"))
+    psi, Ts = np.array(d["psi"]), d["T"]
+    fig, axes = plt.subplots(3, len(Ts), figsize=(4.4 * len(Ts), 10), sharex=True, squeeze=False,
+                             gridspec_kw={"hspace": 0.05, "wspace": 0.3})
+    for c, T in enumerate(Ts):
+        ne = np.sqrt(T) / psi
+        fits = heating_fits(T, psi)
+        series = [(r"pahchem, $N_{\rm C}$ 22-268", h[c], "#2a78d6", "-", 2.2),
+                  (r"WD01 physics, $a \leq 8.3$ \AA", wp[c], "#eb6834", ":", 1.6),
+                  ("WD01 physics, all sizes", wt[c], "#eb6834", "-", 1.8)]
+        for lab, v, col, ls, lw in series:
+            axes[0, c].loglog(psi, v[:, 0], color=col, ls=ls, lw=lw, label=lab)
+            axes[1, c].loglog(psi, v[:, 1] / ne, color=col, ls=ls, lw=lw)
+            axes[2, c].loglog(psi, v[:, 1] / v[:, 0], color=col, ls=ls, lw=lw)
+        for (lab, (g, lam)), ls in zip(fits.items(), ("--", "-."), strict=True):
+            axes[0, c].loglog(psi, g, color="k", ls=ls, lw=1.4, label=lab)
+            if lab.startswith("WD01") and T < 1e3:                     # eq. 45 is fitted for 1e3 <= T <= 1e4 K
+                continue
+            axes[1, c].loglog(psi, lam, color="k", ls=ls, lw=1.4)
+            axes[2, c].loglog(psi, lam * ne / g, color="k", ls=ls, lw=1.4)
+        axes[0, c].set_title(rf"$T = {T:g}$ K", fontsize=14)
+        axes[2, c].axhline(1.0, color="0.7", lw=1, zorder=0)
+        axes[2, c].set_xlabel(r"$\psi = G\sqrt{T}/n_e$", fontsize=14)
+        for r in range(3):
+            _ticks(axes[r, c])
+    axes[0, 0].set_ylabel(r"$\Gamma_{\rm PE}/(G n_{\rm H})$ [erg s$^{-1}$]", fontsize=14)
+    axes[1, 0].set_ylabel(r"$\Lambda_{\rm rec}/(n_e n_{\rm H})$ [erg cm$^3$ s$^{-1}$]", fontsize=14)
+    axes[2, 0].set_ylabel(r"$\Lambda_{\rm rec}/\Gamma_{\rm PE}$", fontsize=14)
+    axes[0, 0].legend(frameon=False, fontsize=9, loc="lower left")
+    axes[1, 0].annotate("WD01 eq. 45: fitted for $T \\geq 10^3$ K only", (0.03, 0.92), xycoords="axes fraction",
+                        fontsize=9, color="0.35")
+    fig.suptitle(r"Heating and recombination cooling, WD01 carbon budget ($b_{\rm C} = 6\times10^{-5}$), Mathis field",
+                 fontsize=14, y=0.95)
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote", path)
+
+
+def plot_charge(d, path):
+    """<Z> of the pahchem bins against WD01's graphite grain of the bin's mean N_C, against psi, per T."""
+    use_calima_style()
+    psi, Ts = np.array(d["psi"]), d["T"]
+    a_wd, z_wd = np.array(d["z"]["a_wd01"]), np.array(d["z"]["wd01"])          # (T, psi, size)
+    colors = ("#2a78d6", "#1baf7a", "#eda100", "#8a5cc2")
+    fig, axes = plt.subplots(1, len(Ts), figsize=(4.4 * len(Ts), 4.6), sharey=True, squeeze=False,
+                             gridspec_kw={"wspace": 0.05})
+    for c, T in enumerate(Ts):
+        ax = axes[0, c]
+        for b, zb, col in zip(d["bins"], d["z"]["pahchem"], colors[:len(d["bins"])], strict=True):
+            lo, hi = b["nc"]
+            a = float(radius_cm(b["mean_nc"]))
+            zw = [np.interp(np.log(a), np.log(a_wd), z_wd[c, ip]) for ip in range(psi.size)]
+            ax.semilogx(psi, np.array(zb)[c], color=col, lw=2.2,
+                        label=rf"$N_{{\rm C}}$ {lo}-{hi} ($\langle N_{{\rm C}}\rangle$ {b['mean_nc']:.0f})")
+            ax.semilogx(psi, zw, color=col, lw=1.4, ls="--")
+        ax.plot([], [], color="0.4", ls="--", lw=1.4, label="WD01 physics, same carbon count")
+        ax.axhline(0.0, color="0.7", lw=1, zorder=0)
+        ax.set_title(rf"$T = {T:g}$ K", fontsize=14)
+        ax.set_xlabel(r"$\psi = G\sqrt{T}/n_e$", fontsize=14)
+        _ticks(ax)
+    axes[0, 0].set_ylabel(r"$\langle Z \rangle$", fontsize=14)
+    axes[0, 0].legend(frameon=False, fontsize=9, loc="upper left")
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print("wrote", path)
 
 
 def plot(d, path):
@@ -218,6 +340,10 @@ def main():
     out = args.out or _paths.get_plots_dir("pahchem")
     out.mkdir(parents=True, exist_ok=True)
     plot(d, out / "pahchem_wd01b_alpha.png")
+    if "heat" in d:                                                     # runs from 2026-10-25 on
+        report_heat(d)
+        plot_heat(d, out / "pahchem_wd01_heating_cooling.png")
+        plot_charge(d, out / "pahchem_wd01_mean_charge.png")
 
 
 if __name__ == "__main__":

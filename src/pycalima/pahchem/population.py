@@ -19,10 +19,12 @@ the molecules' abundances are fitted. In outline:
 
   - Li & Draine sigma;
   - Jochims+96 yields at the DFT threshold (photodetachment at the EA), and
-    Wenzel+20 from the cation up where it applies (N_C >= 32, IP < 11.3 eV);
+    Wenzel+20 for the cation where it applies (N_C >= 32, IP < 11.3 eV; it was
+    measured on cation -> dication only, so the dication takes Jochims');
   - BT94 electron capture, with sticking 1 for cations and the statistical s_e
     of ``attachment`` for neutrals;
-  - associative detachment of anions with H.
+  - associative detachment of anions with H only with ``Params.associative_detachment = "all"``
+    (``anion_associative_detachment``: measured on dehydrogenated anions, and the chain holds N_H0).
 
   The chain stops at the highest charge in the library (+1 for PAHdb v3.20,
   which has no dications): that state holds the higher charges, emitting as
@@ -354,8 +356,8 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     """Ionisation (or detachment) yield out of charge z on ``energy_ev`` (default E_PH); zero at the top of the chain.
 
     As the baseline (``Params``): Jochims+96 (or ``yield_model="lepage"``, Le
-    Page+01 eq. 14 as printed), and Wenzel+20 from the cation up where it
-    applies (``yield_cation``). Anions detach with the same yield at the EA,
+    Page+01 eq. 14 as printed), and Wenzel+20 for the cation where it applies
+    (``yield_cation``; measured on cation -> dication only, as the baseline). Anions detach with the same yield at the EA,
     or with unit yield above it (``detachment="unity"``).
     """
     E = np.asarray(energy_ev, dtype=float)
@@ -367,7 +369,7 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
         return (E >= threshold).astype(float)
     if z == -1 and params.detachment in ("statistical", "valence"):
         return statistical_detachment(mol, params, energy_ev=E, valence=params.detachment == "valence")[0]
-    if z >= 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:
+    if z == 1 and params.yield_cation == "wenzel" and mol.nc >= 32 and threshold < 11.3:   # cation -> dication only
         y = photo.yield_wenzel2020(E, threshold, mol.nc)
     elif params.yield_model == "lepage":
         # Le Page's law is fitted up to 13.6 eV (Verstraete+90's yields) and is a bump about d = 14.9 eV, falling
@@ -437,7 +439,7 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
       few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
     """
     grid = np.asarray(energy_ev, dtype=float)
-    key = ("detach_stat", params.sigma_scale, float(grain_cm), grid.tobytes(), bool(valence))
+    key = ("detach_stat", params.sigma_scale, float(grain_cm), grid.tobytes(), bool(valence), params.attachment_fraction)
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
         from pycalima.pahchem.attachment import Attachment
@@ -449,11 +451,12 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         sigma = photo.sigma_li_draine(mol.nc, -1, E) * params.sigma_scale
         y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
                                 out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
-        akey = ("attach_detach", float(grain_cm))
+        akey = ("attach_detach", float(grain_cm), params.attachment_fraction)
         if akey not in mol._cache:
             mol._cache[akey] = Attachment(mol.species[0], mol.species[-1], ea,
                                                      chemistry.disc_radius_cm(mol.nc),
-                                                     e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm)
+                                                     e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm,
+                                                     capture_fraction=params.attachment_fraction)
         at = mol._cache[akey]
         p_det, eps_cm = at.delayed_detachment(E * dos.CM_PER_EV)
         if valence:
@@ -491,8 +494,10 @@ def shift_thresholds(library, shifts_ev):
     return out
 
 
-def neutral_sticking(mol, temperature_k):
-    """Statistical s_e of the neutral (``attachment``), the neutral in its vibrational ground state.
+def neutral_sticking(mol, temperature_k, capture_fraction=1.0):
+    """Statistical s_e of the neutral (``attachment``), the neutral in its vibrational ground state, per anion
+    formed with ``capture_fraction`` f of the classical captures (``attachment.Attachment``; ``attachment_sticking``
+    gives f s_e, what multiplies the capture rate).
 
     The baseline instead uses the neutral's radiative P(E) under the Draine
     field at G0 = 1. That steady state costs ~7 s per molecule, has a mean
@@ -504,10 +509,10 @@ def neutral_sticking(mol, temperature_k):
 
     if mol.ea_ev is None:
         raise ValueError(f"{mol.name}: no anion in the library, so no neutral sticking")
-    akey = ("attachment", grid_excess_cm(temperature_k))      # the grid holds the electrons' Maxwellian
+    akey = ("attachment", grid_excess_cm(temperature_k), float(capture_fraction))   # the grid holds the Maxwellian
     if akey not in mol._cache:
         at = Attachment(mol.species[0], mol.species[-1], mol.ea_ev, chemistry.disc_radius_cm(mol.nc),
-                        e_excess_cm=akey[1])
+                        e_excess_cm=akey[1], capture_fraction=capture_fraction)
         mol._cache[akey] = (at, {})
     at, done = mol._cache[akey]
     t = round(float(temperature_k), 6)
@@ -516,10 +521,17 @@ def neutral_sticking(mol, temperature_k):
     return done[t]
 
 
+def attachment_sticking(mol, temperature_k, params=Params()):
+    """What multiplies the classical capture on the neutral: ``Params.attachment_fraction`` f times the statistical
+    s_e at that f (``neutral_sticking``)."""
+    f = params.attachment_fraction
+    return f * neutral_sticking(mol, temperature_k, f)
+
+
 def capture_coefficient(mol, z, temperature_k, params=Params()):
     """Electron capture coefficient of charge z [cm^3 s^-1]: BT94/DS87 (``chemistry.electron_capture``), with the
-    statistical sticking on the neutral (``neutral_sticking``) and the cation factor of ``Params.capture_model``."""
-    st = neutral_sticking(mol, temperature_k) if z == 0 else 1.0
+    statistical sticking on the neutral (``attachment_sticking``) and the cation factor of ``Params.capture_model``."""
+    st = attachment_sticking(mol, temperature_k, params) if z == 0 else 1.0
     return chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) * _capture_factor(mol, z, params)
 
 
@@ -559,6 +571,20 @@ def env_field(env):
     return fields.RadiationField(f1.energy_ev, env.g0 * f1.photon_flux, f1.name)
 
 
+#: PAH- + H -> PAH(0, N_H+1) + e- [cm^3 s^-1] (Demarais+12, measured on dehydrogenated anions)
+ASSOCIATIVE_DETACHMENT = 7.8e-10
+
+
+def anion_associative_detachment(params=Params()):
+    """k [cm^3 s^-1] of associative detachment by H out of the anion of the charge chain, which holds N_H0: zero
+    with ``Params.associative_detachment = "dehydrogenated"`` (the default; Demarais+12 measured it on
+    dehydrogenated anions only), ``ASSOCIATIVE_DETACHMENT`` with "all" (every anion, as Andrews+16 and pahchem
+    before 2026-10-26)."""
+    if params.associative_detachment not in ("dehydrogenated", "all"):
+        raise ValueError(f"associative_detachment must be 'dehydrogenated' or 'all', not {params.associative_detachment!r}")
+    return ASSOCIATIVE_DETACHMENT if params.associative_detachment == "all" else 0.0
+
+
 def charge_fractions(mol, env, params=Params()):
     """{Z: f} of the chain -1/0/+1 at ``env`` (a ``baseline.Environment``)."""
     field_ = env_field(env)
@@ -569,9 +595,9 @@ def charge_fractions(mol, env, params=Params()):
         sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * params.sigma_scale
         up = photo.ionisation_rate(field_, sigma, _yield(mol, z, params), E_PH)
         if z == -1:
-            up += 7.8e-10 * env.n_h                                   # associative detachment
+            up += anion_associative_detachment(params) * env.n_h
         up += ion_up_rate(mol, z, env, params)
-        s = neutral_sticking(mol, T) if z + 1 == 0 else 1.0
+        s = attachment_sticking(mol, T, params) if z + 1 == 0 else 1.0
         down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * _capture_factor(mol, z + 1, params) * env.n_e
         f[z + 1] = f[z] * up / down
     total = sum(f.values())
@@ -1122,7 +1148,7 @@ class Population:
         k_up, _, _ = self._stack(field_shape(env))
         up = env.g0 * k_up
         if self.zmin == -1:
-            up[:, 0] += 7.8e-10 * env.n_h                           # associative detachment of anions
+            up[:, 0] += anion_associative_detachment(self.p) * env.n_h
         if getattr(env, "ions", ()):
             for s, mol in enumerate(self.library):
                 for z in (-1, 0):
@@ -1229,7 +1255,7 @@ class Population:
         tops = np.array([max(m.charges) - self.zmin for m in self.library])
         photo_up[np.arange(len(self.library)), tops] = 0.0                     # no chain step out of the top state
         if self.zmin == -1:
-            photo_up[:, 0] += 7.8e-10 * env.n_h                    # associative detachment frees an electron too
+            photo_up[:, 0] += anion_associative_detachment(self.p) * env.n_h   # it frees an electron too
         capture = self._capture_rates(env.temperature_k) * env.n_e
         alpha_mn, alpha_ct = {}, {}
         for ion, _ in getattr(env, "ions", ()):

@@ -384,7 +384,7 @@ Two efficiency definitions are in use:
 
 **Lab** [labdata §3, read]
 - No PAH⁻ + X⁺ rate has ever been measured.
-- Polyatomic MN at 300–550 K (AFRL VENDAMS) follows k = 2.7e-7 μ^−½ (T/300)^−0.9 to 10–20 % (Shuman+14, JCP 140, 224309). The Miller+12 fit is (2.8 ± 1.0)e-7 (T/300)^(−0.9±0.2) μ^(−0.5±0.1) EA^(−0.13±0.04); Hickman's EA^−0.4 is not confirmed.
+- Polyatomic MN at 300 K (AFRL VENDAMS) follows k = 2.7e-7 μ^−½ to 10–20 % for systems of ≥ 4 atoms (Shuman+14, JCP 140, 224309: polyatomic cations with Cl⁻, Br⁻, I⁻; their complex-potential upper limit is 3.5e-7 μ^−½). The T^−0.9 is from Miller+12 (JCP 136, 204306: polyatomic anions with Ar⁺, Kr⁺, 300–550 K), whose fit is (2.8 ± 1.0)e-7 (T/300)^(−0.9±0.2) μ^(−0.5±0.1) EA^(−0.13±0.04); Hickman's EA^−0.4 is not confirmed.
 - Naphthalene⁺ + Cl⁻, Br⁻, I⁻ at 300 K: 9.5, 6.1 and 2.9e-8 (Wiens+15).
 - Atomic pairs can be 10–100× lower (C⁺ + Cl⁻ = 4.2e-9; Sawyer+19). PAH⁻, with its dense final-state manifold, should follow the polyatomic law, but this has not been tested.
 - DESIREE, C60⁺ + C60⁻ (Gatchell+25, A&A 693, A43; arXiv:2409.11851):

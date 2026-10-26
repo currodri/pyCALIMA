@@ -24,7 +24,8 @@ rates per PAH in the Mathis ISRF at G0 = 1 Habing, 1-13.6 eV, as WDB06rt). Colli
     k_ct(i)      ion-neutral reaction of the neutral with ion i [cm^3 s^-1] (zero where IP(X) < IP(PAH))
 
 (``population.ion_up_rate``; ions: those of ``rt_group_charging.RECOMB_IONS``), and associative detachment of the
-anion by H, ``ASSOCIATIVE_DETACHMENT`` n_H.
+anion by H, k_ad n_H (``population.anion_associative_detachment``: zero unless ``Params.associative_detachment``
+is "all").
 
 Per cell (``PAHGroupTable.solve``, the algorithm RAMSES would implement) the four states are in detailed balance,
 f(z+1)/f(z) = up(z) / down(z+1) with
@@ -58,8 +59,6 @@ from pycalima.pahchem.baseline import Params
 
 FORMAT_VERSION = 1
 CHARGES = (-1, 0, 1, 2)
-#: H + PAH- -> PAH-H + e- [cm^3 s^-1], as ``population.charge_matrix``
-ASSOCIATIVE_DETACHMENT = 7.8e-10
 LT = np.round(np.arange(1.0, 8.0 + 1e-9, 0.05), 6)              # log10 T [K]
 ION_NAMES = tuple(f"{el}+" for el, _, _ in rg.RECOMB_IONS if f"{el}+" in chemistry.IONS)
 N_E_PER_GROUP = rg.N_E_PER_GROUP
@@ -143,7 +142,7 @@ def molecule_kernels(job):
         k_ct[j] = pop.ion_up_rate(mol, 0, SimpleNamespace(temperature_k=T[0], ions=((ion, 1.0),)), params)
     return dict(A=A[:, :cut].reshape(shape), K=K[:, :cut].reshape(shape), H=H[:, :cut].reshape(shape),
                 A_bg=bg[0], K_bg=bg[1], H_bg=bg[2], alpha=alpha, L=alpha * e_cap, k_mn=k_mn, k_ct=k_ct,
-                nc=mol.nc, nh=mol.nh)
+                k_ad=pop.anion_associative_detachment(params), nc=mol.nc, nh=mol.nh)
 
 
 def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, label="", meta=""):
@@ -154,7 +153,7 @@ def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, l
         raise ValueError("one non-negative weight per molecule, not all zero")
     w = w / w.sum()
     avg = {k: np.tensordot(w, np.array([m[k] for m in kernels]), axes=1)
-           for k in ("A", "K", "H", "A_bg", "K_bg", "H_bg", "alpha", "L", "k_mn", "k_ct", "nc", "nh")}
+           for k in ("A", "K", "H", "A_bg", "K_bg", "H_bg", "alpha", "L", "k_mn", "k_ct", "k_ad", "nc", "nh")}
     nodes = _group_nodes(L0, L1, n_E)
     nz, ng, nTs = len(CHARGES), len(nodes), np.size(Ts)
     egy = np.zeros((ng, nTs))
@@ -171,7 +170,7 @@ def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, l
                 log10_Ts=np.log10(np.atleast_1d(Ts)), egy=egy, **out,
                 A_bg=avg["A_bg"], K_bg=avg["K_bg"], H_bg=avg["H_bg"], lT=np.asarray(lT, float),
                 alpha=avg["alpha"], L=avg["L"], ions=ION_NAMES, k_mn=avg["k_mn"], k_ct=avg["k_ct"],
-                k_ad=ASSOCIATIVE_DETACHMENT)
+                k_ad=float(avg["k_ad"]))
 
 
 def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELECTRON_PARTITION,
@@ -193,7 +192,9 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
     meta = (f"detachment={params.detachment} yield_model={params.yield_model} yield_cation={params.yield_cation} "
             f"capture_model={params.capture_model} sigma_scale={params.sigma_scale} "
             f"mn_efficiency={params.mn_efficiency} ion_neutral_efficiency={params.ion_neutral_efficiency} "
-            f"metal_adducts={params.metal_adducts} partition={partition}")
+            f"metal_adducts={params.metal_adducts} associative_detachment={params.associative_detachment} "
+            f"attachment_fraction={params.attachment_fraction} "
+            f"partition={partition}")
     return combine(kernels, w[w > 0], group_L0, group_L1, n_E, Ts, lT, label, meta)
 
 

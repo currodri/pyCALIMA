@@ -18,6 +18,12 @@ averaged over the capture flux.
   ``chemistry.electron_capture`` for Z = 0: 0.82 pi a^2 [1 + sqrt(2 e^2 / (a eps))],
   whose flux average is the DS87 J~ = 1 + sqrt(pi / 2 tau). The sticking
   coefficient therefore multiplies that capture rate consistently.
+- **Capture fraction** f (``capture_fraction``): the share of those classical
+  captures that form the anion (the rest scatter). sigma_c -> f sigma_c, so by
+  detailed balance k_d -> f k_d too; the attachment coefficient is then
+  f x capture x s_e(f). Not measured above N_C = 14: anthracene's flow-tube
+  rate (collisionally saturated) gives ~0.002, Carelli+13's coronene ~0.003
+  (theory, an upper bound), C60 ~0.7 (Viggiano+10). 1 is the classical limit.
 - **Stabilisation.** Harmonic IR down-jumps (``cooling.mode_emission_rates``)
   of the anion modes. P_stab(E) = 1 below EA, and above it::
 
@@ -140,10 +146,15 @@ class Attachment:
         How far above EA the grid extends.
     g_neutral, g_anion : int
         Electronic degeneracies (closed-shell neutral 1, doublet anion 2).
+    capture_fraction : float
+        f in (0, 1]: the share of classical captures that form the anion; scales sigma_c and so k_d.
     """
 
     def __init__(self, neutral, anion, ea_ev, radius_cm, e_excess_cm=15000.0, grain_cm=2.0,
-                 g_neutral=1, g_anion=2, window_cm=20.0):
+                 g_neutral=1, g_anion=2, window_cm=20.0, capture_fraction=1.0):
+        if not 0.0 < capture_fraction <= 1.0:
+            raise ValueError(f"capture_fraction must be in (0, 1], not {capture_fraction}")
+        self.capture_fraction = float(capture_fraction)
         self.ea_cm = ea_ev * dos.CM_PER_EV
         self.grain = float(grain_cm)
         self.radius_cm = radius_cm
@@ -158,7 +169,7 @@ class Attachment:
         g = capture_cross_section(eps, radius_cm) * eps * ERG_PER_CM            # [erg cm^2]
         conv = np.zeros(counts_n.size)
         conv[1:] = np.convolve(g, counts_n)[:counts_n.size - 1]                  # x = eps + E_n
-        pre = 2.0 * ME_G * g_neutral / (g_anion * np.pi**2 * HBAR_CGS**3)
+        pre = self.capture_fraction * 2.0 * ME_G * g_neutral / (g_anion * np.pi**2 * HBAR_CGS**3)
         # numerator and rho_a averaged over the same window, as the IR rates are (cooling)
         half = max(int(round(0.5 * window_cm / grain_cm)), 1)
         # the neutral's grid is rounded on its own, so it can be one bin shorter than the anion's range above EA
@@ -206,7 +217,8 @@ class Attachment:
         return p, np.divide(w, p, out=np.zeros_like(p), where=p > 1e-300)
 
     def sticking(self, temperature_k, neutral_energy_cm=None, neutral_weights=None, t_vib_k=None):
-        """s_e = <P_stab(EA + E_n + eps)> over the capture flux and the neutral's E_n.
+        """s_e = <P_stab(EA + E_n + eps)> over the capture flux and the neutral's E_n (per anion formed: the
+        attachment coefficient is ``capture_fraction`` x capture x s_e).
 
         The electrons are Maxwellian at ``temperature_k``, weighted by
         sigma_c(eps) eps exp(-eps/kT). The neutral's vibrational energy is

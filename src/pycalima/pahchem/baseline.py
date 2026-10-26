@@ -76,6 +76,12 @@ class Params:
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
+    # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
+    # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)
+    associative_detachment: str = "dehydrogenated"
+    # f: share of classical captures on a neutral that form the anion (``attachment.Attachment.capture_fraction``;
+    # autodetachment scales with it by detailed balance). 1, the classical limit, is unmeasured above N_C = 14
+    attachment_fraction: float = 1.0
     # ion-PAH collisions (population; Environment.ions): efficiencies on DS87 (anions) and Langevin (neutrals)
     mn_efficiency: float = 0.58
     ion_neutral_efficiency: float = 0.9
@@ -155,7 +161,8 @@ class BaselineModel:
         """Electron sticking coefficient of the neutral at gas temperature T.
 
         A number in ``Params.sticking_neutral`` is used as given. With
-        "statistical" it is ``attachment.Attachment`` for the parent and its
+        "statistical" it is ``Params.attachment_fraction`` times the s_e of
+        ``attachment.Attachment`` (with that capture fraction) for the parent and its
         anion (PAHdb modes, EA of Andrews+16 Table A.1), the neutral's internal
         energy being its radiative P(E) under the Draine field at G0 = 1; that
         P(E) changes s_e by < 10 % up to G0 = 1e4 (pahchem-spec.md, M4). Every
@@ -181,9 +188,10 @@ class BaselineModel:
             akey = ("attachment", grid_excess_cm(temperature_k))     # the grid holds the electrons' Maxwellian
             if akey not in self._cm:
                 self._cm[akey] = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
-                                            chemistry.disc_radius_cm(self.nc), e_excess_cm=akey[1])
+                                            chemistry.disc_radius_cm(self.nc), e_excess_cm=akey[1],
+                                            capture_fraction=self.p.attachment_fraction)
             e_n, p_n = self._cm["neutral_pe"]
-            self._sticking[key] = self._cm[akey].sticking(temperature_k, e_n, p_n)
+            self._sticking[key] = self.p.attachment_fraction * self._cm[akey].sticking(temperature_k, e_n, p_n)
         return self._sticking[key]
 
     # -- per-state molecular inputs ------------------------------------------
@@ -336,7 +344,8 @@ class BaselineModel:
         can_add = NH < top_nh
         net.add("H addition, cations", np.where((Z > 0) & can_add, p.addition_cation * env.n_h, 0.0), dnh=+1)
         net.add("H addition, neutrals", np.where((Z == 0) & can_add, neutral * env.n_h, 0.0), dnh=+1)
-        net.add("associative detachment", np.where((Z == -1) & can_add, 7.8e-10 * env.n_h, 0.0), dz=+1, dnh=+1)
+        ad_from = {"dehydrogenated": NH < self.nh0, "all": can_add}[p.associative_detachment]
+        net.add("associative detachment", np.where((Z == -1) & ad_from, 7.8e-10 * env.n_h, 0.0), dz=+1, dnh=+1)
         er = chemistry.cross_section_rate(T, p.eley_rideal_a2) * env.n_h
         net.add("Eley-Rideal", np.where(NH > self.nh0, er, 0.0), dnh=-1, h2_released=1)
         return net

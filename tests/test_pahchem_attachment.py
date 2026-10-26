@@ -40,6 +40,20 @@ def test_autodetachment_obeys_detailed_balance(ea_ev, temperature_k):
     assert kd_mean / k_cap == pytest.approx(k_eq, rel=2e-3)
 
 
+def test_capture_fraction_scales_autodetachment_and_raises_sticking():
+    """f sigma_c: detailed balance scales k_d by f, so fewer anions autodetach (s_e rises) while f s_e falls."""
+    rng = np.random.default_rng(3)
+    fn = np.sort(rng.uniform(150, 1600, 30)).round()
+    neutral = PAHSpecies(12, 0, 0, fn, np.ones(30))
+    anion = PAHSpecies(12, 0, -1, (0.97 * fn).round(), np.ones(30))
+    full, part = (Attachment(neutral, anion, 0.5, 3e-8, e_excess_cm=8000.0, capture_fraction=f) for f in (1.0, 0.01))
+    assert np.allclose(part.k_detach, 0.01 * full.k_detach)
+    s1, sf = full.sticking(100.0), part.sticking(100.0)
+    assert s1 <= sf <= 1.0 and 0.01 * sf < s1
+    with pytest.raises(ValueError):
+        Attachment(neutral, anion, 0.5, 3e-8, e_excess_cm=8000.0, capture_fraction=0.0)
+
+
 def test_capture_flux_tail_is_the_integral_of_the_capture_flux():
     kt, x = dos.KB_CM * 3000.0, 1500.0
     eps = np.linspace(x, x + 60 * kt, 2_000_001)

@@ -177,6 +177,11 @@ section, which scales with N$_{\rm C}$.
 Note: the G$_0$ in the best-cell row is the Habing-integral value, 1/1.236 of
 the card's F$_\nu$(1030 Å) value.
 
+These fits predate the 2026-10-26 card change: n$_e$ is now x$_e$ n$_{\rm H}$ in
+the atomic PDR (n$_{\rm H}$ 0.4–3×10$^5$) and Cuadrado+19's 60–100 cm$^{-3}$ at
+the DFs (n$_{\rm H}$ 4–10×10$^5$), so the DF cells above (n$_e$ 2.6–4.9) are
+outside the card. The refit waits for the final model.
+
 Reading:
 - **Cations.** Both are near half, but M26 peak at the APDR and fall into
   the DFs, while pahchem is flat.

@@ -58,6 +58,7 @@ IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
 G0 = 1.7
 GAMMAS = np.logspace(2.0, 6.0, 17)
 DETACHMENT = ("jochims", "statistical", "valence")
+COLOURS = {"valence": "#2a78d6", "statistical": "#1baf7a", "jochims": "#eb6834"}
 TS = (100.0, 1000.0)
 BASIS_CACHE = _paths.get_model_data_dir() / "pahchem_population_basis"
 
@@ -125,22 +126,30 @@ def main():
               f"{{{', '.join(f'{v:.2f}' for v in fz.values())}}}, f(+3) {f[0, zs.index(3)]:.2f}")
 
     use_calima_style()
-    fig, axes = plt.subplots(1, len(TS), figsize=(5.0 * len(TS), 4.2), sharey=True)
+    fig, axes = plt.subplots(1, len(TS), figsize=(6.5 * len(TS), 5.6), sharey=True)
     for ax, t in zip(axes, TS, strict=True):
-        for d, c in zip(DETACHMENT, ("#2a78d6", "#eb6834", "#1baf7a"), strict=True):
-            ax.loglog(GAMMAS, eps[(d, t)][:, 0], color=c, lw=1.8, label=rf"pahchem C$_{{54}}$H$_{{18}}$, {d}")
-            ax.loglog(GAMMAS, eps[(d, t)][:, 1], color=c, lw=1.4, ls="--", label=rf"pahchem C$_{{96}}$H$_{{24}}$, {d}")
+        for d in DETACHMENT:
+            c = COLOURS[d]
+            lw = 2.4 if d == Params().detachment else 1.5
+            tag = f"{d} (default)" if d == Params().detachment else d
+            ax.loglog(GAMMAS, eps[(d, t)][:, 0], color=c, lw=lw, label=rf"C$_{{54}}$H$_{{18}}$, {tag}")
+            ax.loglog(GAMMAS, eps[(d, t)][:, 1], color=c, lw=lw * 0.8, ls="--", label=rf"C$_{{96}}$H$_{{24}}$, {tag}")
         ax.loglog(GAMMAS, bt94(GAMMAS, t), "k-", lw=1.2, label="BT94 eq. 43")
         ax.loglog(GAMMAS, tielens(GAMMAS), "k:", lw=1.4, label="Tielens (2021) eq. 12.26")
         ax.loglog(GAMMAS, tielens(GAMMAS, 3.2e-5), color="0.5", ls="-.", lw=1.2,
                   label=r"eq. 12.26, $3.2\times10^{-5}\gamma$")
+        if t == 100.0:
+            ax.plot([1.0 * 10.0 / 0.008, 1e5], [0.05, 0.008], "s", color="k", ms=9, mec="white", mew=1.2,
+                    label="Tielens (2021) examples")
+            ax.plot(G0 * np.sqrt(80.0) / 3e-2, 0.037, "*", color="k", ms=14, mec="white", mew=1.0,
+                    label=r"Bern\'e+22 diffuse ISM (80 K)")
         ax.set_title(rf"$T = {t:g}$ K", fontsize=14)
         ax.set_xlabel(r"$\gamma = G_0\sqrt{T}/n_e$", fontsize=14)
         ax.minorticks_on()
-        ax.tick_params(which="both", direction="in")
-    axes[0].set_ylabel(r"$\epsilon$", fontsize=14)
-    axes[0].legend(frameon=False, fontsize=9)
-    fig.subplots_adjust(wspace=0)
+        ax.tick_params(which="both", direction="in", top=True, right=True)
+    axes[0].set_ylabel(r"$\epsilon$ (heating / all absorbed power)", fontsize=14)
+    axes[0].legend(frameon=False, fontsize=9, loc="lower left", ncol=2)
+    fig.subplots_adjust(wspace=0.04)
     out = args.out or _paths.get_plots_dir("pahchem")
     out.mkdir(parents=True, exist_ok=True)
     fig.savefig(out / "pahchem_pe_efficiency.png", dpi=200, bbox_inches="tight")

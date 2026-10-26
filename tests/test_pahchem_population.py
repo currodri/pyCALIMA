@@ -585,6 +585,34 @@ def test_charge_inputs_move_the_charge_balance_the_right_way():
         assert b._cache == {} and a.ionisation_ev[0] == a.ip_ev       # the input is not modified
 
 
+def test_associative_detachment_leaves_the_parent_anion_unless_asked():
+    """Demarais+12 measured PAH- + H on dehydrogenated anions: the chain (N_H0) has none by default."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.name == "C54H18 (37)")
+    env = Environment("t", 2.0, 50.0, 0.01, 100.0, None)
+    no_h = Environment("t", 2.0, 0.0, 0.01, 100.0, None)
+    f = population.charge_fractions(mol, env)
+    assert f == pytest.approx(population.charge_fractions(mol, no_h), rel=1e-12)
+    f_all = population.charge_fractions(mol, env, Params(associative_detachment="all"))
+    assert f_all[-1] < f[-1]
+    assert population.anion_associative_detachment(Params(associative_detachment="all")) == 7.8e-10
+    with pytest.raises(ValueError):
+        population.anion_associative_detachment(Params(associative_detachment="some"))
+
+
+def test_wenzel_yield_is_the_cation_one_only():
+    """Wenzel+20 measured cation -> dication: the dication takes Jochims', as in the baseline."""
+    from pycalima.pahchem import photo
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.name == "C54H18 (37)")
+    E = np.linspace(8.0, 13.6, 50)
+    assert np.allclose(population._yield(mol, 1, energy_ev=E), photo.yield_wenzel2020(E, mol.ionisation_ev[1], mol.nc))
+    assert np.allclose(population._yield(mol, 2, energy_ev=E), photo.yield_jochims1996(E, mol.ionisation_ev[2]))
+
+
 def test_unit_detachment_leaves_an_anion_nothing_to_emit():
     from pycalima.pahchem.baseline import Params
 

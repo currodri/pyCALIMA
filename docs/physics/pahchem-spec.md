@@ -1073,15 +1073,21 @@ figure `family_emission`).
   - **Stated:**
     - $G_0$ at the IF, 2.2–7.1×10$^4$ (Peeters+24);
     - $G_0$ at DF3, 1.3–5×10$^3$ (Zannese+26);
-    - $n_{\rm H}$: atomic PDR $(5$–$10)\times10^4$ (Habart+24), DFs from
-      Meudon fits to H$_2$ (Peeters+24);
+    - $n_{\rm H}$: atomic PDR $(5$–$10)\times10^4$ (Habart+24), widened to
+      the isobaric $(0.4$–$3)\times10^5$ (P = 3×10$^7$–2×10$^8$ K cm$^{-3}$);
+      DFs $(4$–$10)\times10^5$ (Cuadrado+19's $n_e$ at $x_e \le$ C/H;
+      Zannese+26, HCN/CN). The Meudon H$_2$ fits (Peeters+24) are 10–300×
+      lower.
     - $T$ from H$_2$ rotational temperatures (Van De Putte+24);
-    - $n_e$ = 10–100 cm$^{-3}$ in the atomic PDR, from C and S
-      recombination lines (Berné+22, citing Wyrowski+97, Cuadrado+19,
-      Goicoechea+21).
+    - $n_e$ = 60–100 cm$^{-3}$ at the DFs, from mm-wave carbon recombination
+      lines and [$^{13}$C II] (Cuadrado+19), which arise in the C$^+$/C/CO
+      layer. Until 2026-10-26 the card applied them (as 10–100) to the atomic
+      PDR, where they need $x_e$ up to 2×10$^{-3}$.
   - **Not stated:** $G_0$ at DF1 and DF2 (the DF3 range is used); $n_e$ in
-    the DFs (bounded by C$^+$ + S$^+$, $x_e$ = 1.4–1.6×10$^{-4}$); the H II
+    the atomic PDR (bounded by C$^+$ + S$^+$, $x_e$ = 1.4–1.6×10$^{-4}$); the H II
     template's background PDR (the atomic-PDR ranges are used).
+  - With these, γ is 1×10$^4$–2.8×10$^5$ in the atomic PDR and
+    2.6×10$^2$–2.2×10$^3$ at the DFs.
   - Each template is run at the two corners of its ranges, least and most
     ionising, and the model is reported as that range.
 - **Observed.** The Van De Putte+25 templates were measured here with one

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Briefing figures beyond the spectral fits: the benchmark scorecard, gate G2 and the CR secondary electrons.
 
-- ``bench_00_scorecard.png``: every benchmark of pahchem-spec.md by milestone and verdict
-  (``briefing_benchmarks.csv``, the spec's verdicts on 2026-10-19).
+- ``bench_00_scorecard.png``: every benchmark of pahchem-spec.md and pahchem-gas-coupling.md by milestone and
+  verdict (``briefing_benchmarks.csv``: the spec's verdicts on 2026-10-19, the gas coupling's on 2026-10-25).
+- ``gc_00_scorecard.png``: the gas-coupling rows (milestone GC) one by one, with their metric and cause.
 - ``cr_01_eii_vs_beb.png``: gate G2, the electron-impact ionisation cross section of ``impact``
   against BEB(HF) (``beb_hf_pah.py`` output) and the published BEB peaks.
 - ``cr_02_secondary_electrons.png``: the secondary-electron spectrum per unit zeta from CRISpy
@@ -32,7 +33,7 @@ STATUS = (("PASS", "reproduced", "#0ca30c"), ("PARTIAL", "partly / looser bound"
 GROUPS = (("M1", "M1 statistical mechanics"), ("M2", "M2 unimolecular rates"),
           ("M3", "M3 photophysics, cooling, RF"), ("M4", "M4 charge and H network"),
           ("M5", "M5 published PAH models"), ("M6", "M6 tables, solver precision"),
-          ("M7", "M7 emission and observations"), ("CR", "cosmic-ray collisions"))
+          ("M7", "M7 emission and observations"), ("CR", "cosmic-ray collisions"), ("GC", "gas coupling (V1-V16)"))
 #: ionisation energies [eV] used for the model curves (Appl. Sci. 15, 9562 Table 1, experimental; coronene and
 #: circumcoronene as in compare.py of the G2 study)
 MOLECULES = {"anthracene": (14, 10, 7.41, "C$_{14}$H$_{10}$"), "pyrene": (16, 10, 7.43, "C$_{16}$H$_{10}$"),
@@ -61,9 +62,53 @@ def fig_scorecard(rows, out):
     handles = [plt.Rectangle((0, 0), 1, 1, color=c) for _, _, c in STATUS]
     tot = {st: sum(r["status"] == st for r in rows) for st, _, _ in STATUS}
     ax.legend(handles, [f"{lab} ({tot[st]})" for st, lab, _ in STATUS], loc="lower right", fontsize=12)
-    fig.suptitle(f"pahchem benchmarks by milestone and verdict ({len(rows)} comparisons in pahchem-spec.md)",
+    fig.suptitle(f"pahchem benchmarks by milestone and verdict ({len(rows)} comparisons)",
                  x=0.02, ha="left", fontsize=16)
     path = out / "bench_00_scorecard.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    return path
+
+
+def _plain(text):
+    """``text`` safe for matplotlib text, under LaTeX when it is on."""
+    if not plt.rcParams["text.usetex"]:
+        return text
+    for a, b in (("\\", "/"), ("&", r"\&"), ("%", r"\%"), ("#", r"\#"), ("~", r"$\sim$"), ("<=", r"$\leq$"),
+                 (">=", r"$\geq$"), ("<", r"$<$"), (">", r"$>$"), ("^", r"\^{}"), ("_", " ")):
+        text = text.replace(a, b)
+    return text
+
+
+def fig_gc_table(rows, out):
+    """The gas-coupling benchmarks, one row each: verdict, what is compared, the number, the cause."""
+    import textwrap
+
+    rows = [r for r in rows if r["milestone"] == "GC"]
+    colour = {st: c for st, _, c in STATUS}
+    fig, ax = plt.subplots(figsize=(17, 0.62 * len(rows) + 1.2), facecolor="w")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(len(rows) - 0.5, -0.9)
+    ax.axis("off")
+    cols = ((0.0, "verdict", None), (0.075, "compared", 46), (0.39, "result", 62), (0.79, "cause / open", 40))
+    for x, head, _ in cols:
+        ax.annotate(head, (x, -0.75), fontsize=12, weight="bold", va="center")
+    for i, r in enumerate(rows):
+        if i % 2:
+            ax.axhspan(i - 0.5, i + 0.5, color="#f4f3ef", zorder=0)
+        ax.add_patch(plt.Rectangle((0.0, i - 0.3), 0.062, 0.6, color=colour[r["status"]], lw=0))
+        ax.annotate(r["status"], (0.031, i), ha="center", va="center", fontsize=9,
+                    color="white" if r["status"] in ("PASS", "OPEN") else "black")
+        cause = r["cause"] if r["needs"] in ("-", "") else f"{r['cause']}; needs {r['needs']}"
+        for (x, _, width), text in zip(cols[1:], (r["compared"], r["metric"], cause), strict=True):
+            ax.annotate("\n".join(_plain(t) for t in textwrap.wrap(text.replace("_", " "), width)), (x, i),
+                        va="center", fontsize=9,
+                        color=INK2 if x > 0.7 else "black")
+    tot = {st: sum(r["status"] == st for r in rows) for st, _, _ in STATUS}
+    fig.subplots_adjust(left=0.01, right=0.99, top=1.0 - 0.9 / (0.62 * len(rows) + 1.2), bottom=0.01)
+    fig.suptitle(f"PAH-gas coupling benchmarks: {tot['PASS']} pass, {tot['PARTIAL']} partial, {tot['OPEN']} open "
+                 "(docs/physics/pahchem-gas-coupling.md section 4)", x=0.01, ha="left", fontsize=15)
+    path = out / "gc_00_scorecard.png"
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     return path
@@ -170,6 +215,7 @@ def main():
     style()
     rows = list(csv.DictReader(line for line in open(HERE / "briefing_benchmarks.csv") if not line.startswith("#")))
     print("wrote", fig_scorecard(rows, out))
+    print("wrote", fig_gc_table(rows, out))
     print("wrote", fig_g2(args.beb_dir, out))
     print("wrote", fig_secondary(args.secondary, out))
 
