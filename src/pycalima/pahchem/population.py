@@ -746,6 +746,8 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
 #: normalised over the whole 6-13.6 eV band (``fields.RadiationField.g0``, +0.15 %); 8 the emission of the
 #: dehydrogenated states N_H0-1 ... N_H0-3.
 BASIS_VERSION = 8
+#: bump when emission_temperature_shares changes, so stored shares are rebuilt (keyed with the basis key)
+TSHARES_VERSION = 1
 
 
 def _feed(h, v):
@@ -874,22 +876,17 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None):
     return np.array(kh), np.array(kh2)
 
 
-def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
-                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
-                      electron_ev=None):
-    """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
-
-    ``recomb_ev`` is the energy each recombination (attachment) into this state
-    deposits; the heating rate is this state's own k_up (steady state).
-    """
+def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev, threshold_ev,
+                   ionising_heat, electron_ev):
+    """(h(E_DEP), k_up, recombination power, CascadeModel, start) of one state at G0 = 1; the model and start are None
+    when nothing is left to emit (every absorption ionises or detaches, and no recombination heats)."""
     field1 = _unit_field(shape)
     sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
     h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
     recomb_power = k_up * recomb_ev * dos.CM_PER_EV
-    if not np.any(h > 0.0) and recomb_power <= 0.0:   # every absorption ionises or detaches: nothing to emit
-        return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
-                          np.zeros(K_H_G0_GRID.size), 0.0)
+    if not np.any(h > 0.0) and recomb_power <= 0.0:
+        return h, k_up, recomb_power, None, None
     cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
     # molecules placed on the cascade grid by the deposits (trapezoid over E_DEP, split between the two
     # neighbouring bins) and the recombinations, then followed down once: the same photons as weighting
@@ -906,6 +903,37 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
         i0 = int(np.floor(x))
         start[i0] += k_up * (1.0 - (x - i0))
         start[i0 + 1] += k_up * (x - i0)
+    return h, k_up, recomb_power, cm, start
+
+
+def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev=0.0,
+                                threshold_ev=0.0, ionising_heat=False, electron_ev=None, **_):
+    """W[class, T bin]: how each mode class's IR power is spread over emission temperature (``band_conventions``)
+    for the state of these ``_basis_inputs`` (N_H0; the dehydrogenated states take the same shares). The cascade
+    of ``build_state_basis``, followed per bin; zeros when the state does not emit."""
+    from pycalima.pahchem import band_conventions as bc
+
+    _, _, _, cm, start = _cascade_start(np.asarray(freqs, dtype=float), einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
+                                        sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev)
+    if cm is None:
+        return np.zeros((bc.N_CLASSES, bc.T_MID.size))
+    X = emission.emission_by_energy(cm, start)
+    return bc.class_temperature_shares(freqs, X, bc.bin_temperatures(freqs, cm.energy_cm))
+
+
+def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
+                      ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
+                      electron_ev=None):
+    """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
+
+    ``recomb_ev`` is the energy each recombination (attachment) into this state
+    deposits; the heating rate is this state's own k_up (steady state).
+    """
+    h, k_up, recomb_power, cm, start = _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
+                                                      sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev)
+    if cm is None:                                     # every absorption ionises or detaches: nothing to emit
+        return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
+                          np.zeros(K_H_G0_GRID.size), 0.0)
     emitted = freqs * emission.emission_by_energy(cm, start).sum(axis=1)
     # the dehydrogenated states of the ladder, heated by the same deposits (sigma and yield do not depend on N_H
     # here), each on its own modes (``PAHSpecies.stripped``)
@@ -942,17 +970,26 @@ def _build(inp):
     return build_state_basis(**inp)
 
 
+def _build_shares(inp):
+    return emission_temperature_shares(**inp)
+
+
 class Population:
     """Band fluxes, charge and intact fractions of a library at an environment (module docstring).
 
     ``windows_um`` is {band: (lo, hi)} in um, the windows of the observations;
     the bands in ``local`` take off a linear baseline across their window, as
     the observations did (``_band_matrix``). ``cache_dir`` keeps the state
-    bases on disk (None: memory only).
+    bases on disk (None: memory only). ``band_convention`` (``band_conventions``; a name or a
+    ``BandConvention``) sets the band positions and profiles of the band fluxes and spectra; "legacy", the default,
+    is the Lorentzian 15 / -15 cm^-1 of ``_band_matrix``.
     """
 
     def __init__(self, library, windows_um, local=(), de_cm=100.0, e_max_ev=21.5, params=Params(), cache_dir=None,
-                 dehydrogenated_emission=True):
+                 dehydrogenated_emission=True, band_convention="legacy"):
+        from pycalima.pahchem import band_conventions
+
+        self.band_convention = band_conventions.get(band_convention)
         self.library, self.windows, self.p = list(library), dict(windows_um), params
         # True: N_H0 ... N_H0-3 emit in proportion to the hydrogenation chain (``emission_weights``); False: the
         # intact molecule alone, as before 2026-10-25 (its callers then filter on ``intact_fractions``)
@@ -1067,9 +1104,93 @@ class Population:
             mol._cache[ck] = b
         return mol._cache[ck]
 
+    # -- band conventions --------------------------------------------------------------------------
+    def _shares_file(self, inp):
+        from pycalima.pahchem import band_conventions as bc
+
+        if self.cache_dir is None:
+            return None
+        return self.cache_dir / "tshares" / f"{_basis_key(inp)}-t{TSHARES_VERSION}-{bc.T_EDGES.size}.npy"
+
+    def temperature_shares(self, mol, z, shape):
+        """W[class, T bin] of ``emission_temperature_shares`` for ``mol`` at charge z (memory and disk cached)."""
+        ck = ("tshares",) + self._ckey(shape, z, mol)
+        if ck not in mol._cache:
+            inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
+            f = self._shares_file(inp)
+            if f is not None and f.exists():
+                W = np.load(f)
+            else:
+                W = emission_temperature_shares(**inp)
+                self._save_shares(f, W)
+            mol._cache[ck] = W
+        return mol._cache[ck]
+
+    @staticmethod
+    def _save_shares(f, W):
+        if f is not None:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            tmp = f.with_name(f"{f.stem}.{os.getpid()}.tmp.npy")
+            np.save(tmp, W)
+            os.replace(tmp, f)
+
+    def prepare_temperature_shares(self, shape, workers=None):
+        """Build the ``temperature_shares`` of every state under ``shape`` (only "tdep" conventions use them),
+        in parallel like ``prepare``."""
+        todo = []
+        for mol in self.library:
+            for z in mol.charges:
+                ck = ("tshares",) + self._ckey(shape, z, mol)
+                if ck in mol._cache:
+                    continue
+                inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
+                f = self._shares_file(inp)
+                if f is not None and f.exists():
+                    mol._cache[ck] = np.load(f)
+                else:
+                    todo.append((mol, ck, f, inp))
+        workers = workers if workers is not None else (os.cpu_count() or 1)
+        if workers > 1 and len(todo) > 4:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for (mol, ck, f, _), W in zip(todo, ex.map(_build_shares, [t[3] for t in todo])):
+                    mol._cache[ck] = W
+                    self._save_shares(f, W)
+        else:
+            for mol, ck, f, inp in todo:
+                mol._cache[ck] = W = emission_temperature_shares(**inp)
+                self._save_shares(f, W)
+
+    def _window_matrix(self, mol, z, shape, freqs):
+        """M[i, band] of the population's band convention for modes ``freqs`` of ``mol`` at charge z."""
+        from pycalima.pahchem import band_conventions as bc
+
+        conv = self.band_convention
+        if conv.kind == "legacy":
+            return _band_matrix(freqs, self.windows, self.local)
+        if conv.kind == "constant":
+            sh, fw, et = conv.constant_lines(freqs, mol.nc, z)
+            return bc.window_matrix(freqs, self.windows, self.local, sh, fw, et)
+        return bc.tdep_window_matrix(conv, freqs, mol.nc, z, self.windows, self.local,
+                                     self.temperature_shares(mol, z, shape))
+
+    def _line_spectrum(self, mol, z, shape, freqs, emitted, nu, fwhm_cm, shift_cm):
+        """IR power per cm^-1 on ``nu``: fixed Lorentzians (``fwhm_cm``, ``shift_cm``) if given, else the convention."""
+        from pycalima.pahchem import band_conventions as bc
+
+        conv = self.band_convention
+        if fwhm_cm is not None or shift_cm is not None or conv.kind == "legacy":
+            return emission.spectrum(freqs, emitted, nu, 15.0 if fwhm_cm is None else fwhm_cm,
+                                     -15.0 if shift_cm is None else shift_cm)
+        if conv.kind == "constant":
+            sh, fw, et = conv.constant_lines(freqs, mol.nc, z)
+            return bc.line_spectrum(freqs, emitted, nu, sh, fw, et)
+        return bc.tdep_spectrum(conv, freqs, emitted, mol.nc, z, nu, self.temperature_shares(mol, z, shape))
+
     def _stack(self, shape):
         """(k_up at G0 = 1, log k_H on K_H_G0_GRID, band power B[s, slot, band] at G0 = 1); 0 where absent."""
-        key = (shape, tuple(self.windows.items()), self.local)
+        key = (shape, tuple(self.windows.items()), self.local, self.band_convention)
         if key not in self._arrays:
             self.prepare(shape)
             n, m = len(self.library), len(self.zs)
@@ -1081,7 +1202,7 @@ class Population:
                     i = z - self.zmin
                     k_up[s, i] = b.k_up
                     lkh[s, i] = np.log(np.maximum(b.k_h, 1e-300))
-                    B[s, i] = b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local)
+                    B[s, i] = b.emitted @ self._window_matrix(mol, z, shape, b.freqs_cm)
             self._arrays[key] = (k_up, lkh, B)
         return self._arrays[key]
 
@@ -1092,15 +1213,17 @@ class Population:
 
     def _hydrogenation_bands(self, shape):
         """B[s, slot, k, band]: band power of N_H0 - k at G0 = 1, k < ``N_EMITTING``; 0 where absent."""
-        key = ("hbands", shape, tuple(self.windows.items()), self.local)
+        key = ("hbands", shape, tuple(self.windows.items()), self.local, self.band_convention)
         if key not in self._arrays:
             self.prepare(shape)
+            if self.band_convention.kind == "tdep":
+                self.prepare_temperature_shares(shape)
             B = np.zeros((len(self.library), len(self.zs), N_EMITTING, len(self.bands)))
             for s, mol in enumerate(self.library):
                 for z in mol.charges:
                     for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
                         if f_.size:
-                            B[s, z - self.zmin, k] = e_ @ _band_matrix(f_, self.windows, self.local)
+                            B[s, z - self.zmin, k] = e_ @ self._window_matrix(mol, z, shape, f_)
             self._arrays[key] = B
         return self._arrays[key]
 
@@ -1290,32 +1413,39 @@ class Population:
         fz = {m.name: {z: float(f[s, z - self.zmin]) for z in m.charges} for s, m in enumerate(self.library)}
         return F, fz
 
-    def state_spectra(self, shape, nu_cm, fwhm_cm=15.0, shift_cm=-15.0):
-        """S[s, slot, i]: IR power per cm^-1 of every state at G0 = 1 on ``nu_cm`` (``emission.spectrum`` profile)."""
+    def state_spectra(self, shape, nu_cm, fwhm_cm=None, shift_cm=None):
+        """S[s, slot, i]: IR power per cm^-1 of every state at G0 = 1 on ``nu_cm``: fixed Lorentzians of ``fwhm_cm``
+        and ``shift_cm`` (``emission.spectrum``; a missing one takes 15 or -15) if either is given, else the
+        population's band convention (legacy: 15 / -15)."""
         nu = np.asarray(nu_cm, dtype=float)
-        key = ("spectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm)
+        conv = self.band_convention if fwhm_cm is None and shift_cm is None else None
+        key = ("spectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm, conv)
         if key not in self._arrays:
             self.prepare(shape)
             S = np.zeros((len(self.library), len(self.zs), nu.size))
             for s, mol in enumerate(self.library):
                 for z in mol.charges:
                     b = self.basis(mol, z, shape)
-                    S[s, z - self.zmin] = emission.spectrum(b.freqs_cm, b.emitted, nu, fwhm_cm, shift_cm)
+                    S[s, z - self.zmin] = self._line_spectrum(mol, z, shape, b.freqs_cm, b.emitted, nu, fwhm_cm, shift_cm)
             self._arrays[key] = S
         return self._arrays[key]
 
-    def hydrogenation_state_spectra(self, shape, nu_cm, fwhm_cm=15.0, shift_cm=-15.0):
-        """S[s, slot, k, i]: IR power per cm^-1 of N_H0 - k of every state at G0 = 1 (``state_spectra`` per k)."""
+    def hydrogenation_state_spectra(self, shape, nu_cm, fwhm_cm=None, shift_cm=None):
+        """S[s, slot, k, i]: IR power per cm^-1 of N_H0 - k of every state at G0 = 1 (``state_spectra`` per k; the
+        dehydrogenated states take the emission-temperature shares of N_H0)."""
         nu = np.asarray(nu_cm, dtype=float)
-        key = ("hspectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm)
+        conv = self.band_convention if fwhm_cm is None and shift_cm is None else None
+        key = ("hspectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm, conv)
         if key not in self._arrays:
             self.prepare(shape)
+            if conv is not None and conv.kind == "tdep":
+                self.prepare_temperature_shares(shape)
             S = np.zeros((len(self.library), len(self.zs), N_EMITTING, nu.size))
             for s, mol in enumerate(self.library):
                 for z in mol.charges:
                     for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
                         if f_.size:
-                            S[s, z - self.zmin, k] = emission.spectrum(f_, e_, nu, fwhm_cm, shift_cm)
+                            S[s, z - self.zmin, k] = self._line_spectrum(mol, z, shape, f_, e_, nu, fwhm_cm, shift_cm)
             self._arrays[key] = S
         return self._arrays[key]
 
@@ -1328,7 +1458,7 @@ class Population:
     def state_band_fluxes(self, mol, z, env):
         """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
         b = self.basis(mol, z, field_shape(env))
-        return env.g0 * (b.emitted @ _band_matrix(b.freqs_cm, self.windows, self.local))
+        return env.g0 * (b.emitted @ self._window_matrix(mol, z, field_shape(env), b.freqs_cm))
 
     def _interp_g0(self, table, g0):
         """Log-log interpolation of rate tables (..., K_H_G0_GRID) at ``g0``."""

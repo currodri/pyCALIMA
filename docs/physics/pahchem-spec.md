@@ -865,8 +865,26 @@ Open items:
     molecule cold before each absorption.
   - `steady_state_emission` gives $R_i = \sum_j P_j k_i(E_j)$ for the
     multiphoton steady state.
-  - `spectrum` broadens the bands with the PAHdb convention: Lorentzian,
+  - `spectrum` broadens the bands with pahchem's legacy convention: Lorentzian,
     FWHM 15 cm$^{-1}$, redshift 15 cm$^{-1}$.
+    - This is not PAHdb's convention. The redshift is Bauschlicher+10's,
+      from the 4-31G era; the 15 cm$^{-1}$ FWHM is Boersma+13's Gaussian.
+    - PAHdb v4.00 applies no shift (Ricca+25).
+    - On v4.00 positions it puts the 11.2 µm band at 11.39 µm, against
+      11.195 µm observed.
+  - `band_conventions` (2026-10-26) gives `Population` named conventions:
+    - `legacy` is the one above, and stays the default.
+    - `sourced` and `sourced_tdep` use the v4.00 positions (solo +3 cm$^{-1}$,
+      jet-cooled ovalene). Their shifts are classical-MD slopes at the
+      energy-matched temperature (Mai+25; Pech+02 for 7.7 and 8.6). Their
+      widths are lab laws with rotation removed.
+    - `sourced` evaluates these at a typical emission $T$ per class.
+      `sourced_tdep` evaluates them at each photon's bin temperature on the
+      cascade (`emission_temperature_shares`).
+    - The sources and the ratio sensitivities are in
+      `results/pahchem/band_profiles_2026-10-26/README.md`.
+    - 11.0/11.2 depends on the convention by ×2 or more, and X/11.2 of
+      cation-rich mixes by ×3–4. X/(11.0+11.2) stays within ×1.1–1.25.
 - **Gates:**
   - **Energy.** $\sum_i h\nu_i N_i(E) = E$ less < 150 cm$^{-1}$ left when no
     mode can emit (66 cm$^{-1}$ for C$_{24}$H$_{12}$ at 8 eV).
