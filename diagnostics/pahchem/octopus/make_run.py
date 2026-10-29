@@ -126,7 +126,7 @@ def main():
         ]))
     axes = " ".join(f"td_{x}" for x in a.axes)
     (a.out / "spectrum").mkdir(exist_ok=True)
-    # to 150 eV for ionising fields: 98.8 % of the valence f-sum (docs/physics/pahchem-uv-absorption.md §4)
+    # to 150 eV for ionising fields: 98.8 % of the valence f-sum (docs/physics/pahchem-uv-absorption.md §4c)
     (a.out / "spectrum" / "inp").write_text("UnitsOutput = eV_angstrom\nPropagationSpectrumMaxEnergy = 150*eV\n"
                                             "PropagationSpectrumEnergyStep = 0.05*eV\n")
     (a.out / "run.sh").write_text(f"""#!/bin/bash

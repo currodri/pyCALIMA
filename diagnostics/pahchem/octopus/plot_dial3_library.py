@@ -24,7 +24,7 @@ Figures (``--out``):
   Gaussian window gives the same numbers to 0.01 eV;
 - ``library_euv.png``: 13.6-150 eV, for ionising fields, against pahchem's default (Li & Draine above 30 eV, which
   is graphite there) and the sum of atomic cross sections (``sigma_atomic``). The raw spectrum keeps the box's
-  10-15 % ripples above 30 eV (docs/physics/pahchem-uv-absorption.md §4); X-rays (the C 1s edge) are outside the
+  10-15 % ripples above 30 eV (docs/physics/pahchem-uv-absorption.md §4b); X-rays (the C 1s edge) are outside the
   pseudopotential calculation.
 The tables go to stdout.
 
