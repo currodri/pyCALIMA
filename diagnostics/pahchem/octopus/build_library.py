@@ -29,8 +29,9 @@ Per state whose three kicks have reached T = 20 (``plot_dial3_library.states``),
      the atoms' at 80-130 eV (0.88-0.89 for every state), and blended in with a cos^2 weight over the same range. The
      result is continuous with Octopus by construction. The unscaled atoms would put 100-290 eV about 13 % above
      TD-LDA and 27 % above benzene.
-   - C 1s is added unscaled from Verner's 291 eV step. The pi* resonance at 285 eV that molecules and graphite show
-     is missing.
+   - C 1s is added unscaled from Verner's 291 eV step; with ``--ck-edge`` the measured gas-phase C 1s oscillator strength
+     per carbon (Gordon+ 2003, ISEELS, pyrene: the 1s -> pi* resonances at 285 eV, the Rydberg and sigma* structure to 296 eV)
+     replaces it there, handing over to the atomic value by 310 eV.
 
 Checks per state go to stdout and ``checks.csv``:
 - the oscillator strength to 13.6 and 30 eV, final over raw (the §4 guard asks < 0.5 % at 30 eV);
@@ -49,7 +50,7 @@ Output:
   a two-column file of wavelength [nm] and sigma [cm^2], e.g. Feng+ 2002.
 
     build_library.py [--root ~/Documents/RAMSES_dev/pahspec/results/dial3_library] [--out <results>/pahchem/...]
-                     [--benzene <bz_feng.dat>]
+                     [--benzene <bz_feng.dat>] [--ck-edge <gordon03_pyrene.dat>]
 """
 import argparse
 import csv
@@ -77,7 +78,9 @@ S0, S_MID, S_TOP = 0.15, 0.8, 4.0          # eV: the width below 7.5 eV, at 14-3
 E_JOIN = (80.0, 130.0)                      # eV: the cos^2 hand-over to the scaled atoms, and where k is set
 E_TD = np.round(np.arange(0.02, 150.0 + 1e-9, 0.02), 10)
 E_1S = W.shell_threshold_eV("C", "1s")
-E_HI = np.unique(np.concatenate([np.geomspace(E_JOIN[1], 1e4, 401)[1:], [E_1S * (1 - 1e-6), E_1S]]))
+K_BLEND_END = 310.0                         # eV: the measured C K edge hands over to the atomic C 1s by here
+E_HI = np.unique(np.concatenate([np.geomspace(E_JOIN[1], 1e4, 401)[1:], [E_1S * (1 - 1e-6), E_1S],
+                                 np.arange(280.0, 320.0 + 1e-9, 0.05)]))
 E_OUT = np.concatenate([E_TD[E_TD <= E_JOIN[1] + 1e-9], E_HI])
 CHARGE_COLOR = {-1: COLORS[0], 0: COLORS[1], 1: COLORS[2], 2: COLORS[3]}
 
@@ -110,8 +113,22 @@ def sigma_atoms(nc, nh, E):
     return sigma_atomic(nc, nh, E) + sigma_1s(nc, E)
 
 
-def sigma_1s(nc, E):
-    return nc * W.photoionisation_cross_section("C", "1s", E)
+def sigma_1s(nc, E, kedge=None):
+    """C 1s absorption [cm^2]: Verner's atomic photoionisation, or with ``kedge`` = (E [eV], f [1e-2 per eV per C]) the measured
+    gas-phase C 1s oscillator strength spectrum (ISEELS, Gordon+ 2003) per carbon atom up to its last point, then the excess over
+    the atomic value at that point fading to zero by ``K_BLEND_END`` (an interpolation: the measured 299-306 eV sigma*(C-C)
+    structure is not represented)."""
+    atom = nc * W.photoionisation_cross_section("C", "1s", E)
+    if kedge is None:
+        return atom
+    Em, f = kedge
+    to_cm2 = nc * 1e-2 * M.MB_EV_PER_F * M.MB_CM2
+    e1 = Em[-1]
+    end = to_cm2 * max(float(np.mean(f[Em > e1 - 0.3])), 0.0)
+    excess = end - nc * W.photoionisation_cross_section("C", "1s", np.array([e1]))[0]
+    w = np.cos(0.5 * np.pi * np.clip((E - e1) / (K_BLEND_END - e1), 0.0, 1.0)) ** 2
+    meas = to_cm2 * np.clip(np.interp(E, Em, f), 0.0, None)
+    return np.where(E < Em[0], 0.0, np.where(E <= e1, meas, atom + excess * w))
 
 
 def join_weight(E):
@@ -120,7 +137,7 @@ def join_weight(E):
     return np.cos(0.5 * np.pi * x) ** 2
 
 
-def build(run, nc, nh):
+def build(run, nc, nh, kedge=None):
     """Stages 1-4 of one state: {stage: (E, sigma [cm^2])}, and the valence scale k."""
     _, raw, _ = octopus_sigma(run, energies=E_TD)
     _, gauss, _ = octopus_sigma(run, damp=lambda t, T: np.exp(-0.5 * (S0 * t) ** 2), energies=E_TD)
@@ -130,7 +147,7 @@ def build(run, nc, nh):
     low = E_OUT <= E_JOIN[1] + 1e-9
     wt = np.where(low, join_weight(E_OUT), 0.0)
     td = np.interp(E_OUT, E_TD, wide, right=0.0)
-    scaled = scale * sigma_atomic(nc, nh, E_OUT) + sigma_1s(nc, E_OUT)
+    scaled = scale * sigma_atomic(nc, nh, E_OUT) + sigma_1s(nc, E_OUT, kedge)
     final = wt * td + (1 - wt) * scaled
     return {"raw": (E_TD, raw), "gauss": (E_TD, gauss), "wide": (E_TD, wide),
             "atoms": (E_OUT, sigma_atoms(nc, nh, E_OUT)), "scaled": (E_OUT, scaled), "final": (E_OUT, final)}, scale
@@ -302,12 +319,16 @@ def main():
     ap.add_argument("--out", type=Path, default=None, help="default: <results>/pahchem/octopus_library")
     ap.add_argument("--plots", type=Path, default=None, help="default: <plots>/pahchem/octopus")
     ap.add_argument("--benzene", type=Path, default=None, help="measured benzene: wavelength [nm], sigma [cm^2]")
+    ap.add_argument("--ck-edge", type=Path, default=None,
+                    help="measured gas-phase C 1s oscillator strength per carbon (E [eV], f [1e-2 per eV]), e.g. the pyrene curve "
+                         "digitised from Gordon+ 2003; default: the atomic step at 291 eV")
     a = ap.parse_args()
     out = a.out or _paths.get_results_dir("pahchem/octopus_library")
     plots = a.plots or _paths.get_plots_dir("pahchem/octopus")
     out.mkdir(parents=True, exist_ok=True)
     use_calima_style()
-    rows = [(label, nc, nh, z, *build(a.root / f"{label}_{z:+d}", nc, nh))
+    kedge = tuple(np.loadtxt(a.ck_edge, unpack=True)) if a.ck_edge else None
+    rows = [(label, nc, nh, z, *build(a.root / f"{label}_{z:+d}", nc, nh, kedge))
             for label, nc, nh, z, *_, done in states(a.root, 20.0 - 1e-6) if done]
     table = [checks(*r) for r in rows]
     write(out, rows, table)

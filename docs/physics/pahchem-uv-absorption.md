@@ -166,10 +166,24 @@ atoms is:
   over theirs at 80–130 eV; k = 0.885–0.891 in every state); C 1s unscaled from 291 eV. Unscaled atoms would sit 13 %
   above TD-LDA and 27 % above benzene at 100–290 eV. The library itself is 10–25 % above benzene at 40–200 eV, with
   bumps at ~40 and ~55 eV that benzene lacks.
-- **Open: the C K edge.** Octopus's pseudopotentials freeze the 1s core, so the TD-DFT part has no K-shell absorption and
-  the library has a plain atomic step at 291 eV. Real molecules and graphite start about 6 eV earlier with a sharp 1s → π*
-  resonance near 285 eV. This matters only for soft-X-ray sources at 280–300 eV, and needs measured PAH carbon K-edge
-  spectra.
+- **The C K edge** (optional, `build_library.py --ck-edge`). Octopus's pseudopotentials freeze the 1s core, so the TD-DFT part has
+  no K-shell absorption, and Verner's atomic C 1s is a plain step at 291 eV. Real molecules start earlier and show 1s → π*
+  resonances. The library therefore replaces the atomic C 1s from 282 to 296 eV by the measured gas-phase C 1s oscillator
+  strength per carbon atom of **pyrene** (ISEELS, 0.55 eV resolution, absolute: Gordon, Tulumello, Cooper, Hitchcock+ 2003, Fig. 1,
+  digitised from the bitmap; `RAMSES_dev/pahspec/experiment/ck_edge`). From 296 to 310 eV the excess over the atomic value fades
+  out with a cos² weight.
+  - **What it holds:** the π* peak at 285.1 eV (1.95 Mb per C; 1s → π* integral 0.029 per C over 283–286.4 eV), Rydberg
+    and σ* structure at 287–290 eV (0.8–0.9 Mb) and a broad hump to 1.7 Mb at 293.5 eV, about 1.8 times the atomic value. At 291.5 eV
+    it agrees with Verner (0.97 against 0.935 Mb). The f to 10 keV over valence plus two per C rises from 0.972 to 0.991.
+  - **Positions, high resolution:** neutral coronene has π* peaks at 284.5 and 285.2 eV (the second, from carbons without H, is
+    stronger), then 286.0–286.5 and 286.7–287.1 eV, σ* from ~287.5 eV, and a C 1s binding energy of 289.6–289.95 eV
+    (Fronzoni+ 2014; ion yield, no absolute scale). The coronene cation adds a 282.5 eV peak into the singly occupied orbital
+    (Huo+ 2022).
+  - **Uncertainties:** (a) pyrene stands for all PAHs, per carbon; the 1s → π* integral is 0.020–0.031 per C for the fused-ring
+    molecules of Gordon+ (benzene 0.044), so ±20 %. (b) The ISEELS resolution (0.55 eV) is coarser than the structure of
+    Fronzoni's 0.05 eV spectra: peak heights are too low, the area is right. (c) The 296–310 eV interpolation misses the
+    σ*(C–C) structure at 299.6 and 306.2 eV. (d) Cations, anions and dications use the neutral curve; the cation's 282.5 eV hole peak
+    is not included. (e) The data are not bundled with the package: without `--ck-edge` the library has the atomic step.
 
 ### 4d. Checks (all 48 states, `checks.csv`)
 
@@ -180,7 +194,7 @@ atoms is:
 | most negative σ over the maximum | −3 × 10⁻⁴ (T = 20 ringing below the first band of neutrals) |
 | f below 13.6 eV, final over raw | −0.1 to +4.8 % (the 0.75 eV smoothing of the rise to the 17 eV hump; inside the box uncertainty) |
 | rates, final over raw | Mathis −0.9 to +0.4 %; Draine 1978 −0.6 to +3.4 %; Kurucz 40 000 K −2.5 to +0.3 % |
-| f to 10 keV over valence + 2 per C | 97.2–97.4 % |
+| f to 10 keV over valence + 2 per C | 97.2–97.4 % with the atomic C 1s, 99.0–99.1 % with `--ck-edge` |
 
 ## 5. Band positions: the open decision
 
