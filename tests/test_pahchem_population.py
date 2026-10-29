@@ -282,7 +282,7 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     pop = population.Population([mol], WINDOWS)
     f1 = population._unit_field(("kurucz", 40000))
     for z in mol.charges[:-1]:
-        sig = photo.sigma_li_draine(mol.nc, z, population.E_PH)
+        sig = photo.sigma_uv(mol.nc, z, population.E_PH)
         y = population._yield(mol, z, pop.p)
         assert pop.basis(mol, z, ("kurucz", 40000)).k_up == pytest.approx(
             photo.ionisation_rate(f1, sig[fuv], y[fuv], population.E_PH[fuv]), rel=1e-6)
@@ -291,7 +291,7 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     fe = population._unit_field(shape)
     for z in mol.charges:
         b = heat.basis(mol, z, shape)
-        sig = photo.sigma_li_draine(mol.nc, z, population.E_PH)
+        sig = photo.sigma_uv(mol.nc, z, population.E_PH)
         thr = population.state_threshold(mol, z)
         y = population._yield(mol, z, heat.p)
         ke, _ = photo.photoelectron_energy(population.E_PH, thr)
@@ -320,7 +320,7 @@ def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone()
         b_full, b_cut = pop.basis(mol, z, full), pop.basis(mol, z, cut)
         y_fuv = population._yield(mol, z, pop.p, energy_ev=E_PH)
         assert b_cut.k_up == pytest.approx(
-            photo.ionisation_rate(uncut, photo.sigma_li_draine(mol.nc, z, E_PH), y_fuv, E_PH), rel=1e-6)
+            photo.ionisation_rate(uncut, photo.sigma_uv(mol.nc, z, E_PH), y_fuv, E_PH), rel=1e-6)
         if mol.ionisation_ev[z] < 5.0:
             assert b_full.k_up > 1.05 * b_cut.k_up
         else:
@@ -433,7 +433,7 @@ def test_k_h_table_interpolates_the_multiphoton_steady_state():
     assert np.all(np.diff(b.k_h / population.K_H_G0_GRID) >= -1e-12 * b.k_h[1:] / population.K_H_G0_GRID[1:])
     g0 = np.sqrt(population.K_H_G0_GRID[8] * population.K_H_G0_GRID[9])
     sp = mol.species[1]
-    sigma = photo.sigma_li_draine(mol.nc, 1, population.E_PH)
+    sigma = photo.sigma_uv(mol.nc, 1, population.E_PH)
     h = population.deposit_spectrum(population._unit_field(shape), sigma, population._yield(mol, 1),
                                     population.state_threshold(mol, 1), False)
     cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, pop.e_max_cm, pop.de_cm)
@@ -691,8 +691,10 @@ def test_chain_reproduces_the_baseline_network_given_its_rates():
     sp = {z: PAHSpecies.from_states_file(d / f"C54H18_{z}.dat") for z in (-1, 0)}
     base = BaselineModel("C54", sp[0], Params(), anion=sp[-1])
     nc, nh0, n_solo = PARENTS["C54"]
-    for env, expected in ((Environment("Atomic most", 7.1e4, 5e4, 10.0, 722.0, 40000), 0.000),
-                          (Environment("DF3 most", 5e3, 3.5e3, 0.49, 661.0, 40000), 0.650)):
+    # recorded with the Malloci-average default (0.000 and 0.650 with Li & Draine; only the cross section changed). The
+    # lower sigma at 13-17 eV dehydrogenates less: to be reviewed with the gas-coupling rerun
+    for env, expected in ((Environment("Atomic most", 7.1e4, 5e4, 10.0, 722.0, 40000), 0.025),
+                          (Environment("DF3 most", 5e3, 3.5e3, 0.49, 661.0, 40000), 0.880)):
         pr = base.photo_rates(env)
         net = base.network(pr, env)
         fss = net.steady_state()

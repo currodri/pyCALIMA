@@ -105,7 +105,7 @@ def test_group_photo_rate_is_the_blackbody_integral():
     for i, z in enumerate(G.CHARGES):
         for g, (lo, hi) in enumerate(zip(L0, L1)):
             E = np.geomspace(lo, hi, 4001)
-            direct = np.trapezoid(photo.sigma_li_draine(mol.nc, z, E) * population._yield(mol, z, p, energy_ev=E)
+            direct = np.trapezoid(photo.sigma_uv(mol.nc, z, E) * population._yield(mol, z, p, energy_ev=E)
                                   * bb.flux_at(E), E)
             assert gt.Kg[i, g] * F[g] == pytest.approx(direct, rel=2e-3, abs=1e-30)
 
