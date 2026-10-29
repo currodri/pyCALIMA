@@ -19,7 +19,9 @@ Per state whose three kicks have reached T = 20 (``plot_dial3_library.states``),
    keeps sigma >= 0. Unlike a convolution whose kernel width follows the source energy, it does not drift strength
    down the width gradient. That drift (w w' sigma) piled strength into the grid point where the width starts, and
    pushed it below 13.6 eV. The profile is empirical and labelled as such (the no-ad-hoc-factors rule).
-3. **Positions** stay TD-LDA's: the sTD-DFT correction below ~6 eV is not designed yet (§5).
+3. **Positions:** ``--shift D`` (default 0.4) moves the neutrals' bands below 6 eV up by D eV, fading out by 10 eV (ad hoc,
+   labelled as such; ions are not shifted), because TD-LDA puts them 0.3-0.65 eV too low (docs §5). ``--shift 0`` keeps TD-LDA's;
+   the npz carries both variants.
 4. **EUV and X-rays:** the atoms' photoionisation cross sections, Verner phfit2 C 1s + 2s + 2p (``wdb06_atomic``)
    and hydrogenic H 1s, with the valence part normalised to TD-LDA.
    - TD-LDA is kept to 80 eV. Its excess over the atoms at 30-54.4 eV (x1.33) is real: measured benzene shows x1.30
@@ -42,47 +44,40 @@ Checks per state go to stdout and ``checks.csv``:
   (13.6-136 eV). Also the mean absorbed Mathis photon energy. Raw here is Octopus's own spectrum (polynomial window,
   T = 20).
 
-Output:
-- in ``--out``: ``pah_sigma_library.npz`` (energy_ev, label, nc, nh, z, sigma_cm2 [state, energy], the parameters),
-  one ``sigma_<state>.dat`` per state, and ``checks.csv``;
-- in ``--plots``: ``final_uv.png``, ``final_broadband.png``, ``final_stages.png`` (each stage for two states), and with
-  ``--benzene``, ``final_vs_benzene.png``. That figure plots every state over the atomic sum against measured benzene:
-  a two-column file of wavelength [nm] and sigma [cm^2], e.g. Feng+ 2002.
+Output, in ``--out`` (no figures: the documentation figures come from ``make_library_figures.py``):
+- ``pah_sigma_library.npz``: ``energy_ev``, ``label``, ``nc``, ``nh``, ``z``, ``sigma_cm2`` [state, energy] as shipped (neutrals
+  shifted by ``shift_ev``), ``sigma_cm2_tdlda`` (TD-LDA positions throughout), ``valence_scale_k`` and ``params``;
+- one ``sigma_<state>.dat`` per state (E, sigma as shipped, sigma with TD-LDA positions) and ``checks.csv``.
 
     build_library.py [--root ~/Documents/RAMSES_dev/pahspec/results/dial3_library] [--out <results>/pahchem/...]
-                     [--benzene <bz_feng.dat>] [--ck-edge <gordon03_pyrene.dat>]
+                     [--shift 0.4] [--ck-edge <gordon03_pyrene.dat>]
 """
 import argparse
 import csv
 import sys
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from scipy.linalg import solve_banded  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from plot_dial3_library import ROOT, finish_panels, isrf_stats, sigma_atomic, state_panels, states  # noqa: E402
-from plot_progress import COLORS, octopus_sigma, style, tex  # noqa: E402
+from plot_dial3_library import ROOT, isrf_stats, sigma_atomic, states  # noqa: E402
+from plot_progress import octopus_sigma  # noqa: E402
 
 from pycalima import _paths  # noqa: E402
 from pycalima.models.dust_charge import wdb06_atomic as W  # noqa: E402
 from pycalima.pahchem import fields  # noqa: E402
 from pycalima.pahchem import malloci2007 as M  # noqa: E402
-from pycalima.plotting_style import use_calima_style  # noqa: E402
 
 S0, S_MID, S_TOP = 0.15, 0.8, 4.0          # eV: the width below 7.5 eV, at 14-30 eV, and above 40 eV
 E_JOIN = (80.0, 130.0)                      # eV: the cos^2 hand-over to the scaled atoms, and where k is set
 E_TD = np.round(np.arange(0.02, 150.0 + 1e-9, 0.02), 10)
 E_1S = W.shell_threshold_eV("C", "1s")
+SHIFT_TAPER = (6.0, 10.0)                   # eV: ``--shift`` applies fully below the first value and fades out (cos^2) by the second
 K_BLEND_END = 310.0                         # eV: the measured C K edge hands over to the atomic C 1s by here
 E_HI = np.unique(np.concatenate([np.geomspace(E_JOIN[1], 1e4, 401)[1:], [E_1S * (1 - 1e-6), E_1S],
                                  np.arange(280.0, 320.0 + 1e-9, 0.05)]))
 E_OUT = np.concatenate([E_TD[E_TD <= E_JOIN[1] + 1e-9], E_HI])
-CHARGE_COLOR = {-1: COLORS[0], 0: COLORS[1], 1: COLORS[2], 2: COLORS[3]}
 
 
 def s_of_e(E):
@@ -131,17 +126,30 @@ def sigma_1s(nc, E, kedge=None):
     return np.where(E < Em[0], 0.0, np.where(E <= e1, meas, atom + excess * w))
 
 
+def shift_bands(E, s, d):
+    """``s`` (on the uniform grid ``E``) moved up by ``d`` eV below SHIFT_TAPER[0], the shift fading out by SHIFT_TAPER[1]: the
+    transport x = E + d t(E), sigma'(x) = sigma(E) / (dx/dE). It conserves f exactly and keeps sigma >= 0; between the two
+    energies the spectrum is stretched by up to d x (pi/2) / (taper width)."""
+    if d == 0.0:
+        return s
+    lo, hi = SHIFT_TAPER
+    u = np.clip((E - lo) / (hi - lo), 0.0, 1.0)
+    t = np.cos(0.5 * np.pi * u) ** 2
+    dt = -0.5 * np.pi / (hi - lo) * np.sin(np.pi * u) * ((E > lo) & (E < hi))
+    return np.interp(E, E + d * t, s / (1.0 + d * dt))
+
+
 def join_weight(E):
     """TD-LDA's weight in the hand-over: 1 below E_JOIN[0], cos^2 down to 0 at E_JOIN[1]."""
     x = np.clip((np.asarray(E) - E_JOIN[0]) / (E_JOIN[1] - E_JOIN[0]), 0.0, 1.0)
     return np.cos(0.5 * np.pi * x) ** 2
 
 
-def build(run, nc, nh, kedge=None):
+def build(run, nc, nh, kedge=None, shift=0.0):
     """Stages 1-4 of one state: {stage: (E, sigma [cm^2])}, and the valence scale k."""
     _, raw, _ = octopus_sigma(run, energies=E_TD)
     _, gauss, _ = octopus_sigma(run, damp=lambda t, T: np.exp(-0.5 * (S0 * t) ** 2), energies=E_TD)
-    wide = widen(E_TD, gauss)
+    wide = shift_bands(E_TD, widen(E_TD, gauss), shift)
     k = (E_TD >= E_JOIN[0]) & (E_TD <= E_JOIN[1])
     scale = np.trapezoid(wide[k], E_TD[k]) / np.trapezoid(sigma_atomic(nc, nh, E_TD[k]), E_TD[k])
     low = E_OUT <= E_JOIN[1] + 1e-9
@@ -183,130 +191,23 @@ def checks(label, nc, nh, z, st, scale):
     }
 
 
-def molecules(rows):
-    """[(label, nc, nh, [(z, stages)])] in the library's order."""
-    out = {}
-    for label, nc, nh, z, st, _ in rows:
-        out.setdefault(label, (label, nc, nh, []))[3].append((z, st))
-    return list(out.values())
-
-
-def fig_uv(mols, path):
-    fig, axes = state_panels(len(mols))
-    for ax, (label, nc, nh, zs) in zip(axes.flat, mols):
-        for z, st in zs:
-            E, s = st["final"]
-            k = E <= 20.0
-            ax.plot(E[k], s[k] / nc / M.MB_CM2, color=CHARGE_COLOR[z], lw=1.1, label=f"charge {z:+d}")
-        ax.set_title(tex(label), fontsize=9)
-        ax.set_xlim(0, 20)
-        ax.set_ylim(bottom=0)
-        style(ax)
-    finish_panels(fig, axes, len(mols), r"$\sigma/N_{\rm C}$ [Mb]",
-                  "Final library at 0--20 eV (TD-LDA positions; Gaussian $s = 0.15$ eV below 7.5 eV, "
-                  "0.8 eV at 14--30 eV)", path)
-
-
-def fig_broadband(mols, path):
-    fig, axes = state_panels(len(mols))
-    for ax, (label, nc, nh, zs) in zip(axes.flat, mols):
-        ax.axvspan(*E_JOIN, color="0.9", lw=0, label="hand-over to the scaled atoms (cos$^2$, 80--130 eV)")
-        for z, st in zs:
-            E, s = st["final"]
-            ax.plot(E, np.clip(s, 1e-30, None) / nc / M.MB_CM2, color=CHARGE_COLOR[z], lw=1.0,
-                    label=f"charge {z:+d}")
-        E, a = zs[0][1]["atoms"]
-        ax.plot(E, np.clip(a, 1e-30, None) / nc / M.MB_CM2, color="k", lw=1.0, ls="--",
-                label="sum of atoms, unscaled (Verner C 1s + 2s + 2p, hydrogenic H 1s)")
-        ax.set_title(tex(label), fontsize=9)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlim(1.0, 1e4)
-        ax.set_ylim(1e-4, 60)
-        style(ax)
-    finish_panels(fig, axes, len(mols), r"$\sigma/N_{\rm C}$ [Mb]", "Final library, 1 eV -- 10 keV", path)
-
-
-def fig_stages(picked, path):
-    """Each stage for a few states, in three energy ranges."""
-    ranges = ((0.0, 15.0, "linear"), (10.0, 150.0, "logy"), (30.0, 1e4, "loglog"))
-    fig, axes = plt.subplots(len(picked), 3, figsize=(15, 3.4 * len(picked)), squeeze=False)
-    curves = (("raw", "0.6", "-", "Octopus's own (polynomial window, $T = 20$)"),
-              ("gauss", COLORS[0], "-", "1. Gaussian window, $s_0 = 0.15$ eV"),
-              ("wide", COLORS[1], "-", "2. widened to $s(E)$"),
-              ("atoms", COLORS[2], "--", "sum of atoms, unscaled"),
-              ("scaled", COLORS[3], "--", "sum of atoms, valence part scaled by $k$"),
-              ("final", "k", "-", "final (cos$^2$ hand-over at 80--130 eV)"))
-    for row, (label, nc, nh, z, st, _) in zip(axes, picked):
-        for ax, (lo, hi, scale) in zip(row, ranges):
-            for key, col, ls, lab in curves:
-                E, s = st[key]
-                k = (E >= lo) & (E <= hi)
-                y = s[k] / nc / M.MB_CM2
-                ax.plot(E[k], y if scale == "linear" else np.clip(y, 1e-6, None), color=col, ls=ls,
-                        lw=1.6 if key == "final" else 1.0, label=lab)
-            ax.set_xlim(lo, hi)
-            if scale != "linear":
-                ax.set_yscale("log")
-            if scale == "loglog":
-                ax.set_xscale("log")
-                ax.set_ylim(1e-4, 30)
-            elif scale == "logy":
-                ax.set_ylim(0.1, 40)
-            ax.set_title(tex(f"{label} {z:+d}"), fontsize=9)
-            ax.set_xlabel(r"$E$ [eV]")
-            style(ax)
-        row[0].set_ylabel(r"$\sigma/N_{\rm C}$ [Mb]")
-    h, lab = axes[0, 0].get_legend_handles_labels()
-    fig.legend(h, lab, loc="upper center", ncol=3, frameon=False, fontsize=8.5)
-    fig.tight_layout(rect=(0, 0, 1, 1 - 0.06 / len(picked)))
-    fig.savefig(path, dpi=170, bbox_inches="tight")
-    plt.close(fig)
-
-
-def fig_benzene(rows, path_bz, path):
-    """Every state over the unscaled atomic sum, against measured benzene over its own."""
-    d = np.loadtxt(path_bz, comments="#")
-    E, s = 1239.84198 / d[:, 0], d[:, 1]
-    o = np.argsort(E)
-    E, s = E[o], s[o]
-    fig, ax = plt.subplots(figsize=(8, 4.6))
-    ax.axvspan(*E_JOIN, color="0.9", lw=0, label="hand-over to the scaled atoms")
-    for i, (label, nc, nh, z, st, _) in enumerate(rows):
-        e, f = st["final"]
-        k = (e >= 12) & (e <= 400)
-        ax.plot(e[k], f[k] / sigma_atoms(nc, nh, e[k]), color=COLORS[0], lw=0.6, alpha=0.5,
-                label="library states (final)" if i == 0 else None)
-    k = E >= 12
-    ax.plot(E[k], s[k] / sigma_atoms(6, 6, E[k]), "o", ms=3.5, color=COLORS[1], label=tex(f"benzene ({path_bz.name})"))
-    ax.axhline(1.0, color="k", lw=0.8, ls="--")
-    ax.set_xscale("log")
-    ax.set_xlim(12, 400)
-    ax.set_ylim(0, 2.2)
-    ax.set_xlabel(r"$E$ [eV]")
-    ax.set_ylabel(r"$\sigma\,/\,\sum$ atoms")
-    ax.legend(frameon=False, fontsize=8.5)
-    style(ax)
-    fig.tight_layout()
-    fig.savefig(path, dpi=170, bbox_inches="tight")
-    plt.close(fig)
-
-
-def write(out, rows, table):
+def write(out, rows, rows0, table, shift, kedge):
+    """``rows`` hold the library as shipped (neutrals shifted by ``shift`` eV, if any); ``rows0`` the same with TD-LDA positions."""
+    note = (f"s0 {S0} eV to 7.5 eV, {S_MID} eV at 14-30 eV, {S_TOP} eV above 40 eV; hand-over cos^2 {E_JOIN[0]}-{E_JOIN[1]} eV to the "
+            f"atoms (valence x k); C 1s: " + ("measured gas-phase pyrene ISEELS (Gordon+ 2003) to 296 eV, atomic from 310 eV"
+                                              if kedge is not None else "atomic (Verner) from 291 eV")
+            + f"; neutrals' bands below 6 eV shifted up by {shift} eV (ad hoc, tapering out by 10 eV), ions TD-LDA's; "
+            f"sigma_cm2_tdlda has TD-LDA positions throughout")
     np.savez_compressed(
         out / "pah_sigma_library.npz", energy_ev=E_OUT, label=np.array([r[0] for r in rows]),
         nc=np.array([r[1] for r in rows]), nh=np.array([r[2] for r in rows]), z=np.array([r[3] for r in rows]),
-        sigma_cm2=np.array([r[4]["final"][1] for r in rows]),
-        valence_scale_k=np.array([r[5] for r in rows]),
-        params=np.array(f"s0 {S0} eV to 7.5 eV, {S_MID} eV at 14-30 eV, {S_TOP} eV above 40 eV; hand-over cos^2 "
-                        f"{E_JOIN[0]}-{E_JOIN[1]} eV to the atoms (valence x k, C 1s unscaled); TD-LDA positions "
-                        f"(no sTD-DFT correction)"))
-    for label, nc, nh, z, st, _ in rows:
+        sigma_cm2=np.array([r[4]["final"][1] for r in rows]), sigma_cm2_tdlda=np.array([r[4]["final"][1] for r in rows0]),
+        valence_scale_k=np.array([r[5] for r in rows]), shift_ev=shift, params=np.array(note))
+    for (label, nc, nh, z, st, k), (*_, st0, _) in zip(rows, rows0):
         E, s = st["final"]
-        np.savetxt(out / f"sigma_{label}_{z:+d}.dat", np.column_stack([E, s]), fmt="%.6e",
-                   header=f"{label} charge {z:+d}: N_C {nc}, N_H {nh}. Octopus TD-LDA (DIaL3 library, T = 20) "
-                          f"to {E_JOIN[0]} eV, cos^2 hand-over by {E_JOIN[1]} eV to the sum of atoms (valence part "
-                          f"x {_:.3f}, C 1s unscaled); build_library.py\nE [eV]  sigma [cm^2]")
+        np.savetxt(out / f"sigma_{label}_{z:+d}.dat", np.column_stack([E, s, st0["final"][1]]), fmt="%.6e",
+                   header=f"{label} charge {z:+d}: N_C {nc}, N_H {nh}. Octopus TD-LDA (DIaL3, T = 20); build_library.py. {note}; "
+                          f"valence scale k = {k:.3f}\nE [eV]  sigma [cm^2] (as shipped)  sigma [cm^2] (TD-LDA positions)")
     with open(out / "checks.csv", "w", newline="") as fh:
         wr = csv.DictWriter(fh, fieldnames=list(table[0]))
         wr.writeheader()
@@ -317,32 +218,27 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", type=Path, default=ROOT, help="local mirror of DIaL3's pahspec/library")
     ap.add_argument("--out", type=Path, default=None, help="default: <results>/pahchem/octopus_library")
-    ap.add_argument("--plots", type=Path, default=None, help="default: <plots>/pahchem/octopus")
-    ap.add_argument("--benzene", type=Path, default=None, help="measured benzene: wavelength [nm], sigma [cm^2]")
+    ap.add_argument("--shift", type=float, default=0.4,
+                    help="ad hoc uniform upward shift [eV] of the NEUTRALS' bands below 6 eV (tapering out by 10 eV); 0 keeps "
+                         "TD-LDA's positions. Default 0.4 (docs/physics/pahchem-uv-absorption.md §5)")
     ap.add_argument("--ck-edge", type=Path, default=None,
                     help="measured gas-phase C 1s oscillator strength per carbon (E [eV], f [1e-2 per eV]), e.g. the pyrene curve "
                          "digitised from Gordon+ 2003; default: the atomic step at 291 eV")
     a = ap.parse_args()
     out = a.out or _paths.get_results_dir("pahchem/octopus_library")
-    plots = a.plots or _paths.get_plots_dir("pahchem/octopus")
     out.mkdir(parents=True, exist_ok=True)
-    use_calima_style()
     kedge = tuple(np.loadtxt(a.ck_edge, unpack=True)) if a.ck_edge else None
-    rows = [(label, nc, nh, z, *build(a.root / f"{label}_{z:+d}", nc, nh, kedge))
-            for label, nc, nh, z, *_, done in states(a.root, 20.0 - 1e-6) if done]
+    found = [(label, nc, nh, z) for label, nc, nh, z, *_, done in states(a.root, 20.0 - 1e-6) if done]
+    rows0 = [(label, nc, nh, z, *build(a.root / f"{label}_{z:+d}", nc, nh, kedge)) for label, nc, nh, z in found]
+    rows = [r if (r[3] != 0 or a.shift == 0.0) else (*r[:3], 0, *build(a.root / f"{r[0]}_{r[3]:+d}", r[1], r[2], kedge, a.shift))
+            for r in rows0]
     table = [checks(*r) for r in rows]
-    write(out, rows, table)
-    mols = molecules(rows)
-    fig_uv(mols, plots / "final_uv.png")
-    fig_broadband(mols, plots / "final_broadband.png")
-    fig_stages([r for r in rows if (r[0], r[3]) in {("C96H24", 0), ("C96H24", 1)}], plots / "final_stages.png")
-    if a.benzene:
-        fig_benzene(rows, a.benzene, plots / "final_vs_benzene.png")
+    write(out, rows, rows0, table, a.shift, kedge)
     keys = list(table[0])[4:]
     print(f"{len(rows)} finished states; columns: " + ", ".join(keys))
     for t in table:
         print(f"  {t['state']:18s} " + " ".join(f"{t[k]:7.4f}" if abs(t[k]) < 100 else f"{t[k]:7.1f}" for k in keys))
-    print(f"library in {out}, figures in {plots}")
+    print(f"library in {out}")
 
 
 if __name__ == "__main__":

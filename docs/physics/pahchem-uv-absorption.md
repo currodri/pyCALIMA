@@ -1,13 +1,23 @@
 # PAH UV–visible absorption for pahchem: the Octopus TD-DFT library
 
-Status on 2026-10-28, branch `feature/pahchem-anharmonic`. pahchem's default σ(E, Z) is still the Malloci average of
+Status on 2026-10-29, branch `feature/pahchem-anharmonic`. pahchem's default σ(E, Z) is still the Malloci average of
 {cite:t}`Berne2022` (`photo.sigma_uv`: nine compact PAHs at 5–30 eV, {cite:t}`LiDraine2001` outside), a placeholder.
 Li & Draine is to be dropped. Its replacement is our own charge-resolved real-time TD-DFT library, assembled from 0.02 eV
-to 10 keV for 48 states (§4). It is checked against {cite:t}`Malloci2007`, laboratory data and Lin, Yang & Li (§7).
+to 10 keV for 48 states (§4): C54–C216, charges −1 to +2, with TD-DFT below 80 eV and atomic cross sections above, and
+the measured carbon K edge. It is checked against {cite:t}`Malloci2007`, laboratory data and Lin, Yang & Li (§7).
 
-**Two things are not decided.** The library is not yet wired into pahchem, and **band positions below ~7 eV are
-TD-LDA's, which are 0.3–0.6 eV too low for neutrals** (§5). That bias alone changes neutral absorption in stellar
-fields by 30–55 %.
+**Two choices ship with the library, both labelled.** The neutrals' bands below 6 eV are moved up by 0.4 eV, because TD-LDA
+puts them 0.3–0.65 eV too low (§5; ad hoc, with TD-LDA's positions kept in the same file), and the carbon K edge is the
+measured one for pyrene, used for every PAH (§4c). The library is not yet wired into pahchem.
+
+```{figure} ../_static/pahchem_uv/library_overview.png
+:width: 100%
+:alt: Cross section per carbon of four PAHs at 0–20 eV in four charge states.
+
+The library at 0–20 eV for four molecules (σ per carbon). The visible and near-UV bands (1–7 eV) depend on the charge and
+the molecule; above ~10 eV every state follows one smooth hump, peaking at 15–17 eV at ~25 Mb per carbon. The neutral is
+shown with the 0.4 eV shift of its bands below 6 eV (solid) and with TD-LDA's positions (dotted).
+```
 
 ## 0. Where things are
 
@@ -17,7 +27,8 @@ fields by 30–55 %.
 | Runs, megatron | `~/pahspec`: coronene, pyrene, ovalene and the convergence tests; hybrid runs in `stda_*` |
 | Runs, DIaL3 | `/lustre/dirac3/scratch/dp016/dc-rodr4/pahspec/library` (account dp016) |
 | Local mirrors and laboratory spectra | `RAMSES_dev/pahspec/` (`results/dial3_library`, `experiment/{atlas,vuv}`, `STATUS.md`) |
-| Assembled library | `results/pahchem/octopus_library/` (`pah_sigma_library.npz`, `sigma_<state>.dat`, `checks.csv`) |
+| Assembled library | `results/pahchem/octopus_library/` (`pah_sigma_library.npz` with `sigma_cm2` and `sigma_cm2_tdlda`, `sigma_<state>.dat`, `checks.csv`) |
+| Figures | `docs/_static/pahchem_uv/`, made by `make_library_figures.py` |
 
 | Script | Role |
 |---|---|
@@ -26,6 +37,7 @@ fields by 30–55 %.
 | `queue.py`, `plot_progress.py`, `compare_malloci.py`, `check_damping.py` | megatron runs, progress, comparison with Malloci |
 | `plot_dial3_library.py` | the library against Malloci, pahchem's default and the atomic sum |
 | `build_library.py` | the final assembly (§4) and its checks |
+| `make_library_figures.py` | the figures of this page |
 | `run_pyscf.py`, `run_tddft.py` | hybrid ground state for std2; full TD-B3LYP (§5) |
 | `shift_sensitivity.py`, `compare_lin.py` | effect of a band shift on rates; the Lin+23 comparison (§5, §7) |
 
@@ -124,6 +136,15 @@ is one state, so the Gaussian needed equals the laboratory spread: s = 0.15 eV a
 3. **Positions:** TD-LDA's (§5).
 4. **Atoms above 80 eV** (§4c).
 
+```{figure} ../_static/pahchem_uv/processing_stages.png
+:width: 100%
+:alt: Steps from Octopus's spectrum to the library for C96H24.
+
+From Octopus's spectrum to the library (C96H24 neutral). (a) 0–14 eV: Octopus's polynomial window rings; the Gaussian window of 0.15
+eV removes it, the widening to s(E) smooths the rise above 10 eV, and the shift moves the neutral's bands up. (b) 12–150 eV: the box's
+ripples in Octopus's spectrum are smoothed away, and the spectrum blends into the scaled atomic sum between 80 and 130 eV.
+```
+
 **Is T = 20 enough?** Coronene neutral at T = 40, cold (s = 0.08 eV) against warm (0.15 eV): every rate (Mathis, Draine
 1978, a 10 000 K Kurucz star, a 6000 K blackbody; 0.1–13.6 eV and above the ionisation energy) changes by ≤ 2.4 %, and the
 mean absorbed photon energy by ≤ 0.02 eV. At equal s, T = 40 and T = 20 agree to 0.75 %. Coronene⁺ (spin-polarised, T = 40, same
@@ -185,6 +206,24 @@ atoms is:
     σ*(C–C) structure at 299.6 and 306.2 eV. (d) Cations, anions and dications use the neutral curve; the cation's 282.5 eV hole peak
     is not included. (e) The data are not bundled with the package: without `--ck-edge` the library has the atomic step.
 
+```{figure} ../_static/pahchem_uv/library_xray.png
+:width: 100%
+:alt: The library from 1 eV to 10 keV and the carbon K edge.
+
+(a) The library for C96H24 from 1 eV to 10 keV against the sum of atomic cross sections. (b) The carbon K edge: Verner's atomic step
+at 291 eV against the measured gas-phase C 1s spectrum of pyrene, which carries the 1s → π* resonance at 285 eV and the broad
+σ* hump, and hands over to the atomic value by 310 eV.
+```
+
+```{figure} ../_static/pahchem_uv/library_euv_atoms.png
+:width: 80%
+:alt: The library over the sum of atomic cross sections from 12 to 250 eV, with measured benzene.
+
+The library over the sum of atomic cross sections at 12–250 eV, for all 48 states, against measured benzene (Feng+). Both lie 30–80 %
+above the atoms at 20–50 eV and settle at a constant factor below them above ~80 eV; the library's factor (0.89) is fitted to its
+own TD-LDA at 80–130 eV, benzene's is 0.78.
+```
+
 ### 4d. Checks (all 48 states, `checks.csv`)
 
 | Check | Result |
@@ -193,8 +232,9 @@ atoms is:
 | f to 150 eV over valence electrons | 98.8–98.9 % |
 | most negative σ over the maximum | −3 × 10⁻⁴ (T = 20 ringing below the first band of neutrals) |
 | f below 13.6 eV, final over raw | −0.1 to +4.8 % (the 0.75 eV smoothing of the rise to the 17 eV hump; inside the box uncertainty) |
-| rates, final over raw | Mathis −0.9 to +0.4 %; Draine 1978 −0.6 to +3.4 %; Kurucz 40 000 K −2.5 to +0.3 % |
-| f to 10 keV over valence + 2 per C | 97.2–97.4 % with the atomic C 1s, 99.0–99.1 % with `--ck-edge` |
+| rates, final over Octopus's own spectrum, charged states | Mathis −0.9 to +0.3 %; Draine 1978 −0.6 to +3.4 %; Kurucz 40 000 K −2.5 to +0.3 % |
+| the same, neutrals (shifted by 0.4 eV) | Mathis 0.59–0.72; Draine 1978 1.02–1.39; Kurucz 40 000 K 0.98–1.00 |
+| f to 10 keV over valence + 2 per C | 97.2–97.4 % with the atomic C 1s, 99.0–99.1 % with the measured K edge (shipped) |
 
 ## 5. Band positions: the open decision
 
@@ -228,7 +268,17 @@ neutral choice**, and a 0.1 eV difference between shifts changes the rates by 3�
 Li & Draine and the AmesPAHdb suite absorb Mathis photons at a mean 4.6–5.8 eV, against 2.0–4.8 eV for our states. The
 cause is real: low-energy cation bands and the visible bands of large neutrals.
 
-**The user's choice (2026-10-27):** hybrid-functional positions for the neutrals, band by band; ions stay on TD-LDA.
+```{figure} ../_static/pahchem_uv/band_positions.png
+:width: 80%
+:alt: Calculated minus measured band positions for TD-LDA, sTDA, sTD-DFT and full TD-B3LYP.
+
+Calculated minus measured band positions. TD-LDA (circles) is 0.15–0.65 eV too low; the hybrid methods (sTDA, sTD-DFT, full
+TD-B3LYP/def2-SVP) are within ~0.25 eV. Measured values: pyrene's vapour centroids at 423 K; ovalene's strongest peak in neon and its
+S₁ origin (estimated from S₂ in para-H₂); HBC's S₁ vibronic peak in neon. Pyrene's full TD-B3LYP is PySCF's TDA.
+```
+
+**The user's choice (2026-10-27):** hybrid-functional positions for the neutrals; ions stay on TD-LDA. Per-band assignment proved
+impossible for the dense spectra (§5a), so the shipped correction is one uniform shift (below).
 
 ### 5a. What was tried
 
@@ -242,7 +292,8 @@ neutrals plus coronene, ovalene and HBC. Full linear-response TD-B3LYP (`run_tdd
 | B3LYP sTD-DFT/sTDA on coronene⁺ | worse than TD-LDA (+0.13 to +0.2 eV): a correction applies to neutrals only |
 | sTDA against sTD-DFT on pyrene | mean error 0.14 against 0.23 eV (TD-LDA 0.57) |
 | **std2 against full TD-B3LYP, same basis (def2-SVP)** | within 0.15 eV, no overshoot: ovalene S₁ 2.56 (sTD-DFT), 2.68 (sTDA) against 2.70; HBC S₁ 2.73, 2.74 against 2.88, E₁ᵤ 3.28, 3.39 against 3.45; coronene β 3.98, 4.19 against 4.12 |
-| basis set | def2-SVP puts ovalene S₁ at 2.70 eV, against 2.50 for TD-B3LYP/6-311++G(2d,2p) (Wu+ 2024): **~0.2 eV too high**. HBC S₁ (B₂ᵤ, weak) is measured at 434 nm = 2.86 eV (a vibronic peak; Steglich+ 2011) against 2.88 eV in def2-SVP. Steglich's TD-B3LYP/6-31+G(d) places HBC's E₁ᵤ at 364 nm = 3.41 eV. (Their 536 against 540 nm agreement is for dibenzorubicene, not HBC) |
+| basis set and geometry | def2-SVPD moves ovalene's full TD-B3LYP by only −0.03 eV (S₁ 2.699 → 2.672; bright band 3.70 → 3.66), so the basis is not the issue. TD-B3LYP/6-311++G(2d,2p) in Wu+ 2024 gives S₁ at 2.50 eV, 0.17 eV lower, probably from their own optimised geometry (ours is Malloci's). HBC S₁ (B₂ᵤ, weak) is measured at 434 nm = 2.86 eV (a vibronic peak; Steglich+ 2011) against 2.88 eV in def2-SVP. Steglich's TD-B3LYP/6-31+G(d) places HBC's E₁ᵤ at 364 nm = 3.41 eV. (Their 536 against 540 nm agreement is for dibenzorubicene, not HBC) |
+| **C54H18, full TD-B3LYP/def2-SVP, 60 states** | first strong band 2.89 eV (f = 0.93 per state, degenerate pair) against TD-LDA 2.50 (+0.39) and sTDA 2.86 (std2 agrees to 0.03 eV); the 60 states stop at 4.99 eV, so the strongest band (TD-LDA 5.25 eV) is not reached |
 | matching bands by rank | works on pyrene (sTDA +0.44, +0.57, +0.60 eV for the three bands); ambiguous for C54 and up |
 | matching by cumulative f | fails: the methods share f differently between bands |
 | automatic overlap alignment of each band | fails, even on pyrene |
@@ -251,16 +302,39 @@ For C54H18, C96H24 and coronene TD-LDA has more bands than the hybrid has bright
 (C96H24: +0.27, +0.46, −0.13, +1.00 eV). The shift of the *strongest* band against sTD-DFT is +0.55–0.65 eV for the compact family
 (+0.56–0.79 eV for isomers), but pyrene shows the lower bands move less (+0.27–0.38) than that, so it may overstate them.
 
+**The shipped shift: +0.4 eV for the neutrals** (`build_library.py --shift 0.4`, the default; 0 keeps TD-LDA's positions). The
+neutrals' spectrum below 6 eV is transported up by 0.4 eV, the shift fading out (cos²) by 10 eV. f is conserved exactly, σ stays
+positive, and ions and the K edge are untouched. The file carries both variants (`sigma_cm2` and `sigma_cm2_tdlda`). Over the 12
+neutrals the shift changes the absorption rates as follows, and lifts the mean absorbed Mathis photon from 3.46 eV (2.2–4.9) to
+4.24 eV (2.8–5.7), closer to the 4.6–5.8 eV of pahchem's earlier default and the AmesPAHdb suite:
+
+| field | rate, shifted over unshifted |
+|---|---|
+| Mathis ISRF | 0.59–0.72 |
+| Draine 1978 (5–13.6 eV) | 1.02–1.35 |
+| Kurucz 40 000 K (13.6–136 eV) | 1.000 |
+
+```{figure} ../_static/pahchem_uv/shift_effect.png
+:width: 100%
+:alt: Mean absorbed photon energy and absorption rates of the neutrals against the band shift.
+
+The effect of the shift on the 12 neutrals (mean and range). (a) The mean absorbed Mathis photon energy rises by ~2.0 eV per eV of shift,
+towards the 4.6–5.8 eV of the earlier default and the AmesPAHdb suite (grey). (b) Absorption rates relative to the unshifted spectrum:
+a 0.1 eV difference in the shift changes the rates by 3–15 %. The dotted line marks the shipped 0.4 eV.
+```
+
+The stretching of the spectrum between 6 and 10 eV (up to ~19 %) moves a small amount of strength in a valley of the spectrum.
+
 ### 5b. State of the decision
 
-- **Evidence so far:** the lowest bands need roughly +0.15–0.25 eV (ovalene, uncertain by ±0.1) to +0.45–0.65 eV (pyrene centroids);
-  HBC (TD-LDA run done) is 0.3–0.5 eV low for both its weak S₁ and its strong E₁ᵤ band. The hybrid positions carry a ~0.2 eV basis-set uncertainty (def2-SVP is too high; def2-SVPD or TZVP is still to test). For the strongest bands of C54+ nothing measured exists.
-- **Options:** (1) a smooth shift curve for the neutrals set by anchors from full TD-B3LYP; (2) one uniform sTDA-based shift,
-  labelled ad hoc (it fits pyrene as well as per-band does, 0.11 against 0.14 eV); (3) hand-assigned bands for a few
-  molecules; (4) no correction, stating the bias. Whatever ships, the unshifted spectra stay available as an opt-in switch.
-- **Next:** full TD-B3LYP of coronene, ovalene, HBC and C54H18 (running; coronene done: bright pair at 4.12 eV),
-  TD-LDA of HBC, the Ne-matrix tables of Ruiterkamp+ 2002 (needs the PDF), and the 2175 Å bump as a consistency check
-  (§7).
+- **Evidence:** the first strong bands need +0.27 to +0.5 eV from C16 to C54 (ovalene +0.27 and +0.37, coronene +0.44, HBC +0.4 to
+  +0.5, C54H18 +0.39, pyrene +0.4 to +0.6 against measurement), with no clear trend in size. The hybrid positions are stable
+  against the basis (def2-SVP → SVPD: −0.03 eV); the geometry is the larger uncertainty (~0.15 eV for ovalene). Nothing measured
+  constrains the strongest bands of C54 and larger.
+- **Shipped (2026-10-29):** the uniform +0.4 ± 0.1 eV, labelled ad hoc, with TD-LDA's positions in the same file.
+- **Not tested:** the 0.1 eV spread changes neutral rates by 3–15 % (figure above); the correction is not applied to ions
+  (hybrid methods are worse than TD-LDA for coronene⁺), which shifts the neutral/ion balance.
+- **To do:** the strongest bands of C54+ against full TD-B3LYP (>150 states), and the 2175 Å bump as a consistency check (§7).
 
 ### 5c. Reproducing the hybrid runs
 
@@ -291,6 +365,15 @@ of compact PAHs (2023: 30 molecules, C16–C96, −1/0/+1; 2025: 48 neutrals to 
 (a Lorentzian of half-width 0.2 eV). They fit each per-C spectrum over 0–25 µm⁻¹ with a Drude profile (the π* ← π bump:
 peak x₀, width γ) plus a Fano profile (the σ band). `compare_lin.py` does the same on ours.
 
+```{figure} ../_static/pahchem_uv/lin23_compare.png
+:width: 100%
+:alt: Bump widths and peak positions of our spectra against Lin et al.
+
+(a) The bump width γ of our spectra with their processing against their Fig. 8, for five molecules in three charge states. (b) The bump
+peak x₀ against the number of carbons: their size groups (squares) and neutrals (crosses), ours (blue), and our neutrals with a
+hybrid shift (orange arrows; the estimate of §7).
+```
+
 | | x₀ ours (Lin+25) [µm⁻¹] | γ ours, −1/0/+1 | γ Lin+23 Fig. 8 |
 |---|---|---|---|
 | pyrene | 5.01 (5.00) | 1.56 / 1.13 / 1.17 | 1.63 / 1.01 / 1.15 |
@@ -314,7 +397,7 @@ peak x₀, width γ) plus a Fano profile (the σ band). `compare_lin.py` does th
   the Milky Way bump (4.60) and C150H30 on JADES-GS-z6-0 (4.42). Lin+23 assumed +0.3 eV and landed on 4.6 with a 43-carbon
   mean; with +0.55–0.65 eV that mean would reach ~4.85–4.9, and Lin+25's best-fit molecules (C52–C64) would peak at
   ~4.75–4.9. These estimates assume the Drude peak moves with the strongest band, and rest on def2-SVP hybrid positions
-  (~0.2 eV too high) and a shift taken from the strongest band, so they are indicative only.
+  (def2-SVP; ±0.15 eV from geometry) and a shift taken from the strongest band, so they are indicative only.
 
 **To do with the final library:** redo their Milky Way and JADES fits with TD-LDA and with corrected positions; recheck
 C150H30's width (ask the authors for their spectrum if it persists); report γ for their 0.2 eV Lorentzian and for our
