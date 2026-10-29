@@ -98,9 +98,10 @@ def damping(t, T):
     return 1 - 3 * x ** 2 + 2 * x ** 3
 
 
-def octopus_sigma(run, t_max=None, damp=damping):
+def octopus_sigma(run, t_max=None, damp=damping, energies=E_GRID):
     """(E [eV], (1/3) Tr sigma [cm^2], T used [hbar/eV]) from the three kicks, up to the time all have reached
-    (or ``t_max``), with the window ``damp(t, T)``; None if any kick has no multipoles yet."""
+    (or ``t_max``), with the window ``damp(t, T)``, on ``energies``; None if any kick has no multipoles yet. The
+    dipoles are written every step (dt = 0.002), so ``energies`` may extend far above 30 eV."""
     kicks = []
     for j, axis in enumerate("xyz"):
         p = run / f"td_{axis}" / "td.general" / "multipoles"
@@ -113,14 +114,16 @@ def octopus_sigma(run, t_max=None, damp=damping):
     T = T if t_max is None else min(T, t_max)
     if T <= 0:
         return None
-    w = E_GRID / HA_EV
+    w = np.asarray(energies) / HA_EV
     tr = 0.0
     for j, (t, dip, kick) in enumerate(kicks):
         k = t <= T + 1e-9
         ta, dd = t[k] * HA_EV, (dip[k, j] - dip[0, j]) / BOHR_A
-        im_alpha = -np.trapezoid(dd * damp(t[k], T) * np.sin(np.outer(w, ta)), ta, axis=1) / kick
+        signal = dd * damp(t[k], T)
+        im_alpha = np.concatenate([-np.trapezoid(signal * np.sin(np.outer(wc, ta)), ta, axis=1) / kick
+                                   for wc in np.array_split(w, max(1, len(w) // 300))])   # ~25 MB per chunk at T = 20
         tr = tr + 4 * np.pi * w * im_alpha / C_AU * BOHR_A ** 2
-    return E_GRID, tr / 3 * 1e-16, T
+    return np.asarray(energies), tr / 3 * 1e-16, T
 
 
 def broaden(E, s, T):

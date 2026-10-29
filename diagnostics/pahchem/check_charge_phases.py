@@ -30,6 +30,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -149,6 +150,10 @@ def plot_mean(d, path):
         _ticks(ax)
     for ax in axes[1]:
         ax.set_xlabel(r"$N_{\rm C}$", fontsize=14)
+    for ax in axes.flat:                    # plain labels on the log N_C axis (the minor 2x10^1 ... labels overlapped)
+        ax.set_xticks([30, 50, 100, 200])
+        ax.xaxis.set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     for ax in axes[:, 0]:
         ax.set_ylabel(r"$\langle Z \rangle$", fontsize=14)
     handles = {}

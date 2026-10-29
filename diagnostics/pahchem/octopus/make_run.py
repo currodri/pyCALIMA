@@ -11,9 +11,19 @@ Malloci, Joblin & Mulas (2007, Chem. Phys. 332, 353; method in arXiv:0707.3045, 
 Writes ``<out>/gs/inp`` and one ``<out>/td_<axis>/inp`` per kick direction, plus ``run.sh``. The run is the ground
 state first, then the kicks, which can run at the same time, then ``oct-propagation_spectrum`` on all three in
 ``spectrum/`` (``cross_section_tensor``: the full tensor and its orientation average).
-Open shells (odd electron counts) are run spin-polarised.
+Open shells are run spin-polarised: odd electron counts (doublets), and ``--multiplicity`` 3 or more for even counts
+(PAHdb's triplet dications). They get ExtraStates = 4 and their occupations fixed per spin channel
+(``occupation_block``). Closed-shell runs of the degenerate frontier pair of a D6h dication do not converge, nor
+would a converged one be symmetric. Unfixed doublets can hop the unpaired electron between the spin channels from one
+SCF iteration to the next: C54H30_3835 -1 did 84 times in 300 iterations (results/pahchem/octopus_dications_2026-10-26).
+The library's first doublets (2026-10-25) ran unfixed, without empty states; those that converged reached the same
+|m_z| = 1 state. ``--shared-hole`` shares a doublet's hole 0.5/0.5 over the minority channel's top two states, for a
+hole in a quasi-degenerate pair: C216H36+, whose pair sits 0.8 meV apart at PAHdb's geometry, never converged with
+integer occupations and converged in 36 iterations shared (devel test, 2026-10-26). ``--shared-electron`` does the same
+for an extra electron in a quasi-degenerate pair, shared over the majority channel's top two states: C54H30_3835-
+(pair 0.05 eV apart) failed in 300 iterations with integer occupations and converged in 28 shared (2026-10-27).
 
-    make_run.py coronene.xyz --charge 0 --out runs/coronene_0 [--axes x y z] [--xc lda]
+    make_run.py coronene.xyz --charge 0 --out runs/coronene_0 [--axes x y z] [--xc lda] [--multiplicity 3]
 """
 import argparse
 from pathlib import Path
@@ -25,6 +35,25 @@ XC = {"lda": "lda_x + lda_c_pz"}
 def electrons(xyz, charge):
     atoms = [ln.split()[0] for ln in Path(xyz).read_text().splitlines()[2:] if len(ln.split()) == 4]
     return sum(VALENCE[a] for a in atoms) - charge
+
+
+def occupation_block(n_el, multiplicity, shared_hole=False, shared_electron=False):
+    """ExtraStates and an Occupations block fixing n_up = (N + m - 1)/2 and n_dn = (N - m + 1)/2 electrons, for open shells
+    (multiplicity m >= 2; none for a singlet). Abbreviated form: the columns are the states above the n_dn - 1 full ones
+    in both channels (Octopus fills the states below the block from the charge). Doublets only: ``shared_hole``
+    shares the minority channel's last electron 0.5/0.5 over its top two states; ``shared_electron`` shares the
+    unpaired (majority) electron over the majority channel's top two states."""
+    if multiplicity < 2:
+        return ""
+    if (shared_hole or shared_electron) and multiplicity != 2:
+        raise ValueError("a shared hole or electron is defined for doublets only")
+    if shared_hole and shared_electron:
+        raise ValueError("share either the hole or the electron, not both")
+    n_up, n_dn = (n_el + multiplicity - 1) // 2, (n_el - multiplicity + 1) // 2
+    width = n_up - n_dn + 2
+    up = ["1", "0.5", "0.5"] if shared_electron else ["1"] * (width - 1) + ["0"]
+    dn = ["0.5", "0.5", "0"] if shared_hole else ["1"] + ["0"] * (width - 1)
+    return f"ExtraStates = 4\n%Occupations\n  {' | '.join(up)}\n  {' | '.join(dn)}\n%\n"
 
 
 def system_block(charge, xc, spacing, radius, polarised, pseudo="standard"):
@@ -58,10 +87,20 @@ def main():
     ap.add_argument("--time", type=float, default=20.0, help="propagation time [hbar/eV]")
     ap.add_argument("--dt", type=float, default=0.002, help="time step [hbar/eV]")
     ap.add_argument("--kick", type=float, default=0.01, help="delta kick [1/A]")
+    ap.add_argument("--multiplicity", type=int, default=None,
+                    help="2S+1 (default 1 for even electron counts, 2 for odd); PAHdb's state label gives it")
+    ap.add_argument("--shared-hole", action="store_true",
+                    help="doublets: share the hole 0.5/0.5 over the minority channel's top two states")
+    ap.add_argument("--shared-electron", action="store_true",
+                    help="doublets: share the unpaired electron 0.5/0.5 over the majority channel's top two states")
     a = ap.parse_args()
 
     n_el = electrons(a.xyz, a.charge)
-    polarised = n_el % 2 == 1
+    mult = a.multiplicity if a.multiplicity is not None else 1 + n_el % 2
+    if mult < 1 or (mult - 1) % 2 != n_el % 2:
+        raise SystemExit(f"multiplicity {mult} is impossible with {n_el} electrons")
+    polarised = mult > 1
+    occ = occupation_block(n_el, mult, a.shared_hole, a.shared_electron)
     radius = a.edge + a.absorb
     sysb = system_block(a.charge, a.xc, a.spacing, radius, polarised, a.pseudo)
     a.out.mkdir(parents=True, exist_ok=True)
@@ -70,7 +109,7 @@ def main():
     # LCAOStart = lcao_none: with OHPC OpenBLAS 0.3.32 the LCAO guess fails in DSYGVD ("parameter 11", the
     # workspace size) on megatron; random starting orbitals converge (coronene: 26 SCF steps, 16 s on 8 ranks)
     (a.out / "gs" / "inp").write_text(f"CalculationMode = gs\n{sysb}\nConvRelDens = 1e-7\nMaximumIter = 300\n"
-                                      "LCAOStart = lcao_none\n")
+                                      f"LCAOStart = lcao_none\n{occ}")
     for axis in a.axes:
         d = a.out / f"td_{axis}"
         d.mkdir(exist_ok=True)
@@ -83,14 +122,15 @@ def main():
             f"TDPolarizationDirection = {'xyz'.index(axis) + 1}",
             "AbsorbingBoundaries = mask",
             f"ABWidth = {a.absorb}*angstrom",
-            "",
+            occ,
         ]))
     axes = " ".join(f"td_{x}" for x in a.axes)
     (a.out / "spectrum").mkdir(exist_ok=True)
-    (a.out / "spectrum" / "inp").write_text("UnitsOutput = eV_angstrom\nPropagationSpectrumMaxEnergy = 30*eV\n"
+    # to 150 eV for ionising fields: 98.8 % of the valence f-sum (docs/physics/pahchem-uv-absorption.md §4)
+    (a.out / "spectrum" / "inp").write_text("UnitsOutput = eV_angstrom\nPropagationSpectrumMaxEnergy = 150*eV\n"
                                             "PropagationSpectrumEnergyStep = 0.05*eV\n")
     (a.out / "run.sh").write_text(f"""#!/bin/bash
-# {a.xyz.name}, charge {a.charge:+d}, {n_el} valence electrons ({'spin-polarised' if polarised else 'closed shell'})
+# {a.xyz.name}, charge {a.charge:+d}, {n_el} valence electrons, multiplicity {mult} ({'spin-polarised' if polarised else 'closed shell'})
 # usage: NP=<MPI ranks per run> ./run.sh   (niced; the kicks run in parallel after the ground state)
 set -euo pipefail
 module load gnu15 openmpi5 openblas fftw scalapack gsl hdf5
@@ -113,7 +153,8 @@ i=1; for d in {axes}; do cp $d/td.general/multipoles spectrum/multipoles.$i; i=$
 echo RUN_OK
 """)
     (a.out / "run.sh").chmod(0o755)
-    print(f"{a.out}: {n_el} electrons, {'spin-polarised' if polarised else 'closed shell'}, axes {' '.join(a.axes)}")
+    print(f"{a.out}: {n_el} electrons, multiplicity {mult} ({'spin-polarised' if polarised else 'closed shell'}), "
+          f"axes {' '.join(a.axes)}")
 
 
 if __name__ == "__main__":
