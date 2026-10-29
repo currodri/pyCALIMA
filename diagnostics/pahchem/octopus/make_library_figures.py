@@ -7,7 +7,8 @@
 - ``library_euv_atoms.png``: the library over the sum of atomic cross sections, 12-250 eV, against measured benzene;
 - ``band_positions.png``: calculated minus measured band positions, TD-LDA against hybrid-functional methods;
 - ``shift_effect.png``: what shifting the neutrals' bands does to the mean absorbed photon energy and to the rates;
-- ``processing_stages.png``: the steps from Octopus's spectrum to the library, for one state.
+- ``processing_stages.png``: the steps from Octopus's spectrum to the library, for one state;
+- ``size_rule.png``: the size and charge rule of ``pycalima.pahchem.uvlib`` (from the bundled anchor table).
 
     make_library_figures.py --lib <octopus_library>/pah_sigma_library.npz --out docs/_static/pahchem_uv
                             [--benzene <bz_feng.dat>] [--ck-edge <gordon03_pyrene.dat>] [--lin-fig <lin23_compare.png>]
@@ -28,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_library as B  # noqa: E402
 from plot_progress import COLORS, style, tex  # noqa: E402
 
-from pycalima.pahchem import fields  # noqa: E402
+from pycalima.pahchem import fields, uvlib  # noqa: E402
 from pycalima.pahchem import malloci2007 as M  # noqa: E402
 from pycalima.plotting_style import use_calima_style  # noqa: E402
 
@@ -278,6 +279,43 @@ def fig_stages(lib, path, root, kedge):
     plt.close(fig)
 
 
+def fig_rule(path):
+    t = uvlib.library()
+    E = np.geomspace(0.1, 20.0, 1500)
+    fig, (a, b) = plt.subplots(1, 2, figsize=(11.0, 4.2))
+    cols = plt.cm.viridis(np.linspace(0.05, 0.9, len(t["nc"])))
+    for n, c in zip(t["nc"], cols):
+        a.plot(E, uvlib.per_carbon(n, 0, E) / MB, color=c, lw=1.0, label=f"C$_{{{int(n)}}}$")
+    a.plot(E, uvlib.per_carbon(70, 0, E) / MB, color="k", lw=1.2, ls="--", label=r"$N_{\rm C} = 70$, interpolated")
+    a.set_xlim(1.0, 8.0)
+    a.set_ylim(0, 27)
+    a.set_xlabel(r"$E$ [eV]")
+    a.set_ylabel(r"$\sigma/N_{\rm C}$ [Mb]")
+    legend_below(a, 4)
+    style(a)
+    f = fields.mathis1983(1.0, e_min=0.1, n=2000)
+    Eg = t["energy_ev"]
+    k = Eg <= 13.6
+
+    def rate(s):
+        return np.trapezoid(np.clip(np.interp(f.energy_ev, Eg[k], s[k], left=0, right=0), 0, None) * f.flux_at(f.energy_ev), f.energy_ev)
+    n_grid = np.geomspace(16, 216, 60)
+    for z in (-1, 0, 1, 2):
+        for st, ls in (("mixed", "-"), ("compact", ":")):
+            r = [rate(uvlib.per_carbon(n, z, Eg, structure=st)) for n in n_grid]
+            b.plot(n_grid, np.array(r) / 1e-8, color=CHARGE_COLOR[z], ls=ls, lw=1.2, label=f"{CHARGE_LABEL[z]}, {st}")
+    b.set_xscale("log")
+    b.set_xlabel(r"$N_{\rm C}$")
+    b.set_ylabel(r"Mathis photon absorption rate per carbon [$10^{-8}$ s$^{-1}$]")
+    plain_log_ticks(b, [16, 24, 32, 54, 96, 150, 216])
+    b.legend(frameon=False, fontsize=7.5, ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.17))
+    style(b)
+    panel_letters([a, b])
+    fig.tight_layout()
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--lib", type=Path, required=True, help="pah_sigma_library.npz from build_library.py")
@@ -297,6 +335,7 @@ def main():
     fig_positions(a.out / "band_positions.png")
     fig_shift(lib, a.out / "shift_effect.png")
     fig_stages(lib, a.out / "processing_stages.png", a.root, kedge)
+    fig_rule(a.out / "size_rule.png")
     if a.lin_fig:
         shutil.copy(a.lin_fig, a.out / "lin23_compare.png")
     print("figures in", a.out)

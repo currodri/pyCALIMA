@@ -4,7 +4,7 @@ Status on 2026-10-29, branch `feature/pahchem-anharmonic`. pahchem's default σ(
 {cite:t}`Berne2022` (`photo.sigma_uv`: nine compact PAHs at 5–30 eV, {cite:t}`LiDraine2001` outside), a placeholder.
 Li & Draine is to be dropped. Its replacement is our own charge-resolved real-time TD-DFT library, assembled from 0.02 eV
 to 10 keV for 48 states (§4): C54–C216, charges −1 to +2, with TD-DFT below 80 eV and atomic cross sections above, and
-the measured carbon K edge. It is checked against {cite:t}`Malloci2007`, laboratory data and Lin, Yang & Li (§7).
+the measured carbon K edge, and a rule that turns its 57 states into σ for any N_C and charge (§4e). It is checked against {cite:t}`Malloci2007`, laboratory data and Lin, Yang & Li (§7).
 
 **Two choices ship with the library, both labelled.** The neutrals' bands below 6 eV are moved up by 0.4 eV, because TD-LDA
 puts them 0.3–0.65 eV too low (§5; ad hoc, with TD-LDA's positions kept in the same file), and the carbon K edge is the
@@ -29,6 +29,7 @@ shown with the 0.4 eV shift of its bands below 6 eV (solid) and with TD-LDA's po
 | Local mirrors and laboratory spectra | `RAMSES_dev/pahspec/` (`results/dial3_library`, `experiment/{atlas,vuv}`, `STATUS.md`) |
 | Assembled library | `results/pahchem/octopus_library/` (`pah_sigma_library.npz` with `sigma_cm2` and `sigma_cm2_tdlda`, `sigma_<state>.dat`, `checks.csv`) |
 | Figures | `docs/_static/pahchem_uv/`, made by `make_library_figures.py` |
+| The rule σ(E, N_C, Z) | `pycalima.pahchem.uvlib`; anchors `src/pycalima/data/external_data/pahchem/pah_uv_library.npz` (from `build_library.py --anchors`) |
 
 | Script | Role |
 |---|---|
@@ -38,6 +39,7 @@ shown with the 0.4 eV shift of its bands below 6 eV (solid) and with TD-LDA's po
 | `plot_dial3_library.py` | the library against Malloci, pahchem's default and the atomic sum |
 | `build_library.py` | the final assembly (§4) and its checks |
 | `make_library_figures.py` | the figures of this page |
+| `check_uvlib_rule.py` | the accuracy of the size and charge rule (§4e) |
 | `run_pyscf.py`, `run_tddft.py` | hybrid ground state for std2; full TD-B3LYP (§5) |
 | `shift_sensitivity.py`, `compare_lin.py` | effect of a band shift on rates; the Lin+23 comparison (§5, §7) |
 
@@ -235,6 +237,48 @@ own TD-LDA at 80–130 eV, benzene's is 0.78.
 | rates, final over Octopus's own spectrum, charged states | Mathis −0.9 to +0.3 %; Draine 1978 −0.6 to +3.4 %; Kurucz 40 000 K −2.5 to +0.3 % |
 | the same, neutrals (shifted by 0.4 eV) | Mathis 0.59–0.72; Draine 1978 1.02–1.39; Kurucz 40 000 K 0.98–1.00 |
 | f to 10 keV over valence + 2 per C | 97.2–97.4 % with the atomic C 1s, 99.0–99.1 % with the measured K edge (shipped) |
+
+### 4e. From 57 states to σ(E, N_C, Z)
+
+pahchem needs σ for any size and charge: its PAHdb library holds 1424 molecules with N_C = 22–268 (most between 24 and 100) and
+charges −1 to +3. `pycalima.pahchem.uvlib` (`sigma_library(nc, charge, energy_ev)`, `per_carbon`) applies one rule:
+
+- **Size:** σ = N_C s(E; N_C, Z), with the per-carbon spectrum s interpolated linearly in ln N_C between the anchor sizes 16, 24, 32,
+  54, 96, 150, 216 (pyrene, coronene, ovalene and the circumcoronene family), and held at the nearest anchor outside.
+- **Charge:** the charge itself for −1 to +2, and the dication for +3. Pyrene, coronene and ovalene were not run as dications, so
+  below C54 the dication takes the cation's spectrum.
+- **Structure:** at C54, C96 and C150 the anchor is the equal-weight mean over every library molecule of that size (five, four and two
+  isomers: compact and not), `structure="mixed"` (default); `"compact"` keeps the circumcoronene family alone. Below C54 only compact
+  molecules were run.
+- **Hydrogen:** N_H does not enter. It cannot be modelled from the data: the five C54 isomers (N_H = 18–30) do not order by N_H.
+- **Positions:** `positions="shifted"` (default, the neutrals' 0.4 eV shift) or `"tdlda"`.
+
+```{figure} ../_static/pahchem_uv/size_rule.png
+:width: 100%
+:alt: Per-carbon spectra of the seven anchors and the Mathis-field absorption rate against N_C.
+
+The rule. (a) The per-carbon spectrum of the neutral at the seven anchors and at N_C = 70 (dashed), interpolated. The bands move down and
+spread with size. (b) The photon absorption rate per carbon in the Mathis field against N_C, for four charges with mixed (solid) and
+compact (dotted) anchors: it grows fivefold from C16 to C216 as the bands move into the visible, and the mixed anchors lie 13–47 % above
+the compact ones at C54 (more low-lying bands in the isomers) and 4–10 % below at C96 and C150.
+```
+
+**How well it works** (`check_uvlib_rule.py`; per-carbon absorption rates over 0.1–13.6 eV, ratios):
+
+| test | Mathis | Draine 1978 | Kurucz 10 000 K | blackbody 6000 K |
+|---|---|---|---|---|
+| a held-out anchor from its two neighbours, C54 and up | 0.71–1.22 | 0.91–1.07 | 0.88–1.10 | 0.80–1.14 |
+| the same, C24 and C32 | 1.00–1.28 | 0.96–1.02 | 0.87–1.21 | 0.99–1.38 |
+| mixed over compact anchors, C54 | 0.89–1.47 | 0.88–0.94 | 0.90–1.20 | 1.08–1.24 |
+| mixed over compact anchors, C96 and C150 | 0.90–1.01 | 0.96–1.04 | 0.94–0.97 | 0.88–0.98 |
+| dication over cation, per carbon | 1.07–1.23 | 0.93–0.98 | 1.00–1.05 | 1.01–1.22 |
+
+- The interpolation error is at most ~15 % for the visible-weighted fields (Mathis, blackbody) in the largest case and a few % for the
+  far-UV ones, comparable to the shift's uncertainty (§5). The test is a stringent one: it removes an anchor from a sparse set.
+- **The structure is the larger systematic:** 0.9–1.5 in the Mathis rate at one size. It cannot be reduced without running non-compact
+  isomers between C24 and C54, where 350 of pahchem's 1424 molecules sit; the compact anchors serve there now.
+- The dication proxy below C54 costs up to 23 % in the Mathis field for that charge.
+- The library's energy range is 0.02 eV–10 keV; outside it the rule returns zero.
 
 ## 5. Band positions: the open decision
 

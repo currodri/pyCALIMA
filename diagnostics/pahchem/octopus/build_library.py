@@ -50,7 +50,7 @@ Output, in ``--out`` (no figures: the documentation figures come from ``make_lib
 - one ``sigma_<state>.dat`` per state (E, sigma as shipped, sigma with TD-LDA positions) and ``checks.csv``.
 
     build_library.py [--root ~/Documents/RAMSES_dev/pahspec/results/dial3_library] [--out <results>/pahchem/...]
-                     [--shift 0.4] [--ck-edge <gordon03_pyrene.dat>]
+                     [--small-root <megatron runs>] [--shift 0.4] [--ck-edge <gordon03_pyrene.dat>]
 """
 import argparse
 import csv
@@ -62,6 +62,7 @@ from scipy.linalg import solve_banded  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from plot_dial3_library import ROOT, isrf_stats, sigma_atomic, states  # noqa: E402
+from plot_progress import ROOT as MEGATRON_ROOT  # noqa: E402
 from plot_progress import octopus_sigma  # noqa: E402
 
 from pycalima import _paths  # noqa: E402
@@ -78,6 +79,15 @@ K_BLEND_END = 310.0                         # eV: the measured C K edge hands ov
 E_HI = np.unique(np.concatenate([np.geomspace(E_JOIN[1], 1e4, 401)[1:], [E_1S * (1 - 1e-6), E_1S],
                                  np.arange(280.0, 320.0 + 1e-9, 0.05)]))
 E_OUT = np.concatenate([E_TD[E_TD <= E_JOIN[1] + 1e-9], E_HI])
+
+
+#: smaller compact PAHs run on megatron with the same settings (0.25 A, 4 + 1 A box, T = 20), charges -1, 0, +1 only:
+#: label -> (N_C, N_H, {charge: run directory under ``--small-root``})
+SMALL = {
+    "pyrene": (16, 10, {z: f"malloci_pyrene_{z}" for z in (-1, 0, 1)}),
+    "coronene": (24, 12, {-1: "coronene_-1_h0.25", 0: "coronene_0_h0.25_T20", 1: "coronene_1_h0.25"}),
+    "ovalene": (32, 14, {z: f"malloci_ovalene_{z}" for z in (-1, 0, 1)}),
+}
 
 
 def s_of_e(E):
@@ -214,10 +224,40 @@ def write(out, rows, rows0, table, shift, kedge):
         wr.writerows(table)
 
 
+COMPACT = ("pyrene", "coronene", "ovalene", "C54H18", "C96H24", "C150H30", "C216H36")   # the circumcoronene family
+ANCHOR_NC = (16, 24, 32, 54, 96, 150, 216)
+ANCHOR_CHARGES = (-1, 0, 1, 2)
+
+
+def anchors(rows, rows0):
+    """Per-carbon spectra [cm^2 per C] for ``pycalima.pahchem.uvlib``: [positions (shifted, TD-LDA), structure (compact, mixed), size,
+    charge, energy]. ``compact`` is the circumcoronene family; ``mixed`` the equal-weight mean over every library molecule of that size
+    (the same as compact below C54, where only compact molecules were run). A charge missing at a size takes the next lower one (the
+    dication of the small molecules takes the cation's: ``proxy`` marks them)."""
+    out = np.zeros((2, 2, len(ANCHOR_NC), len(ANCHOR_CHARGES), len(E_OUT)), dtype=np.float32)
+    proxy = np.zeros((len(ANCHOR_NC), len(ANCHOR_CHARGES)), dtype=bool)
+    for ip, rr in enumerate((rows, rows0)):
+        for isz, n in enumerate(ANCHOR_NC):
+            for iz, q in enumerate(ANCHOR_CHARGES):
+                for ist, structure in enumerate(("compact", "mixed")):
+                    pick = [r for r in rr if r[1] == n and r[3] == q and (structure == "mixed" or r[0] in COMPACT)]
+                    if not pick:
+                        out[ip, ist, isz, iz] = out[ip, ist, isz, iz - 1]
+                        proxy[isz, iz] = True
+                        continue
+                    out[ip, ist, isz, iz] = np.mean([r[4]["final"][1] / r[1] for r in pick], axis=0)
+    return out, proxy
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", type=Path, default=ROOT, help="local mirror of DIaL3's pahspec/library")
     ap.add_argument("--out", type=Path, default=None, help="default: <results>/pahchem/octopus_library")
+    ap.add_argument("--small-root", type=Path, default=MEGATRON_ROOT,
+                    help="local mirror of megatron's ~/pahspec runs: adds pyrene, coronene and ovalene (C16, C24, C32; -1, 0, +1); "
+                         "give an empty path to leave them out")
+    ap.add_argument("--anchors", type=Path, default=None,
+                    help="also write the per-carbon anchor spectra for pycalima.pahchem.uvlib (pah_uv_library.npz)")
     ap.add_argument("--shift", type=float, default=0.4,
                     help="ad hoc uniform upward shift [eV] of the NEUTRALS' bands below 6 eV (tapering out by 10 eV); 0 keeps "
                          "TD-LDA's positions. Default 0.4 (docs/physics/pahchem-uv-absorption.md §5)")
@@ -228,12 +268,21 @@ def main():
     out = a.out or _paths.get_results_dir("pahchem/octopus_library")
     out.mkdir(parents=True, exist_ok=True)
     kedge = tuple(np.loadtxt(a.ck_edge, unpack=True)) if a.ck_edge else None
-    found = [(label, nc, nh, z) for label, nc, nh, z, *_, done in states(a.root, 20.0 - 1e-6) if done]
-    rows0 = [(label, nc, nh, z, *build(a.root / f"{label}_{z:+d}", nc, nh, kedge)) for label, nc, nh, z in found]
-    rows = [r if (r[3] != 0 or a.shift == 0.0) else (*r[:3], 0, *build(a.root / f"{r[0]}_{r[3]:+d}", r[1], r[2], kedge, a.shift))
+    found = [(label, nc, nh, z, a.root / f"{label}_{z:+d}") for label, nc, nh, z, *_, done in states(a.root, 20.0 - 1e-6) if done]
+    if a.small_root:
+        found += [(label, nc, nh, z, a.small_root / d) for label, (nc, nh, runs) in SMALL.items() for z, d in runs.items()]
+    rows0 = [(label, nc, nh, z, *build(run, nc, nh, kedge)) for label, nc, nh, z, run in found]
+    runs = {(label, z): run for label, nc, nh, z, run in found}
+    rows = [r if (r[3] != 0 or a.shift == 0.0) else (*r[:3], 0, *build(runs[(r[0], 0)], r[1], r[2], kedge, a.shift))
             for r in rows0]
     table = [checks(*r) for r in rows]
     write(out, rows, rows0, table, a.shift, kedge)
+    if a.anchors:
+        sig, proxy = anchors(rows, rows0)
+        a.anchors.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(a.anchors, energy_ev=E_OUT, nc=np.array(ANCHOR_NC), charges=np.array(ANCHOR_CHARGES), sigma_per_c_cm2=sig,
+                            proxy=proxy, shift_ev=a.shift, k_edge=kedge is not None,
+                            axes=np.array("positions (shifted, tdlda), structure (compact, mixed), N_C, charge, energy"))
     keys = list(table[0])[4:]
     print(f"{len(rows)} finished states; columns: " + ", ".join(keys))
     for t in table:
