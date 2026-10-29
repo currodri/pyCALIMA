@@ -110,3 +110,48 @@ def test_compact_is_the_circumcoronene_family_and_mixed_the_isomer_mean(lib):
     m = uvlib.per_carbon(54, 0, E, structure="mixed")
     k = (E > 3.0) & (E < 8.0)
     assert c[k].max() > 1.15 * m[k].max()
+
+
+# ---- the wiring: Params.uv_cross_section = "octopus_library*" ----------------------------------------------------------------------
+
+def test_sigma_uv_routes_the_library_names_to_the_rule(lib):
+    from pycalima.pahchem import photo
+    e = np.geomspace(0.5, 200.0, 400)
+    for name, kw in (("octopus_library", {}), ("octopus_library_tdlda", {"positions": "tdlda"}),
+                     ("octopus_library_compact", {"structure": "compact"}),
+                     ("octopus_library_tdlda_compact", {"positions": "tdlda", "structure": "compact"})):
+        assert name in photo.UV_CROSS_SECTIONS
+        assert np.array_equal(photo.sigma_uv(70, 1, e, name), uvlib.sigma_library(70, 1, e, **kw))
+    assert np.array_equal(photo.sigma_uv(70, 1, e, photo.uv_model_key("octopus_library")), photo.sigma_uv(70, 1, e, "octopus_library"))
+    with pytest.raises(ValueError):
+        photo.sigma_uv(70, 1, e, "octopus_librari")
+
+
+def test_cache_keys_name_the_model_and_the_anchor_file(lib):
+    from pycalima.pahchem import photo
+    assert photo.uv_model_key("malloci_average") == "malloci_average" and photo.uv_model_key("li_draine") == "li_draine"
+    key = photo.uv_model_key("octopus_library")
+    assert key == f"octopus_library@{uvlib.fingerprint()}" and photo.uv_model_key("octopus_library_tdlda") != key
+
+
+def test_a_population_basis_runs_on_the_library(lib):
+    """The model reaches the pipeline end to end: the photoionisation rate of a C54H18-sized state in a 40 000 K field with EUV comes out
+    finite, positive, and different from Li & Draine's."""
+    from pycalima.pahchem import population
+    from pycalima.pahchem.baseline import Params
+    from pycalima.pahchem.molecule import PAHSpecies
+
+    f = np.concatenate([np.full(18, 3050.0), np.full(18, 1150.0), np.full(18, 850.0), np.geomspace(60.0, 1600.0, 156)])
+    sp = PAHSpecies(54, 18, 0, f, np.full(f.size, 1.0), "test")
+    mol = population.Molecule("x", 54, 18, {"solo": 6, "duo": 12, "trio": 0, "quartet": 0}, {0: sp}, {0: 0}, 7.0)
+    shape = ("kurucz", 40000)
+    a = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params(uv_cross_section="octopus_library"))
+    b = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params())
+    assert a["uv_cross_section"].startswith("octopus_library@") and a["uv_cross_section"] != b["uv_cross_section"]
+    assert population._basis_key(a) != population._basis_key(b)
+    from pycalima.pahchem import photo
+    fld = population._unit_field(("kurucz", 40000, 99.0))          # with EUV: this yield model starts at 20 eV
+    y = population._yield(mol, 0, Params())
+    k = photo.ionisation_rate(fld, photo.sigma_uv(54, 0, population.E_PH, "octopus_library"), y, population.E_PH)
+    k0 = photo.ionisation_rate(fld, photo.sigma_uv(54, 0, population.E_PH, "li_draine"), y, population.E_PH)
+    assert np.isfinite(k) and k > 0.0 and k != k0

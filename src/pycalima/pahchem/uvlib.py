@@ -25,6 +25,7 @@ Mathis field.
 """
 from __future__ import annotations
 
+import hashlib
 from functools import lru_cache
 from pathlib import Path
 
@@ -47,6 +48,12 @@ def _table(path: str):
         return {"energy_ev": z["energy_ev"].astype(float), "nc": z["nc"].astype(float), "charges": z["charges"],
                 "sigma": z["sigma_per_c_cm2"], "proxy": z["proxy"], "shift_ev": float(z["shift_ev"]),
                 "k_edge": bool(z["k_edge"])}
+
+
+@lru_cache(maxsize=4)
+def fingerprint(path=None) -> str:
+    """The first 10 hex digits of the anchor file's SHA-1: part of the cache keys, so that a rebuilt library does not reuse old bases."""
+    return hashlib.sha1(Path(path or default_path()).read_bytes()).hexdigest()[:10]
 
 
 def library(path=None) -> dict:

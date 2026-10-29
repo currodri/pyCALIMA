@@ -41,6 +41,14 @@ MOLECULES = {
     "C96H22_699": (701, 699, 700, 4476), "C96H28_3373": (3372, 3373, 3371, 6119),
     "C96H30_3317": (3321, 3317, 3342, 6104), "C150H36_4010": (4026, 4010, 4036, 6325),
 }
+#: ``--set small`` (2026-10-29): non-compact isomers at C24, C32 and C42, where 350 of pahchem's 1424 library molecules sit, so that the
+#: size anchors there are not compact molecules alone (pycalima.pahchem.uvlib). Chosen from the pahchem library (PAHdb v4.00, pure C/H,
+#: all four charges) to span the compactness index N_H / sqrt(6 N_C) = 1.0-1.5; C42H16 (circumpyrene) is the compact one at C42.
+MOLECULES_SMALL = {
+    "C24H14_538": (550, 538, 549, 6322), "C32H14_591": (593, 591, 592, 4437), "C32H18_535": (545, 535, 544, 4427),
+    "C32H18_536": (547, 536, 546, 4428), "C42H16_620": (3168, 620, 3167, 4450), "C42H18_134": (136, 134, 135, 4332),
+    "C42H20_3983": (3980, 3983, 3977, 6315), "C42H22_3970": (3968, 3970, 3966, 6313), "C42H24_3973": (3972, 3973, 3971, 6314),
+}
 CHARGES = (-1, 0, 1, 2)
 #: doublets whose hole sits in a quasi-degenerate pair and is shared 0.5/0.5 (make_run.py --shared-hole; the user's
 #: choice, 2026-10-26): C216H36+ never converged with integer occupations
@@ -166,15 +174,18 @@ def main():
     ap.add_argument("--edge", type=float, default=4.0, help="atom to absorbing region [A] (make_run.py)")
     ap.add_argument("--time", type=float, default=20.0, help="propagation time [hbar/eV] (make_run.py)")
     ap.add_argument("--suffix", default="", help="appended to the Slurm job names, e.g. _b8")
+    ap.add_argument("--set", choices=("library", "small"), default="library",
+                    help="the molecules: the C54-C216 library, or the non-compact isomers at C24-C42 (MOLECULES_SMALL)")
     a = ap.parse_args()
     if a.xml is None:
         from pycalima.pahchem.ames_suite import xml_path
         a.xml = xml_path()
-    uids = [u for v in MOLECULES.values() for u in v if u is not None]
+    molecules = MOLECULES_SMALL if a.set == "small" else MOLECULES
+    uids = [u for v in molecules.values() for u in v if u is not None]
     geo = geometries(a.xml, uids)
     (a.out / "geometries").mkdir(parents=True, exist_ok=True)
     total = 0.0
-    for label, ids in MOLECULES.items():
+    for label, ids in molecules.items():
         for z, uid in zip(CHARGES, ids, strict=True):
             if uid is None:
                 print(f"{label} {z:+d}: not in PAHdb v4.00, skipped")

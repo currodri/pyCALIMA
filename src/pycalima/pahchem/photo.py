@@ -30,6 +30,7 @@ Cross sections [cm^2] on an energy grid in eV:
     (results/pahchem/uv_sigma_2026-10-26).
   - At 5-13.6 eV the average absorbs 0.69-0.87x Li & Draine's photons; at 17 eV it is 0.66x.
   - Z = +3, which Malloci did not compute, takes the dication average.
+- ``octopus_library``: our own TD-DFT library, 0.02 eV to 10 keV (``uvlib``; not the default yet: it needs its bundled anchor file).
 - ``sigma_uv``: the cross section of a ``Params.uv_cross_section`` name.
 - ``sigma_malloci_molecule``: one Malloci+07 molecule, optionally scaled to another N_C, for the reproductions of
   papers that used it (Andrews+16, Montillaud+13).
@@ -185,7 +186,10 @@ MALLOCI_AVERAGE_MOLECULES = ("ovalene", "tetrabenzocoronene", "circumbiphenyl", 
                              "hexabenzocoronene", "dicoronylene", "circumcoronene", "circumovalene")
 #: where the Malloci average is used [eV]; Li & Draine outside (module docstring)
 MALLOCI_AVERAGE_RANGE_EV = (5.0, 30.0)
-UV_CROSS_SECTIONS = ("malloci_average", "li_draine")
+#: ``octopus_library`` is ``pycalima.pahchem.uvlib``'s rule (docs/physics/pahchem-uv-absorption.md section 4e) with the neutrals' 0.4 eV shift and
+#: the mean over isomers; the suffixes ``_tdlda`` (TD-LDA's positions) and ``_compact`` (the circumcoronene family alone) select the others
+UV_CROSS_SECTIONS = ("malloci_average", "li_draine", "octopus_library", "octopus_library_tdlda", "octopus_library_compact",
+                     "octopus_library_tdlda_compact")
 
 
 @lru_cache(maxsize=None)
@@ -232,12 +236,26 @@ def sigma_malloci_molecule(name, charge, energy_ev, nc=None) -> np.ndarray:
 
 
 def sigma_uv(nc, charge, energy_ev, model="malloci_average") -> np.ndarray:
-    """The UV absorption cross section [cm^2] of ``model`` (``UV_CROSS_SECTIONS``; ``Params.uv_cross_section``)."""
+    """The UV absorption cross section [cm^2] of ``model`` (``UV_CROSS_SECTIONS``; ``Params.uv_cross_section``). A name that carries
+    its anchor file's fingerprint (``uv_model_key``: ``octopus_library@<hash>``, as the basis workers receive it) is accepted."""
+    model = str(model).split("@")[0]
     if model == "malloci_average":
         return sigma_malloci_average(nc, charge, energy_ev)
     if model == "li_draine":
         return sigma_li_draine(nc, charge, energy_ev)
+    if model in UV_CROSS_SECTIONS:
+        from pycalima.pahchem import uvlib
+        return uvlib.sigma_library(nc, charge, energy_ev, positions="tdlda" if "tdlda" in model else "shifted",
+                                   structure="compact" if "compact" in model else "mixed")
     raise ValueError(f"uv_cross_section must be one of {UV_CROSS_SECTIONS}, not {model!r}")
+
+
+def uv_model_key(model) -> str:
+    """``model`` as it enters cache keys: the name, and for ``octopus_library*`` the anchor file's fingerprint too."""
+    if str(model).startswith("octopus_library"):
+        from pycalima.pahchem import uvlib
+        return f"{model}@{uvlib.fingerprint()}"
+    return model
 
 
 def yield_jochims1996(energy_ev, ip_ev) -> np.ndarray:

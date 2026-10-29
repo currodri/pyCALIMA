@@ -439,7 +439,7 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
       few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
     """
     grid = np.asarray(energy_ev, dtype=float)
-    key = ("detach_stat", params.sigma_scale, params.uv_cross_section, float(grain_cm), grid.tobytes(), bool(valence),
+    key = ("detach_stat", params.sigma_scale, photo.uv_model_key(params.uv_cross_section), float(grain_cm), grid.tobytes(), bool(valence),
            params.attachment_fraction)
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
@@ -739,7 +739,7 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
                 h_odd=tuple(params.h_odd), h2=tuple(params.h2), threshold_ev=float(state_threshold(mol, z)),
                 ionising_heat=bool(params.ionising_photons_heat),
                 # the UV cross section enters the inputs (and the key) unless it is Li & Draine's, the bases before 2026-10-26
-                **({"uv_cross_section": params.uv_cross_section} if params.uv_cross_section != "li_draine" else {}),
+                **({"uv_cross_section": photo.uv_model_key(params.uv_cross_section)} if params.uv_cross_section != "li_draine" else {}),
                 # only then does the electron's share enter the basis (and its key)
                 **({"electron_ev": electron_energy(mol, z, params)} if params.ionising_photons_heat else {}))
 

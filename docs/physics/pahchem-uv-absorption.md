@@ -8,7 +8,7 @@ the measured carbon K edge, and a rule that turns its 57 states into σ for any 
 
 **Two choices ship with the library, both labelled.** The neutrals' bands below 6 eV are moved up by 0.4 eV, because TD-LDA
 puts them 0.3–0.65 eV too low (§5; ad hoc, with TD-LDA's positions kept in the same file), and the carbon K edge is the
-measured one for pyrene, used for every PAH (§4c). The library is not yet wired into pahchem.
+measured one for pyrene, used for every PAH (§4c). The library is available in pahchem as `Params(uv_cross_section="octopus_library")` (§4e), not yet the default.
 
 ```{figure} ../_static/pahchem_uv/library_overview.png
 :width: 100%
@@ -279,6 +279,23 @@ the compact ones at C54 (more low-lying bands in the isomers) and 4–10 % below
   isomers between C24 and C54, where 350 of pahchem's 1424 molecules sit; the compact anchors serve there now.
 - The dication proxy below C54 costs up to 23 % in the Mathis field for that charge.
 - The library's energy range is 0.02 eV–10 keV; outside it the rule returns zero.
+
+**Using it** (wired 2026-10-29). `Params(uv_cross_section="octopus_library")` selects the rule; `photo.sigma_uv`, the population bases, the group
+tables and the family emission then use it. The suffixes `_tdlda` and `_compact` select TD-LDA's positions and the circumcoronene family
+(`octopus_library_tdlda_compact` both). The basis cache keys carry the model name and the anchor file's fingerprint, so a rebuilt library does
+not reuse old bases. It is **not the default yet**: that needs the anchors file bundled and the gas-coupling review (the 0.65 → 0.88 hydrogenation
+shift of the Malloci default already moved the chain tests).
+
+A cross-check through the pipeline: the photoionisation rate of C54H18 in a 40 000 K field (`Population.basis`, ratio to the Malloci average)
+
+| model | −1 | 0 | +1 | +2 |
+|---|---|---|---|---|
+| `octopus_library` (isomer mean, shifted) | 1.065 | 1.197 | 1.224 | 1.202 |
+| `octopus_library_tdlda` | 1.065 | 1.181 | 1.224 | 1.202 |
+| `octopus_library_compact` | 1.008 | 1.000 | 1.008 | 1.050 |
+
+The compact anchors reproduce the Malloci average (nine compact PAHs, C32–C66) to 0–5 %: two independent TD-DFT sets agree. The default
+anchor, the mean over the C54 isomers, absorbs 6–22 % more, because the non-compact isomers have bands at lower energy.
 
 ## 5. Band positions: the open decision
 
