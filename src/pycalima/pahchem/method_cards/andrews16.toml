@@ -28,6 +28,7 @@ targets_profile = "Fig. 3 (n, T, G0/n(H), gamma vs A_V)"
 
 [absorption]
 sigma_uv = "Malloci+2007 (C24H12, C54H18); C96H24 = C54H18 scaled by NC; dehydrogenated coronene from Malloci+2008; other states: closest NH, same Z"
+sigma_uv_pahchem = "Malloci+07 as theirs (fetched malloci2007-spectra; Li & Draine until 2026-10-26); charges Malloci lacks (coronene -1: its served file is C54H18-; C54 +3; C96 +3, +4) take the nearest computed charge; Malloci+08 dehydrogenated coronene not available, so every N_H takes the parent sigma"
 source = "Sect. 2.3.2"
 confidence = "C"
 

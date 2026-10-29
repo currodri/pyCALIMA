@@ -20,6 +20,19 @@ Cross sections [cm^2] on an energy grid in eV:
 - ``sigma_malloci_coronene``: Malloci et al. (2007) TD-DFT for C24H12 at
   Z = 0, +1, from the fetched ``malloci2007-spectra`` (the served anion file is a C54H18- spectrum,
   ``malloci2007.INCONSISTENT``).
+- ``sigma_malloci_average``: Berne+22's strategy, pahchem's default since 2026-10-26 (``Params.uv_cross_section``).
+  - sigma / N_C is averaged per charge over the Malloci+07 spectra of nine compact PAHs, N_C 32-66
+    (``MALLOCI_AVERAGE_MOLECULES``), times N_C.
+  - Berne+22 use it at 5-13.6 eV, where their field is. Here it covers 5-30 eV, Malloci's range; Li & Draine is used
+    below 5 eV and above 30 eV.
+  - Below 5 eV, Malloci's spectra carry a floor from their exponential damping window, 60-300x Li & Draine at
+    1-1.5 eV. In the old-star light of the ISRF it would triple the absorption below 5 eV
+    (results/pahchem/uv_sigma_2026-10-26).
+  - At 5-13.6 eV the average absorbs 0.69-0.87x Li & Draine's photons; at 17 eV it is 0.66x.
+  - Z = +3, which Malloci did not compute, takes the dication average.
+- ``sigma_uv``: the cross section of a ``Params.uv_cross_section`` name.
+- ``sigma_malloci_molecule``: one Malloci+07 molecule, optionally scaled to another N_C, for the reproductions of
+  papers that used it (Andrews+16, Montillaud+13).
 """
 
 from __future__ import annotations
@@ -164,6 +177,67 @@ def sigma_malloci_coronene(charge, energy_ev) -> np.ndarray:
         raise ValueError(f"Malloci coronene sigma exists for Z = 0, 1, not {charge}")
     E, s = malloci2007.sigma_of("coronene", charge)
     return np.interp(energy_ev, E, s, left=0.0, right=0.0)
+
+
+#: Berne+22's molecules for Z = 0, +1, +2 (their anion set adds coronene, whose served anion file is C54H18-'s and
+#: is left out: ``malloci2007.INCONSISTENT``), N_C 32-66
+MALLOCI_AVERAGE_MOLECULES = ("ovalene", "tetrabenzocoronene", "circumbiphenyl", "circumanthracene", "circumpyrene",
+                             "hexabenzocoronene", "dicoronylene", "circumcoronene", "circumovalene")
+#: where the Malloci average is used [eV]; Li & Draine outside (module docstring)
+MALLOCI_AVERAGE_RANGE_EV = (5.0, 30.0)
+UV_CROSS_SECTIONS = ("malloci_average", "li_draine")
+
+
+@lru_cache(maxsize=None)
+def _malloci_per_carbon(charge):
+    """(E [eV], <sigma / N_C> [cm^2]) over ``MALLOCI_AVERAGE_MOLECULES`` on Malloci's 0-30 eV grid."""
+    from pycalima.pahchem import malloci2007
+
+    z = min(int(charge), 2)
+    spec = malloci2007.spectra()
+    E = None
+    rows = []
+    for name in MALLOCI_AVERAGE_MOLECULES:
+        e, sig = spec[name]["sigma"][z]
+        if E is None:
+            E = e
+        rows.append(np.interp(E, e, sig / spec[name]["nc"]))
+    return E, np.mean(rows, axis=0)
+
+
+def sigma_malloci_average(nc, charge, energy_ev) -> np.ndarray:
+    """Berne+22's cross section [cm^2]: N_C x the Malloci+07 average per C of ``MALLOCI_AVERAGE_MOLECULES`` at the
+    state's charge (Z >= +2: the dication) within ``MALLOCI_AVERAGE_RANGE_EV``, Li & Draine outside."""
+    E = np.asarray(energy_ev, dtype=float)
+    lo, hi = MALLOCI_AVERAGE_RANGE_EV
+    inside = (E >= lo) & (E <= hi)
+    out = sigma_li_draine(nc, charge, E)
+    if inside.any():
+        em, per_c = _malloci_per_carbon(max(-1, min(int(charge), 2)))
+        out[inside] = nc * np.interp(E[inside], em, per_c)
+    return out
+
+
+def sigma_malloci_molecule(name, charge, energy_ev, nc=None) -> np.ndarray:
+    """Malloci+07 cross section [cm^2] of molecule ``name`` at ``charge``, times nc / N_C(name) if ``nc`` is given; zero
+    outside 0-30 eV. A charge Malloci did not compute (or whose served file is ``malloci2007.INCONSISTENT``) takes the
+    nearest computed charge of the same molecule."""
+    from pycalima.pahchem import malloci2007
+
+    spec = malloci2007.spectra()[name]
+    z = min(spec["sigma"], key=lambda q: (abs(q - int(charge)), -q))
+    e, s = spec["sigma"][z]
+    scale = 1.0 if nc is None else nc / spec["nc"]
+    return scale * np.interp(np.asarray(energy_ev, dtype=float), e, s, left=0.0, right=0.0)
+
+
+def sigma_uv(nc, charge, energy_ev, model="malloci_average") -> np.ndarray:
+    """The UV absorption cross section [cm^2] of ``model`` (``UV_CROSS_SECTIONS``; ``Params.uv_cross_section``)."""
+    if model == "malloci_average":
+        return sigma_malloci_average(nc, charge, energy_ev)
+    if model == "li_draine":
+        return sigma_li_draine(nc, charge, energy_ev)
+    raise ValueError(f"uv_cross_section must be one of {UV_CROSS_SECTIONS}, not {model!r}")
 
 
 def yield_jochims1996(energy_ev, ip_ev) -> np.ndarray:

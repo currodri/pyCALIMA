@@ -64,6 +64,9 @@ class Params:
     modes: str = "parent"                    # or "stripped"
     # photophysics
     sigma_scale: float = 1.0
+    # UV absorption (``photo.sigma_uv``): Berne+22's Malloci+07 average per C at 5-30 eV, Li & Draine outside (the default
+    # since 2026-10-26), or "li_draine" everywhere (before)
+    uv_cross_section: str = "malloci_average"
     ir_scale: float = 1.0                    # proxy for recurrent fluorescence / anharmonic cooling
     yield_model: str = "jochims"             # or "lepage"
     yield_cation: str = "wenzel"             # Z = +1 where Wenzel+20 applies (N_C >= 32, IP2 < 11.3); or "jochims"
@@ -182,7 +185,7 @@ class BaselineModel:
             if "neutral_pe" not in self._cm:             # the neutral's radiative P(E) under Draine G0 = 1
                 cm = energy_me.CascadeModel(self.species.freqs_cm, scaled_einstein_a(self.species, self.p),
                                             e_max_cm=16.0 * dos.CM_PER_EV, de_cm=10.0, grain_cm=1.0)
-                sigma = photo.sigma_li_draine(self.nc, 0, E_PH)
+                sigma = photo.sigma_uv(self.nc, 0, E_PH, self.p.uv_cross_section)
                 _, h = self._absorption(fields.draine1978(g0=1.0), sigma, 0, self.nh0)
                 self._cm["neutral_pe"] = (cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
             akey = ("attachment", grid_excess_cm(temperature_k))     # the grid holds the electrons' Maxwellian
@@ -262,7 +265,7 @@ class BaselineModel:
         field = env.field()
         out = {}
         for z in self.charges:
-            sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
+            sigma = photo.sigma_uv(self.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
             for nh in self.nh_values:
                 y, h = self._absorption(field, sigma, z, nh)
                 ch = self._channels(nh, z)
@@ -315,7 +318,7 @@ class BaselineModel:
         field = env.field()
         out = {}
         for z in self.charges:
-            sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
+            sigma = photo.sigma_uv(self.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
             _, h = self._absorption(field, sigma, z, 0)
             r = cm.steady_state(E_PH, h, k).rates
             out[z] = float(sum(fragments[name][0] * r[name] for name in fragments))

@@ -560,9 +560,10 @@ The extrapolated Draine polynomial gives 10–170× fewer 1–5 eV photons than 
 **ε** is now the heating over all the power absorbed (1–13.6 eV, or up to 500 eV with the EUV). That is Berné+22's
 and WD01's definition, and what the observed I_gas / (I_PAH + I_gas) measures. BT94's 6–13.6 eV convention differs.
 
-**Still Li & Draine below 5 eV.** Malloci+07 absorbs 2.2–3.6× more at 1–5 eV (Mathis field, median of 27
-molecules), so the sub-5 eV effects computed with the current default are lower bounds until the cross-section
-switch (Malloci and Octopus, opt-in) lands. For neutrals, part of Malloci's excess is the Lorentzian wing of the
+**Still Li & Draine below 5 eV, by choice.** Since 2026-10-26 the default UV cross section is Berné+22's Malloci
+average at 5–30 eV (`photo.sigma_uv`), with Li & Draine kept below 5 eV. Malloci+07 absorbs 2.2–3.6× more at
+1–5 eV (Mathis field, median of 27 molecules), so the sub-5 eV effects are lower bounds until our own Octopus
+library replaces both. For neutrals, part of Malloci's excess is the Lorentzian wing of the
 exponential time window their spectra carry, not absorption: about a quarter of coronene's Mathis 1–5 eV rate
 ({doc}`pahchem-uv-absorption` §2). The cations' visible bands are real.
 

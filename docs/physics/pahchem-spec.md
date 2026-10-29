@@ -277,9 +277,22 @@ of M5 should carry it as the uncertainty of the H-loss $E_0$.
 - {mod}`pycalima.pahchem.fields`: one field type (4$\pi$ photon flux per eV)
   and one $G_0$ (Habing, 6–13.6 eV). Draine (1978) has $G_0 = 1.67$ and
   Mathis et al. (1983) 1.13.
-- {mod}`pycalima.pahchem.photo`: Li & Draine $\sigma$ at the LD01 radius, the
-  Malloci coronene $\sigma$, and the Jochims and Le Page yields. Heating plus
-  ionisation equals absorption.
+- {mod}`pycalima.pahchem.photo`: the UV cross sections, the Jochims and Le Page
+  yields. Heating plus ionisation equals absorption.
+  - The default since 2026-10-26 (`Params.uv_cross_section = "malloci_average"`,
+    `sigma_uv`) is Berné+22's strategy: $N_{\rm C}$ times the Malloci+07 average
+    per C of nine compact PAHs ($N_{\rm C}$ 32–66, per charge; +3 takes +2) at
+    5–30 eV.
+  - Li & Draine at the LD01 radius is used below 5 eV, where Malloci's spectra
+    carry their damping-window floor, and above 30 eV.
+  - At 5–13.6 eV it absorbs 0.69–0.87× Li & Draine's photons.
+  - `"li_draine"` keeps the earlier cross section everywhere, and its cached
+    bases.
+  - The reproductions use their papers' cross sections: Malloci per molecule for
+    Andrews+16 and Montillaud+13 (`sigma_malloci_molecule`), the digitised Joblin
+    soot for Le Page+01, and Li & Draine for WD01 (`murga_charge`). Allain+96 is
+    Malloci where computed, else Li & Draine, because Joblin 1992 and Verstraete &
+    Léger 1992 are not available.
 - {mod}`pycalima.pahchem.cooling`: the exact harmonic microcanonical emission
   rate $k_i(E) = A_i\sum_{v\ge1}\rho(E-vh\nu_i)/\rho(E)$. For one oscillator
   it gives $nA$ exactly. It falls below the thermal approximation by 5 % at

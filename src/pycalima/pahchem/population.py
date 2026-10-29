@@ -439,7 +439,8 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
       few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
     """
     grid = np.asarray(energy_ev, dtype=float)
-    key = ("detach_stat", params.sigma_scale, float(grain_cm), grid.tobytes(), bool(valence), params.attachment_fraction)
+    key = ("detach_stat", params.sigma_scale, params.uv_cross_section, float(grain_cm), grid.tobytes(), bool(valence),
+           params.attachment_fraction)
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
         from pycalima.pahchem.attachment import Attachment
@@ -448,7 +449,7 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         lyman = E_PH_FUV[-1]
         lo = grid <= lyman
         E = np.append(grid[lo], lyman)                    # with 13.6 eV, where the EUV ramp starts
-        sigma = photo.sigma_li_draine(mol.nc, -1, E) * params.sigma_scale
+        sigma = photo.sigma_uv(mol.nc, -1, E, params.uv_cross_section) * params.sigma_scale
         y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
                                 out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
         akey = ("attach_detach", float(grain_cm), params.attachment_fraction)
@@ -592,7 +593,7 @@ def charge_fractions(mol, env, params=Params()):
     zs = mol.charges
     f = {zs[0]: 1.0}
     for z in zs[:-1]:
-        sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * params.sigma_scale
+        sigma = photo.sigma_uv(mol.nc, z, E_PH, params.uv_cross_section) * params.sigma_scale
         up = photo.ionisation_rate(field_, sigma, _yield(mol, z, params), E_PH)
         if z == -1:
             up += anion_associative_detachment(params) * env.n_h
@@ -737,6 +738,8 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
                 sigma_scale=params.sigma_scale, recomb_ev=recomb, ladder=tuple(ladder),
                 h_odd=tuple(params.h_odd), h2=tuple(params.h2), threshold_ev=float(state_threshold(mol, z)),
                 ionising_heat=bool(params.ionising_photons_heat),
+                # the UV cross section enters the inputs (and the key) unless it is Li & Draine's, the bases before 2026-10-26
+                **({"uv_cross_section": params.uv_cross_section} if params.uv_cross_section != "li_draine" else {}),
                 # only then does the electron's share enter the basis (and its key)
                 **({"electron_ev": electron_energy(mol, z, params)} if params.ionising_photons_heat else {}))
 
@@ -877,11 +880,11 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None):
 
 
 def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev, threshold_ev,
-                   ionising_heat, electron_ev):
+                   ionising_heat, electron_ev, uv_cross_section="li_draine"):
     """(h(E_DEP), k_up, recombination power, CascadeModel, start) of one state at G0 = 1; the model and start are None
     when nothing is left to emit (every absorption ionises or detaches, and no recombination heats)."""
     field1 = _unit_field(shape)
-    sigma = photo.sigma_li_draine(nc, z, E_PH) * sigma_scale
+    sigma = photo.sigma_uv(nc, z, E_PH, uv_cross_section) * sigma_scale
     h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
     recomb_power = k_up * recomb_ev * dos.CM_PER_EV
@@ -907,14 +910,14 @@ def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sig
 
 
 def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev=0.0,
-                                threshold_ev=0.0, ionising_heat=False, electron_ev=None, **_):
+                                threshold_ev=0.0, ionising_heat=False, electron_ev=None, uv_cross_section="li_draine", **_):
     """W[class, T bin]: how each mode class's IR power is spread over emission temperature (``band_conventions``)
     for the state of these ``_basis_inputs`` (N_H0; the dehydrogenated states take the same shares). The cascade
     of ``build_state_basis``, followed per bin; zeros when the state does not emit."""
     from pycalima.pahchem import band_conventions as bc
 
     _, _, _, cm, start = _cascade_start(np.asarray(freqs, dtype=float), einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
-                                        sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev)
+                                        sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev, uv_cross_section)
     if cm is None:
         return np.zeros((bc.N_CLASSES, bc.T_MID.size))
     X = emission.emission_by_energy(cm, start)
@@ -923,14 +926,15 @@ def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, 
 
 def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
                       ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
-                      electron_ev=None):
+                      electron_ev=None, uv_cross_section="li_draine"):
     """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
 
     ``recomb_ev`` is the energy each recombination (attachment) into this state
     deposits; the heating rate is this state's own k_up (steady state).
     """
     h, k_up, recomb_power, cm, start = _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
-                                                      sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev)
+                                                      sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev,
+                                                      uv_cross_section)
     if cm is None:                                     # every absorption ionises or detaches: nothing to emit
         return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
                           np.zeros(K_H_G0_GRID.size), 0.0)
@@ -1299,7 +1303,7 @@ class Population:
             G, A = np.zeros((n, m)), np.zeros((n, m))
             for s, mol in enumerate(self.library):
                 for z in mol.charges:
-                    sigma = photo.sigma_li_draine(mol.nc, z, E_PH) * self.p.sigma_scale
+                    sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
                     G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
