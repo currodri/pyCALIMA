@@ -254,7 +254,13 @@ class Attachment:
             ok = idx < n_excess
             np.add.at(w_n, idx[ok], p[ok])
             total = p.sum()
-        w = np.convolve(w_n, w_e)[:n_excess]
+        nz = np.flatnonzero(w_n)
+        if nz.size <= 16:                         # a few neutral energies (the ground state): shift and add, O(n) not O(n^2)
+            w = np.zeros(n_excess)
+            for k in nz:
+                w[k:] += w_n[k] * w_e[:n_excess - k]
+        else:
+            w = np.convolve(w_n, w_e)[:n_excess]
         overflow = total * w_e.sum() - w.sum()
         if overflow > 1e-3 * total * w_e.sum():
             raise ValueError("thermal weights extend above the grid; raise e_excess_cm")
