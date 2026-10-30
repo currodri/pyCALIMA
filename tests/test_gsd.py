@@ -1251,3 +1251,51 @@ def test_bin_h_per_c_spans_the_bin_limits_and_rises_with_the_band_gap():
     e = [0.1, 0.5, 1.0, 1.5, 1.75, 2.0, 2.5]
     x = np.array([bin_h_per_c(hc, grid, 0, s, ee, n_nodes=12) for ee in e])
     assert np.all(np.diff(x, axis=0) > 0)
+
+
+# -- grain hydrogen under the laboratory laws (gsd.hydrogen) --
+
+def test_h_addition_follows_mennella():
+    from pycalima.gsd.hydrogen import SIGMA_F, k_h, sigma_f
+
+    assert sigma_f(300.0) == pytest.approx(SIGMA_F)
+    assert 3e-4 < sigma_f(10.0) / SIGMA_F < 3e-3                 # Godard+11: ~1e3 lower at 10 K
+    v = np.sqrt(8 * 1.380649e-16 * 300.0 / (np.pi * 1.6735575e-24))
+    assert k_h(10.0, 300.0) == pytest.approx(SIGMA_F * 10.0 * v / 4)
+
+
+@pytest.fixture(scope="module")
+def bin_hydrogen():
+    _need_jones()
+    from pycalima.gsd.carbon import CarbonLayout
+    from pycalima.gsd.hydrogen import BinHydrogen
+
+    return BinHydrogen(CarbonLayout().grid(), 5, n_nodes=8, n_e=13)
+
+
+def test_hydrogen_equilibrium_is_bounded_and_stationary(bin_hydrogen):
+    from pycalima.gsd.hydrogen import Conditions
+
+    bh = bin_hydrogen
+    for c in (Conditions(1.0, 50.0, 80.0), Conditions(1e4, 1e5, 500.0), Conditions(1e-3, 1.0, 15.0)):
+        x = bh.equilibrium(c)
+        assert bh.x_min < x < bh.x_max
+        assert abs(bh.rhs(x, c)) * bh.relaxation_time(x, c) < 1e-6 * x
+
+
+def test_hydrogen_step_is_exact_for_frozen_rates_and_relaxes_to_equilibrium(bin_hydrogen):
+    from pycalima.gsd.hydrogen import YR, Conditions
+
+    bh = bin_hydrogen
+    c = Conditions(1.0, 50.0, 80.0)
+    x0 = bh.x_max
+    assert bh.step(x0, c, 0.0) == pytest.approx(x0)
+    x_long = x0
+    for _ in range(30):                     # long steps, rates re-frozen each time: a fixed-point iteration
+        x_long = bh.step(x_long, c, 1e8 * YR)
+    assert x_long == pytest.approx(bh.equilibrium(c), rel=1e-6)
+    # many short steps follow the true (x-dependent) law; one long frozen step deviates from it
+    x = x0
+    for _ in range(2000):
+        x = bh.step(x, c, 5.0 * YR)
+    assert bh.step(x0, c, 1e4 * YR) == pytest.approx(x, rel=0.05)

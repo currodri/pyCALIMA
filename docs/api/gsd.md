@@ -110,7 +110,11 @@ for the PAH range (N_C 20-400 by default), the grains above, and the bins
 that also carry the a-C:H population. Its `CARRIERS` give the optics of the
 aromatic (THEMIS CM20) and aliphatic (Jones 2012 a-C:H) populations per gram
 of carbon, each grain carrying its band gap's H at its own density; see
-{doc}`/physics/carbon-optics`.
+{doc}`/physics/carbon-optics`. With a tracked hydrogen mass (rung M1),
+`HydrogenatedCarbon` gives the optics of the covalent bins at any band gap,
+`bin_h_per_c` and `bin_h_limits` map a bin's M_H/M_C to it, and `hydrogen`
+evolves that H/C under the laboratory UV-loss and H-addition laws with the exact
+step RAMSES would take; see {doc}`/physics/grain-hydrogen`.
 
 `GrainCollisions(table_ppd=...)` tabulates the collision rates per
 environment on a log-radius grid (linear on triangles split along the
@@ -170,6 +174,7 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.grid
    pycalima.gsd.materials
    pycalima.gsd.carbon
+   pycalima.gsd.hydrogen
    pycalima.gsd.pl2m
    pycalima.gsd.remap
    pycalima.gsd.exchange
