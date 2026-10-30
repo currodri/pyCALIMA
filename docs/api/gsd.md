@@ -8,7 +8,8 @@ design and the literature behind it are in
 {doc}`/development/gsd_solver_review`.
 
 The state is the number $N_i$ and mass $M_i$ per bin of a fixed grid
-geometric in grain mass. Inside a bin $dN/dm \propto m^\beta$ with $\beta$
+geometric in grain mass, or graded: geometric within each segment, with a
+mass ratio per bin (`MassGrid.graded`, `MassGrid.etas`). Inside a bin $dN/dm \propto m^\beta$ with $\beta$
 fixed by $M_i/N_i$ (`pl2m`), a positive and local reconstruction; bins whose
 mean mass lies at an edge are held as spikes. Growth and sublimation move
 grains along characteristics and remap the profiles analytically onto the
@@ -100,6 +101,17 @@ cached on disk). `PhotonGroups` converts any spectrum, and
   Tazaki, Ichikawa & Kokubo 2020), zero where ion field emission caps the
   charge first; `destroy` applies such a rate to a population.
 
+`materials` holds one record per grain material (bulk density, optics set,
+shattering constants, sputtering, sublimation and charging inputs, with
+sources), so every operator reads the same density; constants borrowed from
+another material are listed as proxies, and unknown names raise. `carbon`
+lays out the carbon carriers on one graded grid in carbon mass: a few bins
+for the PAH range (N_C 20-400 by default), the grains above, and the bins
+that also carry the a-C:H population. Its `CARRIERS` give the optics of the
+aromatic (THEMIS CM20) and aliphatic (Jones 2012 a-C:H) populations per gram
+of carbon, each grain carrying its band gap's H at its own density; see
+{doc}`/physics/carbon-optics`.
+
 `GrainCollisions(table_ppd=...)` tabulates the collision rates per
 environment on a log-radius grid (linear on triangles split along the
 diagonal, where Ormel & Cuzzi's velocity has a cusp) and interpolates
@@ -156,6 +168,8 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    :template: autosummary/module.rst
 
    pycalima.gsd.grid
+   pycalima.gsd.materials
+   pycalima.gsd.carbon
    pycalima.gsd.pl2m
    pycalima.gsd.remap
    pycalima.gsd.exchange
@@ -165,5 +179,6 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.shattering
    pycalima.gsd.velocities
    pycalima.gsd.charging
+   pycalima.gsd.optics
    pycalima.gsd._kernels
 ```

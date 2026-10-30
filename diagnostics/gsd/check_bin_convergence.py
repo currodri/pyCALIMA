@@ -42,8 +42,8 @@ power-law slope of dn/da (mass-weighted fit over 3 nm - 0.25 um) and the
 shape (mass-weighted mean and width of ln a); for the mixture A_V/N_H, R_V,
 the 2175 A bump over its continuum, the far-UV slope A(0.1)/A(0.15) and the
 curve A_lambda/A_V from 0.1 to 2.2 um (Mie, Draine & Lee 1984 optics).
-Errors are relative. Cost: scalars per cell, collision sub-steps and wall
-time per hydro step.
+Errors are relative. Cost: scalars and RAMSES memory per cell, collision node
+pairs, collision sub-steps and wall time per hydro step.
 
 Usage
 -----
@@ -568,6 +568,15 @@ def _load(path):
     return json.loads(str(d["meta"])), d["times"], [str(x) for x in d["names"]], d["values"]
 
 
+def ramses_cost(scheme, bins):
+    """Dust memory per 1e6 cells in 3-D RAMSES [MB] and collision node pairs."""
+    n = sum(bins.values())
+    scalars = 2 * n if scheme == "pl2m" else n
+    pairs = sum(2 * k * (2 * k + 1) // 2 for k in bins.values())
+    # bytes per cell equal MB per 1e6 cells
+    return dict(mb_tva=16 * scalars + 24 * n, mb_no_drift=16 * scalars, node_pairs=pairs)
+
+
 def cmd_report(args):
     import glob
 
@@ -593,22 +602,30 @@ def cmd_report(args):
         label = m["scheme"] if not is_ref else ("ref, half dt" if m["ref_dt_factor"] != 1.0
                                                  else f"ref ({REF_BPD}/dec)")
         scal = (sum(m["bins"].values()) * (2 if m["scheme"] == "pl2m" else 1)) if not is_ref else None
+        cost = ramses_cost(m["scheme"], m["bins"]) if not is_ref else {}
         rows.append(dict(case=m["case"], scheme=label, n_bins=m["n_bins"], a_min_c=k[1],
                          against="exact" if k in exact else "high-res",
                          err=float(worst.max()), worst_metric=nr[int(worst.argmax())],
-                         per_metric=dict(zip(nr, worst.tolist())), scalars=scal, wall=m["wall"],
+                         per_metric=dict(zip(nr, worst.tolist())), scalars=scal, **cost,
+                         wall=m["wall"],
                          wall_per_step=m["wall"] / max(m["hydro_steps"], 1),
                          substeps_per_step=m["coll_substeps"] / max(m["hydro_steps"], 1) / 2,
                          conservation=max(m["conservation"].values())))
     with open(os.path.join(out, "summary.json"), "w") as fh:
         json.dump(rows, fh, indent=1)
     lines = ["# GSD bin convergence", "",
-             "| case | a_min(C) [A] | vs | scheme | N | scalars | max err | worst metric | "
+             "RAMSES memory per 1e6 cells (3-D): 16 B per scalar (uold+unew), plus 24 B per "
+             "TVA species for the stored drift (a PL2M number scalar shares its bin's drift); "
+             "'drift recomputed' drops the 24 B. Node pairs: unordered collision pairs of "
+             "the 2 nodes per bin, summed over compositions.", "",
+             "| case | a_min(C) [A] | vs | scheme | N | scalars | MB/1e6 cells | "
+             "MB/1e6 cells, drift recomputed | node pairs | max err | worst metric | "
              "wall/step [ms] | coll. sub-steps/step | conservation |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda r: (r["case"], r["a_min_c"], r["scheme"], r["n_bins"] or 0)):
         lines.append(f"| {r['case']} | {r['a_min_c']} | {r['against']} | {r['scheme']} | "
-                     f"{r['n_bins'] or ''} | {r['scalars'] or ''} | {r['err']:.3g} | "
+                     f"{r['n_bins'] or ''} | {r['scalars'] or ''} | {r.get('mb_tva', '')} | "
+                     f"{r.get('mb_no_drift', '')} | {r.get('node_pairs', '')} | {r['err']:.3g} | "
                      f"{r['worst_metric']} | {1e3 * r['wall_per_step']:.2f} | "
                      f"{r['substeps_per_step']:.2f} | {r['conservation']:.1e} |")
     lines += ["", "## Smallest N within tolerance (that N and every larger one tested)", "",

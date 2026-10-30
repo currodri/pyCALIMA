@@ -93,10 +93,11 @@ from pycalima.models.dust_charge.shared_physics import (
 )
 
 FORMAT_VERSION = 3
+FORMAT_VERSION_STICKING = 4           # cm20 tables: format 3 plus the sticking coefficient s_e(U)
 C_CGS = 2.99792458e10
 HABING_FLUX = 1.6e-3   # erg cm^-2 s^-1 in 6-13.6 eV: G0 = 1 (RAMSES advected_G0)
 E2_EV_CM = E_STATC ** 2 / EV2ERG      # e^2 in eV cm: U [V] = Z * E2_EV_CM / a
-MATERIAL_CODE = {"graphite": 1, "silicate": 2}
+MATERIAL_CODE = {"graphite": 1, "silicate": 2, "cm20": 3, "ac": 4, "ach": 5}
 SIGMA_DISCRETE = 3.0                  # below this, P(Z) is built exactly
 MAX_DISCRETE_STATES = 121
 DISCRETE_TAIL = 1e-5                  # a discrete P(Z) ends one charge past where P < this x max
@@ -192,15 +193,16 @@ def _group_kernels(E, Zs, a, material):
 def build_bin_table(material, a, group_L0=DEFAULT_GROUP_L0, group_L1=DEFAULT_GROUP_L1,
                     U=None, Ts=TS_GRID, T_hot=THOT_GRID, n_E=N_E_PER_GROUP, label=""):
     """Table for one dust bin (dict of arrays; see ``write_bin_table``)."""
-    material = "graphite" if material == "graphite" else "silicate"
+    material = wy._label(material)
     U = u_grid() if U is None else np.asarray(U, dtype=float)
     L0 = np.asarray(group_L0, dtype=float)
     L1 = np.asarray(group_L1, dtype=float)
     if np.any(L1 <= L0):
         raise ValueError("every group needs a finite upper edge above its lower one")
     Zs = U * a / E2_EV_CM
-    Zmin = float(most_negative_allowed_charge_graphite(a) if material == "graphite"
-                 else most_negative_allowed_charge_silicate(a))
+    Zmin = float({"graphite": most_negative_allowed_charge_graphite, "cm20": wy.most_negative_charge_cm20,
+                  "ac": most_negative_allowed_charge_graphite, "ach": most_negative_allowed_charge_graphite,
+                  "silicate": most_negative_allowed_charge_silicate}[material](a))
     W = wy.MATERIALS[material]["W"]
     Zmax = float(most_positive_allowed_charge(a, W, float(L1.max())))
     Zmax = min(Zmax, np.floor(U[-1] * a / E2_EV_CM))
@@ -220,9 +222,11 @@ def build_bin_table(material, a, group_L0=DEFAULT_GROUP_L0, group_L1=DEFAULT_GRO
             K[g, it] = np.trapezoid(w[:, None] * Kg, E, axis=0) / norm
             H[g, it] = np.trapezoid(w[:, None] * Hg, E, axis=0) / norm
 
-    # UV background: Mathis ISRF at G0 = 1 (Habing flux in 6-13.6 eV)
+    # UV background: Mathis ISRF at G0 = 1 (Habing flux in 6-13.6 eV), from 1 eV; for the
+    # amorphous carbons from 0.1 eV (the bottom of the RT groups): their electron affinity
+    # falls below 1 eV (below 0 for sub-nm grains), so the optical/IR ISRF photodetaches them
     from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
-    Eb = np.geomspace(1.0, 13.6, 400)
+    Eb = np.geomspace(0.1 if material in wy.KIMURA_MATERIALS else 1.0, 13.6, 400)
     uE = np.array([Mathis83_radiation_field(e) for e in Eb])
     band = (Eb >= 6.0)
     uE *= HABING_FLUX / (C_CGS * np.trapezoid(uE[band], Eb[band]))
@@ -241,16 +245,21 @@ def build_bin_table(material, a, group_L0=DEFAULT_GROUP_L0, group_L1=DEFAULT_GRO
         P_tr[it], f_cool[it] = wy.electron_transmission(Zs, a, T, material)
         E_bar[it] = wy.gas_secondary_mean_energy(Zs, a, T, material)
 
-    return dict(version=FORMAT_VERSION, label=label, material=material, a=float(a), W=float(W),
-                Zmin=Zmin, Zmax=Zmax, L0=L0, L1=L1, U=U, log10_Ts=np.log10(Ts), egy=egy, K=K, H=H,
-                log10_Thot=np.log10(T_hot), delta=delta, P_tr=P_tr, f_cool=f_cool, E_bar=E_bar,
-                K_bg=K_bg, H_bg=H_bg, recomb_Zth=recombination_thresholds(material, a, W, Zmin, Zmax))
+    tab = dict(version=FORMAT_VERSION, label=label, material=material, a=float(a), W=float(W),
+               Zmin=Zmin, Zmax=Zmax, L0=L0, L1=L1, U=U, log10_Ts=np.log10(Ts), egy=egy, K=K, H=H,
+               log10_Thot=np.log10(T_hot), delta=delta, P_tr=P_tr, f_cool=f_cool, E_bar=E_bar,
+               K_bg=K_bg, H_bg=H_bg, recomb_Zth=recombination_thresholds(material, a, W, Zmin, Zmax))
+    if material == "cm20":
+        tab.update(version=FORMAT_VERSION_STICKING, s_e=wy.cm20_sticking(Zs, a))
+    return tab
 
 
 def grain_ionisation_potential(material, a, W, Z):
     """IP(a, Z) [eV]: energy to remove an electron from a grain of charge Z
     (valence IP for Z >= 0, electron affinity of charge Z + 1 below)."""
     Z = np.asarray(Z, dtype=float)
+    if material in ("cm20", "ac", "ach"):
+        return np.where(Z >= 0, wy.ionisation_potential(W, Z, a, material), wy.electron_affinity(Z + 1.0, a, material))
     ea = electron_affinity_graphite_vec if material == "graphite" else electron_affinity_silicate_vec
     return np.where(Z >= 0, ionisation_potential_valence_vec(W, Z, a), ea(Z + 1.0, a))
 
@@ -299,6 +308,7 @@ def recombination_thresholds(material, a, W, Zmin, Zmax):
 #   delta(1:nU), P_tr(1:nU), f_cool(1:nU), E_bar(1:nU) [eV], each for every T_hot
 #   K_bg(1:nU) [s^-1], H_bg(1:nU) [eV s^-1]: Mathis ISRF at G0 = 1 (format >= 2)
 #   recomb_Zth(1:nIons): case-A charge thresholds for RECOMB_IONS (format >= 3)
+#   s_e(1:nU): electron sticking coefficient at the U nodes (format 4, material 3 = cm20 only)
 # One record per line, values separated by spaces, 12 significant digits.
 
 def _line(v):
@@ -330,6 +340,8 @@ def write_bin_table(tab, path):
         fh.write(_line(tab["K_bg"]))
         fh.write(_line(tab["H_bg"]))
         fh.write(_line(tab["recomb_Zth"]))
+        if tab["version"] >= FORMAT_VERSION_STICKING:
+            fh.write(_line(tab["s_e"]))
     return path
 
 
@@ -356,6 +368,8 @@ def read_bin_table(path):
         tab["K_bg"] = tab["H_bg"] = np.zeros(nU)
     tab["recomb_Zth"] = vec() if version >= 3 else recombination_thresholds(
         tab["material"], a, W, Zmin, Zmax)
+    if version >= FORMAT_VERSION_STICKING:
+        tab["s_e"] = vec()
     return tab
 
 
@@ -433,10 +447,14 @@ class GroupChargingTable:
                 + v * ((1 - w) * tab[k + 1, i] + w * tab[k + 1, i + 1]))
 
     def _sticking(self, Z):
-        """WD01 eqs. 27-30 with the continuous extension used by the solver."""
+        """WD01 eqs. 27-30 with the continuous extension used by the solver;
+        the table's s_e(U), linear in the U-node index, where it has one (cm20)."""
         a = self.a
         if Z <= self.t["Zmin"]:
             return 0.0
+        if "s_e" in self.t:
+            i, w = self._u_index(Z * E2_EV_CM / a)
+            return (1 - w) * self.t["s_e"][i] + w * self.t["s_e"][i + 1]
         base = 0.5 * (1.0 - np.exp(-a / 1e-7))
         if Z > 0:
             return base
@@ -503,6 +521,10 @@ class GroupChargingTable:
 
     def _sticking_arr(self, Z):
         a = self.a
+        if "s_e" in self.t:
+            i, w = self._u_index_arr(Z * E2_EV_CM / a)
+            s = (1 - w) * self.t["s_e"][i] + w * self.t["s_e"][i + 1]
+            return np.where(Z <= self.t["Zmin"], 0.0, s)
         base = 0.5 * (1.0 - np.exp(-a / 1e-7))
         neg = base / (1.0 + np.exp(20.0 - 468.0 * (a / 1e-7) ** 3))
         return np.where(Z <= self.t["Zmin"], 0.0, np.where(Z > 0, base, neg))
@@ -940,9 +962,9 @@ class GroupChargingTable:
             gam += wgt * g_
             lam += wgt * l_
         auto = 0.0
-        if discrete and nodes[0] == self.t["Zmin"]:
-            EA = float((electron_affinity_graphite_vec if self.material == "graphite"
-                        else electron_affinity_silicate_vec)(self.t["Zmin"], self.a))
+        # cm20: none, as in DustEM, whose electron sticking at Zmin is zero (its EA(Zmin) can be < 0)
+        if discrete and nodes[0] == self.t["Zmin"] and self.material != "cm20":
+            EA = float(wy.electron_affinity(self.t["Zmin"], self.a, self.material))
             arrive = np.pi * self.a ** 2 * self.cell["ne"] * self.cell["v_e"]
             auto = weights[0] * arrive * float(DS87_J_function_vec(self.t["Zmin"], -1.0, self.a, self.cell["T"])) * EA * EV2ERG
         return float(gam), float(lam), float(auto)

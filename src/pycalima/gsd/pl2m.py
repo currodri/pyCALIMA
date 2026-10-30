@@ -25,33 +25,45 @@ LN_POWER_MAX = 300.0
 
 def beta_max(eta):
     """Largest ``|beta|`` for a bin of mass ratio eta: BETA_MAX, or less in bins
-    so wide (eta > e^2) that eta^beta would overflow."""
-    return min(BETA_MAX, LN_POWER_MAX / math.log(eta))
+    so wide (eta > e^2) that eta^beta would overflow (per entry for arrays)."""
+    if np.ndim(eta) == 0:
+        return min(BETA_MAX, LN_POWER_MAX / math.log(eta))
+    return np.minimum(BETA_MAX, LN_POWER_MAX / np.log(np.asarray(eta, float)))
 
 
 def mean_mass_ratio(beta, eta):
-    """mbar / m_L for exponent beta in a bin of mass ratio eta (vectorised)."""
+    """mbar / m_L for exponent beta in a bin of mass ratio eta (vectorised;
+    eta is a scalar or broadcasts against beta)."""
     beta = np.asarray(beta, float)
+    eta = np.broadcast_to(np.asarray(eta, float), beta.shape)
     le = np.log(eta)
     out = np.empty_like(beta)
     m1 = np.isclose(beta, -1.0, atol=1e-9)
     m2 = np.isclose(beta, -2.0, atol=1e-9)
     gen = ~(m1 | m2)
-    b = beta[gen]
+    b, lg = beta[gen], le[gen]
     # (b+1)/(b+2) * expm1((b+2) le) / expm1((b+1) le), stable for large |b|
-    out[gen] = (b + 1) / (b + 2) * np.expm1((b + 2) * le) / np.expm1((b + 1) * le)
-    out[m1] = (eta - 1.0) / le
-    out[m2] = le / (1.0 - 1.0 / eta)
+    out[gen] = (b + 1) / (b + 2) * np.expm1((b + 2) * lg) / np.expm1((b + 1) * lg)
+    out[m1] = (eta[m1] - 1.0) / le[m1]
+    out[m2] = le[m2] / (1.0 - 1.0 / eta[m2])
     return out
 
 
 def solve_beta(mbar_ratio, eta, n_iter=56):
     """Exponent beta whose mean mass ratio is ``mbar_ratio`` (in (1, eta)),
-    on [-beta_max(eta), beta_max(eta)] (compiled kernel)."""
+    on [-beta_max(eta), beta_max(eta)] (compiled kernel). ``eta`` is a scalar
+    or an array of the ratio's shape (a graded grid's bins)."""
     from ._kernels import solve_beta as _solve
 
     r = np.atleast_1d(np.asarray(mbar_ratio, float))
-    out = _solve(r.ravel().copy(), float(eta), beta_max(eta), int(n_iter)).reshape(r.shape)
+    if np.ndim(eta) == 0:
+        out = _solve(r.ravel().copy(), float(eta), beta_max(eta), int(n_iter)).reshape(r.shape)
+    else:
+        eta = np.broadcast_to(np.asarray(eta, float), r.shape)
+        out = np.empty(r.shape)
+        for e in np.unique(eta):
+            sel = eta == e
+            out[sel] = _solve(np.ascontiguousarray(r[sel]), float(e), beta_max(float(e)), int(n_iter))
     return out if np.ndim(mbar_ratio) else float(out[0])
 
 
@@ -74,6 +86,9 @@ class BinProfile:
     the power law with ``|beta|`` <= beta_max(eta) can reach (a near-monodisperse
     population) is represented exactly as a spike: ``delta[i]`` is True and
     all its grains sit at u_delta[i].
+
+    ``uR`` = eta^(1/3) is a scalar on a uniform grid and the per-bin array on a
+    graded one; ``uR_bins`` is always per bin.
     """
 
     def __init__(self, grid, N, M):
@@ -83,14 +98,16 @@ class BinProfile:
         self.N, self.M = N, M
         mL = grid.m_edges[:-1]
         filled = N > 0
-        ratio = np.where(filled, M / np.where(filled, N, 1.0) / mL, 0.5 * (1 + grid.eta))
-        bm = beta_max(grid.eta)
-        r_lo, r_hi = mean_mass_ratio(np.array([-bm, bm]), grid.eta)
+        eta = grid.eta if grid.uniform else grid.etas
+        ratio = np.where(filled, M / np.where(filled, N, 1.0) / mL, 0.5 * (1 + eta))
+        bm = beta_max(eta)
+        r_lo, r_hi = mean_mass_ratio(np.array([-bm, bm]), eta)
         self.delta = filled & ((ratio <= r_lo) | (ratio >= r_hi))
-        self.u_delta = np.clip(ratio, 1.0, grid.eta) ** (1.0 / 3.0)
-        self.beta = solve_beta(ratio, grid.eta)
+        self.u_delta = np.clip(ratio, 1.0, eta) ** (1.0 / 3.0)
+        self.beta = solve_beta(ratio, eta)
         self.lam = 3.0 * self.beta + 2.0
-        self.uR = grid.eta ** (1.0 / 3.0)
+        self.uR = eta ** (1.0 / 3.0)
+        self.uR_bins = np.broadcast_to(self.uR, N.shape).astype(float)
         norm = int_pow(self.lam, 1.0, self.uR)
         self.A = np.where(filled & ~self.delta, N / norm, 0.0)
         self.aL = grid.a_edges[:-1]

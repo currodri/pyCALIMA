@@ -13,6 +13,9 @@ thermal sublimation and dust emission.
    :template: autosummary/module.rst
 
    pycalima.models.dust_radiation.dust_oppacity
+   pycalima.models.dust_radiation.themis_optics
+   pycalima.models.dust_radiation.jones2012_optics
+   pycalima.models.dust_radiation.carbon_heat_capacity
    pycalima.models.dust_radiation.dust_emission
    pycalima.models.dust_radiation.dust_ratd
    pycalima.models.dust_radiation.dust_sublimation

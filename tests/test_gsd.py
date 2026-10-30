@@ -39,7 +39,7 @@ def _mapped_third_moment(grid, N, M, image, n=2001):
     prof = BinProfile(grid, N, M)
     tot = 0.0
     for i in np.nonzero(N > 0)[0]:
-        u = np.geomspace(1.0, prof.uR, n)
+        u = np.geomspace(1.0, prof.uR_bins[i], n)
         dn = prof.A[i] * u ** prof.lam[i]
         X = image(prof.aL[i] * u)
         tot += np.trapezoid(dn * np.where(X > grid.a_edges[0], X ** 3, 0.0), u)
@@ -71,6 +71,37 @@ def test_pl2m_reproduces_the_bin_moments():
     np.testing.assert_allclose(m[filled], M[filled], rtol=1e-6)
 
 
+@pytest.mark.parametrize("n_bins", [8, 30])
+def test_optics_weights_are_exact_mass_means_of_linear_quantities(n_bins):
+    """kappa(s) = W(s) @ k(u_nodes) is the mass-weighted mean over the PL2M
+    profile, exact for k linear in u, and a spike at a bin edge for s = 0, 1."""
+    from pycalima.gsd.optics import node_u, profile_weights, state_s
+    from pycalima.gsd.pl2m import beta_max
+
+    m = 4.0 / 3.0 * np.pi * RHO * np.array([3.5e-8, 1e-4]) ** 3
+    g = MassGrid(np.geomspace(m[0], m[1], n_bins + 1), RHO)
+    u = node_u(g.eta, 16)
+    s = np.concatenate([[0.0, 1e-6], np.linspace(0.01, 0.99, 25), [1 - 1e-6, 1.0]])
+    W = profile_weights(g.eta, s, u)
+    np.testing.assert_allclose(W.sum(axis=1), 1.0, rtol=1e-12)
+    assert np.all(W >= -1e-14)
+    k = 2.0 - 0.7 * u
+    r = 1.0 + s * (g.eta - 1.0)
+    lam = 3.0 * solve_beta(r, g.eta) + 2.0
+    u_mean = int_pow(lam + 4.0, 1.0, u[-1]) / int_pow(lam + 3.0, 1.0, u[-1])
+    # beyond the slope cap BinProfile makes a spike at u = r^(1/3)
+    bm = beta_max(g.eta)
+    r_lo, r_hi = mean_mass_ratio(np.array([-bm, bm]), g.eta)
+    spike = (r <= r_lo) | (r >= r_hi)
+    expected = np.where(spike, 2.0 - 0.7 * r ** (1.0 / 3.0), 2.0 - 0.7 * u_mean)
+    np.testing.assert_allclose(W @ k, expected, rtol=1e-9)
+    assert spike[0] and spike[-1] and W[0] @ k == pytest.approx(k[0])
+    # and s round-trips from (N, M)
+    N = np.ones(g.n_bins)
+    M = g.m_edges[:-1] * (1.0 + 0.3 * (g.eta - 1.0))
+    np.testing.assert_allclose(state_s(g, N, M), 0.3, rtol=1e-12)
+
+
 @pytest.mark.parametrize("n_bins", [1, 2, 4])
 def test_pl2m_profiles_stay_finite_in_very_wide_bins(n_bins):
     """Coarse grids (a few bins over 12 decades in mass, eta up to 1e12):
@@ -87,6 +118,89 @@ def test_pl2m_profiles_stay_finite_in_very_wide_bins(n_bins):
         m = [prof.moment(i, 3, 1.0, prof.uR) * g.m_edges[i] for i in range(n_bins)]
         np.testing.assert_allclose(n, N, rtol=1e-9)
         np.testing.assert_allclose(m, M, rtol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# graded grids: a mass ratio per segment
+# ---------------------------------------------------------------------------
+
+M_C = 12.011 * 1.66053906660e-24
+
+
+def _graded(rho=RHO):
+    """The carbon layout: 4 bins over N_C 20-400, then 6 bins up to 1 um."""
+    return MassGrid.graded([20 * M_C, 400 * M_C, 4.0 / 3.0 * np.pi * rho * 1e-12], [4, 6], rho)
+
+
+def test_graded_grid_has_one_ratio_per_segment():
+    g = _graded()
+    assert g.n_bins == 10 and not g.uniform
+    with pytest.raises(ValueError):
+        _ = g.eta
+    np.testing.assert_allclose(g.etas[:4], 20.0 ** 0.25, rtol=1e-12)
+    np.testing.assert_allclose(g.etas[4:], (g.m_edges[-1] / (400 * M_C)) ** (1 / 6), rtol=1e-12)
+    np.testing.assert_allclose(g.m_edges[[0, 4, 10]], [20 * M_C, 400 * M_C, g.m_edges[-1]], rtol=1e-15)
+    u = _grid()
+    assert u.uniform and np.all(u.etas == u.eta)
+
+
+def test_pl2m_reproduces_the_bin_moments_on_a_graded_grid():
+    """Every realisable mean, spikes at the edges included, gives each bin
+    its own N and M whatever the bin's ratio."""
+    g = _graded()
+    N = np.random.default_rng(1).uniform(0.5, 2.0, g.n_bins)
+    for frac in (1e-9, 0.05, 0.5, 0.95, 1 - 1e-9):
+        M = N * g.m_edges[:-1] * (1.0 + frac * (g.etas - 1.0))
+        prof = BinProfile(g, N, M)
+        n = [prof.number(i, 1.0, prof.uR_bins[i]) for i in range(g.n_bins)]
+        m = [prof.moment(i, 3, 1.0, prof.uR_bins[i]) * g.m_edges[i] for i in range(g.n_bins)]
+        np.testing.assert_allclose(n, N, rtol=1e-9)
+        np.testing.assert_allclose(m, M, rtol=1e-6)
+
+
+def test_constant_growth_is_exact_across_a_change_of_bin_ratio():
+    g = _graded()
+    N, M = _lognormal(g, a0=6e-8, sig=0.5)
+    image = lambda a: a + 2e-8
+    N1, M1, lost, oN, _ = remap(g, N, M, image)
+    assert lost == 0.0 and oN == 0.0
+    assert N1.sum() == pytest.approx(N.sum(), rel=1e-13)
+    assert M1.sum() == pytest.approx(_mapped_third_moment(g, N, M, image), rel=1e-6)
+    f = N1 > 0
+    assert np.all(M1[f] / N1[f] >= g.m_edges[:-1][f] * (1 - 1e-12))
+    assert np.all(M1[f] / N1[f] <= g.m_edges[1:][f] * (1 + 1e-12))
+
+
+def test_collisions_conserve_mass_on_a_graded_grid():
+    from pycalima.gsd.collisions import collide
+    from pycalima.gsd.shattering import SILICATE, GrainCollisions
+
+    g = _graded(SILICATE.rho)
+    N, M = _lognormal(g, a0=3e-6, sig=0.8)
+    scale = 4e-3 * 1.4 * 1.6735e-24 / M.sum()
+    N, M = N * scale, M * scale
+    model = GrainCollisions("silicate", _wim_velocity(), coagulation=True, a_frag_min=g.a_edges[0])
+    r = collide(g, N, M, model, 3.156e12, errmax=1e-3)
+    assert r["M"].sum() + r["overflow_M"] + r["sink_M"] == pytest.approx(M.sum(), rel=1e-12)
+    assert np.all(r["N"] >= 0)
+
+
+def test_optics_tables_use_each_bins_own_ratio():
+    """kappa_tables on a graded grid: for k linear in a, the mass-weighted
+    mean radius of every bin's profile, and s round-trips per bin."""
+    from pycalima.gsd.optics import kappa_tables, state_s
+
+    g = _graded()
+    s = np.array([0.1, 0.5, 0.9])
+    tab = kappa_tables(g, s, 16, lambda a: 1.0 + a / 1e-7)
+    for i, eta in enumerate(g.etas):
+        r = 1.0 + s * (eta - 1.0)
+        lam = 3.0 * solve_beta(r, eta) + 2.0
+        uR = eta ** (1.0 / 3.0)
+        u_mean = int_pow(lam + 4.0, 1.0, uR) / int_pow(lam + 3.0, 1.0, uR)
+        np.testing.assert_allclose(tab[i], 1.0 + g.a_edges[i] * u_mean / 1e-7, rtol=1e-9)
+    M = g.m_edges[:-1] * (1.0 + 0.3 * (g.etas - 1.0))
+    np.testing.assert_allclose(state_s(g, np.ones(g.n_bins), M), 0.3, rtol=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -985,3 +1099,70 @@ def test_hot_grain_from_optical_constants():
     for g, r_pc in ((fe, 1.0), (mgo, 10.0)):
         T = float(agn.temperature(g, r_pc * PC_CM))
         assert np.isfinite(T) and 300 < T < 5000
+
+
+# ---------------------------------------------------------------------------
+# material records
+# ---------------------------------------------------------------------------
+
+def test_material_records_agree_on_density_and_refuse_unknown_names():
+    from pycalima.gsd.materials import MATERIALS, get_material
+
+    for name, mat in MATERIALS.items():
+        assert get_material(name) is mat
+        assert mat.shatter.rho == mat.rho and mat.shatter.name == name
+        assert mat.sublimation_model().density_gcm3 == mat.rho
+        assert set(mat.proxies) <= {"shatter", "sputtering", "sublimation", "charging", "optics"}
+    ac = get_material("themis_ac")
+    assert ac.rho == 1.6 and ac.charging == "ac" and "shatter" in ac.proxies
+    with pytest.raises(KeyError, match="known"):
+        get_material("amorphous_carbon")
+
+
+def test_carbon_layout_puts_the_pah_range_on_its_own_bins():
+    from pycalima.gsd.carbon import M_C, CarbonLayout
+
+    lay = CarbonLayout()
+    g = lay.grid()
+    assert g.n_bins == 11 and g.rho == 1.6
+    np.testing.assert_allclose(g.m_edges[[0, 4]] / M_C, [20.0, 400.0], rtol=1e-12)
+    np.testing.assert_allclose(g.a_edges[-1], 1e-4, rtol=1e-12)
+    assert lay.pah_bins(g).sum() == 4 and np.array_equal(lay.aliphatic_bins(g), lay.pah_bins(g))
+    nc_e = g.m_edges / M_C
+    wide = CarbonLayout(nc_ali_max=float(nc_e[6]))
+    assert wide.aliphatic_bins().sum() == 6 and wide.pah_bins().sum() == 4
+    with pytest.raises(ValueError, match="bin edge"):
+        CarbonLayout(nc_ali_max=1000.0).grid()
+    with pytest.raises(KeyError):
+        CarbonLayout(material="carbon").grid()
+
+
+def test_carbon_carriers_carry_their_hydrogen_at_their_own_density():
+    from pycalima.gsd.carbon import CARRIERS, M_C, M_H
+
+    ali, aro = CARRIERS["aliphatic"], CARRIERS["aromatic"]
+    x = 2.5 / 4.3
+    assert ali.h_per_carbon_mass == pytest.approx(x * M_H / ((1 - x) * M_C))
+    m = np.array([20.0, 400.0]) * M_C
+    ratio = ali.radius_cm(m) / aro.radius_cm(m)
+    expect = ((1 + ali.h_per_carbon_mass) / (1 + aro.h_per_carbon_mass) * aro.rho / ali.rho) ** (1 / 3)
+    np.testing.assert_allclose(ratio, expect)
+    assert 1.09 < ratio[0] < 1.12
+    np.testing.assert_allclose(4 / 3 * np.pi * ali.rho * ali.radius_cm(m) ** 3, m * (1 + ali.h_per_carbon_mass))
+
+
+def test_carrier_opacity_is_per_gram_of_carbon(themis_cm20):
+    from pycalima._datasets import get_dataset
+    from pycalima.gsd.carbon import CARRIERS, M_C
+
+    if get_dataset("optical-jones-2012-size").locate() is None:
+        pytest.skip("Jones (2012) tables not fetched")
+    m = np.array([30.0, 300.0]) * M_C
+    lam = np.array([0.2175, 3.4, 100.0])
+    for carrier in CARRIERS.values():
+        k = carrier.per_gram_carbon(m, lam)
+        c = carrier.cross_sections(m, lam)
+        np.testing.assert_allclose(k[..., 0] * m[:, None], c["C_abs"].T, rtol=1e-12)
+    ka = {n: c.per_gram_carbon(m, lam)[..., 0] for n, c in CARRIERS.items()}
+    assert np.all(ka["aliphatic"][:, 1] > ka["aromatic"][:, 1])      # the 3.4 um band
+    assert np.all(ka["aliphatic"][:, 0] < ka["aromatic"][:, 0])      # no 2175 A bump
