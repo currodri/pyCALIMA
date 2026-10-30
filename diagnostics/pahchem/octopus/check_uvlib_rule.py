@@ -3,7 +3,7 @@
 
 A. structure: the mixed anchors over the compact ones at the sizes that have isomers (C54, C96, C150);
 B. size: each interior anchor predicted by log-linear interpolation between its two neighbours (compact anchors), over the actual one;
-C. charge: the dication over the cation (the cation stands in for the dication below C54).
+C. charge: the dication over the cation (what the cation would cost as a stand-in for the dication; every anchor is now computed).
 
     PYTHONPATH=diagnostics/pahchem python diagnostics/pahchem/octopus/check_uvlib_rule.py
 """
@@ -43,6 +43,6 @@ for i in range(1, len(SIZES) - 1):
     w = (np.log(mid) - np.log(lo)) / (np.log(hi) - np.log(lo))
     for z in (-1, 0, 1):
         line(f"N_C {mid} from {lo}/{hi} z {z:+d}", (1 - w) * anchor(lo, z) + w * anchor(hi, z), anchor(mid, z))
-print("C. dication over cation, mixed anchors (the cation replaces the dication below C54)")
+print("C. dication over cation, mixed anchors (the cost the cation would have as a stand-in; the library no longer uses it)")
 for n in (54, 96, 150):
     line(f"N_C {n}", anchor(n, 2, "mixed"), anchor(n, 1, "mixed"))

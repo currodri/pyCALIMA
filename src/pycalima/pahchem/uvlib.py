@@ -10,7 +10,8 @@ assembled to 10 keV by ``diagnostics/pahchem/octopus/build_library.py`` and stor
 - interpolated linearly in ln N_C between the two anchor sizes that bracket N_C (16, 24, 32, 54, 96, 150, 216), and held at the nearest anchor
   outside [16, 216];
 - of the charge Z itself for -1 <= Z <= +2; Z >= +3 takes the dication's (pahchem reaches +3 for its top state only);
-- for the small molecules (C16, C24, C32) the dication takes the cation's spectrum (``proxy``): they were not run as dications;
+- every anchor is a computed state (pyrene, coronene and ovalene were run as dications on megatron, 2026-10-30, with the neutral's
+  geometry: coronene a triplet, the others closed-shell singlets); ``proxy`` flags an anchor that takes another charge's, none now;
 - the hydrogen count does not enter. Above ~80 eV, where H 1s adds to the atomic sum, the spectra carry the library's mean H/C.
 
 Two options select what the anchors are. ``positions``: ``"shifted"`` (default) moves the neutrals' bands below 6 eV up by 0.4 eV
@@ -20,8 +21,8 @@ library molecule of a size (the five C54, four C96 and two C150 isomers; below C
 
 **Accuracy of the rule** (docs section 4e): predicting a held-out size from its two neighbours reproduces the per-carbon absorption rates
 of the Mathis, Draine 1978 and stellar fields to 2-8 % for C54 and above, up to ~14 % (38 % for a 6000 K blackbody) at C24. The isomer
-structure changes the rates at one size by 5-47 %, and the dication takes the cation's spectrum below C54 at a cost of 10-23 % in the
-Mathis field.
+structure changes the rates at one size by 5-47 %. (Before the small dications were run, the cation stood in for them: that proxy was
+4-28 % low in the Mathis field and within 3 % above 13.6 eV.)
 """
 from __future__ import annotations
 

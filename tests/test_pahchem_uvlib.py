@@ -56,11 +56,11 @@ def test_charge_plus_three_takes_the_dication_and_charge_below_minus_one_is_refu
         uvlib.per_carbon(96, -2, E)
 
 
-def test_the_dication_of_the_small_molecules_is_the_cations(lib):
-    small = np.nonzero(lib["nc"] < 54)[0]
-    assert lib["proxy"][small, -1].all() and not lib["proxy"][lib["nc"] >= 54].any()
-    for n in lib["nc"][small]:
-        assert np.array_equal(uvlib.per_carbon(n, 2, E), uvlib.per_carbon(n, 1, E))
+def test_every_anchor_is_a_computed_state_and_the_small_dications_are_not_the_cations(lib):
+    """Pyrene, coronene and ovalene were run as dications (megatron, 2026-10-30), so no anchor stands in for another charge's."""
+    assert not lib["proxy"].any()
+    for n in (16, 24, 32):
+        assert not np.array_equal(uvlib.per_carbon(n, 2, E), uvlib.per_carbon(n, 1, E))
 
 
 def test_the_position_shift_conserves_strength_and_moves_the_neutral_up(lib):

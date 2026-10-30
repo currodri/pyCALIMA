@@ -245,8 +245,9 @@ charges −1 to +3. `pycalima.pahchem.uvlib` (`sigma_library(nc, charge, energy_
 
 - **Size:** σ = N_C s(E; N_C, Z), with the per-carbon spectrum s interpolated linearly in ln N_C between the anchor sizes 16, 24, 32,
   54, 96, 150, 216 (pyrene, coronene, ovalene and the circumcoronene family), and held at the nearest anchor outside.
-- **Charge:** the charge itself for −1 to +2, and the dication for +3. Pyrene, coronene and ovalene were not run as dications, so
-  below C54 the dication takes the cation's spectrum.
+- **Charge:** the charge itself for −1 to +2, and the dication for +3. Pyrene, coronene and ovalene were run as dications on megatron
+  (2026-10-30; the neutral's geometry; coronene a triplet with fixed occupations, pyrene and ovalene closed-shell singlets), so every
+  anchor is a computed state.
 - **Structure:** at C54, C96 and C150 the anchor is the equal-weight mean over every library molecule of that size (five, four and two
   isomers: compact and not), `structure="mixed"` (default); `"compact"` keeps the circumcoronene family alone. Below C54 only compact
   molecules were run.
@@ -277,7 +278,9 @@ the compact ones at C54 (more low-lying bands in the isomers) and 4–10 % below
   far-UV ones, comparable to the shift's uncertainty (§5). The test is a stringent one: it removes an anchor from a sparse set.
 - **The structure is the larger systematic:** 0.9–1.5 in the Mathis rate at one size. It cannot be reduced without running non-compact
   isomers between C24 and C54, where 350 of pahchem's 1424 molecules sit; the compact anchors serve there now.
-- The dication proxy below C54 costs up to 23 % in the Mathis field for that charge.
+- The dications of C16, C24 and C32 were first replaced by the cations' spectra. Running them showed that proxy to be 4 % (pyrene), 22 %
+  (coronene) and 16 % (ovalene) low in the Mathis field, within 3 % in 13.6–60 eV, and 8–19 % high in the visible-weighted 40 000 K
+  blackbody below 13.6 eV; the real dications keep the cations' main bands within 0.15–0.3 eV but have sharper structure above 10 eV.
 - The library's energy range is 0.02 eV–10 keV; outside it the rule returns zero.
 
 **Using it** (wired 2026-10-29). `Params(uv_cross_section="octopus_library")` selects the rule; `photo.sigma_uv`, the population bases, the group

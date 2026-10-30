@@ -50,7 +50,7 @@ Output, in ``--out`` (no figures: the documentation figures come from ``make_lib
 - one ``sigma_<state>.dat`` per state (E, sigma as shipped, sigma with TD-LDA positions) and ``checks.csv``.
 
     build_library.py [--root ~/Documents/RAMSES_dev/pahspec/results/dial3_library] [--out <results>/pahchem/...]
-                     [--small-root <megatron runs>] [--shift 0.4] [--ck-edge <gordon03_pyrene.dat>]
+                     [--small-root <megatron runs>] [--dications-root <dir>] [--isomer-root <library_small>] [--shift 0.4] [--ck-edge <gordon03_pyrene.dat>]
 """
 import argparse
 import csv
@@ -81,13 +81,18 @@ E_HI = np.unique(np.concatenate([np.geomspace(E_JOIN[1], 1e4, 401)[1:], [E_1S * 
 E_OUT = np.concatenate([E_TD[E_TD <= E_JOIN[1] + 1e-9], E_HI])
 
 
-#: smaller compact PAHs run on megatron with the same settings (0.25 A, 4 + 1 A box, T = 20), charges -1, 0, +1 only:
+#: smaller compact PAHs run on megatron with the same settings (0.25 A, 4 + 1 A box, T = 20), charges -1, 0, +1:
 #: label -> (N_C, N_H, {charge: run directory under ``--small-root``})
 SMALL = {
     "pyrene": (16, 10, {z: f"malloci_pyrene_{z}" for z in (-1, 0, 1)}),
     "coronene": (24, 12, {-1: "coronene_-1_h0.25", 0: "coronene_0_h0.25_T20", 1: "coronene_1_h0.25"}),
     "ovalene": (32, 14, {z: f"malloci_ovalene_{z}" for z in (-1, 0, 1)}),
 }
+
+
+#: their dications (megatron, 2026-10-30; the neutral's geometry; coronene a triplet with fixed occupations, the others closed-shell
+#: singlets), under ``--dications-root``
+DICATIONS = {"pyrene": "pyrene_2", "coronene": "coronene_2", "ovalene": "ovalene_2"}
 
 
 def s_of_e(E):
@@ -232,8 +237,8 @@ ANCHOR_CHARGES = (-1, 0, 1, 2)
 def anchors(rows, rows0):
     """Per-carbon spectra [cm^2 per C] for ``pycalima.pahchem.uvlib``: [positions (shifted, TD-LDA), structure (compact, mixed), size,
     charge, energy]. ``compact`` is the circumcoronene family; ``mixed`` the equal-weight mean over every library molecule of that size
-    (the same as compact below C54, where only compact molecules were run). A charge missing at a size takes the next lower one (the
-    dication of the small molecules takes the cation's: ``proxy`` marks them)."""
+    (the same as compact below C54 unless ``--isomer-root`` adds the isomers). A charge missing at a size takes the next lower one
+    (``proxy`` marks it: none, once the small molecules' dications are in)."""
     out = np.zeros((2, 2, len(ANCHOR_NC), len(ANCHOR_CHARGES), len(E_OUT)), dtype=np.float32)
     proxy = np.zeros((len(ANCHOR_NC), len(ANCHOR_CHARGES)), dtype=bool)
     for ip, rr in enumerate((rows, rows0)):
@@ -256,6 +261,13 @@ def main():
     ap.add_argument("--small-root", type=Path, default=MEGATRON_ROOT,
                     help="local mirror of megatron's ~/pahspec runs: adds pyrene, coronene and ovalene (C16, C24, C32; -1, 0, +1); "
                          "give an empty path to leave them out")
+    ap.add_argument("--dications-root", type=Path, default=MEGATRON_ROOT.parent.parent / "dications_2026-10-30",
+                    help="the +2 runs of pyrene, coronene and ovalene (``DICATIONS``); without them (a missing directory) their dication "
+                         "takes the cation's spectrum, flagged in the anchors' ``proxy``")
+    ap.add_argument("--isomer-root", type=Path, default=None,
+                    help="local mirror of DIaL3's pahspec/library_small (the non-compact C24-C42 isomers). Only isomers with all four "
+                         "charges finished are added, so a size's ``mixed`` mean is over the same molecules at every charge. Off by "
+                         "default: ``mixed`` below C54 stays the compact molecule until the set is complete")
     ap.add_argument("--anchors", type=Path, default=None,
                     help="also write the per-carbon anchor spectra for pycalima.pahchem.uvlib (pah_uv_library.npz)")
     ap.add_argument("--shift", type=float, default=0.4,
@@ -271,6 +283,17 @@ def main():
     found = [(label, nc, nh, z, a.root / f"{label}_{z:+d}") for label, nc, nh, z, *_, done in states(a.root, 20.0 - 1e-6) if done]
     if a.small_root:
         found += [(label, nc, nh, z, a.small_root / d) for label, (nc, nh, runs) in SMALL.items() for z, d in runs.items()]
+    if a.small_root and a.dications_root and not a.dications_root.is_dir():
+        print(f"no {a.dications_root}: the small molecules' dications take the cation's spectrum (proxy)")
+    if a.small_root and a.dications_root and a.dications_root.is_dir():
+        found += [(label, SMALL[label][0], SMALL[label][1], 2, a.dications_root / d) for label, d in DICATIONS.items()
+                  if (a.dications_root / d / "td_x" / "inp").exists()]
+    if a.isomer_root:
+        iso = [(label, nc, nh, z, a.isomer_root / f"{label}_{z:+d}") for label, nc, nh, z, *_, done in states(a.isomer_root, 20.0 - 1e-6)
+               if done]
+        whole = {lab for lab in {r[0] for r in iso} if {r[3] for r in iso if r[0] == lab} == set(ANCHOR_CHARGES)}
+        print(f"isomers with all four charges: {sorted(whole)}; incomplete, left out: {sorted({r[0] for r in iso} - whole)}")
+        found += [r for r in iso if r[0] in whole]
     rows0 = [(label, nc, nh, z, *build(run, nc, nh, kedge)) for label, nc, nh, z, run in found]
     runs = {(label, z): run for label, nc, nh, z, run in found}
     rows = [r if (r[3] != 0 or a.shift == 0.0) else (*r[:3], 0, *build(runs[(r[0], 0)], r[1], r[2], kedge, a.shift))
