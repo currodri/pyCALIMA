@@ -191,11 +191,19 @@ should (a literature check of 2026-10-24):
   | C$_{30}^+$ (Wenzel et al. 2020) | 30, 1 | 10.2 | 10.23 | 13.03 |
   | C$_{48}^+$ (Wenzel et al. 2020) | 48, 1 | 9.1 | 9.36 | 11.83 |
 
-- **Electron affinity.** $W - E_{\rm bg}(a) + (Z-\tfrac12)e^2/a$: DustEM's without
-  $A_C$. It is the closest of the published forms to measured small-PAH affinities,
-  though still above them (pyrene 0.86 against 0.41 eV, coronene 1.37 against
-  0.47 eV); WD01's eq. 4 gives 1.8–2.2 eV. The $E_{\rm bg}(a)$ law underestimates
-  molecular gaps.
+- **Electron affinity.** $W - E_{\rm lim}(a) + (Z-\tfrac12)e^2/a$: DustEM's form
+  without $A_C$. From 1 nm the size-limited gap is the one the optics use,
+  $E_{\rm lim} = 0.75\ {\rm eV}\,(1\ {\rm nm}/a)^{1.06}$ (`ac_band_gap`;
+  carbon-optics, "Size-limited band gap"). That is the law that makes Jones's
+  constants reproduce DustEM's own `Q_CM20` at 1–10 nm, which DustEM's charging
+  formula $E_{\rm bg} = 0.2\,(5\ {\rm nm}/a-1)$ eV does not (it reaches the bulk
+  0.1 eV by 3.3 nm). The change moves the affinity by −0.06 to +0.10 eV at 1–5 nm
+  (`diagnostics/dust_radiation/plot_size_limited_gap.py`). Below 1 nm, where neither
+  the fit nor the optics' size scheme applies, it keeps DustEM's $E_{\rm bg}$. There it is the
+  closest of the published forms to measured small-PAH affinities, though still above
+  them (pyrene 0.86 against 0.41 eV, coronene 1.37 against 0.47 eV); WD01's eq. 4
+  gives 1.8–2.2 eV. The size law underestimates molecular gaps. `cm20` keeps
+  DustEM's $E_{\rm bg}$ at every size.
 - **Sticking.** WD01's eqs. 27–30 ($l_e$ = 1 nm, with the PAH factor of eq. 28):
   the probability that an incoming electron thermalises inside the grain. DustEM's
   photoelectron escape length, averaged over the field, has no physical link to it.
@@ -261,6 +269,48 @@ Open:
 - the C$_{60}$-like sticking of grains with $N_{\rm C}\gtrsim60$;
 - a-C:H of intermediate H content: the work function between 2.6 and 4.5 eV is
   measured only at the ends of the Schäfer et al. series in their text.
+
+## Tracked hydrogen: the intermediate a-C(:H) (`acx<E_g>`)
+
+With rung M1, the covalent bins (1–53 nm) carry the H/C of their grains. Each H/C
+fixes a bulk band gap at each radius (carbon-optics, "Hydrogen of a particle"), so the
+charging needs materials between the `ac` (0.1 eV) and `ach` (2.5 eV) ends.
+`wdb06_yields.acx_label(E_g)` names them; their entries are made on first use.
+
+No measurement fixes the materials in between. Schäfer, Ristein & Ley (1993) vary sp³
+at a fixed ~40 at% H: the work function goes 2.6 → ~3.45 eV as sp² rises from 14 to
+37%, and graphite is 4.5 eV. That does not map onto Jones's band-gap scale, where H
+and sp² change together. The choices below are therefore **labelled assumptions**:
+
+- **Bulk IE:** linear in E_g, from 4.75 eV (`ac`) to 4.6 eV (`ach`).
+- **Electron affinity:** IE − E_mob + (Z − ½)e²/a. The mobility gap E_mob rises
+  linearly in E_g from the size-limited optical gap, max(E_g, E_lim(a)), at the a-C
+  end to the IE at the a-C:H end, which gives affinity 0, as for `ach`.
+- **Optics:** Jones (2012) at E_g with the effective-gap size interpolation; Jones's
+  density and X_H.
+- **Everything else** as `ac` (eK16 yield, WD01 sticking, graphite's channels above
+  20 eV).
+
+At 2.5 eV the tables equal `ach`'s. At 0.1 eV the thresholds equal `ac`'s, and the
+tables differ from `ac`'s only in the optics (Jones's tables rather than `Q_CM20`).
+
+**Interpolation along H/C.** The question for RAMSES is how many tables per bin it
+needs. Linear interpolation in H/C between band-gap nodes was compared with direct
+tables at E_g = 0.25, 0.75, 1.25, 1.75 and 2.25 eV, for grains of 1.5, 4, 12 and
+30 nm in the WNM, CNM, PDR and dense cells
+(`diagnostics/dust_charge/check_acx_interpolation.py`). Only the tabulated photon and
+hot-gas arrays are interpolated (`rt_group_charging.interpolate_bin_tables`); IP, EA
+and the charge limits stay the intermediate material's own.
+
+| Nodes | Γ (heating) | Λ (recombination cooling) | \|Δ⟨Z⟩\| |
+|---|---|---|---|
+| 0.1, 2.5 eV (option 1: the two ends) | 7.3–9.4% | 3.5–6.7% | 0.14 (1.5 nm) to 2.8 (30 nm) |
+| 0.1, 1.3, 2.5 eV | ≤ 2.6% | ≤ 1.8% | ≤ 0.73 |
+| 0.1, 0.7, 1.3, 1.9, 2.5 eV (option 2) | ≤ 0.8% | ≤ 0.5% | ≤ 0.16 |
+
+Across the whole range the material moves Γ by 16–44% (most in CNM and dense gas)
+and ⟨Z⟩ by up to 20%. The two end tables alone miss about a quarter of that; five
+nodes keep every quantity within 1%.
 
 ## The PAH / grain seam
 

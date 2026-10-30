@@ -143,3 +143,100 @@ def adaptive_kappa_tables(grid, n_nodes, per_gram, tol):
         out.append(refine_s(lambda s, K=K, eta=eta, u=u: np.tensordot(profile_weights(eta, s, u), K,
                                                                       axes=(1, 0)), tol))
     return out
+
+
+def group_reducer(lam_um, groups_ev, source_t_k=(1e4, 3e4, 1e5), planck_t_k=np.geomspace(3.0, 3000.0, 12)):
+    """The per-wavelength quantities RAMSES derives from a bin's table, as a function
+    for the ``reduce`` argument of ``adaptive_kappa_tables_x``.
+
+    ``groups_ev`` is a sequence of (E_lo, E_hi) [eV] photon groups, any number and
+    limits. Each group mean is the photon-number-weighted mean of kappa over the
+    group for blackbody sources of ``source_t_k`` (RAMSES averages over its own
+    groups at start-up with the run's spectrum); the Planck means at ``planck_t_k``
+    over all wavelengths stand for the dust emission and the IR group. Input k has
+    shape (..., n_lam, n_q); output (..., n_groups * n_sources + n_planck, n_q).
+    """
+    lam = np.asarray(lam_um, float)
+    hc_ev_um = 1.23984198
+    dlam = np.gradient(lam)
+    rows = []
+    for t in source_t_k:
+        x = hc_ev_um / lam / (8.617333262e-5 * t)
+        n_lam = lam ** -4 / np.expm1(np.minimum(x, 700.0))          # photons per unit wavelength
+        for e_lo, e_hi in groups_ev:
+            band = (hc_ev_um / lam >= e_lo) & (hc_ev_um / lam < e_hi)
+            if not band.any():                                       # narrower than the grid: nearest point
+                band = np.zeros(lam.size, bool)
+                band[np.argmin(abs(hc_ev_um / lam - 0.5 * (e_lo + e_hi)))] = True
+            w = np.where(band, n_lam * dlam, 0.0)
+            rows.append(w / w.sum())
+    for t in planck_t_k:
+        x = 14387.7688 / (lam * t)
+        b = lam ** -5 / np.expm1(np.minimum(x, 700.0)) * dlam
+        rows.append(b / b.sum())
+    W = np.array(rows)
+
+    def reduce(k):
+        return np.einsum("rl,...lq->...rq", W, np.asarray(k, float))
+
+    return reduce
+
+
+def adaptive_kappa_tables_x(grid, n_nodes, per_gram_x, x_range, tol, n_x_start=5, n_s_probe=9,
+                            min_dx=1e-4, reduce=None, x_start=None):
+    """Per-bin tables on an s grid and a grid in a tracked composition x (the H/C of
+    bins carrying M_H): a list of (s, x, kappa[s, x, ...]).
+
+    ``per_gram_x(a_cm, x)`` returns k at radii ``a_cm`` for composition x;
+    ``x_range(i)`` gives (x_lo, x_hi) of bin i. The x grid is bisected until ln kappa,
+    linear in x, meets ``tol`` at every midpoint for ``n_s_probe`` states s; the s grid
+    is the union of each x node's ``refine_s`` grid; ``x_start(i)``, if given, replaces the
+    ``n_x_start`` uniform starting nodes (e.g. the band gaps of the optical tables). With ``reduce`` (e.g.
+    ``group_reducer``) the tolerance applies to reduce(kappa), the group and Planck means
+    RAMSES derives, while the tables keep every wavelength. RAMSES interpolates ln kappa
+    bilinearly in (s, x) (``lookup_x``).
+    """
+    red = (lambda k: k) if reduce is None else reduce
+    a_lo = grid.a_edges[:-1]
+    s_probe = np.linspace(0.0, 1.0, n_s_probe)
+    out = []
+    for i, eta in enumerate(grid.etas):
+        u = node_u(eta, n_nodes)
+        a = a_lo[i] * u
+        K = {}
+
+        def k_of(x):
+            if x not in K:
+                K[x] = np.asarray(per_gram_x(a, x))
+            return K[x]
+
+        def kap(s, x):
+            return np.tensordot(profile_weights(eta, s, u), k_of(x), axes=(1, 0))
+
+        x = list(np.linspace(*x_range(i), n_x_start)) if x_start is None else list(x_start(i))
+        while True:
+            new = []
+            for x0, x1 in zip(x[:-1], x[1:]):
+                if x1 - x0 <= min_dx:
+                    continue
+                xm = 0.5 * (x0 + x1)
+                r0, r1, rm = (red(kap(s_probe, xx)) for xx in (x0, x1, xm))
+                guess = np.exp(0.5 * (np.log(np.maximum(r0, 1e-300)) + np.log(np.maximum(r1, 1e-300))))
+                if np.max(np.abs(guess / np.maximum(rm, 1e-300) - 1.0)) > tol:
+                    new.append(xm)
+            if not new:
+                break
+            x = sorted(x + new)
+        s = np.unique(np.concatenate([refine_s(lambda s, x0=x0: red(kap(s, x0)), tol)[0] for x0 in x]))
+        out.append((s, np.array(x), np.stack([kap(s, x0) for x0 in x], axis=1)))
+    return out
+
+
+def lookup_x(s_tab, x_tab, tab, s, x):
+    """tab[s_tab, x_tab, ...] at one point (s, x): bilinear in (s, x) on ln(tab)."""
+    js = int(np.clip(np.searchsorted(s_tab, s, side="right") - 1, 0, s_tab.size - 2))
+    jx = int(np.clip(np.searchsorted(x_tab, x, side="right") - 1, 0, x_tab.size - 2))
+    ts = (s - s_tab[js]) / (s_tab[js + 1] - s_tab[js])
+    tx = (x - x_tab[jx]) / (x_tab[jx + 1] - x_tab[jx])
+    lt = np.log(np.maximum(tab[js:js + 2, jx:jx + 2], 1e-300))
+    return np.exp((1 - ts) * ((1 - tx) * lt[0, 0] + tx * lt[0, 1]) + ts * ((1 - tx) * lt[1, 0] + tx * lt[1, 1]))

@@ -4,9 +4,11 @@ Below 20 nm the CM20 grains are a-C with E_g = 0.1 eV, so the a-C column of the
 Jones (2012) size-dependent tables (``jones2012_optics``) and DustEM's Q_CM20
 (``themis_optics``) describe the same grains. THEMIS used slightly modified n, k
 (Jones et al. 2013, App. C), so the two differ where those changes act. This script
-prints Q_abs(Jones) / Q_abs(CM20) per radius and wavelength band, the Henke splice at
-0.02 um, and, for the H-rich a-C:H (E_g = 2.5 eV) that has no THEMIS counterpart, the
-3.4 um band against its continuum, and plots them.
+prints Q_abs(Jones) / Q_abs(CM20) per radius and wavelength band, for both size
+interpolations of ``jones2012_optics`` (the effective-gap scheme, default, and plain
+ln-a interpolation of the 7 tabulated radii), the Henke splice at 0.02 um, and, for the
+H-rich a-C:H (E_g = 2.5 eV) that has no THEMIS counterpart, the 3.4 um band against its
+continuum, and plots them.
 
 Needs $CALIMA_DUSTEM_DIR and the dataset optical-jones-2012-size
 (``calima-fetch-data fetch optical-jones-2012-size``).
@@ -26,13 +28,13 @@ from pycalima.models.dust_radiation import themis_optics as th
 
 BANDS = (("FUV 0.09-0.2", 0.0912, 0.2), ("bump 0.2-0.25", 0.2, 0.25), ("optical 0.3-1", 0.3, 1.0),
          ("NIR 1-3", 1.0, 3.0), ("MIR 3-25", 3.0, 25.0), ("FIR 25-1000", 25.0, 1000.0))
-RADII_UM = (3.5e-4, 5e-4, 1e-3, 2e-3, 3e-3, 5e-3, 1e-2, 2e-2)
+RADII_UM = (3.5e-4, 5e-4, 1e-3, 1.5e-3, 2e-3, 3e-3, 5e-3, 7e-3, 1e-2, 2e-2)
 
 
-def compare(lam):
+def compare(lam, size_interp="effective_gap"):
     """Q_abs(Jones, E_g = 0.1) / Q_abs(CM20) on lam, (nlam, n radii)."""
     a = np.array(RADII_UM)
-    return jo.efficiencies(a, lam, 0.1)[0] / th.efficiencies(a, lam)[0]
+    return jo.efficiencies(a, lam, 0.1, size_interp)[0] / th.efficiencies(a, lam)[0]
 
 
 def band_34(a_um):
@@ -52,15 +54,21 @@ def main(argv=None):
 
     t = th.load_cm20()
     lam = t.lam_um[(t.lam_um >= 0.0912) & (t.lam_um <= 1000.0)]
+    for scheme in jo.SIZE_INTERP:
+        rs = compare(lam, scheme)
+        print(f"Q_abs(Jones 2012, E_g = 0.1 eV, size_interp={scheme!r}) / Q_abs(DustEM CM20): "
+              "median [min, max] per band")
+        print(f"{'a [nm]':>8s} " + " ".join(f"{b[0]:>22s}" for b in BANDS))
+        for c, a in enumerate(RADII_UM):
+            cells = []
+            for _, l0, l1 in BANDS:
+                x = rs[(lam >= l0) & (lam < l1), c]
+                cells.append(f"{np.median(x):.3f} [{x.min():.2f}, {x.max():.2f}]")
+            print(f"{a * 1e3:8.2f} " + " ".join(f"{s:>22s}" for s in cells))
+        print()
+    print("size-limited gap E_lim [eV]:", {round(a * 1e3, 2): round(float(jo.size_limited_gap(a)), 3)
+                                          for a in RADII_UM})
     r = compare(lam)
-    print("Q_abs(Jones 2012, E_g = 0.1 eV) / Q_abs(DustEM CM20): median [min, max] per band")
-    print(f"{'a [nm]':>8s} " + " ".join(f"{b[0]:>22s}" for b in BANDS))
-    for c, a in enumerate(RADII_UM):
-        cells = []
-        for _, l0, l1 in BANDS:
-            x = r[(lam >= l0) & (lam < l1), c]
-            cells.append(f"{np.median(x):.3f} [{x.min():.2f}, {x.max():.2f}]")
-        print(f"{a * 1e3:8.2f} " + " ".join(f"{s:>22s}" for s in cells))
     a = np.array(RADII_UM)
     print("\nHenke / table Q_abs at 0.02 um, E_g = 0.1:", np.round(jo.splice_ratio(a, 0.1), 3))
     print("Henke / table Q_abs at 0.02 um, E_g = 2.5:", np.round(jo.splice_ratio(a, 2.5), 3))

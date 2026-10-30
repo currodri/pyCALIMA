@@ -162,3 +162,148 @@ CARRIERS = {
     "aromatic_dustem": CarbonCarrier("aromatic_dustem", 0.1, "themis_cm20", 1.6, "cm20"),
     "aliphatic": CarbonCarrier("aliphatic", 2.5, "jones2012", float(_jones_density(2.5)), "ach"),
 }
+
+
+@dataclass(frozen=True)
+class HydrogenatedCarbon:
+    """Covalent a-C(:H) whose hydrogen is tracked (rung M1): a bin stores M_H next to
+    M_C, and x = H atoms per C atom sets each grain's state.
+
+    At each radius, x fixes the bulk band gap through the bulk plus surface hydrogen of
+    Jones (2012, paper III, App. A) (``jones2012_optics.e_gap_of_h_per_carbon``), and
+    the gap fixes the density and the optics (``jones2012_optics``, effective-gap size
+    interpolation). The radius follows from the carbon mass, its bulk H and that
+    density; the surface H adds mass but no volume, as in paper III. The radius and gap
+    are solved together (``state``). Gaps are clipped to ``e_range``, so x outside the
+    range a radius allows gives an end member.
+    """
+
+    name: str = "hydrogenated"
+    e_range: tuple = (0.1, 2.5)
+
+    def state(self, m_carbon, h_per_c, rtol=1e-8, max_iter=50):
+        """(radius [cm], E_g [eV]) of grains of carbon mass ``m_carbon`` [g] holding
+        ``h_per_c`` H atoms per C atom, broadcast together."""
+        from pycalima.models.dust_radiation import jones2012_optics as jo
+
+        m, x = np.broadcast_arrays(np.asarray(m_carbon, float), np.asarray(h_per_c, float))
+        def radius(e):
+            x_h = e / 4.3
+            m_bulk = m * (12.0 - 11.0 * x_h) / (12.0 * (1.0 - x_h))
+            return (3.0 * m_bulk / (4.0 * np.pi * jo.density(e))) ** (1.0 / 3.0)
+
+        e = np.clip(4.3 * x / (1.0 + x), *self.e_range)          # bulk-only first guess
+        for _ in range(max_iter):
+            e_new = jo.e_gap_of_h_per_carbon(radius(e), x, self.e_range)
+            done = np.abs(e_new - e) <= rtol * np.maximum(e, 1e-3)
+            e = e_new
+            if np.all(done):
+                return radius(e), e
+        # Where it oscillates (across the jump between the DG and eRCN networks), bisect
+        # f(e) = E_g(radius(e), x) - e, which is >= 0 at the floor and <= 0 at saturation.
+        lo, hi = np.full(e.shape, float(self.e_range[0])), np.full(e.shape, float(self.e_range[1]))
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            up = jo.e_gap_of_h_per_carbon(radius(mid), x, self.e_range) > mid
+            lo, hi = np.where(up, mid, lo), np.where(up, hi, mid)
+        e = np.where(done, e, 0.5 * (lo + hi))
+        return radius(e), e
+
+    def per_gram_carbon(self, m_carbon, lam_um, h_per_c):
+        """(C_abs, C_sca, C_rp) per gram of carbon, shape (n_m, nlam, 3), at H/C ``h_per_c``."""
+        from pycalima.models.dust_radiation import jones2012_optics as jo
+
+        m = np.atleast_1d(np.asarray(m_carbon, float))
+        a, e = self.state(m, h_per_c)
+        out = np.empty((m.size, np.size(lam_um), 3))
+        for j in range(m.size):
+            c = jo.cross_sections(a[j] * 1e4, lam_um, float(e[j]))
+            out[j] = np.stack([c[q][:, 0] for q in ("C_abs", "C_sca", "C_rp")], axis=-1) / m[j]
+        return out
+
+    def h_limits(self, m_carbon):
+        """(x_floor, x_sat): the H/C of grains of carbon mass ``m_carbon`` at the a-C floor
+        and at a-C:H saturation (the ends of ``e_range``), each with its own radius."""
+        from pycalima.models.dust_radiation import jones2012_optics as jo
+
+        m = np.atleast_1d(np.asarray(m_carbon, float))
+        lims = []
+        for x_end, e_end in ((0.0, self.e_range[0]), (1e3, self.e_range[1])):
+            a, _ = self.state(m, x_end)
+            lims.append(np.array([float(jo.h_per_carbon(aa, e_end)) for aa in a]))
+        return lims[0], lims[1]
+
+    def radius_at_gap(self, m_carbon, e_gap):
+        """Radius [cm] of grains of carbon mass ``m_carbon`` with bulk band gap ``e_gap``."""
+        from pycalima.models.dust_radiation import jones2012_optics as jo
+
+        m, e = np.broadcast_arrays(np.asarray(m_carbon, float), np.asarray(e_gap, float))
+        x_h = e / 4.3
+        return (3.0 * m * (12.0 - 11.0 * x_h) / (12.0 * (1.0 - x_h)) / (4.0 * np.pi * jo.density(e))) ** (1.0 / 3.0)
+
+    def per_gram_carbon_at_gap(self, m_carbon, lam_um, e_gap):
+        """(C_abs, C_sca, C_rp) per gram of carbon, (n_m, nlam, 3), of grains with bulk
+        band gap ``e_gap`` (their H/C is then ``jones2012_optics.h_per_carbon`` at their radius)."""
+        from pycalima.models.dust_radiation import jones2012_optics as jo
+
+        m = np.atleast_1d(np.asarray(m_carbon, float))
+        a = np.atleast_1d(self.radius_at_gap(m, e_gap))
+        out = np.empty((m.size, np.size(lam_um), 3))
+        for j in range(m.size):
+            c = jo.cross_sections(a[j] * 1e4, lam_um, float(e_gap))
+            out[j] = np.stack([c[q][:, 0] for q in ("C_abs", "C_sca", "C_rp")], axis=-1) / m[j]
+        return out
+
+    def per_gram_on(self, grid, lam_um, coordinate="e_gap"):
+        """``per_gram(a_cm, c)`` for ``gsd.optics.adaptive_kappa_tables_x`` on ``grid``.
+
+        The table coordinate c is the bulk band gap shared by the bin's grains
+        (``"e_gap"``, the default; ``bin_h_per_c`` converts a bin's tracked H/C to it), or
+        the H/C itself (``"h_per_c"``). With a common H/C every in-bin grain reaches its own
+        floor and saturation, and crosses each tabulated band gap of the optics, at a
+        different H/C, so the bin's tables carry a kink per node: 190-216 H/C points against
+        39-47 band-gap points (tol 3e-3, diagnostics/gsd/check_hydrogenated_tables.py)."""
+        if coordinate == "h_per_c":
+            return lambda a_cm, x: self.per_gram_carbon(grid.mass(np.asarray(a_cm, float)), lam_um, x)
+        if coordinate == "e_gap":
+            return lambda a_cm, e: self.per_gram_carbon_at_gap(grid.mass(np.asarray(a_cm, float)), lam_um, e)
+        raise ValueError(f"unknown coordinate {coordinate!r}")
+
+    def h_range(self, m_lo, m_hi):
+        """H/C range of a bin of carbon masses [m_lo, m_hi]: from the end-member floor of
+        its largest grains to the saturation of its smallest (``e_range``)."""
+        from pycalima.models.dust_radiation import jones2012_optics as jo
+
+        a_hi, _ = self.state(m_hi, 0.0)
+        a_lo, _ = self.state(m_lo, 10.0)
+        return float(jo.h_per_carbon(a_hi, self.e_range[0])), float(jo.h_per_carbon(a_lo, self.e_range[1]))
+
+
+def bin_h_limits(carrier, grid, i, s, n_nodes=128):
+    """(x_floor(s), x_sat(s)): the carbon-weighted H/C of bin ``i`` of ``grid`` at its a-C
+    floor and its a-C:H saturation, for in-bin states ``s`` (``gsd.optics.state_s``).
+
+    These bound the bin's tracked H/C (the x_min and x_max of the hydrogen step), with
+    the same profile weights as the optics (``gsd.optics.profile_weights``)."""
+    from .optics import node_u, profile_weights
+
+    eta = grid.etas[i]
+    u = node_u(eta, n_nodes)
+    lo, hi = carrier.h_limits(grid.mass(grid.a_edges[i] * u))
+    W = profile_weights(eta, np.atleast_1d(np.asarray(s, float)), u)
+    return W @ lo, W @ hi
+
+
+def bin_h_per_c(carrier, grid, i, s, e_gap, n_nodes=128):
+    """Carbon-weighted H/C of bin ``i`` at in-bin states ``s`` when its grains share the bulk
+    band gap ``e_gap``: rises with E_g, so RAMSES turns a bin's M_H / M_C into the E_g of
+    its optics tables by inverting this (one small table per bin, in s and E_g)."""
+    from pycalima.models.dust_radiation import jones2012_optics as jo
+
+    from .optics import node_u, profile_weights
+
+    eta = grid.etas[i]
+    u = node_u(eta, n_nodes)
+    a = carrier.radius_at_gap(grid.mass(grid.a_edges[i] * u), e_gap)
+    x = np.array([float(jo.h_per_carbon(aa, e_gap)) for aa in a])
+    return profile_weights(eta, np.atleast_1d(np.asarray(s, float)), u) @ x

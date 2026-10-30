@@ -44,8 +44,11 @@ optical-jones-2012-size`). They give $n$ and $k$ for 14 band gaps from −0.1 to
   lower $k$ in the low-$E_g$ columns.
 - **Density.** $\rho = 1.3+0.4\,e^{-(E_g+0.2)}$ g cm$^{-3}$ (paper II), 1.60
   for a-C and 1.33 for a-C:H.
-- **Between radii.** $n$ and $\ln k$ are interpolated linearly in $\ln a$; outside
-  0.33–100 nm the nearest table is used.
+- **Between band gaps.** $n$ and $\ln k$ are linear in $E_g$ between the columns, so
+  any $E_g$ from −0.1 to 2.67 eV can be used.
+- **Between radii.** See "Size-limited band gap" below: by default the steep part of
+  the size dependence is carried by an effective gap, and only the smooth remainder is
+  interpolated in $\ln a$. Outside 0.33–100 nm the nearest table is used.
 - **Below 0.02 µm** the index comes from the Henke atomic factors at the same
   composition and density. It is not rescaled, and at 0.02 µm it gives $Q_{\rm abs}$
   1.23–1.27 times the table for a-C and 0.53–0.70 times for a-C:H (`splice_ratio`).
@@ -60,24 +63,74 @@ bump narrowed below 3 nm, the σ–σ* band shifted and strengthened below 10 nm
 `diagnostics/dust_radiation/check_jones2012_optics.py` gives, for
 $Q_{\rm abs}$(Jones)/$Q_{\rm abs}$(CM20), the median over each band:
 
-| $a$ [nm] | FUV | bump | optical | NIR | MIR | FIR |
-|---|---|---|---|---|---|---|
-| 0.35 | 1.22 | 1.08 | 1.72 | 1.37 | 0.81 | 0.71 |
-| 1 | 1.18 | 1.13 | 1.10 | 1.10 | 1.04 | 1.00 |
-| 2 | 1.15 | 1.12 | 1.00 | 0.87 | 0.71 | 0.43 |
-| 3 | 1.03 | 1.09 | 1.08 | 1.08 | 1.08 | 1.09 |
-| 5 | 0.99 | 1.07 | 1.01 | 0.96 | 0.89 | 0.74 |
-| 10–20 | 1.000 | 1.000 | 1.000 | 1.000 | 1.00 | 1.003 |
+| $a$ [nm] | FUV | bump | optical | NIR | MIR | FIR | FIR, plain $\ln a$ |
+|---|---|---|---|---|---|---|---|
+| 0.35 | 1.22 | 1.08 | 1.72 | 1.37 | 0.81 | 0.71 | 0.71 |
+| 1 | 1.18 | 1.13 | 1.10 | 1.10 | 1.04 | 1.00 | 1.00 |
+| 1.5 | 1.17 | 1.17 | 1.06 | 1.05 | 1.03 | 0.98 | 0.35 |
+| 2 | 1.15 | 1.16 | 1.08 | 1.08 | 1.06 | 1.04 | 0.43 |
+| 3 | 1.03 | 1.09 | 1.08 | 1.08 | 1.08 | 1.09 | 1.09 |
+| 5 | 0.99 | 1.09 | 1.08 | 1.07 | 1.04 | 0.96 | 0.74 |
+| 7 | 0.95 | 1.10 | 1.05 | 1.04 | 1.03 | 1.01 | 0.79 |
+| 10–20 | 1.000 | 1.000 | 1.000 | 1.000 | 1.00 | 1.003 | 1.003 |
 
 At 10–20 nm the tables reproduce THEMIS to 0.3% (bands aside, ≤ 8%); THEMIS's
-changes act below 10 nm. At the radii between tables (2 and 5 nm) the far-IR
-ratio drops to 0.43–0.74: there the far-IR $Q_{\rm abs}/a$ of a-C rises 180-fold
-from 1 to 3 nm, and not as a power law. That is the size-limited band gap of
-small grains, which log-radius interpolation cannot follow on a 7-radius grid.
-**a-C therefore keeps THEMIS's `Q_CM20`** (98 radii). The a-C:H column varies
-smoothly and monotonically with radius (steps between tabulated radii within a
-factor of 2.5, mostly 1.5), so the interpolation serves it. It has no THEMIS
-counterpart, and below 10 nm it inherits the unmodified model.
+changes act below 10 nm. The last column is plain $\ln a$ interpolation of the
+7 radii (`size_interp="lna"`): between the tables at 1, 3 and 10 nm it misses the
+far-IR by factors up to 2.8, because the far-IR $Q_{\rm abs}/a$ of a-C rises
+180-fold from 1 to 3 nm, and not as a power law.
+
+#### Size-limited band gap
+
+That steep rise is the size-limited band gap of paper III (Sect. 2.3, App. B): a
+particle's aromatic clusters cannot be larger than the particle, so its gap cannot
+fall below $E_{\rm lim}(a)$. At 1–10 nm the tables bear this out directly. The
+low-$E_g$ columns of a radius match the bulk (100 nm) table at one effective gap,
+$E_{\rm eff}=\max(E_g, E_{\rm lim}(a))$, to an rms of 0.01–0.03 in $\ln k$ in the
+far-IR at 1 nm and 0.02 at 3 nm. An $E_g$ = 0.5 grain at 1 nm behaves like bulk at
+0.76 eV, close to the 0.74 found for $E_g$ = 0.1, so one $E_{\rm lim}(a)$ serves every column.
+Below ~0.5 nm no bulk gap describes the tables (surface CH$_n$ groups dominate).
+
+`jones2012_optics.refractive_index` (default `size_interp="effective_gap"`)
+therefore writes $m(a) = m_{\rm bulk}(E_{\rm eff}(a)) + R(a)$. The remainder
+$R = m_{\rm table} - m_{\rm bulk}(E_{\rm eff})$ is known at the tabulated radii and
+is interpolated in $\ln a$ (for $n$ and $\ln k$). The tables are reproduced at their
+radii; where $E_g > E_{\rm lim}$ (a-C:H at every radius) the scheme equals plain
+interpolation; below 1 nm it falls back to plain interpolation.
+
+$E_{\rm lim}(a) = 0.75\ {\rm eV}\,(1\ {\rm nm}/a)^{1.06}$ (`size_limited_gap`)
+is the power law through the gaps that make the a-C far-IR match `Q_CM20` at 1–5 nm
+(scatter ±7%). `Q_CM20` was computed from Jones's continuous-in-radius model, so it
+is the reference between the published radii. The law also matches the best-fitting
+gaps of the tables themselves at 1 nm (0.74 eV) and 3 nm (0.24 eV). Paper III's
+empirical limit, $1/a - 0.2$ eV, gives 0.80 and 0.13 there, and puts the 2 nm
+far-IR at 1.8 times `Q_CM20`.
+
+With the scheme, a-C follows THEMIS to within 0.95–1.18 in every band from 1 to
+7 nm, the residue being THEMIS's own changes. The default `aromatic` carrier still
+uses `Q_CM20` below 20 nm. The scheme matters for intermediate band gaps, which
+THEMIS does not tabulate.
+
+#### Hydrogen of a particle
+
+A particle's hydrogen is the bulk $X_{\rm H}$ plus the H atoms passivating its
+surface carbon (paper III, App. A, eqs. A.1–A.13). The surface layer is one atom
+deep, with atomic radius $r_{\rm atom}=(3\bar A/4\pi\rho N_A)^{1/3}$ and
+$\bar A = 12-11X_{\rm H}$. It holds the fraction
+$F_s = 1-(1-2r_{\rm atom}/a)^3$ of the atoms, and each surface carbon carries
+$m_C/2$ extra H, with $m_C$ the mean carbon coordination of the DG or eRCN
+composition (paper I). `h_per_carbon(a, E_g)` is
+$(X_{\rm H}+X_{\rm Hs}(a))/(1-X_{\rm H})$ H atoms per C atom:
+
+- For $E_g$ = 0.1 eV it is 1.5 at 0.4 nm and 0.86 at 1.2 nm. Jones & Ysard
+  (2025) quote ≈ 1.4 and 0.8.
+- For H-rich grains the surface share is 3–6% at 30 nm, which paper III calls
+  negligible.
+
+`e_gap_of_h_per_carbon(a, h/C)` inverts it at fixed radius, mapping a tracked H/C
+to the band gap of each radius. Within each network, H/C rises with $E_g$. Below
+~1.5 nm the eRCN branch starts up to 2% below the end of the DG branch, because the
+sp³ fraction jumps between the networks. There the DG branch is used to its end.
 
 ### Per-bin tables
 
@@ -95,6 +148,56 @@ the aliphatic one. Per gram of carbon at $s=0.5$, aliphatic over aromatic:
 The a-C:H carrier has no UV bump, weak visible absorption, a strong 3.4 µm band
 (10 times stronger per radius at 0.33 nm than at 3 nm: H-passivated surfaces) and
 essentially no aromatic 6.2 or 11.3 µm bands.
+
+### Tables for tracked hydrogen (rung M1)
+
+The covalent bins from $N_{\rm C,max}$ (400 C, 1.06 nm) to $a_{\rm H,max}$ (53 nm)
+store $M_{\rm H}$ next to $M_{\rm C}$, so their optics depend on the hydrogen as well
+as on the in-bin state $s$. `gsd.carbon.HydrogenatedCarbon` gives a grain's optics at
+a bulk band gap (Jones's constants, effective-gap size interpolation). Its radius
+follows from its carbon, its bulk H and the density of that gap; the surface H adds
+mass but no volume. `gsd.optics.adaptive_kappa_tables_x` builds $\kappa(\lambda, s,
+E_g)$ per gram of carbon for each bin, refining both grids until $\ln\kappa$, linear in
+each, meets the tolerance at every wavelength
+(`diagnostics/gsd/check_hydrogenated_tables.py`).
+
+**The table axis is the band gap the bin's grains share.** RAMSES turns a bin's
+$M_{\rm H}/M_{\rm C}$ into it with one small table per bin (`bin_h_per_c`, increasing
+in $E_g$). The tracked H/C itself is a poor axis: at a common H/C every in-bin grain
+reaches its own floor and saturation, and crosses each tabulated band gap, at a
+different H/C. The bin's tables then carry a kink per node and need roughly four times
+more points on each axis. On the 2.8–7.5 nm bin (32 nodes, tolerance $3\times10^{-3}$):
+
+| axis | $s$ points | composition points |
+|---|---|---|
+| H/C | 76–80 | 190–216 |
+| hydrogenation fraction (each grain from its floor to its saturation) | 37 | 108–120 |
+| bulk band gap, starting from Jones's columns | 37 | 39 |
+
+The tables keep all 241 wavelengths of the RAMSES optics grid, so RAMSES can average
+them over any groups, in number and limits, as it does now at start-up. Refining on the
+group and Planck means only (`--refine groups`, a reference group set given by its
+edges) needed no fewer band-gap points.
+
+At the plan's settings (128 nodes per bin, tolerance $3\times10^{-3}$, 7.4 min on one
+core):
+
+| bin | $a$ [nm] | $s$ points | $E_g$ points | 8-group table | per-wavelength table |
+|---|---|---|---|---|---|
+| 4 | 1.06–2.82 | 65 | 47 | 573 kB | 16.9 MB |
+| 5 | 2.82–7.50 | 38 | 39 | 278 kB | 8.2 MB |
+| 6 | 7.50–20.0 | 34 | 41 | 261 kB | 7.7 MB |
+| 7 | 20.0–53.1 | 36 | 48 | 324 kB | 9.5 MB |
+
+The per-wavelength tables (in double precision) are read at start-up and can be
+dropped after the group averaging; the group tables, 1.4 MB for the four bins, stay.
+
+The hydrogen matters: from $E_g$ = 0.1 to 2.5 eV the bin opacity at 100 µm falls about
+4000-fold, the visible about 40-fold, and the 0.1 µm far-UV rises about 2-fold. At
+saturation the tables equal the `aliphatic` carrier's to 0.1%. At the a-C floor they
+match the `aromatic` carrier to 1% in bin 6. In bins 4–5 they differ by 0.83–1.49,
+from THEMIS's band changes in `Q_CM20`, most at 11.3 µm. In bin 7 they differ by
+0.91–1.21, where the aromatic carrier is a core/mantle grain and these are homogeneous.
 
 ## Large grains recomputed
 

@@ -1166,3 +1166,88 @@ def test_carrier_opacity_is_per_gram_of_carbon(themis_cm20):
     ka = {n: c.per_gram_carbon(m, lam)[..., 0] for n, c in CARRIERS.items()}
     assert np.all(ka["aliphatic"][:, 1] > ka["aromatic"][:, 1])      # the 3.4 um band
     assert np.all(ka["aliphatic"][:, 0] < ka["aromatic"][:, 0])      # no 2175 A bump
+
+
+# -- tracked hydrogen (rung M1): the H/C axis of the covalent bins --
+
+def _need_jones():
+    from pycalima._datasets import get_dataset
+
+    if get_dataset("optical-jones-2012-size").locate() is None:
+        pytest.skip("Jones (2012) tables not fetched")
+
+
+def test_hydrogenated_state_conserves_carbon_and_returns_the_tracked_h():
+    """No dataset: the state uses only the composition and density laws."""
+    from pycalima.gsd.carbon import HydrogenatedCarbon, M_C
+    from pycalima.models.dust_radiation import jones2012_optics as jo
+
+    hc = HydrogenatedCarbon()
+    for nc in (400.0, 1e4, 3e6):
+        m = nc * M_C
+        lo, hi = hc.h_range(m, m)
+        for x in np.linspace(lo, hi, 5):
+            a, e = hc.state(m, x)
+            np.testing.assert_allclose(jo.h_per_carbon(a, e), x, rtol=2e-3)
+            x_h = e / 4.3
+            m_c = 4 / 3 * np.pi * a ** 3 * jo.density(e) * 12 * (1 - x_h) / (12 - 11 * x_h)
+            np.testing.assert_allclose(m_c, m, rtol=1e-10)
+    a0, _ = hc.state(1e4 * M_C, lo := hc.h_range(1e4 * M_C, 1e4 * M_C)[0])
+    a1, _ = hc.state(1e4 * M_C, 2 * lo)
+    assert a1 > a0                                       # more H: lower density, larger grain
+
+
+def test_hydrogenated_optics_are_the_jones_tables_at_the_end_members():
+    _need_jones()
+    from pycalima.gsd.carbon import HydrogenatedCarbon, M_C
+    from pycalima.models.dust_radiation import jones2012_optics as jo
+
+    hc = HydrogenatedCarbon()
+    m = np.array([1e4, 1e6]) * M_C
+    lam = np.array([0.1, 0.2175, 3.4, 100.0])
+    for x_end, e_end in ((0.0, 0.1), (10.0, 2.5)):             # below the floor, above saturation
+        a, e = hc.state(m, x_end)
+        np.testing.assert_allclose(e, e_end)
+        k = hc.per_gram_carbon(m, lam, x_end)
+        for j in range(m.size):
+            c = jo.cross_sections(a[j] * 1e4, lam, float(e[j]))["C_abs"][:, 0]
+            np.testing.assert_allclose(k[j, :, 0] * m[j], c, rtol=1e-12)
+
+
+def test_h_axis_tables_meet_their_tolerance_between_nodes():
+    _need_jones()
+    from pycalima.gsd.carbon import HydrogenatedCarbon, M_C
+    from pycalima.gsd.grid import MassGrid
+    from pycalima.gsd.optics import adaptive_kappa_tables_x, lookup_x, node_u, profile_weights
+
+    hc = HydrogenatedCarbon()
+    grid = MassGrid(np.array([7.5e3, 1.4e5]) * M_C, 1.6)
+    lam = np.array([0.2175, 3.4, 100.0])
+    per_gram = hc.per_gram_on(grid, lam, "e_gap")
+    xr = hc.e_range
+    tol = 2e-2
+    (s, x, tab), = adaptive_kappa_tables_x(grid, 12, per_gram, lambda i: xr, tol)
+    assert tab.shape == (s.size, x.size, lam.size, 3) and s[0] == 0 and s[-1] == 1
+    u = node_u(grid.etas[0], 12)
+    for s0, x0 in ((0.37, 0.5 * (x[1] + x[2])), (0.81, 0.5 * (x[-2] + x[-1]))):
+        direct = np.tensordot(profile_weights(grid.etas[0], np.array([s0]), u),
+                              per_gram(grid.a_edges[0] * u, x0), axes=(1, 0))[0]
+        np.testing.assert_allclose(lookup_x(s, x, tab, s0, x0), direct, rtol=3 * tol)
+
+
+def test_bin_h_per_c_spans_the_bin_limits_and_rises_with_the_band_gap():
+    """No dataset: a bin's H/C at a shared band gap runs from its a-C floor (0.1 eV) to its
+    a-C:H saturation (2.5 eV) and rises in between, so it can be inverted for E_g."""
+    from pycalima.gsd.carbon import HydrogenatedCarbon, M_C, bin_h_limits, bin_h_per_c
+    from pycalima.gsd.grid import MassGrid
+
+    hc = HydrogenatedCarbon()
+    grid = MassGrid(np.array([7.53e3, 1.42e5]) * M_C, 1.6)
+    s = np.array([0.0, 0.4, 1.0])
+    lo, hi = bin_h_limits(hc, grid, 0, s, n_nodes=12)
+    assert np.all(hi > lo) and np.all(np.diff(lo) < 0)       # larger grains: less surface H
+    np.testing.assert_allclose(bin_h_per_c(hc, grid, 0, s, 0.1, n_nodes=12), lo, rtol=2e-3)
+    np.testing.assert_allclose(bin_h_per_c(hc, grid, 0, s, 2.5, n_nodes=12), hi, rtol=2e-3)
+    e = [0.1, 0.5, 1.0, 1.5, 1.75, 2.0, 2.5]
+    x = np.array([bin_h_per_c(hc, grid, 0, s, ee, n_nodes=12) for ee in e])
+    assert np.all(np.diff(x, axis=0) > 0)

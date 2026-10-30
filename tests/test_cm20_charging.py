@@ -183,3 +183,64 @@ def test_ach_thresholds_are_the_polymeric_a_ch_of_schafer_1993(themis_cm20, tmp_
     back = rg.read_bin_table(rg.write_bin_table(tab, tmp_path / "ach.dat"))
     assert back["material"] == "ach" and back["W"] == pytest.approx(4.6)
     assert np.all(back["K_bg"] >= 0) and np.all(back["K"] >= 0)
+
+
+# -- the intermediate a-C(:H) of tracked hydrogen (acx<E_g>) --
+
+def test_acx_spans_the_ac_and_ach_ends():
+    """Bulk IE linear from 4.75 to 4.6 eV; electron affinity from W - E_lim(a) (a-C)
+    to that of 'ach' (0) at 2.5 eV; MATERIALS entries made on first use."""
+    from pycalima.models.dust_charge import wdb06_yields as wy
+    from pycalima.models.dust_radiation.jones2012_optics import size_limited_gap
+
+    lo, mid, hi = wy.acx_label(0.1), wy.acx_label(1.3), wy.acx_label(2.5)
+    assert wy.MATERIALS[lo]["W"] == pytest.approx(4.75) and wy.MATERIALS[hi]["W"] == pytest.approx(4.6)
+    assert lo in wy.KIMURA_MATERIALS and mid in wy.EK16_MATERIALS and wy._label(mid) == mid
+    for a in (1.5e-7, 4e-7, 3e-6):
+        e2a = 1.43996448e-7 / a
+        ea0 = 4.75 - max(0.1, float(size_limited_gap(a * 1e4))) - 0.5 * e2a
+        assert float(wy.electron_affinity(0.0, a, lo)) == pytest.approx(ea0)
+        assert float(wy.electron_affinity(0.0, a, lo)) == pytest.approx(float(wy.electron_affinity(0.0, a, "ac")))
+        assert float(wy.electron_affinity(0.0, a, hi)) == pytest.approx(float(wy.electron_affinity(0.0, a, "ach")))
+        ea = [float(wy.electron_affinity(0.0, a, wy.acx_label(e))) for e in np.linspace(0.1, 2.5, 9)]
+        assert np.all(np.diff(ea) < 0)
+    with pytest.raises(ValueError):
+        wy.acx_label(3.0)
+
+
+def test_acx_tables_at_the_a_ch_end_are_ach_and_interpolation_returns_its_ends(themis_cm20):
+    from pycalima._datasets import get_dataset
+    from pycalima.models.dust_charge import rt_group_charging as rg
+    from pycalima.models.dust_charge import wdb06_yields as wy
+
+    if get_dataset("optical-jones-2012-size").locate() is None:
+        pytest.skip("Jones (2012) tables not fetched")
+    kw = dict(U=rg.u_grid(n=81), Ts=np.geomspace(3e3, 3e6, 3), T_hot=np.geomspace(1e3, 1e9, 3))
+    a = 3e-7
+    t_hi = rg.build_bin_table(wy.acx_label(2.5), a, (5.6,), (13.6,), **kw)
+    t_ach = rg.build_bin_table("ach", a, (5.6,), (13.6,), **kw)
+    for k in rg.TABULATED_KEYS:
+        np.testing.assert_allclose(t_hi[k], t_ach[k], rtol=1e-12)
+    t_lo = rg.build_bin_table(wy.acx_label(0.1), a, (5.6,), (13.6,), **kw)
+    mid = wy.acx_label(1.3)
+    for w, end in ((0.0, t_lo), (1.0, t_hi)):
+        t = rg.interpolate_bin_tables(t_lo, t_hi, w, mid)
+        for k in rg.TABULATED_KEYS:
+            np.testing.assert_allclose(t[k], end[k], rtol=1e-12)
+        assert t["material"] == mid and t["W"] == pytest.approx(wy.MATERIALS[mid]["W"])
+    with pytest.raises(ValueError, match="differ"):
+        rg.interpolate_bin_tables(t_lo, rg.build_bin_table(wy.acx_label(0.1), 4e-7, (5.6,), (13.6,), **kw),
+                                  0.5, mid)
+
+
+def test_ac_takes_the_optics_size_limited_gap_from_1_nm():
+    """'ac' uses E_lim(a) of the optics (jones2012_optics.size_limited_gap) from 1 nm and
+    DustEM's E_bg(a) below; 'cm20' keeps DustEM's throughout."""
+    from pycalima.models.dust_charge import wdb06_yields as wy
+    from pycalima.models.dust_radiation.jones2012_optics import size_limited_gap
+
+    a = np.array([3.5e-8, 7e-8, 1e-7, 2e-7, 5e-7, 2e-6])
+    big = a >= 1e-7
+    np.testing.assert_allclose(wy.ac_band_gap(a)[big], np.clip(size_limited_gap(a[big] * 1e4), 0.1, 2.5))
+    np.testing.assert_allclose(wy.ac_band_gap(a)[~big], wy.cm20_band_gap(a[~big]))
+    np.testing.assert_allclose(wy.ac_band_gap(2e-7) - wy.cm20_band_gap(2e-7), 0.0597, atol=1e-3)

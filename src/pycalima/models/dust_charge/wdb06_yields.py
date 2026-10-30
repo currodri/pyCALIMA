@@ -45,8 +45,12 @@ choices that measurements support (docs/physics/charging-cm20.md):
   aromatic correction, which puts small-grain thresholds 2.6-3.6 eV above the
   measured IEs of pyrene, coronene and coronene clusters (WD01 eq. 2 is within
   0.3 eV of them, and of the second IEs of C30-C48 cations);
-- the electron affinity W - E_bg(a) + (Z - 1/2) e^2/a: DustEM's, without the
-  aromatic correction (``ac_electron_affinity``);
+- the electron affinity W - E_lim(a) + (Z - 1/2) e^2/a, without DustEM's aromatic
+  correction, with the size-limited gap the optics use, E_lim = 0.75 eV (1 nm/a)^1.06
+  (``jones2012_optics.size_limited_gap``, the law that makes Jones's constants reproduce
+  DustEM's Q_CM20 at 1-10 nm), in place of DustEM's E_bg(a) = 0.2 (5 nm/a - 1) eV; below
+  1 nm, where neither the fit nor the optics' size scheme applies, DustEM's E_bg(a)
+  (``ac_band_gap``, ``ac_electron_affinity``);
 - the band yield of the extended Kimura model, eK16, of Hrodmarsson et al. (2025),
   validated on the photoionisation of PAHs (``ek16_band_yield``);
 - WD01's electron sticking (eqs. 27-30), not DustEM's photoelectron length;
@@ -58,6 +62,17 @@ polymeric a-C:H (work function 2.6 eV, valence-band top 2 eV below E_F, conducti
 band at the vacuum level), the Jones (2012) optics and 1.33 g/cm^3. Their defect
 bands in the gap, ~1e-3 of the atoms, which set the 2.6 eV photoyield onset, are
 left out.
+
+Materials ``'acx<E_g>'`` (e.g. ``'acx1.2500'``, ``acx_label``): the a-C(:H) of tracked
+hydrogen (rung M1), one per bulk band gap between the 'ac' (0.1 eV) and 'ach'
+(2.5 eV) ends, as 'ac' otherwise. No measurement fixes the materials in between
+(Schafer+93's films vary sp2 at a fixed ~40 at% H), so these are labelled
+assumptions: the bulk IE linear in E_g from 4.75 to 4.6 eV; the electron affinity
+IE - E_mob, with a mobility gap rising linearly in E_g from the size-limited optical
+gap max(E_g, E_lim(a)) (``ac_band_gap``) at the a-C end to the
+IE at the a-C:H end (affinity 0, as 'ach'); the Jones (2012) optics at E_g; density
+and X_H of Jones (2012). At 2.5 eV it is 'ach'; at 0.1 eV it differs from 'ac' in the
+optics (Jones's tables, not Q_CM20).
 
 Deliberate departures from WDB06:
 
@@ -160,13 +175,80 @@ ACH = {"W": 2.6 + 2.0, "chi": 0.0, "e_gap": 2.5, "rho": 1.3 + 0.4 * np.exp(-2.7)
 _N_ATOMS_ACH = ACH["rho"] / (((1.0 - ACH["x_h"]) * 12.011 + ACH["x_h"] * 1.008) * _AMU)
 MATERIALS["ach"] = dict(MATERIALS["cm20"], W=ACH["W"], n={"C": (1.0 - ACH["x_h"]) * _N_ATOMS_ACH},
                         rho=ACH["rho"])
-KIMURA_MATERIALS = ("cm20", "ac", "ach")       # band yield of Kimura (2016) or eK16
-EK16_MATERIALS = ("ac", "ach")
+# the intermediate a-C(:H) family of tracked hydrogen (module docstring)
+ACX_PREFIX = "acx"
+ACX_RANGE = (0.1, 2.5)
+
+
+def acx_label(e_gap):
+    """Material label of the intermediate a-C(:H) with bulk band gap ``e_gap`` [eV]."""
+    e = float(e_gap)
+    if not ACX_RANGE[0] - 1e-9 <= e <= ACX_RANGE[1] + 1e-9:
+        raise ValueError(f"acx band gap {e} eV outside {ACX_RANGE}")
+    return f"{ACX_PREFIX}{e:.4f}"
+
+
+def is_acx(material):
+    return isinstance(material, str) and material.startswith(ACX_PREFIX)
+
+
+def acx_e_gap(material):
+    return float(material[len(ACX_PREFIX):])
+
+
+def acx_ionisation_energy(e_gap):
+    """Bulk IE [eV] of the intermediate a-C(:H): linear in E_g from 'ac' to 'ach'."""
+    w = (float(e_gap) - ACX_RANGE[0]) / (ACX_RANGE[1] - ACX_RANGE[0])
+    return (1.0 - w) * CM20["W"] + w * ACH["W"]
+
+
+def acx_mobility_gap(e_gap, a):
+    """E_mob [eV] of a grain of radius ``a`` [cm]: from the size-limited optical gap at the
+    a-C end to the IE at the a-C:H end, linear in E_g (a labelled assumption)."""
+    e = float(e_gap)
+    w = (e - ACX_RANGE[0]) / (ACX_RANGE[1] - ACX_RANGE[0])
+    e_eff = np.maximum(e, ac_band_gap(a))
+    return (1.0 - w) * e_eff + w * acx_ionisation_energy(e)
+
+
+def acx_electron_affinity(Z, a, e_gap):
+    """EA(Z, a) [eV] of the intermediate a-C(:H): IE - E_mob + (Z - 1/2) e^2/a."""
+    Z = np.asarray(Z, dtype=float)
+    return acx_ionisation_energy(e_gap) - acx_mobility_gap(e_gap, a) + (Z - 0.5) * _e2_over_a(a)
+
+
+def _acx_entry(e_gap):
+    x_h = float(e_gap) / 4.3
+    rho = 1.3 + 0.4 * np.exp(-(float(e_gap) + 0.2))
+    n_atoms = rho / (((1.0 - x_h) * 12.011 + x_h * 1.008) * _AMU)
+    return dict(MATERIALS["cm20"], W=acx_ionisation_energy(e_gap), n={"C": (1.0 - x_h) * n_atoms}, rho=rho)
+
+
+class _Materials(dict):
+    """MATERIALS, creating an 'acx<E_g>' entry on first use."""
+
+    def __missing__(self, key):
+        if is_acx(key):
+            return self.setdefault(key, _acx_entry(acx_e_gap(key)))
+        raise KeyError(key)
+
+
+class _Family(tuple):
+    """A tuple of labels that also contains every 'acx<E_g>' label."""
+
+    def __contains__(self, material):
+        return tuple.__contains__(self, material) or is_acx(material)
+
+
+MATERIALS = _Materials(MATERIALS)
+KIMURA_MATERIALS = _Family(("cm20", "ac", "ach"))       # band yield of Kimura (2016) or eK16
+EK16_MATERIALS = _Family(("ac", "ach"))
 
 
 def _label(material):
-    """WDB06 material of a label: 'graphite', 'cm20', 'ac', 'ach', and silicate for any other."""
-    return material if material in ("graphite", "cm20", "ac", "ach") else "silicate"
+    """WDB06 material of a label: 'graphite', 'cm20', 'ac', 'ach', 'acx<E_g>', and silicate
+    for any other."""
+    return material if material in ("graphite", "cm20", "ac", "ach") or is_acx(material) else "silicate"
 
 
 def _material(material):
@@ -269,13 +351,26 @@ def cm20_electron_affinity(Z, a):
     return CM20["W"] - cm20_band_gap(a) + (Z - 0.5) * _e2_over_a(a) - aromatic_correction(a)
 
 
+#: radius [cm] above which 'ac' takes the fitted size-limited gap (jones2012_optics.EFFECTIVE_GAP_MIN_NM)
+AC_GAP_MIN_CM = 1e-7
+
+
+def ac_band_gap(a):
+    """Size-limited band gap [eV] of 'ac' grains: the optics' E_lim(a) = 0.75 eV (1 nm/a)^1.06
+    within [0.1, 2.5] from 1 nm, DustEM's E_bg(a) below (0.05 eV above E_lim at 1 nm)."""
+    from pycalima.models.dust_radiation.jones2012_optics import size_limited_gap
+
+    a = np.asarray(a, dtype=float)
+    return np.where(a >= AC_GAP_MIN_CM, np.clip(size_limited_gap(a * 1e4), 0.1, 2.5), cm20_band_gap(a))
+
+
 def ac_electron_affinity(Z, a):
-    """EA(Z, a) [eV] of pyCALIMA's a-C: W - E_bg(a) + (Z - 1/2) e^2/a, DustEM's
-    without the aromatic correction. Closest of the published forms to measured
-    small-PAH EAs, though still above them (pyrene 0.86 vs 0.41 eV, coronene 1.37 vs
-    0.47 eV): the E_bg(a) law underestimates molecular gaps."""
+    """EA(Z, a) [eV] of pyCALIMA's a-C: W - E_lim(a) + (Z - 1/2) e^2/a (``ac_band_gap``),
+    without DustEM's aromatic correction. Below 1 nm (DustEM's E_bg) it is the closest of
+    the published forms to measured small-PAH EAs, though still above them (pyrene 0.86
+    vs 0.41 eV, coronene 1.37 vs 0.47 eV): the size law underestimates molecular gaps."""
     Z = np.asarray(Z, dtype=float)
-    return MATERIALS["ac"]["W"] - cm20_band_gap(a) + (Z - 0.5) * _e2_over_a(a)
+    return MATERIALS["ac"]["W"] - ac_band_gap(a) + (Z - 0.5) * _e2_over_a(a)
 
 
 def cm20_escape_length(E):
@@ -674,6 +769,8 @@ def electron_affinity(Z, a, material):
         return ac_electron_affinity(Z, a)
     if label == "ach":
         return ACH["chi"] + (np.asarray(Z, dtype=float) - 0.5) * _e2_over_a(a)
+    if is_acx(label):
+        return acx_electron_affinity(Z, a, acx_e_gap(label))
     return (electron_affinity_graphite_vec if label == "graphite" else electron_affinity_silicate_vec)(Z, a)
 
 
@@ -689,7 +786,7 @@ _DS79_MATERIAL = {"graphite": "graphite", "silicate": "lunar_dust", "cm20": "gra
 def _ds79(material):
     """DS79 Table 5 constants of ``material``, at its own density if it has one."""
     label = _label(material)
-    p = dict(atomic.secondary_emission_parameters(_DS79_MATERIAL[label]))
+    p = dict(atomic.secondary_emission_parameters(_DS79_MATERIAL["ac" if is_acx(label) else label]))
     p["rho_gcm3"] = MATERIALS[label].get("rho", p["rho_gcm3"])
     return p
 
@@ -1013,7 +1110,7 @@ def absorption_efficiency(E, a, material, n_table=400):
     import miepython
 
     if material in KIMURA_MATERIALS:
-        lE, lQ, _ = _cm20_efficiencies(a, n_table, optics=_OPTICS[material])
+        lE, lQ, _ = _cm20_efficiencies(a, n_table, optics=_optics_of(material))
         return np.exp(np.interp(np.log(np.asarray(E, dtype=float)), lE, lQ))
     key = ("graphite" if material == "graphite" else "silicate", float(a), int(n_table))
     if key not in _QABS_CACHE:
@@ -1040,12 +1137,17 @@ _CM20_Q_CACHE = {}
 _OPTICS = {"cm20": "tables", "ac": "recomputed", "ach": "jones2012"}
 
 
+def _optics_of(material):
+    """Optics key of a Kimura material; 'jones2012@<E_g>' for the intermediate a-C(:H)."""
+    return f"jones2012@{acx_e_gap(material):.4f}" if is_acx(material) else _OPTICS[material]
+
+
 def _cm20_efficiencies(a, n_table=400, optics="tables"):
     """(ln E, ln Q_abs, ln Q_ext) of a CM20 grain of radius ``a`` [cm] on n_table
     energies from 1 eV to 20 keV: ``themis_optics`` (the DustEM tables, Henke-Mie
     below 0.04 um; with ``recomputed``, the large grains by coated-sphere Mie,
     ``themis_optics.mie_efficiencies``; 'jones2012': a-C:H with E_g = 2.5 eV of
-    ``jones2012_optics``), and anomalous diffraction on the Henke index above
+    ``jones2012_optics``; 'jones2012@<E_g>': the same at another band gap), and anomalous diffraction on the Henke index above
     x = X_ADT, where Q_ext = 2 (reached only above ~60 eV, where no yield uses Q_ext)."""
     key = (float(a), int(n_table), optics)
     if key not in _CM20_Q_CACHE:
@@ -1058,19 +1160,21 @@ def _cm20_efficiencies(a, n_table=400, optics="tables"):
         mie = x <= X_ADT
         qabs = np.empty_like(E_tab)
         qext = np.full_like(E_tab, 2.0)
-        if optics == "jones2012":
+        e_jones = (ACH["e_gap"] if optics == "jones2012" else float(optics.split("@")[1])
+                   if optics.startswith("jones2012@") else None)
+        if e_jones is not None:
             from pycalima.models.dust_radiation import jones2012_optics
 
-            qa, qs, _ = jones2012_optics.efficiencies(a_um, lam_um[mie], ACH["e_gap"])
+            qa, qs, _ = jones2012_optics.efficiencies(a_um, lam_um[mie], e_jones)
         else:
             q_of = themis_optics.mie_efficiencies if optics == "recomputed" else themis_optics.efficiencies
             qa, qs, _ = q_of(a_um, lam_um[mie])
         qabs[mie], qext[mie] = qa[:, 0], qa[:, 0] + qs[:, 0]
         if (~mie).any():
-            if optics == "jones2012":
+            if e_jones is not None:
                 from pycalima.models.dust_radiation import jones2012_optics
 
-                m = jones2012_optics._henke_index(ACH["e_gap"], lam_um[~mie])
+                m = jones2012_optics._henke_index(e_jones, lam_um[~mie])
             else:
                 m = themis_optics.henke_index(a_um, lam_um[~mie])[:, 0]
             qabs[~mie] = _adt_qabs(x[~mie], np.abs(m.imag))
@@ -1080,7 +1184,7 @@ def _cm20_efficiencies(a, n_table=400, optics="tables"):
 
 def cm20_extinction_efficiency(E, a, material="cm20"):
     """Q_ext(hnu) of a grain of a Kimura material (``_cm20_efficiencies``)."""
-    lE, _, lQ = _cm20_efficiencies(a, optics=_OPTICS[material])
+    lE, _, lQ = _cm20_efficiencies(a, optics=_optics_of(material))
     return np.exp(np.interp(np.log(np.asarray(E, dtype=float)), lE, lQ))
 
 

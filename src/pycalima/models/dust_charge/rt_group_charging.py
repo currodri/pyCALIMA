@@ -190,6 +190,42 @@ def _group_kernels(E, Zs, a, material):
     return K, H
 
 
+def _charge_bounds(material, a, U, L1):
+    """(W, Zmin, Zmax) of a bin: the material's charge limits within the U grid."""
+    Zmin = float({"graphite": most_negative_allowed_charge_graphite, "cm20": wy.most_negative_charge_cm20,
+                  "ac": most_negative_allowed_charge_graphite, "ach": most_negative_allowed_charge_graphite,
+                  "silicate": most_negative_allowed_charge_silicate}.get(
+        material, most_negative_allowed_charge_graphite if wy.is_acx(material) else None)(a))
+    W = wy.MATERIALS[material]["W"]
+    Zmax = float(most_positive_allowed_charge(a, W, float(np.max(L1))))
+    Zmax = min(Zmax, np.floor(U[-1] * a / E2_EV_CM))
+    Zmin = max(Zmin, np.ceil(U[0] * a / E2_EV_CM))
+    return W, Zmin, Zmax
+
+
+#: the tabulated (photon and hot-gas) arrays of a bin table, as opposed to its analytic limits
+TABULATED_KEYS = ("egy", "K", "H", "K_bg", "H_bg", "delta", "P_tr", "f_cool", "E_bar")
+
+
+def interpolate_bin_tables(t0, t1, w, material):
+    """A bin table for ``material`` whose tabulated arrays are linear in ``w`` between
+    those of ``t0`` (w = 0) and ``t1`` (w = 1), tables of one radius on the same groups
+    and grids; the analytic parts (W, Zmin, Zmax, recombination thresholds, and the IP and
+    EA the solver evaluates) are ``material``'s own. This is option 1 of the plan for
+    tracked hydrogen: two end-member tables per bin, against direct tables of the
+    intermediate material (option 2)."""
+    for k in ("a", "U", "L0", "L1", "log10_Ts", "log10_Thot"):
+        if not np.allclose(t0[k], t1[k]):
+            raise ValueError(f"tables differ in {k!r}")
+    out = {k: v for k, v in t0.items() if k not in TABULATED_KEYS}
+    for k in TABULATED_KEYS:
+        out[k] = (1.0 - w) * np.asarray(t0[k]) + w * np.asarray(t1[k])
+    W, Zmin, Zmax = _charge_bounds(material, t0["a"], np.asarray(t0["U"]), np.asarray(t0["L1"]))
+    out.update(material=material, W=float(W), Zmin=Zmin, Zmax=Zmax,
+               recomb_Zth=recombination_thresholds(material, t0["a"], W, Zmin, Zmax))
+    return out
+
+
 def build_bin_table(material, a, group_L0=DEFAULT_GROUP_L0, group_L1=DEFAULT_GROUP_L1,
                     U=None, Ts=TS_GRID, T_hot=THOT_GRID, n_E=N_E_PER_GROUP, label=""):
     """Table for one dust bin (dict of arrays; see ``write_bin_table``)."""
@@ -200,13 +236,7 @@ def build_bin_table(material, a, group_L0=DEFAULT_GROUP_L0, group_L1=DEFAULT_GRO
     if np.any(L1 <= L0):
         raise ValueError("every group needs a finite upper edge above its lower one")
     Zs = U * a / E2_EV_CM
-    Zmin = float({"graphite": most_negative_allowed_charge_graphite, "cm20": wy.most_negative_charge_cm20,
-                  "ac": most_negative_allowed_charge_graphite, "ach": most_negative_allowed_charge_graphite,
-                  "silicate": most_negative_allowed_charge_silicate}[material](a))
-    W = wy.MATERIALS[material]["W"]
-    Zmax = float(most_positive_allowed_charge(a, W, float(L1.max())))
-    Zmax = min(Zmax, np.floor(U[-1] * a / E2_EV_CM))
-    Zmin = max(Zmin, np.ceil(U[0] * a / E2_EV_CM))
+    W, Zmin, Zmax = _charge_bounds(material, a, U, L1)
 
     nG, nU, nTs = L0.size, U.size, np.size(Ts)
     egy = np.zeros((nG, nTs))
@@ -258,7 +288,7 @@ def grain_ionisation_potential(material, a, W, Z):
     """IP(a, Z) [eV]: energy to remove an electron from a grain of charge Z
     (valence IP for Z >= 0, electron affinity of charge Z + 1 below)."""
     Z = np.asarray(Z, dtype=float)
-    if material in ("cm20", "ac", "ach"):
+    if material in wy.KIMURA_MATERIALS:
         return np.where(Z >= 0, wy.ionisation_potential(W, Z, a, material), wy.electron_affinity(Z + 1.0, a, material))
     ea = electron_affinity_graphite_vec if material == "graphite" else electron_affinity_silicate_vec
     return np.where(Z >= 0, ionisation_potential_valence_vec(W, Z, a), ea(Z + 1.0, a))
