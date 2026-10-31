@@ -75,10 +75,20 @@ def test_the_position_shift_conserves_strength_and_moves_the_neutral_up(lib):
             assert np.array_equal(uvlib.per_carbon(n, z, E, "shifted"), uvlib.per_carbon(n, z, E, "tdlda"))
 
 
-def test_mixed_and_compact_agree_below_c54_and_differ_above(lib):
-    for n in (16, 24, 32):
-        assert np.array_equal(uvlib.per_carbon(n, 0, E, structure="mixed"), uvlib.per_carbon(n, 0, E, structure="compact"))
-    assert not np.array_equal(uvlib.per_carbon(54, 0, E, structure="mixed"), uvlib.per_carbon(54, 0, E, structure="compact"))
+def test_mixed_and_compact_agree_at_c16_and_differ_where_isomers_were_run(lib):
+    """C16 has only pyrene; from C24 on the mixed anchor averages the isomers in with the compact molecule."""
+    assert np.array_equal(uvlib.per_carbon(16, 0, E, structure="mixed"), uvlib.per_carbon(16, 0, E, structure="compact"))
+    for n in (24, 32, 42, 54):
+        assert not np.array_equal(uvlib.per_carbon(n, 0, E, structure="mixed"), uvlib.per_carbon(n, 0, E, structure="compact"))
+
+
+def test_compact_c42_is_the_interpolation_between_c32_and_c54(lib):
+    """No compact C42 was run: that anchor is the ln N_C interpolation of its neighbours, so it adds no information to the compact rule."""
+    i = list(lib["nc"]).index(42)
+    w = np.log(42 / 32) / np.log(54 / 32)
+    for q in range(len(lib["charges"])):
+        a, b = (lib["sigma"][0, 0, j, q].astype(float) for j in (i - 1, i + 1))
+        assert np.allclose(lib["sigma"][0, 0, i, q].astype(float), (1 - w) * a + w * b, rtol=1e-5, atol=1e-40)
 
 
 def test_thomas_reiche_kuhn_count_is_kept(lib):

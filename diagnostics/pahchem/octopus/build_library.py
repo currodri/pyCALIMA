@@ -230,27 +230,36 @@ def write(out, rows, rows0, table, shift, kedge):
 
 
 COMPACT = ("pyrene", "coronene", "ovalene", "C54H18", "C96H24", "C150H30", "C216H36")   # the circumcoronene family
-ANCHOR_NC = (16, 24, 32, 54, 96, 150, 216)
+ANCHOR_NC = (16, 24, 32, 42, 54, 96, 150, 216)
 ANCHOR_CHARGES = (-1, 0, 1, 2)
 
 
 def anchors(rows, rows0):
     """Per-carbon spectra [cm^2 per C] for ``pycalima.pahchem.uvlib``: [positions (shifted, TD-LDA), structure (compact, mixed), size,
     charge, energy]. ``compact`` is the circumcoronene family; ``mixed`` the equal-weight mean over every library molecule of that size
-    (the same as compact below C54 unless ``--isomer-root`` adds the isomers). A charge missing at a size takes the next lower one
+    (the same as compact below C54 unless ``--isomer-root`` adds the isomers). A size with no molecule of the structure (C42 compact, and
+    C42 mixed without the isomers) is interpolated in ln N_C between its neighbours. A charge missing at a size takes the next lower one
     (``proxy`` marks it: none, once the small molecules' dications are in)."""
     out = np.zeros((2, 2, len(ANCHOR_NC), len(ANCHOR_CHARGES), len(E_OUT)), dtype=np.float32)
     proxy = np.zeros((len(ANCHOR_NC), len(ANCHOR_CHARGES)), dtype=bool)
+    empty = []          # (structure, size) with no molecule at all: interpolated in ln N_C between the neighbouring anchors, afterwards
     for ip, rr in enumerate((rows, rows0)):
         for isz, n in enumerate(ANCHOR_NC):
             for iz, q in enumerate(ANCHOR_CHARGES):
                 for ist, structure in enumerate(("compact", "mixed")):
                     pick = [r for r in rr if r[1] == n and r[3] == q and (structure == "mixed" or r[0] in COMPACT)]
+                    if not any(r[1] == n and (structure == "mixed" or r[0] in COMPACT) for r in rr):
+                        if ip == 0 and iz == 0:
+                            empty.append((ist, isz))
+                        continue
                     if not pick:
                         out[ip, ist, isz, iz] = out[ip, ist, isz, iz - 1]
                         proxy[isz, iz] = True
                         continue
                     out[ip, ist, isz, iz] = np.mean([r[4]["final"][1] / r[1] for r in pick], axis=0)
+        for ist, isz in empty:
+            w = np.log(ANCHOR_NC[isz] / ANCHOR_NC[isz - 1]) / np.log(ANCHOR_NC[isz + 1] / ANCHOR_NC[isz - 1])
+            out[ip, ist, isz] = (1 - w) * out[ip, ist, isz - 1] + w * out[ip, ist, isz + 1]
     return out, proxy
 
 

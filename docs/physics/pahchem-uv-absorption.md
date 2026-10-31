@@ -244,13 +244,15 @@ pahchem needs σ for any size and charge: its PAHdb library holds 1424 molecules
 charges −1 to +3. `pycalima.pahchem.uvlib` (`sigma_library(nc, charge, energy_ev)`, `per_carbon`) applies one rule:
 
 - **Size:** σ = N_C s(E; N_C, Z), with the per-carbon spectrum s interpolated linearly in ln N_C between the anchor sizes 16, 24, 32,
-  54, 96, 150, 216 (pyrene, coronene, ovalene and the circumcoronene family), and held at the nearest anchor outside.
+  42, 54, 96, 150, 216, and held at the nearest anchor outside.
 - **Charge:** the charge itself for −1 to +2, and the dication for +3. Pyrene, coronene and ovalene were run as dications on megatron
   (2026-10-30; the neutral's geometry; coronene a triplet with fixed occupations, pyrene and ovalene closed-shell singlets), so every
   anchor is a computed state.
-- **Structure:** at C54, C96 and C150 the anchor is the equal-weight mean over every library molecule of that size (five, four and two
-  isomers: compact and not), `structure="mixed"` (default); `"compact"` keeps the circumcoronene family alone. Below C54 only compact
-  molecules were run.
+- **Structure:** the anchor is the equal-weight mean over every library molecule of that size, `structure="mixed"` (default): C24 (coronene
+  and one isomer), C32 (ovalene and three isomers), C42 (four isomers) and C54, C96, C150 (five, four and two isomers, compact and not);
+  C16 is pyrene alone. `"compact"` keeps the circumcoronene family alone; no compact C42 was run, so that anchor is interpolated from
+  C32 and C54. Eight non-compact isomers of C24–C42 were run at all four charges (DIaL3, 2026-10-29/31; C42H24_3973, whose +1 state
+  had not converged, is left out until it has, so that every charge averages the same molecules).
 - **Hydrogen:** N_H does not enter. It cannot be modelled from the data: the five C54 isomers (N_H = 18–30) do not order by N_H.
 - **Positions:** `positions="shifted"` (default, the neutrals' 0.4 eV shift) or `"tdlda"`.
 
@@ -269,15 +271,18 @@ the compact ones at C54 (more low-lying bands in the isomers) and 4–10 % below
 | test | Mathis | Draine 1978 | Kurucz 10 000 K | blackbody 6000 K |
 |---|---|---|---|---|
 | a held-out anchor from its two neighbours, C54 and up | 0.71–1.22 | 0.91–1.07 | 0.88–1.10 | 0.80–1.14 |
-| the same, C24 and C32 | 1.00–1.28 | 0.96–1.02 | 0.87–1.21 | 0.99–1.38 |
-| mixed over compact anchors, C54 | 0.89–1.47 | 0.88–0.94 | 0.90–1.20 | 1.08–1.24 |
+| the same, C24 and C32 (compact; C32 from C24 and C54) | 1.00–1.12 | 0.95–1.02 | 0.87–1.21 | 0.99–1.38 |
+| mixed over compact anchors, C24–C42 | 0.96–1.43 | 0.85–1.02 | 0.92–1.04 | 0.89–1.29 |
+| mixed over compact anchors, C54 | 1.13–1.47 | 0.88–0.94 | 0.90–1.20 | 1.08–1.24 |
 | mixed over compact anchors, C96 and C150 | 0.90–1.01 | 0.96–1.04 | 0.94–0.97 | 0.88–0.98 |
 | dication over cation, per carbon | 1.07–1.23 | 0.93–0.98 | 1.00–1.05 | 1.01–1.22 |
 
 - The interpolation error is at most ~15 % for the visible-weighted fields (Mathis, blackbody) in the largest case and a few % for the
   far-UV ones, comparable to the shift's uncertainty (§5). The test is a stringent one: it removes an anchor from a sparse set.
-- **The structure is the larger systematic:** 0.9–1.5 in the Mathis rate at one size. It cannot be reduced without running non-compact
-  isomers between C24 and C54, where 350 of pahchem's 1424 molecules sit; the compact anchors serve there now.
+- **The structure is the larger systematic:** 0.9–1.5 in the Mathis rate at one size. Between C24 and C42 it is now sampled by eight
+  isomers (C24 one, C32 three, C42 four), but the C54 mean, with five, is the only one where the isomers were chosen as a set; below C54
+  the mixed anchor is the mean of however many were run, not of a representative sample of the 350 molecules of pahchem's 1424 that
+  sit there. The default there is thus an isomer mean, 1–2 % richer in oscillator strength per carbon (≤ 30 eV) than the compact one.
 - The dications of C16, C24 and C32 were first replaced by the cations' spectra. Running them showed that proxy to be 4 % (pyrene), 22 %
   (coronene) and 16 % (ovalene) low in the Mathis field, within 3 % in 13.6–60 eV, and 8–19 % high in the visible-weighted 40 000 K
   blackbody below 13.6 eV; the real dications keep the cations' main bands within 0.15–0.3 eV but have sharper structure above 10 eV.

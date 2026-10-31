@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """How good is the size and charge rule of ``pycalima.pahchem.uvlib``? Per-carbon absorption rates (0.1-13.6 eV) in four fields:
 
-A. structure: the mixed anchors over the compact ones at the sizes that have isomers (C54, C96, C150);
-B. size: each interior anchor predicted by log-linear interpolation between its two neighbours (compact anchors), over the actual one;
+A. structure: the mixed anchors over the compact ones at the sizes that have isomers (C24, C32, C42, C54, C96, C150);
+B. size: each interior anchor predicted by log-linear interpolation between its two neighbours (compact anchors, whose C42 is itself
+   interpolated and so left out), over the actual one;
 C. charge: the dication over the cation (what the cation would cost as a stand-in for the dication; every anchor is now computed).
 
     PYTHONPATH=diagnostics/pahchem python diagnostics/pahchem/octopus/check_uvlib_rule.py
@@ -17,6 +18,7 @@ k = E <= 13.6
 FIELDS = {"Mathis": fields.mathis1983(1.0, e_min=0.1, n=2000), "Draine 1978": fields.draine1978(1.0),
           "Kurucz 10 kK": fields.kurucz(10000, 1.0), "blackbody 6000 K": fields.blackbody(6000, 1.0, e_min=0.1)}
 SIZES = list(t["nc"].astype(int))
+COMPUTED = [n for n in SIZES if n != 42]      # compact C42 is an interpolation, not a calculation
 CHARGES = list(t["charges"])
 
 
@@ -34,12 +36,12 @@ def line(label, a, b):
 
 
 print("A. mixed over compact anchors, per-carbon rates")
-for n in (54, 96, 150):
+for n in (24, 32, 42, 54, 96, 150):
     for z in (-1, 0, 1, 2):
         line(f"N_C {n} z {z:+d}", anchor(n, z, "mixed"), anchor(n, z, "compact"))
 print("B. interpolated from the two neighbours over the actual anchor (compact)")
-for i in range(1, len(SIZES) - 1):
-    lo, mid, hi = SIZES[i - 1], SIZES[i], SIZES[i + 1]
+for i in range(1, len(COMPUTED) - 1):
+    lo, mid, hi = COMPUTED[i - 1], COMPUTED[i], COMPUTED[i + 1]
     w = (np.log(mid) - np.log(lo)) / (np.log(hi) - np.log(lo))
     for z in (-1, 0, 1):
         line(f"N_C {mid} from {lo}/{hi} z {z:+d}", (1 - w) * anchor(lo, z) + w * anchor(hi, z), anchor(mid, z))
