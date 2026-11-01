@@ -1,14 +1,14 @@
 # PAH UV–visible absorption for pahchem: the Octopus TD-DFT library
 
-Status on 2026-10-29, branch `feature/pahchem-anharmonic`. pahchem's default σ(E, Z) is still the Malloci average of
-{cite:t}`Berne2022` (`photo.sigma_uv`: nine compact PAHs at 5–30 eV, {cite:t}`LiDraine2001` outside), a placeholder.
-Li & Draine is to be dropped. Its replacement is our own charge-resolved real-time TD-DFT library, assembled from 0.02 eV
-to 10 keV for 48 states (§4): C54–C216, charges −1 to +2, with TD-DFT below 80 eV and atomic cross sections above, and
-the measured carbon K edge, and a rule that turns its 57 states into σ for any N_C and charge (§4e). It is checked against {cite:t}`Malloci2007`, laboratory data and Lin, Yang & Li (§7).
+Status on 2026-11-01, branch `feature/pahchem-anharmonic`. **pahchem's default σ(E, Z) is now our own charge-resolved real-time
+TD-DFT library** (`Params.uv_cross_section = "octopus_library"`, since 2026-11-01), assembled from 0.02 eV to 10 keV for 92 states (§4):
+C16–C216, charges −1 to +2, with TD-DFT below 80 eV and atomic cross sections above, and the measured carbon K edge, and a rule that turns its
+states into σ for any N_C and charge (§4e). It replaces the Malloci average of {cite:t}`Berne2022` (nine compact PAHs at 5–30 eV,
+{cite:t}`LiDraine2001` outside), the default from 2026-10-26 to 2026-10-31, which stays selectable as `"malloci_average"` (as does `"li_draine"`). It is checked against {cite:t}`Malloci2007`, laboratory data and Lin, Yang & Li (§7).
 
 **Two choices ship with the library, both labelled.** The neutrals' bands below 6 eV are moved up by 0.4 eV, because TD-LDA
 puts them 0.3–0.65 eV too low (§5; ad hoc, with TD-LDA's positions kept in the same file), and the carbon K edge is the
-measured one for pyrene, used for every PAH (§4c). The library is available in pahchem as `Params(uv_cross_section="octopus_library")` (§4e), not yet the default.
+measured one for pyrene, used for every PAH (§4c). The library is pahchem's default as `Params(uv_cross_section="octopus_library")` (§4e); `"octopus_library_tdlda"` drops the shift.
 
 ```{figure} ../_static/pahchem_uv/library_overview.png
 :width: 100%
@@ -296,8 +296,9 @@ the compact ones at C54 (more low-lying bands in the isomers) and 4–10 % below
 **Using it** (wired 2026-10-29). `Params(uv_cross_section="octopus_library")` selects the rule; `photo.sigma_uv`, the population bases, the group
 tables and the family emission then use it. The suffixes `_tdlda` and `_compact` select TD-LDA's positions and the circumcoronene family
 (`octopus_library_tdlda_compact` both). The basis cache keys carry the model name and the anchor file's fingerprint, so a rebuilt library does
-not reuse old bases. It is **not the default yet**: that needs the anchors file bundled and the gas-coupling review (the 0.65 → 0.88 hydrogenation
-shift of the Malloci default already moved the chain tests).
+not reuse old bases. It **has been the default since 2026-11-01**, with the anchors file bundled (3.6 MB; unlike Malloci's spectra it needs no
+fetch). The default carries the 0.4 eV shift of the neutrals (§5, ad hoc and labelled); `"octopus_library_tdlda"` is the version without it.
+Reproductions of published models keep the cross sections of their papers (method cards), so the default does not touch them.
 
 A cross-check through the pipeline: the photoionisation rate of C54H18 in a 40 000 K field (`Population.basis`, ratio to the Malloci average)
 

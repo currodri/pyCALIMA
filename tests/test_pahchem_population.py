@@ -689,10 +689,10 @@ def test_chain_reproduces_the_baseline_network_given_its_rates():
     if not (d / "C54H18_0.dat").exists():
         pytest.skip("PAH_states not generated")
     sp = {z: PAHSpecies.from_states_file(d / f"C54H18_{z}.dat") for z in (-1, 0)}
-    base = BaselineModel("C54", sp[0], Params(), anion=sp[-1])
+    base = BaselineModel("C54", sp[0], Params(uv_cross_section="malloci_average"), anion=sp[-1])
     nc, nh0, n_solo = PARENTS["C54"]
-    # recorded with the Malloci-average default (0.000 and 0.650 with Li & Draine; only the cross section changed). The
-    # lower sigma at 13-17 eV dehydrogenates less: to be reviewed with the gas-coupling rerun
+    # recorded with the Malloci average (0.000 and 0.650 with Li & Draine; only the cross section changed), which this test pins: the
+    # library default gives other values (the check is that the chain follows the network for whatever the rates are)
     for env, expected in ((Environment("Atomic most", 7.1e4, 5e4, 10.0, 722.0, 40000), 0.025),
                           (Environment("DF3 most", 5e3, 3.5e3, 0.49, 661.0, 40000), 0.880)):
         pr = base.photo_rates(env)

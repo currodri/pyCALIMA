@@ -20,7 +20,8 @@ Cross sections [cm^2] on an energy grid in eV:
 - ``sigma_malloci_coronene``: Malloci et al. (2007) TD-DFT for C24H12 at
   Z = 0, +1, from the fetched ``malloci2007-spectra`` (the served anion file is a C54H18- spectrum,
   ``malloci2007.INCONSISTENT``).
-- ``sigma_malloci_average``: Berne+22's strategy, pahchem's default since 2026-10-26 (``Params.uv_cross_section``).
+- ``sigma_malloci_average``: Berne+22's strategy, pahchem's default from 2026-10-26 to 2026-10-31 (``Params.uv_cross_section``).
+- ``octopus_library*``: ``uvlib``'s Octopus TD-DFT rule, pahchem's default since 2026-11-01.
   - sigma / N_C is averaged per charge over the Malloci+07 spectra of nine compact PAHs, N_C 32-66
     (``MALLOCI_AVERAGE_MOLECULES``), times N_C.
   - Berne+22 use it at 5-13.6 eV, where their field is. Here it covers 5-30 eV, Malloci's range; Li & Draine is used
@@ -235,7 +236,7 @@ def sigma_malloci_molecule(name, charge, energy_ev, nc=None) -> np.ndarray:
     return scale * np.interp(np.asarray(energy_ev, dtype=float), e, s, left=0.0, right=0.0)
 
 
-def sigma_uv(nc, charge, energy_ev, model="malloci_average") -> np.ndarray:
+def sigma_uv(nc, charge, energy_ev, model="octopus_library") -> np.ndarray:
     """The UV absorption cross section [cm^2] of ``model`` (``UV_CROSS_SECTIONS``; ``Params.uv_cross_section``). A name that carries
     its anchor file's fingerprint (``uv_model_key``: ``octopus_library@<hash>``, as the basis workers receive it) is accepted."""
     model = str(model).split("@")[0]

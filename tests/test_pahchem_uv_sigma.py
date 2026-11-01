@@ -1,4 +1,5 @@
-"""pahchem's UV absorption cross sections (``photo.sigma_uv``): Berne+22's Malloci average, the default since 2026-10-26.
+"""pahchem's UV absorption cross sections (``photo.sigma_uv``): Berne+22's Malloci average (the default 2026-10-26 to 2026-10-31) and the
+library that replaced it (``test_pahchem_uvlib.py``).
 
 These need the fetched ``malloci2007-spectra`` (``calima-fetch-data fetch malloci2007-spectra``) and skip without it.
 """
@@ -23,9 +24,14 @@ def _malloci():
         pytest.skip("malloci2007-spectra not fetched (calima-fetch-data fetch malloci2007-spectra)")
 
 
-def test_default_is_the_malloci_average():
-    assert Params().uv_cross_section == "malloci_average"
-    assert np.array_equal(photo.sigma_uv(54, 0, E), photo.sigma_malloci_average(54, 0, E))
+def test_default_is_the_octopus_library_and_the_malloci_average_stays_selectable():
+    from pycalima.pahchem import uvlib
+    if not uvlib.default_path().exists():
+        pytest.skip("external_data/pahchem/pah_uv_library.npz is not bundled")
+    assert Params().uv_cross_section == "octopus_library"
+    assert np.array_equal(photo.sigma_uv(54, 0, E), uvlib.sigma_library(54, 0, E))
+    assert np.array_equal(photo.sigma_uv(54, 0, E, "malloci_average"), photo.sigma_malloci_average(54, 0, E))
+    assert not np.array_equal(photo.sigma_uv(54, 0, E), photo.sigma_uv(54, 0, E, "malloci_average"))
     assert np.array_equal(photo.sigma_uv(54, 0, E, "li_draine"), photo.sigma_li_draine(54, 0, E))
     with pytest.raises(ValueError):
         photo.sigma_uv(54, 0, E, "nope")
@@ -74,7 +80,7 @@ def test_li_draine_bases_keep_their_cache_keys():
     shape = ("kurucz", 40000)
     ld = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params(uv_cross_section="li_draine"))
     new = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params())
-    assert "uv_cross_section" not in ld and new["uv_cross_section"] == "malloci_average"
+    assert "uv_cross_section" not in ld and new["uv_cross_section"].startswith("octopus_library@")
     assert population._basis_key(ld) != population._basis_key(new)
 
 

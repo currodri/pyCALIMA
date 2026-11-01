@@ -64,9 +64,11 @@ class Params:
     modes: str = "parent"                    # or "stripped"
     # photophysics
     sigma_scale: float = 1.0
-    # UV absorption (``photo.sigma_uv``): Berne+22's Malloci+07 average per C at 5-30 eV, Li & Draine outside (the default
-    # since 2026-10-26), or "li_draine" everywhere (before)
-    uv_cross_section: str = "malloci_average"
+    # UV absorption (``photo.sigma_uv``): our Octopus TD-DFT library (``uvlib``; the default since 2026-11-01, with the neutrals' bands
+    # shifted up 0.4 eV, ad hoc and labelled in docs/physics/pahchem-uv-absorption.md section 5; "octopus_library_tdlda" keeps TD-LDA's
+    # positions), Berne+22's Malloci+07 average per C at 5-30 eV with Li & Draine outside ("malloci_average", the default from 2026-10-26),
+    # or "li_draine" everywhere (before)
+    uv_cross_section: str = "octopus_library"
     ir_scale: float = 1.0                    # proxy for recurrent fluorescence / anharmonic cooling
     yield_model: str = "jochims"             # or "lepage"
     yield_cation: str = "wenzel"             # Z = +1 where Wenzel+20 applies (N_C >= 32, IP2 < 11.3); or "jochims"

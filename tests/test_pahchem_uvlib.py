@@ -156,8 +156,9 @@ def test_a_population_basis_runs_on_the_library(lib):
     mol = population.Molecule("x", 54, 18, {"solo": 6, "duo": 12, "trio": 0, "quartet": 0}, {0: sp}, {0: 0}, 7.0)
     shape = ("kurucz", 40000)
     a = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params(uv_cross_section="octopus_library"))
-    b = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params())
+    b = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params(uv_cross_section="malloci_average"))
     assert a["uv_cross_section"].startswith("octopus_library@") and a["uv_cross_section"] != b["uv_cross_section"]
+    assert population._basis_key(population._basis_inputs(mol, 0, shape, 100.0, 21.5 * 8065.54, Params())) == population._basis_key(a)   # the default
     assert population._basis_key(a) != population._basis_key(b)
     from pycalima.pahchem import photo
     fld = population._unit_field(("kurucz", 40000, 99.0))          # with EUV: this yield model starts at 20 eV

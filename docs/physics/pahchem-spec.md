@@ -279,8 +279,9 @@ of M5 should carry it as the uncertainty of the H-loss $E_0$.
   Mathis et al. (1983) 1.13.
 - {mod}`pycalima.pahchem.photo`: the UV cross sections, the Jochims and Le Page
   yields. Heating plus ionisation equals absorption.
-  - The default since 2026-10-26 (`Params.uv_cross_section = "malloci_average"`,
-    `sigma_uv`) is Berné+22's strategy: $N_{\rm C}$ times the Malloci+07 average
+  - The default since 2026-11-01 is our Octopus TD-DFT library (`Params.uv_cross_section = "octopus_library"`,
+    `uvlib`, docs/physics/pahchem-uv-absorption.md); Berné+22's Malloci average, the default from 2026-10-26, is
+    `"malloci_average"`. That strategy: $N_{\rm C}$ times the Malloci+07 average
     per C of nine compact PAHs ($N_{\rm C}$ 32–66, per charge; +3 takes +2) at
     5–30 eV.
   - Li & Draine at the LD01 radius is used below 5 eV, where Malloci's spectra
