@@ -51,8 +51,14 @@ MOLECULES_SMALL = {
 }
 CHARGES = (-1, 0, 1, 2)
 #: doublets whose hole sits in a quasi-degenerate pair and is shared 0.5/0.5 (make_run.py --shared-hole; the user's
-#: choice, 2026-10-26): C216H36+ never converged with integer occupations
+#: choice, 2026-10-26): C216H36+ never converged with integer occupations. (C42H24_3973+ was tried with it too, and failed all the same:
+#: see ``DROPPED``.)
 SHARED_HOLE = {("C216H36", 1)}
+#: dropped from the library (2026-11-01): the +1 ground state of C42H24_3973 (PAHdb UID 3971) gives NaN in Octopus' initial LCAO Hamiltonian
+#: (LAPACK dsyev error 99, first SCF iteration) in every set-up tried: random and LCAO starts, integer and shared-hole occupations, a rotated
+#: geometry, three nodes. The +0, +2 and -1 states ran, but an isomer enters ``build_library.py`` only with all four charges, so the
+#: C42 mean is over the other four isomers. Untried: SymmetriesCompute = no, the neutral's geometry for the cation.
+DROPPED = ("C42H24_3973",)
 #: doublets whose extra electron sits in a quasi-degenerate pair and is shared 0.5/0.5 (make_run.py --shared-electron;
 #: the user's choice, 2026-10-27): C54H30_3835- never converged with integer occupations
 SHARED_ELECTRON = {("C54H30_3835", -1)}

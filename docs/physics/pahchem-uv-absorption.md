@@ -251,8 +251,13 @@ charges −1 to +3. `pycalima.pahchem.uvlib` (`sigma_library(nc, charge, energy_
 - **Structure:** the anchor is the equal-weight mean over every library molecule of that size, `structure="mixed"` (default): C24 (coronene
   and one isomer), C32 (ovalene and three isomers), C42 (four isomers) and C54, C96, C150 (five, four and two isomers, compact and not);
   C16 is pyrene alone. `"compact"` keeps the circumcoronene family alone; no compact C42 was run, so that anchor is interpolated from
-  C32 and C54. Eight non-compact isomers of C24–C42 were run at all four charges (DIaL3, 2026-10-29/31; C42H24_3973, whose +1 state
-  had not converged, is left out until it has, so that every charge averages the same molecules).
+  C32 and C54. Eight non-compact isomers of C24–C42 were run at all four charges (DIaL3, 2026-10-29/31). A ninth, **C42H24_3973
+  (PAHdb UID 3971 for the cation), is not in the library**: its +1 ground state never started. Octopus' initial LCAO Hamiltonian
+  is NaN (LAPACK `dsyev` error 99 in the first SCF iteration) with random and LCAO starts, integer and shared-hole occupations, a rotated
+  geometry and three different nodes, while its +0, +2 and −1 states ran. The cause is not established; the geometry is the most
+  buckled of its four charges and has a mirror plane (Cs), but other Cs molecules in the set ran. An isomer enters only with all four
+  charges, so the C42 mean is over the other four, and every charge averages the same molecules. Not tried: `SymmetriesCompute = no`, the
+  neutral's geometry for the cation.
 - **Hydrogen:** N_H does not enter. It cannot be modelled from the data: the five C54 isomers (N_H = 18–30) do not order by N_H.
 - **Positions:** `positions="shifted"` (default, the neutrals' 0.4 eV shift) or `"tdlda"`.
 

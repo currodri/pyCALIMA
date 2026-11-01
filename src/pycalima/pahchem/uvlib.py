@@ -18,7 +18,7 @@ assembled to 10 keV by ``diagnostics/pahchem/octopus/build_library.py`` and stor
 Two options select what the anchors are. ``positions``: ``"shifted"`` (default) moves the neutrals' bands below 6 eV up by 0.4 eV
 (ad hoc, docs section 5); ``"tdlda"`` keeps TD-LDA's positions. ``structure``: ``"mixed"`` (default) uses the equal-weight mean over every
 library molecule of a size (the C24-C42 isomers and the five C54, four C96 and two C150 ones; at C16 only pyrene exists, so it equals
-``"compact"`` there), ``"compact"`` the circumcoronene family alone. No compact C42 was run: that anchor is interpolated from C32 and
+``"compact"`` there; C42H24_3973 is missing, its +1 state never ran), ``"compact"`` the circumcoronene family alone. No compact C42 was run: that anchor is interpolated from C32 and
 C54.
 
 **Accuracy of the rule** (docs section 4e): predicting a held-out size from its two neighbours reproduces the per-carbon absorption rates
