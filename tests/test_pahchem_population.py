@@ -691,6 +691,27 @@ def test_cation_capture_models_and_t_power_touch_cations_only():
         population._capture_factor(mol, 1, Params(capture_model="hot"))
 
 
+def test_attachment_fraction_models_meet_their_anchors_and_feed_attachment_and_detachment():
+    """f per molecule: "constant" is Params.attachment_fraction; the EA and size logistics rise monotonically from attachment_f_low
+    to 1, through ~0.003 at the small-PAH anchors and ~1 at C60's; the same f enters the neutral's sticking."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
+    assert population.attachment_fraction(mol, Params(attachment_fraction=0.2)) == 0.2
+    size = Params(attachment_model="size")
+    f = [population.attachment_fraction(replace(mol, nc=n, _cache={}), size) for n in (14, 24, 60, 216)]
+    assert f[0] < f[1] < 0.006 and f[2] > 0.6 and f[3] > 0.99
+    ea = Params(attachment_model="ea", attachment_ea_half=2.5)
+    g = [population.attachment_fraction(replace(mol, ionisation_ev={**mol.ionisation_ev, -1: e}, _cache={}), ea) for e in (0.5, 0.97, 2.68)]
+    assert g[0] < g[1] < 0.006 and g[2] > 0.6
+    assert population.attachment_sticking(mol, 300.0, size) == pytest.approx(
+        population.attachment_fraction(mol, size) * population.neutral_sticking(mol, 300.0, population.attachment_fraction(mol, size)))
+    with pytest.raises(ValueError, match="attachment_model"):
+        population.attachment_fraction(mol, Params(attachment_model="x"))
+
+
 def test_capture_cannot_exceed_the_classical_limit():
     from pycalima.pahchem.baseline import Params
 

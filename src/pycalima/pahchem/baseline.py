@@ -88,6 +88,16 @@ class Params:
     # f: share of classical captures on a neutral that form the anion (``attachment.Attachment.capture_fraction``;
     # autodetachment scales with it by detailed balance). 1, the classical limit, is unmeasured above N_C = 14
     attachment_fraction: float = 1.0
+    # f per molecule instead (population.attachment_fraction): "constant" (f = attachment_fraction), "ea" (a logistic in the
+    # electron affinity: attachment_f_low + (1 - attachment_f_low) / (1 + exp(-(EA - attachment_ea_half) / attachment_ea_width)))
+    # or "size" (attachment_f_low + (1 - attachment_f_low) / (1 + (attachment_nc_half / N_C)^attachment_nc_power)). Anchors: ~0.003
+    # for anthracene, perylene and coronene (lab, Carelli+13 upper bounds), ~0.6-1 for C60 (Viggiano+10); between them unmeasured
+    attachment_model: str = "constant"
+    attachment_ea_half: float = 2.0
+    attachment_ea_width: float = 0.2
+    attachment_nc_half: float = 50.0
+    attachment_nc_power: float = 10.0
+    attachment_f_low: float = 0.003
     # ion-PAH collisions (population; Environment.ions): efficiencies on DS87 (anions) and Langevin (neutrals)
     mn_efficiency: float = 0.58
     ion_neutral_efficiency: float = 0.9

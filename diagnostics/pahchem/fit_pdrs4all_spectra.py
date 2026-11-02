@@ -72,7 +72,9 @@ RESULT_VERSION = 9
 def _result_key(args):
     """Cache key of a run: every argument, the versions of the code that produce the result and the conditions card."""
     stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot", "workers")
-             and not (k == "shape_from" and v is None) and not (k == "attachment_fraction" and v == 1.0)}
+             and not (k == "shape_from" and v is None) and not (k == "attachment_fraction" and v == 1.0)
+             and not (k == "attachment_model" and v == "constant") and not (k == "attachment_ea_half" and v == 2.0)
+             and not (k == "attachment_nc_half" and v == 50.0)}
     stamp.update(result=RESULT_VERSION, basis=population.BASIS_VERSION, uv=photo.uv_model_key(Params().uv_cross_section),
                  masks=repr(spectral_fit.MASKED_UM),
                  broad=repr(BROAD_START), card=json.dumps(conditions.load("orion_bar"), sort_keys=True))
@@ -98,7 +100,9 @@ def run(args):
         lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model,
-                    capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction, stretch_scale=stretch)
+                    capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction,
+                    attachment_model=args.attachment_model, attachment_ea_half=args.attachment_ea_half,
+                    attachment_nc_half=args.attachment_nc_half, stretch_scale=stretch)
     pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params,
                                 dehydrogenated_emission=getattr(args, "hydrogenation", "emit") == "emit")
     grid = spectral_fit.Grid.build()
@@ -184,7 +188,9 @@ def _library_and_population(args):
         lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model,
-                    capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction, stretch_scale=stretch)
+                    capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction,
+                    attachment_model=args.attachment_model, attachment_ea_half=args.attachment_ea_half,
+                    attachment_nc_half=args.attachment_nc_half, stretch_scale=stretch)
     pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params,
                                 dehydrogenated_emission=getattr(args, "hydrogenation", "emit") == "emit")
     return lib, pop
@@ -525,6 +531,9 @@ def main():
     ap.add_argument("--capture-model", choices=population.CAPTURE_MODELS, default="bt94")
     ap.add_argument("--capture-t-power", type=float, default=0.0, help="Params.capture_t_power (cation capture x (T/300 K)^-x)")
     ap.add_argument("--attachment-fraction", type=float, default=1.0, help="Params.attachment_fraction (f, neutral attachment)")
+    ap.add_argument("--attachment-model", choices=("constant", "ea", "size"), default="constant", help="Params.attachment_model")
+    ap.add_argument("--attachment-ea-half", type=float, default=2.0, help="Params.attachment_ea_half [eV], with --attachment-model ea")
+    ap.add_argument("--attachment-nc-half", type=float, default=50.0, help="Params.attachment_nc_half, with --attachment-model size")
     ap.add_argument("--shape-from", default=None,
                     help="with --fit-shape: a pahchem_spectral_shape_<key>.pkl whose band shape per template and profile is kept "
                          "fixed (no shape fit; the conditions are rescanned): fast sensitivity runs of the charge inputs")

@@ -439,8 +439,9 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
       few 0.1 eV (thermionic; Bull+15 for UV-excited PAH anions). The rest stays as vibrational energy.
     """
     grid = np.asarray(energy_ev, dtype=float)
+    f_att = attachment_fraction(mol, params)
     key = ("detach_stat", params.sigma_scale, photo.uv_model_key(params.uv_cross_section), float(grain_cm), grid.tobytes(), bool(valence),
-           params.attachment_fraction)
+           f_att)
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
         from pycalima.pahchem.attachment import Attachment
@@ -452,12 +453,12 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         sigma = photo.sigma_uv(mol.nc, -1, E, params.uv_cross_section) * params.sigma_scale
         y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
                                 out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
-        akey = ("attach_detach", float(grain_cm), params.attachment_fraction)
+        akey = ("attach_detach", float(grain_cm), f_att)
         if akey not in mol._cache:
             mol._cache[akey] = Attachment(mol.species[0], mol.species[-1], ea,
                                                      chemistry.disc_radius_cm(mol.nc),
                                                      e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm,
-                                                     capture_fraction=params.attachment_fraction)
+                                                     capture_fraction=f_att)
         at = mol._cache[akey]
         p_det, eps_cm = at.delayed_detachment(E * dos.CM_PER_EV)
         if valence:
@@ -522,10 +523,27 @@ def neutral_sticking(mol, temperature_k, capture_fraction=1.0):
     return done[t]
 
 
+def attachment_fraction(mol, params=Params()):
+    """f of this molecule: ``Params.attachment_fraction``, or a logistic in its electron affinity (``attachment_model="ea"``; the
+    anion's detachment threshold ``ionisation_ev[-1]``) or in N_C (``"size"``). The same f sets the attachment and, by detailed
+    balance, the anion's autodetachment (``statistical_detachment``)."""
+    if params.attachment_model == "constant":
+        return params.attachment_fraction
+    lo = params.attachment_f_low
+    if params.attachment_model == "size":
+        return float(lo + (1.0 - lo) / (1.0 + (params.attachment_nc_half / mol.nc) ** params.attachment_nc_power))
+    if params.attachment_model != "ea":
+        raise ValueError(f"attachment_model must be 'constant', 'ea' or 'size', not {params.attachment_model!r}")
+    ea = mol.ionisation_ev.get(-1) if mol.ea_ev is not None else None
+    if ea is None:
+        return params.attachment_fraction
+    return float(lo + (1.0 - lo) / (1.0 + np.exp(-(ea - params.attachment_ea_half) / params.attachment_ea_width)))
+
+
 def attachment_sticking(mol, temperature_k, params=Params()):
-    """What multiplies the classical capture on the neutral: ``Params.attachment_fraction`` f times the statistical
-    s_e at that f (``neutral_sticking``)."""
-    f = params.attachment_fraction
+    """What multiplies the classical capture on the neutral: f (``attachment_fraction``) times the statistical s_e at that f
+    (``neutral_sticking``)."""
+    f = attachment_fraction(mol, params)
     return f * neutral_sticking(mol, temperature_k, f)
 
 

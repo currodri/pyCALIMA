@@ -193,7 +193,9 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
             f"capture_model={params.capture_model} capture_t_power={params.capture_t_power} sigma_scale={params.sigma_scale} "
             f"mn_efficiency={params.mn_efficiency} ion_neutral_efficiency={params.ion_neutral_efficiency} "
             f"metal_adducts={params.metal_adducts} associative_detachment={params.associative_detachment} "
-            f"attachment_fraction={params.attachment_fraction} uv_cross_section={photo.uv_model_key(params.uv_cross_section)} "
+            f"attachment_fraction={params.attachment_fraction} attachment_model={params.attachment_model} "
+            f"attachment_ea_half={params.attachment_ea_half} attachment_ea_width={params.attachment_ea_width} "
+            f"attachment_nc_half={params.attachment_nc_half} attachment_nc_power={params.attachment_nc_power} attachment_f_low={params.attachment_f_low} uv_cross_section={photo.uv_model_key(params.uv_cross_section)} "
             f"partition={partition}")
     return combine(kernels, w[w > 0], group_L0, group_L1, n_E, Ts, lT, label, meta)
 
