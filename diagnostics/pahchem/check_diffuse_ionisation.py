@@ -61,7 +61,11 @@ Result (2026-10-25; N_C 32-40 at x_PAH = 6e-7 unless stated; Jochims / statistic
 The numbers are kept in results/pahchem_diffuse_ionisation.json (``--plot-only`` redraws from it). 77 s and
 0.5 GB with the N_C 32-40 bases cached (one field shape for every cell).
 
-    check_diffuse_ionisation.py [--workers 2] [--full-library] [--plot-only] [--out DIR]
+Rerun on 2026-11-02 with the current defaults: section 4 of the gas-coupling doc, where ``check_default_changes.py``
+adds the changes since 2026-10-25 one at a time; ``--nc-range 50 100`` puts W08's carbon
+in N_C 50-100 (V3 Phi 0.36, V13 within x2.4 of Lepp+88), which the size-logistic attachment needs.
+
+    check_diffuse_ionisation.py [--workers 2] [--full-library] [--nc-range LO HI] [--plot-only] [--out DIR]
 """
 import argparse
 import json
@@ -582,7 +586,7 @@ def report(d):
           f"{v['wd01b_arxiv'][k]['alpha_H']:.2e} (arXiv v2 table)")
     for det in DETACHMENTS:
         s = v[det][k]
-        print(f"  pahchem N_C 32-40 {det}: x_e {s['x_e']:.2e}, alpha(H+) {s['alpha_H']:.2e}, alpha(C+) "
+        print(f"  pahchem N_C {d.get('nc_range', '32-40')} {det}: x_e {s['x_e']:.2e}, alpha(H+) {s['alpha_H']:.2e}, alpha(C+) "
               f"{s['alpha_C']:.2e}, PAH charge {s['q']:.1e} per H; electron_source {s['electron_source']:.3e} vs "
               f"-ion sink {-s['ion_sink']:.3e}; at G0 = 1.7: x_e {v[det + '_G1.7']['x_e']:.2e}")
         if "full_" + det in v:
@@ -704,30 +708,40 @@ def main():
     ap.add_argument("--full-library", action="store_true",
                     help="add V4's whole-library (b_C = 6e-5) run: ~1800 new bases per field shape, >10 h on 2 workers")
     ap.add_argument("--plot-only", action="store_true")
+    ap.add_argument("--nc-range", type=int, nargs=2, default=(32, 40), metavar=("LO", "HI"),
+                    help="the molecules (with an anion) that carry the PAHs: W08's N_C 32-40 by default, at x_PAH = 6e-7; "
+                         "another range takes W08's carbon, 6e-7 x 35 C per H, shared equally by carbon (a suffix on the outputs)")
     ap.add_argument("--out", type=Path, default=None, help="plot directory (default results/plots/pahchem)")
     args = ap.parse_args()
-    js = _paths.get_results_dir() / "pahchem_diffuse_ionisation.json"
+    lo, hi = args.nc_range
+    tag = "" if (lo, hi) == (32, 40) else f"_nc{lo}-{hi}"
+    js = _paths.get_results_dir() / f"pahchem_diffuse_ionisation{tag}.json"
     if not args.plot_only:
         full = library_v400()
-        lib = [m for m in full if 32 <= m.nc <= 40 and -1 in m.charges]
-        x = np.full(len(lib), X_PAH_W08 / len(lib))
+        lib = [m for m in full if lo <= m.nc <= hi and -1 in m.charges]
+        if tag:
+            x = X_PAH_W08 * 35.0 / np.array([m.nc for m in lib], dtype=float) / len(lib)
+        else:
+            x = np.full(len(lib), X_PAH_W08 / len(lib))
         pahs = {det: PAHs(lib, x, det, args.workers) for det in DETACHMENTS}
         pahs_full = {}
         if args.full_library:
             lib_f, x_f = wd01_weighted(full)
             print(f"whole library: {len(lib_f)} molecules, {x_f.sum():.2e} per H", flush=True)
             pahs_full = {det: PAHs(lib_f, x_f, det, args.workers) for det in DETACHMENTS}
-        print(f"N_C 32-40: {len(lib)} molecules at x_PAH = {X_PAH_W08:g}", flush=True)
+        print(f"N_C {lo}-{hi}: {len(lib)} molecules at x_PAH = {x.sum():.3g} per H ({(x * [m.nc for m in lib]).sum():.3g} C per H)",
+              flush=True)
         d = {"V3": v3(pahs)}
         print("V3 done", flush=True)
         d["V4"] = v4(pahs, pahs_full)
         print("V4 done", flush=True)
         d["V13"] = v13(pahs)
+        d["nc_range"] = f"{lo}-{hi}"
         js.parent.mkdir(parents=True, exist_ok=True)
         js.write_text(json.dumps(d, default=float))
     d = json.loads(js.read_text())
     report(d)
-    out = args.out or _paths.get_plots_dir("pahchem")
+    out = (args.out or _paths.get_plots_dir("pahchem")) / (tag.lstrip("_") or ".")
     out.mkdir(parents=True, exist_ok=True)
     plot(d, out)
 

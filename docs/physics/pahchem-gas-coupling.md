@@ -447,12 +447,47 @@ larger than the PAHs:
 
 The exact numbers are in the literature page, section 8.
 
-**Measured with the sticking defaults before 2026-11-02** (s = 1 on cations, f = 1 on neutrals). Since then the
-defaults are `lab_cold` and the size logistic (§2.2b), and the rows have not been rerun. Expected to move most are
-the rows on N_C 32–40 (V2, V3, V13: f = 0.014–0.10 there instead of 1; on the current code V2 is 0.78 of W08 with
-f = 1 and 0.23 with the size logistic, §2.2b) and the WD01 per-size comparison at C24 (f = 0.0036, s = 0.63). C54 (V9,
-V14, V15: f = 0.68, s = 1) moves less; C66 and C96 (f ≥ 0.94) hardly. They also predate the cold-limit ladder and
-the converged multiphoton H loss (§2.2c), which change nothing below ψ ≈ 10⁴ and move the largest PAHs above it.
+**Rerun on 2026-11-02 with the current defaults** (`results/pahchem/validation_2026-11-02/`; the table below
+keeps each row's earlier text, the current verdicts are in `briefing_benchmarks.csv`). The rows were last measured
+on 2026-10-25/26. Since then the UV cross section changed twice (Berné+22's Malloci average on 10-26, our Octopus
+library on 11-01), and on 11-02 the sticking (§2.2b), the ladder (§2.2c) and the anion's valence step.
+`check_default_changes.py` adds them one at a time from the 2026-10-25 setup, which reproduces the documented
+numbers:
+
+| quantity | 10-25 | + Malloci UV | + Octopus UV | + sticking | + ladder (now) |
+|---|---|---|---|---|---|
+| V2 α(C⁺)/W08, N_C 32–40 | 0.84 | 0.92 | 0.79 | 0.23 | 0.23 |
+| V14 diffuse f(−1), C54 / C96 (Tielens 0.13 / 0.13) | 0.093 / 0.155 | 0.112 / 0.192 | 0.110 / 0.206 | 0.080 / 0.206 | the same |
+| V14 PDR ⟨Z⟩, C54 / C96 (0.55 / 0.78) | 0.37 / 0.52 | 0.26 / 0.36 | 0.31 / 0.34 | 0.33 / 0.34 | the same |
+| V14 cavity ⟨Z⟩, C96 (2.57) | 2.46 | 2.31 | 2.36 | 2.36 | 2.40 |
+| V9 ε, Tielens' diffuse example, C54 / C96 (~0.05) | 0.045 / 0.052 | 0.042 / 0.049 | 0.036 / 0.032 | 0.033 / 0.032 | the same |
+| V9 Γ / Berné+22, diffuse ISM | 1.86 | 1.53 | 1.72 | 1.54 | the same |
+
+- **The size distribution now decides the diffuse-ISM rows.** V2, V3 and V13 take W08's single size, N_C 32–40,
+  where the size logistic gives f = 0.014–0.10. There pahchem's C⁺ neutralisation is 0.23 of W08's, the effective Φ
+  is 0.18–0.19 (W08's 0.2–0.4) and the observed C I/C II is 1.8× the model's (median), and Lepp+88's ion ratios
+  need x_PAH 6–11× theirs. With W08's carbon (2.1×10⁻⁵ C per H) in N_C 50–100 instead (`check_diffuse_ionisation.py
+  --nc-range 50 100`):
+  - V2: 0.83–0.91 of W08 over n = 3–300 (§2.2b).
+  - V3: Φ = 0.36 (valence; 0.33–0.47 over the detachments), observed/model C I/C II 0.87: passes.
+  - V13: x_PAH 4.1–5.8×10⁻⁸ toward ζ Per, against 4.8×10⁻⁸ from Lepp+88's own model here and their quoted 1×10⁻⁷:
+    passes. 1.9–2.8×10⁻⁷ toward ζ Oph, against their 6×10⁻⁷ (×2.4 low, χ² 5.9).
+  - V4's x_e at n = 30: 2.6–3.0×10⁻⁴ (4.3–4.5×10⁻⁴ at N_C 32–40), against 3.12×10⁻⁴ from WD01b's published α_g.
+
+  The new attachment holds these calibrations only if the diffuse ISM's PAH carbon is mostly in N_C ≳ 50.
+- **V4 (α against WD01b, group tables):** pahchem/WD01(PAH) at ψ ≤ 10³ is 1.4–1.5 at 100 K and 0.9–1.15 at 1000 K (2.0
+  and 1.2–1.5 before: fewer anions), and 7–11 at ψ ≥ 10⁵. The group tables stop at +2.
+- **V6:** the script takes f = 1 and is unchanged. With the default f, C60 is 1.19× Viggiano+10 (1.39× at f = 1), and
+  anthracene's collisional limit is 1.6×10⁻⁹, inside the lab's 0.84–2.6×10⁻⁹ (f's anchor).
+- **V9 and V14** moved mostly with the UV library: C96's diffuse ε from 0.052 to 0.032 and f(−1) from 0.155 to 0.206.
+  C54 also moves with f (0.68). The ladder adds +0.04 to C96's ⟨Z⟩ in the cavity, where 3 % now sit at +4.
+  `check_tielens21_fz.py` summed ⟨Z⟩ over Z ≤ +3 only, and now takes every charge.
+- **V10** is unchanged (the default's s at C54 is 0.9998). **V15** too: without associative detachment of N_H0 anions,
+  PAH⁻ overtake electrons at n(H₂) = 1.4×10², and the attachment's median is 1.55×10⁻⁶ (1.65×10⁻⁶ at f = 1).
+- **V11:** NGC 7023's R_PAH is 7.5×10⁻²⁰ (C54) and 4.9×10⁻²⁰ (C96), from 6.4 and 3.3×10⁻²⁰: the UV library; the
+  sticking does not move them. Coronene's largest R_PAH on the grid is 1.4–1.5×10⁻¹⁷ in every configuration of the
+  chain, including 2026-10-25's: the 2×10⁻¹⁸ quoted in the V11 row is not reproduced by these changes. An earlier
+  change moved it; not traced.
 
 | | target | status |
 |---|---|---|

@@ -44,6 +44,9 @@ Result (2026-10-25; R_PAH at x_PAH = 2.5e-5/N_C, n(H) = n_H, x_e = 1.6e-4; ~1 mi
 - Thi+20 R_max: the printed form is 1/4 of sigma v_th x_PAH xbar with the mean speed (4.0e-16 at 10 A^2, xbar 10);
   pahchem's ER ceiling 2.4e-19 (T/100)^1/2 equals the xbar = 1, 0.06 A^2 value, reached where f(super-H) = 1.
 
+Rerun on 2026-11-02 with the current defaults: section 4 of the gas-coupling doc, where ``check_default_changes.py``
+adds the changes since 2026-10-25 one at a time.
+
     check_pah_h2_formation.py [--andrews16] [--out DIR]
 """
 import argparse

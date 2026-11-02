@@ -38,6 +38,9 @@ electron above ``population.anion_valence_threshold``, 3.75 eV for C54H18, 3.3-3
 - Berne+22's diffuse point: Gamma 1.86x, eps 0.067 (f(-1) 0.32; theirs has no anions: coronene's attachment law);
 - gamma >= 1e5: the same as the other two.
 
+Rerun on 2026-11-02 with the current defaults: section 4 of the gas-coupling doc, where ``check_default_changes.py``
+adds the changes since 2026-10-25 one at a time.
+
     check_pe_efficiency.py [--workers 4] [--out DIR]
 """
 import argparse

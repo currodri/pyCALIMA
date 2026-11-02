@@ -15,6 +15,9 @@ fractional abundances (x_e = x(C+) + x(H+)): alpha(C+) per H and f(Z), W08 at Ph
 pahchem / W08(Phi = 0.4) = 0.65-1.10 (valence), 0.65-1.11 (statistical), 0.69-1.28 (Jochims); pahchem has fewer
 anions than W08 at Phi = 0.4 above n ~ 10 (f(-1) 0.11 against 0.22 at n = 30).
 
+Rerun on 2026-11-02 with the current defaults: section 4 of the gas-coupling doc, where ``check_default_changes.py``
+adds the changes since 2026-10-25 one at a time.
+
     check_wolfire08_cplus.py [--out <plot dir>]
 """
 import argparse

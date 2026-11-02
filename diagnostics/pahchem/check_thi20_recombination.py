@@ -78,7 +78,7 @@ def main():
     lib = P.library_v400(min_nc=54, max_nc=54)
     mol = P.shift_thresholds([m for m in lib if m.name == "C54H18 (37)"], SHIFTS)[0]
     print(f"{mol.name}: charges {mol.charges}, thresholds {({z: round(v, 2) for z, v in mol.ionisation_ev.items()})} eV")
-    models = {"bt94": Params(), "lab_trend": Params(capture_model="lab_trend")}
+    models = {"bt94": Params(capture_model="bt94"), "lab_trend": Params(capture_model="lab_trend")}
     a_thi = 1e-7 * (54 / 468.0) ** (1.0 / 3.0)
     print("\nV10: e + C54H18^Z+ [cm^3 s^-1]; Thi+20 Table B.3 (phi = 0.4)")
     print("  Z       T     Thi+20   pahchem bt94  lab_trend   bt94/Thi  lab_trend/Thi   Spitzer limit at a_Thi  "

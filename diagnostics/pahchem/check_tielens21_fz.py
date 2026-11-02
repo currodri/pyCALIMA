@@ -31,6 +31,9 @@ against +2.57, f(+2, +3) 0.39, 0.54 against 0.35, 0.61; PDR C96H24 <Z> +0.52; no
 The figure (``pahchem_v14_tielens21_fz.png``): f(Z) per molecule and environment, the book against pahchem with
 each detachment (n_H = 0).
 
+Rerun on 2026-11-02 with the current defaults: section 4 of the gas-coupling doc, where ``check_default_changes.py``
+adds the changes since 2026-10-25 one at a time.
+
     check_tielens21_fz.py [--workers 4] [--detachment jochims|statistical|valence] [--out <plot dir>]
 """
 import argparse
@@ -83,18 +86,22 @@ def main():
     for env_name, (g0, n, t) in ENVIRONMENTS.items():
         ne = X_E * n
         print(f"\n{env_name}: G0 = {g0:g}, n = {n:g}, T = {t:g} K, gamma = {g0 * np.sqrt(t) / ne:.2e}")
-        fz = {}
+        fz, zbar, above = {}, {}, {}
         for n_h in (n, 0.0):
             env = Environment(env_name, g0, n_h, ne, t, None)
             pop.prepare(population.field_shape(env), workers=args.workers)
-            fz[n_h] = pop.charge_matrix(env)[:, cols]
+            f = pop.charge_matrix(env)
+            # <Z> over every charge of the ladder (to the cold limit), and the share above +3 that the columns leave out
+            fz[n_h], zbar[n_h] = f[:, cols], f @ np.array(pop.zs, dtype=float)
+            above[n_h] = f[:, [i for i, z in enumerate(pop.zs) if z > zs[-1]]].sum(axis=1)
         for s, m in enumerate(mols):
             ref = FIG_12_34.get((m.name, env_name))
             shown = "not given (panel repeated)" if ref is None else np.round(ref, 3)
             print(f"  {m.name:13s} Tielens Fig. 12.34    {shown}")
-            print(f"  {'':13s} pahchem, n_H = n      {np.round(fz[n][s], 3)}   <Z> {fz[n][s] @ zs:+.2f}")
-            print(f"  {'':13s} pahchem, n_H = 0      {np.round(fz[0.0][s], 3)}   <Z> {fz[0.0][s] @ zs:+.2f}"
-                  + ("" if ref is None else f"   Tielens <Z> {np.dot(ref, zs):+.2f}"))
+            for n_h, label in ((n, "n_H = n"), (0.0, "n_H = 0")):
+                print(f"  {'':13s} pahchem, {label:9s}    {np.round(fz[n_h][s], 3)}   <Z> {zbar[n_h][s]:+.2f}"
+                      + (f"   f(> +{zs[-1]}) {above[n_h][s]:.3f}" if above[n_h][s] >= 5e-4 else "")
+                      + ("" if ref is None or n_h else f"   Tielens <Z> {np.dot(ref, zs):+.2f}"))
     plot(mols, by_detachment(mols, args.workers), (args.out or _paths.get_plots_dir("pahchem")) / "pahchem_v14_tielens21_fz.png")
 
 

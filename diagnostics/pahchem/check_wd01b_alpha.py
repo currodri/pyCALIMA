@@ -29,6 +29,9 @@ at T = 6000 K and psi >= 3e4, where it spreads 1.2-4x between ions):
 
 Results are kept in results/pahchem_wd01b_alpha.json (``--plot-only`` redraws from it).
 
+Rerun on 2026-11-02 with the current defaults: section 4 of the gas-coupling doc, where ``check_default_changes.py``
+adds the changes since 2026-10-25 one at a time.
+
     check_wd01b_alpha.py [--workers 4] [--plot-only]
 """
 import argparse
