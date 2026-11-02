@@ -16,8 +16,10 @@ and their sources are in ``method_cards/pahchem_baseline.toml``.
   cation -> dication with Wenzel+20 where it applies (N_C >= 32); ionising
   photons deposit nothing.
 - **Charge and H chemistry.** Table A.1 IP/EA of Andrews+16 with 0.1 eV per
-  missing H; BT94 electron capture, with sticking 1 for cations and the
-  statistical s_e of ``attachment`` for neutrals; the Andrews+16 H addition,
+  missing H; BT94 electron capture with the population's sticking
+  (``BaselineModel.capture_coefficients``: the cation factor of
+  ``Params.capture_model``, and on neutrals the attachment fraction times the
+  statistical s_e of ``attachment``); the Andrews+16 H addition,
   associative detachment and Eley-Rideal.
 
 ``Params`` holds every knob. ``sensitivity`` perturbs them one at a time.
@@ -76,7 +78,7 @@ class Params:
     # charge
     capture_scale: float = 1.0
     detachment: str = "valence"              # anion photodetachment: "valence" (statistical + valence photodetachment; default since 2026-10-25, the only one passing V2 and V14), "statistical" (population: WD01 prompt + detailed-balance delayed), "jochims" (Jochims at the EA, every electron taking E - EA; the default before) or "unity" above it
-    # cation capture (population only; BaselineModel keeps BT94): "lab_cold" (chemistry.lab_sticking on the photo-ion data, the
+    # cation capture (population and BaselineModel): "lab_cold" (chemistry.lab_sticking on the photo-ion data, the
     # default since 2026-11-02; measured at N_C 10-16 only, its rise to 1 by N_C ~ 40 an extrapolation), "lab_pahs" (every PAH
     # point), "bt94" (sticking 1, the default before), "lab_trend" (chemistry.lab_recombination_factor) or "wd01" (comparison:
     # population.wd01_capture_ratio). docs/physics/pahchem-gas-coupling.md section 2.2b
@@ -93,10 +95,10 @@ class Params:
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
     # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)
     associative_detachment: str = "dehydrogenated"
-    # f with attachment_model "constant", and in BaselineModel: share of classical captures on a neutral that form the anion
+    # f with attachment_model "constant": share of classical captures on a neutral that form the anion
     # (``attachment.Attachment.capture_fraction``; autodetachment scales with it by detailed balance). 1 is the classical limit
     attachment_fraction: float = 1.0
-    # f per molecule (population only, population.attachment_fraction; BaselineModel uses attachment_fraction): "size" (the
+    # f per molecule (population.attachment_fraction; the population and BaselineModel): "size" (the
     # default since 2026-11-02: attachment_f_low + (1 - attachment_f_low) / (1 + (attachment_nc_half / N_C)^attachment_nc_power)),
     # "constant" (f = attachment_fraction; 1 before) or "ea" (a logistic in the electron affinity: attachment_f_low + (1 -
     # attachment_f_low) / (1 + exp(-(EA - attachment_ea_half) / attachment_ea_width))). Anchors: ~0.003 for anthracene, perylene
@@ -184,16 +186,38 @@ class BaselineModel:
         self._cm = {}
         self._sticking = {}
 
+    def attachment_fraction(self):
+        """f of the parent: ``population.attachment_fraction`` under ``Params`` (the size logistic by default), as the
+        population gives a molecule of this N_C and Table A.1 EA."""
+        from types import SimpleNamespace
+
+        from pycalima.pahchem import population
+
+        th = IONISATION[self.parent]
+        return population.attachment_fraction(SimpleNamespace(nc=self.nc, ea_ev=th.get(-1), ionisation_ev=th), self.p)
+
+    def capture_coefficients(self, temperature_k):
+        """Electron capture coefficient of each charge [cm^3 s^-1], as the population's (``population.capture_coefficient``):
+        BT94 with the neutral's ``sticking_neutral`` and the cation factor of ``Params.capture_model`` (``lab_cold``
+        by default), ``capture_scale`` on every charge. Until 2026-11-02 the baseline took sticking 1 on cations
+        whatever ``capture_model``."""
+        from pycalima.pahchem import population
+
+        return np.array([chemistry.electron_capture(self.nc, z, temperature_k,
+                                                    sticking=self.sticking_neutral(temperature_k) if z == 0 else 1.0)
+                         * population._capture_factor(self, z, self.p, temperature_k) for z in self.charges])
+
     def sticking_neutral(self, temperature_k):
         """Electron sticking coefficient of the neutral at gas temperature T.
 
         A number in ``Params.sticking_neutral`` is used as given. With
-        "statistical" it is ``Params.attachment_fraction`` times the s_e of
+        "statistical" it is the parent's ``attachment_fraction`` f times the s_e of
         ``attachment.Attachment`` (with that capture fraction) for the parent and its
         anion (PAHdb modes, EA of Andrews+16 Table A.1), the neutral's internal
         energy being its radiative P(E) under the Draine field at G0 = 1; that
         P(E) changes s_e by < 10 % up to G0 = 1e4 (pahchem-spec.md, M4). Every
-        N_H takes the parent's value.
+        N_H takes the parent's value. Until 2026-11-02 f was ``Params.attachment_fraction`` whatever
+        ``attachment_model``.
         """
         s = self.p.sticking_neutral
         if not isinstance(s, str):
@@ -213,12 +237,13 @@ class BaselineModel:
                 _, h = self._absorption(fields.draine1978(g0=1.0), sigma, 0, self.nh0)
                 self._cm["neutral_pe"] = (cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
             akey = ("attachment", grid_excess_cm(temperature_k))     # the grid holds the electrons' Maxwellian
+            f = self.attachment_fraction()
             if akey not in self._cm:
                 self._cm[akey] = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
                                             chemistry.disc_radius_cm(self.nc), e_excess_cm=akey[1],
-                                            capture_fraction=self.p.attachment_fraction)
+                                            capture_fraction=f)
             e_n, p_n = self._cm["neutral_pe"]
-            self._sticking[key] = self.p.attachment_fraction * self._cm[akey].sticking(temperature_k, e_n, p_n)
+            self._sticking[key] = f * self._cm[akey].sticking(temperature_k, e_n, p_n)
         return self._sticking[key]
 
     # -- per-state molecular inputs ------------------------------------------
@@ -359,9 +384,8 @@ class BaselineModel:
         net.add("H loss", get("H"), dnh=-1)
         net.add("H2 loss", get("H2"), dnh=-2, h2_released=1)
         net.add("photoionisation", np.where(Z < top_z, get("ion"), 0.0), dz=+1)
-        per_z = np.array([chemistry.electron_capture(self.nc, z, T, sticking=self.sticking_neutral(T) if z == 0 else 1.0)
-                          for z in self.charges])                      # independent of N_H
-        capture = np.repeat(per_z[:, None], len(self.nh_values), axis=1) * p.capture_scale
+        per_z = self.capture_coefficients(T)                               # independent of N_H
+        capture = np.repeat(per_z[:, None], len(self.nh_values), axis=1)
         net.add("electron capture", np.where(Z > min(self.charges), capture * env.n_e, 0.0), dz=-1)
         sigma_geo = CORONENE_GEOMETRIC_A2 * self.nc / 24.0
         barrier = np.select([NH == self.nh0, NH == self.nh0 + 2], [0.06, 0.035], 0.0)

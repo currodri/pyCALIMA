@@ -203,9 +203,16 @@ template; `results/pahchem/pdrs4all_capture_2026-11-01/`):
 N_C 50–100. The size logistic meets W08's sight-line calibration if the PAH carbon is mostly in N_C ≳ 50.
 
 **The defaults since 2026-11-02: `capture_model="lab_cold"`, `attachment_model="size"`** (N_half 50, b 10,
-f_low 0.003), in the population (gas rates, group tables, the PDRs4All fits). `BaselineModel` keeps s = 1 and
-`attachment_fraction`, as it always ignored `capture_model`. Before, s = 1 and f = 1. Both functions are
-**extrapolations** where the PAHs that matter most are:
+f_low 0.003), in the population (gas rates, group tables, the PDRs4All fits) and, since a later commit of the same
+day, in `BaselineModel` (`capture_coefficients`; before, it took s = 1 and `attachment_fraction` whatever the model).
+Before, s = 1 and f = 1.
+- In the baseline's three parents (the RAMSES photodestruction tables, H₂ formation), C96 is unchanged.
+- C24's neutral sticking halves (f × s_e(f): a lower f also slows the anion's autodetachment, so 280× in f is 2× in
+  sticking), and its cation fraction rises (0.13 → 0.19 in a PDR cell, 0.35 → 0.46 in the Orion atomic one). Its carbon
+  loss rises ≤ 4 % and its H₂ formation 6–15 %.
+- C54's anion fraction falls (0.174 → 0.126 diffuse). Its carbon loss (10⁻⁸⁶–10⁻³⁸ s⁻¹) stays negligible.
+
+Both functions are **extrapolations** where the PAHs that matter most are:
 - **Cation sticking** is measured at N_C 10–16 only. Its rise to 1 by N_C ≈ 40 is the fitted form's, with saturation at
   the molecular limit assumed. The astronomical tests (PDRs4All, ⟨N_C⟩ 76–87) see s = 1 and cannot test the rise.
 - **Neutral attachment** is measured at N_C ≤ 24 (f ≈ 0.003) and at C60 (0.5–0.7). The midpoint (N_half 50) and the

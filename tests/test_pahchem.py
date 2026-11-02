@@ -887,6 +887,31 @@ def test_every_state_of_a_baseline_network_is_balanced(pah_states):
     assert 0.0 < f.reshape(net.shape)[:, 0].sum() < 1e-40
 
 
+def test_baseline_captures_electrons_as_the_population_does(pah_states):
+    """On cations BT94 times ``Params.capture_model``'s factor (``population._capture_factor``); on neutrals the
+    parent's attachment fraction (``population.attachment_fraction``) times the statistical s_e at it, which is at most
+    f. ``capture_model="bt94"``, ``attachment_model="constant"`` give the baseline's sticking of before (1 and f = 1)."""
+    from types import SimpleNamespace
+
+    from pycalima.pahchem import chemistry, population
+    from pycalima.pahchem.baseline import BaselineModel, Params
+
+    sp, an = PAHSpecies.from_states_file(pah_states / "C24H12_0.dat"), _anion(pah_states, "C24H12")
+    new = BaselineModel("C24", sp, Params(), an)
+    old = BaselineModel("C24", sp, Params(capture_model="bt94", attachment_model="constant"), an)
+    T = 100.0
+    assert new.attachment_fraction() == pytest.approx(population.attachment_fraction(SimpleNamespace(nc=24), Params()))
+    assert old.attachment_fraction() == 1.0
+    assert 0.0 < new.sticking_neutral(T) <= new.attachment_fraction() and new.sticking_neutral(T) != old.sticking_neutral(T)
+    kn, ko = new.capture_coefficients(T), old.capture_coefficients(T)
+    for i, z in enumerate(new.charges):
+        s = new.sticking_neutral(T) if z == 0 else float(chemistry.lab_sticking(24, "cold"))
+        if z >= 0:
+            assert kn[i] == pytest.approx(chemistry.electron_capture(24, z, T, sticking=s))
+        if z >= 1:
+            assert ko[i] == pytest.approx(chemistry.electron_capture(24, z, T))
+
+
 def test_charge_chain_matches_the_four_state_closed_form():
     """A pure charge network is the four_state_charge_fractions of PAH_charge."""
     from pycalima.models.PAH_charge.PAH_photoelectric_heating import four_state_charge_fractions
