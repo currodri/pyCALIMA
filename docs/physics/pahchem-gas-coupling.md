@@ -252,7 +252,20 @@ higher charges, as before). In the population every molecule runs from its lowes
   cold-limit ladder adds only the states that field reaches.
 - **Top state.** Ionisation out of ⌊0.2 N_C⌋ is the molecule's Coulomb explosion (`chain_overflow`, a destruction
   rate).
-- **Not yet:** K-shell absorption above 291 eV with Auger dz = +2 (stage 3), and the validation (stage 2).
+- **Not yet:** K-shell absorption above 291 eV with Auger dz = +2 (stage 3).
+- **Validation, step 1** (`check_charge_ladder.py`; C24–C216 per molecule, Draine field G0 = 10⁴, T = 100 and 1000 K,
+  n(H⁺) = n_e, against the library ladder and WD01 graphite spheres of the same carbon in the Mathis field):
+  - Regression: identical where the field reaches no state above the computed ones (C24 and C54 at every ψ, every
+    molecule at ψ ≤ 3×10³); ⟨Z⟩ moves ≤ 0.006 at ψ = 10⁴.
+  - At ψ = 10⁶ pahchem now reaches WD01's charge for N_C ≥ 96: 2.69, 3.50, 4.16 against 2.81, 3.27, 3.70 (C96,
+    C150, C216). The library ladder stopped near +1.9. Below ψ ≈ 3×10⁵ pahchem stays 0.4–0.9 below WD01, the cation
+    sticking of §2.2b.
+  - α(H⁺)/WD01 at ψ = 10⁶ falls from 486 to 40 (C150) and from 1725 to 41 (C216): the pile-up at +2 had kept
+    neutrals. Γ_PE/WD01 is 7.2–7.5 for N_C ≥ 96 there (9.3 before); Λ_rec rises ×1.6–1.9.
+  - Stand-ins carry 6 % (C96), 92 % (C150) and 98 % (C216) of the molecules and of their IR power at ψ = 10⁶,
+    19–30 % for N_C ≥ 150 at ψ = 10⁵. Above ψ ≈ 10⁵ the emission of the largest PAHs rests on the stand-in modes.
+  - Lowering the stand-ins' 5–13.6 eV cross section by 5–10 % per charge moves ⟨Z⟩ by ≤ 0.09 and Γ_PE by ≤ 3 %.
+  - No Coulomb explosions in a field cut at 13.6 eV: the top is out of reach.
 - **Effect, Draine field (T = 1000 K):**
   - ψ ≤ 10⁴: ⟨Z⟩ is unchanged to 0.01 for C24–C150.
   - ψ = 10⁵: C150 goes from +1.26 to +1.59 (18 % above +2).
