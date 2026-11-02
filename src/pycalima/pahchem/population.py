@@ -26,9 +26,14 @@ the molecules' abundances are fitted. In outline:
   - associative detachment of anions with H only with ``Params.associative_detachment = "all"``
     (``anion_associative_detachment``: measured on dehydrogenated anions, and the chain holds N_H0).
 
-  The chain stops at the highest charge in the library (+1 for PAHdb v3.20,
-  which has no dications): that state holds the higher charges, emitting as
-  itself, and absorbs without ionising.
+  The chain runs to the cold Coulomb limit floor(0.2 N_C) (``extend_ladder``,
+  ``Params.charge_ladder``). The states above the highest computed charge are
+  stand-ins with its modes, and the states a field cannot reach get no basis
+  (``Population._live``). Ionisation out of the top is Coulomb explosion
+  (``chain_overflow``). With ``charge_ladder = "library"`` (before 2026-11-02)
+  the chain stops at the library's highest charge (+1 for PAHdb v3.20, which
+  has no dications): that state holds the higher charges, emitting as itself,
+  and absorbs without ionising below Y_UNITY_EV.
 - **Hydrogenation** (``intact_fractions``). A dehydrogenation chain per
   molecule, N_H = N_H0 ... 0, with H loss (one step), H2 loss (two steps) and
   H addition, solved in steady state at each environment; f(N_H0) is the
@@ -120,7 +125,8 @@ _FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
 EDGES = ("solo", "duo", "trio", "quartet")
 
 #: above this every state ionises (or detaches) on absorption: WDB06's rule for a <~ 6 A (their eq. 15), and the
-#: lab yields reach ~1 by 20-25 eV (Jochims+96, Wenzel+20). Below it the lab laws hold.
+#: lab yields reach ~1 by 20-25 eV (Jochims+96, Wenzel+20). Below it the lab laws hold. A state whose threshold lies
+#: above it (highly charged) ionises from its threshold on, not below (``_yield``).
 Y_UNITY_EV = 20.0
 #: the RAMSES-RTZ group edges above 13.6 eV, the PARTITION_NODES energies and the C K edge [eV]
 EUV_NODES_EV = (15.2, 18.0, 20.0, 21.9, 24.59, 54.42, 284.2, 291.0)
@@ -167,6 +173,7 @@ class Molecule:
     ip_source: str = "dft"         # or "fit" (module docstring)
     ionisation_ev: dict | None = None   # {z: threshold of z -> z+1 [eV]}; default from ip_ev, ea_ev
     source: str = "pahdb-v3.20"
+    stand_in_from: int | None = None    # the highest computed charge, where ``extend_ladder`` added stand-ins above it
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self):
@@ -179,6 +186,11 @@ class Molecule:
     @property
     def charges(self):
         return tuple(sorted(self.species))
+
+    @property
+    def stand_ins(self):
+        """The charges whose modes are a stand-in (the highest computed charge's; ``extend_ladder``)."""
+        return () if self.stand_in_from is None else tuple(z for z in self.charges if z > self.stand_in_from)
 
 
 def library_m20(path=None, min_nc=0, all_anions=False):
@@ -361,9 +373,9 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     or with unit yield above it (``detachment="unity"``).
     """
     E = np.asarray(energy_ev, dtype=float)
-    euv = (E >= Y_UNITY_EV).astype(float)
     if z == max(mol.charges):
-        return euv                     # the top state ionises out of the chain only above Y_UNITY_EV (``chain_overflow``)
+        # the top state ionises out of the chain (``chain_overflow``) only above Y_UNITY_EV and its own threshold
+        return (E >= max(Y_UNITY_EV, top_threshold(mol))).astype(float)
     threshold = mol.ionisation_ev[z]
     if z == -1 and params.detachment == "unity":
         return (E >= threshold).astype(float)
@@ -381,7 +393,47 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
                      y_ly + (1.0 - y_ly) * np.clip((E - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0))
     else:
         y = photo.yield_jochims1996(E, threshold)
-    return np.where(E >= Y_UNITY_EV, 1.0, y)
+    # unity above Y_UNITY_EV only above the threshold too (thresholds above 20 eV: highly charged states), none below it
+    return np.where(E >= max(Y_UNITY_EV, threshold), 1.0, np.where(E < threshold, 0.0, y))
+
+
+#: (a, b) of IP(+1 -> +2) - IP(0 -> +1) = a + b / sqrt(N_C) [eV], over the 743 PAHdb v4.00 molecules of ``library_v400``
+#: whose neutral, cation and dication have DFT thresholds (rms 0.24 eV; 3.9, 2.8, 2.2 eV at N_C 24, 54, 96): the step of
+#: a molecule with no computed dication (``extend_ladder``)
+LADDER_STEP_FIT = (0.4640, 16.9086)
+
+
+def extend_ladder(mol):
+    """``mol`` with its charges up to the cold Coulomb limit floor(0.2 N_C) (``impact.coulomb_limit``;
+    ``Params.charge_ladder = "cold_limit"``); ``mol`` itself if it reaches it already.
+
+    - **Thresholds** continue the last computed step, as for a charged conductor (each charge adds e^2/C), and as
+      ``top_threshold`` assumed: they reproduce PAHdb's +2 -> +3 of C54H18 and C96H24 to 0.07 eV, and with the
+      calibrated shifts of the PDRs4All fits give 13.4-14.1 eV for the isomers of C30H14, C32H14 and C36H18 against
+      Wenzel+20's measured 13.9-14.1 eV. A molecule with no computed dication takes its +1 -> +2 step from
+      LADDER_STEP_FIT.
+    - **Stand-ins:** the states above the highest computed charge take its modes (``Molecule.stand_ins``):
+      multiply charged spectra are cation-like (Bakes+01, Malloci+07, Banhatti+21) and no prescription for their
+      change beyond +2 is published. Their UV cross section is +2's (``photo.sigma_uv``), as WD01 and Draine & Li 2007
+      give every ion one.
+    """
+    from pycalima.pahchem import impact
+
+    z_top, top = impact.coulomb_limit(mol.nc), max(mol.charges)
+    if z_top <= top:
+        return mol
+    if top < 1:
+        raise ValueError(f"{mol.name}: extend_ladder needs a computed cation")
+    th = dict(mol.ionisation_ev)
+    if top == 1:
+        step = LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc)
+        th[1] = th[0] + step
+    else:
+        step = th[top - 1] - th[top - 2]
+    for z in range(max(top, 2), z_top):
+        th[z] = th[z - 1] + step
+    species = mol.species | {z: mol.species[top] for z in range(top + 1, z_top + 1)}
+    return replace(mol, species=species, ionisation_ev=th, stand_in_from=top, _cache={})
 
 
 def top_threshold(mol):
@@ -410,9 +462,10 @@ def anion_valence_threshold(mol):
     """Threshold [eV] for removing a valence electron (not the extra one) from the anion, which leaves the neutral
     excited: the molecule's own ladder one Coulomb step down, 2 IP(0) - IP(+1), as WD01 eq. 2 steps IP_V(Z) with
     the charge (the DFT ladder's steps are 1.28x WD01's e^2/a (1 + 0.3 A/a) at the disc radius). At least the EA.
-    C24H12 3.55, C54H18 3.75, C96H24 3.88 eV with the calibrated shifts."""
+    C24H12 3.55, C54H18 3.75, C96H24 3.88 eV with the calibrated shifts. Only a computed IP(+1) counts, not one
+    ``extend_ladder`` continued (it would swap WD01's step for LADDER_STEP_FIT's)."""
     th = mol.ionisation_ev
-    if 1 in th:
+    if 1 in th and (mol.stand_in_from is None or mol.stand_in_from >= 2):
         ipv = 2.0 * th[0] - th[1]
     else:
         a = chemistry.disc_radius_cm(mol.nc) * 1e8                                    # A
@@ -791,8 +844,10 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
 #: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key).
 #: The result caches of the diagnostics key on it too: 6 is the photon grid from 1 eV; 7 the Kurucz fields
 #: normalised over the whole 6-13.6 eV band (``fields.RadiationField.g0``, +0.15 %); 8 the emission of the
-#: dehydrogenated states N_H0-1 ... N_H0-3.
-BASIS_VERSION = 8
+#: dehydrogenated states N_H0-1 ... N_H0-3; 9 (2026-11-02) the loss ceiling of 45 eV at every size (tilted counts,
+#: ``dos.count_tilt``), each state's deposit grid and ceilings up to its hardest non-ionising deposit, and yields
+#: unity only above the threshold.
+BASIS_VERSION = 9
 #: bump when emission_temperature_shares changes, so stored shares are rebuilt (keyed with the basis key)
 TSHARES_VERSION = 1
 
@@ -818,7 +873,8 @@ def _basis_key(inp, legacy=False):
     h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
     if not legacy:                     # every grid of build_state_basis, not only the photon grid
         h.update(np.ascontiguousarray(E_DEP).tobytes())
-        h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, photo.PARTITION_NODES)).encode())
+        h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV,
+                       photo.PARTITION_NODES)).encode())
     for k in sorted(inp):
         v = inp[k]
         h.update(k.encode())
@@ -830,43 +886,68 @@ def _basis_key(inp, legacy=False):
 
 
 #: energy grid of the multiphoton loss cascades (the baseline's): two-photon states reach ~27 eV, and the
-#: 16 eV emission grid cut that tail off, underestimating k_H by orders of magnitude near threshold.
-#: Where the state counts overflow (the largest PAHs), the ceiling drops to the next value: two 13.6 eV
-#: photons need 27.2 eV, and three-photon events are negligible at that size.
-LOSS_E_MAX_EV, LOSS_DE_CM = (45.0, 30.0, 20.0), 200.0
+#: 16 eV emission grid cut that tail off, underestimating k_H by orders of magnitude near threshold. 45 eV holds
+#: three 13.6 eV photons. A state that absorbs harder photons without ionising (``deposit_grid``) starts with the same
+#: headroom above its hardest deposit (``_loss_ceiling``). The ceiling then rises by LOSS_STEP_EV until the jumps
+#: clamped at it at the top of K_H_G0_GRID (``SteadyState.overflow``, an upper bound on the losses they could add) are
+#: below LOSS_OVERFLOW_TOL of the loss rate there, up to LOSS_E_CAP_EV: at G0 = 1e6 C54 and C96 converge at 45 eV,
+#: C150 at 60 and C268 at 75 (multiphoton heating of large PAHs). The state counts are tilted where they would
+#: overflow (``dos.count_tilt``). Until 2026-11-02 the ceiling dropped to 30 or 20 eV for N_C >~ 150 instead, which
+#: underestimated their k_H at G0 = 1e6 46x (C150).
+LOSS_E_MAX_EV, LOSS_DE_CM = 45.0, 200.0
+LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV = 1e-2, 15.0, 150.0
+
+
+def _loss_converged(state):
+    """True if a loss cascade's ``SteadyState`` at the top of K_H_G0_GRID clamps few enough jumps (LOSS_OVERFLOW_TOL)."""
+    return state.overflow <= LOSS_OVERFLOW_TOL * sum(state.rates.values())
 
 #: hydrogenation states that emit per charge state: N_H0 and the ladder's N_H0-1 ... N_H0-3 (``StateBasis``)
 N_EMITTING = 4
 
 
-def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat, electron_ev=None):
-    """h(E_DEP) [s^-1 eV^-1]: the rate at which absorptions leave internal energy E_dep in the molecule.
+def deposit_grid(field, sigma, yield_):
+    """The deposit grid of one state: E_DEP, and above it, where the state absorbs without ionising (a threshold above
+    E_DEP's top, highly charged states in EUV fields), the photon nodes of E_PH up to the first at which every
+    absorption ionises again."""
+    non = np.asarray(sigma) * (1.0 - np.asarray(yield_, dtype=float)) * field.flux_at(E_PH)
+    above = np.nonzero((E_PH > E_DEP[-1]) & (non > 0.0))[0]
+    if not above.size:
+        return E_DEP
+    last = min(int(above[-1]) + 1, E_PH.size - 1)
+    return np.concatenate([E_DEP, E_PH[(E_PH > E_DEP[-1]) & (np.arange(E_PH.size) <= last)]])
+
+
+def deposit_spectrum(field, sigma, yield_, threshold_ev, ionising_heat, electron_ev=None, e_dep=None):
+    """h(e_dep) [s^-1 eV^-1]: the rate at which absorptions leave internal energy E_dep in the molecule.
 
     Non-ionising absorptions, sigma (1 - Y) F, deposit the photon energy. Ionisations, sigma Y F, deposit the ion's
     internal energy if ``ionising_heat``, else nothing (as before 2026-10-22): E - threshold - <E_k>, with the
     electron's <E_k> on E_PH from ``electron_ev`` (``electron_energy``, so that the anion's detached electron and
     the energy left behind add up to the excess), by default that of ``photo.photoelectron_energy``.
-    Each photon bin's rate is split between its two neighbouring deposit bins, conserving the rate.
+    Each photon bin's rate is split between its two neighbouring deposit bins, conserving the rate. ``e_dep``: the
+    state's grid (``deposit_grid``; E_DEP by default).
     """
+    e_dep = E_DEP if e_dep is None else e_dep
     F = field.flux_at(E_PH)
     y = np.asarray(yield_, dtype=float)
     non = np.asarray(sigma) * (1.0 - y) * F
-    if np.any(non[E_PH > E_DEP[-1]] > 0.0):
-        raise ValueError("non-ionising absorption above the deposit grid (a yield below 1 above Y_UNITY_EV)")
-    h = np.interp(E_DEP, E_PH, non, left=0.0, right=0.0)
+    if np.any(non[E_PH > e_dep[-1]] > 0.0):
+        raise ValueError("non-ionising absorption above the deposit grid (see deposit_grid)")
+    h = np.interp(e_dep, E_PH, non, left=0.0, right=0.0)
     if ionising_heat:
         w = np.asarray(sigma) * y * F * _trapezoid_weights(E_PH)          # ionisations per photon bin [s^-1]
         if electron_ev is None:
             _, e_int = photo.photoelectron_energy(E_PH, threshold_ev)
         else:
             e_int = np.clip(E_PH - threshold_ev - np.asarray(electron_ev, dtype=float), 0.0, None)
-        keep = (w > 0) & (e_int >= E_DEP[0]) & (e_int <= E_DEP[-1])
-        i = np.clip(np.searchsorted(E_DEP, e_int[keep], side="right") - 1, 0, E_DEP.size - 2)
-        f = (e_int[keep] - E_DEP[i]) / (E_DEP[i + 1] - E_DEP[i])
-        dep = np.zeros(E_DEP.size)
+        keep = (w > 0) & (e_int >= e_dep[0]) & (e_int <= e_dep[-1])
+        i = np.clip(np.searchsorted(e_dep, e_int[keep], side="right") - 1, 0, e_dep.size - 2)
+        f = (e_int[keep] - e_dep[i]) / (e_dep[i + 1] - e_dep[i])
+        dep = np.zeros(e_dep.size)
         np.add.at(dep, i, (1.0 - f) * w[keep])
         np.add.at(dep, i + 1, f * w[keep])
-        h = h + dep / _trapezoid_weights(E_DEP)
+        h = h + dep / _trapezoid_weights(e_dep)
     return h
 
 
@@ -880,69 +961,85 @@ def _trapezoid_weights(x):
     return w
 
 
-def _loss_grid(freqs, einstein_a):
-    """(CascadeModel, E, counts) on the highest ``LOSS_E_MAX_EV`` ceiling whose state counts stay finite."""
-    for e_ev in LOSS_E_MAX_EV:
-        try:
-            with np.errstate(over="ignore", invalid="ignore"):
-                cm = energy_me.CascadeModel(freqs, einstein_a, e_ev * dos.CM_PER_EV, LOSS_DE_CM)
-                E, counts = dos.beyer_swinehart(freqs, cm.energy_cm[-1] + 200.0)
-        except OverflowError:
-            continue
-        if np.isfinite(counts).all() and np.isfinite(cm.k_modes).all():
-            return cm, E, counts
-    raise ValueError("state counts overflow even on the lowest loss-cascade ceiling")
+def _loss_ceiling(e_dep, h):
+    """Ceiling of a state's loss cascade [eV]: LOSS_E_MAX_EV, or the same headroom above its hardest deposit."""
+    top = float(e_dep[np.nonzero(h > 0.0)[0][-1]]) if np.any(h > 0.0) else 0.0
+    return max(LOSS_E_MAX_EV, top + LOSS_E_MAX_EV - fields.LYMAN_EV)
 
 
-def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd):
+def _loss_grid(freqs, einstein_a, e_max_ev=LOSS_E_MAX_EV):
+    """(CascadeModel, E, counts, beta) of the multiphoton loss cascade up to ``e_max_ev``: the state counts tilted
+    by beta where they would overflow (``dos.count_tilt``; the rates are those of the untilted counts)."""
+    cm = energy_me.CascadeModel(freqs, einstein_a, e_max_ev * dos.CM_PER_EV, LOSS_DE_CM)
+    top = cm.energy_cm[-1] + 200.0
+    beta = dos.count_tilt(freqs, top)
+    E, counts = dos.beyer_swinehart(freqs, top, beta=beta)
+    if not (np.isfinite(counts).all() and np.isfinite(cm.k_modes).all()):
+        raise ValueError(f"loss cascade to {e_max_ev:g} eV is not finite")
+    return cm, E, counts, beta
+
+
+def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta=0.0):
     """RRKM H loss on the loss grid: even-H (E0, dS) with degeneracy N_H, odd-H radical values with 1."""
     (e0, ds), deg = (h_even, nh) if nh % 2 == 0 else (h_odd, 1)
     return rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5),
-                      e0 * dos.CM_PER_EV, degeneracy=deg)[pick]
+                      e0 * dos.CM_PER_EV, degeneracy=deg, beta=beta)[pick]
 
 
-def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None):
+def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None):
     """(k_H, k_H2) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade.
-    ``grid``: this state's ``_loss_grid`` and H-loss rate, if already built ((cm, E, counts), k_H(E))."""
-    if grid is None:
-        cm, E, counts = _loss_grid(freqs, einstein_a)
-        pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
-        k_h = _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd)
-    else:
-        (cm, E, counts), k_h = grid
-        pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
-    ch = {"H": k_h}
-    if h2_ok:
-        ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h2[1], n_scaled=5),
-                              h2[0] * dos.CM_PER_EV, degeneracy=2)[pick]
-    kh, kh2 = [], []
-    for g in K_H_G0_GRID:
-        r = cm.steady_state(E_DEP, g * h, ch).rates
-        kh.append(r["H"])
-        kh2.append(r.get("H2", 0.0))
-    return np.array(kh), np.array(kh2)
+    ``grid``: this state's ``_loss_grid`` (to ``e_max_ev``) and H-loss rate, if already built ((cm, E, counts, beta),
+    k_H(E)); ``e_dep``: the grid of the deposits ``h`` (``deposit_grid``; E_DEP by default); ``e_max_ev``: the
+    ceiling to start from (``_loss_ceiling`` by default), raised until converged (LOSS_OVERFLOW_TOL)."""
+    e_dep = E_DEP if e_dep is None else e_dep
+    e_max = _loss_ceiling(e_dep, h) if e_max_ev is None else e_max_ev
+    while True:
+        if grid is None:
+            cm, E, counts, beta = _loss_grid(freqs, einstein_a, e_max)
+            pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+            k_h = _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta)
+        else:
+            (cm, E, counts, beta), k_h = grid
+            pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+            grid = None                                  # rebuilt above it if it does not converge
+        ch = {"H": k_h}
+        if h2_ok:
+            ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h2[1], n_scaled=5),
+                                  h2[0] * dos.CM_PER_EV, degeneracy=2, beta=beta)[pick]
+        kh, kh2 = [], []
+        for g in K_H_G0_GRID:
+            s = cm.steady_state(e_dep, g * h, ch)
+            kh.append(s.rates["H"])
+            kh2.append(s.rates.get("H2", 0.0))
+        if _loss_converged(s) or e_max >= LOSS_E_CAP_EV:
+            return np.array(kh), np.array(kh2)
+        e_max = min(e_max + LOSS_STEP_EV, LOSS_E_CAP_EV)
 
 
 def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev, threshold_ev,
                    ionising_heat, electron_ev, uv_cross_section="li_draine"):
-    """(h(E_DEP), k_up, recombination power, CascadeModel, start) of one state at G0 = 1; the model and start are None
-    when nothing is left to emit (every absorption ionises or detaches, and no recombination heats)."""
+    """(h(e_dep), k_up, recombination power, CascadeModel, start, e_dep) of one state at G0 = 1, e_dep its
+    ``deposit_grid``; the model and start are None when nothing is left to emit (every absorption ionises or
+    detaches, and no recombination heats). The cascade reaches ``e_max_cm``, or 0.5 eV above the state's hardest
+    deposit and its recombination energy where those lie higher (highly charged states)."""
     field1 = _unit_field(shape)
     sigma = photo.sigma_uv(nc, z, E_PH, uv_cross_section) * sigma_scale
-    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev)
+    e_dep = deposit_grid(field1, sigma, yield_)
+    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev, e_dep)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
     recomb_power = k_up * recomb_ev * dos.CM_PER_EV
     if not np.any(h > 0.0) and recomb_power <= 0.0:
-        return h, k_up, recomb_power, None, None
-    cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm, de_cm)
-    # molecules placed on the cascade grid by the deposits (trapezoid over E_DEP, split between the two
+        return h, k_up, recomb_power, None, None, e_dep
+    need = (max(float(e_dep[-1]), recomb_ev) + 0.5) * dos.CM_PER_EV
+    cm = energy_me.CascadeModel(freqs, einstein_a, e_max_cm if need <= e_max_cm else need, de_cm)
+    # molecules placed on the cascade grid by the deposits (trapezoid over e_dep, split between the two
     # neighbouring bins) and the recombinations, then followed down once: the same photons as weighting
     # emission.cascade_photons by them, in O(modes x bins) instead of O(modes x bins^2)
-    e = E_DEP * dos.CM_PER_EV / cm.de_cm
+    e = e_dep * dos.CM_PER_EV / cm.de_cm
     j = np.floor(e).astype(int)
     w = e - j
     start = np.zeros(cm.n)
-    hw = h * _trapezoid_weights(E_DEP)
+    hw = h * _trapezoid_weights(e_dep)
     np.add.at(start, j, (1.0 - w) * hw)
     np.add.at(start, j + 1, w * hw)
     if recomb_power > 0.0:
@@ -950,7 +1047,7 @@ def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sig
         i0 = int(np.floor(x))
         start[i0] += k_up * (1.0 - (x - i0))
         start[i0 + 1] += k_up * (x - i0)
-    return h, k_up, recomb_power, cm, start
+    return h, k_up, recomb_power, cm, start, e_dep
 
 
 def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev=0.0,
@@ -960,8 +1057,8 @@ def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, 
     of ``build_state_basis``, followed per bin; zeros when the state does not emit."""
     from pycalima.pahchem import band_conventions as bc
 
-    _, _, _, cm, start = _cascade_start(np.asarray(freqs, dtype=float), einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
-                                        sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev, uv_cross_section)
+    _, _, _, cm, start, _ = _cascade_start(np.asarray(freqs, dtype=float), einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
+                                           sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev, uv_cross_section)
     if cm is None:
         return np.zeros((bc.N_CLASSES, bc.T_MID.size))
     X = emission.emission_by_energy(cm, start)
@@ -976,36 +1073,44 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     ``recomb_ev`` is the energy each recombination (attachment) into this state
     deposits; the heating rate is this state's own k_up (steady state).
     """
-    h, k_up, recomb_power, cm, start = _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
-                                                      sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev,
-                                                      uv_cross_section)
+    h, k_up, recomb_power, cm, start, e_dep = _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
+                                                             sigma_scale, recomb_ev, threshold_ev, ionising_heat,
+                                                             electron_ev, uv_cross_section)
     if cm is None:                                     # every absorption ionises or detaches: nothing to emit
         return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
                           np.zeros(K_H_G0_GRID.size), 0.0)
     emitted = freqs * emission.emission_by_energy(cm, start).sum(axis=1)
     # the dehydrogenated states of the ladder, heated by the same deposits (sigma and yield do not depend on N_H
-    # here), each on its own modes (``PAHSpecies.stripped``)
+    # here), each on its own modes (``PAHSpecies.stripped``), on the same cascade grid
     l_freqs, l_emitted = [], []
     for f_, a_, _, _ in ladder[1:]:
-        cm_k = energy_me.CascadeModel(f_, a_, e_max_cm, de_cm)
+        cm_k = energy_me.CascadeModel(f_, a_, (cm.n - 1) * cm.de_cm, de_cm)
         l_freqs.append(np.asarray(f_, dtype=float))
         l_emitted.append(l_freqs[-1] * emission.emission_by_energy(cm_k, start).sum(axis=1))
-    # the state's loss grid serves its k_h and the first ladder step (the same modes)
-    cl, E, counts = _loss_grid(freqs, einstein_a)
-    pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
-    # k_h (``intact_fractions(method="single")``) takes the even-H values with degeneracy N_H for any N_H;
-    # ladder[0] the odd-H ones for odd N_H, so it shares this rate only for even N_H
-    k = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5),
-                   h_even[0] * dos.CM_PER_EV, degeneracy=nh)[pick]
-    k_h = np.array([cl.steady_state(E_DEP, g * h, {"H": k}).rates["H"] for g in K_H_G0_GRID])
+    # the state's loss grid serves its k_h and the first ladder step (the same modes); its ceiling rises until the
+    # multiphoton cascade converges (LOSS_OVERFLOW_TOL), and the ladder starts from it
+    e_loss = _loss_ceiling(e_dep, h)
+    while True:
+        cl, E, counts, beta = _loss_grid(freqs, einstein_a, e_loss)
+        pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
+        # k_h (``intact_fractions(method="single")``) takes the even-H values with degeneracy N_H for any N_H;
+        # ladder[0] the odd-H ones for odd N_H, so it shares this rate only for even N_H
+        k = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5),
+                       h_even[0] * dos.CM_PER_EV, degeneracy=nh, beta=beta)[pick]
+        states = [cl.steady_state(e_dep, g * h, {"H": k}) for g in K_H_G0_GRID]
+        if _loss_converged(states[-1]) or e_loss >= LOSS_E_CAP_EV:
+            break
+        e_loss = min(e_loss + LOSS_STEP_EV, LOSS_E_CAP_EV)
+    k_h = np.array([s.rates["H"] for s in states])
     lh, lh2 = np.zeros((4, K_H_G0_GRID.size)), np.zeros((4, K_H_G0_GRID.size))
     for i, (f_, a_, n_, ok_) in enumerate(ladder):
         grid = None
         if i == 0 and n_ == nh and np.array_equal(f_, freqs) and np.array_equal(a_, einstein_a):
-            grid = ((cl, E, counts), k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd))
-        lh[i], lh2[i] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid)
+            grid = ((cl, E, counts, beta),
+                    k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta))
+        lh[i], lh2[i] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid, e_dep, e_loss)
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
-                     float(np.trapezoid(h * E_DEP * dos.CM_PER_EV, E_DEP)), float(recomb_power), lh, lh2,
+                     float(np.trapezoid(h * e_dep * dos.CM_PER_EV, e_dep)), float(recomb_power), lh, lh2,
                      tuple(l_freqs), tuple(l_emitted))
     if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
             and all(np.isfinite(e).all() for e in out.ladder_emitted)
@@ -1038,7 +1143,12 @@ class Population:
         from pycalima.pahchem import band_conventions
 
         self.band_convention = band_conventions.get(band_convention)
-        self.library, self.windows, self.p = list(library), dict(windows_um), params
+        given = list(library)
+        if params.charge_ladder not in ("cold_limit", "library"):
+            raise ValueError(f"charge_ladder must be 'cold_limit' or 'library', not {params.charge_ladder!r}")
+        # the ladder to the cold limit on copies (``extend_ladder``); the caller's molecules map to them (``_own``)
+        self.library = [extend_ladder(m) for m in given] if params.charge_ladder == "cold_limit" else given
+        self.windows, self.p = dict(windows_um), params
         # True: N_H0 ... N_H0-3 emit in proportion to the hydrogenation chain (``emission_weights``); False: the
         # intact molecule alone, as before 2026-10-25 (its callers then filter on ``intact_fractions``)
         self.dehydrogenated_emission = bool(dehydrogenated_emission)
@@ -1050,9 +1160,42 @@ class Population:
         self.zs = tuple(range(self.zmin, max(max(m.charges) for m in self.library) + 1))
         self.present = np.array([[z in m.species for z in self.zs] for m in self.library])
         self.nc = np.array([m.nc for m in self.library], dtype=float)
-        self._index = {id(m): s for s, m in enumerate(self.library)}
+        self._index = {id(m): s for s, m in enumerate(given)} | {id(m): s for s, m in enumerate(self.library)}
         self._arrays = {}
         self._capture = {}
+
+    def _own(self, mol):
+        """The population's copy of ``mol`` (its ladder extended, ``extend_ladder``), or ``mol`` if not in it."""
+        s = self._index.get(id(mol))
+        return mol if s is None else self.library[s]
+
+    def _live(self, shape):
+        """live[s, slot]: the states that can hold molecules under ``shape``. Above +1 only photoionisation raises the
+        charge (ions and associative detachment act on -1 and 0), so a state is live if the one below is and ionises in
+        this field shape (k_up > 0); the others have f = 0 at every G0 and get no basis. A ladder to the cold limit then
+        costs only the states the field reaches (in a field cut at 13.6 eV, those whose threshold from below is under
+        13.6 eV, as WD01 eq. 22)."""
+        key = ("live", shape)
+        if key not in self._arrays:
+            field1 = _unit_field(shape)
+            live = self.present.copy()
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    if z < 2:
+                        continue
+                    i = z - self.zmin
+                    if live[s, i - 1]:
+                        sigma = photo.sigma_uv(mol.nc, z - 1, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+                        live[s, i] = photo.ionisation_rate(field1, sigma, _yield(mol, z - 1, self.p), E_PH) > 0.0
+                    else:
+                        live[s, i] = False
+            self._arrays[key] = live
+        return self._arrays[key]
+
+    def _live_charges(self, mol, shape):
+        """The live charges of ``mol`` (one of the population's) under ``shape`` (``_live``)."""
+        row = self._live(shape)[self._index[id(mol)]]
+        return tuple(z for z in mol.charges if row[z - self.zmin])
 
     # -- bases -----------------------------------------------------------------------------------
     def _ckey(self, shape, z, mol=None):
@@ -1100,10 +1243,10 @@ class Population:
             os.replace(tmp, self.cache_dir / f"{key}.npz")
 
     def prepare(self, shape, workers=None):
-        """Give every state its basis under ``shape``: from memory, the disk cache, or built in parallel."""
+        """Give every live state (``_live``) its basis under ``shape``: from memory, the disk cache, or built in parallel."""
         todo = []
         for mol in self.library:
-            for z in mol.charges:
+            for z in self._live_charges(mol, shape):
                 ck = self._ckey(shape, z, mol)
                 if ck in mol._cache:
                     continue
@@ -1141,7 +1284,8 @@ class Population:
                 keep(t, _build(t[3]))
 
     def basis(self, mol, z, shape):
-        """``StateBasis`` of ``mol`` at charge z under ``shape``."""
+        """``StateBasis`` of ``mol`` (the population's copy, ``_own``) at charge z under ``shape``."""
+        mol = self._own(mol)
         ck = self._ckey(shape, z, mol)
         if ck not in mol._cache:
             inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
@@ -1162,6 +1306,7 @@ class Population:
 
     def temperature_shares(self, mol, z, shape):
         """W[class, T bin] of ``emission_temperature_shares`` for ``mol`` at charge z (memory and disk cached)."""
+        mol = self._own(mol)
         ck = ("tshares",) + self._ckey(shape, z, mol)
         if ck not in mol._cache:
             inp = _basis_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
@@ -1187,7 +1332,7 @@ class Population:
         in parallel like ``prepare``."""
         todo = []
         for mol in self.library:
-            for z in mol.charges:
+            for z in self._live_charges(mol, shape):
                 ck = ("tshares",) + self._ckey(shape, z, mol)
                 if ck in mol._cache:
                     continue
@@ -1245,7 +1390,7 @@ class Population:
             k_up, B = np.zeros((n, m)), np.zeros((n, m, len(self.bands)))
             lkh = np.full((n, m, K_H_G0_GRID.size), np.log(1e-300))
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     b = self.basis(mol, z, shape)
                     i = z - self.zmin
                     k_up[s, i] = b.k_up
@@ -1268,7 +1413,7 @@ class Population:
                 self.prepare_temperature_shares(shape)
             B = np.zeros((len(self.library), len(self.zs), N_EMITTING, len(self.bands)))
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
                         if f_.size:
                             B[s, z - self.zmin, k] = e_ @ self._window_matrix(mol, z, shape, f_)
@@ -1282,7 +1427,7 @@ class Population:
             self.prepare(shape)
             E = np.zeros((len(self.library), len(self.zs), N_EMITTING))
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     for k, (_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
                         E[s, z - self.zmin, k] = float(np.sum(e_))
             self._arrays[key] = E
@@ -1296,7 +1441,7 @@ class Population:
             lh = np.zeros((len(self.library), len(self.zs), 4, K_H_G0_GRID.size))
             lh2 = np.zeros_like(lh)
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     b = self.basis(mol, z, shape)
                     lh[s, z - self.zmin], lh2[s, z - self.zmin] = b.ladder_h, b.ladder_h2
             self._arrays[key] = (lh, lh2)
@@ -1315,8 +1460,11 @@ class Population:
 
     # -- an environment --------------------------------------------------------------------------
     def charge_matrix(self, env):
-        """f[s, slot]: the charge fractions of every molecule over ``self.zs``."""
-        k_up, _, _ = self._stack(field_shape(env))
+        """f[s, slot]: the charge fractions of every molecule over ``self.zs`` (0 for the states its field cannot reach,
+        ``_live``)."""
+        shape = field_shape(env)
+        k_up, _, _ = self._stack(shape)
+        live = self._live(shape)
         up = env.g0 * k_up
         if self.zmin == -1:
             up[:, 0] += anion_associative_detachment(self.p) * env.n_h
@@ -1326,11 +1474,11 @@ class Population:
                     if z in mol.charges and z + 1 in mol.charges:
                         up[s, z - self.zmin] += ion_up_rate(mol, z, env, self.p)
         down = self._capture_rates(env.temperature_k) * env.n_e
-        both = self.present[:, :-1] & self.present[:, 1:]
+        both = live[:, :-1] & live[:, 1:]
         logr = np.zeros_like(up[:, :-1])
         logr[both] = np.log(up[:, :-1][both]) - np.log(down[:, 1:][both])
         logf = np.concatenate([np.zeros((len(self.library), 1)), np.cumsum(logr, axis=1)], axis=1)
-        logf = np.where(self.present, logf, -np.inf)
+        logf = np.where(live, logf, -np.inf)
         f = np.exp(logf - logf.max(axis=1, keepdims=True))
         return f / f.sum(axis=1, keepdims=True)
 
@@ -1346,7 +1494,7 @@ class Population:
             n, m = len(self.library), len(self.zs)
             G, A = np.zeros((n, m)), np.zeros((n, m))
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
@@ -1445,8 +1593,10 @@ class Population:
                 "gamma_pe": float(x @ gamma), "lambda_rec": float(x @ lam), "f": f}
 
     def chain_overflow(self, env):
-        """Ionisations out of each molecule's top charge state [s^-1 per molecule]: EUV photons above Y_UNITY_EV
-        whose product the chain does not hold. Small against the chain's rates means the truncation is harmless."""
+        """Ionisations out of each molecule's top charge state [s^-1 per molecule], whose product the chain does not
+        hold. With ``Params.charge_ladder = "cold_limit"`` the top is the cold Coulomb limit and these are the
+        molecule's Coulomb explosions, a destruction rate; with "library", EUV photons above Y_UNITY_EV out of the
+        library's top charge, a truncation that is harmless where it is small against the chain's rates."""
         k_up, _, _ = self._stack(field_shape(env))
         f = self.charge_matrix(env)
         top = np.array([max(m.charges) - self.zmin for m in self.library])
@@ -1472,7 +1622,7 @@ class Population:
             self.prepare(shape)
             S = np.zeros((len(self.library), len(self.zs), nu.size))
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     b = self.basis(mol, z, shape)
                     S[s, z - self.zmin] = self._line_spectrum(mol, z, shape, b.freqs_cm, b.emitted, nu, fwhm_cm, shift_cm)
             self._arrays[key] = S
@@ -1490,7 +1640,7 @@ class Population:
                 self.prepare_temperature_shares(shape)
             S = np.zeros((len(self.library), len(self.zs), N_EMITTING, nu.size))
             for s, mol in enumerate(self.library):
-                for z in mol.charges:
+                for z in self._live_charges(mol, shape):
                     for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
                         if f_.size:
                             S[s, z - self.zmin, k] = self._line_spectrum(mol, z, shape, f_, e_, nu, fwhm_cm, shift_cm)
@@ -1505,6 +1655,7 @@ class Population:
 
     def state_band_fluxes(self, mol, z, env):
         """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
+        mol = self._own(mol)
         b = self.basis(mol, z, field_shape(env))
         return env.g0 * (b.emitted @ self._window_matrix(mol, z, field_shape(env), b.freqs_cm))
 

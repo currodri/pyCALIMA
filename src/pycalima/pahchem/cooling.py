@@ -51,6 +51,29 @@ if HAVE_NUMBA:
                     out[m, k] = einstein_a[m] * (total[hi] - total[lo]) / rho_w[k]
         return out
 
+    @njit(parallel=True, cache=True)
+    def _mode_rates_numba_tilted(counts, freq_bins, einstein_a, half, pick, rho_w, beta_grain):
+        """``_mode_rates_numba`` on tilted counts (``dos.beyer_swinehart`` with beta): S[i] = (c[i - f] + S[i - f]) q^f
+        and the window sums weighted by exp(beta_grain d) (``dos.tilted_window_sum``)."""
+        n = counts.size
+        out = np.zeros((freq_bins.size, pick.size))
+        w = np.exp(beta_grain * np.arange(-half, half + 1))
+        for m in prange(freq_bins.size):
+            f = freq_bins[m]
+            qf = np.exp(-beta_grain * f)
+            S = np.zeros(n)
+            for i in range(f, n):
+                S[i] = (counts[i - f] + S[i - f]) * qf
+            for k in range(pick.size):
+                i = pick[k]
+                acc = 0.0
+                for d in range(-half, half + 1):
+                    if 0 <= i + d < n:
+                        acc += S[i + d] * w[d + half]
+                if rho_w[k] > 0:
+                    out[m, k] = einstein_a[m] * acc / rho_w[k]
+        return out
+
 
 def _window_sum(values, half):
     total = np.concatenate([[0.0], np.cumsum(values)])
@@ -60,12 +83,13 @@ def _window_sum(values, half):
     return total[hi] - total[lo]
 
 
-def mode_emission_rates(energy_cm, counts, freqs_cm, einstein_a, window_cm=100.0, at_cm=None):
+def mode_emission_rates(energy_cm, counts, freqs_cm, einstein_a, window_cm=100.0, at_cm=None, beta=0.0):
     """Microcanonical photon-emission rate of each mode, k_i(E) [s^-1].
 
     Both sums are averaged over ``window_cm``, as for rho in ``dos``. With
     ``at_cm``, rates are returned only at those energies (nearest grid point),
-    which keeps memory at n_modes x len(at_cm) for a fine grid.
+    which keeps memory at n_modes x len(at_cm) for a fine grid. ``beta``: the
+    counts' tilt (``dos.beyer_swinehart``), which cancels in the ratio.
 
     Returns
     -------
@@ -76,22 +100,26 @@ def mode_emission_rates(energy_cm, counts, freqs_cm, einstein_a, window_cm=100.0
     n = counts.size
     pick = (np.arange(n) if at_cm is None
             else np.clip(np.rint(np.asarray(at_cm) / grain).astype(int), 0, n - 1))
-    rho_w = _window_sum(counts, half)[pick]
+    bg = beta * grain
+    rho_w = dos.tilted_window_sum(counts, half, bg)[pick]
     if HAVE_NUMBA:
         bins = np.array([max(int(round(nu / grain)), 1) for nu in freqs_cm], dtype=np.int64)
-        return _mode_rates_numba(np.ascontiguousarray(counts, dtype=float), bins,
-                                 np.ascontiguousarray(einstein_a, dtype=float), half,
-                                 np.ascontiguousarray(pick, dtype=np.int64), np.ascontiguousarray(rho_w, dtype=float))
+        args = (np.ascontiguousarray(counts, dtype=float), bins, np.ascontiguousarray(einstein_a, dtype=float), half,
+                np.ascontiguousarray(pick, dtype=np.int64), np.ascontiguousarray(rho_w, dtype=float))
+        return _mode_rates_numba_tilted(*args, bg) if bg else _mode_rates_numba(*args)
     out = np.zeros((len(freqs_cm), pick.size))
     for m, (nu, A) in enumerate(zip(freqs_cm, einstein_a)):
         f = max(int(round(nu / grain)), 1)
-        # S(E) = sum_{v>=1} c(E - v nu) obeys S(E) = c(E - nu) + S(E - nu)
+        qf = np.exp(-bg * f)
+        # S(E) = sum_{v>=1} c(E - v nu) obeys S(E) = c(E - nu) + S(E - nu) (each step times q^f when tilted)
         S = np.zeros(n)
         for start in range(f, n, f):
             stop = min(start + f, n)
             S[start:stop] = counts[start - f:stop - f] + S[start - f:stop - f]
+            if bg:
+                S[start:stop] *= qf
         with np.errstate(divide="ignore", invalid="ignore"):
-            out[m] = np.where(rho_w > 0, A * _window_sum(S, half)[pick] / rho_w, 0.0)
+            out[m] = np.where(rho_w > 0, A * dos.tilted_window_sum(S, half, bg)[pick] / rho_w, 0.0)
     return out
 
 
@@ -99,7 +127,8 @@ def mode_emission_rates(energy_cm, counts, freqs_cm, einstein_a, window_cm=100.0
 RF_A_PER_F = 8.0 * np.pi**2 * 4.80320471e-10**2 / (9.1093837e-28 * 2.99792458e10)
 
 
-def recurrent_fluorescence_rates(energy_cm, counts, levels_cm, oscillator_strengths, window_cm=100.0, at_cm=None):
+def recurrent_fluorescence_rates(energy_cm, counts, levels_cm, oscillator_strengths, window_cm=100.0, at_cm=None,
+                                 beta=0.0):
     """Recurrent-fluorescence rate of each electronic level, k_n(E) [s^-1].
 
     A molecule at vibrational energy E (in the ground electronic state's
@@ -113,19 +142,19 @@ def recurrent_fluorescence_rates(energy_cm, counts, levels_cm, oscillator_streng
 
     with f_0n the absorption oscillator strength. Each emission lowers E by
     E_n. Densities are averaged over ``window_cm`` as in
-    ``mode_emission_rates``.
+    ``mode_emission_rates``; ``beta`` is the counts' tilt, as there.
     """
     grain = energy_cm[1] - energy_cm[0]
     half = max(int(round(0.5 * window_cm / grain)), 1)
     n = counts.size
     pick = (np.arange(n) if at_cm is None
             else np.clip(np.rint(np.asarray(at_cm) / grain).astype(int), 0, n - 1))
-    rho_w = _window_sum(counts, half)
+    rho_w = dos.tilted_window_sum(counts, half, beta * grain)
     out = np.zeros((len(levels_cm), pick.size))
     for m, (e_n, f) in enumerate(zip(levels_cm, oscillator_strengths)):
         s = max(int(round(e_n / grain)), 1)
         shifted = np.zeros(n)
-        shifted[s:] = rho_w[:n - s]
+        shifted[s:] = rho_w[:n - s] * np.exp(-beta * grain * s)        # tilted rho(E - E_n), back on E's tilt
         with np.errstate(divide="ignore", invalid="ignore"):
             ratio = np.where(rho_w > 0, shifted / rho_w, 0.0)
         out[m] = RF_A_PER_F * e_n**2 * f * ratio[pick]

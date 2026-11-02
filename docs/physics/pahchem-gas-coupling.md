@@ -213,6 +213,61 @@ f_low 0.003), in the population (gas rates, group tables, the PDRs4All fits). `B
   only for N_C ≳ 50, where it is ≈ 1. Below N_C ≈ 45 the logistic follows the lab, not any astronomical test.
 - The rows of §4 were measured with the earlier defaults.
 
+### 2.2c The charge ladder to the cold Coulomb limit (2026-11-02, stage 1)
+
+`Params.charge_ladder = "cold_limit"` (the default; `"library"` keeps the computed charges, the top one holding the
+higher charges, as before). In the population every molecule runs from its lowest computed charge to ⌊0.2 N_C⌋
+(`impact.coulomb_limit`; +4 for C24, +10 for C54, +30 for C150), `population.extend_ladder`:
+- **Thresholds** continue the last computed step, constant per charge as for a charged conductor. They reproduce
+  PAHdb's +2 → +3 of C54H18 and C96H24 to 0.07 eV. With the calibrated shifts they give 13.4–14.1 eV for the isomers
+  of C30H14, C32H14 and C36H18, against Wenzel+20's measured 13.9–14.1 eV. A molecule with no computed dication
+  (676 of v4.00's 1424) takes its +1 → +2 step from a fit to the 743 that have one: 0.464 + 16.91/√N_C eV (rms
+  0.24 eV). The reach of a field cut at 13.6 eV is WD01's (their eq. 22) and Andrews+16's (Fig. 4): +2, +3 and +4
+  for C24, C54 and C96.
+- **Stand-ins.** The states above the highest computed charge take its modes. Their UV cross section is +2's.
+  - The literature (search of 2026-11-02, quotes checked against the full texts): computed IR spectra exist at +3
+    for only two molecules in print (Bakes, Tielens & Bauschlicher 2001, Table 1) and the 7 of PAHdb v4.00. There
+    are none above +3, and no computed or measured UV cross section of any PAH at +3.
+  - Multiply charged spectra are cation-like, with small shifts: Bakes+01 §2.2, Malloci+07 (A&A 462, 627; 40
+    dications), and the only lab dication spectra (Banhatti+21).
+  - The total IR intensity keeps rising through +2 (dications 2.5 ± 1.0× their cations, Malloci+07; ×1.7 in
+    PAHdb v4.00). From +2 to +3 it scatters both ways: ×0.93 and ×1.63 in Bakes+01, ×0.57–2.3 in PAHdb.
+  - Models give every ion one UV cross section: WD01 ("the distinction is not critical"), Draine & Li 2007 (every
+    multiply charged PAH has the cation's), Bakes+01. The one documented trend, Malloci's TD-DFT and our Octopus
+    library, is a drop of 4–10 % per charge at 6–13.6 eV through +2, as the σ* onset moves blueward. It is not
+    extrapolated.
+  - So the stand-in is a choice, not a measurement. Where stand-in states carry the population is reported
+    (`Molecule.stand_ins`), and the UV sensitivity is for stage 2.
+- **Yields** are unity above Y_UNITY_EV (20 eV) only above the state's threshold. A state with a higher threshold
+  (C54 from +5, C150 from +9) absorbs below it without ionising.
+- **Live states** (`Population._live`). Above +1 only photoionisation raises the charge, so a state is live if the
+  one below ionises in that field shape. The others hold f = 0 exactly and get no basis. In fields cut at 13.6 eV the
+  cold-limit ladder adds only the states that field reaches.
+- **Top state.** Ionisation out of ⌊0.2 N_C⌋ is the molecule's Coulomb explosion (`chain_overflow`, a destruction
+  rate).
+- **Not yet:** K-shell absorption above 291 eV with Auger dz = +2 (stage 3), and the validation (stage 2).
+- **Effect, Draine field (T = 1000 K):**
+  - ψ ≤ 10⁴: ⟨Z⟩ is unchanged to 0.01 for C24–C150.
+  - ψ = 10⁵: C150 goes from +1.26 to +1.59 (18 % above +2).
+  - ψ = 10⁶: C150 goes from +1.89 to +3.49 (91 % above +2), C96 from +2.60 to +2.68.
+  - The total IR power is unchanged to 1 %.
+- **Effect, Kurucz 40 kK field to 100 eV** (G0 10⁵, n_e 100, 10⁴ K): C54's charge peaks at +3/+4 with a tail to +9.
+  Its fraction at +10 is 8×10⁻⁸ and its Coulomb-explosion rate 4×10⁻¹³ s⁻¹.
+
+**Energies above 21 eV, which the ladder needs:**
+- **Deposits.** A state that absorbs without ionising above E_DEP's top (21 eV) gets the photon nodes above it on
+  its deposit grid (`deposit_grid`). Its emission cascade then reaches 0.5 eV above its hardest deposit and its
+  recombination energy.
+- **State counts** overflow float64 for large PAHs at high energy: C268 at 30 eV, C150 and C216 at 45 eV, C96 at
+  60–90 eV. They are now tilted where they would, c(E) e^(−βE) (`dos.count_tilt`). The recursion stays exact, every
+  rate takes the same β and the tilt cancels: forced on a 40-mode set, every rate agrees to ≤ 10⁻¹⁰. Where no tilt is
+  needed (β = 0) the arithmetic is unchanged: C54H18⁺'s basis rebuilds bit-identical to the cached one.
+- **Multiphoton H loss.** Until now the loss ceiling dropped from 45 to 30 or 20 eV for N_C ≳ 150, where the counts
+  overflowed. That cut multiphoton heating short: C150's k_H at G0 = 10⁶ was 46× low (×2.3 at 10⁴, ×5.8 at 10⁵).
+  The ceiling now starts at 45 eV (or the same headroom above a state's hardest deposit). It rises by 15 eV until
+  the jumps clamped at it at G0 = 10⁶ are below 1 % of the loss rate, up to 150 eV. C54 and C96 converge at 45 eV,
+  C150 at 60 eV and C268 at 75 eV (C268's k_H at G0 = 10⁶ is 2.3× its 45 eV value). `BASIS_VERSION` 9.
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.
@@ -376,7 +431,8 @@ The exact numbers are in the literature page, section 8.
 defaults are `lab_cold` and the size logistic (§2.2b), and the rows have not been rerun. Expected to move most are
 the rows on N_C 32–40 (V2, V3, V13: f = 0.014–0.10 there instead of 1; on the current code V2 is 0.78 of W08 with
 f = 1 and 0.23 with the size logistic, §2.2b) and the WD01 per-size comparison at C24 (f = 0.0036, s = 0.63). C54 (V9,
-V14, V15: f = 0.68, s = 1) moves less; C66 and C96 (f ≥ 0.94) hardly.
+V14, V15: f = 0.68, s = 1) moves less; C66 and C96 (f ≥ 0.94) hardly. They also predate the cold-limit ladder and
+the converged multiphoton H loss (§2.2c), which change nothing below ψ ≈ 10⁴ and move the largest PAHs above it.
 
 | | target | status |
 |---|---|---|

@@ -47,7 +47,7 @@ def _shift(values, n_shift):
     return out
 
 
-def rrkm(energy_cm, counts, ts_freqs_cm, E0_cm, degeneracy=1.0, window_cm=100.0):
+def rrkm(energy_cm, counts, ts_freqs_cm, E0_cm, degeneracy=1.0, window_cm=100.0, beta=0.0):
     """RRKM rate constant on the reactant's grid [s^-1].
 
     Parameters
@@ -62,20 +62,36 @@ def rrkm(energy_cm, counts, ts_freqs_cm, E0_cm, degeneracy=1.0, window_cm=100.0)
         Reaction-path degeneracy sigma.
     window_cm : float
         Window over which rho(E) is averaged.
+    beta : float
+        The reactant counts' tilt (``dos.beyer_swinehart``); the transition
+        state's are tilted alike, and the tilt cancels in k.
     """
     grain = energy_cm[1] - energy_cm[0]
+    i0 = int(round(E0_cm / grain))
+    if beta:
+        from scipy.signal import lfilter
+
+        _, ts_counts = dos.beyer_swinehart(ts_freqs_cm, energy_cm[-1], grain, beta=beta)
+        n_tilted = lfilter([1.0], [1.0, -np.exp(-beta * grain)], ts_counts)     # sum of states x exp(-beta E)
+        log_rho = dos.smoothed_log_density(energy_cm, counts, window_cm, beta=beta)
+        k = np.zeros_like(log_rho)
+        if i0 < k.size:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                k[i0:] = degeneracy * C_CM_S * np.exp(np.log(n_tilted[:k.size - i0]) + beta * energy_cm[:k.size - i0]
+                                                      - log_rho[i0:])
+        return np.where(np.isfinite(k) & np.isfinite(log_rho), k, 0.0)    # no reactant states in the window
     _, ts_counts = dos.beyer_swinehart(ts_freqs_cm, energy_cm[-1], grain)
-    n_ts = _shift(np.cumsum(ts_counts), int(round(E0_cm / grain)))
+    n_ts = _shift(np.cumsum(ts_counts), i0)
     rho = np.exp(dos.smoothed_log_density(energy_cm, counts, window_cm))
     with np.errstate(divide="ignore", invalid="ignore"):
         k = degeneracy * C_CM_S * n_ts / rho
     return np.where(rho > 0, k, 0.0)       # no reactant states in the window
 
 
-def inverse_laplace_arrhenius(energy_cm, counts, A_s, E0_cm, window_cm=100.0):
-    """k(E) = A rho(E - E0) / rho(E) [s^-1] on the reactant's grid."""
+def inverse_laplace_arrhenius(energy_cm, counts, A_s, E0_cm, window_cm=100.0, beta=0.0):
+    """k(E) = A rho(E - E0) / rho(E) [s^-1] on the reactant's grid (``beta``: the counts' tilt)."""
     grain = energy_cm[1] - energy_cm[0]
-    log_rho = dos.smoothed_log_density(energy_cm, counts, window_cm)
+    log_rho = dos.smoothed_log_density(energy_cm, counts, window_cm, beta=beta)
     i0 = int(round(E0_cm / grain))
     k = np.zeros_like(log_rho)
     if i0 < k.size:                        # E0 above the grid: no reactive state on it

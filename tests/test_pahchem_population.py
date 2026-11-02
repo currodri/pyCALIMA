@@ -165,7 +165,9 @@ def test_recombination_heating_deposits_the_threshold_at_the_ionisation_rate():
     off = population.Population([mol], {"all": (1.0, 1e4)}, params=Params(recombination_heating=False))
     b0, b1 = on.basis(mol, 0, shape), on.basis(mol, 1, shape)
     assert b0.recombination == pytest.approx(b0.k_up * mol.ionisation_ev[0] * dos.CM_PER_EV)
-    assert b1.recombination == 0.0                                          # the top of the chain
+    assert b1.recombination == pytest.approx(b1.k_up * on.library[0].ionisation_ev[1] * dos.CM_PER_EV)
+    library = population.Population([mol], {"all": (1.0, 1e4)}, params=Params(charge_ladder="library"))
+    assert library.basis(mol, 1, shape).recombination == 0.0                # the top of the chain
     assert off.basis(mol, 0, shape).recombination == 0.0
     assert b0.emitted.sum() == pytest.approx(b0.absorbed + b0.recombination, rel=0.01)
     assert b0.emitted.sum() > 1.2 * off.basis(mol, 0, shape).emitted.sum()  # neutrals: tens of per cent more power
@@ -196,11 +198,14 @@ def test_photoelectric_heating_shares_the_charge_balance_rates():
     env = Environment("test", 1e3, 1e4, 3.0, 300.0, 40000)
     shape = population.field_shape(env)
     G, _ = pop._pe_stack(shape, photo.PHOTOELECTRON_PARTITION)
-    for z in mol.charges[:-1]:
+    own = pop.library[0]                                                    # its ladder, to the cold limit
+    live = pop._live_charges(own, shape)
+    for z in live[:-1]:
         p = 1.0 if z < 0 else photo.PHOTOELECTRON_PARTITION
-        mean_excess = G[0, z - pop.zmin] / (p * pop.basis(mol, z, shape).k_up)
-        assert 0.0 < mean_excess < 13.6 - mol.ionisation_ev[z]
-    assert G[0, max(mol.charges) - pop.zmin] == 0.0                       # the top of the chain does not ionise
+        mean_excess = G[0, z - pop.zmin] / (p * pop.basis(own, z, shape).k_up)
+        assert 0.0 < mean_excess < 13.6 - own.ionisation_ev[z]
+    # neither the last state the field reaches nor the top of the chain ionises
+    assert G[0, live[-1] - pop.zmin] == 0.0 and G[0, max(own.charges) - pop.zmin] == 0.0
     gamma, gz, eps = pop.photoelectric_heating(env)
     assert gamma[0] == pytest.approx(gz[0].sum()) and 0.0 < eps[0] < 0.2
     _, gz5, _ = pop.photoelectric_heating(env, partition=0.5)
@@ -281,20 +286,22 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     mol = next(m for m in _library() if m.name == "C54H18 (37)")
     fuv = population.E_PH <= 13.6
     pop = population.Population([mol], WINDOWS)
+    own = pop.library[0]                                                    # its ladder, to the cold limit
     f1 = population._unit_field(("kurucz", 40000))
-    for z in mol.charges[:-1]:
+    for z in pop._live_charges(own, ("kurucz", 40000)):
         sig = photo.sigma_uv(mol.nc, z, population.E_PH)
-        y = population._yield(mol, z, pop.p)
-        assert pop.basis(mol, z, ("kurucz", 40000)).k_up == pytest.approx(
+        y = population._yield(own, z, pop.p)
+        assert pop.basis(own, z, ("kurucz", 40000)).k_up == pytest.approx(
             photo.ionisation_rate(f1, sig[fuv], y[fuv], population.E_PH[fuv]), rel=1e-6)
     heat = population.Population([mol], WINDOWS, params=replace(Params(), ionising_photons_heat=True))
     shape = ("kurucz", 40000, 99.0)
     fe = population._unit_field(shape)
-    for z in mol.charges:
-        b = heat.basis(mol, z, shape)
+    own = heat.library[0]
+    for z in heat._live_charges(own, shape):                                # every state, highly charged ones too
+        b = heat.basis(own, z, shape)
         sig = photo.sigma_uv(mol.nc, z, population.E_PH)
-        thr = population.state_threshold(mol, z)
-        y = population._yield(mol, z, heat.p)
+        thr = population.state_threshold(own, z)
+        y = population._yield(own, z, heat.p)
         ke, _ = photo.photoelectron_energy(population.E_PH, thr)
         parts = (b.absorbed / dos.CM_PER_EV + thr * b.k_up
                  + photo.photoelectron_power(fe, sig, y, population.E_PH, thr, electron_energy_ev=ke))
@@ -384,8 +391,9 @@ def test_ions_neutralise_anions_and_charge_neutrals_above_their_threshold():
     f0, f1 = pop.charge_matrix(bare)[0], pop.charge_matrix(cplus)[0]
     i_m, i_p = -1 - pop.zmin, 1 - pop.zmin
     assert f1[i_m] < f0[i_m] and f1[i_p] > f0[i_p]
-    scalar = population.charge_fractions(mol, cplus)
-    assert np.allclose([scalar[z] for z in mol.charges], f1[[z - pop.zmin for z in mol.charges]], rtol=1e-6)
+    own = pop.library[0]                                                    # its ladder, to the cold limit
+    scalar = population.charge_fractions(own, cplus)
+    assert np.allclose([scalar[z] for z in own.charges], f1[[z - pop.zmin for z in own.charges]], rtol=1e-6, atol=1e-300)
     low = ("Na+", 0.04)                                                     # IP(Na) 5.14 eV < any PAH IP
     assert population.ion_up_rate(mol, 0, replace(bare, ions=(low,))) == 0.0
     assert population.ion_up_rate(mol, 0, replace(bare, ions=(low,)), Params(metal_adducts=True)) > 0.0
@@ -419,8 +427,9 @@ def test_vectorised_charges_equal_the_scalar_chain():
                 Environment("c", 1e3, 3e4, 5.0, 700.0, None)):
         _, fz = pop.band_fluxes(env)
         for m in lib[::7]:
-            ref = population.charge_fractions(m, env)
-            for z in m.charges:
+            own = pop._own(m)                                               # its ladder, to the cold limit
+            ref = population.charge_fractions(own, env)
+            for z in own.charges:
                 assert fz[m.name][z] == pytest.approx(ref[z], rel=1e-9, abs=1e-14)
 
 
@@ -435,8 +444,9 @@ def test_k_h_table_interpolates_the_multiphoton_steady_state():
     g0 = np.sqrt(population.K_H_G0_GRID[8] * population.K_H_G0_GRID[9])
     sp = mol.species[1]
     sigma = photo.sigma_uv(mol.nc, 1, population.E_PH)
-    h = population.deposit_spectrum(population._unit_field(shape), sigma, population._yield(mol, 1),
-                                    population.state_threshold(mol, 1), False)
+    own = pop.library[0]                         # the population's copy: its ladder, so +1 is not the top state
+    h = population.deposit_spectrum(population._unit_field(shape), sigma, population._yield(own, 1),
+                                    population.state_threshold(own, 1), False)
     cm = energy_me.CascadeModel(sp.freqs_cm, sp.einstein_a, pop.e_max_cm, pop.de_cm)
     E, counts = dos.beyer_swinehart(sp.freqs_cm, cm.energy_cm[-1] + 200.0)
     ts = rates.transition_state_for_entropy(sp.freqs_cm, 3050.0, pop.p.h_even[1], n_scaled=5)
@@ -451,7 +461,7 @@ def test_basis_disk_cache_round_trips(tmp_path):
     env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
     first = population.Population([mol], WINDOWS, cache_dir=tmp_path)
     F1, _ = first.band_fluxes(env)
-    assert len(list(tmp_path.glob("*.npz"))) == len(mol.charges)
+    assert len(list(tmp_path.glob("*.npz"))) == len(first._live_charges(first.library[0], population.field_shape(env)))
     mol2 = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")
     second = population.Population([mol2], WINDOWS, cache_dir=tmp_path)
     F2, _ = second.band_fluxes(env)
@@ -464,14 +474,16 @@ def test_basis_stored_under_its_legacy_key_is_found_not_rebuilt(tmp_path, monkey
     env = Environment("test", 1e4, 5e4, 10.0, 500.0, 40000)
     first = population.Population([mol], WINDOWS, cache_dir=tmp_path)
     F1, _ = first.band_fluxes(env)
-    for z in mol.charges:                       # move each file to the key the previous version gave it
-        inp = population._basis_inputs(mol, z, population.field_shape(env), first.de_cm, first.e_max_cm, first.p)
+    own = first.library[0]                      # its ladder, to the cold limit
+    live = first._live_charges(own, population.field_shape(env))
+    for z in live:                              # move each file to the key the previous version gave it
+        inp = population._basis_inputs(own, z, population.field_shape(env), first.de_cm, first.e_max_cm, first.p)
         (tmp_path / f"{population._basis_key(inp)}.npz").rename(tmp_path / f"{population._basis_key(inp, legacy=True)}.npz")
     monkeypatch.setattr(population, "_build", lambda inp: pytest.fail("rebuilt a stored basis"))
     mol2 = next(m for m in population.library_m20(_ascii()) if m.name == "C54H18 (37)")
     F2, _ = population.Population([mol2], WINDOWS, cache_dir=tmp_path).band_fluxes(env)
     assert np.array_equal(F1, F2)
-    assert len(list(tmp_path.glob("*.npz"))) == 2 * len(mol.charges)    # new keys linked to the old files
+    assert len(list(tmp_path.glob("*.npz"))) == 2 * len(live)           # new keys linked to the old files
 
 
 def test_large_compact_pahs_stay_intact_in_the_orion_bar():
@@ -818,3 +830,111 @@ def test_chain_kernel_matches_the_numpy_solve():
             slow = population._chain_distribution_numpy(nh0, nh0 // 3, lh, lh2, k_add)
             assert fast.sum() == pytest.approx(1.0) and np.all(fast >= 0)
             assert fast == pytest.approx(slow, abs=1e-12)
+
+
+def _ladder_molecules():
+    """A cation-only molecule and one with its anion (N_C >= 50): both take LADDER_STEP_FIT's +1 -> +2 step."""
+    return [_library()[0], next(m for m in _library() if -1 in m.charges and m.nc >= 50)]
+
+
+def test_extend_ladder_reaches_the_cold_limit_with_stand_ins_and_constant_steps():
+    """The ladder runs to floor(0.2 N_C) (``impact.coulomb_limit``). The states above the highest computed charge take
+    its modes, the computed thresholds stay, and the new ones rise by the last computed step (LADDER_STEP_FIT's for a
+    molecule with no computed dication)."""
+    from dataclasses import replace
+
+    from pycalima.pahchem import impact
+
+    a, b = population.LADDER_STEP_FIT
+    for mol in _ladder_molecules():
+        ext = population.extend_ladder(mol)
+        z_top = impact.coulomb_limit(mol.nc)
+        assert ext.charges == tuple(range(min(mol.charges), z_top + 1))
+        assert ext.stand_ins == tuple(range(2, z_top + 1))
+        assert all(ext.species[z] is mol.species[1] for z in ext.stand_ins)
+        assert all(ext.ionisation_ev[z] == v for z, v in mol.ionisation_ev.items())
+        steps = np.diff([ext.ionisation_ev[z] for z in range(0, z_top)])
+        assert np.allclose(steps, a + b / np.sqrt(mol.nc))
+        assert population.top_threshold(ext) == pytest.approx(ext.ionisation_ev[z_top - 1] + steps[-1])
+        assert population.extend_ladder(ext) is ext
+    mol = _library()[0]
+    dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: 9.3}, _cache={})
+    ext = population.extend_ladder(dication)
+    assert ext.stand_ins[0] == 3
+    assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(0, max(ext.charges))]), 2.8)
+
+
+def test_cold_limit_ladder_gives_no_basis_to_states_the_field_cannot_reach():
+    """In a field cut at 13.6 eV a state above +1 is live only if every threshold below it is under 13.6 eV (WD01 eq. 22);
+    the others hold f = 0 exactly and get no basis. Among the computed charges the balance is the library ladder's (the
+    same ratio of neighbours); only the states above them are new. The population maps the caller's molecules to its
+    copies."""
+    from pycalima.pahchem import fields
+    from pycalima.pahchem.baseline import Params
+
+    mols = _ladder_molecules()
+    new = population.Population(mols, WINDOWS)
+    old = population.Population(mols, WINDOWS, params=Params(charge_ladder="library"))
+    env = Environment("cloud", 10.0, 50.0, 10.0 * np.sqrt(100.0) / 1e3, 100.0, None)          # psi = 1e3
+    shape = population.field_shape(env)
+    f = new.charge_matrix(env)
+    for s, m in enumerate(new.library):
+        reach = tuple(z for z in m.charges if z < 2 or all(m.ionisation_ev[k] < fields.LYMAN_EV for k in range(1, z)))
+        assert new._live_charges(m, shape) == reach and max(reach) < max(m.charges)
+        dead = [z for z in m.charges if z not in reach]
+        assert np.all(f[s, [z - new.zmin for z in dead]] == 0.0)
+        assert all(new._ckey(shape, z, m) not in m._cache for z in dead)
+    fo = old.charge_matrix(env)
+    assert new.zmin == old.zmin
+    for s, m in enumerate(mols):
+        i = [z - new.zmin for z in m.charges]
+        assert f[s, i[1:]] / f[s, i[:-1]] == pytest.approx(fo[s, i[1:]] / fo[s, i[:-1]], rel=1e-12)
+    assert new.basis(mols[1], 1, shape) is new.basis(new.library[1], 1, shape)
+    with pytest.raises(ValueError, match="charge_ladder"):
+        population.Population(mols, WINDOWS, params=Params(charge_ladder="x"))
+
+
+def test_highly_charged_states_ionise_only_above_their_threshold_and_conserve_energy():
+    """A state whose threshold lies above Y_UNITY_EV ionises from it on, not below. In an EUV field its non-ionising
+    deposits run above E_DEP on the photon nodes (``deposit_grid``), and its IR power is its non-ionising absorption
+    plus the energy each recombination into it leaves."""
+    from pycalima.pahchem import photo
+
+    pop = population.Population(_ladder_molecules()[1:], WINDOWS)
+    mol = pop.library[0]
+    z = next(z for z in mol.charges[:-1] if mol.ionisation_ev[z] > 25.0)
+    th = mol.ionisation_ev[z]
+    y = population._yield(mol, z)
+    assert np.all(y[population.E_PH < th] == 0.0) and np.all(y[population.E_PH >= th] == 1.0)
+    shape = population.field_shape(Environment("hii", 1e5, 1.0, 1e2, 1e4, 40000, field_e_max_ev=100.0))
+    assert z in pop._live_charges(mol, shape)
+    sigma = photo.sigma_uv(mol.nc, z, population.E_PH, pop.p.uv_cross_section)
+    grid = population.deposit_grid(population._unit_field(shape), sigma, y)
+    assert grid[-1] >= th > population.E_DEP[-1]
+    b = pop.basis(mol, z, shape)
+    assert b.emitted.sum() == pytest.approx(b.absorbed + b.recombination, rel=1e-3)
+
+
+def test_multiphoton_loss_ceiling_rises_until_converged():
+    """For the largest PAHs, multiphoton heating at G0 = 1e6 runs past 45 eV (LOSS_E_MAX_EV): there the clamped jumps
+    exceed LOSS_OVERFLOW_TOL of the loss rate, so the ceiling rises, and the converged k_H equals that at the cap."""
+    from pycalima.pahchem import photo
+    from pycalima.pahchem.baseline import Params
+
+    p = Params()
+    mol = max(_library(), key=lambda m: m.nc)
+    shape = population.field_shape(Environment("pdr", 1e4, 1e4, 1.0, 1000.0, None))
+    inp = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * dos.CM_PER_EV, p)
+    freqs, a_ein, nh, h2_ok = inp["ladder"][0]
+    field1 = population._unit_field(shape)
+    sigma = photo.sigma_uv(mol.nc, 0, population.E_PH, p.uv_cross_section)
+    e_dep = population.deposit_grid(field1, sigma, inp["yield_"])
+    h = population.deposit_spectrum(field1, sigma, inp["yield_"], inp["threshold_ev"], False, None, e_dep)
+    cm, E, counts, beta = population._loss_grid(freqs, a_ein, population.LOSS_E_MAX_EV)
+    k = population._h_loss_rate(freqs, E, counts, np.rint(cm.energy_cm / (E[1] - E[0])).astype(int), nh, p.h_even,
+                                p.h_odd, beta)
+    assert not population._loss_converged(cm.steady_state(e_dep, population.K_H_G0_GRID[-1] * h, {"H": k}))
+    kh, _ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep)
+    kh_cap, _ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep,
+                                        e_max_ev=population.LOSS_E_CAP_EV)
+    assert kh == pytest.approx(kh_cap, rel=0.02)

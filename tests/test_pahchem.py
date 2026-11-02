@@ -562,6 +562,54 @@ def test_mode_emission_rates_kernel_matches_the_numpy_loop(monkeypatch):
         assert np.array_equal(fast, slow)
 
 
+def test_tilted_counts_give_the_untilted_densities_and_rates(monkeypatch):
+    """A tilt beta (``dos.beyer_swinehart``) returns c(E) exp(-beta E) by the same recursion. The log density, the mode
+    and recurrent-fluorescence rates (numba kernel and NumPy loop), RRKM and the inverse-Laplace rates from the tilted
+    counts equal those of the plain counts: the tilt cancels."""
+    f = _random_modes(40, seed=5)
+    a_ein = np.linspace(1.0, 10.0, f.size)
+    E, c = dos.beyer_swinehart(f, 10.0 * EV)
+    beta = 1.5e-3
+    _, ct = dos.beyer_swinehart(f, 10.0 * EV, beta=beta)
+    nz = c > 0
+    assert np.array_equal(ct > 0, nz)
+    assert np.allclose(ct[nz] * np.exp(beta * E[nz]), c[nz], rtol=1e-11, atol=0)
+    l0, l1 = dos.smoothed_log_density(E, c, 100.0), dos.smoothed_log_density(E, ct, 100.0, beta=beta)
+    fin = np.isfinite(l0)
+    assert np.array_equal(fin, np.isfinite(l1)) and np.allclose(l1[fin], l0[fin], rtol=0, atol=1e-10)
+    at = np.linspace(0.2, 9.5, 40) * EV
+    k0 = cooling.mode_emission_rates(E, c, f, a_ein, at_cm=at)
+    assert np.allclose(cooling.mode_emission_rates(E, ct, f, a_ein, at_cm=at, beta=beta), k0, rtol=1e-10, atol=0)
+    monkeypatch.setattr(cooling, "HAVE_NUMBA", False)
+    assert np.allclose(cooling.mode_emission_rates(E, ct, f, a_ein, at_cm=at, beta=beta), k0, rtol=1e-10, atol=0)
+    monkeypatch.undo()
+    rf = cooling.recurrent_fluorescence_rates(E, c, [8000.0], [0.07], at_cm=at)
+    assert np.allclose(cooling.recurrent_fluorescence_rates(E, ct, [8000.0], [0.07], at_cm=at, beta=beta), rf,
+                       rtol=1e-10, atol=0)
+    ts = 0.98 * f[1:]
+    assert np.allclose(rates.rrkm(E, ct, ts, 3.0 * EV, beta=beta), rates.rrkm(E, c, ts, 3.0 * EV), rtol=1e-9, atol=0)
+    assert np.allclose(rates.inverse_laplace_arrhenius(E, ct, 1e16, 3.0 * EV, beta=beta),
+                       rates.inverse_laplace_arrhenius(E, c, 1e16, 3.0 * EV), rtol=1e-9, atol=0)
+
+
+def test_count_tilt_only_where_the_plain_count_would_overflow():
+    """No tilt where the count fits float64. Where it would overflow (600 PAH-like modes to 40 eV), the tilted count is
+    finite and the emission rates it gives below 10 eV equal the plain count's on a 10 eV grid."""
+    assert dos.count_tilt(_random_modes(40), 10.0 * EV) == 0.0
+    f = _random_modes(600, seed=2)
+    a_ein = np.linspace(1.0, 10.0, f.size)
+    with pytest.raises(OverflowError):
+        dos.beyer_swinehart(f, 40.0 * EV, 2.0)
+    beta = dos.count_tilt(f, 40.0 * EV, 2.0)
+    assert beta > 0.0
+    E, ct = dos.beyer_swinehart(f, 40.0 * EV, 2.0, beta=beta)
+    assert np.isfinite(ct).all() and ct[-1] > 0.0
+    E10, c10 = dos.beyer_swinehart(f, 10.0 * EV, 2.0)
+    at = np.linspace(1.0, 9.5, 30) * EV
+    assert np.allclose(cooling.mode_emission_rates(E, ct, f, a_ein, at_cm=at, beta=beta),
+                       cooling.mode_emission_rates(E10, c10, f, a_ein, at_cm=at), rtol=1e-9, atol=0)
+
+
 @pytest.fixture(scope="module")
 def toy_cascade():
     """60 PAH-like modes, A_i = 1-10 s^-1, and one channel with E0 = 3 eV."""

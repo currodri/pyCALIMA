@@ -82,6 +82,10 @@ class Params:
     # population.wd01_capture_ratio). docs/physics/pahchem-gas-coupling.md section 2.2b
     capture_model: str = "lab_cold"
     capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
+    # charge ladder (population only): "cold_limit" (the default since 2026-11-02: up to floor(0.2 N_C),
+    # impact.coulomb_limit; states above the highest computed charge are stand-ins, population.extend_ladder) or
+    # "library" (the charges the library computed, its top state holding the higher charges; before)
+    charge_ladder: str = "cold_limit"
     capture_t_power: float = 0.0             # cation capture x (T/300 K)^-capture_t_power: 0.25 steepens BT94's ~T^-1/2 to the T^-0.75 of small aromatics in storage rings (Hamberg+11)
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold

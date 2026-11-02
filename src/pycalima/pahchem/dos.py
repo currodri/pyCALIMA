@@ -41,8 +41,17 @@ try:                          # the optional `accel` extra
         for f in steps:
             for i in range(f, n):
                 counts[i] += counts[i - f]
+
+    @njit(cache=True)
+    def _bs_kernel_tilted(counts, steps, factors):
+        """``_bs_kernel`` on tilted counts: c[i] += c[i - f] q^f (``beyer_swinehart`` with ``beta``)."""
+        n = counts.size
+        for k in range(steps.size):
+            f, q = steps[k], factors[k]
+            for i in range(f, n):
+                counts[i] += counts[i - f] * q
 except ImportError:
-    _bs_kernel = None
+    _bs_kernel = _bs_kernel_tilted = None
 
 
 def _frequencies(freqs_cm):
@@ -52,7 +61,7 @@ def _frequencies(freqs_cm):
     return freqs
 
 
-def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0):
+def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0, beta=0.0):
     """Exact harmonic state count on a grid.
 
     Parameters
@@ -64,6 +73,14 @@ def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0):
         Highest energy of the grid [cm^-1].
     grain_cm : float
         Grid spacing [cm^-1].
+    beta : float
+        Tilt [per cm^-1]: the counts returned are c(E) exp(-beta E), for grids
+        on which c(E) itself overflows float64 (large PAHs, high E;
+        ``count_tilt``). The recursion stays exact (c[i] += c[i - f] q^f,
+        q = exp(-beta grain)); every consumer takes the same ``beta``
+        (``smoothed_log_density``, ``tilted_window_sum``,
+        ``cooling.mode_emission_rates``, ``rates.rrkm``), and in their ratios the
+        tilt cancels. 0 (the default) is the plain count.
 
     Returns
     -------
@@ -74,26 +91,66 @@ def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0):
         rounded to the grid (so a state's energy is the sum of its rounded
         quanta, not its rounded energy). The density
         of states is ``counts / grain_cm`` and the sum of states is
-        ``np.cumsum(counts)``.
+        ``np.cumsum(counts)`` (with ``beta = 0``).
     """
     freqs = _frequencies(freqs_cm)
     n = int(np.floor(e_max_cm / grain_cm)) + 1
     counts = np.zeros(n)
     counts[0] = 1.0
     steps = np.maximum(np.rint(freqs / grain_cm).astype(np.int64), 1)
-    if _bs_kernel is not None:
+    factors = np.exp(-beta * grain_cm * steps) if beta else None
+    if beta and _bs_kernel_tilted is not None:
+        _bs_kernel_tilted(counts, steps, factors)
+    elif _bs_kernel is not None and not beta:
         _bs_kernel(counts, steps)
     else:
-        for f in steps:
+        for k, f in enumerate(steps):
             # Sequential recursion c[i] += c[i - f]; every source index in a
             # block of length f lies in the block before, already updated, so
             # each block can be added as one slice.
             for start in range(f, n, f):
                 stop = min(start + f, n)
-                counts[start:stop] += counts[start - f:stop - f]
+                if beta:
+                    counts[start:stop] += counts[start - f:stop - f] * factors[k]
+                else:
+                    counts[start:stop] += counts[start - f:stop - f]
     if not np.all(np.isfinite(counts)):
-        raise OverflowError("state count overflowed float64; lower e_max_cm")
+        raise OverflowError("state count overflowed float64; lower e_max_cm, or tilt it (count_tilt)")
+    if beta and not counts[-1] > 0.0:
+        raise OverflowError("tilted state count underflowed at the top of the grid: beta too large")
     return np.arange(n) * grain_cm, counts
+
+
+#: the highest ln(count) ``count_tilt`` lets an untilted count reach (float64 overflows at ln 709.8)
+LOG_COUNT_MAX = 600.0
+
+
+def count_tilt(freqs_cm, e_max_cm, grain_cm=1.0):
+    """beta [per cm^-1] for ``beyer_swinehart`` on [0, e_max_cm]: 0 where the count stays below exp(LOG_COUNT_MAX),
+    else d ln rho / dE (1 / k T_micro) at the energy where it reaches that, both from ``whitten_rabinovitch``
+    (within ~0.1 in ln rho, enough to place a tilt). ln rho is concave in E, so beyond that energy the tilted count
+    c exp(-beta E) stays below its value there; below it, below the untilted count."""
+    E = np.linspace(0.0, e_max_cm, 2001)[1:]                  # Whitten-Rabinovitch's correction is singular at E = 0
+    _, log_rho = whitten_rabinovitch(freqs_cm, E)
+    log_c = log_rho + np.log(grain_cm)
+    if not log_c[-1] > LOG_COUNT_MAX:                         # ln rho rises with E: the top is its largest value
+        return 0.0
+    i = int(np.argmax(log_c > LOG_COUNT_MAX))
+    beta = float(np.gradient(log_rho, E)[i])
+    if not (np.isfinite(beta) and beta > 0.0):
+        raise ValueError(f"count_tilt: no positive tilt found ({beta}) for e_max_cm {e_max_cm}")
+    return beta
+
+
+def tilted_window_sum(values, half, beta_grain=0.0):
+    """sum_{|d| <= half} v[i + d] exp(beta_grain d), clipped at the grid's ends: the window sum of the untilted
+    values, times exp(-beta E_i), from tilted ``values`` (``beyer_swinehart``); a plain window sum for 0."""
+    if not beta_grain:
+        total = np.concatenate([[0.0], np.cumsum(values)])
+        i = np.arange(values.size)
+        return total[np.clip(i + half + 1, 0, values.size)] - total[np.clip(i - half, 0, values.size)]
+    kernel = np.exp(-beta_grain * (np.arange(2 * half + 1) - half))
+    return np.convolve(values, kernel, mode="same")
 
 
 def direct_count(freqs_cm, e_max_cm, grain_cm=1.0):
@@ -155,18 +212,22 @@ def whitten_rabinovitch(freqs_cm, energy_cm):
     return log_sum, log_density
 
 
-def smoothed_log_density(energy_cm, counts, window_cm):
+def smoothed_log_density(energy_cm, counts, window_cm, beta=0.0):
     """ln rho(E) [per cm^-1] averaged over +-window_cm/2, from a grid count.
 
     A grid count is spiky at low energy, where states are sparse; the
     average over a window is what statistical rates and temperatures use.
+    ``beta``: the counts' tilt (``beyer_swinehart``); the result is the untilted ln rho.
     """
-    total = np.concatenate([[0.0], np.cumsum(counts)])
     grain = energy_cm[1] - energy_cm[0]
     half = max(int(round(0.5 * window_cm / grain)), 1)
     i = np.arange(energy_cm.size)
     lo = np.clip(i - half, 0, energy_cm.size)
     hi = np.clip(i + half + 1, 0, energy_cm.size)
+    if beta:
+        with np.errstate(divide="ignore"):
+            return np.log(tilted_window_sum(counts, half, beta * grain) / ((hi - lo) * grain)) + beta * energy_cm
+    total = np.concatenate([[0.0], np.cumsum(counts)])
     with np.errstate(divide="ignore"):
         return np.log((total[hi] - total[lo]) / ((hi - lo) * grain))
 

@@ -153,14 +153,16 @@ class CascadeModel:
         self.de_cm = float(de_cm)
         self.n = int(np.floor(e_max_cm / de_cm)) + 1
         self.energy_cm = np.arange(self.n) * self.de_cm
-        E, counts = dos.beyer_swinehart(vib, self.energy_cm[-1] + window_cm, grain_cm)
+        # tilted counts where the plain ones would overflow (large PAHs, high E; ``dos.count_tilt``): same rates
+        beta = dos.count_tilt(vib, self.energy_cm[-1] + window_cm, grain_cm)
+        E, counts = dos.beyer_swinehart(vib, self.energy_cm[-1] + window_cm, grain_cm, beta=beta)
         self.k_modes = cooling.mode_emission_rates(E, counts, vib, einstein_a,
-                                                   window_cm=window_cm, at_cm=self.energy_cm)
+                                                   window_cm=window_cm, at_cm=self.energy_cm, beta=beta)
         self.electronic = tuple((float(e), float(f)) for e, f in electronic)
         if self.electronic:
             e_n, f_n = np.array(self.electronic).T
             k_rf = cooling.recurrent_fluorescence_rates(E, counts, e_n, f_n, window_cm=window_cm,
-                                                        at_cm=self.energy_cm)
+                                                        at_cm=self.energy_cm, beta=beta)
             self.k_modes = np.vstack([self.k_modes, k_rf])
             vib = np.concatenate([vib, e_n])
         self.freqs_cm = vib
