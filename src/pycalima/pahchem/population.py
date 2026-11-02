@@ -533,7 +533,7 @@ def capture_coefficient(mol, z, temperature_k, params=Params()):
     """Electron capture coefficient of charge z [cm^3 s^-1]: BT94/DS87 (``chemistry.electron_capture``), with the
     statistical sticking on the neutral (``attachment_sticking``) and the cation factor of ``Params.capture_model``."""
     st = attachment_sticking(mol, temperature_k, params) if z == 0 else 1.0
-    return chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) * _capture_factor(mol, z, params)
+    return chemistry.electron_capture(mol.nc, z, temperature_k, sticking=st) * _capture_factor(mol, z, params, temperature_k)
 
 
 def capture_energy(mol, z, temperature_k):
@@ -599,7 +599,7 @@ def charge_fractions(mol, env, params=Params()):
             up += anion_associative_detachment(params) * env.n_h
         up += ion_up_rate(mol, z, env, params)
         s = attachment_sticking(mol, T, params) if z + 1 == 0 else 1.0
-        down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * _capture_factor(mol, z + 1, params) * env.n_e
+        down = chemistry.electron_capture(mol.nc, z + 1, T, sticking=s) * _capture_factor(mol, z + 1, params, T) * env.n_e
         f[z + 1] = f[z] * up / down
     total = sum(f.values())
     return {z: v / total for z, v in f.items()}
@@ -705,20 +705,44 @@ _einstein_a = scaled_einstein_a
 CAPTURE_MAX = 1.0 / 0.82
 
 
-def _capture_factor(mol, z, params):
-    """Factor on BT94 capture by charge z: the lab trend for cations and dications (``Params.capture_model``).
+#: ``Params.capture_model``: "bt94" (sticking 1), "lab_trend" (``chemistry.lab_recombination_factor``, a power law over all nine
+#: lab points), "lab_cold" and "lab_pahs" (``chemistry.lab_sticking``, saturating at 1, fitted to the photo-ion or to every PAH
+#: point), "wd01" (WD01's capture by a graphite sphere of the same carbon count over BT94's, for comparison only)
+CAPTURE_MODELS = ("bt94", "lab_trend", "lab_cold", "lab_pahs", "wd01")
+
+
+def wd01_capture_ratio(nc, z, temperature_k):
+    """WD01's electron capture by a graphite sphere of radius 10 A (N_C/468)^(1/3) with WD01's sticking, over BT94's
+    (``chemistry.electron_capture``, sticking 1) at charge z: the "wd01" capture model, a comparison, not physics of a PAH."""
+    from pycalima.models.dust_charge import shared_physics as sp
+
+    a = 1e-7 * (nc / 468.0) ** (1.0 / 3.0)
+    k = sp.collisional_rates_electrons_vector(np.array([a]), np.array([float(z), float(z) + 1.0]), 1.0, float(temperature_k),
+                                              sp.electron_sticking_coefficient_graphite)[0]
+    return float(k) / chemistry.electron_capture(nc, z, temperature_k)
+
+
+def _capture_factor(mol, z, params, temperature_k=300.0):
+    """Factor on BT94 capture by charge z: the cation sticking of ``Params.capture_model`` and ``capture_t_power`` (cations and
+    dications only).
 
     The lab trend is capped at ``CAPTURE_MAX`` (and at ``capture_cap`` if
     lower). A ``capture_scale`` that alone exceeds the classical limit raises.
     """
     if params.capture_scale > CAPTURE_MAX * (1 + 1e-12):
         raise ValueError(f"capture_scale {params.capture_scale} exceeds the classical limit {CAPTURE_MAX:.3f}")
+    if params.capture_model not in CAPTURE_MODELS:
+        raise ValueError(f"capture_model must be one of {CAPTURE_MODELS}, not {params.capture_model!r}")
     f = params.capture_scale
     if z >= 1 and params.capture_model == "lab_trend":
         cap = CAPTURE_MAX if params.capture_cap is None else min(params.capture_cap, CAPTURE_MAX)
         f *= float(chemistry.lab_recombination_factor(mol.nc, cap))
-    elif params.capture_model not in ("bt94", "lab_trend"):
-        raise ValueError(f"capture_model must be 'bt94' or 'lab_trend', not {params.capture_model!r}")
+    elif z >= 1 and params.capture_model in ("lab_cold", "lab_pahs"):
+        f *= float(chemistry.lab_sticking(mol.nc, params.capture_model.split("_")[1]))
+    elif z >= 1 and params.capture_model == "wd01":
+        f *= wd01_capture_ratio(mol.nc, z, temperature_k)
+    if z >= 1 and params.capture_t_power:
+        f *= (float(temperature_k) / 300.0) ** (-params.capture_t_power)
     return min(f, CAPTURE_MAX)
 
 

@@ -76,8 +76,9 @@ class Params:
     # charge
     capture_scale: float = 1.0
     detachment: str = "valence"              # anion photodetachment: "valence" (statistical + valence photodetachment; default since 2026-10-25, the only one passing V2 and V14), "statistical" (population: WD01 prompt + detailed-balance delayed), "jochims" (Jochims at the EA, every electron taking E - EA; the default before) or "unity" above it
-    capture_model: str = "bt94"              # cation capture: BT94, or "lab_trend" (chemistry.lab_recombination_factor)
+    capture_model: str = "bt94"              # cation capture: BT94, "lab_trend" (chemistry.lab_recombination_factor), "lab_cold" / "lab_pahs" (chemistry.lab_sticking), or "wd01" (comparison: population.wd01_capture_ratio)
     capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
+    capture_t_power: float = 0.0             # cation capture x (T/300 K)^-capture_t_power: 0.25 steepens BT94's ~T^-1/2 to the T^-0.75 of small aromatics in storage rings (Hamberg+11)
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold
     sticking_neutral: float | str = "statistical"   # or a fixed s_e

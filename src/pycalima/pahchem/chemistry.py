@@ -104,6 +104,48 @@ def lab_recombination_factor(nc, cap=None):
     return np.minimum(f, cap) if cap is not None else f
 
 
+#: subsets of pah_electron_recombination.csv for ``lab_sticking``. "cold": the photo-ion measurements (FlAPI, VENDAMS), whose
+#: ions are near their ground state, as interstellar PAH cations are (IR-cooled long before an electron arrives); the
+#: charge-transfer ions of FALP-MS can be internally hot (Biennier+06). "pahs": every PAH (N_C >= 10). Benzene is in neither:
+#: its recombination is dissociative, the PAHs' is not.
+LAB_STICKING_SUBSETS = ("cold", "pahs")
+_LAB_STICKING = {}
+
+
+def lab_sticking_fit(subset="cold"):
+    """(N_s, b, n) of s(N_C) = 1 - exp[-(N_C/N_s)^b], fitted to k_measured / k_BT94 at 300 K over ``subset`` in log10, each
+    point weighted by its quoted error. s rises as (N_C/N_s)^b where the data are and saturates at sticking 1 (the molecular
+    limit: a captured electron is not re-emitted); the saturation lies beyond the data (N_C <= 16), an extrapolation."""
+    if subset not in LAB_STICKING_SUBSETS:
+        raise ValueError(f"subset must be one of {LAB_STICKING_SUBSETS}, not {subset!r}")
+    if subset not in _LAB_STICKING:
+        import pandas as pd
+        from scipy.optimize import least_squares
+
+        from pycalima._paths import get_external_data_path
+
+        t = pd.read_csv(get_external_data_path("pahchem/pah_electron_recombination.csv"), comment="#")
+        t = t[t.n_c >= 10]
+        if subset == "cold":
+            t = t[t.method != "FALP-MS"]
+        n = t.n_c.to_numpy(float)
+        y = np.log10(t.k_cm3_s.to_numpy() / np.array([electron_capture(x, 1, 300.0) for x in n]))
+        sig = np.log10(1.0 + t.err_frac.to_numpy())
+
+        def resid(p):
+            return (np.log10(-np.expm1(-(n / np.exp(p[0])) ** p[1])) - y) / sig
+
+        fit = least_squares(resid, x0=[np.log(25.0), 2.5], bounds=([np.log(1.0), 0.1], [np.log(1e4), 10.0]))
+        _LAB_STICKING[subset] = (float(np.exp(fit.x[0])), float(fit.x[1]), int(n.size))
+    return _LAB_STICKING[subset]
+
+
+def lab_sticking(nc, subset="cold"):
+    """Electron sticking on PAH cations from ``lab_sticking_fit`` (a factor on BT94, in (0, 1])."""
+    n_s, b, _ = lab_sticking_fit(subset)
+    return -np.expm1(-(np.asarray(nc, dtype=float) / n_s) ** b)
+
+
 def _reduced_mass_g(ion, nc, nh):
     m_x = IONS[ion][0]
     m_pah = 12.011 * nc + 1.008 * nh

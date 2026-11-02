@@ -650,6 +650,47 @@ def test_lab_capture_slows_small_and_speeds_large_cation_recombination():
         assert (f1 > f0) == more_ionised
 
 
+@pytest.mark.parametrize("subset", ("cold", "pahs"))
+def test_lab_sticking_rises_with_size_saturates_at_one_and_follows_its_data(subset):
+    """The saturating fit to the lab recombination data: monotone, in (0, 1], 1 for large PAHs, and within x3 of every point it
+    is fitted to (the systematic scatter of the data: the two naphthalene measurements differ by 3x)."""
+    import pandas as pd
+
+    from pycalima._paths import get_external_data_path
+    from pycalima.pahchem import chemistry
+
+    n = np.arange(6, 400)
+    s = chemistry.lab_sticking(n, subset)
+    assert np.all((s > 0) & (s <= 1)) and np.all(np.diff(s) >= 0) and s[-1] == pytest.approx(1.0)
+    t = pd.read_csv(get_external_data_path("pahchem/pah_electron_recombination.csv"), comment="#")
+    t = t[(t.n_c >= 10) & ((t.method != "FALP-MS") if subset == "cold" else True)]
+    ratio = t.k_cm3_s.to_numpy() / np.array([chemistry.electron_capture(x, 1, 300.0) for x in t.n_c])
+    model = chemistry.lab_sticking(t.n_c.to_numpy(float), subset)
+    assert np.all(np.abs(np.log10(model / ratio)) < np.log10(3.0))
+    with pytest.raises(ValueError):
+        chemistry.lab_sticking(54, "hot")
+
+
+def test_cation_capture_models_and_t_power_touch_cations_only():
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in population.library_m20(_ascii()) if m.nc <= 30)
+    for model in ("lab_cold", "lab_pahs"):
+        p = Params(capture_model=model)
+        assert population._capture_factor(mol, 0, p) == 1.0
+        assert population._capture_factor(mol, 1, p) == pytest.approx(float(chemistry.lab_sticking(mol.nc, model.split("_")[1])))
+    p = Params(capture_t_power=0.25)
+    assert population._capture_factor(mol, 1, p, 300.0) == pytest.approx(1.0)
+    assert population._capture_factor(mol, 1, p, 3000.0) == pytest.approx(10.0 ** -0.25)
+    assert population._capture_factor(mol, 0, p, 3000.0) == 1.0
+    w = Params(capture_model="wd01")
+    assert population._capture_factor(mol, 0, w, 1000.0) == 1.0
+    assert all(0.05 < population._capture_factor(m, 1, w, 1000.0) < 0.5 for m in (mol,))       # WD01's sticking ~0.1-0.3
+    with pytest.raises(ValueError, match="capture_model"):
+        population._capture_factor(mol, 1, Params(capture_model="hot"))
+
+
 def test_capture_cannot_exceed_the_classical_limit():
     from pycalima.pahchem.baseline import Params
 
