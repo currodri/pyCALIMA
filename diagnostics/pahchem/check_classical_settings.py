@@ -7,6 +7,11 @@ read from its stored result (``results/pahchem_wd01b_alpha_valence.json``); the 
 same group tables, bins and conditions (psi = G sqrt(T) / n_e, G = 1 Habing, n_H = 1). Output: for each variant, the geometric-mean ratio
 pahchem / WD01(PAH) of alpha(H+), alpha(C+), Gamma_PE and Lambda_rec in three psi ranges at each T, and the mean charge difference.
 
+Result (2026-11-01, the library UV default; results/pahchem/classical_settings_2026-11-01/report.txt): at psi <= 1e3 the default
+gives alpha(H+) 1.29 / 0.94, Gamma_PE 1.49 / 1.26, Lambda_rec 2.40 / 1.88 at 1000 / 6000 K, within ~3 % of the Malloci default (C);
+eta = 0.46 (D) gives 1.00 / 0.83, 1.24 / 1.11, 1.81 / 1.57 and stays the best classical-comparison setting. At psi >= 1e5 Gamma_PE is
+3.7-8x WD01's whatever eta or f.
+
     check_classical_settings.py [--workers 2] [--only A D ...] [--report-only]
 """
 import argparse
@@ -27,9 +32,9 @@ from pycalima.pahchem.baseline import Params
 
 #: variant -> (Params keywords, IP shifts of the library [eV])
 VARIANTS = {
-    "A default (Malloci, valence, eta = f = 1)": ({}, W.IP_SHIFTS),
+    "A default (library UV, valence, eta = f = 1)": ({}, W.IP_SHIFTS),
     "B Li & Draine UV": ({"uv_cross_section": "li_draine"}, W.IP_SHIFTS),
-    "C Octopus library UV": ({"uv_cross_section": "octopus_library"}, W.IP_SHIFTS),
+    "C Malloci average UV (the default until 2026-10-31)": ({"uv_cross_section": "malloci_average"}, W.IP_SHIFTS),
     "D eta = 0.46 (Tielens' capture limit)": ({"capture_scale": 0.46}, W.IP_SHIFTS),
     "E eta = 0.2": ({"capture_scale": 0.2}, W.IP_SHIFTS),
     "F f = 0.2": ({"attachment_fraction": 0.2}, W.IP_SHIFTS),
@@ -43,7 +48,7 @@ VARIANTS = {
 }
 T_USE = (1000.0, 6000.0)
 RANGES = (("psi <= 1e3", 0.0, 1e3), ("1e3 < psi <= 1e4", 1e3, 1e4), ("psi >= 1e5", 1e5, 1e9))
-OUT = _paths.get_results_dir("pahchem") / "classical_settings_2026-10-29"
+OUT = _paths.get_results_dir("pahchem") / "classical_settings_2026-11-01"      # 2026-10-29: the Malloci-average default
 REF = _paths.get_results_dir() / "pahchem_wd01b_alpha_valence.json"
 
 
