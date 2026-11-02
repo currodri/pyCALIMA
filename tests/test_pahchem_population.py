@@ -938,3 +938,18 @@ def test_multiphoton_loss_ceiling_rises_until_converged():
     kh_cap, _ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep,
                                         e_max_ev=population.LOSS_E_CAP_EV)
     assert kh == pytest.approx(kh_cap, rel=0.02)
+
+
+def test_anion_valence_threshold_is_one_coulomb_step_down_the_ladder():
+    """2 IP(0) - IP(+1) with the molecule's own IP(+1); without one, LADDER_STEP_FIT's step (the one extend_ladder
+    gives it), so the library and cold-limit ladders agree; never below the EA."""
+    from dataclasses import replace
+
+    mol = next(m for m in _library() if -1 in m.charges and m.nc >= 50 and 1 not in m.ionisation_ev)
+    a, b = population.LADDER_STEP_FIT
+    th = mol.ionisation_ev
+    assert population.anion_valence_threshold(mol) == pytest.approx(max(th[0] - (a + b / np.sqrt(mol.nc)), th[-1]))
+    assert population.anion_valence_threshold(population.extend_ladder(mol)) == pytest.approx(
+        population.anion_valence_threshold(mol))
+    computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + 2.0}, _cache={})
+    assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - 2.0, th[-1]))

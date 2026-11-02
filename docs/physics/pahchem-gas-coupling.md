@@ -508,6 +508,9 @@ the converged multiphoton H loss (§2.2c), which change nothing below ψ ≈ 10�
     electron, which leaves the neutral excited: WD01's valence-band photoemission of a negative grain, with
     pahchem's yield above `population.anion_valence_threshold` (the molecule's own ladder one Coulomb step down,
     2 IP(0) − IP(+1): 3.55, 3.75, 3.88 eV for C₂₄H₁₂, C₅₄H₁₈, C₉₆H₂₄) and the photoelectron share of the excess.
+    A molecule with no computed IP(+1) takes the fitted DFT step of §2.2c since 2026-11-02, WD01's e²/a(1 + 0.3 Å/a)
+    before, which is 0.78× the DFT steps. That is 5 molecules of v4.00 (all 38 anions of v3.20): their valence
+    threshold drops ~0.5 eV, f(−1) by 2–4 % and ε rises 6–11 % at γ = 300–1000 (C73–C92); the C34s barely move.
     - It is the only option that passes the charge tests for both molecules: V14 f(−1) 0.155 / 0.034 against
       0.13 / 0.015 for C₉₆H₂₄, and V2 α(C⁺) 0.72× W08.
     - Its ε matches Tielens' diffuse example (0.045 and 0.052 against ~0.05), and is 0.10–0.12 at γ = 10², 2–3× BT94.

@@ -461,15 +461,15 @@ def electron_energy(mol, z, params=Params(), partition=photo.PHOTOELECTRON_PARTI
 def anion_valence_threshold(mol):
     """Threshold [eV] for removing a valence electron (not the extra one) from the anion, which leaves the neutral
     excited: the molecule's own ladder one Coulomb step down, 2 IP(0) - IP(+1), as WD01 eq. 2 steps IP_V(Z) with
-    the charge (the DFT ladder's steps are 1.28x WD01's e^2/a (1 + 0.3 A/a) at the disc radius). At least the EA.
-    C24H12 3.55, C54H18 3.75, C96H24 3.88 eV with the calibrated shifts. Only a computed IP(+1) counts, not one
-    ``extend_ladder`` continued (it would swap WD01's step for LADDER_STEP_FIT's)."""
+    the charge. Without an IP(+1) (no computed dication, the "library" ladder) the step is LADDER_STEP_FIT's, the one
+    ``extend_ladder`` gives such a molecule, so both ladders agree. At least the EA. C24H12 3.55, C54H18 3.75, C96H24
+    3.88 eV with the calibrated shifts. Until 2026-11-02 the step without an IP(+1) was WD01's e^2/a (1 + 0.3 A/a) at
+    the disc radius, which is 0.78x (0.73-0.85x) the DFT steps: the threshold was ~0.5 eV higher."""
     th = mol.ionisation_ev
-    if 1 in th and (mol.stand_in_from is None or mol.stand_in_from >= 2):
+    if 1 in th:
         ipv = 2.0 * th[0] - th[1]
     else:
-        a = chemistry.disc_radius_cm(mol.nc) * 1e8                                    # A
-        ipv = th[0] - 14.39964 / a * (1.0 + 0.3 / a)
+        ipv = th[0] - (LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc))
     return max(float(ipv), float(th[-1]))
 
 
