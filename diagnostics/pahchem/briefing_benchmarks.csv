@@ -133,8 +133,8 @@ cr_gate_G2,CR,impact sigma_ion / BEB(HF),"after audit fixes C5, C4: model/BEB 0.
 cr_convolution,CR,multi-collision Poisson/convolution,conserves crossings and collisions (tested),PASS,-,-
 cr_gate_G4,CR,micelotta2011 runner vs Micelotta+11 Sect.7.1 and Tab.2,"crossover N_C 152 vs ~150 (f=0.5), 319 vs ~280 (f=1); Tab.2 electron lifetimes to 4 % only without the 0.5 orientation factor of eq.31",PASS,eq.31 factor recorded as card discrepancy,-
 cr_lifetimes_vs_micelotta11,CR,"lifetimes with their spectra, f=1","20 Myr (C54), 40 Myr (C96)",PARTIAL,no verdict stated,-
-cr_vs_chabot2020,CR,Coulomb-explosion lifetime C54H18 vs Chabot+20,"explosions alone 5e8 yr (L, N(H2)=1e22) vs 'billions of years'",PARTIAL,total shorter from statistical C loss of sub-explosion deposits,-
-cr_chabot_threshold_c24,CR,Chabot criterion vs lab coronene dications,criterion explodes C24H12 dications; lab ones stable,OPEN,C60-scaled threshold 4 N_C/60,laboratory anchor for threshold
+cr_vs_chabot2020,CR,Coulomb-explosion lifetime C54H18 vs Chabot+20,"explosions alone 5.3e8 yr with their Q/N_C = 4/60 at any E*, 1.2e9 yr with the cold and hot limits (L, N(H2)=1e22), vs 'a few billion years' (2026-11-01)",PARTIAL,total shorter from statistical C loss of sub-explosion deposits,-
+cr_chabot_threshold_c24,CR,Coulomb limit vs lab coronene dications,"cold C24H12 2+ (to 4+) survive, hot ones (E* >= 24 eV) explode; 4/60 is Chabot+20's hot-ion boundary (their Fig. 7), cold limit floor(0.2 N_C) from Holm+11, Lawicki+11, Lee+22, Zhen+15, C60 (2026-11-01)",PASS,charge-only 4/60 misread as a cold limit (fixed),"lab limits above C60"
 cr_emission_old,CR,earlier CR/UV 3.3/11.2 (emission stopped at first dissociation),x1.3-1.4 (now x1.65-1.78),WITHDRAWN,dropped hot tail above 40 eV,-
 gc_v1_w08_table2,GC,Wolfire+08 Table 2 rates from DS87 (N_C = 35),DS87 sphere within 2.6 % of every rate; pahchem's 0.82 disc 0.79-0.82x,PASS,-,-
 gc_v2_w08_cplus,GC,C+ neutralisation on PAHs vs W08 three-state balance (Phi = 0.4),0.84x at the W08 CNM (valence; Jochims 1.16x); 0.84-1.15x over n = 3-300 (2026-10-26),PASS,untuned; inside W08's Phi 0.4-0.6 range,-

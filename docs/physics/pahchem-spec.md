@@ -2772,13 +2772,35 @@ molecules keep the parent's modes, so the H loss is an upper limit at very
 high E*.
 
 **Destruction.** A molecule is destroyed when any of these happens:
-- its charge reaches 4 N$_C$/60 (Chabot+20, scaled from C$_{60}$);
+- its charge exceeds the cold limit ⌊0.2 N$_C$⌋ (`impact.coulomb_limit`), at
+  any E*;
+- its E* exceeds the multifragmentation energy at its final charge
+  (`impact.multifragmentation_energy`);
 - its E* leaves the grid (512 eV);
 - its expected carbon loss reaches N$_C$/3, Micelotta's criterion. Gradual
   carbon loss counts towards that third.
 
-The Chabot criterion makes C$_{24}$H$_{12}$ dications explode, and lab
-coronene dications are stable. That threshold needs a laboratory anchor.
+**The Coulomb limits (2026-11-01).** The two charge criteria replace the
+charge-only threshold Q/N$_C$ ≥ 4/60 of {cite:t}`Chabot2020`, which made every
+C$_{24}$H$_{12}$ dication explode although cold ones are stable in the lab:
+- **4/60 is a hot-ion boundary.** In Chabot et al.'s Fig. 7 (C$_{60}$, from
+  collision experiments), multifragmentation and fission are equally probable
+  at 105 eV for q = 3 and 60 eV for q = 5. Their CR internal energy (about
+  20 eV per charge) crosses that line near q = 4, hence 4/60. Their limit for a
+  cold molecule is a separate number, 14 for C$_{60}$ ({cite:t}`DiazTendero2005`).
+- **The hot-ion limit** is that line, per carbon (Q/N$_C$, E*/N$_C$, their
+  scaling), used only over its range: none below Q/N$_C$ = 3/60, held at
+  1 eV per C above 5/60. For C$_{24}$H$_{12}^{2+}$ that is 24 eV. Read from the
+  figure to ±5 eV; confidence D.
+- **The cold limit** ⌊0.2 N$_C$⌋ gives the DFT thermodynamic limits of
+  {cite:t}`Holm2011` (q ≤ 2 for naphthalene, biphenylene and anthracene, 3 for
+  pyrene, 4 for coronene) and the C$_{60}^{12+}$ seen intact. Metastable ions
+  reach one more: PAH$^{3+}$ of fluorene, phenanthrene and pyrene at 40.9 eV
+  {cite:p}`Lee2022`, pyrene$^{4+}$ and coronene$^{4+}$ in ion collisions
+  {cite:p}`Lawicki2011`. Ovalene$^{3+}$ and HBC$^{3+}$ are seen intact
+  {cite:p}`Zhen2015`. Above C$_{60}$ it is an extrapolation; confidence C.
+- `destruction_rates(..., coulomb="charge_only")` keeps Chabot et al.'s reading
+  for comparison.
 
 **Gate G4 passes.** {mod}`pycalima.pahchem.micelotta2011`, run from
 `method_cards/micelotta2011.toml`, reproduces both of their testable numbers:
@@ -2793,17 +2815,24 @@ are bracketed by the two C-loss channels:
 
 | | unattenuated, L | unattenuated, H | N(H$_2$) = 10$^{22}$, L | N(H$_2$) = 10$^{22}$, H |
 |---|---|---|---|---|
-| C$_{24}$H$_{12}$ | 3–5 Myr | 0.5–0.6 Myr | 150–220 Myr | 12–16 Myr |
-| C$_{54}$H$_{18}$ | 17–66 Myr | 0.8–1.0 Myr | 300–450 Myr | 25–35 Myr |
-| C$_{96}$H$_{24}$ | 38–195 Myr | 1.4–1.7 Myr | 460–650 Myr | 37–50 Myr |
+| C$_{24}$H$_{12}$ | 7–20 Myr | 1.0–1.3 Myr | 250–510 Myr | 22–40 Myr |
+| C$_{54}$H$_{18}$ | 18–100 Myr | 1.5–2.3 Myr | 420–830 Myr | 36–66 Myr |
+| C$_{96}$H$_{24}$ | 39–245 Myr | 2.2–3.6 Myr | 640–1170 Myr | 52–86 Myr |
+
+These are with the cold and hot Coulomb limits (2026-11-01). Chabot et al.'s
+charge-only threshold gave 3–5, 0.5–0.6, 150–220 and 12–16 Myr for C$_{24}$H$_{12}$,
+17–66, 0.8–1.0, 300–450 and 25–35 Myr for C$_{54}$H$_{18}$, and 38–195, 1.4–1.7,
+460–650 and 37–50 Myr for C$_{96}$H$_{24}$: the lifetimes rise by 1.0–4×,
+most (2–4×) for C$_{24}$H$_{12}$, whose dications no longer all explode.
 
 - **Against Micelotta+11** (their spectra, f = 1): 20 Myr at C$_{54}$ and
   40 Myr at C$_{96}$.
 - **Against {cite:t}`Chabot2020`.** They count Coulomb explosion by heavy CRs
   alone, scaling the C$_{60}$ threshold Q/N$_C$ = 4/60 to every size, and
-  find "billions of years" for C$_{54}$. Here explosions alone give
-  C$_{54}$H$_{18}$ 5×10⁸ yr (L, N(H$_2$) = 10$^{22}$). Most of the shorter
-  total lifetime is the statistical carbon loss of the sub-explosion deposits.
+  find "a few billion years" averaged over their PAHs. With their threshold,
+  explosions alone give C$_{54}$H$_{18}$ 5.3×10⁸ yr (L, N(H$_2$) = 10$^{22}$);
+  with the cold and hot limits 1.2×10⁹ yr. Most of the shorter total lifetime
+  is the statistical carbon loss of the sub-explosion deposits.
 - **Which projectiles matter.** At the cloud edge, primary electrons dominate
   for spectrum L. That rests on the extrapolation of the Padovani+18 electron
   spectrum to keV energies, where it is unmeasured. Deeper in, the Fe group
@@ -2867,7 +2896,7 @@ N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the same molecule absorbs
 | Recombination, attachment | DS87 $\tilde J$ capture | $s_e$, EA, product branching | {cite:t}`BakesTielens1994` | B | products after recombination | RRKM on the neutral | 1 |
 | Mutual neutralisation, charge transfer | P_MN DS87 J̃; P_CT Langevin | P_MN, P_CT, IP(X) > IP | Shuman+14, Canosa+95, {cite:t}`Wolfire2008` ({doc}`pahchem-gas-coupling`) | D | no PAH⁻ measurement | {doc}`pahchem-gas-coupling` | 1 |
 | CR collisions: energy transfer | Bethe over df/dW, distant + close | df/dW to 30 keV, IP | Li & Draine + {cite:t}`Henke1993`; NIST STAR (G1) | B | slow electrons (< 100 eV); PAH EII | literature, lab | 2 |
-| CR collisions: fragmentation | sequential RRKM | $E_0$, $\Delta S^\ddagger$ of C loss; Coulomb limit | {cite:t}`West2018`, Micelotta+10b, {cite}`Chabot2020` | D | C loss of benzenoid PAHs; $q_{\rm CE}$ | T2, lab | 2 |
+| CR collisions: fragmentation | sequential RRKM | $E_0$, $\Delta S^\ddagger$ of C loss; Coulomb limits | {cite:t}`West2018`, Micelotta+10b, {cite}`Chabot2020`; cold limit {cite:p}`Holm2011,Lawicki2011,Lee2022,Zhen2015,DiazTendero2005` | D (cold limit C) | C loss of benzenoid PAHs; Coulomb limits above C$_{60}$ | T2, lab | 2 |
 | CR spectra at the PAH | CSDA through N(H$_2$) | L/H, nuclei, secondaries | {cite:t}`Padovani2018`, {cite:t}`PDG2022` | C | secondary e⁻ spectrum | literature | 2 |
 
 ## Literature reviewed, and what it is used for

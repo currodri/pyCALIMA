@@ -690,9 +690,32 @@ class FragmentationChain:
         return np.interp(np.asarray(energy_ev, dtype=float), self.e, self.radiated)
 
 
-#: Coulomb explosion when charge / N_C exceeds 4/60 (Chabot et al. 2020, multifragmentation
-#: of PAHs by heavy CRs); confidence D
+#: The highest charge a cold PAH holds, per carbon: floor(0.2 N_C) gives the thermodynamic limits of Holm+11
+#: (DFT; q = 2, 2, 2, 3, 4 for naphthalene, biphenylene, anthracene, pyrene, coronene) and the C60^12+ seen intact
+#: (14 computed, Diaz-Tendero+05). Metastable ions reach one more at C14-C16 (PAH^3+, Lee+22; pyrene^4+, Lawicki+11),
+#: ovalene^3+ and HBC^3+ are seen intact (Zhen+15). Beyond C60 an extrapolation; confidence C.
+COLD_CHARGE_PER_C = 0.2
+#: Chabot+20 Fig. 7 (C60, after Qian+13 and Martin+08): the internal energy [eV] at which multifragmentation and fission
+#: are equally probable, 105 eV at q = 3 and 60 eV at q = 5 (read from the figure, +-5 eV). Chabot+20 scale it to every
+#: size as Q/N_C and E*/N_C; along their CR internal energy (~20 eV per charge) it crosses at Q/N_C ~ 4/60, the
+#: threshold ``COULOMB_CHARGE_PER_C``, which is therefore a hot-ion boundary, not a cold limit. Confidence D.
+MULTIFRAGMENTATION_C60 = ((3, 105.0), (5, 60.0))
+#: Chabot+20's threshold as they apply it (``coulomb="charge_only"``), kept for comparison
 COULOMB_CHARGE_PER_C = 4.0 / 60.0
+
+
+def coulomb_limit(nc: int) -> int:
+    """The highest charge a cold PAH of ``nc`` carbons survives (``COLD_CHARGE_PER_C``)."""
+    return int(np.floor(COLD_CHARGE_PER_C * nc))
+
+
+def multifragmentation_energy(nc: int, charge) -> np.ndarray:
+    """E* [eV] above which an ion of ``charge`` multifragments (``MULTIFRAGMENTATION_C60`` per carbon); inf below
+    Q/N_C = 3/60, where Chabot+20's figure shows none, and held at its q = 5 value above Q/N_C = 5/60."""
+    (q0, e0), (q1, e1) = MULTIFRAGMENTATION_C60
+    x = np.clip(np.asarray(charge, dtype=float) / nc * 60.0, q0, q1)
+    e = nc * (e0 + (e1 - e0) * (x - q0) / (q1 - q0)) / 60.0
+    return np.where(np.asarray(charge, dtype=float) / nc * 60.0 < q0, np.inf, e)
 
 
 def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float, spectra, yield_,
@@ -726,7 +749,7 @@ def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float,
 
 
 def destruction_rates(spectrum: dict, nc: int, nh: int, charge: int, chain: FragmentationChain,
-                      coulomb_charge_per_c: float = COULOMB_CHARGE_PER_C) -> dict:
+                      coulomb: str = "cold_and_hot") -> dict:
     """Per projectile: the rates [s^-1 per molecule] of what passages do to C_{nc}H_{nh}^Z.
 
     ``spectrum`` is a ``passage_spectrum`` result. The keys are:
@@ -736,21 +759,26 @@ def destruction_rates(spectrum: dict, nc: int, nh: int, charge: int, chain: Frag
     - ``heat``: internal energy deposited [eV s^-1], counting in-grid passages only.
     - ``carbon``, ``hydrogen``: atoms lost per second by statistical fragmentation
       (``chain``), from passages that neither explode nor go beyond the grid.
-    - ``exploded``: passages ending at charge >= ``coulomb_charge_per_c`` x N_C
-      (Chabot+20 by default; this makes C24H12 dications explode, which needs
-      a laboratory anchor).
+    - ``exploded``: passages that end in Coulomb explosion. With ``coulomb="cold_and_hot"`` (default) those are
+      the ones ending above the cold limit ``coulomb_limit(nc)`` whatever their E*, and those whose E* exceeds
+      ``multifragmentation_energy`` at their final charge. ``"charge_only"`` is Chabot+20's reading, charge >=
+      ``COULOMB_CHARGE_PER_C`` x N_C at any E* (it makes cold C24H12 dications explode; lab ones are stable).
     - ``beyond``: passages with E* beyond the grid.
     - ``destroyed``: exploded + beyond + those whose statistical loss reaches
       N_C / 3 (Micelotta+11's criterion).
     """
-    q_ce = int(np.ceil(coulomb_charge_per_c * nc))
-    if charge >= q_ce:
-        raise ValueError(f"charge {charge} is already at the Coulomb-explosion charge {q_ce}")
+    if coulomb not in ("cold_and_hot", "charge_only"):
+        raise ValueError(f"coulomb must be 'cold_and_hot' or 'charge_only', not {coulomb!r}")
+    q_max = coulomb_limit(nc) if coulomb == "cold_and_hot" else int(np.ceil(COULOMB_CHARGE_PER_C * nc)) - 1
+    if charge > q_max:
+        raise ValueError(f"charge {charge} is already above the highest stable charge {q_max}")
     out = {}
     for name, ps in spectrum.items():
         P = ps.P * ps.de
-        dz = np.arange(P.shape[0])[:, None]
-        boom = (charge + dz) >= q_ce
+        q = charge + np.arange(P.shape[0])[:, None]
+        boom = q > q_max
+        if coulomb == "cold_and_hot":
+            boom = boom | (ps.e[None, :] >= multifragmentation_energy(nc, q))
         Cl, Hl = chain.lost(ps.e)
         gone = (Cl >= nc / 3.0)[None, :]
         keep = np.where(boom, 0.0, P)

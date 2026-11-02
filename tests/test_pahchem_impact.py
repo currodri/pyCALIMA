@@ -184,3 +184,40 @@ def test_radiated_energy_is_the_deposit_below_onset_and_bounded_above():
     assert np.all(fc.radiated <= fc.e + 1e-9)
     onset = fc.e[np.argmax(fc.p_diss > 0.5)]
     assert fc.residual(110.0) < 1.5 * onset
+
+
+# ---- Coulomb explosion: a cold limit at any E*, a hot-ion limit in E* ---------------------------------------------------
+
+def test_cold_coulomb_limit_gives_the_dft_and_laboratory_anchors():
+    """floor(0.2 N_C): Holm+11's thermodynamic limits (naphthalene, biphenylene, anthracene, pyrene, coronene) and the
+    C60^12+ seen intact."""
+    assert [im.coulomb_limit(n) for n in (10, 12, 14, 16, 24, 60)] == [2, 2, 2, 3, 4, 12]
+
+
+def test_multifragmentation_energy_is_chabot_fig7_and_falls_with_charge():
+    assert np.isinf(im.multifragmentation_energy(60, 2)) and np.isinf(im.multifragmentation_energy(54, 2))
+    assert im.multifragmentation_energy(60, 3) == pytest.approx(105.0) and im.multifragmentation_energy(60, 5) == pytest.approx(60.0)
+    e = im.multifragmentation_energy(96, np.arange(5, 15))
+    assert np.all(np.diff(e) <= 0.0) and e[-1] == pytest.approx(96.0)          # held at 1 eV per C above Q/N_C = 5/60
+
+
+def _one_bin_spectrum(dz, e_star):
+    """A single passage outcome: charge change dz, internal energy e_star [eV]."""
+    e = np.arange(0.5, 200.0, 1.0)
+    P = np.zeros((dz + 2, e.size))
+    P[dz, int(np.argmin(abs(e - e_star)))] = 1.0
+    return {"x": im.Passages(e, 1.0, P, 0.0, 1.0, 1.0)}
+
+
+def test_a_cold_coronene_dication_survives_and_a_hot_one_explodes():
+    """Chabot+20's charge-only threshold (4/60 x 24 = 1.6) explodes every C24H12 dication; the cold limit keeps the
+    cold ones (stable in the lab), and their Fig. 7 line still explodes those left with >= 24 eV (1 eV per C)."""
+    from types import SimpleNamespace
+    chain = SimpleNamespace(lost=lambda e: (np.zeros_like(e), np.zeros_like(e)))
+    cold, hot = _one_bin_spectrum(2, 5.0), _one_bin_spectrum(2, 40.0)
+    rate = lambda s, mode: im.destruction_rates(s, 24, 12, 0, chain, coulomb=mode)["x"]["exploded"]   # noqa: E731
+    assert rate(cold, "charge_only") == 1.0 and rate(hot, "charge_only") == 1.0
+    assert rate(cold, "cold_and_hot") == 0.0 and rate(hot, "cold_and_hot") == 1.0
+    assert rate(_one_bin_spectrum(5, 5.0), "cold_and_hot") == 1.0                   # above floor(0.2 x 24) = 4 at any E*
+    with pytest.raises(ValueError):
+        im.destruction_rates(cold, 24, 12, 0, chain, coulomb="x")

@@ -300,11 +300,14 @@ An earlier draft put H addition first.
   Two inputs are still missing:
   - **Double photoionisation yields** of PAHs at 20–100 eV (the 2+/1+ ratio),
     which set the multiple-ionisation branching of distant collisions.
-  - **A laboratory Coulomb-explosion threshold for compact PAHs.** The
-    C$_{60}$-scaled Q/N$_C$ = 4/60 of Chabot et al. (2020) makes coronene
-    dications explode, and they are stable. Storage-ring (DESIREE) or
-    swift-ion data on C$_{24}$H$_{12}^{q+}$ and C$_{54}$H$_{18}^{q+}$ would
-    fix it.
+  - **A laboratory Coulomb-explosion threshold for compact PAHs above C$_{42}$.**
+    Answered up to C$_{42}$ (2026-11-01): the Q/N$_C$ = 4/60 of Chabot et al.
+    (2020) is their boundary for hot ions, not a cold limit, and `impact.py`
+    now uses ⌊0.2 N$_C$⌋ (DFT limits of {cite:t}`Holm2011`, intact pyrene$^{4+}$
+    and coronene$^{4+}$, PAH$^{3+}$ up to HBC, C$_{60}^{12+}$) at any E*, with their Fig. 7 line
+    for hot ions. Storage-ring (DESIREE) or swift-ion data on
+    C$_{54}$H$_{18}^{q+}$ and larger would replace the extrapolation above
+    C$_{60}$.
   - **For T3:** σ(E) up to ~100 eV for the coronene family. The distant
     collisions use df/dW to 30 keV; above 40 eV it is atomic Henke C + H.
 
