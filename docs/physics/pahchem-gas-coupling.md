@@ -140,6 +140,61 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 
       Λ_rec = Σ_m x_m Σ_Z f_m(Z) n_e k_e(m, Z) ⟨E⟩
 
+### 2.2b The two sticking factors, constrained (2026-11-01/02)
+
+**Against WD01, one ingredient at a time** (`check_wd01_ingredients.py`; per grain, C24–C150, T = 100 and 1000 K,
+ψ = 10²–10⁵). Both models on one charge chain, validated against each code (≤ 4×10⁻¹⁶ and ≤ 8×10⁻⁴), nine rate blocks
+swapped cumulatively:
+- ψ ≥ 10⁴: the cation sticking (s = 1 here, WD01's 0.5(1 − e^(−a/10 Å)) ≈ 0.16–0.25) is the largest term in every case:
+  ⟨Z⟩ +0.39 to +0.65, α(H⁺) −0.23 to −1.04 dex. The charge ladder beyond +2 matters only at ψ = 10⁵ for N_C ≥ 96.
+- ψ ≤ 10³: the neutral attachment (statistical sticking ≈ 1 here, WD01's ≈ 0.2) is the largest term for N_C ≥ 54.
+- The photon physics (absorption, thresholds, yields) moves ⟨Z⟩ by ≤ 0.1 for N_C ≥ 54. The two models differ almost
+  only in the sticking, on cations and on neutrals.
+- WD01's sticking is a grain-physics estimate: it matches the cation data at C10–C16 (0.14–0.15 against the lab's
+  0.11–0.18 of BT94) but stays flat with size; its neutral fit was calibrated on N_C ≤ 20 and on C60/C70 values that
+  Viggiano+10 superseded (in WD01's normalisation C60 sticks at 0.97 at 400 K, against its fit's 0.20).
+
+**Cation sticking: lab fits** (`chemistry.lab_sticking`, `capture_model="lab_cold"` / `"lab_pahs"`). s(N_C) = 1 −
+exp[−(N_C/N_s)^b] to the photo-ion points (FlAPI, VENDAMS) or every PAH point with N_C ≥ 10. Benzene is left out (its
+recombination is dissociative); with it, the power law flattens from slope ~2.5–3 to 1 (the older `lab_trend`). N_s =
+23–24, b = 2.6–3.1: s ≈ 0.3 at C16, 0.64–0.68 at C24, 1 from C54 up, an extrapolation beyond C16. The internally hot
+charge-transfer ions change little: s reaches 1 near N_C ≈ 22–27 in every PAH subset.
+
+**Neutral attachment: lab and theory.** f ≈ 0.002–0.004 for anthracene, perylene and coronene (FALP; Carelli+13's
+scattering, upper bounds), f ≈ 0.6–1 for C60 (Viggiano+10). Nothing is measured between C24 and C60
+(`check_carelli13_attachment.py`, and a literature search of 2026-11-01). `attachment_model="size"`:
+f = f_low + (1 − f_low)/(1 + (N_half/N_C)^b) with f_low = 0.003; the anchors need b ≳ 7 and N_half ≈ 45–57 (defaults
+50, 10). An electron-affinity logistic that meets the same anchors (midpoint 2.35–2.6 eV, set by perylene's 0.97 eV and
+C60's 2.68 eV) leaves the library's PAHs of N_C 40–120 (EA 1.2–2.7 eV) at f ≈ 0.01–0.07.
+
+**Against the PDRs4All Orion Bar spectra** (`fit_pdrs4all_spectra.py`, the stated card conditions; best profile per
+template; `results/pahchem/pdrs4all_capture_2026-11-01/`):
+
+| variant | HII / Atomic rms | best γ (HII, Atomic) | DF1 / DF2 / DF3 rms | f⁻ in the DFs |
+|---|---|---|---|---|
+| s = 1, f = 1 | 0.046 / 0.097 | 1.4e4, 1.5e4 (interior) | 0.074 / 0.052 / 0.047 | 0.43–0.49 |
+| `lab_cold`, `lab_pahs` | the same | the same | the same | the same |
+| `lab_trend` (with benzene) | 0.048 / 0.101 | 1.0e4, 1.1e4 | the same | the same |
+| `wd01` cation capture | 0.087 / 0.177 | 9.5e3, 1e4 (low edge) | 0.073 / 0.052 / 0.046 | 0.42–0.47 |
+| f = 0.3 / 0.1 | — | — | 0.095–0.123 / 0.067–0.088 / 0.064–0.080 | 0.07–0.28 |
+| f ≤ 0.03 | 0.047 / 0.098 | 1.1e4, 1.5e4 | 0.128 / 0.091 / 0.078 (γ at the high edge) | 0 |
+| f size logistic, N_half 50 | — | — | 0.073 / 0.053 / 0.049 | 0.44–0.47 |
+| f size logistic, N_half 80 | — | — | 0.081 / 0.060 / 0.055 | 0.33–0.38 |
+| f EA logistic, midpoint 2.5 eV | — | — | 0.092 / 0.065 / 0.062 | 0.29–0.32 |
+
+- The ionised templates exclude WD01's cation capture (too ionised everywhere in the stated γ, rms ×1.8–1.9) and do not
+  separate s = 1 from the lab fits: the emitting population (⟨N_C⟩ 84–87) has s ≈ 1 in both.
+- The dissociation fronts want efficient attachment on the emitting PAHs (⟨N_C⟩ 76–82). The size logistic that meets
+  the lab anchors fits as well as f = 1; the EA logistic that meets them does not. Every DF fit sits at an edge of the
+  stated γ range, so the card's G0 and n_e bound the test.
+- The f = 0.1 and 0.3 and the logistic rows hold the band shape of the s = 1 run (`--shape-from`), which reproduces the
+  full fit to ≤ 0.003 in rms with the same γ and charge shares.
+- The "anion" signal rests on PAHdb's DFT anion spectra; it may stand in for something else the fit lacks.
+
+**Against Wolfire+08's C⁺ neutralisation** (W08 at Φ_PAH = 0.4, the cold neutral medium, the same PAH carbon per H):
+α(C⁺)/W08 = 0.78 (f = 1), 0.23 (size logistic), 0.20 (f = 0.003) for W08's N_C 32–40, and 0.88, 0.83 and 0.14 for
+N_C 50–100. The size logistic meets W08's sight-line calibration if the PAH carbon is mostly in N_C ≳ 50.
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.
