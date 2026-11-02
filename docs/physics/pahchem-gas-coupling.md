@@ -142,6 +142,10 @@ g πa² with g = 0.82 and a = 0.9 √N_C Å, and v_X = (8kT/πμ_X)^½.
 
 ### 2.2b The two sticking factors, constrained (2026-11-01/02)
 
+Figures: `check_wd01_ingredients.py` (`pahchem_wd01_ingredients_T*.png`) for the decomposition;
+`check_sticking_constraints.py` for the lab fits and anchors (`pahchem_sticking_lab.png`), the PDRs4All rms over the
+card's cells (`pahchem_pdrs4all_sticking.png`) and Wolfire+08 against density (`pahchem_w08_attachment.png`).
+
 **Against WD01, one ingredient at a time** (`check_wd01_ingredients.py`; per grain, C24–C150, T = 100 and 1000 K,
 ψ = 10²–10⁵). Both models on one charge chain, validated against each code (≤ 4×10⁻¹⁶ and ≤ 8×10⁻⁴), nine rate blocks
 swapped cumulatively:
@@ -150,8 +154,8 @@ swapped cumulatively:
 - ψ ≤ 10³: the neutral attachment (statistical sticking ≈ 1 here, WD01's ≈ 0.2) is the largest term for N_C ≥ 54.
 - The photon physics (absorption, thresholds, yields) moves ⟨Z⟩ by ≤ 0.1 for N_C ≥ 54. The two models differ almost
   only in the sticking, on cations and on neutrals.
-- WD01's sticking is a grain-physics estimate: it matches the cation data at C10–C16 (0.14–0.15 against the lab's
-  0.11–0.18 of BT94) but stays flat with size; its neutral fit was calibrated on N_C ≤ 20 and on C60/C70 values that
+- WD01's sticking is a grain-physics estimate: on cations it is 0.14–0.15 of BT94 at C10–C16, inside the C10–C14 data
+  (0.03–0.23) but below pyrene's 0.37, and it stays flat with size (0.19 at C300); its neutral fit was calibrated on N_C ≤ 20 and on C60/C70 values that
   Viggiano+10 superseded (in WD01's normalisation C60 sticks at 0.97 at 400 K, against its fit's 0.20).
 
 **Cation sticking: lab fits** (`chemistry.lab_sticking`, `capture_model="lab_cold"` / `"lab_pahs"`). s(N_C) = 1 −
@@ -160,12 +164,13 @@ recombination is dissociative); with it, the power law flattens from slope ~2.5�
 23–24, b = 2.6–3.1: s ≈ 0.3 at C16, 0.64–0.68 at C24, 1 from C54 up, an extrapolation beyond C16. The internally hot
 charge-transfer ions change little: s reaches 1 near N_C ≈ 22–27 in every PAH subset.
 
-**Neutral attachment: lab and theory.** f ≈ 0.002–0.004 for anthracene, perylene and coronene (FALP; Carelli+13's
-scattering, upper bounds), f ≈ 0.6–1 for C60 (Viggiano+10). Nothing is measured between C24 and C60
-(`check_carelli13_attachment.py`, and a literature search of 2026-11-01). `attachment_model="size"`:
-f = f_low + (1 − f_low)/(1 + (N_half/N_C)^b) with f_low = 0.003; the anchors need b ≳ 7 and N_half ≈ 45–57 (defaults
-50, 10). An electron-affinity logistic that meets the same anchors (midpoint 2.35–2.6 eV, set by perylene's 0.97 eV and
-C60's 2.68 eV) leaves the library's PAHs of N_C 40–120 (EA 1.2–2.7 eV) at f ≈ 0.01–0.07.
+**Neutral attachment: lab and theory.** f ≈ 0.001–0.005 for anthracene, perylene and coronene (the anthracene flow
+tubes at 48–300 K; Carelli+13's scattering at 10–1000 K, upper bounds), f ≈ 0.72 and 0.47 for C60 at 400 and 625 K
+(Viggiano+10, each a factor 3). Nothing is measured between C24 and C60 (`check_carelli13_attachment.py`, and a
+literature search of 2026-11-01). `attachment_model="size"`: f = f_low + (1 − f_low)/(1 + (N_half/N_C)^b) with
+f_low = 0.003; the anchors need b ≳ 7 and N_half ≈ 45–57 (defaults 50, 10). An electron-affinity logistic that meets
+the same anchors (midpoint 2.35–2.6 eV, set by perylene's 0.97 eV and C60's 2.68 eV) leaves the library's 514 anions
+of N_C 40–120 (EA 0.9–3.3 eV, median 1.8) at a median f of 0.02–0.06, a quarter of them above 0.1–0.3.
 
 **Against the PDRs4All Orion Bar spectra** (`fit_pdrs4all_spectra.py`, the stated card conditions; best profile per
 template; `results/pahchem/pdrs4all_capture_2026-11-01/`):
@@ -183,10 +188,12 @@ template; `results/pahchem/pdrs4all_capture_2026-11-01/`):
 | f EA logistic, midpoint 2.5 eV | — | — | 0.092 / 0.065 / 0.062 | 0.29–0.32 |
 
 - The ionised templates exclude WD01's cation capture (too ionised everywhere in the stated γ, rms ×1.8–1.9) and do not
-  separate s = 1 from the lab fits: the emitting population (⟨N_C⟩ 84–87) has s ≈ 1 in both.
+  separate s = 1 from the lab fits: the emitting population (⟨N_C⟩ 84–87) has s ≈ 1 in both. WD01's rms still falls
+  towards the card's lowest γ (9.5×10³), so the exclusion holds within the card, not beyond it.
 - The dissociation fronts want efficient attachment on the emitting PAHs (⟨N_C⟩ 76–82). The size logistic that meets
   the lab anchors fits as well as f = 1; the EA logistic that meets them does not. Every DF fit sits at an edge of the
-  stated γ range, so the card's G0 and n_e bound the test.
+  stated γ range, so the card's G0 and n_e bound the test; but f = 1 fits better than f ≤ 0.1 at every cell of the
+  card, not only at its edge.
 - The f = 0.1 and 0.3 and the logistic rows hold the band shape of the s = 1 run (`--shape-from`), which reproduces the
   full fit to ≤ 0.003 in rms with the same γ and charge shares.
 - The "anion" signal rests on PAHdb's DFT anion spectra; it may stand in for something else the fit lacks.
@@ -194,6 +201,17 @@ template; `results/pahchem/pdrs4all_capture_2026-11-01/`):
 **Against Wolfire+08's C⁺ neutralisation** (W08 at Φ_PAH = 0.4, the cold neutral medium, the same PAH carbon per H):
 α(C⁺)/W08 = 0.78 (f = 1), 0.23 (size logistic), 0.20 (f = 0.003) for W08's N_C 32–40, and 0.88, 0.83 and 0.14 for
 N_C 50–100. The size logistic meets W08's sight-line calibration if the PAH carbon is mostly in N_C ≳ 50.
+
+**The defaults since 2026-11-02: `capture_model="lab_cold"`, `attachment_model="size"`** (N_half 50, b 10,
+f_low 0.003), in the population (gas rates, group tables, the PDRs4All fits). `BaselineModel` keeps s = 1 and
+`attachment_fraction`, as it always ignored `capture_model`. Before, s = 1 and f = 1. Both functions are
+**extrapolations** where the PAHs that matter most are:
+- **Cation sticking** is measured at N_C 10–16 only. Its rise to 1 by N_C ≈ 40 is the fitted form's, with saturation at
+  the molecular limit assumed. The astronomical tests (PDRs4All, ⟨N_C⟩ 76–87) see s = 1 and cannot test the rise.
+- **Neutral attachment** is measured at N_C ≤ 24 (f ≈ 0.003) and at C60 (0.5–0.7). The midpoint (N_half 50) and the
+  steepness (b 10) in between are set by those two ends, not by data. The PDRs4All fronts and Wolfire+08 constrain f
+  only for N_C ≳ 50, where it is ≈ 1. Below N_C ≈ 45 the logistic follows the lab, not any astronomical test.
+- The rows of §4 were measured with the earlier defaults.
 
 ### 2.3 Ion–PAH collisions (new)
 
@@ -353,6 +371,12 @@ larger than the PAHs:
 ## 4. Validation
 
 The exact numbers are in the literature page, section 8.
+
+**Measured with the sticking defaults before 2026-11-02** (s = 1 on cations, f = 1 on neutrals). Since then the
+defaults are `lab_cold` and the size logistic (§2.2b), and the rows have not been rerun. Expected to move most are
+the rows on N_C 32–40 (V2, V3, V13: f = 0.014–0.10 there instead of 1; on the current code V2 is 0.78 of W08 with
+f = 1 and 0.23 with the size logistic, §2.2b) and the WD01 per-size comparison at C24 (f = 0.0036, s = 0.63). C54 (V9,
+V14, V15: f = 0.68, s = 1) moves less; C66 and C96 (f ≥ 0.94) hardly.
 
 | | target | status |
 |---|---|---|

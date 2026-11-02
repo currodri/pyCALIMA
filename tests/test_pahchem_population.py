@@ -231,10 +231,11 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
     assert np.all((y >= np.clip(prompt, 0, 1) - 1e-12) & (y <= 1 + 1e-12))
     assert np.all(ek[E_PH > ea] < E_PH[E_PH > ea] - ea) and np.all(ek[E_PH > 7.0] < 0.5)
     env = Environment("cnm", 1.7, 0.0, 0.04, 100.0, None)
-    stat = population.Population([mol], WINDOWS, params=Params(detachment="statistical"))
+    att = {"attachment_model": "constant"}                                     # f = 1: anion-rich, so detachment decides
+    stat = population.Population([mol], WINDOWS, params=Params(detachment="statistical", **att))
     assert stat.charge_matrix(env)[0, -1 - stat.zmin] > 0.1                 # anions matter here
     assert 0.0 < stat.photoelectric_heating(env)[2][0] < 0.08
-    jochims = population.Population([mol], WINDOWS, params=Params(detachment="jochims"))
+    jochims = population.Population([mol], WINDOWS, params=Params(detachment="jochims", **att))
     assert jochims.photoelectric_heating(env)[2][0] > 0.15                     # full-excess electrons
 
 
@@ -680,7 +681,7 @@ def test_cation_capture_models_and_t_power_touch_cations_only():
         p = Params(capture_model=model)
         assert population._capture_factor(mol, 0, p) == 1.0
         assert population._capture_factor(mol, 1, p) == pytest.approx(float(chemistry.lab_sticking(mol.nc, model.split("_")[1])))
-    p = Params(capture_t_power=0.25)
+    p = Params(capture_model="bt94", capture_t_power=0.25)
     assert population._capture_factor(mol, 1, p, 300.0) == pytest.approx(1.0)
     assert population._capture_factor(mol, 1, p, 3000.0) == pytest.approx(10.0 ** -0.25)
     assert population._capture_factor(mol, 0, p, 3000.0) == 1.0
@@ -699,7 +700,7 @@ def test_attachment_fraction_models_meet_their_anchors_and_feed_attachment_and_d
     from pycalima.pahchem.baseline import Params
 
     mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
-    assert population.attachment_fraction(mol, Params(attachment_fraction=0.2)) == 0.2
+    assert population.attachment_fraction(mol, Params(attachment_model="constant", attachment_fraction=0.2)) == 0.2
     size = Params(attachment_model="size")
     f = [population.attachment_fraction(replace(mol, nc=n, _cache={}), size) for n in (14, 24, 60, 216)]
     assert f[0] < f[1] < 0.006 and f[2] > 0.6 and f[3] > 0.99

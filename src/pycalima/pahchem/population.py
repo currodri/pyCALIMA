@@ -524,9 +524,10 @@ def neutral_sticking(mol, temperature_k, capture_fraction=1.0):
 
 
 def attachment_fraction(mol, params=Params()):
-    """f of this molecule: ``Params.attachment_fraction``, or a logistic in its electron affinity (``attachment_model="ea"``; the
-    anion's detachment threshold ``ionisation_ev[-1]``) or in N_C (``"size"``). The same f sets the attachment and, by detailed
-    balance, the anion's autodetachment (``statistical_detachment``)."""
+    """f of this molecule: a logistic in N_C (``attachment_model="size"``, the default since 2026-11-02; measured at N_C <= 24 and
+    at C60 only, an extrapolation in between), ``Params.attachment_fraction`` ("constant") or a logistic in its electron affinity
+    ("ea"; the anion's detachment threshold ``ionisation_ev[-1]``). The same f sets the attachment and, by detailed balance, the
+    anion's autodetachment (``statistical_detachment``)."""
     if params.attachment_model == "constant":
         return params.attachment_fraction
     lo = params.attachment_f_low
@@ -724,8 +725,9 @@ CAPTURE_MAX = 1.0 / 0.82
 
 
 #: ``Params.capture_model``: "bt94" (sticking 1), "lab_trend" (``chemistry.lab_recombination_factor``, a power law over all nine
-#: lab points), "lab_cold" and "lab_pahs" (``chemistry.lab_sticking``, saturating at 1, fitted to the photo-ion or to every PAH
-#: point), "wd01" (WD01's capture by a graphite sphere of the same carbon count over BT94's, for comparison only)
+#: lab points), "lab_cold" (the default since 2026-11-02) and "lab_pahs" (``chemistry.lab_sticking``, saturating at 1, fitted to
+#: the photo-ion or to every PAH point at N_C 10-16; above that an extrapolation), "wd01" (WD01's capture by a graphite sphere
+#: of the same carbon count over BT94's, for comparison only)
 CAPTURE_MODELS = ("bt94", "lab_trend", "lab_cold", "lab_pahs", "wd01")
 
 

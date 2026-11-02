@@ -76,7 +76,11 @@ class Params:
     # charge
     capture_scale: float = 1.0
     detachment: str = "valence"              # anion photodetachment: "valence" (statistical + valence photodetachment; default since 2026-10-25, the only one passing V2 and V14), "statistical" (population: WD01 prompt + detailed-balance delayed), "jochims" (Jochims at the EA, every electron taking E - EA; the default before) or "unity" above it
-    capture_model: str = "bt94"              # cation capture: BT94, "lab_trend" (chemistry.lab_recombination_factor), "lab_cold" / "lab_pahs" (chemistry.lab_sticking), or "wd01" (comparison: population.wd01_capture_ratio)
+    # cation capture (population only; BaselineModel keeps BT94): "lab_cold" (chemistry.lab_sticking on the photo-ion data, the
+    # default since 2026-11-02; measured at N_C 10-16 only, its rise to 1 by N_C ~ 40 an extrapolation), "lab_pahs" (every PAH
+    # point), "bt94" (sticking 1, the default before), "lab_trend" (chemistry.lab_recombination_factor) or "wd01" (comparison:
+    # population.wd01_capture_ratio). docs/physics/pahchem-gas-coupling.md section 2.2b
+    capture_model: str = "lab_cold"
     capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
     capture_t_power: float = 0.0             # cation capture x (T/300 K)^-capture_t_power: 0.25 steepens BT94's ~T^-1/2 to the T^-0.75 of small aromatics in storage rings (Hamberg+11)
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
@@ -85,14 +89,17 @@ class Params:
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
     # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)
     associative_detachment: str = "dehydrogenated"
-    # f: share of classical captures on a neutral that form the anion (``attachment.Attachment.capture_fraction``;
-    # autodetachment scales with it by detailed balance). 1, the classical limit, is unmeasured above N_C = 14
+    # f with attachment_model "constant", and in BaselineModel: share of classical captures on a neutral that form the anion
+    # (``attachment.Attachment.capture_fraction``; autodetachment scales with it by detailed balance). 1 is the classical limit
     attachment_fraction: float = 1.0
-    # f per molecule instead (population.attachment_fraction): "constant" (f = attachment_fraction), "ea" (a logistic in the
-    # electron affinity: attachment_f_low + (1 - attachment_f_low) / (1 + exp(-(EA - attachment_ea_half) / attachment_ea_width)))
-    # or "size" (attachment_f_low + (1 - attachment_f_low) / (1 + (attachment_nc_half / N_C)^attachment_nc_power)). Anchors: ~0.003
-    # for anthracene, perylene and coronene (lab, Carelli+13 upper bounds), ~0.6-1 for C60 (Viggiano+10); between them unmeasured
-    attachment_model: str = "constant"
+    # f per molecule (population only, population.attachment_fraction; BaselineModel uses attachment_fraction): "size" (the
+    # default since 2026-11-02: attachment_f_low + (1 - attachment_f_low) / (1 + (attachment_nc_half / N_C)^attachment_nc_power)),
+    # "constant" (f = attachment_fraction; 1 before) or "ea" (a logistic in the electron affinity: attachment_f_low + (1 -
+    # attachment_f_low) / (1 + exp(-(EA - attachment_ea_half) / attachment_ea_width))). Anchors: ~0.003 for anthracene, perylene
+    # and coronene (lab, Carelli+13 upper bounds), ~0.5-0.7 for C60 (Viggiano+10, 400-625 K, a factor 3). Between C24 and C60
+    # nothing is measured: the logistic's midpoint and steepness there are an extrapolation, constrained only by the
+    # PDRs4All fronts and Wolfire+08 for N_C >~ 50 (docs/physics/pahchem-gas-coupling.md section 2.2b)
+    attachment_model: str = "size"
     attachment_ea_half: float = 2.0
     attachment_ea_width: float = 0.2
     attachment_nc_half: float = 50.0

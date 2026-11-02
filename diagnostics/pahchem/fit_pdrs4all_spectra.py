@@ -70,7 +70,10 @@ RESULT_VERSION = 9
 
 
 def _result_key(args):
-    """Cache key of a run: every argument, the versions of the code that produce the result and the conditions card."""
+    """Cache key of a run: every argument, the versions of the code that produce the result and the conditions card.
+
+    An argument at the value every run had before the argument existed is left out, so those runs keep their keys
+    (since 2026-11-02 the capture and attachment defaults are not those values; see Params)."""
     stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot", "workers")
              and not (k == "shape_from" and v is None) and not (k == "attachment_fraction" and v == 1.0)
              and not (k == "attachment_model" and v == "constant") and not (k == "attachment_ea_half" and v == 2.0)
@@ -528,10 +531,11 @@ def main():
     ap.add_argument("--library", choices=("m20", "v400"), default="v400")
     ap.add_argument("--ip-shift", default="")
     ap.add_argument("--capture-scale", type=float, default=1.0)
-    ap.add_argument("--capture-model", choices=population.CAPTURE_MODELS, default="bt94")
+    ap.add_argument("--capture-model", choices=population.CAPTURE_MODELS, default=Params().capture_model, help="Params.capture_model")
     ap.add_argument("--capture-t-power", type=float, default=0.0, help="Params.capture_t_power (cation capture x (T/300 K)^-x)")
-    ap.add_argument("--attachment-fraction", type=float, default=1.0, help="Params.attachment_fraction (f, neutral attachment)")
-    ap.add_argument("--attachment-model", choices=("constant", "ea", "size"), default="constant", help="Params.attachment_model")
+    ap.add_argument("--attachment-fraction", type=float, default=1.0,
+                    help="Params.attachment_fraction (f, neutral attachment), with --attachment-model constant")
+    ap.add_argument("--attachment-model", choices=("constant", "ea", "size"), default=Params().attachment_model, help="Params.attachment_model")
     ap.add_argument("--attachment-ea-half", type=float, default=2.0, help="Params.attachment_ea_half [eV], with --attachment-model ea")
     ap.add_argument("--attachment-nc-half", type=float, default=50.0, help="Params.attachment_nc_half, with --attachment-model size")
     ap.add_argument("--shape-from", default=None,
