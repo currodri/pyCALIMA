@@ -273,6 +273,17 @@ higher charges, as before). In the population every molecule runs from its lowes
   - The total IR power is unchanged to 1 %.
 - **Effect, Kurucz 40 kK field to 100 eV** (G0 10⁵, n_e 100, 10⁴ K): C54's charge peaks at +3/+4 with a tail to +9.
   Its fraction at +10 is 8×10⁻⁸ and its Coulomb-explosion rate 4×10⁻¹³ s⁻¹.
+- **Validation, step 3: the PDRs4All refit** (`fit_pdrs4all_spectra.py --fit-shape` with every default of
+  2026-11-02; `results/pahchem/validation_2026-11-02/pdrs4all_default.txt`), against the same capture and attachment
+  on the library ladder and BASIS 8 (`results/pahchem/pdrs4all_capture_2026-11-01/att_size_50.txt`):
+  - Every template fits as before: rms 0.047, 0.097, 0.073, 0.053, 0.048 (HII, Atomic, DF1–DF3, best profile;
+    0.049 for DF3 before). The best γ (1.4–1.5×10⁴, interior; 260–330, the card's low edge) and ⟨N_C⟩ (77–87) are
+    unchanged.
+  - In HII and Atomic, Z ≥ 2 emits 9–10 % of the PAH power at the best cell (3–4 % before), +3 0.9 %. Stand-in
+    states emit 5 %: mostly the dications of the 676 molecules with no computed one, on their cation's modes, which
+    the library ladder had stopped at +1. The DFs (γ ≈ 300) hold nothing above +1.
+  - So the spectra do not tell the two ladders apart; what changes is the dications' share, which rests on stand-in
+    modes for half the library.
 
 **Energies above 21 eV, which the ladder needs:**
 - **Deposits.** A state that absorbs without ionising above E_DEP's top (21 eV) gets the photon nodes above it on
