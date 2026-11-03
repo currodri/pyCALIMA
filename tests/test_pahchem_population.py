@@ -441,6 +441,31 @@ def test_double_ionisation_raises_the_charge_and_conserves_electrons():
     assert abs(r["electron_source"]) < 1e-9 * made
 
 
+def test_kshell_auger_raises_the_charge_in_x_rays_and_conserves_electrons():
+    """Fields that do not reach the C K edge are unchanged; in a power law to 2 keV the Auger decays raise <Z> over one
+    electron per C 1s absorption ("single"), and the electrons made still equal those captured."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    auger = population.Population([mol], WINDOWS)
+    single = population.Population([mol], WINDOWS, params=Params(kshell="single"))
+    euv = Environment("hii", 1e4, 1e-3, 1.0, 1e4, 40000, field_e_max_ev=100.0)
+    assert auger._kshell_stack(population.field_shape(euv)) is None
+    assert np.array_equal(auger.charge_matrix(euv), single.charge_matrix(euv))
+    xray = Environment("xdr", 1e4, 1e-3, 100.0, 1e4, None, field_e_max_ev=2000.0, field_powerlaw=1.0)     # psi = 1e4
+    zs = np.array(auger.zs, dtype=float)
+    assert (auger.charge_matrix(xray) @ zs)[0] > (single.charge_matrix(xray) @ zs)[0]
+    hot = replace(xray, n_e=1.0)          # psi = 1e6, at the cold limit: the +2 and +3 steps past it are explosions
+    assert auger.chain_overflow(hot)[0] > single.chain_overflow(hot)[0]
+    x = np.array([3e-7])
+    r = auger.gas_rates(xray, x)
+    k_up = xray.g0 * auger._stack(population.field_shape(xray))[0]
+    assert abs(r["electron_source"]) < 1e-9 * float(x @ (r["f"] * k_up).sum(axis=1))
+    assert r["gamma_pe"] > single.gas_rates(xray, x)["gamma_pe"]          # the ~250 eV Auger electrons heat
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

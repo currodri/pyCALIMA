@@ -252,7 +252,46 @@ higher charges, as before). In the population every molecule runs from its lowes
   cold-limit ladder adds only the states that field reaches.
 - **Top state.** Ionisation out of ⌊0.2 N_C⌋ is the molecule's Coulomb explosion (`chain_overflow`, a destruction
   rate).
-- **Not yet:** K-shell absorption above 291 eV with Auger dz = +2 (stage 3).
+- **C 1s absorption and Auger decay** (stage 3, 2026-11-03; `Params.kshell = "auger"`, the default; `"single"` keeps the
+  treatment before):
+  - *Before:* the library's C 1s absorption (the measured pyrene edge from 282 eV, Gordon+03, then the atomic C 1s) was
+    counted as one ionisation at the valence yield up to E_PH's top (500 eV), and lost above it.
+  - *The split* (`uvlib.sigma_k_shell`): the C 1s part exactly as `build_library.py` adds it to every anchor (the bundled
+    curve `gordon03_pyrene_kedge.dat`); the rest of the library stays valence. Above 500 eV it is 96 % of the
+    absorption. The C 1s rates run on their own grid to 10 keV (`population.K_GRID`), outside the bases.
+  - *Per absorption* (`population.kshell_branching`), the same rule as the valence electrons:
+    - The 1s electron lands at E′ = E − E_K(Z), with E_K(Z) = 291 eV + IP(Z) − IP(0): the core level shifts with the
+      charge as the valence does (coronene⁺'s 1s threshold ≈ 293 eV against ≈ 290 eV, Huo+22).
+    - Above 0 it escapes. In the Coulomb window (−D ≤ E′ < 0, D = (Z+1) times the IP step) it is bound and escapes as
+      the valence electrons do there (`Params.coulomb_escape`; all of them by default). Below the window, the
+      1s → π* resonances from 284 eV, it stays: resonant Auger decay leaves +1 (Jayadev, Jagau & Krylov 2025).
+    - The hole fluoresces with ω_K = 2.8×10⁻³ (Krause 1979, Table 3) or Auger-decays. 9 % of the decays eject two
+      electrons (7–12 %): the C 1s hydrocarbons of Sci. Rep. 8, 16405 (2018), CH₄ 6.3, C₂H₂ 8.2, C₂H₄ 8.5 and C₂H₆
+      8.8 %, at an aromatic carbon's count of valence electrons within 2 Å (13–16). Their all-molecule fit gives 11 %,
+      pulled up by the halogenated molecules. Small PAH cations at the K edge end "predominantly" at net +2 with "a
+      small fraction" at +3 (Huo+22, +23), which agrees.
+    - So above the edge dz = +2 (90.7 %), +3 (9.0 %) or +1 (0.3 %), at every charge: up to 0.2 N_C a molecule loses
+      ≤ 5 % of the valence electrons near any carbon, and the Auger electron (≈ 265 eV from a neutral C216, ≈ 200 eV at
+      +40, one IP step less per charge) has far more energy than the window is deep (63 eV for C216 at +40).
+  - *Energies:* the photoelectron takes E − E_K(Z) (a window electron autoionises slowly, ~0); an Auger electron
+    E_K − IP(Z) − IP(Z+1) − 17.3 eV, a double Auger pair that less IP(Z+2). The 17.3 eV is the dication's mean excitation
+    after the decay, "an average excitation of about 17.3 eV" over the benzene Auger spectrum (Huo+23, Sect. 3, citing
+    Carniato+20); the spectrum's peak alone gives ~14 eV (Jayadev+23), Lange+25 quote ~20 eV, and no PAH Auger spectrum
+    exists. The outgoing electrons may leave more inside the molecule by inelastic scattering (a ~250 eV electron's mean
+    free path in carbon is ~10 Å, a planar PAH a few Å thick; plasmons at 7 and ~25 eV); no estimate for a PAH or C60 was
+    found. Neither is deposited in the bases yet (ionising photons deposit nothing by default, `ionising_photons_heat`): in
+    X-ray fields that leaves out a real source of H loss and IR emission.
+  - *The chain:* steps of +1 to +3 (`population._chain_fractions`, exact against a dense solve); steps past the cold
+    limit are Coulomb explosions (`chain_overflow`). Fields that do not reach 282 eV keep the plain chain, bit for bit.
+    Not in the group tables, which follow single ionisations.
+  - *Fields:* `Environment.field_powerlaw` (F_ν ∝ ν^−α from `field_e_min_ev` to `field_e_max_ev`, `fields.powerlaw`) for
+    X-ray-bright sources that keep the far UV that sets G0. Fields with no far UV (shielded X-ray-dominated gas, where
+    C 1s is ~97 % of the absorption) need a normalisation other than G0.
+  - *Check* (`check_kshell_auger.py`; C24–C216, F_ν ∝ ν⁻¹ and ν⁻¹·⁵ from 1 eV to 10 keV, G0 = 10⁴, T = 10⁴ K, against
+    one electron per absorption and WDB06 graphite): with the far UV present, C 1s makes 0.1–0.3 % of the ionisation
+    electrons at ψ ≤ 10⁴ and 1–6 % at ψ = 10⁶. The Auger decays raise ⟨Z⟩ by ≤ 0.2 and Γ_PE by 0.1–3 %. The ion's
+    excitation after the decay is 1–7×10⁻⁴ of the power a state absorbs. So C 1s matters where the far and extreme UV
+    are gone, which these fields cannot reach yet.
 - **Validation, step 1** (`check_charge_ladder.py`; C24–C216 per molecule, Draine field G0 = 10⁴, T = 100 and 1000 K,
   n(H⁺) = n_e, against the library ladder and WD01 graphite spheres of the same carbon in the Mathis field):
   - Regression: identical where the field reaches no state above the computed ones (C24 and C54 at every ψ, every

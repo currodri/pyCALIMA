@@ -81,6 +81,9 @@ class Params:
     # population only: "knockout" (opt-in) removes two electrons in photo.double_fraction of the photoionisations of
     # Z >= 0 above IP(Z) + IP(Z+1) (dz = +2; from the state below the cold limit, a Coulomb explosion); "none" one each
     double_ionisation: str = "none"
+    # population only: C 1s absorption (population.kshell_rates): "auger" (the default since 2026-11-03: the photoelectron
+    # plus Auger decay, +1 to +3 per absorption, to 10 keV) or "single" (before: one electron each, as the valence, to 500 eV)
+    kshell: str = "auger"
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
@@ -147,8 +150,12 @@ class Environment:
     ions: tuple = ()                          # ((name, n [cm^-3]), ...) of chemistry.IONS, inputs like n_e (population)
     field_e_min_ev: float = 1.0               # lowest photon energy the field reaches (population; 5.0: as before 2026-10-24)
     optical_isrf: float = 1.0                 # old-star light below 5 eV, x the solar circle's, not scaled by g0 (Draine shape, population)
+    field_powerlaw: float | None = None       # F_nu ~ nu^-alpha from field_e_min_ev to field_e_max_ev instead of a star (population);
+    #                                           field_e_min_ev > 13.6: X-rays only, and g0 is their energy flux in Habing units
 
     def field(self):
+        if self.field_powerlaw is not None:
+            return fields.powerlaw(self.field_powerlaw, self.g0, e_min=self.field_e_min_ev, e_max=self.field_e_max_ev)
         return (fields.kurucz(self.teff_k, self.g0, e_max=self.field_e_max_ev) if self.teff_k is not None
                 else fields.draine1978(g0=self.g0))
 

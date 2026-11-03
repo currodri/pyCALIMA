@@ -7,7 +7,9 @@ eV. Every rate in pahchem is an integral of sigma(E) F(E).
 G0 is always the Habing normalisation: G0 = int_6^13.6 E F(E) dE / 1.6e-3 erg
 cm^-2 s^-1. With it, the Draine (1978) field has G0 = 1.67 and the Mathis et
 al. (1983) field 1.13. (pyCALIMA's other modules use at least five G0
-definitions; see docs/physics/radiation.md. This module does not.)
+definitions; see docs/physics/radiation.md. This module does not.) A field with
+no flux in that band (X-rays only) is scaled by its whole energy flux in the same
+unit instead (``RadiationField.intensity``).
 
 Below 5 eV the interstellar field is old-star light, which G0 does not measure
 and which does not scale with it: Draine's (1978) fit is a far-UV fit, and
@@ -57,9 +59,17 @@ class RadiationField:
         E = np.concatenate([[6.0], self.energy_ev[m], [LYMAN_EV]])      # whole band, also on a coarse grid
         return float(np.trapezoid(E * self.flux_at(E), E) * EV_ERG / HABING_FLUX)
 
+    def intensity(self) -> float:
+        """The scale ``scaled`` sets: the Habing G0, or for a field with no flux at 6-13.6 eV (X-rays only, the far and
+        extreme UV absorbed on the way) its whole energy flux in the same unit, int E F dE / 1.6e-3 erg cm^-2 s^-1."""
+        g = self.g0()
+        if g > 0.0:
+            return g
+        return float(np.trapezoid(self.energy_ev * self.photon_flux, self.energy_ev) * EV_ERG / HABING_FLUX)
+
     def scaled(self, g0: float) -> "RadiationField":
-        """The same spectral shape with Habing G0 = ``g0``."""
-        return RadiationField(self.energy_ev, self.photon_flux * (g0 / self.g0()),
+        """The same spectral shape with Habing G0 = ``g0`` (``intensity`` = g0 for a field with no far UV)."""
+        return RadiationField(self.energy_ev, self.photon_flux * (g0 / self.intensity()),
                               f"{self.name} (G0={g0:g})")
 
     def flux_at(self, energy_ev) -> np.ndarray:
@@ -166,6 +176,15 @@ def blackbody(temperature_k, g0, e_min=0.5, e_max=LYMAN_EV, n=1311) -> Radiation
     x = E / (8.617333262e-5 * temperature_k)
     shape = E**2 / np.expm1(np.minimum(x, 700.0))                 # photon flux, arbitrary units
     return RadiationField(E, shape, f"blackbody {temperature_k:g} K").scaled(g0)
+
+
+def powerlaw(alpha, g0, e_min=1.0, e_max=1e4, n=2001) -> RadiationField:
+    """F_nu ~ nu^-alpha (photon flux per eV ~ E^-(alpha+1)) from ``e_min`` to ``e_max`` [eV], log-spaced, scaled to ``g0``:
+    an X-ray-bright source (AGN-like for alpha ~ 1-1.5). With ``e_min`` above 13.6 eV it is X-rays only, a crude stand-in for
+    a shielded field (a sharp cut, not a column's attenuation), and ``g0`` is its energy flux in Habing units (``intensity``)."""
+    E = np.unique(np.concatenate([np.geomspace(e_min, e_max, n), [6.0, LYMAN_EV]]))
+    E = E[(E >= e_min) & (E <= e_max)]
+    return RadiationField(E, E ** -(alpha + 1.0), f"power law alpha = {alpha:g}").scaled(g0)
 
 
 def kurucz(teff, g0, e_max=LYMAN_EV, e_min=None) -> RadiationField:

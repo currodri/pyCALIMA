@@ -88,3 +88,37 @@ def per_carbon(nc, charge, energy_ev, positions="shifted", structure="mixed", pa
 def sigma_library(nc, charge, energy_ev, positions="shifted", structure="mixed", path=None) -> np.ndarray:
     """The absorption cross section of a PAH with ``nc`` carbon atoms and charge ``charge`` [cm^2]: ``nc`` times ``per_carbon``."""
     return nc * per_carbon(nc, charge, energy_ev, positions, structure, path)
+
+
+#: the measured C K edge the library's anchors carry when built with ``--ck-edge`` (``k_edge`` in the anchor file): pyrene, Gordon+ 2003
+#: Fig. 1 (ISEELS), oscillator strength per carbon atom [1e-2 per eV], digitised (``RAMSES_dev/pahspec/experiment/ck_edge``)
+K_EDGE_FILE = ("pahchem", "gordon03_pyrene_kedge.dat")
+#: where the measured edge has handed over to the atomic C 1s [eV] (build_library.py's K_BLEND_END)
+K_BLEND_END_EV = 310.0
+
+
+@lru_cache(maxsize=1)
+def _k_edge_curve():
+    return tuple(np.loadtxt(_paths.get_external_data_path(*K_EDGE_FILE), unpack=True))
+
+
+def sigma_k_shell(nc, energy_ev, path=None) -> np.ndarray:
+    """The C 1s part of ``sigma_library`` [cm^2], as ``build_library.sigma_1s`` adds it to every anchor: Verner's atomic C 1s
+    (``wdb06_atomic``, 291 eV step) times ``nc``, or, when the anchors carry the measured edge (``k_edge``), the pyrene curve per
+    carbon to its last point (296 eV; the 1s -> pi* resonances from 284 eV) and then the atom plus the excess at that point,
+    fading to zero by K_BLEND_END_EV. The same for every charge."""
+    from pycalima.models.dust_charge import wdb06_atomic as W
+    from pycalima.pahchem import malloci2007 as M
+
+    E = np.asarray(energy_ev, dtype=float)
+    atom = nc * W.photoionisation_cross_section("C", "1s", E)
+    if not _table(str(path or default_path()))["k_edge"]:
+        return atom
+    Em, f = _k_edge_curve()
+    to_cm2 = nc * 1e-2 * M.MB_EV_PER_F * M.MB_CM2
+    e1 = Em[-1]
+    end = to_cm2 * max(float(np.mean(f[Em > e1 - 0.3])), 0.0)
+    excess = end - nc * W.photoionisation_cross_section("C", "1s", np.array([e1]))[0]
+    w = np.cos(0.5 * np.pi * np.clip((E - e1) / (K_BLEND_END_EV - e1), 0.0, 1.0)) ** 2
+    meas = to_cm2 * np.clip(np.interp(E, Em, f), 0.0, None)
+    return np.where(E < Em[0], 0.0, np.where(E <= e1, meas, atom + excess * w))

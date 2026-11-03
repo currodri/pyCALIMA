@@ -7,14 +7,14 @@ from pycalima.pahchem import photo
 from pycalima.pahchem.population import _chain_fractions
 
 
-def _dense_steady_state(k1, k2, down, live):
+def _dense_steady_state(ups, down, live):
     """The same chain solved as a linear system: the null vector of its generator on the live slots."""
     m = live.size
     Q = np.zeros((m, m))
     for i in range(m):
         if not live[i]:
             continue
-        for j, k in ((i + 1, k1[i]), (i + 2, k2[i]), (i - 1, down[i])):
+        for j, k in [(i + d, u[i]) for d, u in enumerate(ups, start=1)] + [(i - 1, down[i])]:
             if 0 <= j < m and live[j] and k > 0:
                 Q[j, i] += k
                 Q[i, i] -= k
@@ -28,7 +28,7 @@ def _dense_steady_state(k1, k2, down, live):
     return f
 
 
-def test_chain_with_double_steps_is_the_exact_steady_state():
+def test_chain_with_multiple_steps_is_the_exact_steady_state():
     rng = np.random.default_rng(3)
     n, m = 6, 9
     live = np.zeros((n, m), dtype=bool)
@@ -36,12 +36,14 @@ def test_chain_with_double_steps_is_the_exact_steady_state():
         live[s, lo:hi] = True
     k1 = 10.0 ** rng.uniform(-2, 1, (n, m))
     k2 = 10.0 ** rng.uniform(-3, 0, (n, m))
+    k3 = 10.0 ** rng.uniform(-4, -1, (n, m))
     down = 10.0 ** rng.uniform(-1, 2, (n, m))
-    f = _chain_fractions(k1, k2, down, live)
-    for s in range(n):
-        assert np.allclose(f[s], _dense_steady_state(k1[s], k2[s], down[s], live[s]), rtol=1e-9, atol=1e-14)
-    # without double steps: the birth-death product f(i+1) / f(i) = k1(i) / down(i+1)
-    f1 = _chain_fractions(k1, np.zeros_like(k2), down, live)
+    for ups in ([k1, k2], [k1, k2, k3]):                  # +1..+2 (double ionisation), +1..+3 (K-shell Auger)
+        f = _chain_fractions(ups, down, live)
+        for s in range(n):
+            assert np.allclose(f[s], _dense_steady_state([u[s] for u in ups], down[s], live[s]), rtol=1e-9, atol=1e-14)
+    # single steps only: the birth-death product f(i+1) / f(i) = k1(i) / down(i+1)
+    f1 = _chain_fractions([k1], down, live)
     s = 0
     assert np.allclose(f1[s, 1:] / f1[s, :-1], k1[s, :-1] / down[s, 1:], rtol=1e-12)
 

@@ -417,26 +417,118 @@ def double_threshold(mol, z):
     return float(state_threshold(mol, z)) + float(state_threshold(mol, z + 1))
 
 
-def _chain_fractions(k1, k2, down, live):
-    """f[s, slot]: the steady state of charge chains with single (k1, slot -> slot+1) and double (k2, -> slot+2) up
-    steps and single down steps (down, slot -> slot-1), each molecule on its live slots (contiguous from its lowest).
-    No net flux crosses any cut: f(i+1) down(i+1) = f(i) (k1(i) + k2(i)) + f(i-1) k2(i-1), summed in logs; a double step
-    that would land on no live slot is a loss the chain does not follow (``Population.chain_overflow``)."""
+def _lands(live, j):
+    """lands[s, slot]: a step of +j from the slot reaches a live slot of the same molecule."""
+    out = np.zeros_like(live)
+    out[:, : live.shape[1] - j] = live[:, j:]
+    return out
+
+
+def _chain_fractions(ups, down, live):
+    """f[s, slot]: the steady state of charge chains with up steps of +1, +2, ... (``ups[j-1]``[s, slot]: the rate of
+    slot -> slot+j) and single down steps (down, slot -> slot-1), each molecule on its live slots (contiguous from its
+    lowest). No net flux crosses any cut: f(i+1) down(i+1) = sum over j and 0 <= m < j of f(i-m) k_j(i-m), summed in logs;
+    a step that would land on no live slot is a loss the chain does not follow (``Population.chain_overflow``)."""
     n, m = live.shape
-    lands = np.concatenate([live[:, 2:], np.zeros((n, 2), dtype=bool)], axis=1)
-    k2 = np.where(lands, k2, 0.0)
+    ks = [np.where(_lands(live, j), k, 0.0) for j, k in enumerate(ups, start=1)]
     with np.errstate(divide="ignore"):
-        l_up, l_2, l_down = np.log(k1 + k2), np.log(k2), np.log(down)
+        lk, l_down = [np.log(k) for k in ks], np.log(down)
     first = live.argmax(axis=1)
     logf = np.full((n, m), -np.inf)
     logf[np.arange(n), first] = 0.0
     for i in range(m - 1):
-        jump = logf[:, i - 1] + l_2[:, i - 1] if i > 0 else np.full(n, -np.inf)
-        new = np.logaddexp(logf[:, i] + l_up[:, i], jump) - l_down[:, i + 1]
+        terms = [logf[:, i - mm] + lk[j - 1][:, i - mm] for j in range(1, len(ks) + 1) for mm in range(j) if i - mm >= 0]
+        new = np.logaddexp.reduce(np.stack(terms), axis=0) - l_down[:, i + 1]
         on = live[:, i + 1] & (first < i + 1)
         logf[on, i + 1] = new[on]
     f = np.exp(logf - logf.max(axis=1, keepdims=True))
     return f / f.sum(axis=1, keepdims=True)
+
+
+# -- C 1s (K-shell) absorption (stage 3, 2026-11-03) ------------------------------------------------------------------
+#: where the C 1s continuum starts in the library's cross section: Verner's atomic C 1s [eV]
+K_EDGE_EV = 291.0
+#: per K vacancy (docs/physics/pahchem-gas-coupling.md section 2.2c): the fluorescence yield of C (Krause 1979, JPCRD 8, 307,
+#: Table 3: 2.8e-3), and the share of the Auger decays that eject two electrons, 9 % (range 7-12 %): the C 1s hydrocarbons of
+#: Sci. Rep. 8, 16405 (2018), Table 1 (CH4 6.3, C2H2 8.2, C2H4 8.5, C2H6 8.8 %), at an aromatic carbon's valence-electron count
+K_FLUORESCENCE, K_DOUBLE_AUGER = 2.8e-3, 0.09
+#: the doubly charged ion's mean excitation after a C KVV Auger decay [eV]: "an average excitation of about 17.3 eV" over the
+#: benzene Auger spectrum (Huo+23, EPJD 77, 181, Sect. 3, citing Carniato+20); the spectrum's peak alone gives ~14 eV (1s IE
+#: 290.42 eV, peak ~252 eV, dication ground state 24.65 eV; Jayadev+23); Lange+25 quote ~20 eV. No PAH Auger spectrum exists
+K_AUGER_EXCITATION_EV = 17.3
+#: photon grid of the K-shell rates [eV]: the measured edge from its first point (282.1 eV), then to 10 keV
+K_GRID = np.unique(np.concatenate([np.arange(282.0, 320.0 + 1e-9, 0.05), np.geomspace(320.0, 1e4, 400), [K_EDGE_EV]]))
+
+
+def sigma_kshell(nc, params, energy_ev):
+    """The C 1s part of the state's cross section [cm^2]: the library's (``uvlib.sigma_k_shell``, the measured edge when its
+    anchors carry it) for the Octopus models, N_C times Verner's atomic C 1s for the others."""
+    if str(params.uv_cross_section).startswith("octopus_library"):
+        from pycalima.pahchem import uvlib
+        return uvlib.sigma_k_shell(nc, energy_ev)
+    from pycalima.models.dust_charge import wdb06_atomic
+    return nc * wdb06_atomic.photoionisation_cross_section("C", "1s", np.asarray(energy_ev, dtype=float))
+
+
+def _ladder_ip(mol, z):
+    """IP(z) [eV] on the cold-limit ladder, continued past the top state with its last step."""
+    top = max(mol.charges)
+    if z <= top:
+        return float(state_threshold(mol, z))
+    step = float(state_threshold(mol, top)) - float(state_threshold(mol, top - 1))
+    return float(state_threshold(mol, top)) + (z - top) * step
+
+
+def kshell_branching(mol, z, params, energy_ev):
+    """(P[0..3] of dz per C 1s absorption on ``energy_ev``, E_K(z) [eV], depth D [eV]).
+
+    The 1s electron lands at E' = E - E_K(z), E_K(z) = K_EDGE_EV + IP(z) - IP(0) (the core level shifts with the charge as the
+    valence does). Above 0 it escapes. In the Coulomb window, -D <= E' < 0 with D = (z+1) times the ion's IP step, it is bound
+    and escapes as the valence electrons there do (``Params.coulomb_escape``: all with "none", 1 / (1 + (u_c/u)^1.5) with
+    "window", none with "y2"). Below the window (the 1s -> pi* resonances) it stays. The hole then fluoresces (K_FLUORESCENCE)
+    or Auger-decays, ejecting one electron or two (K_DOUBLE_AUGER). dz counts the escaping electrons."""
+    E = np.asarray(energy_ev, dtype=float)
+    ip = _ladder_ip(mol, z)
+    e_k = K_EDGE_EV + ip - float(mol.ionisation_ev[0])
+    depth = max(z + 1, 0) * (_ladder_ip(mol, z + 1) - ip)
+    u = np.where(depth > 0, (e_k - E) / max(depth, 1e-300), np.inf)
+    if params.coulomb_escape == "none":
+        bound = np.ones_like(E)
+    elif params.coulomb_escape == "window":
+        bound = 1.0 / (1.0 + (photo.ESCAPE_DEPTH / np.clip(u, 1e-9, None)) ** 1.5)      # u <= 0 (above the edge) unused
+    else:
+        bound = np.zeros_like(E)
+    pe = np.where(E >= e_k, 1.0, np.where(u <= 1.0, bound, 0.0))
+    w, f = K_FLUORESCENCE, K_DOUBLE_AUGER
+    P = np.array([(1 - pe) * w, pe * w + (1 - pe) * (1 - w) * (1 - f), pe * (1 - w) * (1 - f) + (1 - pe) * (1 - w) * f,
+                  pe * (1 - w) * f])
+    return P, e_k, depth
+
+
+def kshell_rates(mol, z, params, field1):
+    """C 1s absorption by charge z in ``field1`` (G0 = 1): (k[j] [s^-1] for dz = j = 1..3 on K_GRID, the over-count in the
+    valence rate (the 1s absorption on E_PH that k_up counts as one ionisation at the valence yield), the electrons' power
+    [eV s^-1], the power absorbed above E_PH's top [eV s^-1]).
+
+    The photoelectron takes E - E_K(z) when it escapes from the continuum (a window electron autoionises slowly, ~0). An Auger
+    decay gives E_K - IP(z) - IP(z+1) - K_AUGER_EXCITATION_EV, a double one that less IP(z+2) between the two electrons."""
+    E = K_GRID
+    sk = sigma_kshell(mol.nc, params, E) * params.sigma_scale
+    F = field1.flux_at(E)
+    P, e_k, _ = kshell_branching(mol, z, params, E)
+    k = np.array([np.trapezoid(sk * F * P[j], E) for j in (1, 2, 3)])
+    ip = [_ladder_ip(mol, z + i) for i in range(3)]
+    e_a1 = max(e_k - ip[0] - ip[1] - K_AUGER_EXCITATION_EV, 0.0)
+    e_a2 = max(e_a1 - ip[2], 0.0)
+    pe_out = np.where(E >= e_k, 1.0, 0.0)
+    w, f = K_FLUORESCENCE, K_DOUBLE_AUGER
+    ek = pe_out * np.maximum(E - e_k, 0.0) + (1 - w) * ((1 - f) * e_a1 + f * e_a2)
+    power = np.trapezoid(sk * F * ek, E)
+    hi = E > E_PH[-1]
+    absorbed_hi = np.trapezoid(np.where(hi, sk * F * E, 0.0), E)
+    s_ph = sigma_kshell(mol.nc, params, E_PH) * params.sigma_scale
+    over = photo.ionisation_rate(field1, s_ph, _yield(mol, z, params), E_PH)
+    return k, float(over), float(power), float(absorbed_hi)
 
 
 #: (a, b) of IP(+1 -> +2) - IP(0 -> +1) = a + b / sqrt(N_C) [eV], over the 743 PAHdb v4.00 molecules of ``library_v400``
@@ -750,6 +842,8 @@ def _unit_field(shape):
         e_max = shape[2] if len(shape) > 2 else fields.LYMAN_EV
         e_min = shape[3] if len(shape) > 3 else E_PH_MIN_EV
         return fields.kurucz(shape[1], 1.0, e_max=e_max, e_min=e_min)
+    if shape[0] == "powerlaw":                 # ("powerlaw", alpha, e_max_ev, e_min_ev)
+        return fields.powerlaw(shape[1], 1.0, e_min=shape[3], e_max=shape[2])
     if len(shape) == 1:
         return fields.draine1978(g0=1.0)
     e_min = shape[2] if len(shape) > 2 else E_PH_MIN_EV
@@ -764,6 +858,8 @@ def field_shape(env):
     5 eV or above): one shape per G0 for such cells, within which every rate is again G0 times its basis value.
     """
     e_min = float(getattr(env, "field_e_min_ev", E_PH_MIN_EV))
+    if getattr(env, "field_powerlaw", None) is not None:
+        return ("powerlaw", float(env.field_powerlaw), float(env.field_e_max_ev), e_min)
     if env.teff_k is None:
         optical = float(getattr(env, "optical_isrf", 0.0))
         if optical <= 0.0 or e_min >= fields.DRAINE_E_MIN_EV:
@@ -1489,11 +1585,56 @@ class Population:
                 for s, mol in enumerate(self.library):
                     for z in self._live_charges(mol, shape):
                         if 0 <= z < max(mol.charges):
-                            sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+                            sigma = self._valence_sigma(mol, z, shape)
                             y2 = _yield(mol, z, self.p) * photo.double_fraction(E_PH, double_threshold(mol, z))
                             k2[s, z - self.zmin] = photo.ionisation_rate(field1, sigma, y2, E_PH)
             self._arrays[key] = k2
         return self._arrays[key]
+
+    def _kshell_on(self, shape):
+        """True if C 1s absorption follows its own branching (``Params.kshell`` "auger") and the field reaches the edge."""
+        if self.p.kshell not in ("auger", "single"):
+            raise ValueError(f"kshell must be 'auger' or 'single', not {self.p.kshell!r}")
+        return self.p.kshell == "auger" and _unit_field(shape).energy_ev.max() >= K_GRID[0]
+
+    def _valence_sigma(self, mol, z, shape):
+        """The state's cross section on E_PH less its C 1s part when that has its own branching (``_kshell_on``)."""
+        sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+        if self._kshell_on(shape):
+            sigma = sigma - sigma_kshell(mol.nc, self.p, E_PH) * self.p.sigma_scale
+        return sigma
+
+    def _kshell_stack(self, shape):
+        """``kshell_rates`` of every live state at G0 = 1: {"k": [3, s, slot], "over", "power", "absorbed_hi": [s, slot]};
+        None unless ``_kshell_on``."""
+        key = ("kshell", shape)
+        if key not in self._arrays:
+            out = None
+            if self._kshell_on(shape):
+                field1 = _unit_field(shape)
+                n, m = len(self.library), len(self.zs)
+                out = {"k": np.zeros((3, n, m)), "over": np.zeros((n, m)), "power": np.zeros((n, m)),
+                       "absorbed_hi": np.zeros((n, m))}
+                for s, mol in enumerate(self.library):
+                    for z in self._live_charges(mol, shape):
+                        i = z - self.zmin
+                        out["k"][:, s, i], out["over"][s, i], out["power"][s, i], out["absorbed_hi"][s, i] = \
+                            kshell_rates(mol, z, self.p, field1)
+            self._arrays[key] = out
+        return self._arrays[key]
+
+    def _jump_rates(self, env, up):
+        """[k1, k2, k3] [s^-1] at ``env``: ``up`` (single steps at env: photo, and ions where given) less the C 1s absorption
+        and the double ionisations it counts, with those as their +1..+3 steps (``_kshell_stack``, ``_double_stack``); None
+        when there are none, the plain chain."""
+        shape = field_shape(env)
+        ks, k2v = self._kshell_stack(shape), self._double_stack(shape)
+        if ks is None and not k2v.any():
+            return None
+        jk = ks["k"] if ks is not None else np.zeros((3,) + up.shape)
+        over = ks["over"] if ks is not None else 0.0
+        k1 = np.maximum(up - env.g0 * (over + k2v), 0.0) + env.g0 * jk[0]
+        return [k1, env.g0 * (k2v + jk[1]), env.g0 * jk[2]]
 
     def _state_modes(self, b):
         """[(freqs, IR power per mode at G0 = 1)] of N_H0 ... N_H0-3 of basis ``b``; empty past the ladder."""
@@ -1570,9 +1711,9 @@ class Population:
                     if z in mol.charges and z + 1 in mol.charges:
                         up[s, z - self.zmin] += ion_up_rate(mol, z, env, self.p)
         down = self._capture_rates(env.temperature_k) * env.n_e
-        if self.p.double_ionisation != "none":
-            k2 = env.g0 * self._double_stack(shape)
-            return _chain_fractions(up - k2, k2, down, live)
+        steps = self._jump_rates(env, up)
+        if steps is not None:
+            return _chain_fractions(steps, down, live)
         both = live[:, :-1] & live[:, 1:]
         logr = np.zeros_like(up[:, :-1])
         logr[both] = np.log(up[:, :-1][both]) - np.log(down[:, 1:][both])
@@ -1597,6 +1738,7 @@ class Population:
                     sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
+                    sigma = self._valence_sigma(mol, z, shape)     # the C 1s electrons are added below (kshell_rates)
                     ek = electron_energy(mol, z, self.p, partition)
                     if self.p.double_ionisation != "none" and 0 <= z < max(mol.charges):
                         # a double ionisation's two electrons share the excess over IP(z) + IP(z+1) as one would
@@ -1605,6 +1747,9 @@ class Population:
                         ek = (1.0 - p2) * ek + p2 * photo.photoelectron_energy(E_PH, dip, partition)[0]
                     G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
                                                         state_threshold(mol, z), electron_energy_ev=ek)
+            ks = self._kshell_stack(shape)
+            if ks is not None:                      # the C 1s photo- and Auger electrons, and the absorption above E_PH
+                G, A = G + ks["power"], A + ks["absorbed_hi"]
             self._arrays[key] = (G, A)
         return self._arrays[key]
 
@@ -1677,12 +1822,11 @@ class Population:
         photo_up[:, -1] = 0.0
         tops = np.array([max(m.charges) - self.zmin for m in self.library])
         photo_up[np.arange(len(self.library)), tops] = 0.0                     # no chain step out of the top state
-        if self.p.double_ionisation != "none":
-            # a double step frees two electrons; the ones from the state below the top leave the chain (chain_overflow)
-            k2 = env.g0 * self._double_stack(field_shape(env))
-            k2_in = k2.copy()
-            k2_in[np.arange(len(self.library)), tops - 1] = 0.0
-            photo_up += 2.0 * k2_in - k2
+        steps = self._jump_rates(env, env.g0 * k_up)
+        if steps is not None:
+            # a +j step frees j electrons; the steps past the top leave the chain (chain_overflow)
+            live = self._live(field_shape(env))
+            photo_up = sum(j * np.where(_lands(live, j), k, 0.0) for j, k in enumerate(steps, start=1))
         if self.zmin == -1:
             photo_up[:, 0] += anion_associative_detachment(self.p) * env.n_h   # it frees an electron too
         capture = self._capture_rates(env.temperature_k) * env.n_e
@@ -1711,10 +1855,12 @@ class Population:
         f = self.charge_matrix(env)
         top = np.array([max(m.charges) - self.zmin for m in self.library])
         rows = np.arange(len(self.library))
-        out = env.g0 * f[rows, top] * k_up[rows, top]
-        if self.p.double_ionisation != "none":         # double ionisations out of the state below the top explode too
-            out = out + env.g0 * f[rows, top - 1] * self._double_stack(field_shape(env))[rows, top - 1]
-        return out
+        steps = self._jump_rates(env, env.g0 * k_up)
+        if steps is None:
+            return env.g0 * f[rows, top] * k_up[rows, top]
+        # every step that lands past the top: all out of the top state, the +2 and +3 ones from below it
+        live = self._live(field_shape(env))
+        return sum((f * np.where(_lands(live, j), 0.0, k)).sum(axis=1) for j, k in enumerate(steps, start=1))
 
     def band_fluxes(self, env):
         """(F[s, b] band power per molecule, weighted over charge and hydrogenation (``emission_weights``),
