@@ -284,6 +284,28 @@ higher charges, as before). In the population every molecule runs from its lowes
     the library ladder had stopped at +1. The DFs (γ ≈ 300) hold nothing above +1.
   - So the spectra do not tell the two ladders apart; what changes is the dications' share, which rests on stand-in
     modes for half the library.
+- **Validation, step 4: EUV fields** (`check_charge_ladder_euv.py`; C24–C216, Kurucz 40 kK at G0 = 10⁴ cut at
+  13.6 eV and extended to 100 eV, T = 10⁴ K, n(H⁺) = n_e, ψ = 10²–10⁶). It is compared with WDB06 graphite spheres of
+  the same carbon in the same field (pyCALIMA's `yield_model="WDB06"`):
+  - At 100 eV every state to the cold limit is live. EUV photons raise ⟨Z⟩ in both models. At ψ = 10⁶ pahchem goes
+    from 2.4 to 6.9 (C54) and from 4.7 to 12.7 (C216); WDB06 from 2.3 to 5.7 and from 4.0 to 9.6. For N_C ≥ 54
+    pahchem stays below WDB06 up to ψ ≈ 10⁵ (the cation sticking, §2.2b) and rises above it beyond.
+  - Per state, pahchem's photoionisation rate is 1.2–1.9× WDB06's for Z ≤ +1 (absorption). It is 1.6–9× at +2 to +4,
+    4–35× at +5 and +6, and 50× up to 3×10⁷× from +10 up. Two causes:
+    - The thresholds climb more slowly: the DFT step, 1.54 eV per charge for C216, against the sphere's 1.94 eV.
+      They are 0.6–2 eV lower at +3 to +5 and 3–8.5 eV lower at +10 to +20.
+    - Mostly the yields. pahchem's mean yield above threshold is 0.4–0.7 while IP < 20 eV and 1 above
+      (Y_UNITY_EV). WDB06's falls from 0.7 at Z = 0 to 0.08–0.32 at +3 to +5 and ≤ 0.07 from +10 up: its electrons
+      must escape over (Z+1)e²/a (y2).
+  - On WDB06's photoionisation rates (pahchem's chain, capture and ion rates kept; exact on its own), pahchem's ⟨Z⟩ at
+    ψ = 10⁶ falls to 4.1 (C54) and 7.1 (C216), below WDB06 at every ψ for N_C ≥ 54. Its higher charge comes from the
+    photon side alone and outweighs its higher sticking.
+  - Γ_PE is 0.9–1.9× WDB06's at ψ ≤ 10³ and 5–13× at ψ ≥ 10⁴ (C24 3.5–21×). Stand-ins emit nearly all the IR at
+    ψ ≥ 10⁵ for N_C ≥ 150.
+  - Coulomb explosions: C24 reaches its cold limit (+4) and explodes at 1.6×10⁻⁸ s⁻¹ (ψ = 10⁴) to 1.2×10⁻⁵ s⁻¹
+    (ψ = 10⁶) at G0 = 10⁴; C54 at 2×10⁻⁹ s⁻¹ (ψ = 10⁶); the larger PAHs never.
+  - So above +3 the charge in EUV fields rests on unit yields above max(20 eV, IP) and on the continued DFT step.
+    Neither is measured; WDB06's bulk-grain yield is not measured for molecules either.
 
 **Energies above 21 eV, which the ladder needs:**
 - **Deposits.** A state that absorbs without ionising above E_DEP's top (21 eV) gets the photon nodes above it on
