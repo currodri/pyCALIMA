@@ -466,6 +466,28 @@ def test_kshell_auger_raises_the_charge_in_x_rays_and_conserves_electrons():
     assert r["gamma_pe"] > single.gas_rates(xray, x)["gamma_pe"]          # the ~250 eV Auger electrons heat
 
 
+def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alone():
+    """X-rays only: no photon deposits (the loss tables are 0 and stay 0), so captures and Auger decays are the H loss,
+    and dissociative recombination lowers f(N_H0). A plain chain (no C 1s, no ions) keeps its band fluxes: the
+    captures run at the rate the bases emit them at."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    on = population.Population([mol], WINDOWS)
+    off = population.Population([mol], WINDOWS, params=Params(recombination_dissociation=False))
+    xray = Environment("xdr", 1e4, 1e4, 1e-2, 1e3, None, field_e_min_ev=300.0, field_e_max_ev=1e4, field_powerlaw=1.0)
+    tab = on._ladders(population.field_shape(xray))[0]
+    assert not tab.any() and not on._interp_g0(tab, xray.g0).any()
+    assert on.hydrogenation_fractions(xray)[0][0, 0] < off.hydrogenation_fractions(xray)[0][0, 0]
+    pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
+    F = on.band_fluxes(pdr)[0]
+    W = on.emission_weights(pdr)
+    plain = pdr.g0 * np.einsum("szk,szkb->sb", W, on._hydrogenation_bands(population.field_shape(pdr)))
+    assert np.allclose(F, plain, rtol=1e-9)
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

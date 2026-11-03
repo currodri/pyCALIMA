@@ -349,6 +349,7 @@ def _warm_bases(args, workers):
     _, pop = _library_and_population(args)
     teff = int(conditions.load("orion_bar")["region"]["field_teff_k"]["value"])
     pop.prepare(("kurucz", teff), workers=workers)
+    pop.prepare_responses(("kurucz", teff), workers=workers)     # the captures' H loss (dissociative recombination)
 
 
 def run_shape(args, knot=1.5, iterations=2, executor=None):

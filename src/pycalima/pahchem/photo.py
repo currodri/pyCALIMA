@@ -293,6 +293,8 @@ ESCAPE_DEPTH = 0.354
 
 def _window_moments(u_c, n=64):
     """(I1, I2) = int_0^1 (1 - u) p(u) du and int_0^1 u (1 - u) p(u) du, p(u) = 1 / (1 + (u_c / u)^1.5)."""
+    if not u_c >= 0.0:
+        raise ValueError(f"u_c must be >= 0 (inf: WD01's y2), not {u_c}")
     if np.isinf(u_c):
         return 0.0, 0.0
     x, w = np.polynomial.legendre.leggauss(n)
@@ -319,6 +321,9 @@ def yield_coulomb_window(energy_ev, ip_ev, depth_ev, u_c=ESCAPE_DEPTH) -> np.nda
     d3 = (eh + depth_ev) ** 3
     i1, i2 = _window_moments(u_c)
     y = (eh**2 * (eh + 3.0 * depth_ev) + 6.0 * depth_ev**2 * (eh * i1 + depth_ev * i2)) / d3
+    # in [0, 1] by construction (I1 <= 1/2, I2 <= 1/6, the u_c = 0 sum is (E_h + D)^3); round-off strays by <= 4.4e-16
+    if not np.all(np.isfinite(y)) or np.any(y > 1.0 + 1e-12) or np.any(y < -1e-12):
+        raise ValueError(f"Coulomb-window yield outside [0, 1] beyond round-off: {y.min():.17g} .. {y.max():.17g}")
     return np.where(E > ip_ev, np.clip(y, 0.0, 1.0), 0.0)
 
 

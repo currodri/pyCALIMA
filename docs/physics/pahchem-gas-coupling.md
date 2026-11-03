@@ -291,7 +291,38 @@ higher charges, as before). In the population every molecule runs from its lowes
     one electron per absorption and WDB06 graphite): with the far UV present, C 1s makes 0.1–0.3 % of the ionisation
     electrons at ψ ≤ 10⁴ and 1–6 % at ψ = 10⁶. The Auger decays raise ⟨Z⟩ by ≤ 0.2 and Γ_PE by 0.1–3 %. The ion's
     excitation after the decay is 1–7×10⁻⁴ of the power a state absorbs. So C 1s matters where the far and extreme UV
-    are gone, which these fields cannot reach yet.
+    are gone.
+  - *X-rays only* (`RadiationField.intensity`): a field with no flux at 6–13.6 eV takes G0 as its whole energy flux in
+    Habing units; `Environment(field_powerlaw=α, field_e_min_ev=300)` is a crude shielded field (a sharp cut, not a
+    column's attenuation: that needs Morrison & McCammon 1983's or MHT96's cross sections, not in the repo). There no
+    absorption heats without ionising: the bases have no photon deposits and no photon-driven loss (`build_state_basis`
+    returns zeros; bases stored earlier held NaN there and are read as 0).
+- **Deposits the bases do not hold: dissociative recombination and the Auger excitation** (2026-11-03,
+  `Params.recombination_dissociation`, on by default):
+  - *Before:* each capture deposited the threshold into the state it made, but only into the IR (at the rate k_up(z),
+    exact for a chain of single steps without ions); the loss tables held the photon deposits only. So no capture ever
+    drove H or H₂ loss, and the C 1s Auger decays heated nothing.
+  - *Now* (`population.deposit_response`, field-independent, cached in `cache_dir/responses`): for each state, its IR per
+    mode and P(H), P(H₂) per deposit at its capture energy and at the Auger excitation, from the same cascade and RRKM
+    rates as the bases (`CascadeModel.photon_yields`). At run time (`_deposit_flows`) the captures into z run at
+    f(z+1) α(z+1) n_e and the Auger decays deposit 17.3 eV in their product z+j at f(z) G0 k_j(z): they add to the
+    hydrogenation chain's loss rates (`_deposit_losses`) and to the band fluxes (`_deposit_bands`, replacing the
+    captures the bases emit). A plain chain keeps its band fluxes to 10⁻⁹.
+  - *Per capture* into the intact molecule (`check_dissociative_recombination.py`): coronene⁺ + e⁻ → coronene keeps
+    its H (P = 2×10⁻⁶), as Le Page's statistical model expects for pyrene⁺ and larger (Biennier+06, who also note that
+    no laboratory set-up has measured PAH dissociative recombination products). The deposit grows with the charge, and
+    so does the loss: C24 0.84 into +1 (11.2 eV); C54 0.32 at +5, ~1 at +9; C96 5×10⁻³ at +10, ~1 at +18; C216 0.06 at
+    its cold limit. Per Auger decay: C24 ~1 (H 0.36, H₂ 0.64), C54 4×10⁻³–3×10⁻², C96 and larger < 10⁻⁸.
+  - *In fields:* PDRs (Kurucz 40 kK, G0 10³–10⁵, n_H 10⁴): no change (⟨H lost⟩ ≤ +0.04, for C24, which the photons
+    strip anyway). EUV (step 4's field): C96 f(N_H0) 0.980 → 0.967 at ψ = 10⁵, ⟨H lost⟩ 21.4 → 23.5 at 10⁶. X-rays only
+    (F_ν ∝ ν⁻¹, 300 eV–10 keV, n_H 10⁴, n_e 10⁻²), where photon-driven loss is exactly 0: at G0-equivalent 10⁴ C54
+    f(N_H0) 1.000 → 0.920 and C24 0.956 → 0.883 (the Auger decays alone give 0.956): dissociative recombination is the
+    main H loss there.
+  - *Not yet:* the deposits in the fitted spectra (`StateSpectra` rows) and in `state_powers`; the tdep band convention
+    takes each state's own temperature shares for them; the outgoing electrons' inelastic losses inside the molecule.
+  - *Guards:* the probabilities and rates bounded by construction are checked before any clip (`population._round_off`,
+    `photo.yield_coulomb_window`): the recursions stray 1–2 ulp past [0, 1] (≤ 4.4×10⁻¹⁶ over every bin of C24–C216),
+    and anything further, or non-finite, raises.
 - **Validation, step 1** (`check_charge_ladder.py`; C24–C216 per molecule, Draine field G0 = 10⁴, T = 100 and 1000 K,
   n(H⁺) = n_e, against the library ladder and WD01 graphite spheres of the same carbon in the Mathis field):
   - Regression: identical where the field reaches no state above the computed ones (C24 and C54 at every ψ, every

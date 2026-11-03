@@ -101,6 +101,9 @@ class Params:
     capture_t_power: float = 0.0             # cation capture x (T/300 K)^-capture_t_power: 0.25 steepens BT94's ~T^-1/2 to the T^-0.75 of small aromatics in storage rings (Hamberg+11)
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold
+    # population only: those deposits also drive H and H2 loss (dissociative recombination; population.deposit_response),
+    # the default since 2026-11-03; False: they only heat the IR, as before
+    recombination_dissociation: bool = True
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
     # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)

@@ -77,3 +77,33 @@ def test_xray_only_field_is_scaled_by_its_energy_flux():
     assert total == pytest.approx(250.0 * fields.HABING_FLUX)
     uv = fields.powerlaw(1.0, 250.0)                       # with the far UV: the Habing band sets it, as before
     assert uv.g0() == pytest.approx(250.0) and uv.intensity() == uv.g0()
+
+
+def test_deposit_response_conserves_energy_and_strips_more_with_the_charge():
+    """One deposit's IR is the deposit; H loss per capture grows with the energy it deposits (IP rises with Z)."""
+    from pycalima.pahchem import dos
+
+    mol = _mol()
+    p = Params()
+    probs = []
+    for z in (1, 5, 9):
+        inp = P._response_inputs(mol, z, 100.0, 45.0 * dos.CM_PER_EV, p)
+        (rec, aug) = P.deposit_response(*inp)
+        for e, members in zip(inp[-1], (rec, aug)):
+            for em, ph, ph2 in members:
+                assert em.sum() / dos.CM_PER_EV == pytest.approx(e, rel=2e-3)
+                assert 0.0 <= ph <= 1.0 and 0.0 <= ph2 <= 1.0 and ph + ph2 <= 1.0 + 1e-9
+        probs.append(rec[0][1] + rec[0][2])
+    assert probs[0] < probs[1] < probs[2]
+
+
+def test_round_off_guard_clips_ulps_and_raises_on_real_excursions():
+    """The probability and rate clips take off round-off only (1-2 ulp measured), never a real excursion."""
+    assert P._round_off(1.0 + 4.4e-16, 0.0, 1.0, "p") == 1.0
+    assert P._round_off(-2e-16, 0.0, 1.0, "p") == 0.0
+    with pytest.raises(ValueError):
+        P._round_off(1.0 + 1e-9, 0.0, 1.0, "p")
+    with pytest.raises(ValueError):
+        P._round_off(np.nan, 0.0, 1.0, "p")                                    # NaN fails every comparison: caught too
+    with pytest.raises(ValueError):
+        photo.yield_coulomb_window(np.array([15.0]), 10.0, 5.0, u_c=-1.0)      # outside the domain of p(u)
