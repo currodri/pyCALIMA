@@ -322,6 +322,21 @@ def yield_coulomb_window(energy_ev, ip_ev, depth_ev, u_c=ESCAPE_DEPTH) -> np.nda
     return np.where(E > ip_ev, np.clip(y, 0.0, 1.0), 0.0)
 
 
+#: ``double_fraction``: P2 = DOUBLE_MAX x^2 / (x^2 + DOUBLE_HALF_EV^2), x = E - IP(Z) - IP(Z+1) [eV], the knock-out rise
+#: near threshold (exponent ~2, Hartman+13 Table I). One curve through coronene (Hartman+13 Fig. 8, parent ions: a lower
+#: limit, the dications fragment before detection), pentacene (their Fig. 9), C60 (Kafle+08 Fig. 2, every charge-2
+#: product) and C60+ (Baral+16 Tables I-III) within ~40 %: 0.06, 0.10, 0.15, 0.22 at x = 12, 18, 27, 60 eV. Nothing is
+#: measured above +1, and the same curve is taken at every charge. docs/physics/pahchem-gas-coupling.md section 2.2c
+DOUBLE_MAX, DOUBLE_HALF_EV = 0.25, 22.0
+
+
+def double_fraction(energy_ev, dip_ev, p_max=DOUBLE_MAX, x_half_ev=DOUBLE_HALF_EV) -> np.ndarray:
+    """Share of the photoionisations at ``energy_ev`` that remove two electrons, above the double-ionisation threshold
+    ``dip_ev`` (IP(Z) + IP(Z+1)); zero below it."""
+    x = np.clip(np.asarray(energy_ev, dtype=float) - dip_ev, 0.0, None)
+    return p_max * x**2 / (x**2 + x_half_ev**2)
+
+
 #: hc [eV um]: Le Page+01 eq. 14 takes every energy in um^-1
 EV_UM = 1.239842
 

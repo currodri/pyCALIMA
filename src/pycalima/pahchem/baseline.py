@@ -78,6 +78,9 @@ class Params:
     # bound: capped by photo.yield_coulomb_window, the Coulomb-bound electrons autoionising against relaxation, u_c from
     # the Z = +1 data) or "y2" (WD01's escape fraction, none of them autoionising; excluded at Z = +1)
     coulomb_escape: str = "none"
+    # population only: "knockout" (opt-in) removes two electrons in photo.double_fraction of the photoionisations of
+    # Z >= 0 above IP(Z) + IP(Z+1) (dz = +2; from the state below the cold limit, a Coulomb explosion); "none" one each
+    double_ionisation: str = "none"
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0

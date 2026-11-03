@@ -420,6 +420,27 @@ def test_gas_rates_conserve_charge_in_steady_state():
     assert r["gamma_pe"] > 0 and r["lambda_rec"] > 0
 
 
+def test_double_ionisation_raises_the_charge_and_conserves_electrons():
+    """Below the double threshold (fields cut at 13.6 eV) "knockout" changes nothing; in a 30 eV field it raises <Z>,
+    and the electrons made (two per double step) still equal those captured."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    one = population.Population([mol], WINDOWS)
+    two = population.Population([mol], WINDOWS, params=Params(double_ionisation="knockout"))
+    cut = Environment("pdr", 1e4, 1e2, 10.0, 1e3, 40000)
+    assert np.allclose(two.charge_matrix(cut), one.charge_matrix(cut), rtol=1e-12, atol=1e-300)
+    euv = Environment("hii", 1e4, 1e-3, 1.0, 1e4, 40000, field_e_max_ev=30.0)
+    zs = np.array(one.zs, dtype=float)
+    assert (two.charge_matrix(euv) @ zs)[0] > (one.charge_matrix(euv) @ zs)[0]
+    x = np.array([3e-7])
+    r = two.gas_rates(euv, x)
+    k2 = euv.g0 * two._double_stack(population.field_shape(euv))
+    assert k2.max() > 0.0
+    made = float(x @ (r["f"] * (euv.g0 * two._stack(population.field_shape(euv))[0] + k2)).sum(axis=1))
+    assert abs(r["electron_source"]) < 1e-9 * made
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

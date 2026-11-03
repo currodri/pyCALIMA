@@ -352,6 +352,33 @@ higher charges, as before). In the population every molecule runs from its lowes
     - So the escape physics, held to the cation data, lowers the EUV charge by ≲ 10 %. pahchem's excess over WDB06 at
       the highest ψ comes from the bound electrons that autoionise, which WD01 drop and the cation data require: with
       "y2" pahchem falls below WDB06 at every ψ for N_C ≥ 54.
+  - *Why it stays an opt-in.* On their own, the central yields allow u_c ≤ 0.12 (C30H14⁺), 0.11, 0.08 (C32, C36),
+    0.013 (C48H20⁺) and 0.023 (C60⁺), each an upper limit since fragmentation lowers them too. At u_c ≤ 0.02 the
+    high-charge yield is ≥ 0.97, unit yield within the errors. 0.354 needs every measurement lowered by its full
+    calibration error. The bound is the systematic of the default, not a better default.
+- **Double ionisation below 291 eV** (opt-in, `Params.double_ionisation = "knockout"`, 2026-11-03):
+  - *The data* (full texts):
+    - Neutral PAHs (Hartman+13, PRA 87, 063403): the parent-ion ratio M²⁺/M_tot of coronene is 5, 10, 15 and 16.5 %
+      at 12, 18, 27 and 33 eV above its double threshold of 18.8 eV (read from their Fig. 8). Pentacene's M²⁺/M⁺ is
+      ≈ 30 % at 30–130 eV above (Fig. 9). Parent ions are a lower limit: dications fragment before detection, and
+      benzene's ratio at 75 eV is 5× larger counted by photoelectrons.
+    - C60 (Kafle+08, JPSJ 77, 014302; every charge-2 product): σ(2+) peaks at 24.8 Mb at 50 eV; read from their
+      Fig. 2 (±20 %), double over all ionisations is ≈ 0.14 at 50 eV, 0.25 at 80 eV, 0.3 at 100–120 eV.
+    - C60⁺ (Baral+16, Tables I–III): 0.9 % at 35 eV, 11 % at 65, 15 % at 75, 19–22 % at 90–140 eV; threshold
+      30.2 ± 2 eV.
+  - *The curve* (`photo.double_fraction`): P2 = 0.25 x²/(x² + 22²), x = E − IP(Z) − IP(Z+1) [eV], through all four within
+    ~40 % (0.06, 0.10, 0.15, 0.22 at x = 12, 18, 27, 60 eV). Nothing is measured above +1; the same curve is taken at
+    every charge.
+  - *The chain* (`population._chain_fractions`): +2 steps make it no longer a birth–death chain; its steady state is
+    still exact as a recursion over cuts, f(i+1) down(i+1) = f(i)(k1 + k2)(i) + f(i−1) k2(i−1), checked against a dense
+    solve. A double step out of the state below the cold limit is an explosion (`chain_overflow`). The two electrons
+    share the excess over IP(Z) + IP(Z+1) as one would; the bases (ionising photons deposit nothing) are unchanged.
+    Not in the group tables (they refuse it) or in the recombination heating's per-state rate.
+  - *Step 4:* 0.5–1 % more electrons per second at Z = 0 and +1, none above: the star has few photons 20–30 eV above
+    the double thresholds. ⟨Z⟩ moves ≤ 0.01 and Γ_PE ≤ 1 %, alone or with "window". In power laws F_ν ∝ ν⁻¹ to ν⁻¹·⁵
+    over 13.6–284 eV a molecule gives 1.006–1.034 electrons per ionisation (C24–C216, Z = 0 to +20), because its
+    absorption sits at 13.6–30 eV where P2 ≈ 0. So below 291 eV double ionisation is a ≤ 3 % effect; the recursion is
+    what stage 3's Auger dz = +2 needs.
 
 **Energies above 21 eV, which the ladder needs:**
 - **Deposits.** A state that absorbs without ionising above E_DEP's top (21 eV) gets the photon nodes above it on

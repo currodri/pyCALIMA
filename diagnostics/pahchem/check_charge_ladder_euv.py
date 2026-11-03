@@ -14,8 +14,9 @@ sees it), psi = G0 sqrt(T) / n_e = 1e2-1e6:
   models differ most (section 2.2b, ``check_wd01_ingredients``); this comparison does not;
 - the photon swap: pahchem's chain with WDB06's photoionisation rates for Z >= 0 (its detachment, ion rates and capture kept; on
   pahchem's own rates it reproduces ``charge_matrix`` exactly);
-- the Coulomb-escape opt-ins (``Params.coulomb_escape``, ``ESCAPES``): "window", the molecular bound on the yields of Z >= +2, and
-  "y2", WD01's escape fraction (excluded at Z = +1 by the cation yields).
+- the opt-ins (``VARIANTS``): ``Params.coulomb_escape`` "window", the molecular bound on the yields of Z >= +2, and "y2", WD01's
+  escape fraction (excluded at Z = +1 by the cation yields); ``Params.double_ionisation`` "knockout" (dz = +2), alone and with
+  "window". Their per-state rates are electrons per second, k_up + k2.
 Nothing is fitted.
 
 Result (2026-11-03):
@@ -49,6 +50,11 @@ Result, the Coulomb-escape bound (2026-11-03; 19 min on 4 cores, 1.6 GB):
   7.04, 8.34, 9.57. With the bound pahchem stays above WDB06 at psi = 1e6 for N_C >= 54 (below it up to psi ~ 1e5 as before).
 - Gamma_PE / WDB06 at psi = 1e6: 14.4 (C24, 21.5 before) and 10.5-11.8 (N_C >= 54, 10.7-12.6) with "window".
 - Coulomb explosions: C24 1.2e-5 -> 6.0e-6 s^-1 ("window"), 4.1e-7 ("y2"); C54 2.2e-9 -> 1.6e-10, 4.8e-17.
+
+Result, double ionisation (2026-11-03, the bases cached: 17 s): "knockout" adds 0.5-1 % to the electrons per second of Z = 0 and +1
+and nothing above (the star has few photons 20-30 eV above IP(Z) + IP(Z+1)); <Z> moves <= 0.01 and Gamma_PE <= 1 % at every psi,
+alone or with "window"; fields cut at 13.6 eV are unchanged (the thresholds lie above). Power laws F_nu ~ nu^-1 to nu^-1.5 over
+13.6-284 eV give 1.006-1.034 electrons per ionisation (C24-C216, Z = 0 to +20): the absorption sits at 13.6-30 eV, where P2 ~ 0.
 
     check_charge_ladder_euv.py [--workers 4] [--out DIR]
 """
@@ -86,7 +92,10 @@ E_MAX = (13.6, 100.0)
 M_H = 1.67262192e-24
 ZS_PHOTO = np.arange(-1, 44)              # the photon side: -1 to C216's cold limit
 F_MIN = 1e-3                              # "reached": the highest charge holding this share
-ESCAPES = ("window", "y2")                # Params.coulomb_escape opt-ins run next to the default ("none")
+#: the opt-ins run next to the defaults: label -> Params overrides
+VARIANTS = {"escape window": {"coulomb_escape": "window"}, "escape y2": {"coulomb_escape": "y2"},
+            "double": {"double_ionisation": "knockout"},
+            "window + double": {"coulomb_escape": "window", "double_ionisation": "knockout"}}
 
 
 def env(psi, e_max):
@@ -216,13 +225,14 @@ def main():
     for e_max in E_MAX:
         pop.prepare(P.field_shape(env(PSI[0], e_max)), workers=args.workers)
     q, k_up = pahchem(pop)
-    # the Coulomb-escape opt-ins (Params.coulomb_escape), each population built, used and dropped in turn
+    # the opt-ins, each population built, used and dropped in turn; their rates per state are electrons (k_up + k2)
     esc = {}
-    for c in ESCAPES:
-        pc = P.Population(L.library(), L.WINDOWS, params=replace(pop.p, coulomb_escape=c), cache_dir=FP.BASIS_CACHE)
+    for c, over in VARIANTS.items():
+        pc = P.Population(L.library(), L.WINDOWS, params=replace(pop.p, **over), cache_dir=FP.BASIS_CACHE)
         for e_max in E_MAX:
             pc.prepare(P.field_shape(env(PSI[0], e_max)), workers=args.workers)
-        esc[c] = pahchem(pc)
+        qc, kc = pahchem(pc)
+        esc[c] = (qc, {e: kc[e] + pc._double_stack(P.field_shape(env(PSI[0], e))) for e in E_MAX})
         del pc
     ncs = [m.nc for m in pop.library]
     jobs = [(nc, psi, e_max) for nc in ncs for e_max in E_MAX for psi in PSI]
@@ -256,16 +266,16 @@ def main():
             if e_max > 13.6:
                 rows += (("photo-ion. above 13.6 eV", q["euv_share"][s, i]), ("IR from stand-ins", q["ir_stand_in"][s, i]),
                          ("explosions [s^-1]", q["explode"][s, i]))
-            for c in ESCAPES:
+            for c in VARIANTS:
                 qc = esc[c][0]
-                rows += ((f"<Z> escape {c}", qc["z"][s, i]), (f"Gamma escape {c}/WDB06", qc["gamma"][s, i] / ref[s, i, :, 3]))
+                rows += ((f"<Z> {c}", qc["z"][s, i]), (f"Gamma {c}/WDB06", qc["gamma"][s, i] / ref[s, i, :, 3]))
                 if e_max > 13.6:
                     rows += ((f"explosions {c} [s^-1]", qc["explode"][s, i]),)
             for label, a in rows:
                 fmt = "{:8.2e}" if label.startswith("explosions") else "{:8.3f}"
                 print(f"  {label:30s}" + " ".join(fmt.format(v) for v in a))
         print("  100 eV field, G0 = 1:    Z  photo rate [s^-1] (EUV share)    pahchem/WDB06   IP [eV]          mean yield above IP"
-              "      escape window, y2 / none\n"
+              "      electrons/s / default: " + ", ".join(VARIANTS) + "\n"
               "                              pahchem          WDB06                          pahchem WDB06    pahchem WDB06")
         for z in range(-1, max(m.charges) + 1):
             kp = k_up[100.0][s, z - pop.zmin]
@@ -274,7 +284,7 @@ def main():
             r13 = rpe[13.6][s, z - ZS_PHOTO[0]]
             if z <= 6 or z % 5 == 0 or z == max(m.charges):
                 ip = (f"{'':16s}{'':16s}" if z < 0 else "{:7.2f} {:7.2f}    {:5.3f}  {:5.3f}".format(*thresholds_and_yields(pop, m, z)))
-                ke = "  ".join(f"{esc[c][1][100.0][s, z - pop.zmin] / kp if kp > 0 else np.nan:5.3f}" for c in ESCAPES)
+                ke = "  ".join(f"{esc[c][1][100.0][s, z - pop.zmin] / kp if kp > 0 else np.nan:5.3f}" for c in VARIANTS)
                 print(f"  {'':22s}{z:+3d}  {kp:9.2e} ({1 - k13 / kp if kp > 0 else 0:4.2f})  {r:9.2e} ({1 - r13 / r if r > 0 else 0:4.2f})"
                       f"  {kp / r if r > 0 else np.nan:10.2f}    {ip}      {ke}")
     plot(pop, q, ref, k_up, rpe, esc, (args.out or _paths.get_plots_dir("pahchem")) / "pahchem_charge_ladder_euv.png")
@@ -285,13 +295,14 @@ def plot(pop, q, ref, k_up, rpe, esc, path):
     n = len(pop.library)
     fig, axes = plt.subplots(3, n, figsize=(3.3 * n, 9.5), gridspec_kw={"hspace": 0.32, "wspace": 0.3})
     styles = {13.6: "--", 100.0: "-"}
-    esc_style = {"window": ("#1baf7a", "-."), "y2": ("#9b59b6", (0, (1, 1.5)))}
+    esc_style = {"escape window": ("#1baf7a", "-."), "escape y2": ("#9b59b6", (0, (1, 1.5))), "double": ("#8c564b", "--"),
+                 "window + double": ("#17becf", (0, (5, 1, 1, 1)))}
     for s, m in enumerate(pop.library):
         zz = np.arange(-1, max(m.charges) + 1)
-        for c in ESCAPES:                         # the opt-ins in the 100 eV field
+        for c in VARIANTS:                        # the opt-ins in the 100 eV field
             col, ls = esc_style[c]
             axes[0, s].semilogx(PSI, esc[c][0]["z"][s, E_MAX.index(100.0)], color=col, ls=ls, lw=1.6,
-                                label=f"pahchem, escape {c}, to 100 eV" if s == 0 else None)
+                                label=f"pahchem, {c}, to 100 eV" if s == 0 else None)
             kc = esc[c][1][100.0][s, zz - pop.zmin]
             axes[1, s].semilogy(zz[kc > 0], kc[kc > 0], color=col, ls=ls, lw=1.4)
         for i, e_max in enumerate(E_MAX):
@@ -319,7 +330,7 @@ def plot(pop, q, ref, k_up, rpe, esc, path):
             a.minorticks_on()
             a.tick_params(which="both", direction="in", top=True, right=True)
     axes[0, 0].set_ylabel(r"$\langle Z\rangle$")
-    axes[1, 0].set_ylabel(r"photoionisation rate at $G_0 = 1$ [s$^{-1}$]")
+    axes[1, 0].set_ylabel(r"photoionisation electrons at $G_0 = 1$ [s$^{-1}$]")
     axes[2, 0].set_ylabel(r"$\Gamma_{\rm PE}$ pahchem / WDB06")
     fig.legend(*axes[0, 0].get_legend_handles_labels(), frameon=False, fontsize=9, loc="upper center", ncol=4,
                bbox_to_anchor=(0.5, 1.02))

@@ -183,6 +183,8 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
         raise ValueError("no molecule in the bin")
     if not all(complete(m) for m in mols):
         raise ValueError(f"every molecule of a bin needs the charges {CHARGES}")
+    if params.double_ionisation != "none":
+        raise ValueError("the group tables follow single ionisations only (Params.double_ionisation = 'none')")
     jobs = [(m, params, partition, group_L0, group_L1, n_E, lT) for m in mols]
     if workers > 1:
         with ProcessPoolExecutor(workers) as ex:

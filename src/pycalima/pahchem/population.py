@@ -412,6 +412,33 @@ def _coulomb_escape(mol, z, params, E, y):
     return np.minimum(y, photo.yield_coulomb_window(E, ip, depth, u_c))
 
 
+def double_threshold(mol, z):
+    """IP(z) + IP(z+1) [eV]: the photon energy that takes charge z to z + 2 (z below the top of the chain)."""
+    return float(state_threshold(mol, z)) + float(state_threshold(mol, z + 1))
+
+
+def _chain_fractions(k1, k2, down, live):
+    """f[s, slot]: the steady state of charge chains with single (k1, slot -> slot+1) and double (k2, -> slot+2) up
+    steps and single down steps (down, slot -> slot-1), each molecule on its live slots (contiguous from its lowest).
+    No net flux crosses any cut: f(i+1) down(i+1) = f(i) (k1(i) + k2(i)) + f(i-1) k2(i-1), summed in logs; a double step
+    that would land on no live slot is a loss the chain does not follow (``Population.chain_overflow``)."""
+    n, m = live.shape
+    lands = np.concatenate([live[:, 2:], np.zeros((n, 2), dtype=bool)], axis=1)
+    k2 = np.where(lands, k2, 0.0)
+    with np.errstate(divide="ignore"):
+        l_up, l_2, l_down = np.log(k1 + k2), np.log(k2), np.log(down)
+    first = live.argmax(axis=1)
+    logf = np.full((n, m), -np.inf)
+    logf[np.arange(n), first] = 0.0
+    for i in range(m - 1):
+        jump = logf[:, i - 1] + l_2[:, i - 1] if i > 0 else np.full(n, -np.inf)
+        new = np.logaddexp(logf[:, i] + l_up[:, i], jump) - l_down[:, i + 1]
+        on = live[:, i + 1] & (first < i + 1)
+        logf[on, i + 1] = new[on]
+    f = np.exp(logf - logf.max(axis=1, keepdims=True))
+    return f / f.sum(axis=1, keepdims=True)
+
+
 #: (a, b) of IP(+1 -> +2) - IP(0 -> +1) = a + b / sqrt(N_C) [eV], over the 743 PAHdb v4.00 molecules of ``library_v400``
 #: whose neutral, cation and dication have DFT thresholds (rms 0.24 eV; 3.9, 2.8, 2.2 eV at N_C 24, 54, 96): the step of
 #: a molecule with no computed dication (``extend_ladder``)
@@ -1446,6 +1473,28 @@ class Population:
             self._arrays[key] = (k_up, lkh, B)
         return self._arrays[key]
 
+    def _double_stack(self, shape):
+        """k2[s, slot]: the part of k_up (G0 = 1) that removes two electrons (``Params.double_ionisation``), the same
+        sigma, field and yield times ``photo.double_fraction`` above ``double_threshold``; 0 for anions, the top state
+        (every ionisation out of it is an explosion) and with "none"."""
+        key = ("double", shape)
+        if key not in self._arrays:
+            if self.p.double_ionisation not in ("none", "knockout"):
+                raise ValueError(f"double_ionisation must be 'none' or 'knockout', not {self.p.double_ionisation!r}")
+            if self.p.double_ionisation != "none" and self.p.ionising_photons_heat:
+                raise ValueError("double_ionisation is not combined with ionising_photons_heat: the bases' deposits take one electron")
+            k2 = np.zeros((len(self.library), len(self.zs)))
+            if self.p.double_ionisation == "knockout":
+                field1 = _unit_field(shape)
+                for s, mol in enumerate(self.library):
+                    for z in self._live_charges(mol, shape):
+                        if 0 <= z < max(mol.charges):
+                            sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+                            y2 = _yield(mol, z, self.p) * photo.double_fraction(E_PH, double_threshold(mol, z))
+                            k2[s, z - self.zmin] = photo.ionisation_rate(field1, sigma, y2, E_PH)
+            self._arrays[key] = k2
+        return self._arrays[key]
+
     def _state_modes(self, b):
         """[(freqs, IR power per mode at G0 = 1)] of N_H0 ... N_H0-3 of basis ``b``; empty past the ladder."""
         out = [(b.freqs_cm, b.emitted)] + list(zip(b.ladder_freqs, b.ladder_emitted))
@@ -1521,6 +1570,9 @@ class Population:
                     if z in mol.charges and z + 1 in mol.charges:
                         up[s, z - self.zmin] += ion_up_rate(mol, z, env, self.p)
         down = self._capture_rates(env.temperature_k) * env.n_e
+        if self.p.double_ionisation != "none":
+            k2 = env.g0 * self._double_stack(shape)
+            return _chain_fractions(up - k2, k2, down, live)
         both = live[:, :-1] & live[:, 1:]
         logr = np.zeros_like(up[:, :-1])
         logr[both] = np.log(up[:, :-1][both]) - np.log(down[:, 1:][both])
@@ -1545,9 +1597,14 @@ class Population:
                     sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
+                    ek = electron_energy(mol, z, self.p, partition)
+                    if self.p.double_ionisation != "none" and 0 <= z < max(mol.charges):
+                        # a double ionisation's two electrons share the excess over IP(z) + IP(z+1) as one would
+                        dip = double_threshold(mol, z)
+                        p2 = photo.double_fraction(E_PH, dip)
+                        ek = (1.0 - p2) * ek + p2 * photo.photoelectron_energy(E_PH, dip, partition)[0]
                     G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
-                                                        state_threshold(mol, z),
-                                                        electron_energy_ev=electron_energy(mol, z, self.p, partition))
+                                                        state_threshold(mol, z), electron_energy_ev=ek)
             self._arrays[key] = (G, A)
         return self._arrays[key]
 
@@ -1620,6 +1677,12 @@ class Population:
         photo_up[:, -1] = 0.0
         tops = np.array([max(m.charges) - self.zmin for m in self.library])
         photo_up[np.arange(len(self.library)), tops] = 0.0                     # no chain step out of the top state
+        if self.p.double_ionisation != "none":
+            # a double step frees two electrons; the ones from the state below the top leave the chain (chain_overflow)
+            k2 = env.g0 * self._double_stack(field_shape(env))
+            k2_in = k2.copy()
+            k2_in[np.arange(len(self.library)), tops - 1] = 0.0
+            photo_up += 2.0 * k2_in - k2
         if self.zmin == -1:
             photo_up[:, 0] += anion_associative_detachment(self.p) * env.n_h   # it frees an electron too
         capture = self._capture_rates(env.temperature_k) * env.n_e
@@ -1648,7 +1711,10 @@ class Population:
         f = self.charge_matrix(env)
         top = np.array([max(m.charges) - self.zmin for m in self.library])
         rows = np.arange(len(self.library))
-        return env.g0 * f[rows, top] * k_up[rows, top]
+        out = env.g0 * f[rows, top] * k_up[rows, top]
+        if self.p.double_ionisation != "none":         # double ionisations out of the state below the top explode too
+            out = out + env.g0 * f[rows, top - 1] * self._double_stack(field_shape(env))[rows, top - 1]
+        return out
 
     def band_fluxes(self, env):
         """(F[s, b] band power per molecule, weighted over charge and hydrogenation (``emission_weights``),
