@@ -894,6 +894,31 @@ def test_cold_limit_ladder_gives_no_basis_to_states_the_field_cannot_reach():
         population.Population(mols, WINDOWS, params=Params(charge_ladder="x"))
 
 
+def test_compact_state_spectra_hold_every_emitting_state_and_no_unreachable_basis():
+    """``spectral_fit.state_table`` and ``molecule_table`` skip the states with f = 0 (``Population._live``) as the
+    population's own tables do (each PDRs4All worker otherwise built all of them, serially). The compact state spectra
+    (one row per live state with modes) give the spectra ``molecule_spectra`` sums from the modes, and so do
+    ``Population.spectra`` and the split by charge."""
+    from pycalima.pahchem import spectral_fit
+
+    pop = population.Population(_ladder_molecules(), WINDOWS)
+    env = Environment("cloud", 10.0, 50.0, 10.0 * np.sqrt(100.0) / 1e3, 100.0, None)          # psi = 1e3
+    shape = population.field_shape(env)
+    nu = np.linspace(500.0, 3200.0, 50)
+    S = spectral_fit.shaped_state_spectra(pop, shape, nu)
+    P = spectral_fit.molecule_spectra(pop, env, nu)
+    for m in pop.library:
+        dead = [z for z in m.charges if z not in pop._live_charges(m, shape)]
+        assert dead and all(pop._ckey(shape, z, m) not in m._cache for z in dead)
+    assert S.rows.shape[0] < len(pop.library) * len(pop.zs) * population.N_EMITTING / 2
+    W = pop.emission_weights(env)
+    assert env.g0 * S.combine(W) == pytest.approx(P, rel=1e-12)
+    w = np.arange(1.0, len(pop.library) + 1.0)
+    assert S.by_slot(W, w, len(pop.zs)).sum(axis=0) == pytest.approx(w @ S.combine(W), rel=1e-12)
+    # the population's own, with BandShape()'s fixed lines (15 cm^-1 Lorentzians shifted by -15 cm^-1)
+    assert pop.spectra(env, nu, fwhm_cm=15.0, shift_cm=-15.0) == pytest.approx(P, rel=1e-12)
+
+
 def test_highly_charged_states_ionise_only_above_their_threshold_and_conserve_energy():
     """A state whose threshold lies above Y_UNITY_EV ionises from it on, not below. In an EUV field its non-ionising
     deposits run above E_DEP on the photon nodes (``deposit_grid``), and its IR power is its non-ionising absorption

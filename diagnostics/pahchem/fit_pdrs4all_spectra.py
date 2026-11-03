@@ -256,7 +256,7 @@ def _scan(ctx, t, shape):
     for (g0, n_h, ne, temp, n_tot), keep in zip(cells, keeps):
         env = Environment(t, g0, n_h, ne, temp, teff)
         W = pop.emission_weights(env)
-        P = (g0 * np.einsum("szk,szki->si", W, S))[keep].T
+        P = (g0 * S.combine(W))[keep].T
         fit = spectral_fit.fit_spectrum(y, P, ctx["C_"])
         w = np.zeros(len(lib))
         w[keep] = fit.weights
@@ -556,6 +556,9 @@ def main():
     ap.add_argument("--fit-shape", action="store_true",
                     help="fit the global band shape (shifts per mode class, two widths, Lorentzian or Gaussian) per template")
     args = ap.parse_args()
+    # macOS keeps freed large blocks dirty for reuse (libmalloc's large cache): the anions' Attachment builds left
+    # ~2.4 GB of them in each process, against ~0.4 GB live (2026-11-02). The workers, started after this, go without.
+    os.environ.setdefault("MallocLargeCache", "0")
     if args.fit_shape:
         res = run_shape(args)
         summarise_shape(res)

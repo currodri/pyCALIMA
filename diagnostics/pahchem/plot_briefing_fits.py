@@ -92,7 +92,7 @@ def load(cache):
         env = Environment(t, b["g0"], b["n_h"], b["n_e"], conditions.bounds(card[t]["t_gas"])[0], teff)
         S = spectral_fit.shaped_state_spectra(pop, fshape, res["grid"].nu, run["shape"])
         f = pop.charge_matrix(env)
-        by_z = b["g0"] * np.einsum("s,szk,szki->zi", b["weights"], pop.emission_weights(env), S)
+        by_z = b["g0"] * S.by_slot(pop.emission_weights(env), b["weights"], len(pop.zs))
         if not np.allclose(by_z.sum(0), b["pah"], rtol=1e-8, atol=1e-12 * b["pah"].max()):
             raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum")
         split = {name: by_z[[i for i, z in enumerate(pop.zs) if sel(z)]].sum(0) for name, sel, _ in CLASSES}
@@ -180,13 +180,18 @@ def fig_template(t, d, grid, out_dir):
 def fig_pipeline(t, d, pop, grid, out_dir):
     """One molecule, from its IR modes to the fitted population, at the best cell of template t."""
     b, env, f, S = d["best"], d["env"], d["f"], d["S"]
-    contrib = b["weights"] * (b["g0"] * np.einsum("sz,szi->si", f, S)).sum(1)
+    W = pop.emission_weights(env)
+    contrib = b["weights"] * (b["g0"] * S.combine(W)).sum(1)
     s = int(np.argmax(contrib))
     mol = pop.library[s]
     name = mol.name.split(" ")[0]
     formula = "".join(rf"$_{{{c}}}$" if c.isdigit() else c for c in name)
     fs = ("kurucz", env.teff_k)
     zmain = [z for z in mol.charges if z in (0, 1)]
+    charges = pop._live_charges(mol, fs)
+    # charge z's share of the molecule's spectrum over its hydrogenation states, f(z) h_k at G0 = 1
+    part_z = {z: sum(W[s, z - pop.zmin, k] * S.state(s, z - pop.zmin, k) for k in range(population.N_EMITTING))
+              for z in charges}
     lam_all = grid.lam_um
     fig, axes = plt.subplots(4, 1, figsize=(12, 13), sharex=True, facecolor="w", gridspec_kw={"hspace": 0.32})
     colours = {name_: c for name_, _, c in CLASSES}
@@ -206,7 +211,7 @@ def fig_pipeline(t, d, pop, grid, out_dir):
     # 2: the fitted band shape
     ax = axes[1]
     for z in zmain:
-        yz = S[s, z - pop.zmin]
+        yz = S.state(s, z - pop.zmin, 0)                         # the intact molecule
         lam, yy = _segments(lam_all, yz / yz.max())
         ax.plot(lam, yy, color=colours[cls(z)], lw=1.5, label=rf"charge ${z:+d}$")
     sh = d["shape"]
@@ -218,12 +223,12 @@ def fig_pipeline(t, d, pop, grid, out_dir):
     # 3: charge fractions at the conditions
     ax = axes[2]
     tot = np.zeros(lam_all.size)
-    for z in mol.charges:
-        tot += env.g0 * f[s, z - pop.zmin] * S[s, z - pop.zmin]
+    for z in charges:
+        tot += env.g0 * part_z[z]
     norm = tot.max()
     base = np.zeros(lam_all.size)
-    for z in mol.charges:
-        part = env.g0 * f[s, z - pop.zmin] * S[s, z - pop.zmin] / norm
+    for z in charges:
+        part = env.g0 * part_z[z] / norm
         lam, lo_, hi_ = _segments(lam_all, base, base + part)
         ax.fill_between(lam, lo_, hi_, color=colours[cls(z)], lw=0, alpha=0.85,
                         label=rf"charge ${z:+d}$: $f = {f[s, z - pop.zmin]:.2f}$")

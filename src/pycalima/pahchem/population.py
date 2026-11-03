@@ -506,13 +506,9 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         sigma = photo.sigma_uv(mol.nc, -1, E, params.uv_cross_section) * params.sigma_scale
         y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
                                 out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
-        akey = ("attach_detach", float(grain_cm), f_att)
-        if akey not in mol._cache:
-            mol._cache[akey] = Attachment(mol.species[0], mol.species[-1], ea,
-                                                     chemistry.disc_radius_cm(mol.nc),
-                                                     e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm,
-                                                     capture_fraction=f_att)
-        at = mol._cache[akey]
+        # not kept after: its arrays are ~0.5 MB a molecule (0.4 GB for v4.00), and the result is cached by grid
+        at = Attachment(mol.species[0], mol.species[-1], ea, chemistry.disc_radius_cm(mol.nc),
+                        e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm, capture_fraction=f_att)
         p_det, eps_cm = at.delayed_detachment(E * dos.CM_PER_EV)
         if valence:
             ipv = anion_valence_threshold(mol)
@@ -904,6 +900,41 @@ def _loss_converged(state):
 
 #: hydrogenation states that emit per charge state: N_H0 and the ladder's N_H0-1 ... N_H0-3 (``StateBasis``)
 N_EMITTING = 4
+#: environments whose hydrogenation chains a Population keeps (``_chain_distributions``): the 48 cells of a PDRs4All
+#: template, ~0.5 MB each for v4.00
+CHAIN_MEMO = 64
+
+
+@dataclass(frozen=True)
+class StateSpectra:
+    """Spectra of the states that hold molecules, one row each: ``rows[r]`` on the caller's grid is state (molecule
+    ``s[r]``, charge slot ``slot[r]`` = z - zmin, hydrogenation N_H0 - ``k[r]``), at G0 = 1. The dense S[s, slot, k, i]
+    is zero everywhere else: with the cold-limit ladder 91 % of v4.00 under the Orion Bar field (7329 of 78320 charge
+    states live), 1.6 GB on the fit grid against these rows' 0.16 GB."""
+
+    rows: np.ndarray             # (n_states, n_nu)
+    s: np.ndarray
+    slot: np.ndarray
+    k: np.ndarray
+    n_mol: int
+
+    def _sum(self, values, groups, n_groups):
+        from scipy.sparse import csr_matrix
+
+        return np.asarray(csr_matrix((values, (groups, np.arange(self.s.size))), shape=(n_groups, self.s.size)) @ self.rows)
+
+    def combine(self, W):
+        """P[s, i] = sum over slot and k of W[s, slot, k] S[s, slot, k, i] (W: ``Population.emission_weights``)."""
+        return self._sum(W[self.s, self.slot, self.k], self.s, self.n_mol)
+
+    def by_slot(self, W, weights, n_slots):
+        """Z[slot, i] = sum over s and k of weights[s] W[s, slot, k] S[s, slot, k, i]: the spectrum by charge slot."""
+        return self._sum(np.asarray(weights)[self.s] * W[self.s, self.slot, self.k], self.slot, n_slots)
+
+    def state(self, s, slot, k):
+        """S[s, slot, k, :] (zeros for a state without a row)."""
+        r = np.flatnonzero((self.s == s) & (self.slot == slot) & (self.k == k))
+        return self.rows[r[0]] if r.size else np.zeros(self.rows.shape[1])
 
 
 def deposit_grid(field, sigma, yield_):
@@ -1163,6 +1194,7 @@ class Population:
         self._index = {id(m): s for s, m in enumerate(given)} | {id(m): s for s, m in enumerate(self.library)}
         self._arrays = {}
         self._capture = {}
+        self._chains = {}                # environment -> ``_chain_distributions``, the last CHAIN_MEMO of them
 
     def _own(self, mol):
         """The population's copy of ``mol`` (its ladder extended, ``extend_ladder``), or ``mol`` if not in it."""
@@ -1629,8 +1661,8 @@ class Population:
         return self._arrays[key]
 
     def hydrogenation_state_spectra(self, shape, nu_cm, fwhm_cm=None, shift_cm=None):
-        """S[s, slot, k, i]: IR power per cm^-1 of N_H0 - k of every state at G0 = 1 (``state_spectra`` per k; the
-        dehydrogenated states take the emission-temperature shares of N_H0)."""
+        """``StateSpectra``: IR power per cm^-1 of N_H0 - k of every live state with modes at G0 = 1 (``state_spectra``
+        per k; the dehydrogenated states take the emission-temperature shares of N_H0)."""
         nu = np.asarray(nu_cm, dtype=float)
         conv = self.band_convention if fwhm_cm is None and shift_cm is None else None
         key = ("hspectra", shape, hashlib.sha1(nu.tobytes()).hexdigest(), fwhm_cm, shift_cm, conv)
@@ -1638,20 +1670,22 @@ class Population:
             self.prepare(shape)
             if conv is not None and conv.kind == "tdep":
                 self.prepare_temperature_shares(shape)
-            S = np.zeros((len(self.library), len(self.zs), N_EMITTING, nu.size))
+            rows, index = [], []
             for s, mol in enumerate(self.library):
                 for z in self._live_charges(mol, shape):
                     for k, (f_, e_) in enumerate(self._state_modes(self.basis(mol, z, shape))):
                         if f_.size:
-                            S[s, z - self.zmin, k] = self._line_spectrum(mol, z, shape, f_, e_, nu, fwhm_cm, shift_cm)
-            self._arrays[key] = S
+                            rows.append(self._line_spectrum(mol, z, shape, f_, e_, nu, fwhm_cm, shift_cm))
+                            index.append((s, z - self.zmin, k))
+            s_, slot, k_ = np.array(index, dtype=np.int64).reshape(-1, 3).T
+            self._arrays[key] = StateSpectra(np.array(rows).reshape(-1, nu.size), s_, slot, k_, len(self.library))
         return self._arrays[key]
 
     def spectra(self, env, nu_cm, **profile):
         """P[s, i]: the spectrum of every molecule, its charge and hydrogenation states at ``env`` (weighted by
         ``emission_weights``) [cm^-1 s^-1 per cm^-1]."""
         S = self.hydrogenation_state_spectra(field_shape(env), nu_cm, **profile)
-        return env.g0 * np.einsum("szk,szki->si", self.emission_weights(env), S)
+        return env.g0 * S.combine(self.emission_weights(env))
 
     def state_band_fluxes(self, mol, z, env):
         """Band power per molecule of charge z [cm^-1 s^-1], one value per band."""
@@ -1692,14 +1726,21 @@ class Population:
         return np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
 
     def _chain_distributions(self, env):
-        """[f(N_H), N_H = 0 ... N_H0] of every molecule: the chain, its rates averaged over the charge fractions."""
+        """[f(N_H), N_H = 0 ... N_H0] of every molecule: the chain, its rates averaged over the charge fractions. Those of
+        the last CHAIN_MEMO environments are kept: a spectral fit asks for each cell's several times, scan after scan."""
+        if env in self._chains:
+            return self._chains[env]
         f = self.charge_matrix(env)
         tab_h, tab_h2 = self._ladders(field_shape(env))
         lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0))     # charge-averaged loss rates
         lh2 = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h2, env.g0))
         k_add = np.einsum("sz,sz->s", f, self._addition_rates(env))
-        return [_chain_distribution(mol.nh, mol.edges.get("solo", 0), lh[s], lh2[s], k_add[s])
-                for s, mol in enumerate(self.library)]
+        out = [_chain_distribution(mol.nh, mol.edges.get("solo", 0), lh[s], lh2[s], k_add[s])
+               for s, mol in enumerate(self.library)]
+        if len(self._chains) >= CHAIN_MEMO:
+            del self._chains[next(iter(self._chains))]                         # the oldest
+        self._chains[env] = out
+        return out
 
     def hydrogenation_fractions(self, env):
         """(h[s, k], deeper[s]): steady-state shares of N_H0 - k for the states that emit (k < ``N_EMITTING``,
