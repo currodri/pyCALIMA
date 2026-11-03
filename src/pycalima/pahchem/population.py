@@ -124,9 +124,11 @@ HARTREE_EV = 27.211386
 _FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
 EDGES = ("solo", "duo", "trio", "quartet")
 
-#: above this every state ionises (or detaches) on absorption: WDB06's rule for a <~ 6 A (their eq. 15), and the
-#: lab yields reach ~1 by 20-25 eV (Jochims+96, Wenzel+20). Below it the lab laws hold. A state whose threshold lies
-#: above it (highly charged) ionises from its threshold on, not below (``_yield``).
+#: above this every state ionises (or detaches) on absorption: the lab yields reach ~1 by 15-20 eV, of neutrals
+#: (Jochims+96) and of cations (Zhen+16 0.8-0.9 at 18 eV; Wenzel+20 0.87-0.98 at 20 eV). Below it the lab laws hold.
+#: Not WDB06: their eq. 15 (a <= 6 A) restores WD01's y0 only and keeps the Coulomb-escape factor y2, which the cation
+#: yields exceed ~2x. A state whose threshold lies above it (highly charged) ionises from its threshold on, not below
+#: (``_yield``); no yield above +1 -> +2 has been measured.
 Y_UNITY_EV = 20.0
 #: the RAMSES-RTZ group edges above 13.6 eV, the PARTITION_NODES energies and the C K edge [eV]
 EUV_NODES_EV = (15.2, 18.0, 20.0, 21.9, 24.59, 54.42, 284.2, 291.0)
