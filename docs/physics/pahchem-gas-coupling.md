@@ -306,6 +306,52 @@ higher charges, as before). In the population every molecule runs from its lowes
     (ψ = 10⁶) at G0 = 10⁴; C54 at 2×10⁻⁹ s⁻¹ (ψ = 10⁶); the larger PAHs never.
   - So above +3 the charge in EUV fields rests on unit yields above max(20 eV, IP) and on the continued DFT step.
     Neither is measured; WDB06's bulk-grain yield is not measured for molecules either.
+- **The Coulomb-escape bound** (opt-in, `Params.coulomb_escape`, 2026-11-03; `photo.yield_coulomb_window`):
+  - *The literature* (two searches of 2026-11-03, quotes checked against the full texts):
+    - No yield of any PAH ion beyond +1 → +2 is measured or computed. The C60^q+ series (Scully+05, q = 1–3) is
+      from ions of ≥ 100 eV internal energy (ECR source; Douix+17, whose cold-ion C60⁺ cross section reaches the
+      computed absorption at 22 eV).
+    - WD01's escape factor y2 is bulk physics: its parabolic energy distribution comes from bulk photoemission
+      (their footnote 3, Draine 1978), and their yields are fitted at Z = 0 only, on coronene. WDB06's eq. 15
+      (a ≤ 6 Å) restores WD01's y0 and keeps y2. Only codes that copy WD01 use it for PAHs (SHIVA, Murga+22, Cloudy);
+      the molecular models shift the lab ramp to IP(Z) "due to the lack of available data" (Sidhu+22).
+    - At Z = +1 the measured yields are about twice what y2 allows. At 15 eV, C30–C36 cations give 0.83–0.88 and
+      C48H20⁺ 0.98 (Wenzel+20), against y2 ≤ 0.35–0.48; cold C60⁺ gives ≈ 1 at 14–25 eV (Douix+17, ±21 %) against
+      0.41–0.68.
+  - *The physics.* An absorption above IP(Z) makes a particle–hole excitation. The electron's energy at infinity,
+    E′, lies between −D and E − IP(Z), with D = (Z+1) B and B the ion's IP step per charge (e²/C; the IPs are
+    linear in q, Holm+11). Electrons with E′ > 0 escape. Those with E′ < 0 are bound by the ion's Coulomb field in
+    superexcited states, whose energy is above IP(Z), so they can still autoionise. WD01's y2 is the limit where
+    none of them does; pahchem's unit yield the limit where all do. This does not double-count the Coulomb term in
+    IP(Z): E − IP(Z) uses it once, and D bounds the states it binds.
+    - A bound state at fractional depth u = −E′/D turns at r = a/u at every Z. It returns to the molecule with a
+      period ∝ (a/u)^{3/2} / √(Z+1) and crosses it faster at higher Z. So its autoionisation rate does not fall with
+      Z at fixed u: it rises ∝ √(Z+1) while the molecule's inner potential sets the crossing speed, and is flat
+      once the Coulomb drop does.
+    - The competitor is relaxation into vibrations. Excited PAH cations relax by internal conversion "within a
+      few tens of fs", 29–55 fs from naphthalene to tetracene, slower with size (Marciniak+15). Then
+      p(u) = 1 / (1 + (u_c/u)^{3/2}) has the same u_c at every Z, or a smaller one.
+    - u_c = 0.354 (`photo.ESCAPE_DEPTH`) is the largest the cation data allow. It reproduces C30H14⁺'s 0.83 at
+      15 eV less the 21 % calibration error, taking every shortfall (fragmentation too) as the window's.
+    - The yield is then a function of (E − IP)/D alone: 0.58 at threshold (every electron starts bound), 0.55 at
+      0.14 D above it (the parabola's dip), 0.73 at D, 1 far above. WD01's y2 gives ≤ 0.2 over the first
+      0.3 D. "window" caps the lab yields of Z ≥ +2 (and the top state's) at this; "y2" at u_c = ∞, for comparison.
+      Z ≤ +1 keep their measured laws.
+  - *Not included:* the threshold law of the autoionising channel, the energy of the autoionised electrons (the
+    photoelectric heating keeps `electron_energy`), and multiple ionisation.
+  - *Step 4 with the bound* (`check_charge_ladder_euv.py`; `results/pahchem/validation_2026-11-03/`):
+    - In fields cut at 13.6 eV "window" changes nothing: below 13.6 eV the lab ramps of Z ≥ +2 lie under the cap.
+      "y2" lowers ⟨Z⟩ by ≤ 0.37.
+    - To 100 eV, "window" scales the photoionisation rates by 0.91–0.95 at +2, 0.63–0.94 at +4 and 0.56–0.57 from
+      +10 up; "y2" by 0.56–0.87, 0.20–0.60 and 0.002–0.09.
+    - At ψ = 10⁶, ⟨Z⟩ for C24–C216 is 3.84, 6.89, 8.70, 10.85, 12.74 by default, 3.75, 6.18, 7.80, 9.77, 11.47 with
+      "window" (0.1–1.3 lower) and 3.29, 4.49, 5.74, 7.23, 8.42 with "y2". WDB06 gives 4.14, 5.66, 7.04, 8.34, 9.57.
+      With the bound pahchem still exceeds WDB06 at ψ = 10⁶ for N_C ≥ 54, and stays below it up to ψ ≈ 10⁵.
+    - Γ_PE/WDB06 at ψ = 10⁶ falls from 21.5 to 14.4 (C24) and from 10.7–12.6 to 10.5–11.8 (N_C ≥ 54).
+    - C24's Coulomb explosions halve (1.2×10⁻⁵ → 6.0×10⁻⁶ s⁻¹); C54's fall from 2.2×10⁻⁹ to 1.6×10⁻¹⁰ s⁻¹.
+    - So the escape physics, held to the cation data, lowers the EUV charge by ≲ 10 %. pahchem's excess over WDB06 at
+      the highest ψ comes from the bound electrons that autoionise, which WD01 drop and the cation data require: with
+      "y2" pahchem falls below WDB06 at every ψ for N_C ≥ 54.
 
 **Energies above 21 eV, which the ladder needs:**
 - **Deposits.** A state that absorbs without ionising above E_DEP's top (21 eV) gets the photon nodes above it on

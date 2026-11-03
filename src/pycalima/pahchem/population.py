@@ -377,7 +377,7 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     E = np.asarray(energy_ev, dtype=float)
     if z == max(mol.charges):
         # the top state ionises out of the chain (``chain_overflow``) only above Y_UNITY_EV and its own threshold
-        return (E >= max(Y_UNITY_EV, top_threshold(mol))).astype(float)
+        return _coulomb_escape(mol, z, params, E, (E >= max(Y_UNITY_EV, top_threshold(mol))).astype(float))
     threshold = mol.ionisation_ev[z]
     if z == -1 and params.detachment == "unity":
         return (E >= threshold).astype(float)
@@ -396,7 +396,20 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     else:
         y = photo.yield_jochims1996(E, threshold)
     # unity above Y_UNITY_EV only above the threshold too (thresholds above 20 eV: highly charged states), none below it
-    return np.where(E >= max(Y_UNITY_EV, threshold), 1.0, np.where(E < threshold, 0.0, y))
+    return _coulomb_escape(mol, z, params, E, np.where(E >= max(Y_UNITY_EV, threshold), 1.0, np.where(E < threshold, 0.0, y)))
+
+
+def _coulomb_escape(mol, z, params, E, y):
+    """``y`` capped for z >= 2 by ``photo.yield_coulomb_window`` with D = (z+1) times the state's IP step
+    (``Params.coulomb_escape``: "window" at u_c = ``photo.ESCAPE_DEPTH``, "y2" at u_c = inf); "none" leaves it."""
+    if params.coulomb_escape not in ("none", "window", "y2"):
+        raise ValueError(f"coulomb_escape must be 'none', 'window' or 'y2', not {params.coulomb_escape!r}")
+    if params.coulomb_escape == "none" or z < 2:
+        return y
+    ip = float(state_threshold(mol, z))
+    depth = (z + 1) * (ip - float(state_threshold(mol, z - 1)))
+    u_c = photo.ESCAPE_DEPTH if params.coulomb_escape == "window" else np.inf
+    return np.minimum(y, photo.yield_coulomb_window(E, ip, depth, u_c))
 
 
 #: (a, b) of IP(+1 -> +2) - IP(0 -> +1) = a + b / sqrt(N_C) [eV], over the 743 PAHdb v4.00 molecules of ``library_v400``

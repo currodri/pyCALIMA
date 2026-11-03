@@ -284,6 +284,44 @@ def yield_wenzel2020(energy_ev, ip_ev, nc, alpha=0.3) -> np.ndarray:
                       alpha + (beta - alpha) * (E - 12.9) / 2.1], beta)
 
 
+#: u_c of ``yield_coulomb_window``: the fractional depth at which a Coulomb-bound photoelectron autoionises as often as
+#: the ion relaxes. The window yield reproduces the lowest measured cation yield, C30H14+ 0.83 at 15 eV (Wenzel+20,
+#: AE2+ 10.2 eV, B from population.LADDER_STEP_FIT), less its 21 % calibration error, 0.66: every shortfall at Z = +1
+#: (fragmentation too) taken as the window's, so the largest u_c the cation data allow, and the bound
+ESCAPE_DEPTH = 0.354
+
+
+def _window_moments(u_c, n=64):
+    """(I1, I2) = int_0^1 (1 - u) p(u) du and int_0^1 u (1 - u) p(u) du, p(u) = 1 / (1 + (u_c / u)^1.5)."""
+    if np.isinf(u_c):
+        return 0.0, 0.0
+    x, w = np.polynomial.legendre.leggauss(n)
+    u = 0.5 * (x + 1.0)
+    p = 1.0 / (1.0 + (u_c / u) ** 1.5)
+    return 0.5 * float(np.sum(w * (1.0 - u) * p)), 0.5 * float(np.sum(w * u * (1.0 - u) * p))
+
+
+def yield_coulomb_window(energy_ev, ip_ev, depth_ev, u_c=ESCAPE_DEPTH) -> np.ndarray:
+    """Escape fraction of the photoelectrons of a positive ion whose Coulomb field binds the slow ones.
+
+    WD01's parabolic distribution of the electron's energy at infinity, 6 (E' + D)(E_h - E') / (E_h + D)^3 on
+    [-D, E_h] (their eq. 10 with E_low = -(Z+1) e^2/a), E_h = E - IP and D = ``depth_ev``, (Z+1) times the ion's IP
+    step per charge (e^2/C, its capacitance). Electrons above 0 escape: WD01's y2 = E_h^2 (E_h + 3D) / (E_h + D)^3. Those
+    below sit in Coulomb-bound (superexcited) states at fractional depth u = -E'/D, whose orbits reach a/u and return to
+    the molecule at a rate ~ u^1.5 that does not fall with Z at fixed u; each autoionises with p(u) = 1 / (1 + (u_c/u)^1.5)
+    against its relaxation into vibrations, adding (6 D^2 / (E_h + D)^3)(E_h I1 + D I2) (``_window_moments``). u_c = inf
+    is WD01's y2 (no bound electron escapes), u_c = 0 unit yield. The yield is a function of E_h / D alone: 6 I2(u_c) at
+    threshold (0.58 at ``ESCAPE_DEPTH``, every electron bound), a dip of the parabola to 0.55 at E_h = 0.14 D, 0.73 at
+    E_h = D, 1 far above. Zero below IP. docs/physics/pahchem-gas-coupling.md section 2.2c.
+    """
+    E = np.asarray(energy_ev, dtype=float)
+    eh = np.maximum(E - ip_ev, 0.0)
+    d3 = (eh + depth_ev) ** 3
+    i1, i2 = _window_moments(u_c)
+    y = (eh**2 * (eh + 3.0 * depth_ev) + 6.0 * depth_ev**2 * (eh * i1 + depth_ev * i2)) / d3
+    return np.where(E > ip_ev, np.clip(y, 0.0, 1.0), 0.0)
+
+
 #: hc [eV um]: Le Page+01 eq. 14 takes every energy in um^-1
 EV_UM = 1.239842
 

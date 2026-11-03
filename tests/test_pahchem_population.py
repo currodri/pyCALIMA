@@ -626,6 +626,24 @@ def test_wenzel_yield_is_the_cation_one_only():
     assert np.allclose(population._yield(mol, 2, energy_ev=E), photo.yield_jochims1996(E, mol.ionisation_ev[2]))
 
 
+def test_coulomb_escape_caps_only_the_unmeasured_charges():
+    """coulomb_escape leaves Z <= +1 (measured) alone and lowers Z >= +2 and the top state's overflow, y2 the most."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = population.extend_ladder(next(m for m in lib if m.name == "C54H18 (37)"))
+    E = np.geomspace(5.0, 100.0, 120)
+    none, win, y2 = (Params(coulomb_escape=c) for c in ("none", "window", "y2"))
+    for z in mol.charges:
+        y0, yw, yy = (population._yield(mol, z, p, energy_ev=E) for p in (none, win, y2))
+        if z <= 1:
+            assert np.array_equal(yw, y0) and np.array_equal(yy, y0)
+        else:
+            assert np.all(yy <= yw + 1e-12) and np.all(yw <= y0 + 1e-12) and yw[-1] < y0[-1]
+    with pytest.raises(ValueError):
+        population._yield(mol, 2, Params(coulomb_escape="sphere"), energy_ev=E)
+
+
 def test_unit_detachment_leaves_an_anion_nothing_to_emit():
     from pycalima.pahchem.baseline import Params
 

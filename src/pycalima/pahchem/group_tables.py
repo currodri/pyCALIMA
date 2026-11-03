@@ -190,6 +190,7 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
     else:
         kernels = [molecule_kernels(j) for j in jobs]
     meta = (f"detachment={params.detachment} yield_model={params.yield_model} yield_cation={params.yield_cation} "
+            f"coulomb_escape={params.coulomb_escape} "
             f"capture_model={params.capture_model} capture_t_power={params.capture_t_power} sigma_scale={params.sigma_scale} "
             f"mn_efficiency={params.mn_efficiency} ion_neutral_efficiency={params.ion_neutral_efficiency} "
             f"metal_adducts={params.metal_adducts} associative_detachment={params.associative_detachment} "

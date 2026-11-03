@@ -74,6 +74,10 @@ class Params:
     ir_scale: float = 1.0                    # proxy for recurrent fluorescence / anharmonic cooling
     yield_model: str = "jochims"             # or "lepage"
     yield_cation: str = "wenzel"             # Z = +1 where Wenzel+20 applies (N_C >= 32, IP2 < 11.3); or "jochims"
+    # population only, Z >= +2 (no yield measured): "none" (the lab laws, unity above max(20 eV, IP)), "window" (opt-in
+    # bound: capped by photo.yield_coulomb_window, the Coulomb-bound electrons autoionising against relaxation, u_c from
+    # the Z = +1 data) or "y2" (WD01's escape fraction, none of them autoionising; excluded at Z = +1)
+    coulomb_escape: str = "none"
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
