@@ -104,6 +104,15 @@ class Params:
     # population only: those deposits also drive H and H2 loss (dissociative recombination; population.deposit_response),
     # the default since 2026-11-03; False: they only heat the IR, as before
     recombination_dissociation: bool = True
+    # population only: each photoionisation (detachment) leaves its product the internal energy E - IP - <E_k>
+    # (photo.photoelectron_energy; the anion's statistical_detachment), followed down the product's own cascade (IR, H and
+    # H2 loss; population.ionisation_deposits), the default since 2026-11-03; False: that energy is lost, as before. Not with
+    # ionising_photons_heat, which puts it in the absorbing state's cascade instead (Montillaud's and the BaselineModel's)
+    ionisation_heating: bool = True
+    # population only: where the measured photoelectron shares (photo.photoelectron_energy, neutrals) are read for a state
+    # of threshold T: "photon" (at the photon energy, every state alike; the default) or "neutral" (opt-in: at
+    # hv - (T - IP(0)), the molecule's neutral ladder shifted rigidly by its charge, as the Octopus ladders shift)
+    photoelectron_reference: str = "photon"
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
     # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)

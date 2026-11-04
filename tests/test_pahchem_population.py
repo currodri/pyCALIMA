@@ -274,6 +274,36 @@ def test_photoelectron_energy_conserves_the_excess_and_follows_the_measured_shar
     assert ke[3] == pytest.approx(0.56 * 11.5) and ei[5] == pytest.approx(ei[4]) == pytest.approx(ei[6])
 
 
+def test_neutral_reference_reads_a_charge_state_on_its_neutral_ladder():
+    """``reference_ev``: a state of threshold T reads the shares at E - (T - IP0). The neutral is unchanged, the excess still
+    splits exactly, below 13.6 eV a charged state keeps the constant share, and far above every charge keeps the neutral's
+    hole."""
+    from pycalima.pahchem import photo
+
+    E = np.linspace(5.0, 300.0, 2000)
+    ip0 = 6.5
+    assert np.array_equal(photo.photoelectron_energy(E, ip0, reference_ev=ip0)[0], photo.photoelectron_energy(E, ip0)[0])
+    hole = photo.photoelectron_energy(np.array([300.0]), ip0)[1][0]
+    for thr in (9.3, 12.1, 25.0, 40.0):
+        ke, ei = photo.photoelectron_energy(E, thr, reference_ev=ip0)
+        assert np.allclose(ke + ei, np.clip(E - thr, 0.0, None))
+        lo = (E >= thr) & (E <= 13.6)
+        assert np.allclose(ke[lo], 0.46 * (E[lo] - thr))
+        assert np.allclose(ei[E - thr > 21.9 - ip0], hole)
+
+
+def test_neutral_reference_leaves_lyman_cut_heating_alone_but_the_anions():
+    """In a field cut at 13.6 eV the shifted reading changes no neutral and no cation (their shifted energies stay below
+    13.6 eV, where the share is constant): with the anion's electron taking E - EA (Jochims), Gamma_PE per charge is the same."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    env = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
+    g = {r: population.Population([mol], WINDOWS, params=Params(detachment="jochims", photoelectron_reference=r))
+         .photoelectric_heating(env)[1] for r in ("photon", "neutral")}
+    assert np.allclose(g["photon"], g["neutral"], rtol=1e-12, atol=0.0) and g["photon"].any()
+
+
 def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     """For a field cut at 13.6 eV the EUV grid adds nothing (rates as on the 5-13.6 eV grid alone). With EUV and
     ionising deposits, every absorbed eV ends up as vibrational deposit, photoelectron energy or ionisation
@@ -293,7 +323,7 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
         y = population._yield(own, z, pop.p)
         assert pop.basis(own, z, ("kurucz", 40000)).k_up == pytest.approx(
             photo.ionisation_rate(f1, sig[fuv], y[fuv], population.E_PH[fuv]), rel=1e-6)
-    heat = population.Population([mol], WINDOWS, params=replace(Params(), ionising_photons_heat=True))
+    heat = population.Population([mol], WINDOWS, params=replace(Params(), ionising_photons_heat=True, ionisation_heating=False))
     shape = ("kurucz", 40000, 99.0)
     fe = population._unit_field(shape)
     own = heat.library[0]
@@ -312,6 +342,51 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
     assert z_mean(euv) > z_mean(cut)
     assert heat.photoelectric_heating(euv)[0][0] > 2.0 * heat.photoelectric_heating(cut)[0][0]
     assert heat.chain_overflow(cut)[0] == 0.0 < heat.chain_overflow(euv)[0]
+
+
+@pytest.mark.parametrize("double", ["none", "knockout"])
+def test_ionisation_heating_closes_each_ionisation_in_its_product(double):
+    """``Params.ionisation_heating``: out of every state below the top, the product's deposit, the electrons' energy (as
+    Gamma_PE takes it, ``_pe_stack``) and the ionisation work add up to the energy the ionising absorptions take, with one
+    electron and with two; the rates are the charge chain's; one event's IR in the product is its mean deposit; and the
+    band power rises by exactly those deposits."""
+    from pycalima.pahchem import photo
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    shape = ("kurucz", 40000, 99.0)                                  # below the C 1s edge: valence only
+    f1 = population._unit_field(shape)
+    pops = {h: population.Population([mol], {"all": (1.0, 1e4)}, params=Params(double_ionisation=double, ionisation_heating=h))
+            for h in (False, True)}
+    pop = pops[True]
+    own = pop.library[0]
+    G, _ = pop._pe_stack(shape, photo.PHOTOELECTRON_PARTITION)
+    k_up, k2 = pop._stack(shape)[0], pop._double_stack(shape)
+    live = pop._live_charges(own, shape)
+    for z in live[:-1]:                                              # the top state's ionisations leave the chain
+        i = z - pop.zmin
+        rows = population.ionisation_deposits(own, z, pop.p, shape)
+        k = {dz: kk for dz, kk, _, _ in rows}
+        assert sum(k.values()) == pytest.approx(k_up[0, i], rel=1e-9)
+        assert k.get(2, 0.0) == pytest.approx(k2[0, i], rel=1e-9, abs=1e-300)
+        sigma, y = population.valence_sigma(own, z, pop.p, shape), population._yield(own, z, pop.p)
+        dep = sum(kk * float(w @ e) for _, kk, e, w in rows)
+        work = k.get(1, 0.0) * population.state_threshold(own, z) + k.get(2, 0.0) * population.double_threshold(own, z)
+        assert dep + G[0, i] + work == pytest.approx(f1.photon_rate(sigma * y * population.E_PH, population.E_PH), rel=1e-9)
+    for z in (1, 2):
+        rows = population.ionisation_products(own, z, pop.p, shape)
+        assert [r[0] for r in rows] == ([1, 2] if double == "knockout" and z == 2 else [1])
+        for (_, _, e, w), members in zip(rows, pop._response(own, z, ("ion", shape))[1]):
+            assert members[0][0].sum() / dos.CM_PER_EV == pytest.approx(float(w @ e), rel=5e-3)
+    env = Environment("euv", 1e4, 1e3, 30.0, 500.0, 40000, 99.0)
+    F = {h: p_.band_fluxes(env)[0][0, 0] for h, p_ in pops.items()}
+    h = pop.hydrogenation_fractions(env)[0][0]
+    flows = [(z, idx, rate) for _, z, which, idx, rate, _ in pop._deposit_flows(env) if which == ("ion", shape)]
+    added = sum(rate * float(np.sum(h[: len(m)] * [em.sum() for em, _, _ in m[:population.N_EMITTING]]))
+                for z, idx, rate in flows for m in [pop._response(own, z, ("ion", shape))[1][idx]])
+    assert flows and F[True] - F[False] == pytest.approx(added, rel=1e-2)          # the window misses Lorentzian wings
+    with pytest.raises(ValueError, match="twice"):
+        population.Population([mol], WINDOWS, params=Params(ionising_photons_heat=True))
 
 
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():
@@ -468,8 +543,8 @@ def test_kshell_auger_raises_the_charge_in_x_rays_and_conserves_electrons():
 
 def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alone():
     """X-rays only: no photon deposits (the loss tables are 0 and stay 0), so captures and Auger decays are the H loss,
-    and dissociative recombination lowers f(N_H0). A plain chain (no C 1s, no ions) keeps its band fluxes: the
-    captures run at the rate the bases emit them at."""
+    and dissociative recombination lowers f(N_H0). A plain chain (no C 1s, no ions, no ionisation heating) keeps its
+    band fluxes: the captures run at the rate the bases emit them at."""
     from dataclasses import replace
 
     from pycalima.pahchem.baseline import Params
@@ -482,22 +557,25 @@ def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alo
     assert not tab.any() and not on._interp_g0(tab, xray.g0).any()
     assert on.hydrogenation_fractions(xray)[0][0, 0] < off.hydrogenation_fractions(xray)[0][0, 0]
     pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
-    F = on.band_fluxes(pdr)[0]
-    W = on.emission_weights(pdr)
-    plain = pdr.g0 * np.einsum("szk,szkb->sb", W, on._hydrogenation_bands(population.field_shape(pdr)))
+    chain = population.Population([mol], WINDOWS, params=Params(ionisation_heating=False))
+    F = chain.band_fluxes(pdr)[0]
+    W = chain.emission_weights(pdr)
+    plain = pdr.g0 * np.einsum("szk,szkb->sb", W, chain._hydrogenation_bands(population.field_shape(pdr)))
     assert np.allclose(F, plain, rtol=1e-9)
 
 
 def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains():
     """The spectrum of the deposits integrates to their flows times the IR per deposit; a plain chain (no C 1s, no
-    ions) builds no deposit rows. The fits' shaped path (band_shape) carries the same power."""
+    ions, no ionisation heating) builds no deposit rows. The fits' shaped path (band_shape) carries the same power."""
     from pycalima.pahchem import spectral_fit
+    from pycalima.pahchem.baseline import Params
 
     mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
     pop = population.Population([mol], WINDOWS)
     nu = np.linspace(200.0, 4000.0, 3801)
     pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
-    assert not pop.deposit_spectra(pdr, nu).any()
+    assert not population.Population([mol], WINDOWS, params=Params(ionisation_heating=False)).deposit_spectra(pdr, nu).any()
+    assert pop.deposit_spectra(pdr, nu).any()                              # the photoionisation products
     xray = Environment("xdr", 1e4, 1e4, 1e-2, 1e3, None, field_e_min_ev=300.0, field_e_max_ev=1e4, field_powerlaw=1.0)
     h = pop.emission_weights(xray).sum(axis=1)
     expect = 0.0
@@ -1004,7 +1082,8 @@ def test_cold_limit_ladder_gives_no_basis_to_states_the_field_cannot_reach():
 def test_compact_state_spectra_hold_every_emitting_state_and_no_unreachable_basis():
     """``spectral_fit.state_table`` and ``molecule_table`` skip the states with f = 0 (``Population._live``) as the
     population's own tables do (each PDRs4All worker otherwise built all of them, serially). The compact state spectra
-    (one row per live state with modes) give the spectra ``molecule_spectra`` sums from the modes, and so do
+    (one row per live state with modes) and the deposits the bases do not hold (``deposit_spectra``) give the spectra
+    ``molecule_spectra`` sums from the modes (``molecule_table``, with ``deposit_modes``), the band-shape fit's, and so do
     ``Population.spectra`` and the split by charge."""
     from pycalima.pahchem import spectral_fit
 
@@ -1019,7 +1098,9 @@ def test_compact_state_spectra_hold_every_emitting_state_and_no_unreachable_basi
         assert dead and all(pop._ckey(shape, z, m) not in m._cache for z in dead)
     assert S.rows.shape[0] < len(pop.library) * len(pop.zs) * population.N_EMITTING / 2
     W = pop.emission_weights(env)
-    assert env.g0 * S.combine(W) == pytest.approx(P, rel=1e-12)
+    dP = pop.deposit_spectra(env, nu, band_shape=spectral_fit.BandShape())
+    assert dP.any()                                                         # the photoionisation products' heat
+    assert env.g0 * S.combine(W) + dP == pytest.approx(P, rel=1e-12)
     w = np.arange(1.0, len(pop.library) + 1.0)
     assert S.by_slot(W, w, len(pop.zs)).sum(axis=0) == pytest.approx(w @ S.combine(W), rel=1e-12)
     # the population's own, with BandShape()'s fixed lines (15 cm^-1 Lorentzians shifted by -15 cm^-1)

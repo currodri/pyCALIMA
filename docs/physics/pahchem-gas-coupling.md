@@ -33,7 +33,8 @@ Most of the missing items are now implemented; their status is in §4b.
 - **Ion–PAH collisions.** There are none (`murga_charge.py`: "no ion collisions"). Now §4b step 3.
 - **Photoelectron kinetic energy.** pahchem treats every ionising photon as depositing no internal energy,
   which implicitly gives the electron all of E − IP. That contradicts the measured partition (§2.1). Now
-  §4b steps 1 and 1c (the deposit is opt-in).
+  §4b steps 1 and 1c. Since 2026-11-03 the ion keeps its share, in the product's cascade (§2.2c,
+  `Params.ionisation_heating`).
 - **Gas heating and cooling.** No gas photoelectric heating, no recombination cooling. Now §4b steps 1 and 2.
 - **Rates for a gas network.** Per-ion neutralisation, the net electron source and H₂ formation per H are
   not exported. Now §4b step 4, except H₂ formation.
@@ -337,6 +338,60 @@ higher charges, as before). In the population every molecule runs from its lowes
   - *Guards:* the probabilities and rates bounded by construction are checked before any clip (`population._round_off`,
     `photo.yield_coulomb_window`): the recursions stray 1–2 ulp past [0, 1] (≤ 4.4×10⁻¹⁶ over every bin of C24–C216),
     and anything further, or non-finite, raises.
+- **The energy a photoionisation leaves its product** (2026-11-03, `Params.ionisation_heating`, on by default):
+  - *Before:* the bases deposited nothing for an ionising absorption, so the ion's share of the excess, E − IP − ⟨E_k⟩
+    (54 % below 13.6 eV, the Hrodmarsson+25 shares to 21.9 eV, then constant: `photo.photoelectron_energy`), was lost.
+    It was neither IR nor gas heating, a leak in the energy budget. The opt-in `ionising_photons_heat` (Montillaud's
+    convention, kept for the BaselineModel) put it into the absorbing state's cascade, not the product's.
+  - *Now* (`population.ionisation_deposits`, `ionisation_products`): each valence ionisation out of Z leaves the
+    product Z + 1 its E_int at every photon node, with the same σ (less C 1s where that has its own branching), yield
+    and partition as the charge chain and Γ_PE. Double ionisations ("knockout") leave Z + 2 the share over IP(Z) +
+    IP(Z+1). The anion's detachment leaves the neutral E − EA − ⟨E_k⟩, the mean over its prompt, valence and delayed
+    branches. Per field shape, each product state gets one response row per parent (`deposit_response` with
+    weights). This is exact: the cascade and the single-event yields are linear in the starts. The rows run at
+    f(Z − dz) G0 k (`_deposit_flows`) into the chain's losses, band fluxes and spectra. Absorbed energy = deposits +
+    electrons (as Γ_PE takes them) + ionisation work, to 10⁻⁹ (test). Not with `ionising_photons_heat`, which would
+    count it twice (raises).
+  - *Per event* (`check_ionisation_heating.py`; C24–C216; Kurucz 40 kK):
+    - Cut at 13.6 eV: ⟨E_int⟩ is 2.4–3.4 eV into +1, falling with the charge to 0.2–0.8 eV at the last live state,
+      and 4.9–6.4 eV into the neutral from the anion.
+    - To 100 eV: 4.3–4.7 eV into +1 and 6.2–7.5 eV into the neutral.
+    - P(H) on N_H0 ≤ 2×10⁻⁵ everywhere except neutral C24 from its anion (0.03). These deposits heat; they do not strip.
+  - *In fields* (off → on):
+    - PDRs at G0 = 10³ (⟨Z⟩ 0.5–1.1): IR power per molecule ×1.04–1.08, 3.3/11.2 −4 to −8 %, 7.7/11.2 +2 to
+      +4 %. At 10⁴ and 10⁵ ×1.01 and ×1.001, the higher charges keeping less.
+    - EUV, ψ = 10⁴: ×1.26–1.28, 3.3/11.2 and 6.2/11.2 −5 %. At 10⁵ ×1.03; at 10⁶ ×1.000 (see below).
+    - X-rays only: ×1.003–1.006.
+    - f(N_H0) and ⟨H lost⟩ are unchanged in every field.
+  - *The hole of a charged state* (`Params.photoelectron_reference`; `check_photoelectron_reference.py`, 2026-11-04).
+    - *The problem.* `photo.photoelectron_energy` keeps the ion's E_int at 21.9 eV *photon* energy,
+      (1 − 0.58)(21.9 − IP). So a state with IP above 21.9 eV keeps nothing: Z ≥ +6 for C54, ≥ +8 for C96 in the
+      ladder. Its electron then takes the whole excess, a share of 1 even 1 eV above threshold. That is why ψ = 10⁶
+      gains nothing above.
+    - *The data.* Hrodmarsson's nine neutrals (IE 7.00–7.91 eV) do not decide between hν and X = hν − IE. X lines
+      them up better at 11.5–14 eV, hν at 14.5–19.5 eV. Their dip in the share, the σ onset's slow electrons, sits
+      at hν ≈ 14 eV in all nine, perylene included.
+    - *The ladders* (Octopus LDA, C24–C216, −1 to +2): with the charge, every occupied level shifts alike. C54H18
+      moves −2.66 eV per charge, the same to ±0.03 eV from the HOMO to > 16 eV below it, close to the DFT IP step;
+      C24 ±0.05, C216 ±0.01; the anion as much the other way. Among neutrals, the density of states per C lines up
+      better in absolute energy than from the HOMO (std 0.012 against 0.066 at −7 eV), while the HOMO rises 0.84 eV
+      from C24 to C216. The σ levels are anchored.
+    - *The consequence.* A pure excess reading, one curve for every molecule, is wrong across sizes. Across the
+      charges of one molecule the ladder is its neutral's, shifted. "neutral" (opt-in) therefore reads a state of
+      threshold T at hν − (T − IP(0)), so every charge keeps its neutral's hole (5.5–6.5 eV for IP(0) 5.4–7.4 eV).
+      Near threshold the neutral share is, if anything, an upper limit for an ion: the Coulomb field of the ion does
+      not suppress slow electrons, which favour deep holes.
+    - *Effect on Γ_PE* ("neutral"/"photon"):
+      - Neutrals, and cations in fields cut at 13.6 eV, are unchanged exactly (test), since their shifted energies
+        stay below 13.6 eV, where the share is constant.
+      - V9 at γ = 10² changes 1.008–1.023 and at 10³ 1.000–1.012, through the anions' valence branch only; at
+        ≥ 10⁴ and in PDRs ≤ 1.003.
+      - EUV: ψ = 10⁴ 0.955–0.975, 10⁵ 0.77–0.79, 10⁶ 0.49–0.54.
+      - ν⁻¹ to 10 keV: ψ = 10⁴ 0.93–0.95, 10⁶ 0.74–0.82.
+      - X-rays only: ≥ 0.9994.
+      - ⟨Z⟩ is unchanged and the IR rises 0.3–1.7 %.
+      - So "photon" overestimates the EUV photoelectric heating by up to 2×.
+    - The default ("photon") is the user's to change.
 - **Validation, step 1** (`check_charge_ladder.py`; C24–C216 per molecule, Draine field G0 = 10⁴, T = 100 and 1000 K,
   n(H⁺) = n_e, against the library ladder and WD01 graphite spheres of the same carbon in the Mathis field):
   - Regression: identical where the field reaches no state above the computed ones (C24 and C54 at every ψ, every

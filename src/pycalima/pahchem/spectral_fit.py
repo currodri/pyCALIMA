@@ -261,12 +261,13 @@ def window_fluxes(grid, spectrum, windows_um):
 
 def molecule_table(pop, env, nu_cm, index=None):
     """``ModeTable`` of the molecules ``index`` (all if None) at ``env``: each column one molecule, the modes of
-    its charge and hydrogenation states weighted by ``Population.emission_weights`` and G0 (``molecule_spectra``
-    without the band shape)."""
+    its charge and hydrogenation states weighted by ``Population.emission_weights`` and G0, and those of the deposits
+    the bases do not hold (``Population.deposit_modes``) (``molecule_spectra`` without the band shape)."""
     from pycalima.pahchem.population import field_shape
 
     fs = field_shape(env)
     W = pop.emission_weights(env)
+    dep = pop.deposit_modes(env)
     idx = range(len(pop.library)) if index is None else index
     cols = []
     for s in idx:
@@ -277,7 +278,7 @@ def molecule_table(pop, env, nu_cm, index=None):
                 w = W[s, z - pop.zmin, k]
                 if f_.size and w > 0.0:
                     col.append((f_, env.g0 * w * np.asarray(e_, dtype=float)))
-        cols.append(col)
+        cols.append(col + dep.get(s, []))
     return ModeTable(cols, nu_cm)
 
 

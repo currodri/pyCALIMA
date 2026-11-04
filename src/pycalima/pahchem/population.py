@@ -82,10 +82,11 @@ the molecules' abundances are fitted. In outline:
   (or attachment) into z, which leaves the threshold energy (IP, or EA) in
   vibrations. So state z is also heated at rate k_up(z) with that energy, and
   its cascade adds k_up(z) x (emission after an energy deposit IP_z) to the IR
-  power. This too is linear in G0. Not included: the electron's kinetic energy
-  (~kT), the energy the ion keeps after photoionisation (E - IP - KE), and
-  H loss driven by the recombination energy (the k_H table is photon-driven
-  only). Bases are built once (in parallel, ``Population.prepare``) and kept
+  power. This too is linear in G0. Not in the bases: the electron's kinetic
+  energy (~kT); the energy the ion keeps after photoionisation (E - IP - KE)
+  and the H loss the recombination energy drives, which ``Population._deposit_flows``
+  adds per event (``Params.ionisation_heating``, ``recombination_dissociation``;
+  the k_H table is photon-driven only). Bases are built once (in parallel, ``Population.prepare``) and kept
   on disk (``cache_dir``), keyed by a hash of their inputs. An environment
   then costs a few vectorised array operations over the whole library.
 - **Fit** (``fit_abundances``). Non-negative least squares on the band fluxes
@@ -151,7 +152,8 @@ E_PH_VIS = np.concatenate([E_PH_FUV[0] + _D_STEP * np.arange(-round(float(E_PH_F
                            [E_PH_FUV[0] - 1e-6]])
 E_PH = np.concatenate([E_PH_VIS, E_PH_FUV, _euv_grid()])
 #: energy-deposit grid of the cascades [eV]. Non-ionising absorptions deposit E (always < Y_UNITY_EV); ionisations
-#: deposit the ion's internal energy (``photo.photoelectron_energy``) if ``Params.ionising_photons_heat``. It holds
+#: deposit the ion's internal energy (``photo.photoelectron_energy``) if ``Params.ionising_photons_heat`` (in the absorbing
+#: state; ``Params.ionisation_heating`` puts it in the product, ``ionisation_deposits``). It holds
 #: every 1-13.6 eV photon node (so cut fields integrate exactly as before), steps of the same 0.025 eV from 0.1 to
 #: 21 eV, and nodes 1e-6 eV outside 5 and 13.6 eV for sharp edges; the lowest 0.1 eV (a fraction of a cascade
 #: bin) is left out.
@@ -730,7 +732,82 @@ def electron_energy(mol, z, params=Params(), partition=photo.PHOTOELECTRON_PARTI
     (``photo.photoelectron_energy``), or the energies of ``statistical_detachment``."""
     if z == -1 and params.detachment in ("statistical", "valence"):
         return statistical_detachment(mol, params, energy_ev=energy_ev, valence=params.detachment == "valence")[1]
-    return photo.photoelectron_energy(energy_ev, state_threshold(mol, z), 1.0 if z < 0 else partition)[0]
+    return photo.photoelectron_energy(energy_ev, state_threshold(mol, z), 1.0 if z < 0 else partition,
+                                      reference_ev=photoelectron_reference(mol, params))[0]
+
+
+def photoelectron_reference(mol, params):
+    """The ``reference_ev`` of ``photo.photoelectron_energy`` under ``Params.photoelectron_reference``: the molecule's neutral
+    IP with "neutral", None (the photon energy) with "photon"."""
+    if params.photoelectron_reference not in ("photon", "neutral"):
+        raise ValueError(f"photoelectron_reference must be 'photon' or 'neutral', not {params.photoelectron_reference!r}")
+    return float(mol.ionisation_ev[0]) if params.photoelectron_reference == "neutral" else None
+
+
+def kshell_applies(params, shape):
+    """True if C 1s absorption follows its own branching (``Params.kshell`` "auger") and the field of ``shape`` reaches the edge."""
+    if params.kshell not in ("auger", "single"):
+        raise ValueError(f"kshell must be 'auger' or 'single', not {params.kshell!r}")
+    return params.kshell == "auger" and _unit_field(shape).energy_ev.max() >= K_GRID[0]
+
+
+def valence_sigma(mol, z, params, shape):
+    """The state's cross section on E_PH less its C 1s part when that has its own branching (``kshell_applies``)."""
+    sigma = photo.sigma_uv(mol.nc, z, E_PH, params.uv_cross_section) * params.sigma_scale
+    if kshell_applies(params, shape):
+        sigma = sigma - sigma_kshell(mol.nc, params, E_PH) * params.sigma_scale
+    return sigma
+
+
+def ionisation_deposits(mol, z, params, shape):
+    """[(dz, k [s^-1], E_int [eV], w)] of the valence photoionisations (detachments) out of charge z under ``shape`` at G0 = 1
+    (none out of the top state, whose ionisations leave the chain): their rate k and, on the photon nodes of E_PH where they
+    happen, the internal energy E_int = E - threshold - <E_k> each leaves the product z + dz, with the share w of the events
+    there (sum 1).
+
+    - dz = 1: one electron with the <E_k> of ``electron_energy`` (``photo.photoelectron_energy``, the measured partition at
+      PHOTOELECTRON_PARTITION; for the anion ``statistical_detachment``'s mean over its prompt, valence and delayed
+      branches, whose deposits are not followed one by one).
+    - dz = 2: the double ionisations of ``Params.double_ionisation``, the two electrons sharing the excess over
+      ``double_threshold`` as one would.
+
+    The same sigma (``valence_sigma``), yield and partition as the charge balance (``Population._jump_rates``) and the
+    photoelectric heating (``Population._pe_stack``), so the absorbed energy closes: deposits, electrons and ionisation
+    work. E_int is the mean at each photon energy; the spread of the photoelectron spectra about it is not followed, which
+    for the H loss of the product (convex in E_int) makes it a lower bound. The C 1s products are ``kshell_rates``'."""
+    key = ("ion_deposits", z, params, shape)
+    if key in mol._cache:
+        return mol._cache[key]
+    out = []
+    if z < max(mol.charges):
+        field1 = _unit_field(shape)
+        rate = valence_sigma(mol, z, params, shape) * _yield(mol, z, params) * field1.flux_at(E_PH) * _trapezoid_weights(E_PH)
+        thr = float(state_threshold(mol, z))
+        if z >= 0:
+            e1 = photo.photoelectron_energy(E_PH, thr, reference_ev=photoelectron_reference(mol, params))[1]
+            p2 = (photo.double_fraction(E_PH, double_threshold(mol, z)) if params.double_ionisation == "knockout"
+                  else np.zeros(E_PH.size))
+        else:
+            e1 = E_PH - thr - electron_energy(mol, z, params)
+            p2 = np.zeros(E_PH.size)
+        rows = [(1, rate * (1.0 - p2), e1)]
+        if np.any(p2 > 0.0):
+            rows.append((2, rate * p2, photo.photoelectron_energy(E_PH, double_threshold(mol, z),
+                                                                  reference_ev=photoelectron_reference(mol, params))[1]))
+        for dz, w, e in rows:
+            on = w > 0.0
+            k = float(w.sum())
+            if k > 0.0:
+                out.append((dz, k, _round_off(e[on], 0.0, None, f"{mol.name} {z:+d}: internal energy after ionisation [eV]"),
+                            w[on] / k))
+    mol._cache[key] = out
+    return out
+
+
+def ionisation_products(mol, z, params, shape):
+    """[(dz, k, E_int, w)] of the photoionisations that land on charge z: ``ionisation_deposits`` of z - 1 (dz = 1) and of
+    z - 2 (dz = 2), in that order (the rows of the state's ("ion", shape) ``deposit_response``)."""
+    return [d for dz in (1, 2) if z - dz in mol.species for d in ionisation_deposits(mol, z - dz, params, shape) if d[0] == dz]
 
 
 def anion_valence_threshold(mol):
@@ -768,8 +845,9 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
     """
     grid = np.asarray(energy_ev, dtype=float)
     f_att = attachment_fraction(mol, params)
+    ref = photoelectron_reference(mol, params)
     key = ("detach_stat", params.sigma_scale, photo.uv_model_key(params.uv_cross_section), float(grain_cm), grid.tobytes(), bool(valence),
-           f_att)
+           f_att, ref)
     if key not in mol._cache:
         from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
         from pycalima.pahchem.attachment import Attachment
@@ -788,7 +866,7 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         if valence:
             ipv = anion_valence_threshold(mol)
             y_v = photo.yield_jochims1996(E, ipv)
-            ek_v = photo.photoelectron_energy(E, ipv)[0]
+            ek_v = photo.photoelectron_energy(E, ipv, reference_ev=ref)[0]
         else:
             ipv, y_v, ek_v = ea, np.zeros_like(E), np.zeros_like(E)
         rest = (1.0 - y_p) * (1.0 - y_v)                 # absorptions that convert internally
@@ -801,7 +879,7 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         y_out, ek_out = np.empty_like(grid), np.empty_like(grid)
         y_out[lo], ek_out[lo] = y[:-1], ek[:-1]          # in the input order: the grid need not be sorted
         y_out[~lo] = np.clip(y[-1] + (1.0 - y[-1]) * (hi - lyman) / (Y_UNITY_EV - lyman), 0.0, 1.0)
-        ek_out[~lo] = photo.photoelectron_energy(hi, ipv)[0]
+        ek_out[~lo] = photo.photoelectron_energy(hi, ipv, reference_ev=ref if valence else None)[0]   # EA: not the ladder
         mol._cache[key] = (y_out, ek_out)
     return mol._cache[key]
 
@@ -1470,17 +1548,22 @@ def _emission_many(model, starts):
     return X
 
 
-def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev):
+def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev, weights=None):
     """What one deposit of each of ``energies_ev`` does to a state, per molecule placed there: for each member of its
     hydrogenation ladder (``_basis_inputs``' ``ladder``: N_H0, N_H0-1, ...), (IR power per mode [cm^-1 per deposit],
-    P(H loss), P(H2 loss)), as [[(emitted, p_h, p_h2) per member] per energy].
+    P(H loss), P(H2 loss)), as [[(emitted, p_h, p_h2) per member] per energy]. With ``weights`` (rows x energies, each
+    row summing to 1) one result per row instead: the mean over that row's deposits, exact, the cascade and the single-
+    event yields being linear in the starts (one event of a spread of deposits, ``ionisation_products``).
 
     The emission follows the cascade of ``build_state_basis`` (``_emission_many``, sinks not taken out), every deposit
     split between its two neighbouring bins; the losses are the single-event yields of the loss cascade
     (``CascadeModel.photon_yields``, the same RRKM rates as the basis's ``_loss_tables``): field-independent, for
     deposits the bases do not hold (``Population._deposit_flows``)."""
     energies_ev = np.asarray(energies_ev, dtype=float)
-    out = [[] for _ in energies_ev]
+    W = None if weights is None else np.asarray(weights, dtype=float)
+    if W is not None:
+        _round_off(W.sum(axis=1), 1.0, 1.0, "deposit weights per row")
+    out = [[] for _ in range(energies_ev.size if W is None else W.shape[0])]
     top = float(energies_ev.max())
     for f_, a_, n_, h2_ok in ladder:
         f_ = np.asarray(f_, dtype=float)
@@ -1490,36 +1573,63 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev):
         starts = np.zeros((energies_ev.size, cm.n))
         starts[np.arange(energies_ev.size), i0] = 1.0 - (x - i0)
         starts[np.arange(energies_ev.size), i0 + 1] += x - i0
-        emitted = f_[None, :] * _emission_many(cm, starts)
-        cl, E, counts, beta = _loss_grid(f_, a_, max(LOSS_E_MAX_EV, top + 5.0))
+        emitted = f_[None, :] * _emission_many(cm, starts if W is None else W @ starts)
+        e_cl, Y = _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, max(LOSS_E_MAX_EV, top + 5.0))
+        p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit")
+             for c, y in Y.items()}
+        if W is not None:
+            p = {c: _round_off(W @ v, 0.0, 1.0, f"P({c}) per event") for c, v in p.items()}
+        for i in range(len(out)):
+            out[i].append((emitted[i], float(p["H"][i]), float(p["H2"][i]) if "H2" in p else 0.0))
+    return out
+
+
+#: ``_single_event_yields`` of this process, keyed by its inputs: they depend on the ladder member alone, not on the field,
+#: so every state sharing its modes (stand-ins) and every response set and field shape reuse them (a few kB each)
+_YIELD_MEMO = {}
+
+
+def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev):
+    """(loss-grid energies [cm^-1], {"H": P(E), "H2": P(E)}): the single-event H and H2 loss yields of one ladder member
+    (``CascadeModel.photon_yields`` with the RRKM rates of the basis's ``_loss_tables``) on its loss grid to ``e_max_ev``."""
+    h = hashlib.sha1()
+    for v in (f_, np.asarray(a_, dtype=float), n_, h2_ok, tuple(h_even), tuple(h_odd), tuple(h2), float(e_max_ev)):
+        _feed(h, v)
+    key = h.hexdigest()
+    if key not in _YIELD_MEMO:
+        cl, E, counts, beta = _loss_grid(f_, a_, e_max_ev)
         pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
         ch = {"H": _h_loss_rate(f_, E, counts, pick, n_, h_even, h_odd, beta)}
         if h2_ok:
             ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(f_, 3050.0, h2[1], n_scaled=5),
                                   h2[0] * dos.CM_PER_EV, degeneracy=2, beta=beta)[pick]
-        Y = cl.photon_yields(ch)
-        p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, cl.energy_cm, y), 0.0, 1.0, f"P({c}) per deposit")
-             for c, y in Y.items()}
-        for i in range(energies_ev.size):
-            out[i].append((emitted[i], float(p["H"][i]), float(p["H2"][i]) if "H2" in p else 0.0))
-    return out
+        _YIELD_MEMO[key] = (cl.energy_cm, cl.photon_yields(ch))
+    return _YIELD_MEMO[key]
 
 
 #: bump when deposit_response changes, so stored responses are rebuilt
 RESPONSE_VERSION = 3
-#: the two sets of responses a state may need: "rec", one capture into it (its threshold; none for the top state);
-#: "aug", a C 1s product, K_AUGER_EXCITATION_EV plus each of HEAT_NODES_EV (only in fields that reach the edge)
+#: the field-independent sets of responses a state may need: "rec", one capture into it (its threshold; none for the top
+#: state); "aug", a C 1s product, K_AUGER_EXCITATION_EV plus each of HEAT_NODES_EV (only in fields that reach the edge).
+#: A third, ("ion", shape), holds the photoionisations landing on it in that field shape (``ionisation_products``)
 RESPONSE_SETS = ("rec", "aug")
 
 
 def _response_inputs(mol, z, de_cm, e_max_cm, params, which):
-    """(ladder, de_cm, h_even, h_odd, h2, energies) of ``deposit_response`` for set ``which`` of state z."""
+    """(ladder, de_cm, h_even, h_odd, h2, energies[, weights]) of ``deposit_response`` for set ``which`` of state z."""
     ladder = _basis_inputs(mol, z, ("draine",), de_cm, e_max_cm, params)["ladder"]
+    head = (ladder, de_cm, tuple(params.h_even), tuple(params.h_odd), tuple(params.h2))
     if which == "rec":
-        energies = (float(state_threshold(mol, z)) if z < max(mol.charges) else 0.0,)
-    else:
-        energies = tuple(K_AUGER_EXCITATION_EV + HEAT_NODES_EV)
-    return ladder, de_cm, tuple(params.h_even), tuple(params.h_odd), tuple(params.h2), energies
+        return head + ((float(state_threshold(mol, z)) if z < max(mol.charges) else 0.0,),)
+    if which == "aug":
+        return head + (tuple(K_AUGER_EXCITATION_EV + HEAT_NODES_EV),)
+    rows = ionisation_products(mol, z, params, which[1])
+    energies = np.concatenate([e for _, _, e, _ in rows])
+    W = np.zeros((len(rows), energies.size))
+    at = np.cumsum([0] + [e.size for _, _, e, _ in rows])
+    for r, (_, _, _, w) in enumerate(rows):
+        W[r, at[r]:at[r + 1]] = w
+    return head + (energies, W)
 
 
 def _response_key(inp):
@@ -1560,6 +1670,9 @@ class Population:
         given = list(library)
         if params.charge_ladder not in ("cold_limit", "library"):
             raise ValueError(f"charge_ladder must be 'cold_limit' or 'library', not {params.charge_ladder!r}")
+        if params.ionisation_heating and params.ionising_photons_heat:
+            raise ValueError("ionisation_heating (the product's cascade) and ionising_photons_heat (the absorbing state's) "
+                             "would count the energy an ionisation leaves twice: choose one")
         # the ladder to the cold limit on copies (``extend_ladder``); the caller's molecules map to them (``_own``)
         self.library = [extend_ladder(m) for m in given] if params.charge_ladder == "cold_limit" else given
         self.windows, self.p = dict(windows_um), params
@@ -1839,16 +1952,11 @@ class Population:
 
     def _kshell_on(self, shape):
         """True if C 1s absorption follows its own branching (``Params.kshell`` "auger") and the field reaches the edge."""
-        if self.p.kshell not in ("auger", "single"):
-            raise ValueError(f"kshell must be 'auger' or 'single', not {self.p.kshell!r}")
-        return self.p.kshell == "auger" and _unit_field(shape).energy_ev.max() >= K_GRID[0]
+        return kshell_applies(self.p, shape)
 
     def _valence_sigma(self, mol, z, shape):
         """The state's cross section on E_PH less its C 1s part when that has its own branching (``_kshell_on``)."""
-        sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
-        if self._kshell_on(shape):
-            sigma = sigma - sigma_kshell(mol.nc, self.p, E_PH) * self.p.sigma_scale
-        return sigma
+        return valence_sigma(mol, z, self.p, shape)
 
     def _kshell_stack(self, shape):
         """``kshell_rates`` of every live state at G0 = 1: {"k": [J, s, slot] (dz = 1 ... J), "k_node": {(s, slot):
@@ -1875,7 +1983,22 @@ class Population:
             self._arrays[key] = out
         return self._arrays[key]
 
-    # -- deposits the bases do not hold (captures, the C 1s Auger excitation) -----------------------------------------
+    def _ion_stack(self, shape):
+        """{(s, slot): [(dz, k at G0 = 1)]}: the photoionisations landing on each live state (``ionisation_products``), the
+        rows of its ("ion", shape) response; empty without ``Params.ionisation_heating``."""
+        key = ("ion", shape)
+        if key not in self._arrays:
+            out = {}
+            if self.p.ionisation_heating:
+                for s, mol in enumerate(self.library):
+                    for z in self._live_charges(mol, shape):
+                        rows = ionisation_products(mol, z, self.p, shape)
+                        if rows:
+                            out[(s, z - self.zmin)] = [(dz, k) for dz, k, _, _ in rows]
+            self._arrays[key] = out
+        return self._arrays[key]
+
+    # -- deposits the bases do not hold (captures, photoionisation products, the C 1s Auger excitation) ----------------
     def _response_file(self, key):
         return None if self.cache_dir is None else self.cache_dir / "responses" / f"{key}.npz"
 
@@ -1910,14 +2033,18 @@ class Population:
                  **{f"e_{i}_{m}": x[0] for i, row in enumerate(r) for m, x in enumerate(row)})
         os.replace(tmp, path)
 
+    def _response_sets(self, s, z, shape):
+        """The response sets state z of molecule s needs under ``shape``: "rec"; "aug" where ``_kshell_on``; ("ion", shape)
+        where photoionisations land on it (``_ion_stack``)."""
+        sets = list(RESPONSE_SETS if self._kshell_on(shape) else ("rec",))
+        return sets + ([("ion", shape)] if (s, z - self.zmin) in self._ion_stack(shape) else [])
+
     def prepare_responses(self, shape, workers=None):
-        """``_response`` of every live state under ``shape`` (the "aug" set only where ``_kshell_on``), the missing
-        ones computed in parallel."""
-        sets = RESPONSE_SETS if self._kshell_on(shape) else ("rec",)
+        """``_response`` of every live state under ``shape`` (``_response_sets``), the missing ones computed in parallel."""
         todo = []
-        for mol in self.library:
+        for s, mol in enumerate(self.library):
             for z in self._live_charges(mol, shape):
-                for which in sets:
+                for which in self._response_sets(s, z, shape):
                     if (id(mol), z, which) in self._resp:
                         continue
                     inp = _response_inputs(mol, z, self.de_cm, self.e_max_cm, self.p, which)
@@ -1934,20 +2061,23 @@ class Population:
                     self._save_response(path, r)
                     _RESPONSE_MEMO[_response_key(inp)] = r
                     self._resp[(id(mol), z, which)] = (inp[0], r)
-        for mol in self.library:
+        for s, mol in enumerate(self.library):
             for z in self._live_charges(mol, shape):
-                for which in sets:
+                for which in self._response_sets(s, z, shape):
                     self._response(mol, z, which)
 
     def _deposit_flows(self, env):
         """[(s, z, which, index, rate, baked)] of the deposits the bases do not hold, per molecule [s^-1]: captures into z
         (``recombination_heating``; "rec"), at f(z+1) alpha(z+1) n_e, with the rate the bases emit them at
-        (f(z) G0 k_up(z)) to be replaced; and the C 1s products z + j ("aug", heat node ``index``), at f(z) G0 k_node."""
+        (f(z) G0 k_up(z)) to be replaced; the photoionisations landing on z (``ionisation_heating``; ("ion", shape), row
+        ``index`` of ``_ion_stack``), at f(z - dz) G0 k; and the C 1s products z + j ("aug", heat node ``index``), at
+        f(z) G0 k_node."""
         shape = field_shape(env)
         f = self.charge_matrix(env)
         cap = self._capture_rates(env.temperature_k) * env.n_e
         k_up = self._stack(shape)[0]
         ks = self._kshell_stack(shape)
+        ion = self._ion_stack(shape)
         flows = []
         for s, mol in enumerate(self.library):
             live = set(self._live_charges(mol, shape))
@@ -1955,6 +2085,8 @@ class Population:
                 i = z - self.zmin
                 if self.p.recombination_heating and z < max(mol.charges) and z + 1 in live:
                     flows.append((s, z, "rec", 0, f[s, i + 1] * cap[s, i + 1], f[s, i] * env.g0 * k_up[s, i]))
+                for r, (dz, k) in enumerate(ion.get((s, i), ())):
+                    flows.append((s, z, ("ion", shape), r, f[s, i - dz] * env.g0 * k, 0.0))
                 if ks is not None and (s, i) in ks["k_node"]:
                     k_node = ks["k_node"][(s, i)]
                     for j in range(1, k_node.shape[0] + 1):
@@ -1995,6 +2127,22 @@ class Population:
             b = RB[(s, z, which)][idx]
             dF[s] += (rate - baked) * (h[s, : b.shape[0]] @ b)
         return dF
+
+    def deposit_modes(self, env):
+        """{s: [(freqs [cm^-1], IR power per mode [cm^-1 s^-1 per molecule])]}: the modes of ``_deposit_flows``, weighted by
+        the hydrogenation shares and less the captures the bases emit, as ``deposit_spectra`` takes them (its spectrum is
+        these modes under its line profiles); what ``spectral_fit.molecule_table`` packs with the bases' modes."""
+        h = self.emission_weights(env).sum(axis=1)
+        out = {}
+        for s, z, which, idx, rate, baked in self._deposit_flows(env):
+            w = rate - baked
+            if abs(w) <= ROUND_OFF * max(abs(rate), abs(baked)):
+                continue
+            ladder, resp = self._response(self.library[s], z, which)
+            for k, (em, _, _) in enumerate(resp[idx][:N_EMITTING]):
+                if h[s, k] > 0.0:
+                    out.setdefault(s, []).append((np.asarray(ladder[k][0], dtype=float), w * h[s, k] * np.asarray(em, dtype=float)))
+        return out
 
     def deposit_spectra(self, env, nu_cm, fwhm_cm=None, shift_cm=None, band_shape=None):
         """dP[s, i]: the IR spectrum of ``_deposit_flows`` per molecule [cm^-1 s^-1 per cm^-1], weighted by the hydrogenation
@@ -2154,7 +2302,8 @@ class Population:
                         # a double ionisation's two electrons share the excess over IP(z) + IP(z+1) as one would
                         dip = double_threshold(mol, z)
                         p2 = photo.double_fraction(E_PH, dip)
-                        ek = (1.0 - p2) * ek + p2 * photo.photoelectron_energy(E_PH, dip, partition)[0]
+                        ek = (1.0 - p2) * ek + p2 * photo.photoelectron_energy(
+                            E_PH, dip, partition, reference_ev=photoelectron_reference(mol, self.p))[0]
                     G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
                                                         state_threshold(mol, z), electron_energy_ev=ek)
             ks = self._kshell_stack(shape)

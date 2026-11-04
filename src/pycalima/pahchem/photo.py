@@ -388,7 +388,7 @@ PHOTOELECTRON_PARTITION = 0.46
 PARTITION_NODES = ((13.6, 0.46), (15.0, 0.49), (18.0, 0.56), (20.0, 0.58), (21.9, 0.58))
 
 
-def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION):
+def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION, reference_ev=None):
     """(<E_k>, E_int) [eV] of the photoelectron and of the ion after an ionisation at ``energy_ev``.
 
     - E <= 13.6 eV: <E_k> = ``partition`` (E - threshold).
@@ -397,13 +397,20 @@ def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTIT
       PAHs), and the electron takes the rest, E - threshold - E_int. No photoelectron spectra of PAHs exist
       above 22 eV; this is the molecular limit (KE = hv - binding energy), not the solid-state WDB06 parabola.
     Zero below the threshold. A share above 1 is capped (the electron cannot take more than the excess).
+
+    The shares were measured on neutrals, at photon energies. ``reference_ev`` (the molecule's neutral IP) reads them
+    for a state of another threshold at E - (threshold - reference): every occupied level of a PAH moves alike with its
+    charge (Octopus LDA ladders of C24-C216, -1 to +2: one shift to +-0.05 eV from the HOMO to > 16 eV below it), so its
+    holes at a given excess are its neutral's, the hole above included. None: at E itself.
     """
     E = np.asarray(energy_ev, dtype=float)
     excess = np.clip(E - threshold_ev, 0.0, None)
+    ref = threshold_ev if reference_ev is None else reference_ev
+    E = E - (threshold_ev - ref)                       # the photon energy at which the neutral sees this excess
     e_n, f_n = np.array(PARTITION_NODES).T
     scale = partition / PHOTOELECTRON_PARTITION
     share = np.minimum(np.where(E <= e_n[0], partition, scale * np.interp(E, e_n, f_n)), 1.0)
-    e_int_top = (1.0 - min(scale * f_n[-1], 1.0)) * max(e_n[-1] - threshold_ev, 0.0)
+    e_int_top = (1.0 - min(scale * f_n[-1], 1.0)) * max(e_n[-1] - ref, 0.0)
     e_int = np.where(E <= e_n[-1], (1.0 - share) * excess, np.minimum(e_int_top, excess))
     return excess - e_int, e_int
 
