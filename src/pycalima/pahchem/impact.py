@@ -780,9 +780,29 @@ MULTIFRAGMENTATION_C60 = ((3, 105.0), (5, 60.0))
 COULOMB_CHARGE_PER_C = 4.0 / 60.0
 
 
+#: (a, b) of the fission barrier for proton emission, B = a - b q / sqrt(N_C) [eV]: Holm+11 (J. Chem. Phys. 134, 044301)
+#: Fig. 7, B3LYP/6-31G(d) for naphthalene, biphenylene, anthracene, pyrene and coronene at q = 3-10 (23 points read from
+#: the figure, +-0.1-0.2 eV; rms 0.28 eV about the fit, against 0.53 for q / N_C). q / sqrt(N_C) is the charge over the
+#: disc's radius: the Coulomb energy that lowers the barrier. Confidence C (DFT, 5 molecules, N_C <= 24)
+FISSION_BARRIER = (6.30, 2.88)
+
+
+def fission_barrier(nc: int, charge) -> np.ndarray:
+    """B(q) [eV] of proton emission from a PAH of ``nc`` carbons at charge q (``FISSION_BARRIER``)."""
+    a, b = FISSION_BARRIER
+    return a - b * np.asarray(charge, dtype=float) / np.sqrt(nc)
+
+
 def coulomb_limit(nc: int) -> int:
-    """The highest charge a cold PAH of ``nc`` carbons survives (``COLD_CHARGE_PER_C``)."""
-    return int(np.floor(COLD_CHARGE_PER_C * nc))
+    """The highest charge a cold PAH of ``nc`` carbons survives: floor(``COLD_CHARGE_PER_C`` N_C), or the highest charge
+    whose proton-emission barrier is still positive (``fission_barrier``, q < (a / b) sqrt(N_C)) where that is lower (the
+    user's choice, 2026-11-04). The two agree up to N_C ~ 115; above it the barrier limits: C150 26 (not 30), C216 32 (not
+    43). Both the thermodynamic and the barrier limits scale with the radius, sqrt(N_C). No astrophysical model prescribes
+    either: PAH codes truncate (Murga+22 -2 ... +8, Montillaud+13 0, +1); grain physics (WDB06 Sect. 10.2.1, Hoang+15:
+    Coulomb explosion or ion field emission) scales as a^2 ~ N_C^(2/3), C216 ~12-14, but puts coronene and C60 at ~3,
+    against coronene4+ and C60^12+ seen intact, so for molecules it is a lower bound."""
+    a, b = FISSION_BARRIER
+    return int(min(np.floor(COLD_CHARGE_PER_C * nc), np.ceil(a / b * np.sqrt(nc)) - 1))
 
 
 def multifragmentation_energy(nc: int, charge) -> np.ndarray:

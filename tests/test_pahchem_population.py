@@ -382,7 +382,7 @@ def test_ionisation_heating_closes_each_ionisation_in_its_product(double):
     F = {h: p_.band_fluxes(env)[0][0, 0] for h, p_ in pops.items()}
     h = pop.hydrogenation_fractions(env)[0][0]
     flows = [(z, idx, rate) for _, z, which, idx, rate, _ in pop._deposit_flows(env) if which == ("ion", shape)]
-    added = sum(rate * float(np.sum(h[: len(m)] * [em.sum() for em, _, _ in m[:population.N_EMITTING]]))
+    added = sum(rate * float(np.sum(h[: len(m)] * [em.sum() for em, *_ in m[:population.N_EMITTING]]))
                 for z, idx, rate in flows for m in [pop._response(own, z, ("ion", shape))[1][idx]])
     assert flows and F[True] - F[False] == pytest.approx(added, rel=1e-2)          # the window misses Lorentzian wings
     with pytest.raises(ValueError, match="twice"):
@@ -422,6 +422,35 @@ def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
     tab = np.concatenate([tab, np.ones((2, g.size - 2))], axis=1)
     assert pop._interp_g0(tab, 0.1) == pytest.approx([0.2, 0.03])
     assert pop._interp_g0(tab, g[0]) == pytest.approx([2.0, 3.0])
+
+
+def test_c2h2_loss_and_proton_emission_open_where_their_physics_allows():
+    """``population.loss_extras``: C2H2 loss only for skeletons with catacondensed end rings (quartet H), proton emission only
+    from Z >= +1 over max(the ladder's H+ dissociation energy, ``impact.fission_barrier``). For a compact closed-shell PAH
+    of 20-32 C at +4 the barrier (< 4.1 eV) is below the H loss's 4.41 eV, so a hot deposit sheds more protons than H atoms
+    (a radical's weakest C-H, 3.16 eV, would not); the extra
+    sinks compete, and never raise the H-loss yield of the same deposit."""
+    from dataclasses import replace
+
+    from pycalima.pahchem import dos, impact
+    from pycalima.pahchem.baseline import Params
+
+    lib = _library()
+    p = Params()
+    cata = next(m for m in lib if m.edges.get("quartet", 0) > 0)
+    peri = next(m for m in lib if m.edges.get("quartet", 0) == 0 and 20 <= m.nc <= 32 and m.nh % 2 == 0)   # closed shell
+    names = lambda m, z: [c[0] for c in population.loss_extras(population.extend_ladder(m), z, m.nh, p)]   # noqa: E731
+    assert "C2H2" in names(cata, 0) and "C2H2" not in names(peri, 0)
+    assert "Hp" not in names(peri, 0) and "Hp" in names(peri, 1)
+    cor = population.extend_ladder(peri)
+    hp = dict((c[0], c) for c in population.loss_extras(cor, 4, cor.nh, p))["Hp"]
+    d = p.h_even[0] + population.IE_H_EV - population.state_threshold(cor, 3)
+    assert hp[1] == pytest.approx(max(d, float(impact.fission_barrier(cor.nc, 4))))
+    assert hp[1] < p.h_even[0]
+    inp = {f: population._response_inputs(cor, 4, 100.0, 45.0 * dos.CM_PER_EV, q, "rec")
+           for f, q in (("on", p), ("off", replace(p, fission=False)))}
+    on, off = (population.deposit_response(*inp[f]) [0][0] for f in ("on", "off"))
+    assert on[4] > on[1] > 0.0 and on[1] <= off[1] and off[4] == 0.0
 
 
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():
@@ -521,11 +550,11 @@ def test_gas_rates_conserve_charge_in_steady_state():
     x = np.array([3e-7])
     r0 = pop.gas_rates(bare, x)
     made = float(x @ (r0["f"] * bare.g0 * pop._stack(population.field_shape(bare))[0]).sum(axis=1))
-    assert abs(r0["electron_source"]) < 1e-9 * made and r0["alpha_mn"] == {}
+    assert abs(r0["electron_source"] - r0["proton_source"]) < 1e-9 * made and r0["alpha_mn"] == {}
     env = replace(bare, ions=(("C+", 0.04), ("H+", 1e-3)))
     r = pop.gas_rates(env, x)
     ion_flux = sum(r["alpha_mn"][i] * n + r["alpha_ct"][i] * n for i, n in env.ions)
-    assert r["electron_source"] == pytest.approx(-ion_flux, rel=1e-6)
+    assert r["electron_source"] - r["proton_source"] == pytest.approx(-ion_flux, rel=1e-6)
     assert r["alpha_mn"]["C+"] > 0 and r["carbon_accretion"] == pytest.approx(0.4 * r["alpha_ct"]["C+"])
     assert r["gamma_pe"] > 0 and r["lambda_rec"] > 0
 
@@ -548,7 +577,7 @@ def test_double_ionisation_raises_the_charge_and_conserves_electrons():
     k2 = euv.g0 * two._double_stack(population.field_shape(euv))
     assert k2.max() > 0.0
     made = float(x @ (r["f"] * (euv.g0 * two._stack(population.field_shape(euv))[0] + k2)).sum(axis=1))
-    assert abs(r["electron_source"]) < 1e-9 * made
+    assert abs(r["electron_source"] - r["proton_source"]) < 1e-9 * made                 # protons carry charge off too
 
 
 def test_kshell_auger_raises_the_charge_in_x_rays_and_conserves_electrons():
@@ -592,7 +621,7 @@ def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alo
     assert not tab.any() and not on._interp_g0(tab, xray.g0).any()
     assert on.hydrogenation_fractions(xray)[0][0, 0] < off.hydrogenation_fractions(xray)[0][0, 0]
     pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
-    chain = population.Population([mol], WINDOWS, params=Params(ionisation_heating=False))
+    chain = population.Population([mol], WINDOWS, params=Params(ionisation_heating=False, fission=False))
     F = chain.band_fluxes(pdr)[0]
     W = chain.emission_weights(pdr)
     plain = pdr.g0 * np.einsum("szk,szkb->sb", W, chain._hydrogenation_bands(population.field_shape(pdr)))
@@ -609,30 +638,40 @@ def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains():
     pop = population.Population([mol], WINDOWS)
     nu = np.linspace(200.0, 4000.0, 3801)
     pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
-    assert not population.Population([mol], WINDOWS, params=Params(ionisation_heating=False)).deposit_spectra(pdr, nu).any()
+    plain = Params(ionisation_heating=False, fission=False)       # protons carry part of the down flux, the bases assume none
+    assert not population.Population([mol], WINDOWS, params=plain).deposit_spectra(pdr, nu).any()
     assert pop.deposit_spectra(pdr, nu).any()                              # the photoionisation products
     xray = Environment("xdr", 1e4, 1e4, 1e-2, 1e3, None, field_e_min_ev=300.0, field_e_max_ev=1e4, field_powerlaw=1.0)
     h = pop.emission_weights(xray).sum(axis=1)
     expect = 0.0
     for s, z, which, idx, rate, baked in pop._deposit_flows(xray):
         members = pop._response(pop.library[s], z, which)[1][idx]   # the population's molecule: ladder to the cold limit
-        expect += (rate - baked) * sum(h[s, k] * em.sum() for k, (em, _, _) in enumerate(members[:4]))
+        expect += (rate - baked) * sum(h[s, k] * em.sum() for k, (em, *_) in enumerate(members[:4]))
     for dP in (pop.deposit_spectra(xray, nu, fwhm_cm=15.0, shift_cm=0.0),
                pop.deposit_spectra(xray, nu, band_shape=spectral_fit.BandShape())):
         assert np.trapezoid(dP[0], nu) == pytest.approx(expect, rel=0.03)
 
 
 def test_vectorised_charges_equal_the_scalar_chain():
-    lib = population.library_m20(_ascii(), all_anions=True)
-    pop = population.Population(lib, WINDOWS)
+    """The charge chain of a Population (every molecule's row at once) is the scalar chain ``charge_fractions`` of each,
+    without proton emission, which the scalar chain lacks. The rows are independent, so a sample of the M20 library with
+    anions covers the vectorisation; ``_k_up`` needs no basis, so none is built (and it is the bases' k_up)."""
+    from pycalima.pahchem.baseline import Params
+
+    lib = population.library_m20(_ascii(), all_anions=True)[::7]
+    pop = population.Population(lib, WINDOWS, params=Params(fission=False))
     for env in (Environment("a", 2e4, 1e5, 100.0, 700.0, 40000), Environment("b", 7e4, 5e4, 10.0, 700.0, 40000),
                 Environment("c", 1e3, 3e4, 5.0, 700.0, None)):
-        _, fz = pop.band_fluxes(env)
-        for m in lib[::7]:
-            own = pop._own(m)                                               # its ladder, to the cold limit
-            ref = population.charge_fractions(own, env)
+        f = pop.charge_matrix(env)
+        for s, m in enumerate(lib):
+            own = pop.library[s]                                            # its ladder, to the cold limit
+            ref = population.charge_fractions(own, env, pop.p)
             for z in own.charges:
-                assert fz[m.name][z] == pytest.approx(ref[z], rel=1e-9, abs=1e-14)
+                assert f[s, z - pop.zmin] == pytest.approx(ref[z], rel=1e-9, abs=1e-14)
+    assert not any(k[0] == "basis" for m in pop.library for k in m._cache if isinstance(k, tuple))
+    one = population.Population(lib[:2], WINDOWS, params=pop.p)
+    shape = population.field_shape(Environment("a", 2e4, 1e5, 100.0, 700.0, 40000))
+    assert np.array_equal(one._k_up(shape), one._stack(shape)[0])
 
 
 def test_k_h_table_interpolates_the_multiphoton_steady_state():
@@ -1026,16 +1065,16 @@ def test_hydrogenation_shares_and_the_unmodelled_rest_add_up():
 
 
 def test_dehydrogenated_emission_lowers_the_ch_bands_and_leaves_intact_molecules_alone():
-    """C54H18 stays intact here: both treatments give its bands. C24H14 is 0.34 intact and 0.71 in the
-    emitting states: its total power falls to that share (the rest is not modelled) and its C-H bands
-    fall against the C-C 6.2 um band (3.3/6.2 and 11.2/6.2 by 5-8 %)."""
+    """C54H18 stays intact here: both treatments give its bands. C24H14 is partly stripped: its total power falls to its
+    share in the emitting states (the rest is not modelled) and its C-H bands fall against the C-C 6.2 um band (3.3/6.2
+    and 11.2/6.2; by less since its catacondensed end rings lose C2H2 too, ``Params.c2h2_loss``)."""
     pop, old = _hydrogenation_pair()
     env = Environment("dim", 1e2, 1e4, 10.0, 500.0, 40000)
     F, _ = pop.band_fluxes(env)
     F0, _ = old.band_fluxes(env)
     assert F[1] == pytest.approx(F0[1], rel=1e-6)
     assert F[0].sum() / F0[0].sum() == pytest.approx(pop.emitting_fractions(env)[0], rel=0.01)
-    assert F[0, 0] / F[0, 1] < 0.97 * F0[0, 0] / F0[0, 1] and F[0, 2] / F[0, 1] < 0.95 * F0[0, 2] / F0[0, 1]
+    assert F[0, 0] / F[0, 1] < 0.99 * F0[0, 0] / F0[0, 1] and F[0, 2] / F[0, 1] < 0.99 * F0[0, 2] / F0[0, 1]
     nu = np.linspace(600.0, 3300.0, 2000)
     assert np.allclose(pop.spectra(env, nu)[1], old.spectra(env, nu)[1], rtol=1e-6, atol=0.0)
 
@@ -1182,8 +1221,8 @@ def test_multiphoton_loss_ceiling_rises_until_converged():
     k = population._h_loss_rate(freqs, E, counts, np.rint(cm.energy_cm / (E[1] - E[0])).astype(int), nh, p.h_even,
                                 p.h_odd, beta)
     assert not population._loss_converged(cm.steady_state(e_dep, population.K_H_G0_GRID[-1] * h, {"H": k}))
-    kh, _ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep)
-    kh_cap, _ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep,
+    kh, *_ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep)
+    kh_cap, *_ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep,
                                         e_max_ev=population.LOSS_E_CAP_EV)
     assert kh == pytest.approx(kh_cap, rel=0.02)
 

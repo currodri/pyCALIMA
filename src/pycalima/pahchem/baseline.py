@@ -118,6 +118,14 @@ class Params:
     # with dz = 0). Every charge state is then live, so it costs bases the photons alone would not need; False: an
     # Environment with zeta_cr > 0 raises
     cosmic_rays: bool = False
+    # population only: C2H2 loss of PAHs with catacondensed end rings (a quartet of edge H), the loss of their first carbon:
+    # RRKM (E0 [eV], dS(1000 K) [J/K/mol]) of Ling & Lifshitz 1998 Table 2 (anthracene+: 4.50 eV, +12.8 eu, a loose
+    # transition state, path degeneracy 1 for its two end rings; phenanthrene+ 3.99 eV, +12.3 eu); None: no C2H2 loss.
+    # Pericondensed parents get none: pyrene+, perylene+ and coronene+ lose no hydrocarbon fragments (West+18)
+    c2h2_loss: tuple | None = (4.50, 53.6)
+    # population only: hot ions emit protons (charge -1, one H less) over the larger of impact.fission_barrier (Holm+11)
+    # and the H+ dissociation energy (the H-loss E0 + IE(H) - IP(z-1)), with the H-loss transition state; False: none
+    fission: bool = True
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
     # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)

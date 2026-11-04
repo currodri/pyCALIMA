@@ -80,7 +80,8 @@ def test_xray_only_field_is_scaled_by_its_energy_flux():
 
 
 def test_deposit_response_conserves_energy_and_strips_more_with_the_charge():
-    """One deposit's IR is the deposit; H loss per capture grows with the energy it deposits (IP rises with Z)."""
+    """One deposit's IR is the deposit; the loss per capture (H, H2, C2H2, protons) grows with the energy it deposits (IP
+    rises with Z)."""
     from pycalima.pahchem import dos
 
     mol = _mol()
@@ -93,10 +94,10 @@ def test_deposit_response_conserves_energy_and_strips_more_with_the_charge():
             responses += list(zip(inp[-1], P.deposit_response(*inp)))
         rec = responses[0][1]
         for e, members in responses:
-            for em, ph, ph2 in members:
+            for em, *prob in members:
                 assert em.sum() / dos.CM_PER_EV == pytest.approx(e, rel=2e-3)
-                assert 0.0 <= ph <= 1.0 and 0.0 <= ph2 <= 1.0 and ph + ph2 <= 1.0 + 1e-9
-        probs.append(rec[0][1] + rec[0][2])
+                assert all(0.0 <= x <= 1.0 for x in prob) and sum(prob) <= 1.0 + 1e-9
+        probs.append(sum(rec[0][1:]))                          # every loss: H, H2, C2H2, protons (the highest charges)
     assert probs[0] < probs[1] < probs[2]
 
 

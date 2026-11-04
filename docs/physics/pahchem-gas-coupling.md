@@ -588,6 +588,48 @@ higher charges, as before). In the population every molecule runs from its lowes
     heating; it is not in yet.
 - *Open:* the column of the blend (10²¹ cm⁻²); the secondary electrons (CRISpy); the induced UV.
 
+### 2.2e Proton emission by hot ions and C₂H₂ loss (2026-11-04)
+
+- *Sources:* Holm+11 (J. Chem. Phys. 134, 044301), West+14, West+18, Ling & Lifshitz 1998, Jochims+94, all read in full.
+- **C₂H₂ loss** (`Params.c2h2_loss`, `population.loss_extras`):
+  - **Measured.** RRKM fits exist only for small catacondensed cations: anthracene⁺ 4.50 eV and +12.8 eu, phenanthrene⁺
+    3.99 eV and +12.3 eu, both loose transition states (Ling98 Table 2); acenaphthylene⁺ 5.21 eV (West+18).
+    "Perylene (PER) and pyrene (PYR) cations do not lose hydrocarbon fragments" (West+18), and coronene⁺ only
+    dehydrogenates. DFT puts the pericondensed C₂H₂ dissociation energies at 6–8 eV against anthracene's 2.7–3.3
+    (Holm+11 Table V). Pyrene⁺'s C₂H₂ share grows as it is stripped: 1.3 %, 8 % at C₁₆H₈⁺, 50 % at C₁₆H₅⁺ (West+14).
+  - **Model.** A channel only for skeletons with catacondensed end rings (PAHdb's quartet H): Ling98's anthracene⁺
+    parameters, path degeneracy ½ per end ring, the C–C stretch as reaction coordinate. None for pericondensed parents.
+    It destroys the molecule as the library holds it (`Population.loss_rates`).
+  - **Not yet.** The deeply dehydrogenated states, where West+14 see it open, are part of the bare-skeleton item.
+- **Proton emission** (`Params.fission`):
+  - **Barrier.** Holm+11's DFT fission barriers for H⁺ emission (Fig. 7, five PAHs, q = 3–10, read from the figure)
+    collapse on q/√N_C, the charge over the radius: B = 6.30 − 2.88 q/√N_C eV, rms 0.28 eV (q/N_C: 0.53).
+    `impact.fission_barrier`.
+  - **Threshold.** max(D, B), with D = the H loss's E0 + IE(H) − IP(q − 1) from the ladder (within 0.1–1 eV of Holm's
+    Table V), and the H-loss transition state (an assumption: Holm computed barriers, not transition states).
+    The proton takes the charge (q → q − 1) and an H, so it is a down-step of the charge chain and an H loss of the
+    hydrogenation chain. The two are solved together (`charge_matrix`: per-molecule Anderson mixing to 10⁻¹²,
+    6–86 iterations).
+  - **Not modelled.** C₂H₂⁺ emission, computed for naphthalene only.
+- **The top of the ladder** (the user's choice, after a literature check): min(⌊0.2 N_C⌋, the highest q with B > 0,
+  2.19 √N_C), so C150 has +26 (was +30) and C216 +32 (was +43). Both the thermodynamic and the barrier limits scale with
+  the radius. No astrophysical model prescribes either law:
+  - PAH codes truncate (Murga+22: −2 … +8; Montillaud+13: 0, +1).
+  - Grain physics (WDB06 §10.2.1, Hoang+15: Coulomb explosion or ion field emission) scales as a² ∝ N_C^(2/3), C216
+    ~12–14. It puts coronene and C₆₀ at ~3, against coronene⁴⁺ and C₆₀¹²⁺ seen intact, so for molecules it is a lower
+    bound.
+- *Thresholds* (`check_fission_c2h2.py`): proton emission falls below the 4.41 eV H loss from +4 in C24 (3.95 eV), +5 in
+  C54, +8 in C96, +12 in C216, and to 0.03–0.7 eV at the tops of C96–C216.
+- *Effects* (off → on):
+  - **PDRs and EUV.** ⟨Z⟩ moves ≤ 0.01. Only highly charged molecules that are still intact are stripped: C96 at
+    ψ = 10⁵, f(N_H0) 0.967 → 0.463; C150 at 10⁶, 1.000 → 0.292. The small ones are bare there already.
+  - **X-rays only, G0-equivalent 10⁴.** Hot C 1s products shed protons, with proton emission outrunning electron capture
+    by up to 40×. ⟨Z⟩ falls by 0.16 (C24), 0.91 (C54), 1.18 (C96), 0.99 (C150) and 0.74 (C216). f(N_H0) rises for
+    C54 and C96 (0.773 → 0.872, 0.820 → 0.865): lower charges deposit less on recombination.
+  - **C₂H₂ loss.** Catacondensed C22H14 isomers lose C₂H₂ at ~5×10⁻⁸ s⁻¹ in X-ray gas (G0-equivalent 10⁴), from the
+    C 1s products' heat: the loose transition state beats H loss at high energy, as for anthracene⁺. In PDRs it is
+    10⁻¹²–10⁻¹⁰ s⁻¹ there, because those molecules are stripped and their fate is the bare skeleton's.
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.

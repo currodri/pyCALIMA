@@ -401,6 +401,40 @@ def _yield(mol, z, params=Params(), energy_ev=E_PH):
     return _coulomb_escape(mol, z, params, E, np.where(E >= max(Y_UNITY_EV, threshold), 1.0, np.where(E < threshold, 0.0, y)))
 
 
+#: ionisation energy of atomic H [eV]: proton emission costs the H loss plus IE(H) less the ion's IP(z - 1 -> z)
+IE_H_EV = 13.598
+
+
+def loss_extras(mol, z, n_h, params):
+    """((name, E0 [eV], dS(1000 K) [J/K/mol], path degeneracy, reaction-coordinate mode [cm^-1]), ...): the loss channels of
+    hydrogenation state N_H = ``n_h`` of charge z besides H and H2, as ``rates.rrkm`` takes them.
+
+    - "C2H2" (``Params.c2h2_loss``): only for a skeleton with catacondensed end rings (PAHdb's quartet H), degeneracy 1/2
+      per end ring (Ling & Lifshitz 1998 fitted 1 for anthracene's two), the C-C stretch as reaction coordinate (as
+      ``impact``'s West+18 channel); none for pericondensed parents, which West+18 see lose no hydrocarbon fragment.
+    - "Hp" (``Params.fission``): proton emission from z >= +1 (to z - 1, one H less), over max(D, B): D = the member's H-loss
+      E0 + IE_H_EV - IP(z - 1 -> z) (the ladder's; within 0.1-1 eV of Holm+11's Table V), B = ``impact.fission_barrier``;
+      the H-loss transition state (dS, degeneracy N_H for even N_H, the radical's for odd), an assumption: Holm+11
+      computed barriers, not transition-state frequencies. A barrier at or below 0 (above the barrier's charge limit)
+      leaves the barrierless RRKM rate, E0 = 0."""
+    out = []
+    quartets = mol.edges.get("quartet", 0) / 4.0
+    if params.c2h2_loss is not None and quartets > 0 and n_h >= 2:
+        out.append(("C2H2", float(params.c2h2_loss[0]), float(params.c2h2_loss[1]), 0.5 * quartets, 1600.0))
+    if params.fission and z >= 1 and n_h >= 1:
+        (e0_h, ds_h), deg = (params.h_even, n_h) if n_h % 2 == 0 else (params.h_odd, 1)
+        d_hp = e0_h + IE_H_EV - float(state_threshold(mol, z - 1))
+        out.append(("Hp", max(d_hp, float(impact.fission_barrier(mol.nc, z)), 0.0), float(ds_h), float(deg), 3050.0))
+    return tuple(out)
+
+
+def _extra_rates(freqs, E, counts, pick, beta, extra):
+    """{name: k(E) on the loss grid} of ``loss_extras``' channels."""
+    return {name: rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, coord, ds, n_scaled=5), e0 * dos.CM_PER_EV,
+                             degeneracy=deg, beta=beta)[pick]
+            for name, e0, ds, deg, coord in extra}
+
+
 def _coulomb_escape(mol, z, params, E, y):
     """``y`` capped for z >= 2 by ``photo.yield_coulomb_window`` with D = (z+1) times the state's IP step
     (``Params.coulomb_escape``: "window" at u_c = ``photo.ESCAPE_DEPTH``, "y2" at u_c = inf); "none" leaves it."""
@@ -1165,6 +1199,8 @@ class StateBasis:
     # this state (the same sigma, yield and recombinations: ``build_state_basis``)
     ladder_freqs: tuple = ()
     ladder_emitted: tuple = ()
+    ladder_c2h2: np.ndarray | None = None   # (4, K_H_G0_GRID): C2H2-loss rates of N_H0 ... N_H0-3 [s^-1] (``loss_extras``)
+    ladder_hp: np.ndarray | None = None     # (4, K_H_G0_GRID): proton-emission rates of the same states [s^-1]
 
     def k_h_at(self, g0):
         """k_H [s^-1] at ``g0`` (array), log-log interpolated; rates below 1e-300 s^-1 count as zero."""
@@ -1230,17 +1266,18 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
     sp = mol.species[z]
     top = z == max(mol.charges)
     recomb = float(mol.ionisation_ev[z]) if (params.recombination_heating and not top) else 0.0
-    ladder = []
+    ladder, extras = [], []
     for k in range(4):
         n = mol.nh - k
         if n < 1:
             break
         s_ = sp if k == 0 else sp.stripped(n)
         ladder.append((s_.freqs_cm, _einstein_a(s_, params), n, bool(n % 2 == 0 and n > mol.edges.get("solo", 0))))
+        extras.append(loss_extras(mol, z, n, params))
     return dict(freqs=sp.freqs_cm, einstein_a=_einstein_a(sp, params), nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
                 sigma_scale=params.sigma_scale, recomb_ev=recomb, ladder=tuple(ladder),
-                h_odd=tuple(params.h_odd), h2=tuple(params.h2), threshold_ev=float(state_threshold(mol, z)),
+                h_odd=tuple(params.h_odd), h2=tuple(params.h2), threshold_ev=float(state_threshold(mol, z)), extras=tuple(extras),
                 ionising_heat=bool(params.ionising_photons_heat),
                 # the UV cross section enters the inputs (and the key) unless it is Li & Draine's, the bases before 2026-10-26
                 **({"uv_cross_section": photo.uv_model_key(params.uv_cross_section)} if params.uv_cross_section != "li_draine" else {}),
@@ -1253,8 +1290,8 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
 #: normalised over the whole 6-13.6 eV band (``fields.RadiationField.g0``, +0.15 %); 8 the emission of the
 #: dehydrogenated states N_H0-1 ... N_H0-3; 9 (2026-11-02) the loss ceiling of 45 eV at every size (tilted counts,
 #: ``dos.count_tilt``), each state's deposit grid and ceilings up to its hardest non-ionising deposit, and yields
-#: unity only above the threshold.
-BASIS_VERSION = 9
+#: unity only above the threshold; 10 (2026-11-04) the loss channels of ``loss_extras`` (C2H2 loss, proton emission).
+BASIS_VERSION = 10
 #: bump when emission_temperature_shares changes, so stored shares are rebuilt (keyed with the basis key)
 TSHARES_VERSION = 1
 
@@ -1314,6 +1351,9 @@ N_EMITTING = 4
 #: environments whose hydrogenation chains a Population keeps (``_chain_distributions``): the 48 cells of a PDRs4All
 #: template, ~0.5 MB each for v4.00
 CHAIN_MEMO = 64
+#: the charge fractions and the protons hot ions emit are iterated until no fraction moves by more than FISSION_TOL
+#: (absolute, relative to itself): the small fractions to 1e-12 of themselves
+FISSION_TOL, FISSION_ITER_MAX = (1e-18, 1e-12), 400
 
 
 @dataclass(frozen=True)
@@ -1428,8 +1468,9 @@ def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta=0.0):
                       e0 * dos.CM_PER_EV, degeneracy=deg, beta=beta)[pick]
 
 
-def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None):
-    """(k_H, k_H2) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade.
+def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None, extra=()):
+    """(k_H, k_H2, {name: k}) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade,
+    with the channels ``extra`` of ``loss_extras``.
     ``grid``: this state's ``_loss_grid`` (to ``e_max_ev``) and H-loss rate, if already built ((cm, E, counts, beta),
     k_H(E)); ``e_dep``: the grid of the deposits ``h`` (``deposit_grid``; E_DEP by default); ``e_max_ev``: the
     ceiling to start from (``_loss_ceiling`` by default), raised until converged (LOSS_OVERFLOW_TOL)."""
@@ -1448,13 +1489,15 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, 
         if h2_ok:
             ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h2[1], n_scaled=5),
                                   h2[0] * dos.CM_PER_EV, degeneracy=2, beta=beta)[pick]
-        kh, kh2 = [], []
+        ch |= _extra_rates(freqs, E, counts, pick, beta, extra)
+        out = {c: [] for c in ch}
         for g in K_H_G0_GRID:
             s = cm.steady_state(e_dep, g * h, ch)
-            kh.append(s.rates["H"])
-            kh2.append(s.rates.get("H2", 0.0))
+            for c in ch:
+                out[c].append(s.rates[c])
         if _loss_converged(s) or e_max >= LOSS_E_CAP_EV:
-            return np.array(kh), np.array(kh2)
+            kh2 = np.array(out["H2"]) if "H2" in out else np.zeros(K_H_G0_GRID.size)
+            return np.array(out["H"]), kh2, {c: np.array(v) for c, v in out.items() if c not in ("H", "H2")}
         e_max = min(e_max + LOSS_STEP_EV, LOSS_E_CAP_EV)
 
 
@@ -1509,7 +1552,7 @@ def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, 
 
 def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
                       ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
-                      electron_ev=None, uv_cross_section="li_draine"):
+                      electron_ev=None, uv_cross_section="li_draine", extras=()):
     """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
 
     ``recomb_ev`` is the energy each recombination (attachment) into this state
@@ -1549,15 +1592,19 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
         e_loss = min(e_loss + LOSS_STEP_EV, LOSS_E_CAP_EV)
     k_h = np.array([s.rates["H"] for s in states])
     lh, lh2 = np.zeros((4, K_H_G0_GRID.size)), np.zeros((4, K_H_G0_GRID.size))
+    lx = {"C2H2": np.zeros((4, K_H_G0_GRID.size)), "Hp": np.zeros((4, K_H_G0_GRID.size))}
     for i, (f_, a_, n_, ok_) in enumerate(ladder):
         grid = None
         if i == 0 and n_ == nh and np.array_equal(f_, freqs) and np.array_equal(a_, einstein_a):
             grid = ((cl, E, counts, beta),
                     k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta))
-        lh[i], lh2[i] = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid, e_dep, e_loss)
+        lh[i], lh2[i], kx = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid, e_dep, e_loss,
+                                         extras[i] if extras else ())
+        for c, v in kx.items():
+            lx[c][i] = v
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
                      float(np.trapezoid(h * e_dep * dos.CM_PER_EV, e_dep)), float(recomb_power), lh, lh2,
-                     tuple(l_freqs), tuple(l_emitted))
+                     tuple(l_freqs), tuple(l_emitted), lx["C2H2"], lx["Hp"])
     if not (np.isfinite(out.emitted).all() and np.isfinite(out.k_h).all()
             and all(np.isfinite(e).all() for e in out.ladder_emitted)
             and np.isfinite([out.k_up, out.absorbed]).all()):
@@ -1602,10 +1649,11 @@ def _emission_many(model, starts):
     return X
 
 
-def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev, weights=None):
+def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weights=None):
     """What one deposit of each of ``energies_ev`` does to a state, per molecule placed there: for each member of its
-    hydrogenation ladder (``_basis_inputs``' ``ladder``: N_H0, N_H0-1, ...), (IR power per mode [cm^-1 per deposit],
-    P(H loss), P(H2 loss)), as [[(emitted, p_h, p_h2) per member] per energy]. With ``weights`` (rows x energies, each
+    hydrogenation ladder (``_basis_inputs``' ``ladder``: N_H0, N_H0-1, ..., with ``extras``' channels), (IR power per mode
+    [cm^-1 per deposit], P(H loss), P(H2 loss), P(C2H2 loss), P(proton emission)), as [[(emitted, p_h, p_h2, p_c2h2, p_hp)
+    per member] per energy]. With ``weights`` (rows x energies, each
     row summing to 1) one result per row instead: the mean over that row's deposits, exact, the cascade and the single-
     event yields being linear in the starts (one event of a spread of deposits, ``ionisation_products``).
 
@@ -1619,7 +1667,7 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev, weights=None
         _round_off(W.sum(axis=1), 1.0, 1.0, "deposit weights per row")
     out = [[] for _ in range(energies_ev.size if W is None else W.shape[0])]
     top = float(energies_ev.max())
-    for f_, a_, n_, h2_ok in ladder:
+    for m, (f_, a_, n_, h2_ok) in enumerate(ladder):
         f_ = np.asarray(f_, dtype=float)
         cm = energy_me.CascadeModel(f_, a_, (top + 0.5) * dos.CM_PER_EV, de_cm)   # every deposit's upper bin inside
         x = energies_ev * dos.CM_PER_EV / cm.de_cm
@@ -1628,13 +1676,15 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev, weights=None
         starts[np.arange(energies_ev.size), i0] = 1.0 - (x - i0)
         starts[np.arange(energies_ev.size), i0 + 1] += x - i0
         emitted = f_[None, :] * _emission_many(cm, starts if W is None else W @ starts)
-        e_cl, Y = _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, max(LOSS_E_MAX_EV, top + 5.0))
+        e_cl, Y = _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, max(LOSS_E_MAX_EV, top + 5.0),
+                                       extras[m] if extras else ())
         p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit")
              for c, y in Y.items()}
         if W is not None:
             p = {c: _round_off(W @ v, 0.0, 1.0, f"P({c}) per event") for c, v in p.items()}
+        get = lambda c, i: float(p[c][i]) if c in p else 0.0              # noqa: E731
         for i in range(len(out)):
-            out[i].append((emitted[i], float(p["H"][i]), float(p["H2"][i]) if "H2" in p else 0.0))
+            out[i].append((emitted[i], get("H", i), get("H2", i), get("C2H2", i), get("Hp", i)))
     return out
 
 
@@ -1643,11 +1693,13 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, energies_ev, weights=None
 _YIELD_MEMO = {}
 
 
-def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev):
-    """(loss-grid energies [cm^-1], {"H": P(E), "H2": P(E)}): the single-event H and H2 loss yields of one ladder member
-    (``CascadeModel.photon_yields`` with the RRKM rates of the basis's ``_loss_tables``) on its loss grid to ``e_max_ev``."""
+def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev, extra=()):
+    """(loss-grid energies [cm^-1], {"H": P(E), "H2": P(E), and those of ``extra``}): the single-event loss yields of one
+    ladder member (``CascadeModel.photon_yields`` with the RRKM rates of the basis's ``_loss_tables``) on its loss grid to
+    ``e_max_ev``."""
     h = hashlib.sha1()
-    for v in (f_, np.asarray(a_, dtype=float), n_, h2_ok, tuple(h_even), tuple(h_odd), tuple(h2), float(e_max_ev)):
+    for v in (f_, np.asarray(a_, dtype=float), n_, h2_ok, tuple(h_even), tuple(h_odd), tuple(h2), float(e_max_ev),
+              tuple(extra)):
         _feed(h, v)
     key = h.hexdigest()
     if key not in _YIELD_MEMO:
@@ -1657,12 +1709,13 @@ def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev):
         if h2_ok:
             ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(f_, 3050.0, h2[1], n_scaled=5),
                                   h2[0] * dos.CM_PER_EV, degeneracy=2, beta=beta)[pick]
+        ch |= _extra_rates(f_, E, counts, pick, beta, extra)
         _YIELD_MEMO[key] = (cl.energy_cm, cl.photon_yields(ch))
     return _YIELD_MEMO[key]
 
 
-#: bump when deposit_response changes, so stored responses are rebuilt
-RESPONSE_VERSION = 3
+#: bump when deposit_response changes, so stored responses are rebuilt (4: the channels of ``loss_extras``)
+RESPONSE_VERSION = 4
 #: the field-independent sets of responses a state may need: "rec", one capture into it (its threshold; none for the top
 #: state); "aug", a C 1s product, K_AUGER_EXCITATION_EV plus each of HEAT_NODES_EV (only in fields that reach the edge);
 #: "heat", a cosmic-ray passage's product, each of HEAT_NODES_EV (``Params.cosmic_rays``).
@@ -1671,9 +1724,9 @@ RESPONSE_SETS = ("rec", "aug")
 
 
 def _response_inputs(mol, z, de_cm, e_max_cm, params, which):
-    """(ladder, de_cm, h_even, h_odd, h2, energies[, weights]) of ``deposit_response`` for set ``which`` of state z."""
-    ladder = _basis_inputs(mol, z, ("draine",), de_cm, e_max_cm, params)["ladder"]
-    head = (ladder, de_cm, tuple(params.h_even), tuple(params.h_odd), tuple(params.h2))
+    """(ladder, de_cm, h_even, h_odd, h2, extras, energies[, weights]) of ``deposit_response`` for set ``which`` of state z."""
+    inp = _basis_inputs(mol, z, ("draine",), de_cm, e_max_cm, params)
+    head = (inp["ladder"], de_cm, tuple(params.h_even), tuple(params.h_odd), tuple(params.h2), inp["extras"])
     if which == "rec":
         return head + ((float(state_threshold(mol, z)) if z < max(mol.charges) else 0.0,),)
     if which == "aug":
@@ -1748,6 +1801,7 @@ class Population:
         self._arrays = {}
         self._capture = {}
         self._chains = {}                # environment -> ``_chain_distributions``, the last CHAIN_MEMO of them
+        self._charges = {}               # environment -> ``charge_matrix``, the last CHAIN_MEMO of them
         self._resp = {}                  # (id(mol), z) -> ``_response``
 
     def _own(self, mol):
@@ -1801,7 +1855,8 @@ class Population:
                           float(d["recombination"]) if "recombination" in d else 0.0,
                           d["ladder_h"] if "ladder_h" in d else None, d["ladder_h2"] if "ladder_h2" in d else None,
                           tuple(d[f"ladder_freqs_{k}"] for k in range(1, n_l + 1)),
-                          tuple(d[f"ladder_emitted_{k}"] for k in range(1, n_l + 1)))
+                          tuple(d[f"ladder_emitted_{k}"] for k in range(1, n_l + 1)),
+                          d["ladder_c2h2"] if "ladder_c2h2" in d else None, d["ladder_hp"] if "ladder_hp" in d else None)
 
     def _stored(self, inp):
         """(key, stored basis or None) of ``inp``; a basis stored under its legacy key gets a link to the new."""
@@ -1826,6 +1881,8 @@ class Population:
                      k_h=b.k_h, absorbed=b.absorbed, recombination=b.recombination,
                      ladder_h=b.ladder_h if b.ladder_h is not None else np.zeros((4, K_H_G0_GRID.size)),
                      ladder_h2=b.ladder_h2 if b.ladder_h2 is not None else np.zeros((4, K_H_G0_GRID.size)),
+                     ladder_c2h2=b.ladder_c2h2 if b.ladder_c2h2 is not None else np.zeros((4, K_H_G0_GRID.size)),
+                     ladder_hp=b.ladder_hp if b.ladder_hp is not None else np.zeros((4, K_H_G0_GRID.size)),
                      **{f"ladder_freqs_{k + 1}": f_ for k, f_ in enumerate(b.ladder_freqs)},
                      **{f"ladder_emitted_{k + 1}": e for k, e in enumerate(b.ladder_emitted)})
             os.replace(tmp, self.cache_dir / f"{key}.npz")
@@ -1985,6 +2042,21 @@ class Population:
                     lkh[s, i] = np.log(np.maximum(b.k_h, 1e-300))
                     B[s, i] = b.emitted @ self._window_matrix(mol, z, shape, b.freqs_cm)
             self._arrays[key] = (k_up, lkh, B)
+        return self._arrays[key]
+
+    def _k_up(self, shape):
+        """k_up[s, slot] at G0 = 1 [s^-1]: each live state's photoionisation (detachment) rate, the one its basis holds
+        (``_cascade_start``: the same sigma, yield and field), without building the basis: the charge chain alone needs no
+        more (with ``Params.fission`` its proton emission needs the loss tables, and so the bases)."""
+        key = ("k_up", shape)
+        if key not in self._arrays:
+            field1 = _unit_field(shape)
+            k = np.zeros((len(self.library), len(self.zs)))
+            for s, mol in enumerate(self.library):
+                for z in self._live_charges(mol, shape):
+                    sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+                    k[s, z - self.zmin] = photo.ionisation_rate(field1, sigma, _yield(mol, z, self.p), E_PH)
+            self._arrays[key] = k
         return self._arrays[key]
 
     def _double_stack(self, shape):
@@ -2160,8 +2232,8 @@ class Population:
                 r = _RESPONSE_MEMO[key]
             elif path is not None and path.exists():
                 with np.load(path) as d:
-                    r = [[(d[f"e_{i}_{m}"], float(d["ph"][i, m]), float(d["ph2"][i, m])) for m in range(len(inp[0]))]
-                         for i in range(len(inp[-1]))]
+                    r = [[(d[f"e_{i}_{m}"], float(d["ph"][i, m]), float(d["ph2"][i, m]), float(d["pc"][i, m]),
+                           float(d["php"][i, m])) for m in range(len(inp[0]))] for i in range(len(inp[-1]))]
             else:
                 r = _build_response(inp)
                 self._save_response(path, r)
@@ -2176,6 +2248,7 @@ class Population:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(f".{os.getpid()}.tmp.npz")
         np.savez(tmp, ph=np.array([[x[1] for x in row] for row in r]), ph2=np.array([[x[2] for x in row] for row in r]),
+                 pc=np.array([[x[3] for x in row] for row in r]), php=np.array([[x[4] for x in row] for row in r]),
                  **{f"e_{i}_{m}": x[0] for i, row in enumerate(r) for m, x in enumerate(row)})
         os.replace(tmp, path)
 
@@ -2212,14 +2285,15 @@ class Population:
                 for which in self._response_sets(s, z, shape):
                     self._response(mol, z, which)
 
-    def _deposit_flows(self, env):
-        """[(s, z, which, index, rate, baked)] of the deposits the bases do not hold, per molecule [s^-1]: captures into z
+    def _deposit_flows(self, env, f=None):
+        """[(s, z, which, index, rate, baked)] of the deposits the bases do not hold, per molecule [s^-1] (charge fractions
+        ``f``, by default ``charge_matrix``'s): captures into z
         (``recombination_heating``; "rec"), at f(z+1) alpha(z+1) n_e, with the rate the bases emit them at
         (f(z) G0 k_up(z)) to be replaced; the photoionisations landing on z (``ionisation_heating``; ("ion", shape), row
         ``index`` of ``_ion_stack``), at f(z - dz) G0 k; and the C 1s products z + j ("aug", heat node ``index``), at
         f(z) G0 k_node."""
         shape = field_shape(env)
-        f = self.charge_matrix(env)
+        f = self.charge_matrix(env) if f is None else f
         cap = self._capture_rates(env.temperature_k) * env.n_e
         k_up = self._stack(shape)[0]
         ks = self._kshell_stack(shape)
@@ -2256,18 +2330,18 @@ class Population:
                             flows.append((s, zp, "heat", int(node), float(r[node]), 0.0))
         return flows
 
-    def _deposit_losses(self, env):
-        """(dlh[s, k], dlh2[s, k]): the H and H2 loss rates [s^-1 per molecule, as the charge-averaged chain takes them]
-        of ``_deposit_flows``: dissociative recombination (``Params.recombination_dissociation``) and the C 1s
-        products' heat; the loss tables hold the photon deposits only."""
-        dlh, dlh2 = np.zeros((len(self.library), N_EMITTING)), np.zeros((len(self.library), N_EMITTING))
-        for s, z, which, idx, rate, _ in self._deposit_flows(env):
+    def _deposit_losses(self, env, f=None, by_state=False):
+        """(dlh, dlh2, dlc, dlhp)[s, k]: the H, H2, C2H2 loss and proton-emission rates [s^-1 per molecule, as the
+        charge-averaged chain takes them] of ``_deposit_flows`` (charge fractions ``f``): dissociative recombination
+        (``Params.recombination_dissociation``), the photoionisation, C 1s and cosmic-ray products' heat; the loss tables
+        hold the photon deposits only. ``by_state``: [s, slot, k], per product state."""
+        out = np.zeros((4, len(self.library), len(self.zs), N_EMITTING))
+        for s, z, which, idx, rate, _ in self._deposit_flows(env, f):
             if which == "rec" and not self.p.recombination_dissociation:
                 continue
-            for k, (_, ph, ph2) in enumerate(self._response(self.library[s], z, which)[1][idx]):
-                dlh[s, k] += rate * ph
-                dlh2[s, k] += rate * ph2
-        return dlh, dlh2
+            for k, (_, *p) in enumerate(self._response(self.library[s], z, which)[1][idx]):
+                out[:, s, z - self.zmin, k] += rate * np.asarray(p)
+        return tuple(out) if by_state else tuple(out.sum(axis=2))
 
     def _deposit_bands(self, env, h):
         """dF[s, band]: the IR band power of ``_deposit_flows`` per molecule, weighted by the hydrogenation shares
@@ -2283,7 +2357,7 @@ class Population:
                 mol = self.library[s]
                 ladder, resp = self._response(mol, z, which)
                 RB[(s, z, which)] = [np.array([em @ self._window_matrix(mol, z, shape, np.asarray(ladder[k][0], dtype=float))
-                                               for k, (em, _, _) in enumerate(members[:N_EMITTING])]) for members in resp]
+                                               for k, (em, *_) in enumerate(members[:N_EMITTING])]) for members in resp]
             b = RB[(s, z, which)][idx]
             dF[s] += (rate - baked) * (h[s, : b.shape[0]] @ b)
         return dF
@@ -2299,7 +2373,7 @@ class Population:
             if abs(w) <= ROUND_OFF * max(abs(rate), abs(baked)):
                 continue
             ladder, resp = self._response(self.library[s], z, which)
-            for k, (em, _, _) in enumerate(resp[idx][:N_EMITTING]):
+            for k, (em, *_) in enumerate(resp[idx][:N_EMITTING]):
                 if h[s, k] > 0.0:
                     out.setdefault(s, []).append((np.asarray(ladder[k][0], dtype=float), w * h[s, k] * np.asarray(em, dtype=float)))
         return out
@@ -2329,7 +2403,7 @@ class Population:
                     spectral_fit.shaped_spectrum(np.asarray(ladder[k][0], dtype=float), em, nu, band_shape)
                     if band_shape is not None else
                     self._line_spectrum(mol, z, shape, np.asarray(ladder[k][0], dtype=float), em, nu, fwhm_cm, shift_cm)
-                    for k, (em, _, _) in enumerate(resp[idx][:N_EMITTING])])
+                    for k, (em, *_) in enumerate(resp[idx][:N_EMITTING])])
             R = rows[(s, z, which, idx)]
             dP[s] += w * (h[s, : R.shape[0]] @ R)
         return dP
@@ -2393,18 +2467,20 @@ class Population:
         return self._arrays[key]
 
     def _ladders(self, shape):
-        """H and H2 loss tables of the ladders N_H0 ... N_H0-3, (s, slot, 4, K_H_G0_GRID); 0 where absent."""
+        """H, H2, C2H2-loss and proton-emission tables of the ladders N_H0 ... N_H0-3, each (s, slot, 4, K_H_G0_GRID); 0 where
+        absent."""
         key = ("ladders", shape)
         if key not in self._arrays:
             self.prepare(shape)
-            lh = np.zeros((len(self.library), len(self.zs), 4, K_H_G0_GRID.size))
-            lh2 = np.zeros_like(lh)
+            tabs = np.zeros((4, len(self.library), len(self.zs), 4, K_H_G0_GRID.size))
             for s, mol in enumerate(self.library):
                 for z in self._live_charges(mol, shape):
                     b = self.basis(mol, z, shape)
                     if b.absorbed > 0.0:          # no photon deposits, no photon-driven loss (bases before 2026-11-03: NaN)
-                        lh[s, z - self.zmin], lh2[s, z - self.zmin] = b.ladder_h, b.ladder_h2
-            self._arrays[key] = (lh, lh2)
+                        for t, v in enumerate((b.ladder_h, b.ladder_h2, b.ladder_c2h2, b.ladder_hp)):
+                            if v is not None:
+                                tabs[t, s, z - self.zmin] = v
+            self._arrays[key] = tuple(tabs)
         return self._arrays[key]
 
     def _capture_rates(self, temperature_k):
@@ -2421,9 +2497,41 @@ class Population:
     # -- an environment --------------------------------------------------------------------------
     def charge_matrix(self, env):
         """f[s, slot]: the charge fractions of every molecule over ``self.zs`` (0 for the states its field cannot reach,
-        ``_live``)."""
+        ``_live``). With ``Params.fission`` the protons hot ions emit are down-steps too (``_proton_down``); their rates
+        depend on the hydrogenation, which depends on the charge, so the two are iterated to FISSION_TOL (raises past
+        FISSION_ITER_MAX; ``_anderson``). The last CHAIN_MEMO environments are kept."""
+        if env in self._charges:
+            return self._charges[env]
+        f = self._charge_solve(env, None)
+        if self.p.fission:
+            f = _anderson(lambda x: self._charge_solve(env, self._proton_down(env, x)), f, FISSION_TOL, FISSION_ITER_MAX,
+                          "charge and proton emission")
+        if len(self._charges) >= CHAIN_MEMO:
+            del self._charges[next(iter(self._charges))]
+        self._charges[env] = f
+        return f
+
+    def _proton_down(self, env, f):
+        """down[s, slot] [s^-1 per molecule in the state]: the protons it emits at charge fractions ``f``, the loss tables'
+        at G0 and the deposits' landing on it (per molecule there), each over the hydrogenation distribution of the chain
+        (``_chain_distributions`` at ``f``; the states past N_H0-3 take its mapping, the bare skeleton none)."""
         shape = field_shape(env)
-        k_up, _, _ = self._stack(shape)
+        tab = self._interp_g0(self._ladders(shape)[3], env.g0)                       # [s, slot, k]
+        losses = self._deposit_losses(env, f, by_state=True)                         # one pass over the flows
+        dep = losses[3]                                                              # [s, slot, k], per molecule
+        per = tab + np.divide(dep, f[:, :, None], out=np.zeros_like(dep), where=f[:, :, None] > 0.0)
+        chains = self._chain_distributions(env, f, tuple(x.sum(axis=1) for x in losses))
+        down = np.zeros_like(f)
+        for s, mol in enumerate(self.library):
+            p = np.asarray(chains[s])
+            for i in np.nonzero(per[s].any(axis=1))[0]:
+                down[s, i] = p @ _deep_rates(mol.nh, per[s, i])
+        return down
+
+    def _charge_solve(self, env, extra_down):
+        """``charge_matrix``'s chain with the down-steps ``extra_down`` [s, slot] added to the captures."""
+        shape = field_shape(env)
+        k_up = self._k_up(shape)
         live = self._live(shape)
         up = env.g0 * k_up
         if self.zmin == -1:
@@ -2434,6 +2542,8 @@ class Population:
                     if z in mol.charges and z + 1 in mol.charges:
                         up[s, z - self.zmin] += ion_up_rate(mol, z, env, self.p)
         down = self._capture_rates(env.temperature_k) * env.n_e
+        if extra_down is not None:
+            down = down + extra_down
         steps = self._jump_rates(env, up)
         if steps is not None:
             return _chain_fractions(steps, down, live)
@@ -2533,8 +2643,9 @@ class Population:
         - ``carbon_accretion`` [cm^3 s^-1]: the share of C+ + PAH0 that keeps the C (0.4, Canosa+95), within
           alpha_ct["C+"]; the rest returns C to the gas;
         - ``electron_source`` [s^-1]: electrons made by photoionisation, photodetachment and associative detachment
-          minus those captured
-          (in steady state it equals minus the ion-driven up-flux: PAHs pass the ions' charge to electrons);
+          minus those captured (in steady state it equals the protons emitted, ``proton_source``, minus the ion-driven
+          up-flux: PAHs pass the ions' charge to electrons, and theirs to protons);
+        - ``proton_source`` [s^-1]: protons hot ions emit (``Params.fission``; ``_proton_down`` at ``f``), an H+ source;
           ``electron_overflow`` adds the top state's EUV ionisations, which the chain does not follow;
         - ``gamma_pe``, ``lambda_rec`` [erg s^-1]: photoelectric heating and recombination cooling;
         - ``f``: the charge fractions [s, slot] over ``self.zs``.
@@ -2565,11 +2676,24 @@ class Population:
             alpha_mn[ion], alpha_ct[ion] = float(x @ mn), float(x @ ct)
         gamma = self.photoelectric_heating(env)[0]
         lam = self.recombination_cooling(env)[0]
-        return {"alpha_mn": alpha_mn, "alpha_ct": alpha_ct,
+        protons = (f * self._proton_down(env, f)).sum(axis=1) if self.p.fission else np.zeros(len(self.library))
+        return {"alpha_mn": alpha_mn, "alpha_ct": alpha_ct, "proton_source": float(x @ protons),
                 "carbon_accretion": 0.4 * alpha_ct.get("C+", 0.0),
                 "electron_source": float(x @ ((f * photo_up).sum(axis=1) - (f * capture).sum(axis=1))),
                 "electron_overflow": float(x @ self.chain_overflow(env)),
                 "gamma_pe": float(x @ gamma), "lambda_rec": float(x @ lam), "f": f}
+
+    def loss_rates(self, env):
+        """{"C2H2": C2H2 losses, "Hp": proton emissions} [s^-1 per molecule] at ``env``: the loss tables at its G0 and the
+        deposits (``_deposit_losses``), weighted over charge and the emitting hydrogenation states N_H0 ... N_H0-3
+        (``emission_weights``; the deeper states and the bare skeleton are not in them). A C2H2 loss destroys the molecule
+        as the library holds it (C_{N-2}H_{N_H-2} is another)."""
+        W = self.emission_weights(env)
+        _, _, tab_c, tab_hp = self._ladders(field_shape(env))
+        _, _, dlc, dlhp = self._deposit_losses(env)
+        h = W.sum(axis=1)
+        return {"C2H2": np.einsum("szk,szk->s", W, self._interp_g0(tab_c, env.g0)) + (h * dlc).sum(axis=1),
+                "Hp": np.einsum("szk,szk->s", W, self._interp_g0(tab_hp, env.g0)) + (h * dlhp).sum(axis=1)}
 
     def chain_overflow(self, env):
         """Ionisations out of each molecule's top charge state [s^-1 per molecule], whose product the chain does not
@@ -2689,20 +2813,26 @@ class Population:
             env.temperature_k, CORONENE_GEOMETRIC_A2 * self.nc[:, None] / 24.0)
         return np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
 
-    def _chain_distributions(self, env):
-        """[f(N_H), N_H = 0 ... N_H0] of every molecule: the chain, its rates averaged over the charge fractions. Those of
-        the last CHAIN_MEMO environments are kept: a spectral fit asks for each cell's several times, scan after scan."""
-        if env in self._chains:
+    def _chain_distributions(self, env, f=None, deposit_losses=None):
+        """[f(N_H), N_H = 0 ... N_H0] of every molecule: the chain, its rates averaged over the charge fractions (``f``, by
+        default ``charge_matrix``'s). Those of the last CHAIN_MEMO environments are kept: a spectral fit asks for each
+        cell's several times, scan after scan (not those of a given ``f``, ``charge_matrix``'s iterations, which pass their
+        ``_deposit_losses`` too)."""
+        given = f is not None
+        if not given and env in self._chains:
             return self._chains[env]
-        f = self.charge_matrix(env)
-        tab_h, tab_h2 = self._ladders(field_shape(env))
-        lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0))     # charge-averaged loss rates
+        f = self.charge_matrix(env) if not given else f
+        tab_h, tab_h2, _, tab_hp = self._ladders(field_shape(env))
+        # charge-averaged loss rates; a proton emitted is an H lost (its charge step is the charge chain's)
+        lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0) + self._interp_g0(tab_hp, env.g0))
         lh2 = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h2, env.g0))
-        dlh, dlh2 = self._deposit_losses(env)       # captures and Auger excitation, which the loss tables do not hold
-        lh, lh2 = lh + dlh, lh2 + dlh2
+        dlh, dlh2, _, dlhp = self._deposit_losses(env, f) if deposit_losses is None else deposit_losses   # the deposits
+        lh, lh2 = lh + dlh + dlhp, lh2 + dlh2
         k_add = np.einsum("sz,sz->s", f, self._addition_rates(env))
         out = [_chain_distribution(mol.nh, mol.edges.get("solo", 0), lh[s], lh2[s], k_add[s])
                for s, mol in enumerate(self.library)]
+        if given:
+            return out
         if len(self._chains) >= CHAIN_MEMO:
             del self._chains[next(iter(self._chains))]                         # the oldest
         self._chains[env] = out
@@ -2811,6 +2941,50 @@ if HAVE_NUMBA:
         p = np.linalg.lstsq(A, b, rcond=np.finfo(np.float64).eps * (n + 1))[0]
         p = np.maximum(p, 0.0)
         return p / p.sum()
+
+
+def _anderson(g, x0, tol, it_max, what, m=5):
+    """The fixed point x = g(x) of charge fractions (one row per molecule, each summing to 1), from ``x0``, by Anderson
+    mixing of the last ``m`` iterates, molecule by molecule (the rows are coupled only within themselves): an affine
+    combination of g's outputs, so each row keeps its sum, and the plain step g(x) for a row whose mixed one would leave
+    [0, 1]. Converged when g moves no entry by more than ``tol`` = (absolute, relative) of the entry; raises past ``it_max``
+    iterations."""
+    atol, rtol = tol
+    x = x0
+    xs, gs = [], []
+    for _ in range(it_max):
+        gx = g(x)
+        step = float(np.max(np.abs(gx - x) / (atol + rtol * np.abs(gx))))
+        if step <= 1.0:
+            return gx
+        xs, gs = (xs + [x])[-(m + 1):], (gs + [gx])[-(m + 1):]
+        x = gx.copy()
+        if len(xs) > 1:
+            X, G = np.array(xs), np.array(gs)                      # [iterate, row, slot]
+            F = G - X
+            for r in range(gx.shape[0]):
+                dF, dG = np.diff(F[:, r], axis=0).T, np.diff(G[:, r], axis=0).T
+                gamma = np.linalg.lstsq(dF, F[-1, r], rcond=None)[0]
+                mixed = G[-1, r] - dG @ gamma
+                if np.all(np.isfinite(mixed)) and mixed.min() >= 0.0 and mixed.max() <= 1.0:
+                    x[r] = mixed
+    raise ValueError(f"{what} not converged in {it_max} iterations (last step {step:.1e} of the tolerance)")
+
+
+def _deep_rates(nh0, rates4):
+    """k[N_H], N_H = 0 ... N_H0, of a rate given for N_H0 ... N_H0-3 (``rates4``), with the chain's mapping of the deeper
+    states (``_chain_distribution_numpy``: the N_H0-2 or N_H0-3 rate of the same parity, scaled by N_H when even); none
+    for the bare skeleton."""
+    k = np.zeros(nh0 + 1)
+    for m in range(1, nh0 + 1):
+        j = nh0 - m
+        if j < 4:
+            k[m] = rates4[j]
+        else:
+            ref = 2 if (nh0 - 2) % 2 == m % 2 else 3
+            ref_n = nh0 - ref
+            k[m] = rates4[ref] * (m / ref_n if m % 2 == 0 and ref_n > 0 else 1.0)
+    return k
 
 
 def _chain_distribution(nh0, n_solo, lh, lh2, k_add):
