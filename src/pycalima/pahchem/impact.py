@@ -352,12 +352,12 @@ def impact_collisions(proj: Projectile, t_ev: float, nc: int, nh: int, charge: i
 
 #: carbon K edge [eV] (Henke+93)
 K_EDGE_EV = 284.2
-#: Energy of the final state after a carbon K hole relaxes by KVV Auger decay,
-#: above the neutral ground state: C 1s binding ~290 eV in aromatics minus the
-#: KVV Auger peak of graphitic carbon, ~263 eV. The two valence holes keep
-#: K_HOLE_FINAL_EV - IP1 - IP2 as internal energy. This is an assumption with
-#: confidence D; K-shell collisions are <1% of all collisions.
-K_HOLE_FINAL_EV = 27.0
+#: Mean excitation of the doubly charged ion after a carbon K hole relaxes by KVV Auger decay, above its ground state:
+#: "an average excitation of about 17.3 eV" over the benzene Auger spectrum (Huo+23, EPJD 77, 181, Sect. 3, citing
+#: Carniato+20); the spectrum's peak alone gives ~14 eV (1s IE 290.42 eV, peak ~252 eV, dication ground state 24.65 eV;
+#: Jayadev+23); Lange+25 quote ~20 eV. No PAH Auger spectrum exists. One value for the collisions here and for the
+#: photoabsorptions of ``population`` (2026-11-03; before, 27 eV above the neutral less IP1 + IP2, clipped at 0).
+K_AUGER_EXCITATION_EV = 17.3
 PARTITIONS = ("uniform", "none", "all")
 
 
@@ -419,7 +419,7 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
       - Otherwise E* = W.
     - **Close collisions** ionise. The hole is kept: E* = max(W, IP) - IP.
     - **W above the carbon K edge**, either kind: Auger decay gives dz = +2 with
-      E* = K_HOLE_FINAL_EV - IP - IP2.
+      E* = K_AUGER_EXCITATION_EV. (``ip2_ev`` is no longer used: it set the K hole's energy before 2026-11-03.)
 
     """
     if partition not in PARTITIONS:
@@ -429,7 +429,10 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     edges = np.arange(0.0, e_max + 0.5 * de, de)
     centres = 0.5 * (edges[1:] + edges[:-1])
     k_shell = w >= K_EDGE_EV
-    y = np.where((w >= ip_ev) & ~k_shell, np.clip(yield_(w), 0.0, 1.0), 0.0)
+    y_all = np.asarray(yield_(w), dtype=float)
+    if not np.all(np.isfinite(y_all)) or np.any(y_all < -1e-12) or np.any(y_all > 1.0 + 1e-12):
+        raise ValueError("photoionisation yield outside [0, 1] beyond round-off")
+    y = np.where((w >= ip_ev) & ~k_shell, np.clip(y_all, 0.0, 1.0), 0.0)        # the round-off only
     s = np.ones_like(w) if coll.ion_scale is None else coll.ion_scale           # Kim ionisation scaling (C5)
     d, c, di = coll.distant * tw, coll.close * tw * s, coll.distant * tw * s
 
@@ -449,8 +452,7 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     else:
         rr, oo = hist(x if partition == "all" else np.zeros_like(x), q)
         r1, o1 = r1 + rr, o1 + oo
-    e_k = max(K_HOLE_FINAL_EV - ip_ev - ip2_ev, 0.0)
-    r2, o2 = hist(np.full_like(w, e_k), np.where(k_shell, di + c, 0.0))
+    r2, o2 = hist(np.full_like(w, K_AUGER_EXCITATION_EV), np.where(k_shell, di + c, 0.0))
     return Deposition(centres, de, {0: r0, 1: r1, 2: r2}, {0: o0, 1: o1, 2: o2})
 
 
@@ -535,7 +537,9 @@ def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yie
     It makes Poisson(nu) collisions, nu = sigma_tot / sigma_g (a uniform
     electron column over the projection). Passages from an isotropic intensity
     are weighted by sigma_g sin theta. One collision's (dz, E*) follows
-    ``deposition``.
+    ``deposition``, on the grid points of ``_edge_split`` (E* = k de, exact in
+    the mean over the n-fold sums; bin centres before 2026-11-03, de/2 low per
+    extra collision).
 
     The n-fold sums ``p^{*n}`` are built once by linear 2-D convolution and
     truncated to the grid; the mass that leaves the grid goes to ``beyond``.
@@ -543,12 +547,7 @@ def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yie
     FFT wrap is involved, so arbitrarily large nu (slow heavy nuclei) is fine.
     """
     one = deposition(coll, ip_ev, ip2_ev, yield_, e_max=e_max, de=de, **kwargs)
-    n_e = one.e.size
-    p = np.zeros((dz_max + 1, n_e))
-    lost1 = 0.0
-    for dz, r in one.rates.items():
-        p[dz] = r * de
-        lost1 += one.overflow[dz]
+    p, lost1, e = _edge_split(one, dz_max)
     sigma_tot = p.sum() + lost1
     r_disc, d = disc_radius_cm(nc), DISC_THICKNESS_CM
     th = (np.arange(n_theta) + 0.5) * (0.5 * np.pi / n_theta)
@@ -556,26 +555,96 @@ def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yie
     w_th = 4.0 * np.pi * sg * np.sin(th) * (0.5 * np.pi / n_theta)     # dOmega over both hemispheres
     passages = float(w_th.sum())
     if sigma_tot <= 0.0:
-        return Passages(one.e, de, np.zeros_like(p), 0.0, passages, 0.0)
+        return Passages(e, de, np.zeros_like(p), 0.0, passages, 0.0)
     p, lost1 = p / sigma_tot, lost1 / sigma_tot
-    nu = sigma_tot / sg
-    shape = (2 * (dz_max + 1), 2 * n_e)
+    out, beyond = _poisson_mixture(p, sigma_tot / sg, w_th, tol)
+    return Passages(e, de, out / de, beyond, passages, 4.0 * np.pi * sigma_tot)
+
+
+def _edge_split(one: "Deposition", dz_max: int):
+    """(p[dz, k], the mass beyond the grid, the grid E_k = k de, k = 0 ... n_bins): one collision's ``deposition`` with
+    each bin's mass split equally between the two grid points at its edges. That keeps every collision's mean E*, so the
+    n-fold sums of ``_poisson_mixture`` are exact in the mean (bin centres would lose de/2 per extra collision), and puts
+    an energy of exactly 0 at k = 0."""
+    n_e = one.e.size
+    p = np.zeros((dz_max + 1, n_e + 1))
+    lost = 0.0
+    for dz, r in one.rates.items():
+        p[dz, :-1] += 0.5 * r * one.de
+        p[dz, 1:] += 0.5 * r * one.de
+        lost += one.overflow[dz]
+    return p, lost, np.arange(n_e + 1) * one.de
+
+
+#: the largest negative value FFT round-off may leave in a convolution of non-negative distributions, relative to its
+#: largest value, before ``_poisson_mixture`` treats it as an error (it then sets the round-off to 0)
+FFT_ROUND_OFF = 1e-12
+
+
+def _poisson_mixture(p, nu, w, tol):
+    """(sum_i w_i sum_{n >= 1} Poisson(n; nu_i) p^{*n}, the weight that leaves the grid): ``p`` one collision's outcome
+    [dz, E* bin] (probabilities), ``nu`` the mean collisions of each path, ``w`` its weight. The n-fold sums by linear
+    2-D convolution (zero-padded FFT, no wrap), truncated to the grid; the mass beyond it, and the paths with more
+    collisions than followed once their tail is below ``tol``, are returned apart."""
+    dz_n, n_e = p.shape
+    shape = (2 * dz_n, 2 * n_e)
     p_hat = np.fft.rfft2(p, s=shape)
     out = np.zeros_like(p)
     beyond = 0.0
     cur = p
+    total = float(w.sum())
     for n in range(1, 1_000_000):
         if n > 1:
-            cur = np.clip(np.fft.irfft2(np.fft.rfft2(cur, s=shape) * p_hat, s=shape), 0.0, None)[:dz_max + 1, :n_e]
-        w_n = float((w_th * np.exp(n * np.log(nu) - nu - gammaln(n + 1))).sum())   # Poisson(n; nu(theta))
+            full = np.fft.irfft2(np.fft.rfft2(cur, s=shape) * p_hat, s=shape)
+            if full.min() < -FFT_ROUND_OFF * max(full.max(), 1e-300):
+                raise ValueError(f"convolution negative beyond round-off: {full.min():.3e} against {full.max():.3e}")
+            cur = np.maximum(full, 0.0)[:dz_n, :n_e]                      # the round-off below 0 only
+        w_n = float((w * np.exp(n * np.log(nu) - nu - gammaln(n + 1))).sum())       # Poisson(n; nu_i)
         in_grid = float(cur.sum())
         out += w_n * cur
         beyond += w_n * (1.0 - in_grid)
-        tail = float((w_th * gammainc(n + 1, nu)).sum())                # passages with more than n collisions
-        if in_grid < tol or (n > nu.max() and tail < tol * passages):
+        tail = float((w * gammainc(n + 1, nu)).sum())                  # paths with more than n collisions
+        if in_grid < tol or (n > nu.max() and tail < tol * total):
             beyond += tail                                              # they end beyond, or are negligible
             break
-    return Passages(one.e, de, out / de, beyond, passages, 4.0 * np.pi * sigma_tot)
+    return out, beyond
+
+
+@lru_cache(maxsize=None)
+def _escape_paths(nc: int, n: int = 24):
+    """(weights summing to 1, path lengths [cm]) of an electron leaving the molecule from inside: Micelotta+11's disc
+    (``disc_radius_cm``, DISC_THICKNESS_CM), the electron starting at a uniform point of the mid-plane (a carbon atom) and
+    leaving isotropically through the faces or the rim; Gauss-Legendre in r^2, |cos theta| and phi (nodes strictly
+    inside, so no path is grazing or normal exactly)."""
+    x, wq = np.polynomial.legendre.leggauss(n)
+    R, d = disc_radius_cm(nc), DISC_THICKNESS_CM
+    r, mu, phi = R * np.sqrt(0.5 * (x + 1.0)), 0.5 * (x + 1.0), np.pi * (x + 1.0)
+    rr, mm, pp = np.meshgrid(r, mu, phi, indexing="ij")
+    ww = (0.5 * wq)[:, None, None] * (0.5 * wq)[None, :, None] * (0.5 * wq)[None, None, :]
+    st = np.sqrt(1.0 - mm**2)
+    b = rr * st * np.cos(pp)
+    rim = (-b + np.sqrt(b**2 + st**2 * (R**2 - rr**2))) / st**2
+    return ww.ravel(), np.minimum(rim, 0.5 * d / mm).ravel()
+
+
+def escape_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yield_, de: float = 0.5,
+                    e_max: float = 320.0, dz_max: int = 6, tol: float = 1e-12, **kwargs):
+    """What an electron leaving the molecule from inside (an outgoing photo- or Auger electron) does to it on the way:
+    (P[dz, k] the probability of ending with dz more charges and internal energy E* = k ``de``, k = 0 ... e_max / de, the
+    probability beyond the grid). Poisson(nu) collisions along each path of ``_escape_paths``, nu = sigma_tot L / V (a
+    uniform electron density over the disc, as ``passage_outcomes``), each with ``deposition``'s outcome on the grid of
+    ``_edge_split``; no collision sits at E* = 0."""
+    one = deposition(coll, ip_ev, ip2_ev, yield_, e_max=e_max, de=de, **kwargs)
+    p, lost1, _ = _edge_split(one, dz_max)
+    sigma_tot = p.sum() + lost1
+    w, L = _escape_paths(int(nc))
+    nu = sigma_tot * L / (np.pi * disc_radius_cm(nc) ** 2 * DISC_THICKNESS_CM)
+    P = np.zeros_like(p)
+    P[0, 0] = float((w * np.exp(-nu)).sum())
+    if sigma_tot <= 0.0:
+        return P, 0.0
+    out, beyond = _poisson_mixture(p / sigma_tot, nu, w, tol)
+    return P + out, beyond + lost1 / sigma_tot * float((w * -np.expm1(-nu)).sum())
 
 
 # --- what the deposited energy does: sequential statistical fragmentation ---

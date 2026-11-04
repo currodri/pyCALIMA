@@ -12,11 +12,12 @@ n(H+) = n_e, psi = G0 sqrt(T) / n_e = 1e2-1e6:
   sphere of the same carbon in the same field, with H+ capture.
 Nothing is fitted.
 
-Result (2026-11-03; 7 min on 4 cores, 1.6 GB): with the far UV in the field, C 1s makes 0.1-0.3 % of the ionisation electrons
-at psi <= 1e4 and 1-6 % at psi = 1e6 (alpha = 1, C24-C150; <= 1.1 % for alpha = 1.5). "auger" raises <Z> over "single" by <= 0.2 (C150 at
-psi = 1e6, 19.50 against 19.30) and Gamma_PE by 0.1-3 %. The ion's excitation after the Auger decay (K_AUGER_EXCITATION_EV) is
-1-7e-4 of the power a state absorbs. pahchem stays below WDB06 up to psi ~ 1e5 (the cation sticking) and reaches it at 1e6 for
-N_C >= 96 (alpha = 1); C24 and C54 sit at their cold limits there, WDB06's grains do not have one.
+Result (2026-11-03, with the outgoing electrons' collisions; 93 s on 4 cores with the bases built, 1.9 GB): with the far UV
+in the field, C 1s makes 0.2-0.5 % of the ionisation electrons at psi <= 1e4 and 1.3-6.4 % at psi = 1e6 (alpha = 1, C24-C150;
+<= 1.2 % for alpha = 1.5). "auger" raises <Z> over "single" by <= 0.24 (C150 at psi = 1e6, 19.55 against 19.30); Gamma_PE by
+0.5 % at low psi and by -2.7 % (C150) to +0.7 % (C24) at psi = 1e6, the electrons leaving part of their energy in the molecule.
+pahchem stays below WDB06 up to psi ~ 1e5 (the cation sticking) and reaches it at 1e6 for N_C >= 96 (alpha = 1); C24 and C54
+sit at their cold limits there, WDB06's grains do not have one.
 
     check_kshell_auger.py [--workers 4] [--out DIR]
 """
@@ -91,7 +92,7 @@ def pahchem(pop):
             q["gamma"][:, i, j] = pop.photoelectric_heating(e)[0]
             q["explode"][:, i, j] = pop.chain_overflow(e)
             if ks is not None:
-                k_el = (ks["k"] * np.arange(1, 4)[:, None, None]).sum(axis=0)
+                k_el = (ks["k"] * np.arange(1, ks["k"].shape[0] + 1)[:, None, None]).sum(axis=0)
                 valence = np.maximum(k_up - ks["over"], 0.0)
                 q["k_share"][:, i, j] = (f * k_el).sum(axis=1) / (f * (k_el + valence)).sum(axis=1)
     return q

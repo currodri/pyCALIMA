@@ -256,7 +256,8 @@ def _scan(ctx, t, shape):
     for (g0, n_h, ne, temp, n_tot), keep in zip(cells, keeps):
         env = Environment(t, g0, n_h, ne, temp, teff)
         W = pop.emission_weights(env)
-        P = (g0 * S.combine(W))[keep].T
+        # the deposits the bases do not hold (captures at their actual rate, the C 1s Auger excitation) in the same shape
+        P = (g0 * S.combine(W) + pop.deposit_spectra(env, grid.nu, band_shape=shape))[keep].T
         fit = spectral_fit.fit_spectrum(y, P, ctx["C_"])
         w = np.zeros(len(lib))
         w[keep] = fit.weights

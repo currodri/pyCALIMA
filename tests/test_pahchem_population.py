@@ -488,6 +488,27 @@ def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alo
     assert np.allclose(F, plain, rtol=1e-9)
 
 
+def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains():
+    """The spectrum of the deposits integrates to their flows times the IR per deposit; a plain chain (no C 1s, no
+    ions) builds no deposit rows. The fits' shaped path (band_shape) carries the same power."""
+    from pycalima.pahchem import spectral_fit
+
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    pop = population.Population([mol], WINDOWS)
+    nu = np.linspace(200.0, 4000.0, 3801)
+    pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
+    assert not pop.deposit_spectra(pdr, nu).any()
+    xray = Environment("xdr", 1e4, 1e4, 1e-2, 1e3, None, field_e_min_ev=300.0, field_e_max_ev=1e4, field_powerlaw=1.0)
+    h = pop.emission_weights(xray).sum(axis=1)
+    expect = 0.0
+    for s, z, which, idx, rate, baked in pop._deposit_flows(xray):
+        members = pop._response(pop.library[s], z, which)[1][idx]   # the population's molecule: ladder to the cold limit
+        expect += (rate - baked) * sum(h[s, k] * em.sum() for k, (em, _, _) in enumerate(members[:4]))
+    for dP in (pop.deposit_spectra(xray, nu, fwhm_cm=15.0, shift_cm=0.0),
+               pop.deposit_spectra(xray, nu, band_shape=spectral_fit.BandShape())):
+        assert np.trapezoid(dP[0], nu) == pytest.approx(expect, rel=0.03)
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     lib = population.library_m20(_ascii(), all_anions=True)
     pop = population.Population(lib, WINDOWS)

@@ -18,8 +18,9 @@ Result (2026-11-03; 3 min on 4 cores with the bases built, 1.9 GB):
   pyrene+ and larger); the loss grows with the deposit: C24 0.84 into +1 (11.2 eV), C54 0.32 at +5 and ~1 at +9, C96 5e-3 at +10
   and ~1 at +18, C150 1e-3 at +20, C216 0.06 at its cold limit (70 eV). Per Auger decay: C24 ~1, C54 4e-3-3e-2, C96 up < 1e-8.
 - PDRs: no change (<H lost> <= +0.04, C24, stripped by the photons anyway). EUV: C96 f(N_H0) 0.980 -> 0.967 at psi = 1e5,
-  <H lost> 21.4 -> 23.5 at 1e6. X-rays only (photon-driven loss exactly 0): at G0-equivalent 1e4 C54 f(N_H0) 1.000 -> 0.920,
-  C24 0.956 -> 0.883 (the Auger decays alone 0.956), C96 -> 0.989.
+  <H lost> 21.4 -> 23.5 at 1e6. X-rays only (photon-driven loss exactly 0), with the outgoing electrons' collisions (the C 1s
+  products keep 31-42 eV): at G0-equivalent 1e4 f(N_H0) of C24-C216 0.960, 0.903, 0.873, 0.900, 0.931 without dissociative
+  recombination, 0.889, 0.776, 0.824, 0.899, 0.931 with it (11 min on 4 cores, 3.8 GB, the heat-node responses built).
 
     check_dissociative_recombination.py [--workers 4]
 """
@@ -66,7 +67,8 @@ def main():
         tops = max(mol.charges)
         row = []
         for z in sorted({0, 1, 2, 3, 5, 10, 20, tops - 1} & set(range(-1, tops))):
-            _, (rec, aug) = on._response(mol, z)
+            rec = on._response(mol, z, "rec")[1][0]
+            aug = on._response(mol, z, "aug")[1][0]                    # node 0: the Auger excitation alone
             row.append(f"{z:+d} [IP {P.state_threshold(mol, z):5.1f}]: {rec[0][1]:.1e}/{rec[0][2]:.1e} | Auger {aug[0][1]:.1e}/{aug[0][2]:.1e}")
         print(f"  {mol.name}:\n    " + "\n    ".join(row))
     for name, e in envs().items():

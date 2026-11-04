@@ -277,19 +277,30 @@ higher charges, as before). In the population every molecule runs from its lowes
     E_K − IP(Z) − IP(Z+1) − 17.3 eV, a double Auger pair that less IP(Z+2). The 17.3 eV is the dication's mean excitation
     after the decay, "an average excitation of about 17.3 eV" over the benzene Auger spectrum (Huo+23, Sect. 3, citing
     Carniato+20); the spectrum's peak alone gives ~14 eV (Jayadev+23), Lange+25 quote ~20 eV, and no PAH Auger spectrum
-    exists. The outgoing electrons may leave more inside the molecule by inelastic scattering (a ~250 eV electron's mean
-    free path in carbon is ~10 Å, a planar PAH a few Å thick; plasmons at 7 and ~25 eV); no estimate for a PAH or C60 was
-    found. Neither is deposited in the bases yet (ionising photons deposit nothing by default, `ionising_photons_heat`): in
-    X-ray fields that leaves out a real source of H loss and IR emission.
-  - *The chain:* steps of +1 to +3 (`population._chain_fractions`, exact against a dense solve); steps past the cold
+    exists. It has one owner, `impact.K_AUGER_EXCITATION_EV`, also for the cosmic-ray collisions' K holes (27 eV above
+    the neutral less IP1 + IP2, clipped at 0, before).
+  - *The outgoing electrons* (`population.escape_table`, `impact.escape_outcomes`): the photoelectron and the Auger
+    electrons collide with the molecule on their way out, as `impact.py` collides a cosmic-ray electron with it (Bethe on
+    its own oscillator strengths, the polystyrene low-speed correction, Kim's binary-encounter scaling for slow electrons;
+    a loss is at most T/2, so below 1 eV none is possible). Poisson collisions along escape paths from a uniform start
+    in Micelotta+11's disc; each one's extra charge and E* from `impact.deposition` (a distant ionising collision leaves
+    no E*, as the photoionisations here). The outcomes are convolved over the electrons, on grid points E* = k ΔE with
+    each bin split between its edges (`impact._edge_split`, exact in the mean; the cosmic-ray passages use it too since
+    2026-11-03, their bin centres having lost ΔE/2 per extra collision). Per K event the collisions add 0.4–0.8 charges
+    (⟨dz⟩ 2.45–2.91 for C24–C216 against 2.09) and 14–25 eV of heat over the 17.3 eV: the product keeps 31–42 eV, at and
+    above Micelotta+10b's and Lange+25's "15–35 eV". Nothing leaves the grids silently: a probability of more than 10⁻⁴
+    beyond 320 eV or 12 extra charges per electron raises.
+  - *The chain:* steps of +1 up to +21 (`population._chain_fractions`, exact against a dense solve); steps past the cold
     limit are Coulomb explosions (`chain_overflow`). Fields that do not reach 282 eV keep the plain chain, bit for bit.
     Not in the group tables, which follow single ionisations.
   - *Fields:* `Environment.field_powerlaw` (F_ν ∝ ν^−α from `field_e_min_ev` to `field_e_max_ev`, `fields.powerlaw`) for
     X-ray-bright sources that keep the far UV that sets G0. Fields with no far UV (shielded X-ray-dominated gas, where
     C 1s is ~97 % of the absorption) need a normalisation other than G0.
   - *Check* (`check_kshell_auger.py`; C24–C216, F_ν ∝ ν⁻¹ and ν⁻¹·⁵ from 1 eV to 10 keV, G0 = 10⁴, T = 10⁴ K, against
-    one electron per absorption and WDB06 graphite): with the far UV present, C 1s makes 0.1–0.3 % of the ionisation
-    electrons at ψ ≤ 10⁴ and 1–6 % at ψ = 10⁶. The Auger decays raise ⟨Z⟩ by ≤ 0.2 and Γ_PE by 0.1–3 %. The ion's
+    one electron per absorption and WDB06 graphite): with the far UV present, C 1s makes 0.2–0.5 % of the ionisation
+    electrons at ψ ≤ 10⁴ and 1.3–6.4 % at ψ = 10⁶. ⟨Z⟩ rises by ≤ 0.24 (C150 at ψ = 10⁶, 19.55 against 19.30); Γ_PE by
+    0.5 % at low ψ, and by −2.7 % (C150) to +0.7 % (C24) at ψ = 10⁶, where the outgoing electrons leave part of their
+    energy in the molecule. The ion's
     excitation after the decay is 1–7×10⁻⁴ of the power a state absorbs. So C 1s matters where the far and extreme UV
     are gone.
   - *X-rays only* (`RadiationField.intensity`): a field with no flux at 6–13.6 eV takes G0 as its whole energy flux in
@@ -302,12 +313,15 @@ higher charges, as before). In the population every molecule runs from its lowes
   - *Before:* each capture deposited the threshold into the state it made, but only into the IR (at the rate k_up(z),
     exact for a chain of single steps without ions); the loss tables held the photon deposits only. So no capture ever
     drove H or H₂ loss, and the C 1s Auger decays heated nothing.
-  - *Now* (`population.deposit_response`, field-independent, cached in `cache_dir/responses`): for each state, its IR per
-    mode and P(H), P(H₂) per deposit at its capture energy and at the Auger excitation, from the same cascade and RRKM
-    rates as the bases (`CascadeModel.photon_yields`). At run time (`_deposit_flows`) the captures into z run at
-    f(z+1) α(z+1) n_e and the Auger decays deposit 17.3 eV in their product z+j at f(z) G0 k_j(z): they add to the
-    hydrogenation chain's loss rates (`_deposit_losses`) and to the band fluxes (`_deposit_bands`, replacing the
-    captures the bases emit). A plain chain keeps its band fluxes to 10⁻⁹.
+  - *Now* (`population.deposit_response`, field-independent; cached in `cache_dir/responses` and shared by every
+    Population of a process): for each state, its IR per mode and P(H), P(H₂) per deposit, in two sets: "rec", its
+    capture energy, everywhere; "aug", 17.3 eV plus each of 21 heat nodes (0–320 eV, `HEAT_NODES_EV`), only in fields
+    reaching the C K edge, all from one multi-start cascade pass (`_emission_many`) and the loss cascade's single-event
+    yields (`CascadeModel.photon_yields`). At run time (`_deposit_flows`) the captures into z run at f(z+1) α(z+1) n_e
+    and the C 1s products z+j keep 17.3 eV plus their outgoing electrons' E* on the nodes (mean-conserving split): they
+    add to the hydrogenation chain's loss rates (`_deposit_losses`), the band fluxes (`_deposit_bands`, replacing the
+    captures the bases emit) and the spectra (`deposit_spectra`, also in the fits' band shape). A plain chain keeps its
+    band fluxes to 10⁻⁹ and builds no deposit rows.
   - *Per capture* into the intact molecule (`check_dissociative_recombination.py`): coronene⁺ + e⁻ → coronene keeps
     its H (P = 2×10⁻⁶), as Le Page's statistical model expects for pyrene⁺ and larger (Biennier+06, who also note that
     no laboratory set-up has measured PAH dissociative recombination products). The deposit grows with the charge, and
@@ -315,11 +329,11 @@ higher charges, as before). In the population every molecule runs from its lowes
     its cold limit. Per Auger decay: C24 ~1 (H 0.36, H₂ 0.64), C54 4×10⁻³–3×10⁻², C96 and larger < 10⁻⁸.
   - *In fields:* PDRs (Kurucz 40 kK, G0 10³–10⁵, n_H 10⁴): no change (⟨H lost⟩ ≤ +0.04, for C24, which the photons
     strip anyway). EUV (step 4's field): C96 f(N_H0) 0.980 → 0.967 at ψ = 10⁵, ⟨H lost⟩ 21.4 → 23.5 at 10⁶. X-rays only
-    (F_ν ∝ ν⁻¹, 300 eV–10 keV, n_H 10⁴, n_e 10⁻²), where photon-driven loss is exactly 0: at G0-equivalent 10⁴ C54
-    f(N_H0) 1.000 → 0.920 and C24 0.956 → 0.883 (the Auger decays alone give 0.956): dissociative recombination is the
-    main H loss there.
-  - *Not yet:* the deposits in the fitted spectra (`StateSpectra` rows) and in `state_powers`; the tdep band convention
-    takes each state's own temperature shares for them; the outgoing electrons' inelastic losses inside the molecule.
+    (F_ν ∝ ν⁻¹, 300 eV–10 keV, n_H 10⁴, n_e 10⁻²), where photon-driven loss is exactly 0: at G0-equivalent 10⁴ the C 1s
+    products alone (31–42 eV each, the tail to hundreds of eV) leave f(N_H0) 0.960, 0.903, 0.873, 0.900, 0.931 for
+    C24–C216; with dissociative recombination 0.889, 0.776, 0.824, 0.899, 0.931. Both strip PAHs that photons do not.
+  - *Not yet:* the deposits in `state_powers`; the tdep band convention takes each state's own temperature shares for
+    them.
   - *Guards:* the probabilities and rates bounded by construction are checked before any clip (`population._round_off`,
     `photo.yield_coulomb_window`): the recursions stray 1–2 ulp past [0, 1] (≤ 4.4×10⁻¹⁶ over every bin of C24–C216),
     and anything further, or non-finite, raises.

@@ -87,9 +87,12 @@ def test_deposit_response_conserves_energy_and_strips_more_with_the_charge():
     p = Params()
     probs = []
     for z in (1, 5, 9):
-        inp = P._response_inputs(mol, z, 100.0, 45.0 * dos.CM_PER_EV, p)
-        (rec, aug) = P.deposit_response(*inp)
-        for e, members in zip(inp[-1], (rec, aug)):
+        responses = []
+        for which in P.RESPONSE_SETS:                         # a capture; the Auger excitation plus each heat node
+            inp = P._response_inputs(mol, z, 100.0, 45.0 * dos.CM_PER_EV, p, which)
+            responses += list(zip(inp[-1], P.deposit_response(*inp)))
+        rec = responses[0][1]
+        for e, members in responses:
             for em, ph, ph2 in members:
                 assert em.sum() / dos.CM_PER_EV == pytest.approx(e, rel=2e-3)
                 assert 0.0 <= ph <= 1.0 and 0.0 <= ph2 <= 1.0 and ph + ph2 <= 1.0 + 1e-9
