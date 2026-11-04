@@ -332,7 +332,7 @@ def test_euv_grid_leaves_lyman_cut_fields_unchanged_and_closes_the_energy():
         sig = photo.sigma_uv(mol.nc, z, population.E_PH)
         thr = population.state_threshold(own, z)
         y = population._yield(own, z, heat.p)
-        ke, _ = photo.photoelectron_energy(population.E_PH, thr)
+        ke = population.electron_energy(own, z, heat.p)                     # the bases' electron (the "neutral" reading)
         parts = (b.absorbed / dos.CM_PER_EV + thr * b.k_up
                  + photo.photoelectron_power(fe, sig, y, population.E_PH, thr, electron_energy_ev=ke))
         assert parts == pytest.approx(fe.photon_rate(sig * population.E_PH, population.E_PH), rel=1e-3)
@@ -387,6 +387,41 @@ def test_ionisation_heating_closes_each_ionisation_in_its_product(double):
     assert flows and F[True] - F[False] == pytest.approx(added, rel=1e-2)          # the window misses Lorentzian wings
     with pytest.raises(ValueError, match="twice"):
         population.Population([mol], WINDOWS, params=Params(ionising_photons_heat=True))
+
+
+def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
+    """``Params.cosmic_rays``: an Environment with zeta_cr needs it. In a dim cloud with few electrons the passages raise
+    the charge, more with more zeta; the heat their flows deposit is zeta f(Z) times each state's passage heat
+    (``cr_passages``, split on the heat nodes keeping the mean), less the steps past the cold limit; and G0 below the k_H
+    table continues each rate's first log-log slope."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.nc <= 24)
+    dark = lambda zeta: Environment("dark", 1e-2, 1e3, 1e-6, 20.0, None, optical_isrf=0.0, zeta_cr=zeta)  # noqa: E731
+    with pytest.raises(ValueError, match="cosmic_rays"):
+        population.Population([mol], WINDOWS).charge_matrix(dark(1e-16))
+    pop = population.Population([mol], WINDOWS, params=Params(cosmic_rays=True))
+    zs = np.array(pop.zs, dtype=float)
+    zbar = [float(pop.charge_matrix(dark(z))[0] @ zs) for z in (0.0, 1e-16, 1e-15)]
+    assert zbar[0] < zbar[1] < zbar[2]
+    env = dark(1e-15)
+    f = pop.charge_matrix(env)[0]
+    cr = pop._cr_rates(env)
+    own = pop.library[0]
+    expect = 0.0
+    for z in own.charges:
+        k_node = cr["k_node"][(0, z - pop.zmin)]
+        for dz in range(k_node.shape[0]):
+            if z + dz <= max(own.charges):
+                expect += f[z - pop.zmin] * float(k_node[dz] @ population.HEAT_NODES_EV)
+    got = sum(rate * population.HEAT_NODES_EV[idx] for _, _, which, idx, rate, _ in pop._deposit_flows(env) if which == "heat")
+    assert got == pytest.approx(expect, rel=1e-12) and got > 0.0
+    assert pop.cr_beyond(env)[0] >= 0.0
+    g = population.K_H_G0_GRID
+    tab = np.array([[2.0, 2.0 * g[1]], [3.0, 3.0 * g[1] ** 2]]) * np.ones((1, 1))
+    tab = np.concatenate([tab, np.ones((2, g.size - 2))], axis=1)
+    assert pop._interp_g0(tab, 0.1) == pytest.approx([0.2, 0.03])
+    assert pop._interp_g0(tab, g[0]) == pytest.approx([2.0, 3.0])
 
 
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():

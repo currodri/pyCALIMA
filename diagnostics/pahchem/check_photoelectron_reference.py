@@ -2,8 +2,8 @@
 """Where a charge state reads the measured photoelectron shares (``Params.photoelectron_reference``, gas-coupling section 2.2c).
 
 ``photo.photoelectron_energy`` holds Hrodmarsson+25's shares, measured on nine neutral C13-C20 PAHs at photon energies 7-22 eV.
-"photon" (the default) reads them at the photon energy for every state; "neutral" (opt-in) reads a state of threshold T at
-hv - (T - IP(0)), its molecule's neutral ladder shifted rigidly by the charge. Three checks:
+"photon" (the default before 2026-11-04) reads them at the photon energy for every state; "neutral" reads a state of threshold T at
+hv - (T - IP(0)), its molecule's neutral ladder shifted rigidly by the charge (the default since 2026-11-04). Three checks:
 1. The data: do the nine molecules (IE 7.00-7.91 eV) collapse better on hv or on the excess X = hv - IE?
 2. The ladders (``--octopus-dir``, Octopus LDA ground states ``<dir>/results/dial3_library/<mol>_<Z>`` and
    ``<dir>/results/runs/coronene_<Z>_h0.25``, ``<dir>/dications_2026-10-30/coronene_2``): with the charge, do all occupied

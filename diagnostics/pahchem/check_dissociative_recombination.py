@@ -19,8 +19,9 @@ Result (2026-11-03; 3 min on 4 cores with the bases built, 1.9 GB):
   and ~1 at +18, C150 1e-3 at +20, C216 0.06 at its cold limit (70 eV). Per Auger decay: C24 ~1, C54 4e-3-3e-2, C96 up < 1e-8.
 - PDRs: no change (<H lost> <= +0.04, C24, stripped by the photons anyway). EUV: C96 f(N_H0) 0.980 -> 0.967 at psi = 1e5,
   <H lost> 21.4 -> 23.5 at 1e6. X-rays only (photon-driven loss exactly 0), with the outgoing electrons' collisions (the C 1s
-  products keep 31-42 eV): at G0-equivalent 1e4 f(N_H0) of C24-C216 0.960, 0.903, 0.873, 0.900, 0.931 without dissociative
-  recombination, 0.889, 0.776, 0.824, 0.899, 0.931 with it (11 min on 4 cores, 3.8 GB, the heat-node responses built).
+  products keep 32-41 eV): at G0-equivalent 1e4 f(N_H0) of C24-C216 0.959, 0.900, 0.869, 0.895, 0.927 without dissociative
+  recombination, 0.889, 0.773, 0.820, 0.894, 0.927 with it (rerun 2026-11-04 with the escape tables' measured partition;
+  0.960 ... 0.931 and 0.889 ... 0.931 before; 11 min on 4 cores, 3.8 GB, the heat-node responses built).
 
     check_dissociative_recombination.py [--workers 4]
 """

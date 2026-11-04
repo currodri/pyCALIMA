@@ -358,7 +358,7 @@ K_EDGE_EV = 284.2
 #: Jayadev+23); Lange+25 quote ~20 eV. No PAH Auger spectrum exists. One value for the collisions here and for the
 #: photoabsorptions of ``population`` (2026-11-03; before, 27 eV above the neutral less IP1 + IP2, clipped at 0).
 K_AUGER_EXCITATION_EV = 17.3
-PARTITIONS = ("uniform", "none", "all")
+PARTITIONS = ("measured", "uniform", "none", "all")
 
 
 @dataclass(frozen=True)
@@ -402,7 +402,7 @@ def _trapezoid_weights(x):
 
 
 def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: float = 200.0,
-               de: float = 0.25, partition: str = "uniform") -> Deposition:
+               de: float = 0.25, partition: str = "measured", reference_ev=None) -> Deposition:
     """Map collisions on oscillators W to (charge change, internal energy E*).
 
     - **Distant collisions** have the outcome of a photon of energy W.
@@ -411,11 +411,14 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
       - Above IP: ionisation with the photoionisation yield ``yield_(W)``.
         The ion keeps E* of W - IP minus the electron's energy:
 
-        - ``partition="uniform"``: E* uniform on [0, W - IP];
+        - ``partition="measured"`` (the default since 2026-11-04): the mean hole of a photoionisation at W,
+          ``photo.photoelectron_energy`` (``reference_ev`` as there), as the population's photons leave it
+          (``Params.ionisation_heating``);
+        - ``"uniform"``: E* uniform on [0, W - IP] (the default before: ~(W - IP) / 2, against a ~6 eV hole);
         - ``"none"``: E* = 0, Montillaud+13's convention for photons;
         - ``"all"``: E* = W - IP.
 
-        The three bracket the unknown photoelectron spectrum.
+        The last three bracket the photoelectron spectrum, measured only on neutrals to 22 eV.
       - Otherwise E* = W.
     - **Close collisions** ionise. The hole is kept: E* = max(W, IP) - IP.
     - **W above the carbon K edge**, either kind: Auger decay gives dz = +2 with
@@ -450,7 +453,11 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
         r1 = r1 + (q / span) @ overlap / de
         o1 += float((q * np.clip(x - edges[-1], 0.0, None) / span).sum())
     else:
-        rr, oo = hist(x if partition == "all" else np.zeros_like(x), q)
+        if partition == "measured":
+            xe = photo.photoelectron_energy(w, ip_ev, reference_ev=reference_ev)[1]
+        else:
+            xe = x if partition == "all" else np.zeros_like(x)
+        rr, oo = hist(xe, q)
         r1, o1 = r1 + rr, o1 + oo
     r2, o2 = hist(np.full_like(w, K_AUGER_EXCITATION_EV), np.where(k_shell, di + c, 0.0))
     return Deposition(centres, de, {0: r0, 1: r1, 2: r2}, {0: o0, 1: o1, 2: o2})

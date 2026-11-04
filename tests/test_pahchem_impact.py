@@ -119,6 +119,38 @@ def test_pdg_nuclei_are_normalised_to_hydrogen():
     assert ab["Fe-Ni"] == pytest.approx(0.12 / 550.0)
 
 
+def test_standard_spectra_give_rtz_their_zeta_and_attenuate_monotonically():
+    """RAMSES-RTZ's convention: the standard spectrum scaled to zeta_H has a primary zeta(H2) of H2_PER_H zeta_H, linearly.
+    The shapes behind it: model H, with its low-energy protons, ionises more than L, and both less through more column."""
+    for zeta in (1e-18, 1e-17, 1e-16, 1e-15):                     # below, inside and above the blend
+        for model in ("blend", "L", "H"):
+            assert cr.primary_ionisation_rate(cr.standard_spectra(zeta, model)) == pytest.approx(cr.H2_PER_H * zeta, rel=1e-6)
+    a_l, a_h = cr.blend_weights(1e-16)
+    assert a_l + a_h == pytest.approx(1.0) and 0.0 < a_h < 1.0
+    hi = 1e13                                                          # the shared measured part: the blend is the same there
+    assert cr.standard_spectra(1e-16)[0][1](hi) == pytest.approx(cr.projectile_spectra("L", cr.STANDARD_COLUMN)[0][1](hi), rel=1e-6)
+    z = {(m, n): cr.primary_ionisation_rate(cr.projectile_spectra(m, n)) for m in ("L", "H") for n in (1e20, 1e21, 1e22)}
+    for n in (1e20, 1e21, 1e22):
+        assert z[("H", n)] > z[("L", n)]
+    for m in ("L", "H"):
+        assert z[(m, 1e20)] > z[(m, 1e21)] > z[(m, 1e22)]
+
+
+def test_measured_partition_leaves_the_photons_hole():
+    """``partition="measured"``: the distant ionisations leave the mean hole of a photoionisation at W
+    (``photo.photoelectron_energy``), so their mean E* is the hole weighted by their rates, to within the bin."""
+    nc, nh, ip = 54, 18, 6.14
+    coll = im.impact_collisions(im.PROTON, 1e7, nc, nh, 0, ip_ev=ip)
+    y = lambda E: photo.yield_jochims1996(E, ip)                                   # noqa: E731
+    meas = im.deposition(coll, ip, 8.91, y, partition="measured", e_max=1e3, de=0.02)       # bin centres: de/2 at E* = 0
+    none = im.deposition(coll, ip, 8.91, y, partition="none", e_max=1e3, de=0.02)
+    w, tw = coll.w, im._trapezoid_weights(coll.w)
+    s = np.ones_like(w) if coll.ion_scale is None else coll.ion_scale
+    q = np.where((w >= ip) & (w < im.K_EDGE_EV), coll.distant * tw * s * np.clip(y(w), 0.0, 1.0), 0.0)
+    hole = photo.photoelectron_energy(w, ip)[1]
+    assert meas.power() - none.power() == pytest.approx(float(q @ hole), rel=0.02)
+
+
 @pytest.mark.parametrize("tu", [1e7, 3e5])
 def test_passages_conserve_crossings_and_collisions(tu):
     """Every crossing has 0, 1, 2 ... collisions; the mixture's mean is sigma_tot."""

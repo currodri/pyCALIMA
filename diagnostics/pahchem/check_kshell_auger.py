@@ -15,7 +15,9 @@ Nothing is fitted.
 Result (2026-11-03, with the outgoing electrons' collisions; 93 s on 4 cores with the bases built, 1.9 GB): with the far UV
 in the field, C 1s makes 0.2-0.5 % of the ionisation electrons at psi <= 1e4 and 1.3-6.4 % at psi = 1e6 (alpha = 1, C24-C150;
 <= 1.2 % for alpha = 1.5). "auger" raises <Z> over "single" by <= 0.24 (C150 at psi = 1e6, 19.55 against 19.30); Gamma_PE by
-0.5 % at low psi and by -2.7 % (C150) to +0.7 % (C24) at psi = 1e6, the electrons leaving part of their energy in the molecule.
+0.5 % at low psi and by -1.9 % (C150) to +1.2 % (C24) at psi = 1e6, the electrons leaving part of their energy in the molecule
+(rerun 2026-11-04 with the escape tables' measured partition and photoelectron_reference "neutral": -2.7 to +0.7 % before;
+Gamma auger/WDB06 at psi = 1e6 is now 3.7-8.4 for alpha = 1, about half what it was).
 pahchem stays below WDB06 up to psi ~ 1e5 (the cation sticking) and reaches it at 1e6 for N_C >= 96 (alpha = 1); C24 and C54
 sit at their cold limits there, WDB06's grains do not have one.
 

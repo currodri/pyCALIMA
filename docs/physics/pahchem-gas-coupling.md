@@ -285,11 +285,13 @@ higher charges, as before). In the population every molecule runs from its lowes
     its own oscillator strengths, the polystyrene low-speed correction, Kim's binary-encounter scaling for slow electrons;
     a loss is at most T/2, so below 1 eV none is possible). Poisson collisions along escape paths from a uniform start
     in Micelotta+11's disc; each one's extra charge and E* from `impact.deposition` (a distant ionising collision leaves
-    no E*, as the photoionisations here). The outcomes are convolved over the electrons, on grid points E* = k ΔE with
+    the photoionisation's mean hole, partition "measured", as the photons do since 2026-11-04; no E* before). The
+    outcomes are convolved over the electrons, on grid points E* = k ΔE with
     each bin split between its edges (`impact._edge_split`, exact in the mean; the cosmic-ray passages use it too since
-    2026-11-03, their bin centres having lost ΔE/2 per extra collision). Per K event the collisions add 0.4–0.8 charges
-    (⟨dz⟩ 2.45–2.91 for C24–C216 against 2.09) and 14–25 eV of heat over the 17.3 eV: the product keeps 31–42 eV, at and
-    above Micelotta+10b's and Lange+25's "15–35 eV". Nothing leaves the grids silently: a probability of more than 10⁻⁴
+    2026-11-03, their bin centres having lost ΔE/2 per extra collision). Per K event (F_ν ∝ ν⁻¹) the collisions raise ⟨dz⟩
+    to 2.45–3.54 at Z = 0 and +1 (C24–C216, rising with size; 2.36–2.78 at +5) against 2.09 without them. The product
+    keeps 31.7–40.9 eV, the 17.3 eV plus 14–24 eV, at and above Micelotta+10b's and Lange+25's "15–35 eV". The measured
+    partition adds 0.3–5 eV to that over "none" and leaves ⟨dz⟩ alone. Nothing leaves the grids silently: a probability of more than 10⁻⁴
     beyond 320 eV or 12 extra charges per electron raises.
   - *The chain:* steps of +1 up to +21 (`population._chain_fractions`, exact against a dense solve); steps past the cold
     limit are Coulomb explosions (`chain_overflow`). Fields that do not reach 282 eV keep the plain chain, bit for bit.
@@ -300,8 +302,8 @@ higher charges, as before). In the population every molecule runs from its lowes
   - *Check* (`check_kshell_auger.py`; C24–C216, F_ν ∝ ν⁻¹ and ν⁻¹·⁵ from 1 eV to 10 keV, G0 = 10⁴, T = 10⁴ K, against
     one electron per absorption and WDB06 graphite): with the far UV present, C 1s makes 0.2–0.5 % of the ionisation
     electrons at ψ ≤ 10⁴ and 1.3–6.4 % at ψ = 10⁶. ⟨Z⟩ rises by ≤ 0.24 (C150 at ψ = 10⁶, 19.55 against 19.30); Γ_PE by
-    0.5 % at low ψ, and by −2.7 % (C150) to +0.7 % (C24) at ψ = 10⁶, where the outgoing electrons leave part of their
-    energy in the molecule. The ion's
+    0.5 % at low ψ, and by −1.9 % (C150) to +1.2 % (C24) at ψ = 10⁶, where the outgoing electrons leave part of their
+    energy in the molecule (−2.7 to +0.7 % before the measured partition and the "neutral" reading, 2026-11-04). The ion's
     excitation after the decay is 1–7×10⁻⁴ of the power a state absorbs. So C 1s matters where the far and extreme UV
     are gone.
   - *X-rays only* (`RadiationField.intensity`): a field with no flux at 6–13.6 eV takes G0 as its whole energy flux in
@@ -331,8 +333,9 @@ higher charges, as before). In the population every molecule runs from its lowes
   - *In fields:* PDRs (Kurucz 40 kK, G0 10³–10⁵, n_H 10⁴): no change (⟨H lost⟩ ≤ +0.04, for C24, which the photons
     strip anyway). EUV (step 4's field): C96 f(N_H0) 0.980 → 0.967 at ψ = 10⁵, ⟨H lost⟩ 21.4 → 23.5 at 10⁶. X-rays only
     (F_ν ∝ ν⁻¹, 300 eV–10 keV, n_H 10⁴, n_e 10⁻²), where photon-driven loss is exactly 0: at G0-equivalent 10⁴ the C 1s
-    products alone (31–42 eV each, the tail to hundreds of eV) leave f(N_H0) 0.960, 0.903, 0.873, 0.900, 0.931 for
-    C24–C216; with dissociative recombination 0.889, 0.776, 0.824, 0.899, 0.931. Both strip PAHs that photons do not.
+    products alone (32–41 eV each, the tail to hundreds of eV) leave f(N_H0) 0.959, 0.900, 0.869, 0.895, 0.927 for
+    C24–C216; with dissociative recombination 0.889, 0.773, 0.820, 0.894, 0.927 (rerun 2026-11-04 with the measured
+    partition: ≤ 0.006 lower). Both strip PAHs that photons do not.
   - *Not yet:* the deposits in `state_powers`; the tdep band convention takes each state's own temperature shares for
     them.
   - *Guards:* the probabilities and rates bounded by construction are checked before any clip (`population._round_off`,
@@ -360,7 +363,9 @@ higher charges, as before). In the population every molecule runs from its lowes
   - *In fields* (off → on):
     - PDRs at G0 = 10³ (⟨Z⟩ 0.5–1.1): IR power per molecule ×1.04–1.08, 3.3/11.2 −4 to −8 %, 7.7/11.2 +2 to
       +4 %. At 10⁴ and 10⁵ ×1.01 and ×1.001, the higher charges keeping less.
-    - EUV, ψ = 10⁴: ×1.26–1.28, 3.3/11.2 and 6.2/11.2 −5 %. At 10⁵ ×1.03; at 10⁶ ×1.000 (see below).
+    - EUV, ψ = 10⁴: ×1.26–1.28, 3.3/11.2 and 6.2/11.2 −5 %. At 10⁵ ×1.03; at 10⁶ ×1.000, as measured with the
+      "photon" reading (see below). The "neutral" default adds ×1.006–1.009, ×1.010 and ×1.003 on top
+      (`check_photoelectron_reference.py`); PDRs are unchanged.
     - X-rays only: ×1.003–1.006.
     - f(N_H0) and ⟨H lost⟩ are unchanged in every field.
   - *The hole of a charged state* (`Params.photoelectron_reference`; `check_photoelectron_reference.py`, 2026-11-04).
@@ -391,7 +396,7 @@ higher charges, as before). In the population every molecule runs from its lowes
       - X-rays only: ≥ 0.9994.
       - ⟨Z⟩ is unchanged and the IR rises 0.3–1.7 %.
       - So "photon" overestimates the EUV photoelectric heating by up to 2×.
-    - The default ("photon") is the user's to change.
+    - "neutral" is the default since 2026-11-04 (the user's choice); "photon" keeps the reading before.
 - **Validation, step 1** (`check_charge_ladder.py`; C24–C216 per molecule, Draine field G0 = 10⁴, T = 100 and 1000 K,
   n(H⁺) = n_e, against the library ladder and WD01 graphite spheres of the same carbon in the Mathis field):
   - Regression: identical where the field reaches no state above the computed ones (C24 and C54 at every ψ, every
@@ -486,7 +491,8 @@ higher charges, as before). In the population every molecule runs from its lowes
     - At ψ = 10⁶, ⟨Z⟩ for C24–C216 is 3.84, 6.89, 8.70, 10.85, 12.74 by default, 3.75, 6.18, 7.80, 9.77, 11.47 with
       "window" (0.1–1.3 lower) and 3.29, 4.49, 5.74, 7.23, 8.42 with "y2". WDB06 gives 4.14, 5.66, 7.04, 8.34, 9.57.
       With the bound pahchem still exceeds WDB06 at ψ = 10⁶ for N_C ≥ 54, and stays below it up to ψ ≈ 10⁵.
-    - Γ_PE/WDB06 at ψ = 10⁶ falls from 21.5 to 14.4 (C24) and from 10.7–12.6 to 10.5–11.8 (N_C ≥ 54).
+    - Γ_PE/WDB06 at ψ = 10⁶ falls from 21.5 to 14.4 (C24) and from 10.7–12.6 to 10.5–11.8 (N_C ≥ 54). These are with
+      the "photon" photoelectron reading; the "neutral" default (2026-11-04) multiplies Γ_PE at ψ = 10⁶ by 0.49–0.54.
     - C24's Coulomb explosions halve (1.2×10⁻⁵ → 6.0×10⁻⁶ s⁻¹); C54's fall from 2.2×10⁻⁹ to 1.6×10⁻¹⁰ s⁻¹.
     - So the escape physics, held to the cation data, lowers the EUV charge by ≲ 10 %. pahchem's excess over WDB06 at
       the highest ψ comes from the bound electrons that autoionise, which WD01 drop and the cation data require: with
@@ -532,6 +538,55 @@ higher charges, as before). In the population every molecule runs from its lowes
   The ceiling now starts at 45 eV (or the same headroom above a state's hardest deposit). It rises by 15 eV until
   the jumps clamped at it at G0 = 10⁶ are below 1 % of the loss rate, up to 150 eV. C54 and C96 converge at 45 eV,
   C150 at 60 eV and C268 at 75 eV (C268's k_H at G0 = 10⁶ is 2.3× its 45 eV value). `BASIS_VERSION` 9.
+
+### 2.2d Cosmic rays at the constant zeta of RAMSES-RTZ (2026-11-04)
+
+- *What RTZ takes.* RTZ takes one input, the primary ionisation rate per H, `rtz_primary_cosmic_ray_ionization_rate`
+  (ζ_H). Its total is ζ_H (1 + φ_s(x_e)), with φ_s the secondaries (0.67 in neutral gas), and ζ(H₂) = 2 ζ_H
+  (`rtz/rtz_cooling_module.f90`). The CR-induced UV rates of the metals scale as ζ(H₂)/10⁻¹⁶.
+- *The standard spectrum* (`cosmic_rays.standard_spectra`): Padovani+18 protons with the PDG nuclei and primary
+  electrons, attenuated (CSDA) through N(H₂) and scaled so that its primary ζ(H₂) is 2 ζ_H. The H₂ cross sections are
+  Padovani+09's, as CRISpy has them (Rudd+85 protons, Rudd 1991 electrons; nuclei the proton's at equal speed ×
+  z_eff²).
+  - An attenuated shape is necessary: unattenuated, primary electrons below ~1 keV (j ∝ E⁻¹·³) give ζ(H₂) =
+    2.8×10⁻¹⁴ s⁻¹.
+  - Through 10²¹ cm⁻² the shapes give ζ(H₂) = 3.0×10⁻¹⁷ (model L) and 6.0×10⁻¹⁶ s⁻¹ (H). ≤ 2 % of that comes from
+    below `impact`'s passages (1 keV electrons, 100 keV/u).
+  - *The blend* (the user's choice, 2026-11-04; `cosmic_rays.blend_weights`). L and H share the measured high-energy
+    spectrum: both tend to C E⁻²·⁷ with the same C. They differ only by H's low-energy excess. A cell of given ζ_H
+    takes L plus as much of that excess as gives its ζ, (1 − w) L + w H. Outside [ζ(L), ζ(H)] = [1.5×10⁻¹⁷,
+    3.0×10⁻¹⁶] per H the end member is scaled. Every rate is linear in j, so the population keeps the passages of
+    the two unscaled shapes and combines them per run (`Population._cr_rates`). Its rates per ζ therefore depend on
+    ζ, fixed in a run as RTZ's ζ is.
+- *In the population* (`Params.cosmic_rays`, `Environment.zeta_cr`; `population.cr_passages`):
+  - **Passages.** Each state's passages per unit ζ_H come from `impact.passage_spectrum`: Poisson collisions per
+    passage, distant ionisations leaving the photons' mean hole (`impact.deposition`, partition "measured", the
+    default since 2026-11-04 instead of "uniform"; the C 1s escape tables use it too).
+  - **Charge.** Their +1 … +15 steps join the charge chain.
+  - **Heat.** Their E* goes on `HEAT_NODES_EV`, a "heat" response per product, dz = 0 included, so it adds to the IR
+    and the H loss.
+  - **Not followed.** Steps past the cold limit are Coulomb explosions (`chain_overflow`). Passages beyond 320 eV or
+    15 charges are not followed (`cr_beyond`): an upper bound on destruction until the carbon loss is in.
+  - **Live states.** Every charge is live (more bases).
+  - **G0 below 1.** The k_H tables continue their first log-log slope below G0 = 1, for shielded gas.
+- *Per unit ζ_H* (`check_cosmic_rays.py`, C24–C216):
+  - **Ionising passages.** Neutral C54H18 gets 395 s⁻¹ per s⁻¹ with L through 10²¹ cm⁻², ⟨dz⟩ 1.13, 3.9 keV of
+    heat; C24 172, C216 1624. Model H gives 0.55–0.64× the ionisations and 0.70–0.77× the heat, but 2–5× more
+    passages beyond.
+  - **Column dependence.** Within one model, the rates change by ±15–20 % from 10²⁰ to 10²² cm⁻².
+  - **Shape.** For PAH rates per ζ the shape matters at a factor ~1.7. H's ζ is carried by sub-MeV protons, which
+    ionise H₂ well but PAHs less: their low-speed stopping is below Bethe.
+- *In clouds* (dark: Draine G0 10⁻³, n_H 10⁴, n_e 10⁻⁴, T 10 K; translucent: G0 1, n_H 10³, n_e 0.1, T 50 K):
+  - **Charge, hydrogenation, IR.** Direct passages change ⟨Z⟩ by ≤ 0.003 and f(N_H0) not at all. Their heat adds
+    0.2–0.3 % of the IR at ζ_H = 10⁻¹⁶ in the dark cloud (2–3 % at 10⁻¹⁵) and nothing at G0 = 1. Attachment
+    (~10⁻⁹ s⁻¹) beats CR ionisation (~4×10⁻¹⁴) by orders of magnitude.
+  - **Destruction** (the blend). Lifetimes are 1.1–2.8×10⁹ yr at ζ_H = 10⁻¹⁷ (L alone, scaled),
+    0.64–1.6×10⁸ yr at 10⁻¹⁶ (w ≈ 0.3) and 0.61–1.5×10⁷ yr at 10⁻¹⁵ (H scaled). Coulomb explosions dominate for C24
+    and C54, passages beyond 320 eV for N_C ≥ 96, and H's low-energy nuclei shorten them. This is Micelotta+11's
+    order.
+  - **Missing piece.** In dark gas the CR-induced UV (H₂ Lyman–Werner emission) matters more for the charge and
+    heating; it is not in yet.
+- *Open:* the column of the blend (10²¹ cm⁻²); the secondary electrons (CRISpy); the induced UV.
 
 ### 2.3 Ion–PAH collisions (new)
 

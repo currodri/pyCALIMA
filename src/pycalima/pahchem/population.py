@@ -480,8 +480,9 @@ def escape_table(mol, z, params):
     """P[T, dz, E* bin] on ESCAPE_T_GRID: what an outgoing electron of each energy does to charge z on its way out,
     ``impact.escape_outcomes`` with ``impact.impact_collisions`` on the molecule (Bethe on its oscillator strengths, the
     polystyrene low-speed correction, Kim's binary-encounter scaling for slow electrons) and z's threshold and yield.
-    A distant ionising collision leaves no E* (partition "none"), as the population's photoionisations; close collisions
-    keep the hole (``impact.deposition``). Cached per molecule, charge and parameters."""
+    A distant ionising collision leaves the photoionisation's mean hole (partition "measured", ``photo.photoelectron_energy``
+    under ``Params.photoelectron_reference``), as the population's photons do (``Params.ionisation_heating``; "none", no E*,
+    before 2026-11-04); close collisions keep the hole (``impact.deposition``). Cached per molecule, charge and parameters."""
     key = (mol.name, mol.nc, mol.nh, z, tuple(sorted(mol.ionisation_ev.items())), params)
     if key not in _ESCAPE_TABLES:
         ip, ip2 = _ladder_ip(mol, z), _ladder_ip(mol, z + 1)
@@ -490,7 +491,8 @@ def escape_table(mol, z, params):
         for t in ESCAPE_T_GRID:
             coll = impact.impact_collisions(impact.ELECTRON, float(t), mol.nc, mol.nh, z, ip_ev=ip)
             P, beyond = impact.escape_outcomes(coll, mol.nc, ip, ip2, y, de=ESCAPE_DE, e_max=float(HEAT_NODES_EV[-1]),
-                                               dz_max=ESCAPE_DZ_MAX, partition="none")
+                                               dz_max=ESCAPE_DZ_MAX, partition="measured",
+                                               reference_ev=photoelectron_reference(mol, params))
             if beyond > ESCAPE_BEYOND_TOL:
                 raise ValueError(f"{mol.name} {z:+d}: an outgoing {t:.0f} eV electron leaves the outcome grid with P {beyond:.1e}")
             rows.append(P)
@@ -672,6 +674,58 @@ def kshell_rates(mol, z, params, field1):
     s_ph = sigma_kshell(mol.nc, params, E_PH) * params.sigma_scale
     over = photo.ionisation_rate(field1, s_ph, _yield(mol, z, params), E_PH)
     return k, k_node, float(over), power, absorbed_hi
+
+
+# -- cosmic rays (Params.cosmic_rays, Environment.zeta_cr; 2026-11-04) -----------------------------------------------
+#: the charges a passage may add that are followed, and the E* grid of ``impact.passage_outcomes`` [eV]
+CR_DZ_MAX, CR_DE_EV, CR_E_MAX_EV = 15, 1.0, 512.0
+#: bump when ``cr_passages`` changes, so stored passages are rebuilt
+CR_VERSION = 2
+
+
+def cr_passages(mol, z, params, protons="L", n_h2=None):
+    """Cosmic-ray passages through charge z in the unscaled shape ``cosmic_rays.projectile_spectra(protons, n_h2)`` (n_h2
+    ``cosmic_rays.STANDARD_COLUMN`` by default; the population blends L and H per zeta, ``cosmic_rays.blend_weights``):
+    (k_node[dz, node] [s^-1] for dz = 0 ... CR_DZ_MAX with the product's E* on HEAT_NODES_EV, split keeping the mean;
+    the rate of passages beyond them, E* above the top node or more than CR_DZ_MAX charges; the heat deposited inside
+    [eV s^-1]). ``impact.passage_spectrum`` on the molecule's oscillator strengths, Poisson collisions per passage, each
+    distant ionisation leaving the photons' mean hole (partition "measured"), with z's threshold and yield."""
+    from pycalima.pahchem import cosmic_rays
+
+    ip, ip2 = _ladder_ip(mol, z), _ladder_ip(mol, z + 1)
+    y = lambda w: _yield(mol, z, params, energy_ev=w)                   # noqa: E731
+    spectra = cosmic_rays.projectile_spectra(protons, cosmic_rays.STANDARD_COLUMN if n_h2 is None else n_h2)
+    ps = impact.passage_spectrum(mol.nc, mol.nh, z, ip, ip2, spectra, y, de=CR_DE_EV,
+                                 e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX, partition="measured",
+                                 reference_ev=photoelectron_reference(mol, params))
+    ps = [v for v in ps.values() if v is not None]
+    e = ps[0].e
+    R = sum(v.P for v in ps) * ps[0].de                                  # [dz, k] passages per unit zeta [s^-1]
+    inside = e <= HEAT_NODES_EV[-1]
+    k_node = R[:, inside] @ _node_split(e[inside])
+    beyond = float(sum(v.beyond for v in ps)) + float(R[:, ~inside].sum())
+    return k_node, beyond, float((R[:, inside] * e[inside]).sum())
+
+
+def _cr_key(mol, z, params, protons):
+    """Disk key of ``cr_passages`` of shape ``protons``: everything it depends on."""
+    h = hashlib.sha1(f"cr{CR_VERSION}".encode())
+    from pycalima.pahchem import cosmic_rays
+    w = impact.w_grid()
+    for v in (mol.nc, mol.nh, z, tuple(sorted(mol.ionisation_ev.items())), protons, cosmic_rays.STANDARD_COLUMN,
+              np.asarray(_yield(mol, z, params, energy_ev=w), dtype=float), photoelectron_reference(mol, params),
+              CR_DZ_MAX, CR_DE_EV, CR_E_MAX_EV, HEAT_NODES_EV, impact.K_AUGER_EXCITATION_EV):
+        _feed(h, v)
+    return h.hexdigest()[:20]
+
+
+def _build_cr(job):
+    mol, z, params, protons = job
+    return cr_passages(mol, z, params, protons)
+
+
+#: the two shapes the standard spectrum blends (``cosmic_rays.blend_weights``)
+CR_SHAPES = ("L", "H")
 
 
 #: (a, b) of IP(+1 -> +2) - IP(0 -> +1) = a + b / sqrt(N_C) [eV], over the 743 PAHdb v4.00 molecules of ``library_v400``
@@ -1610,7 +1664,8 @@ def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev):
 #: bump when deposit_response changes, so stored responses are rebuilt
 RESPONSE_VERSION = 3
 #: the field-independent sets of responses a state may need: "rec", one capture into it (its threshold; none for the top
-#: state); "aug", a C 1s product, K_AUGER_EXCITATION_EV plus each of HEAT_NODES_EV (only in fields that reach the edge).
+#: state); "aug", a C 1s product, K_AUGER_EXCITATION_EV plus each of HEAT_NODES_EV (only in fields that reach the edge);
+#: "heat", a cosmic-ray passage's product, each of HEAT_NODES_EV (``Params.cosmic_rays``).
 #: A third, ("ion", shape), holds the photoionisations landing on it in that field shape (``ionisation_products``)
 RESPONSE_SETS = ("rec", "aug")
 
@@ -1623,6 +1678,8 @@ def _response_inputs(mol, z, de_cm, e_max_cm, params, which):
         return head + ((float(state_threshold(mol, z)) if z < max(mol.charges) else 0.0,),)
     if which == "aug":
         return head + (tuple(K_AUGER_EXCITATION_EV + HEAT_NODES_EV),)
+    if which == "heat":
+        return head + (tuple(HEAT_NODES_EV),)
     rows = ionisation_products(mol, z, params, which[1])
     energies = np.concatenate([e for _, _, e, _ in rows])
     W = np.zeros((len(rows), energies.size))
@@ -1705,6 +1762,8 @@ class Population:
         costs only the states the field reaches (in a field cut at 13.6 eV, those whose threshold from below is under
         13.6 eV, as WD01 eq. 22)."""
         key = ("live", shape)
+        if key not in self._arrays and self.p.cosmic_rays:
+            self._arrays[key] = self.present.copy()        # cosmic rays reach every charge (+1 ... +CR_DZ_MAX steps)
         if key not in self._arrays:
             field1 = _unit_field(shape)
             live = self.present.copy()
@@ -1998,6 +2057,93 @@ class Population:
             self._arrays[key] = out
         return self._arrays[key]
 
+    # -- cosmic rays ------------------------------------------------------------------------------------------------
+    def _cr_file(self, key):
+        return None if self.cache_dir is None else self.cache_dir / "cosmic_rays" / f"{key}.npz"
+
+    def prepare_cr(self, workers=None):
+        """``cr_passages`` of every state in both shapes of the blend (CR_SHAPES; field-independent): from memory, the disk
+        cache (``cache_dir``/cosmic_rays) or computed in parallel."""
+        todo = []
+        for mol in self.library:
+            for z in mol.charges:
+                for shape in CR_SHAPES:
+                    ck = ("cr", z, shape, self.p)
+                    if ck in mol._cache:
+                        continue
+                    key = _cr_key(mol, z, self.p, shape)
+                    f = self._cr_file(key)
+                    if f is not None and f.exists():
+                        with np.load(f) as d:
+                            mol._cache[ck] = (d["k_node"], float(d["beyond"]), float(d["power"]))
+                    else:
+                        todo.append((mol, z, ck, f, shape))
+        workers = workers if workers is not None else (os.cpu_count() or 1)
+
+        def keep(t, r):
+            mol, _, ck, f, _ = t
+            mol._cache[ck] = r
+            if f is not None:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                tmp = f.with_suffix(f".{os.getpid()}.tmp.npz")
+                np.savez(tmp, k_node=r[0], beyond=r[1], power=r[2])
+                os.replace(tmp, f)
+        if workers > 1 and len(todo) > 2:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:     # light copies: no bases travel to the workers
+                for t, r in zip(todo, ex.map(_build_cr, [(replace(t[0], _cache={}), t[1], self.p, t[4]) for t in todo])):
+                    keep(t, r)
+        else:
+            for t in todo:
+                keep(t, cr_passages(t[0], t[1], self.p, t[4]))
+
+    def _cr_stack(self, shape):
+        """{"k": [J, s, slot] (dz = 1 ... J), "k_node": {(s, slot): [dz, node]} (dz = 0 ... J), "beyond", "power": [s, slot]}:
+        ``cr_passages`` of every state in the unscaled ``shape`` ("L" or "H"); None without ``Params.cosmic_rays``."""
+        key = ("cr", shape)
+        if key not in self._arrays:
+            out = None
+            if self.p.cosmic_rays:
+                self.prepare_cr()
+                n, m = len(self.library), len(self.zs)
+                K = np.zeros((CR_DZ_MAX, n, m))
+                beyond, power, nodes = np.zeros((n, m)), np.zeros((n, m)), {}
+                for s, mol in enumerate(self.library):
+                    for z in mol.charges:
+                        k_node, beyond[s, z - self.zmin], power[s, z - self.zmin] = mol._cache[("cr", z, shape, self.p)]
+                        nodes[(s, z - self.zmin)] = k_node
+                        K[: k_node.shape[0] - 1, s, z - self.zmin] = k_node[1:].sum(axis=1)
+                out = {"k": K, "k_node": nodes, "beyond": beyond, "power": power}
+            self._arrays[key] = out
+        return self._arrays[key]
+
+    def _cr_rates(self, env):
+        """The passages of ``env``'s cosmic rays [s^-1 per molecule], ``_cr_stack``'s keys: the standard spectrum of its
+        zeta_cr, a_L L + a_H H (``cosmic_rays.blend_weights``); None without cosmic rays."""
+        if getattr(env, "zeta_cr", 0.0) <= 0.0:
+            return None
+        if not self.p.cosmic_rays:
+            raise ValueError("Environment.zeta_cr > 0 needs a Population with Params.cosmic_rays")
+        from pycalima.pahchem import cosmic_rays
+
+        key = ("cr_rates", float(env.zeta_cr))
+        if key not in self._arrays:
+            a = dict(zip(CR_SHAPES, cosmic_rays.blend_weights(env.zeta_cr)))
+            st = {sh: self._cr_stack(sh) for sh in CR_SHAPES}
+            mix = lambda name: sum(a[sh] * st[sh][name] for sh in CR_SHAPES)          # noqa: E731
+            self._arrays[key] = {"k": mix("k"), "beyond": mix("beyond"), "power": mix("power"),
+                                 "k_node": {si: sum(a[sh] * st[sh]["k_node"][si] for sh in CR_SHAPES) for si in st["L"]["k_node"]}}
+        return self._arrays[key]
+
+    def cr_beyond(self, env):
+        """Cosmic-ray passages per molecule [s^-1] that leave more than HEAT_NODES_EV's top or more than CR_DZ_MAX charges
+        (``cr_passages``): not followed (their charge steps and heat are not in the chain), a destruction rate for most."""
+        cr = self._cr_rates(env)
+        if cr is None:
+            return np.zeros(len(self.library))
+        return (self.charge_matrix(env) * cr["beyond"]).sum(axis=1)
+
     # -- deposits the bases do not hold (captures, photoionisation products, the C 1s Auger excitation) ----------------
     def _response_file(self, key):
         return None if self.cache_dir is None else self.cache_dir / "responses" / f"{key}.npz"
@@ -2036,7 +2182,7 @@ class Population:
     def _response_sets(self, s, z, shape):
         """The response sets state z of molecule s needs under ``shape``: "rec"; "aug" where ``_kshell_on``; ("ion", shape)
         where photoionisations land on it (``_ion_stack``)."""
-        sets = list(RESPONSE_SETS if self._kshell_on(shape) else ("rec",))
+        sets = list(RESPONSE_SETS if self._kshell_on(shape) else ("rec",)) + (["heat"] if self.p.cosmic_rays else [])
         return sets + ([("ion", shape)] if (s, z - self.zmin) in self._ion_stack(shape) else [])
 
     def prepare_responses(self, shape, workers=None):
@@ -2078,6 +2224,7 @@ class Population:
         k_up = self._stack(shape)[0]
         ks = self._kshell_stack(shape)
         ion = self._ion_stack(shape)
+        cr = self._cr_rates(env)
         flows = []
         for s, mol in enumerate(self.library):
             live = set(self._live_charges(mol, shape))
@@ -2094,6 +2241,19 @@ class Population:
                             continue                             # past the cold limit: an explosion (chain_overflow)
                         for node in np.nonzero(k_node[j - 1] > 0.0)[0]:
                             flows.append((s, z + j, "aug", int(node), f[s, i] * env.g0 * k_node[j - 1, node], 0.0))
+            if cr is not None:                            # the passages' products, summed over their parents per node
+                acc = {}
+                for z in live:
+                    k_node = cr["k_node"][(s, z - self.zmin)]
+                    for dz in range(k_node.shape[0]):
+                        if z + dz not in live:
+                            continue                      # past the cold limit: an explosion (chain_overflow)
+                        r = f[s, z - self.zmin] * k_node[dz]
+                        acc[z + dz] = acc.get(z + dz, 0.0) + r
+                for zp, r in acc.items():
+                    for node in np.nonzero(r > 0.0)[0]:
+                        if HEAT_NODES_EV[node] > 0.0:      # E* = 0 heats nothing (its charge step is in the chain)
+                            flows.append((s, zp, "heat", int(node), float(r[node]), 0.0))
         return flows
 
     def _deposit_losses(self, env):
@@ -2180,7 +2340,8 @@ class Population:
         ``_double_stack``); None when there are none, the plain chain."""
         shape = field_shape(env)
         ks, k2v = self._kshell_stack(shape), self._double_stack(shape)
-        if ks is None and not k2v.any():
+        cr = self._cr_rates(env)
+        if ks is None and not k2v.any() and cr is None:
             return None
         jk = ks["k"] if ks is not None else np.zeros((2,) + up.shape)
         over = ks["over"] if ks is not None else 0.0
@@ -2191,6 +2352,10 @@ class Population:
         steps = [np.maximum(single, 0.0) + env.g0 * jk[0]]                  # the round-off below 0 only
         steps += [env.g0 * jk[j] for j in range(1, jk.shape[0])]
         steps[1] = steps[1] + env.g0 * k2v
+        if cr is not None:                                # +1 ... +CR_DZ_MAX steps of the passages
+            steps += [np.zeros_like(up) for _ in range(cr["k"].shape[0] - len(steps))]
+            for j in range(cr["k"].shape[0]):
+                steps[j] = steps[j] + cr["k"][j]
         return steps
 
     def _state_modes(self, b):
@@ -2274,7 +2439,8 @@ class Population:
             return _chain_fractions(steps, down, live)
         both = live[:, :-1] & live[:, 1:]
         logr = np.zeros_like(up[:, :-1])
-        logr[both] = np.log(up[:, :-1][both]) - np.log(down[:, 1:][both])
+        with np.errstate(divide="ignore"):              # a state no step reaches (k_up = 0) has f = 0 exactly
+            logr[both] = np.log(up[:, :-1][both]) - np.log(down[:, 1:][both])
         logf = np.concatenate([np.zeros((len(self.library), 1)), np.cumsum(logr, axis=1)], axis=1)
         logf = np.where(live, logf, -np.inf)
         f = np.exp(logf - logf.max(axis=1, keepdims=True))
@@ -2482,10 +2648,17 @@ class Population:
         return env.g0 * (b.emitted @ self._window_matrix(mol, z, field_shape(env), b.freqs_cm))
 
     def _interp_g0(self, table, g0):
-        """Log-log interpolation of rate tables (..., K_H_G0_GRID) at ``g0``."""
-        if not K_H_G0_GRID[0] <= g0 <= K_H_G0_GRID[-1]:
-            raise ValueError(f"G0 {g0:g} outside the k_H table")
+        """Log-log interpolation of rate tables (..., K_H_G0_GRID) at ``g0``. Below the grid (shielded and dark gas, where
+        cosmic rays matter) each rate continues its first interval's log-log slope: 1 where single photons dominate at
+        G0 = 1, up to 2.02 where two photons do (large PAHs, 2026-11-04 tables), whose single-photon floor below is then
+        not followed."""
+        if not 0.0 < g0 <= K_H_G0_GRID[-1]:
+            raise ValueError(f"G0 {g0:g} outside (0, {K_H_G0_GRID[-1]:g}] of the k_H table")
         lt = np.log(np.maximum(table, 1e-300))
+        if g0 < K_H_G0_GRID[0]:
+            slope = (lt[..., 1] - lt[..., 0]) / (np.log(K_H_G0_GRID[1]) - np.log(K_H_G0_GRID[0]))
+            out = np.exp(lt[..., 0] + slope * (np.log(g0) - np.log(K_H_G0_GRID[0])))
+            return np.where(table[..., 0] == 0.0, 0.0, out)
         x = np.log(g0)
         i = max(min(np.searchsorted(np.log(K_H_G0_GRID), x), K_H_G0_GRID.size - 1), 1)
         lo, hi = np.log(K_H_G0_GRID[i - 1]), np.log(K_H_G0_GRID[i])

@@ -156,3 +156,87 @@ def projectile_spectra(protons: str = "L", n_h2: float = 0.0, electrons: bool = 
         csda = CSDA.build(proj)
         out.append((proj, (lambda c, jj: (lambda t: c.attenuated(jj, t, n_h2)))(csda, j)))
     return out
+
+
+# --- the ionisation rate of a spectrum, and the standard spectrum scaled to a given one ----------------------
+
+A0_CM = 5.29177210903e-9
+I_H_EV, I_H2_EV = 13.598, 15.43
+ME_OVER_MP = 1.0 / 1836.15267
+
+
+def h2_ionisation_cross_section(proj: impact.Projectile, t_ev) -> np.ndarray:
+    """Ionisation cross section of H2 [cm^2 per molecule] by ``proj`` at kinetic energy T, as Padovani+09 (and CRISpy,
+    ``crispy_cr.cosmicrays.cross_sections``): protons Rudd+85 (eqs. 5-6), electrons Rudd 1991 (eqs. 7-9); a nucleus the
+    proton's at the same speed (T / A) times z_eff^2 (``impact.effective_charge``)."""
+    t = np.asarray(t_ev, dtype=float)
+    if proj.is_electron:
+        x = np.maximum(t / I_H2_EV, 1.0)
+        n = 2.4
+        F = (1 - x ** (1 - n)) / (n - 1) - (2 / (1 + x)) ** (n / 2) * (1 - x ** (1 - n / 2)) / (n - 2)
+        G = (0.74 * np.log(x) + 0.87 - 0.60 / x) / x
+        return np.where(t > I_H2_EV, np.maximum(4 * np.pi * A0_CM**2 * 2 * (I_H_EV / I_H2_EV) ** 2 * F * G, 0.0), 0.0)
+    a = proj.nucleons / impact.PROTON.nucleons
+    x = ME_OVER_MP * (t / a) / I_H_EV
+    lo = 4 * np.pi * A0_CM**2 * 0.51 * x**1.24
+    hi = 4 * np.pi * A0_CM**2 * (0.71 * np.log1p(x) + 1.63) / x
+    s = 1.0 / (1.0 / lo + 1.0 / hi)
+    return s if proj.z == 1 else s * impact.effective_charge(proj, impact.kinematics(proj, t)[0]) ** 2
+
+
+def primary_ionisation_rate(spectra, n: int = 4000) -> float:
+    """zeta(H2) = 4 pi sum int j(T) sigma(T) dT [s^-1 per H2] of ``spectra`` ([(Projectile, j)]): primary ionisations
+    only, from 1 keV per nucleon (electrons from the threshold) to 1e13 eV per nucleon."""
+    total = 0.0
+    for proj, j in spectra:
+        a = 1.0 if proj.is_electron else proj.nucleons / impact.PROTON.nucleons
+        t = np.geomspace(I_H2_EV * 1.0001 if proj.is_electron else 1.0e3 * a, 1.0e13 * a, n)
+        total += 4.0 * np.pi * float(np.trapezoid(np.asarray(j(t), dtype=float) * h2_ionisation_cross_section(proj, t) * t,
+                                                  np.log(t)))
+    return total
+
+
+#: RAMSES-RTZ's cosmic-ray input is the primary ionisation rate per H, ``rtz_primary_cosmic_ray_ionization_rate``, with
+#: zeta(H2) = 2 zeta_H (rtz/rtz_cooling_module.f90; the secondaries' (1 + phi_s(x_e)) multiply both)
+H2_PER_H = 2.0
+#: the column the standard spectrum is attenuated through [N(H2) cm^-2]. Unattenuated, primary electrons below ~1 keV
+#: (j ~ E^-1.3) make zeta(H2) 2.8e-14 s^-1; through 1e21 cm^-2 (zeta(H2) 3.0e-17 for L, 6.0e-16 for H) <= 2 % of it comes
+#: from below ``impact``'s passages (1 keV electrons, 100 keV/u)
+STANDARD_COLUMN = 1.0e21
+#: the standard spectrum (the user's choice, 2026-11-04): Padovani+18's L and H protons share the measured high-energy part
+#: (both tend to C E^(a - b) = C E^-2.7, the same C) and differ by H's low-energy excess; with the PDG nuclei and the primary
+#: electrons (the same in both), through STANDARD_COLUMN, a cell of given zeta takes L plus as much of that excess as gives
+#: its zeta (``blend_weights``), the end member scaled outside [zeta(L), zeta(H)]
+STANDARD_SPECTRUM = ("blend", STANDARD_COLUMN)
+
+
+@lru_cache(maxsize=None)
+def shape_zeta(protons: str, n_h2: float) -> float:
+    """Primary zeta(H2) [s^-1] of ``projectile_spectra(protons, n_h2)``, unscaled."""
+    return primary_ionisation_rate(projectile_spectra(protons, n_h2))
+
+
+def blend_weights(zeta_h: float, n_h2: float = STANDARD_COLUMN):
+    """(a_L, a_H): the standard spectrum of primary rate ``zeta_h`` per H (RTZ's, zeta(H2) = H2_PER_H zeta_h) is a_L L + a_H H
+    of ``projectile_spectra`` through ``n_h2``: a_L + a_H = 1 between the two shapes' own zeta, the end member scaled outside."""
+    z2, zl, zh = H2_PER_H * float(zeta_h), shape_zeta("L", n_h2), shape_zeta("H", n_h2)
+    if z2 <= zl:
+        return z2 / zl, 0.0
+    if z2 >= zh:
+        return 0.0, z2 / zh
+    w = (z2 - zl) / (zh - zl)
+    return 1.0 - w, w
+
+
+def standard_spectra(zeta_h: float, protons: str = STANDARD_SPECTRUM[0], n_h2: float = STANDARD_SPECTRUM[1]):
+    """[(projectile, j(T))]: the cosmic rays of a cell whose primary ionisation rate per H is ``zeta_h`` [s^-1] in RTZ's
+    convention (zeta(H2) = H2_PER_H zeta_h): the L/H blend of ``blend_weights`` (``protons`` = "blend", the default), or one
+    model's shape scaled to it ("L", "H")."""
+    if protons == "blend":
+        a_l, a_h = blend_weights(zeta_h, n_h2)
+        pairs = zip(projectile_spectra("L", n_h2), projectile_spectra("H", n_h2))
+        return [(p, (lambda jl, jh: (lambda t: a_l * np.asarray(jl(t), dtype=float) + a_h * np.asarray(jh(t), dtype=float)))(jl, jh))
+                for (p, jl), (_, jh) in pairs]
+    items = projectile_spectra(protons, n_h2)
+    scale = H2_PER_H * float(zeta_h) / shape_zeta(protons, n_h2)
+    return [(proj, (lambda jj: (lambda t: scale * np.asarray(jj(t), dtype=float)))(j)) for proj, j in items]

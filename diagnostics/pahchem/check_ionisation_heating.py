@@ -16,8 +16,9 @@ Result (2026-11-03; ~5 min on 4 cores with the bases built, 1.6 GB):
 - Per event: <E_int> into +1 2.4-3.4 eV cut at 13.6 eV, 4.3-4.7 eV to 100 eV, falling with the charge; into the neutral from the
   anion 4.9-7.5 eV. P(H) on N_H0 <= 2e-5 except neutral C24 (0.03): these deposits heat, they do not strip.
 - PDRs: IR power per molecule x1.04-1.08 at G0 = 1e3 (3.3/11.2 -4 to -8 %, 7.7/11.2 +2 to +4 %), x1.01 at 1e4, x1.001 at 1e5.
-- EUV: x1.26-1.28 at psi = 1e4 (3.3/11.2, 6.2/11.2 -5 %), x1.03 at 1e5, x1.000 at 1e6, where every state above IP 21.9 eV keeps
-  nothing (photo.photoelectron_energy holds the hole at 21.9 eV photon energy; docs section 2.2c, open).
+- EUV (measured with photoelectron_reference "photon"; the "neutral" default adds x1.003-1.010): x1.26-1.28 at
+  psi = 1e4 (3.3/11.2, 6.2/11.2 -5 %), x1.03 at 1e5, x1.000 at 1e6, where every state above IP 21.9 eV keeps
+  nothing under "photon" (the hole held at 21.9 eV photon energy; docs section 2.2c).
 - X-rays only: x1.003-1.006. f(N_H0) and <H lost> unchanged everywhere. C24 (and C54, C96 at psi = 1e6) emit nothing: stripped
   below the emitting ladder (nan ratios).
 

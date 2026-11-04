@@ -110,9 +110,14 @@ class Params:
     # ionising_photons_heat, which puts it in the absorbing state's cascade instead (Montillaud's and the BaselineModel's)
     ionisation_heating: bool = True
     # population only: where the measured photoelectron shares (photo.photoelectron_energy, neutrals) are read for a state
-    # of threshold T: "photon" (at the photon energy, every state alike; the default) or "neutral" (opt-in: at
-    # hv - (T - IP(0)), the molecule's neutral ladder shifted rigidly by its charge, as the Octopus ladders shift)
-    photoelectron_reference: str = "photon"
+    # of threshold T: "neutral" (the default since 2026-11-04: at hv - (T - IP(0)), the molecule's neutral ladder shifted
+    # rigidly by its charge, as the Octopus ladders shift) or "photon" (at the photon energy, every state alike; before)
+    photoelectron_reference: str = "neutral"
+    # population only: cosmic-ray passages (impact.passage_spectrum of cosmic_rays.standard_spectra, per unit
+    # Environment.zeta_cr) in the charge chain (+dz steps) and as deposits (E* on population.HEAT_NODES_EV, the state's own
+    # with dz = 0). Every charge state is then live, so it costs bases the photons alone would not need; False: an
+    # Environment with zeta_cr > 0 raises
+    cosmic_rays: bool = False
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
     # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)
@@ -164,6 +169,8 @@ class Environment:
     optical_isrf: float = 1.0                 # old-star light below 5 eV, x the solar circle's, not scaled by g0 (Draine shape, population)
     field_powerlaw: float | None = None       # F_nu ~ nu^-alpha from field_e_min_ev to field_e_max_ev instead of a star (population);
     #                                           field_e_min_ev > 13.6: X-rays only, and g0 is their energy flux in Habing units
+    zeta_cr: float = 0.0                      # primary cosmic-ray ionisation rate per H [s^-1], RAMSES-RTZ's input, an input like
+    #                                           n_e (population with Params.cosmic_rays; cosmic_rays.standard_spectra)
 
     def field(self):
         if self.field_powerlaw is not None:
