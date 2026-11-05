@@ -744,13 +744,45 @@ def cr_passages(mol, z, params, protons="L", n_h2=None):
     ps = impact.passage_spectrum(mol.nc, mol.nh, z, ip, ip2, spectra, y, de=CR_DE_EV,
                                  e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX, partition="measured",
                                  reference_ev=photoelectron_reference(mol, params))
+    return _passage_nodes(ps)
+
+
+def _passage_nodes(ps):
+    """(k_node[dz, node], beyond, heat) of ``impact.passage_spectrum``'s {projectile: Passages}: the products' E* on
+    HEAT_NODES_EV (split keeping the mean), the passages beyond them, the heat deposited inside."""
     ps = [v for v in ps.values() if v is not None]
+    if not ps:
+        return np.zeros((CR_DZ_MAX + 1, HEAT_NODES_EV.size)), 0.0, 0.0
     e = ps[0].e
-    R = sum(v.P for v in ps) * ps[0].de                                  # [dz, k] passages per unit zeta [s^-1]
+    R = sum(v.P for v in ps) * ps[0].de                                  # [dz, k] passages [s^-1]
     inside = e <= HEAT_NODES_EV[-1]
     k_node = R[:, inside] @ _node_split(e[inside])
     beyond = float(sum(v.beyond for v in ps)) + float(R[:, ~inside].sum())
     return k_node, beyond, float((R[:, inside] * e[inside]).sum())
+
+
+#: thermal electrons' kinetic energies [eV] from 1 eV (below which the model allows no collision: ESCAPE_T_GRID) to
+#: HOT_T_SPAN kT, at HOT_N_T log-spaced points
+HOT_T_SPAN, HOT_N_T = 40.0, 48
+
+
+def hot_passages(mol, z, params, temperature_k):
+    """Thermal electrons' passages through charge z per unit n_e [cm^-3] at ``temperature_k`` (Maxwellian,
+    ``impact.maxwellian_flux``, Coulomb-focused on the charged PAH, ``impact.coulomb_focus``): as ``cr_passages``."""
+    kt = 8.617333262e-5 * float(temperature_k)
+    t = np.geomspace(1.0, max(HOT_T_SPAN * kt, 10.0), HOT_N_T)
+    ip, ip2 = _ladder_ip(mol, z), _ladder_ip(mol, z + 1)
+    y = lambda w: _yield(mol, z, params, energy_ev=w)                   # noqa: E731
+    spectra = [(impact.ELECTRON, impact.maxwellian_flux(impact.ELECTRON, temperature_k, 1.0))]
+    ps = impact.passage_spectrum(mol.nc, mol.nh, z, ip, ip2, spectra, y, t_grid={"e": t}, focus=True, de=CR_DE_EV,
+                                 e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX, partition="measured",
+                                 reference_ev=photoelectron_reference(mol, params))
+    return _passage_nodes(ps)
+
+
+def _build_hot(job):
+    mol, z, params, temperature_k = job
+    return hot_passages(mol, z, params, temperature_k)
 
 
 def _cr_key(mol, z, params, protons):
@@ -1946,8 +1978,8 @@ class Population:
         costs only the states the field reaches (in a field cut at 13.6 eV, those whose threshold from below is under
         13.6 eV, as WD01 eq. 22)."""
         key = ("live", shape)
-        if key not in self._arrays and self.p.cosmic_rays:
-            self._arrays[key] = self.present.copy()        # cosmic rays reach every charge (+1 ... +CR_DZ_MAX steps)
+        if key not in self._arrays and (self.p.cosmic_rays or self.p.hot_gas):
+            self._arrays[key] = self.present.copy()        # passages reach every charge (+1 ... +CR_DZ_MAX steps)
         if key not in self._arrays:
             field1 = _unit_field(shape)
             live = self.present.copy()
@@ -2338,6 +2370,62 @@ class Population:
                                  "k_node": {si: sum(a[sh] * st[sh]["k_node"][si] for sh in CR_SHAPES) for si in st["L"]["k_node"]}}
         return self._arrays[key]
 
+    def prepare_hot(self, temperature_k, workers=None):
+        """``hot_passages`` of every state at ``temperature_k`` (per unit n_e, field-independent), computed in parallel."""
+        t = round(float(temperature_k), 6)
+        todo = [(mol, z) for mol in self.library for z in mol.charges if ("hot", z, t, self.p) not in mol._cache]
+        workers = workers if workers is not None else (os.cpu_count() or 1)
+        if workers > 1 and len(todo) > 2:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for (mol, z), r in zip(todo, ex.map(_build_hot, [(replace(m, _cache={}), z, self.p, t) for m, z in todo])):
+                    mol._cache[("hot", z, t, self.p)] = r
+        else:
+            for mol, z in todo:
+                mol._cache[("hot", z, t, self.p)] = hot_passages(mol, z, self.p, t)
+
+    def _hot_rates(self, env):
+        """The thermal electrons' passages at ``env`` [s^-1 per molecule], ``_cr_stack``'s keys: ``hot_passages`` at its
+        temperature times n_e; None without ``Params.hot_gas``."""
+        if not self.p.hot_gas:
+            return None
+        t = round(float(env.temperature_k), 6)
+        key = ("hot_rates", t, float(env.n_e))
+        if key not in self._arrays:
+            self.prepare_hot(t)
+            n, m = len(self.library), len(self.zs)
+            K = np.zeros((CR_DZ_MAX, n, m))
+            beyond, power, nodes = np.zeros((n, m)), np.zeros((n, m)), {}
+            for s, mol in enumerate(self.library):
+                for z in mol.charges:
+                    k_node, b, pw = mol._cache[("hot", z, t, self.p)]
+                    i = z - self.zmin
+                    nodes[(s, i)] = env.n_e * k_node
+                    beyond[s, i], power[s, i] = env.n_e * b, env.n_e * pw
+                    K[: k_node.shape[0] - 1, s, i] = env.n_e * k_node[1:].sum(axis=1)
+            self._arrays[key] = {"k": K, "k_node": nodes, "beyond": beyond, "power": power}
+        return self._arrays[key]
+
+    def _passages(self, env):
+        """The passages of every source at ``env`` (cosmic rays, ``_cr_rates``; thermal electrons, ``_hot_rates``), summed;
+        None when there are none."""
+        srcs = [r for r in (self._cr_rates(env), self._hot_rates(env)) if r is not None]
+        if not srcs:
+            return None
+        if len(srcs) == 1:
+            return srcs[0]
+        a, b = srcs
+        return {"k": a["k"] + b["k"], "beyond": a["beyond"] + b["beyond"], "power": a["power"] + b["power"],
+                "k_node": {si: a["k_node"][si] + b["k_node"][si] for si in a["k_node"]}}
+
+    def hot_beyond(self, env):
+        """Thermal electrons' passages per molecule [s^-1] beyond the heat nodes or CR_DZ_MAX charges (``cr_beyond``)."""
+        hot = self._hot_rates(env)
+        if hot is None:
+            return np.zeros(len(self.library))
+        return (self.charge_matrix(env) * hot["beyond"]).sum(axis=1)
+
     def cr_beyond(self, env):
         """Cosmic-ray passages per molecule [s^-1] that leave more than HEAT_NODES_EV's top or more than CR_DZ_MAX charges
         (``cr_passages``): not followed (their charge steps and heat are not in the chain), a destruction rate for most."""
@@ -2385,7 +2473,8 @@ class Population:
     def _response_sets(self, s, z, shape):
         """The response sets state z of molecule s needs under ``shape``: "rec"; "aug" where ``_kshell_on``; ("ion", shape)
         where photoionisations land on it (``_ion_stack``)."""
-        sets = list(RESPONSE_SETS if self._kshell_on(shape) else ("rec",)) + (["heat"] if self.p.cosmic_rays else [])
+        sets = list(RESPONSE_SETS if self._kshell_on(shape) else ("rec",)) + (
+            ["heat"] if self.p.cosmic_rays or self.p.hot_gas else [])
         return sets + ([("ion", shape)] if (s, z - self.zmin) in self._ion_stack(shape) else [])
 
     def prepare_responses(self, shape, workers=None):
@@ -2428,7 +2517,7 @@ class Population:
         k_up = self._stack(shape)[0]
         ks = self._kshell_stack(shape)
         ion = self._ion_stack(shape)
-        cr = self._cr_rates(env)
+        cr = self._passages(env)
         flows = []
         for s, mol in enumerate(self.library):
             live = set(self._live_charges(mol, shape))
@@ -2544,7 +2633,7 @@ class Population:
         ``_double_stack``); None when there are none, the plain chain."""
         shape = field_shape(env)
         ks, k2v = self._kshell_stack(shape), self._double_stack(shape)
-        cr = self._cr_rates(env)
+        cr = self._passages(env)
         if ks is None and not k2v.any() and cr is None:
             return None
         jk = ks["k"] if ks is not None else np.zeros((2,) + up.shape)
@@ -2876,6 +2965,7 @@ class Population:
         """Per molecule at ``env`` [s^-1]: {"fold", "C", "C2", "C3", ...: the bare skeleton's destruction events (its
         share f(N_H = 0) of the chain, photon-driven from ``_bare_stack`` and after the deposits the tables do not hold,
         ``bare_event_yields``), "C2H2" (``loss_rates``), "explosions" (``chain_overflow``), "cr_beyond" (``cr_beyond``),
+        "hot_beyond" (``hot_beyond``),
         "events": their sum, the rate at which the molecule leaves the library, and "carbon": the C atoms lost per second
         (a whole molecule for an explosion or a passage beyond)}. The chain is quasi-static: these are slow leaks from its
         steady state."""
@@ -2900,9 +2990,10 @@ class Population:
         out["C2H2"] = self.loss_rates(env)["C2H2"]
         out["explosions"] = self.chain_overflow(env)
         out["cr_beyond"] = self.cr_beyond(env)
+        out["hot_beyond"] = self.hot_beyond(env)
         nc_lost = {name: n for m in self.library for name, n, *_ in bare_channels(m, self.p)}
         carbon = sum(nc_lost.get(c, 0) * v for c, v in out.items()) + 2.0 * out["C2H2"] \
-            + self.nc * (out["explosions"] + out["cr_beyond"])
+            + self.nc * (out["explosions"] + out["cr_beyond"] + out["hot_beyond"])
         out["events"] = sum(out.values())
         out["carbon"] = carbon
         return out

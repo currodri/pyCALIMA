@@ -478,7 +478,8 @@ def test_bare_skeletons_cool_as_calibrated_and_are_destroyed_only_where_stripped
         parts = [v for c, v in r.items() if c not in ("events", "carbon")]
         assert np.allclose(r["events"], sum(parts))
         n = {c[0]: c[1] for c in population.bare_channels(pop.library[0], pop.p)}
-        expect = sum(n[c] * r[c][0] for c in n) + 2.0 * r["C2H2"][0] + pop.nc[0] * (r["explosions"][0] + r["cr_beyond"][0])
+        expect = sum(n[c] * r[c][0] for c in n) + 2.0 * r["C2H2"][0] + pop.nc[0] * (
+            r["explosions"][0] + r["cr_beyond"][0] + r["hot_beyond"][0])
         assert r["carbon"][0] == pytest.approx(expect, rel=1e-12)
 
 
@@ -498,6 +499,22 @@ def test_v400_bare_skeletons_attach_by_carbon_framework():
         assert m.bare and 0 in m.bare and all(sp.nh == 0 and sp.nc == m.nc for sp in m.bare.values())
         assert population.bare_species(m, 0) is m.bare[0]
         assert population.bare_species(m, 9) is m.bare[max(m.bare)]
+
+
+def test_hot_gas_electrons_ionise_and_strip_only_where_the_gas_is_hot():
+    """``Params.hot_gas``: thermal electrons' passages (``hot_passages``) raise the charge of a PAH in 1e6 K gas and strip it
+    where no H re-hydrogenates it, and do nothing measurable at 100 K (no electron reaches 1 eV)."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.nc <= 24)
+    hot = lambda T: Environment("hot", 1.0, 1e-4, 1.0, T, None, optical_isrf=0.0, ions=(("H+", 1.0),))   # noqa: E731
+    on = population.Population([mol], WINDOWS, params=Params(hot_gas=True))
+    off = population.Population([mol], WINDOWS, params=Params(hot_gas=False))
+    zs = np.array(on.zs, dtype=float)
+    assert on.charge_matrix(hot(1e6))[0] @ zs > off.charge_matrix(hot(1e6))[0] @ zs + 0.5
+    assert on.destruction_rates(hot(1e6))["events"][0] > off.destruction_rates(hot(1e6))["events"][0]
+    k_node, beyond, power = population.hot_passages(on.library[0], 0, on.p, 100.0)
+    assert k_node[1:].sum() < 1e-30 and power < 1e-28
 
 
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():

@@ -136,6 +136,23 @@ def test_standard_spectra_give_rtz_their_zeta_and_attenuate_monotonically():
         assert z[(m, 1e20)] > z[(m, 1e21)] > z[(m, 1e22)]
 
 
+def test_maxwellian_flux_and_coulomb_focus_of_thermal_particles():
+    """``maxwellian_flux``: 4 pi int j dT = n <v>, the mean speed of the Maxwellian. ``coulomb_focus``: an electron is drawn
+    to a cation (rate and energy up), held off an anion below the barrier (rate 0), and neutrals feel nothing."""
+    T, n = 1e6, 3.0
+    t = np.geomspace(1e-3, 3e3, 4000)
+    j = im.maxwellian_flux(im.ELECTRON, T, n)
+    kt = 8.617333262e-5 * T
+    v_mean = im.C_CM_S * np.sqrt(8.0 * kt / (np.pi * im.ELECTRON.rest_ev))
+    assert 4.0 * np.pi * np.trapezoid(j(t), t) == pytest.approx(n * v_mean, rel=1e-3)
+    t = np.array([1.0, 10.0, 100.0])
+    g, hit = im.coulomb_focus(im.ELECTRON, 2, 24, t)
+    assert np.all(g > 1.0) and np.all(hit > t)
+    g, hit = im.coulomb_focus(im.ELECTRON, -1, 24, t)
+    assert g[0] == 0.0 and np.all(g[1:] < 1.0) and np.all(hit[1:] < t[1:])
+    assert np.array_equal(im.coulomb_focus(im.PROTON, 0, 24, t)[0], np.ones(3))
+
+
 def test_measured_partition_leaves_the_photons_hole():
     """``partition="measured"``: the distant ionisations leave the mean hole of a photoionisation at W
     (``photo.photoelectron_energy``), so their mean E* is the hole weighted by their rates, to within the bin."""

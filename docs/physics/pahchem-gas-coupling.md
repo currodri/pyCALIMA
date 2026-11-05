@@ -665,6 +665,50 @@ higher charges, as before). In the population every molecule runs from its lowes
   - the skeleton's IR in the spectra;
   - the ionisation threshold of the bare skeleton (it takes the parent's).
 
+### 2.2g Hot gas: thermal electrons (2026-11-04; step 1 of replacing `PAH_sputtering`'s dissociation)
+
+- *Why.* `models/PAH_gas_collisions/PAH_sputtering.py` (Micelotta+10a,b) computes the energy T₀ a collision leaves. It
+  then turns T₀ into a dissociation probability with an outdated recipe: an Arrhenius rate at T_eff = 2000 K
+  (T₀/N_C)^0.4, for C₂H₂ loss over the tuned 4.6 eV, against k_IR = 100 s⁻¹ and n_max = N_C/5 photons. The user chose
+  to move hot-gas collisions into pahchem, so that collisions (`impact`) and dissociation (the population's cascades,
+  §2.2e–f) have one owner each.
+- *Thermal electrons* (`Params.hot_gas`, opt-in):
+  - **Passages.** `impact.maxwellian_flux` gives j(T) = n v f(T)/4π at `Environment.temperature_k` and n_e, through
+    `impact.passage_spectrum`. The energies run from 1 eV to 40 kT, and the collisions are Bethe plus Kim's binary-encounter
+    scaling for slow electrons, as the C 1s escape tables use.
+  - **Coulomb focusing.** Classical: on a charge-Z PAH the passage rate is ×(1 − qZe²/RT) and the impact energy T − qZe²/R
+    (`impact.coulomb_focus`), as `PAH_sputtering` shifts its energies.
+  - **In the population.** `population.hot_passages` feeds charge steps, heat on the nodes ("heat" responses) and passages
+    beyond, as the cosmic rays do (`Population._passages` sums both). Every charge is then live.
+- *Per unit n_e* (C24–C216, Z = 0): collision rates of 0.7–12×10⁻⁶ cm³ s⁻¹, 40–80 % of them ionising, and
+  ⟨E*⟩ = 8–14 eV per passage, at 10⁵–10⁷ K.
+- *Hot, ionised gas* (n_e = 1, n(H) = 10⁻⁴, a weak G0 = 1 field):
+  - **Effect.** The electrons raise ⟨Z⟩ by 0.3–2.4 and strip C24–C96 completely. Their bare skeletons then lose carbon,
+    and C96 folds into a cage: lifetimes 0.02–0.4 yr, ∝ 1/n_e. Without electrons, 10⁴–10²⁵ yr.
+- *Against Micelotta+10a's model* (`check_hot_gas_micelotta.py`, `pahchem_hot_gas_micelotta.png`):
+  - **Reading the published fits.** Their Table 2 fits of the electrons' carbon-loss rate constant reproduce their
+    Table 3 lifetimes to 4–10 % (M82 156 vs 162 yr; the 2 C per event are in the fits). Their N_C = 50 electron fit is
+    printed with a = +2136.83; with −2136.83, as for N_C 100 and 200, it gives their Fig. 7.
+  - **This repo's implementation** (`PAH_sputtering`) runs 0.2–0.76× of their published rates.
+  - **N_C ≈ 50 (C54H18).** Above 3×10⁵ K pahchem loses carbon at 0.05–0.4× Micelotta's rate (lifetimes 1–11 yr against
+    0.2–2 yr at n_e = 1), and 2.7× faster at 10⁵ K. It is destroyed as a PAH in 0.05–0.6 yr, 1–4× sooner than
+    Micelotta's carbon-loss lifetime.
+  - **N_C ≈ 100–200 (C96H24, C216H36).** Once stripped, the bare skeleton folds into a cage, which keeps its carbon.
+    Carbon is lost at only 10⁻³–10⁻⁴ of Micelotta's rate, but the PAH is gone in 0.02–0.6 yr, 2–100× sooner than
+    Micelotta's 0.4–60 yr (most so for N_C 200 at high T).
+  - **At 3×10⁴ K** both destroy far faster than Micelotta, whose electrons do almost nothing there.
+  - **The pathways differ.** Micelotta's is C₂H₂ loss from the intact molecule over the tuned 4.6 eV. pahchem's is
+    stripping (measured H loss, proton emission), then the bare skeleton's carbon loss (Léger+89) or folding (Berné+15).
+    pahchem's electrons also ionise (⟨Z⟩ 1–2) and are focused.
+  - **pahchem needs inputs Micelotta's model does not.** Its rates depend on the re-hydrogenation (n(H) = 10⁻⁴ n_e here)
+    and on the field (G0 = 1). Their 2/3-of-the-carbon criterion becomes "carbon lost" or "destroyed as a PAH".
+- *Not yet:*
+  - thermal ions: slow-ion electronic stopping, as Puska & Nieminen's friction in `PAH_sputtering`, and ZBL nuclear
+    knock-out above 7.5 eV, both to be ported into `impact`;
+  - `PAH_sputtering`'s per-bin tables through pahchem;
+  - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
+  - a validation against Micelotta+10a's published lifetimes.
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.

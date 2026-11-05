@@ -52,6 +52,7 @@ from pycalima import _paths
 from pycalima.pahchem import photo
 
 E2_EV_CM = 1.439964548e-7                         # e^2 [eV cm]
+C_CM_S = 2.99792458e10                            # speed of light [cm s^-1]
 TWO_PI_E4 = 2.0 * np.pi * E2_EV_CM**2             # [eV^2 cm^2]
 ME_EV = 510998.95                                 # m_e c^2
 AMU_EV = 931494102.4
@@ -815,24 +816,29 @@ def multifragmentation_energy(nc: int, charge) -> np.ndarray:
 
 
 def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float, spectra, yield_,
-                     n_t: int = 48, w=None, **kwargs) -> dict:
+                     n_t: int = 48, w=None, t_grid=None, focus: bool = False, **kwargs) -> dict:
     """{projectile name: Passages} with rates per molecule: P [s^-1 eV^-1], and beyond,
     passages and collisions [s^-1], from int j(T) Passages(T) dT.
 
     ``spectra``: [(Projectile, j(T))] as for ``impact_rates``; ``kwargs`` go to
-    ``passage_outcomes``.
+    ``passage_outcomes``. ``t_grid``: {projectile name: kinetic energies [eV]} instead of
+    the cosmic rays' (electrons 1 keV-1 PeV, nuclei from T_MIN_PER_U_EV per nucleon).
+    ``focus``: the Coulomb focusing of thermal particles on a charged PAH (``coulomb_focus``).
     """
     w = w_grid() if w is None else w
     df = oscillator_strength(nc, nh, charge, w)
     out = {}
     for proj, j in spectra:
-        if proj.is_electron:
+        if t_grid is not None and proj.name in t_grid:
+            t = np.asarray(t_grid[proj.name], dtype=float)
+        elif proj.is_electron:
             t = np.geomspace(1.0e3, 1.0e12, n_t)
         else:
             t = np.geomspace(T_MIN_PER_U_EV * proj.nucleons, 1.0e11 * proj.nucleons, n_t)
-        wt = _trapezoid_weights(np.log(t)) * t * np.asarray(j(t), dtype=float)
+        g, t_hit = coulomb_focus(proj, charge, nc, t) if focus else (np.ones_like(t), t)
+        wt = _trapezoid_weights(np.log(t)) * t * np.asarray(j(t), dtype=float) * g
         acc = None
-        for ti, wi in zip(t, wt):
+        for ti, wi in zip(t_hit, wt):
             if wi <= 0.0:
                 continue
             c = collisions(proj, ti, df, w, correction=low_speed_correction(proj, ti), ip_ev=ip_ev)
@@ -842,6 +848,28 @@ def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float,
                                                   acc.passages + ps.passages, acc.collisions + ps.collisions)
         out[proj.name] = acc
     return out
+
+
+def maxwellian_flux(proj: Projectile, temperature_k: float, density: float):
+    """j(T) [particles eV^-1 s^-1 cm^-2 sr^-1] of a thermal gas of ``proj`` at ``temperature_k`` and ``density`` [cm^-3]:
+    n v(T) f(T) / 4 pi, f the Maxwell-Boltzmann distribution of kinetic energies, at non-relativistic speeds (kT <~ 10 keV)."""
+    kt = 8.617333262e-5 * float(temperature_k)
+
+    def j(t_ev):
+        t = np.asarray(t_ev, dtype=float)
+        f = 2.0 / np.sqrt(np.pi) * kt ** -1.5 * np.sqrt(t) * np.exp(-t / kt)
+        return float(density) * C_CM_S * np.sqrt(2.0 * t / proj.rest_ev) * f / (4.0 * np.pi)
+    return j
+
+
+def coulomb_focus(proj: Projectile, charge: int, nc: int, t_ev):
+    """(g, T at impact) of a projectile reaching a PAH of ``charge``: classically, through the potential U = q Z e^2 / R on
+    Micelotta's disc (R = 0.9 sqrt(N_C) A; q = -1 for electrons, z for nuclei), the passage rate scales by g = 1 - U / T
+    (> 1 attracted, 0 below a repulsive barrier) and the particle arrives with T - U. Matters for thermal particles only:
+    U = 2.7 eV for an electron on C24+, T ~ 8.6 eV at 1e5 K."""
+    t = np.asarray(t_ev, dtype=float)
+    u = (-1.0 if proj.is_electron else float(proj.z)) * float(charge) * E2_EV_CM / disc_radius_cm(nc)
+    return np.clip(1.0 - u / t, 0.0, None), np.maximum(t - u, 0.0)
 
 
 def destruction_rates(spectrum: dict, nc: int, nh: int, charge: int, chain: FragmentationChain,

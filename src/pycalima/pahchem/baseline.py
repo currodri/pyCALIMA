@@ -118,6 +118,10 @@ class Params:
     # with dz = 0). Every charge state is then live, so it costs bases the photons alone would not need; False: an
     # Environment with zeta_cr > 0 raises
     cosmic_rays: bool = False
+    # population only: thermal electrons of the gas at Environment.temperature_k and n_e pass through the PAHs
+    # (impact.passage_spectrum of impact.maxwellian_flux, Coulomb-focused), as cosmic rays do: charge steps, heat, the
+    # passages beyond. Opt-in (hot, shocked gas; 2026-11-04): it makes every charge live
+    hot_gas: bool = False
     # population only: C2H2 loss of PAHs with catacondensed end rings (a quartet of edge H), the loss of their first carbon:
     # RRKM (E0 [eV], dS(1000 K) [J/K/mol]) of Ling & Lifshitz 1998 Table 2 (anthracene+: 4.50 eV, +12.8 eu, a loose
     # transition state, path degeneracy 1 for its two end rings; phenanthrene+ 3.99 eV, +12.3 eu); None: no C2H2 loss.
