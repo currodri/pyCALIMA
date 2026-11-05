@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pycalima.pahchem import dos
+from pycalima.pahchem import dos, energy_me
 
 
 def cascade_photons(model, channel_rates=None) -> np.ndarray:
@@ -63,6 +63,8 @@ def emission_by_energy(model, start) -> np.ndarray:
     if any, carry their share of the down-jumps but are not returned.
     """
     A = np.array(start, dtype=float)
+    if energy_me.HAVE_NUMBA:
+        return energy_me._cascade_down_numba(model.k_modes, model._lo, model._hi, model._w, A[None, :], model.n_ir, True)[0]
     X = np.zeros((model.n_ir, model.n))
     for j in range(model.n - 1, 0, -1):
         if A[j] <= 0.0:

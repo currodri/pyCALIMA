@@ -35,13 +35,9 @@ def _mol():
     """C54H18 (PAHdb v4.00) on the cold-limit ladder."""
     if "mol" in _CACHE:
         return _CACHE["mol"]
-    from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_suite
+    import v400_records
 
-    try:
-        recs = ames_suite.xml_index(ames_suite.xml_path("pahdb-theoretical-v4-00"))
-    except DatasetUnavailable:
-        pytest.skip("PAHdb v4.00 not installed")
+    recs = v400_records.records()
     _CACHE["mol"] = P.extend_ladder(next(m for m in P.library_v400(recs) if m.name == "C54H18 (37)"))
     return _CACHE["mol"]
 

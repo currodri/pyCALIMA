@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
-
+import scipy.fft
 from scipy.special import gammainc, gammaln
 
 from pycalima import _paths
@@ -670,32 +670,43 @@ def _poisson_chain(kernels, nu, w, tol, dz_n):
     every kernel the same this is the n-fold sum p^{*n} that served before 2026-11-05, when every collision of a passage
     took its first charge's IP and yield (pahchem audit M1)."""
     n_e = kernels[0][0].shape[1]
-    nfft = 2 * n_e
+    nfft = scipy.fft.next_fast_len(2 * n_e - 1, real=True)    # no wrap; 2 n_e (2 x 641, a prime) was 7x slower
     rows = max(int(np.max(np.nonzero(p.any(axis=1))[0], initial=0)) + 1 for p, _ in kernels)
     khat = [np.fft.rfft(p[:rows], n=nfft, axis=1) * rate for p, rate in kernels]
+    kh = np.array([khat[min(k, len(khat) - 1)] for k in range(dz_n)])        # [charges added, dz', frequency]
     stay = np.array([1.0 - kernels[min(k, len(kernels) - 1)][1] for k in range(dz_n)])
     cur = np.zeros((dz_n, n_e))
     cur[0, 0] = 1.0
     out, beyond = np.zeros_like(cur), 0.0
     total = float(w.sum())
+    log_nu, nu_max = np.log(nu), nu.max()
     for n in range(0, 1_000_000):
         if n > 0:
-            cur_hat = np.fft.rfft(cur, n=nfft, axis=1)
-            acc = np.zeros((dz_n + rows, nfft // 2 + 1), dtype=complex)
-            for k in np.nonzero(cur.any(axis=1))[0]:
-                acc[k:k + rows] += cur_hat[k] * khat[min(k, len(khat) - 1)]
+            # only the rows that hold mass are transformed and only those kept are inverted; each row of the product
+            # sums its terms in the order of the charges they come from
+            top = int(np.max(np.nonzero(cur.any(axis=1))[0], initial=-1)) + 1
+            cur_hat = np.fft.rfft(cur[:top], n=nfft, axis=1)
+            kept = min(top + rows - 1, dz_n)
+            acc = np.zeros((kept, nfft // 2 + 1), dtype=complex)
+            for r in range(rows - 1, -1, -1):
+                k_hi = min(top, kept - r)
+                if k_hi > 0:
+                    acc[r:r + k_hi] += cur_hat[:k_hi] * kh[:k_hi, r]
             full = np.fft.irfft(acc, n=nfft, axis=1)
-            if full.min() < -FFT_ROUND_OFF * max(full.max(), 1e-300):
+            if full.size and full.min() < -FFT_ROUND_OFF * max(full.max(), 1e-300):
                 raise ValueError(f"convolution negative beyond round-off: {full.min():.3e} against {full.max():.3e}")
-            cur = np.maximum(full, 0.0)[:dz_n, :n_e] + stay[:, None] * cur     # collisions (round-off below 0 only), null
-        w_n = float((w * np.exp(n * np.log(nu) - nu - gammaln(n + 1))).sum())       # Poisson(n; nu_i)
+            new = stay[:, None] * cur                                   # null events
+            new[:kept] = np.maximum(full, 0.0)[:, :n_e] + new[:kept]      # collisions (round-off below 0 only)
+            cur = new
+        w_n = float((w * np.exp(n * log_nu - nu - gammaln(n + 1))).sum())          # Poisson(n; nu_i)
         in_grid = float(cur.sum())
         out += w_n * cur
         beyond += w_n * (1.0 - in_grid)
-        tail = float((w * gammainc(n + 1, nu)).sum())                  # paths with more than n events
-        if n > 0 and (in_grid < tol or (n > nu.max() and tail < tol * total)):
-            beyond += tail                                              # they end beyond, or are negligible
-            break
+        if n > 0 and (in_grid < tol or n > nu_max):
+            tail = float((w * gammainc(n + 1, nu)).sum())              # paths with more than n events
+            if in_grid < tol or tail < tol * total:
+                beyond += tail                                          # they end beyond, or are negligible
+                break
     out[0, 0] -= float((w * np.exp(-nu * kernels[0][1])).sum())        # the paths without a collision
     if out[0, 0] < -FFT_ROUND_OFF * max(total, 1e-300):
         raise ValueError(f"no-collision paths exceed the zero-energy outcome: {out[0, 0]:.3e}")

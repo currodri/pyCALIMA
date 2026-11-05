@@ -32,6 +32,12 @@ def _library():
     return _CACHE["lib"]
 
 
+def _all_anions():
+    if "all_anions" not in _CACHE:
+        _CACHE["all_anions"] = population.library_m20(_ascii(), all_anions=True)
+    return _CACHE["all_anions"]
+
+
 def _numeric_window(freqs, strength, lo_um, hi_um, local):
     grid = np.arange(400.0, 4000.0, 0.05)
     s = emission.spectrum(freqs, strength, grid)
@@ -124,7 +130,7 @@ def test_library_m20_pairs_and_dft_energetics():
 
 
 def test_all_anions_extends_but_keeps_the_table_h3_anions():
-    lib, ext = _library(), population.library_m20(_ascii(), all_anions=True)
+    lib, ext = _library(), _all_anions()
     assert [m.name for m in lib] == [m.name for m in ext]
     assert sum(m.ea_ev is not None for m in ext) == 94          # anions matched by bond graph
     for a, b in zip(lib, ext):
@@ -813,7 +819,8 @@ def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alo
     """X-rays only: no photon deposits (the loss tables are 0 and stay 0), so captures and Auger decays are the H loss,
     and dissociative recombination lowers f(N_H0). A plain chain (no C 1s, no ions, no ionisation heating) keeps its
     band fluxes but for the captured electrons' kinetic energy (pahchem audit M2), ~kT on an IP of ~6 eV: without it the
-    captures run at the rate and energy the bases emit them at."""
+    captures run at the rate and energy the bases emit them at. The losses' kernel (``_loss_kernel``) is the flows'
+    responses summed one by one, at any charge fractions."""
     from dataclasses import replace
 
     from pycalima.pahchem.baseline import Params
@@ -825,6 +832,12 @@ def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alo
     tab = on._ladders(population.field_shape(xray))[0]
     assert not tab.any() and not on._interp_g0(tab, xray.g0).any()
     assert on.hydrogenation_fractions(xray)[0][0, 0] < off.hydrogenation_fractions(xray)[0][0, 0]
+    for f in (on.charge_matrix(xray), np.random.default_rng(1).random((1, len(on.zs)))):
+        ref = np.zeros((4, 1, len(on.zs), population.N_EMITTING))
+        for s, z, which, idx, rate, _ in on._deposit_flows(xray, f):
+            for k, (_, *p) in enumerate(on._response(on.library[s], z, which)[1][idx]):
+                ref[:, s, z - on.zmin, k] += rate * np.asarray(p)
+        assert ref.any() and np.allclose(np.array(on._deposit_losses(xray, f, by_state=True)), ref, rtol=1e-12, atol=0.0)
     pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
     chain = population.Population([mol], WINDOWS, params=Params(ionisation_heating=False, fission=False))
     F = chain.band_fluxes(pdr)[0]
@@ -873,7 +886,7 @@ def test_vectorised_charges_equal_the_scalar_chain():
     anions covers the vectorisation; ``_k_up`` needs no basis, so none is built (and it is the bases' k_up)."""
     from pycalima.pahchem.baseline import Params
 
-    lib = population.library_m20(_ascii(), all_anions=True)[::7]
+    lib = _all_anions()[::7]
     pop = population.Population(lib, WINDOWS, params=Params(fission=False))
     for env in (Environment("a", 2e4, 1e5, 100.0, 700.0, 40000), Environment("b", 7e4, 5e4, 10.0, 700.0, 40000),
                 Environment("c", 1e3, 3e4, 5.0, 700.0, None)):
@@ -942,6 +955,90 @@ def test_basis_stored_under_its_legacy_key_is_found_not_rebuilt(tmp_path, monkey
     assert len(list(tmp_path.glob("*.npz"))) == 2 * len(live)           # new keys linked to the old files
 
 
+def test_populations_without_a_cache_share_their_bases():
+    """Bases are kept per process by their inputs (``_BASIS_MEMO``): a population differing only in what a basis does not
+    read (capture_scale) takes the first one's."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.nc <= 24)
+    shape = population.field_shape(Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000))
+    first = population.Population([mol], WINDOWS).basis(mol, 0, shape)
+    assert population.Population([mol], WINDOWS, params=Params(capture_scale=0.5)).basis(mol, 0, shape) is first
+
+
+def test_pools_default_to_at_most_eight_workers_unless_calima_workers_says(monkeypatch):
+    monkeypatch.delenv("CALIMA_WORKERS", raising=False)
+    monkeypatch.setattr(population.os, "cpu_count", lambda: 64)
+    assert population.default_workers() == population.POOL_WORKERS_MAX == 8 and population.default_workers(3) == 3
+    monkeypatch.setattr(population.os, "cpu_count", lambda: 2)
+    assert population.default_workers() == 2
+    monkeypatch.setenv("CALIMA_WORKERS", "32")
+    assert population.default_workers() == 32 and population.default_workers(1) == 1
+
+
+def test_escape_tables_are_keyed_by_what_they_read_and_kept_on_disk(tmp_path, monkeypatch):
+    """Populations differing in parameters an escape table does not read share it (``_escape_key``), a threshold moves
+    it; ``prepare_escape`` stores the tables, and a process that has none reads them back unchanged."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    p = Params()
+    first = population.Population([next(m for m in _library() if m.nc <= 24)], WINDOWS, cache_dir=tmp_path)
+    mol = first.library[0]
+    key = population._escape_key(mol, 2, p)
+    assert key == population._escape_key(mol, 2, replace(p, fission=False, c2h2_loss=None, cosmic_rays=True))
+    assert key != population._escape_key(population.shift_thresholds([mol], {2: 0.5})[0], 2, p)
+    xray = Environment("xdr", 1e4, 1e4, 1e-2, 1e3, None, field_e_min_ev=300.0, field_e_max_ev=1e4, field_powerlaw=1.0)
+    shape = population.field_shape(xray)
+    monkeypatch.setattr(population, "_ESCAPE_TABLES", {})
+    first.prepare_escape(shape, workers=1)
+    built = dict(population._ESCAPE_TABLES)
+    assert built and len(list((tmp_path / "escape").glob("*.npz"))) == len(built)
+    monkeypatch.setattr(population, "_ESCAPE_TABLES", {})
+    monkeypatch.setattr(population, "escape_table", lambda *a: pytest.fail("rebuilt a stored escape table"))
+    second = population.Population([first.library[0]], WINDOWS, params=replace(p, fission=False), cache_dir=tmp_path)
+    second.prepare_escape(shape, workers=1)
+    assert population._ESCAPE_TABLES.keys() == built.keys()
+    assert all(np.array_equal(population._ESCAPE_TABLES[k], v) for k, v in built.items())
+
+
+def test_hot_passages_are_kept_on_disk_and_shared(tmp_path, monkeypatch):
+    """``prepare_hot`` stores the thermal electrons' and ions' passages under ``_hot_key``; a population differing in
+    what they do not read (capture_scale), in a process that has none, reads them back unchanged."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.nc <= 24)
+    p = Params(hot_gas=True)
+    monkeypatch.setattr(population, "_HOT_MEMO", {})
+    first = population.Population([mol], WINDOWS, params=p, cache_dir=tmp_path)
+    first.prepare_hot(1e6, workers=1, ions=("He+",))
+    ref = {k: v for k, v in first.library[0]._cache.items() if k[0] in ("hot", "hot_ion")}
+    assert len(list((tmp_path / "hot").glob("*.npz"))) == len(ref) == 2 * len(first.library[0].charges)
+    monkeypatch.setattr(population, "_HOT_MEMO", {})
+    monkeypatch.setattr(population, "_build_hot", lambda job: pytest.fail("rebuilt a stored passage"))
+    second = population.Population([mol], WINDOWS, params=replace(p, capture_scale=0.5), cache_dir=tmp_path)
+    second.prepare_hot(1e6, workers=1, ions=("He+",))
+    for (kind, z, t, x), v in ref.items():
+        w = second.library[0]._cache[(kind, z, t, second.p if kind == "hot" else x)]
+        assert all(np.array_equal(a, b) for a, b in zip(v[:3], w[:3])) and (kind == "hot" or v[3] == w[3])
+
+
+def test_bare_event_yields_agree_wherever_two_grid_tops_both_reach():
+    """A loss grid's yield at a bin depends on the bins below only (``CascadeModel.photon_yields``), so a bare skeleton's
+    yields built to a higher top agree where both grids reach: ``destruction_rates`` builds one per molecule."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = population.extend_ladder(next(m for m in _library() if m.nc <= 24))
+    sp, ch = population.bare_species(mol, 1), population.bare_channels(mol, Params())
+    e1, y1 = population.bare_event_yields(sp.freqs_cm, sp.einstein_a, ch, 45.0)
+    e2, y2 = population.bare_event_yields(sp.freqs_cm, sp.einstein_a, ch, 120.0)
+    assert e2.size > e1.size and np.array_equal(e2[: e1.size], e1)
+    assert all(np.allclose(y2[c][: e1.size], y1[c], rtol=1e-12, atol=0.0) for c in y1)
+
+
 def test_large_compact_pahs_stay_intact_in_the_orion_bar():
     """C96H24 stays intact at the Atomic most-ionising corner; C54H18, near threshold, does not (the network
     gives 0.000 for C54H18 there); the chain never exceeds the single first-step ratio."""
@@ -979,15 +1076,10 @@ def test_bond_graph_hash_ignores_geometry_but_not_connectivity():
 
 
 def _v400():
-    from pycalima._datasets import DatasetUnavailable
-    from pycalima.pahchem import ames_suite
+    import v400_records
 
     if "v400" not in _CACHE:
-        try:
-            path = ames_suite.xml_path("pahdb-theoretical-v4-00")
-        except DatasetUnavailable:
-            pytest.skip("PAHdb v4.00 not installed")
-        recs = ames_suite.xml_index(path)                       # no cache_dir: tests do not write to model data
+        recs = v400_records.records()
         _CACHE["v400"] = (recs, population.library_v400(recs))
     return _CACHE["v400"]
 
@@ -1039,7 +1131,7 @@ def test_v400_aromatic_library_holds_only_edge_h():
 def test_charge_inputs_move_the_charge_balance_the_right_way():
     from pycalima.pahchem.baseline import Params
 
-    lib = population.library_m20(_ascii(), all_anions=True)
+    lib = _all_anions()
     mol = [m for m in lib if m.ea_ev is not None and m.nc >= 40][:3]
     env = Environment("t", 2e4, 5e4, 30.0, 700.0, 40000)
     base = population.Population(mol, WINDOWS).charge_matrix(env)
@@ -1103,7 +1195,7 @@ def test_coulomb_escape_caps_only_the_unmeasured_charges():
 def test_unit_detachment_leaves_an_anion_nothing_to_emit():
     from pycalima.pahchem.baseline import Params
 
-    mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
+    mol = next(m for m in _all_anions() if m.ea_ev is not None)
     pop = population.Population([mol], WINDOWS, params=Params(detachment="unity", recombination_heating=False))
     b = pop.basis(mol, -1, ("kurucz", 40000, 13.6, 5.0))                 # every photon above the EA detaches
     assert b.absorbed == 0.0 and not b.emitted.any() and b.k_up > 0.0
@@ -1127,7 +1219,7 @@ def test_lab_recombination_factor_is_the_falp_power_law():
 def test_lab_capture_slows_small_and_speeds_large_cation_recombination():
     from pycalima.pahchem.baseline import Params
 
-    lib = population.library_m20(_ascii(), all_anions=True)
+    lib = _all_anions()
     small = next(m for m in lib if m.nc <= 30)
     large = next(m for m in lib if m.nc >= 130)
     env = Environment("t", 2e4, 5e4, 30.0, 700.0, 40000)
@@ -1185,7 +1277,7 @@ def test_attachment_fraction_models_meet_their_anchors_and_feed_attachment_and_d
 
     from pycalima.pahchem.baseline import Params
 
-    mol = next(m for m in population.library_m20(_ascii(), all_anions=True) if m.ea_ev is not None)
+    mol = next(m for m in _all_anions() if m.ea_ev is not None)
     assert population.attachment_fraction(mol, Params(attachment_model="constant", attachment_fraction=0.2)) == 0.2
     size = Params(attachment_model="size")
     f = [population.attachment_fraction(replace(mol, nc=n, _cache={}), size) for n in (14, 24, 60, 216)]

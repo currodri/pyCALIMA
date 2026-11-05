@@ -147,3 +147,28 @@ def test_emission_by_energy_splits_the_cascade_photons():
     N = emission.cascade_photons(model)
     assert np.allclose(X.sum(axis=1), N @ start, rtol=1e-10, atol=1e-14)
     assert not X[:, 401:].any()
+
+
+def test_numba_cascades_give_the_numpy_loops_numbers(monkeypatch):
+    """With numba (``energy_me.HAVE_NUMBA``) the cascades down the grid (``emission_by_energy``, the population's
+    ``_emission_many``) and the single-event yields up it (``CascadeModel.photon_yields``) are the NumPy loops' to
+    round-off: the same recursions, their sums in another order."""
+    from pycalima.pahchem import population
+
+    if not energy_me.HAVE_NUMBA:
+        pytest.skip("numba not installed")
+    rng = np.random.default_rng(5)
+    freqs = np.sort(rng.uniform(150.0, 3100.0, 40))
+    model = energy_me.CascadeModel(freqs, rng.uniform(0.1, 20.0, 40), e_max_cm=6.0 * EV, de_cm=50.0)
+    start = np.zeros((2, model.n))
+    start[0, [60, 200, 400]] = (0.2, 0.5, 0.3)
+    start[1, -1] = 1.0
+    channels = {"H": 1e-3 * np.exp(np.linspace(0.0, 25.0, model.n)), "C2H2": np.linspace(0.0, 1e2, model.n)}
+
+    def run():
+        return (emission.emission_by_energy(model, start[0]), population._emission_many(model, start),
+                *model.photon_yields(channels).values())
+    fast = run()
+    monkeypatch.setattr(energy_me, "HAVE_NUMBA", False)
+    for got, ref in zip(fast, run()):
+        assert ref.any() and np.allclose(got, ref, rtol=1e-12, atol=1e-14 * np.abs(ref).max())

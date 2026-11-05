@@ -125,6 +125,41 @@ HARTREE_EV = 27.211386
 _FORMULA_CH = re.compile(r"C\d+H\d+[+-]*")
 EDGES = ("solo", "duo", "trio", "quartet")
 
+#: the pools' size when none is given: $CALIMA_WORKERS, else the cores up to this. Each worker holds one cascade at a
+#: time, 1.0-3.4 GB for a C24-C216 deposit response (perf audit of 2026-11-05), so a laptop's memory sets the bound;
+#: a larger machine raises it through the variable.
+POOL_WORKERS_MAX = 8
+
+
+def default_workers(workers=None):
+    """``workers`` if given, else $CALIMA_WORKERS, else min(POOL_WORKERS_MAX, the cores)."""
+    if workers is not None:
+        return int(workers)
+    env = os.environ.get("CALIMA_WORKERS")
+    return int(env) if env else min(POOL_WORKERS_MAX, os.cpu_count() or 1)
+
+
+#: the work [s] done in this process before the rest of a batch goes to a pool (``_run_jobs``): a pool's start and its
+#: workers' empty memos cost ~1-3 s, more than a few cheap jobs here (16 responses in 1.5 s after an X-ray cell)
+POOL_AFTER_S = 2.0
+
+
+def _run_jobs(build, jobs, workers, keep):
+    """keep(job, build(job)) for each of ``jobs`` in order: in this process while the work takes under POOL_AFTER_S,
+    the rest (if more than 4) in a pool of ``workers``."""
+    import time
+
+    t0, i = time.perf_counter(), 0
+    while i < len(jobs) and (workers <= 1 or len(jobs) - i <= 4 or time.perf_counter() - t0 < POOL_AFTER_S):
+        keep(jobs[i], build(jobs[i]))
+        i += 1
+    if i < len(jobs):
+        from concurrent.futures import ProcessPoolExecutor
+
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for job, r in zip(jobs[i:], ex.map(build, jobs[i:])):
+                keep(job, r)
+
 #: above this every state ionises (or detaches) on absorption: the lab yields reach ~1 by 15-20 eV, of neutrals
 #: (Jochims+96) and of cations (Zhen+16 0.8-0.9 at 18 eV; Wenzel+20 0.87-0.98 at 20 eV). Below it the lab laws hold.
 #: Not WDB06: their eq. 15 (a <= 6 A) restores WD01's y0 only and keeps the Coulomb-escape factor y2, which the cation
@@ -516,6 +551,8 @@ ESCAPE_DE, ESCAPE_DZ_MAX = 0.5, 12
 #: the probability an outcome may leave the grids (E* above the top heat node, more charges than followed) before it is
 #: an error: none is dropped silently
 ESCAPE_BEYOND_TOL = 1e-4
+#: bump when ``escape_table`` or the electron collisions of ``impact`` change, so stored tables are rebuilt
+ESCAPE_VERSION = 1
 
 #: ``escape_table`` and ``deposit_response`` results of this process, keyed by what they depend on, so that every
 #: Population shares them (populations differing only in other parameters, the tests, the checks' on/off pairs)
@@ -549,8 +586,9 @@ def escape_table(mol, z, params):
     polystyrene low-speed correction, Kim's binary-encounter scaling for slow electrons) and z's threshold and yield.
     A distant ionising collision leaves the photoionisation's mean hole (partition "measured", ``photo.photoelectron_energy``
     under ``Params.photoelectron_reference``), as the population's photons do (``Params.ionisation_heating``; "none", no E*,
-    before 2026-11-04); close collisions keep the hole (``impact.deposition``). Cached per molecule, charge and parameters."""
-    key = (mol.name, mol.nc, mol.nh, z, tuple(sorted(mol.ionisation_ev.items())), params)
+    before 2026-11-04); close collisions keep the hole (``impact.deposition``). Cached per process under ``_escape_key``
+    (``Population.prepare_escape`` keeps them on disk)."""
+    key = _escape_key(mol, z, params)
     if key not in _ESCAPE_TABLES:
         ip, ip2 = _ladder_ip(mol, z), _ladder_ip(mol, z + 1)
         y = lambda w: _yield(mol, z, params, energy_ev=w)               # noqa: E731
@@ -567,6 +605,26 @@ def escape_table(mol, z, params):
             rows.append(P)
         _ESCAPE_TABLES[key] = np.array(rows)
     return _ESCAPE_TABLES[key]
+
+
+def _escape_key(mol, z, params):
+    """Key of ``escape_table`` (memory and disk): everything it depends on, as ``_cr_key``, so that populations differing
+    in parameters it does not read (fission, C2H2 loss, cosmic rays, ...) share it."""
+    h = hashlib.sha1(f"escape{ESCAPE_VERSION}".encode())
+    w = impact.w_grid()
+    for v in (mol.nc, mol.nh, z, tuple(sorted(mol.ionisation_ev.items())), photoelectron_reference(mol, params),
+              ESCAPE_T_GRID, ESCAPE_DE, ESCAPE_DZ_MAX, HEAT_NODES_EV, photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION):
+        _feed(h, v)
+    for ip, ip2, y, hole in impact_ladder(mol, z, params, ESCAPE_DZ_MAX):   # every state its collisions ionise through
+        _feed(h, (ip, ip2))
+        _feed(h, np.asarray(y(w), dtype=float))
+        if hole is not None:
+            _feed(h, np.asarray(hole(w), dtype=float))
+    return h.hexdigest()[:20]
+
+
+def _build_escape(job):
+    return escape_table(*job)
 
 
 def _log_t_weights(t_ev):
@@ -814,6 +872,35 @@ def hot_ion_passages(mol, z, temperature_k, ion):
     ps, ko = impact.thermal_ion_passages(mol.nc, el, temperature_k, 1.0, z, len(ion) - len(el), nh=mol.nh,
                                          de=CR_DE_EV, e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX)
     return (*_passage_nodes({ion: ps}), ko)
+
+
+#: bump when ``hot_passages``, ``hot_ion_passages`` or the collisions of ``impact`` they take change, so stored passages
+#: are rebuilt
+HOT_VERSION = 1
+#: the hot passages of this process by ``_hot_key`` (populations differing in parameters they do not read share them)
+_HOT_MEMO = {}
+
+
+def _hot_key(mol, z, params, temperature_k, ion):
+    """Key of the passages through charge z at ``temperature_k`` (memory and disk): of the thermal electrons
+    (``hot_passages``) when ``ion`` is None, else of that ion (``hot_ion_passages``); everything they depend on, as
+    ``_cr_key``."""
+    h = hashlib.sha1(f"hot{HOT_VERSION}".encode())
+    for v in (mol.nc, mol.nh, z, float(temperature_k), ion, CR_DZ_MAX, CR_DE_EV, CR_E_MAX_EV, HEAT_NODES_EV):
+        _feed(h, v)
+    if ion is not None:
+        _feed(h, tuple(sorted(impact.KNOCKOUT_T0_EV.items())))
+        return h.hexdigest()[:20]
+    w = impact.w_grid()
+    for v in (tuple(sorted(mol.ionisation_ev.items())), photoelectron_reference(mol, params), HOT_T_SPAN, HOT_N_T,
+              photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION):
+        _feed(h, v)
+    for ip, ip2, y, hole in impact_ladder(mol, z, params, CR_DZ_MAX):   # every state the passages ionise through
+        _feed(h, (ip, ip2))
+        _feed(h, np.asarray(y(w), dtype=float))
+        if hole is not None:
+            _feed(h, np.asarray(hole(w), dtype=float))
+    return h.hexdigest()[:20]
 
 
 def _build_stop(job):
@@ -1075,6 +1162,11 @@ def shift_thresholds(library, shifts_ev):
     return out
 
 
+#: the ``attachment.Attachment`` of each neutral-anion pair of this process, by its modes, EA, size and grid (populations
+#: copy their molecules, ``extend_ladder``, and would each build it again: 0.2 s per molecule), the last STICKING_MEMO
+_STICKING_MEMO, STICKING_MEMO = {}, 2048
+
+
 def neutral_sticking(mol, temperature_k, capture_fraction=1.0):
     """Statistical s_e of the neutral (``attachment``), the neutral in its vibrational ground state, per anion
     formed with ``capture_fraction`` f of the classical captures (``attachment.Attachment``; ``attachment_sticking``
@@ -1092,9 +1184,18 @@ def neutral_sticking(mol, temperature_k, capture_fraction=1.0):
         raise ValueError(f"{mol.name}: no anion in the library, so no neutral sticking")
     akey = ("attachment", grid_excess_cm(temperature_k), float(capture_fraction))   # the grid holds the Maxwellian
     if akey not in mol._cache:
-        at = Attachment(mol.species[0], mol.species[-1], mol.ea_ev, chemistry.disc_radius_cm(mol.nc),
-                        e_excess_cm=akey[1], capture_fraction=capture_fraction)
-        mol._cache[akey] = (at, {})
+        h = hashlib.sha1(b"attachment")
+        neutral, anion = mol.species[0], mol.species[-1]
+        for v in (np.asarray(neutral.freqs_cm, dtype=float), np.asarray(anion.freqs_cm, dtype=float),
+                  np.asarray(anion.einstein_a, dtype=float), float(mol.ea_ev), mol.nc, akey):
+            _feed(h, v)
+        key = h.hexdigest()
+        if key not in _STICKING_MEMO:
+            if len(_STICKING_MEMO) >= STICKING_MEMO:
+                del _STICKING_MEMO[next(iter(_STICKING_MEMO))]
+            _STICKING_MEMO[key] = (Attachment(neutral, anion, mol.ea_ev, chemistry.disc_radius_cm(mol.nc),
+                                              e_excess_cm=akey[1], capture_fraction=capture_fraction), {})
+        mol._cache[akey] = _STICKING_MEMO[key]
     at, done = mol._cache[akey]
     t = round(float(temperature_k), 6)
     if t not in done:
@@ -1517,6 +1618,9 @@ N_EMITTING = 4
 #: environments whose hydrogenation chains a Population keeps (``_chain_distributions``): the 48 cells of a PDRs4All
 #: template, ~0.5 MB each for v4.00
 CHAIN_MEMO = 64
+#: environments whose flow coefficients and loss kernel a Population keeps (``_flow_terms``, ``_loss_kernel``): tens of
+#: MB each for v4.00, and the charge fixed point and the flows' consumers ask for one environment at a time
+FLOW_MEMO = 2
 #: the charge fractions and the protons hot ions emit are iterated until no fraction moves by more than FISSION_TOL
 #: (absolute, relative to itself): the small fractions to 1e-12 of themselves
 FISSION_TOL, FISSION_ITER_MAX = (1e-18, 1e-12), 400
@@ -1919,6 +2023,8 @@ def _emission_many(model, starts):
     """Photons per IR mode emitted down the cascade of ``model`` from each row of ``starts`` (molecules over its bins):
     ``emission.emission_by_energy`` summed over the bins, for several starts in one pass."""
     A = np.array(starts, dtype=float)
+    if energy_me.HAVE_NUMBA:
+        return energy_me._cascade_down_numba(model.k_modes, model._lo, model._hi, model._w, A, model.n_ir, False)[:, :, 0]
     X = np.zeros((A.shape[0], model.n_ir))
     for j in range(model.n - 1, 0, -1):
         a = A[:, j]
@@ -2051,6 +2157,18 @@ def _build(inp):
     return build_state_basis(**inp)
 
 
+#: ``StateBasis`` of this process by ``_basis_key``, the last BASIS_MEMO of them: populations without a ``cache_dir`` and
+#: with the same basis inputs (differing in capture_scale, kshell, double_ionisation, ...) build each once (0.02-0.05 MB
+#: each); with one, the disk cache does this
+_BASIS_MEMO, BASIS_MEMO = {}, 4096
+
+
+def _remember_basis(key, b):
+    if len(_BASIS_MEMO) >= BASIS_MEMO:
+        del _BASIS_MEMO[next(iter(_BASIS_MEMO))]
+    _BASIS_MEMO[key] = b
+
+
 def _build_shares(inp):
     return emission_temperature_shares(**inp)
 
@@ -2098,6 +2216,8 @@ class Population:
         self._charges = {}               # environment -> ``charge_matrix``, the last CHAIN_MEMO of them
         self._ion_ups = {}               # environment -> ``_ion_up``, the last CHAIN_MEMO of them
         self._ion_heats = {}             # environment -> ``_ion_heat``, the last CHAIN_MEMO of them
+        self._terms = {}                 # environment -> ``_flow_terms``, the last FLOW_MEMO of them
+        self._kernels = {}               # environment -> ``_loss_kernel``, the last FLOW_MEMO of them
         self._resp = {}                  # (id(mol), z) -> ``_response``
 
     def _own(self, mol):
@@ -2155,8 +2275,11 @@ class Population:
                           d["ladder_c2h2"] if "ladder_c2h2" in d else None, d["ladder_hp"] if "ladder_hp" in d else None)
 
     def _stored(self, inp):
-        """(key, stored basis or None) of ``inp``; a basis stored under its legacy key gets a link to the new."""
+        """(key, stored basis or None) of ``inp``: on disk, or without ``cache_dir`` this process's (``_BASIS_MEMO``); a
+        basis stored under its legacy key gets a link to the new."""
         key = _basis_key(inp)
+        if self.cache_dir is None:
+            return key, _BASIS_MEMO.get(key)
         b = self._load(key)
         if b is None and self.cache_dir is not None:
             old = self.cache_dir / f"{_basis_key(inp, legacy=True)}.npz"
@@ -2169,7 +2292,9 @@ class Population:
         return key, b
 
     def _save(self, key, b):
-        if self.cache_dir is not None:
+        if self.cache_dir is None:
+            _remember_basis(key, b)
+        else:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             # written under a temporary name and renamed, so a concurrent reader never sees half a file
             tmp = self.cache_dir / f"{key}.{os.getpid()}.tmp.npz"
@@ -2199,7 +2324,7 @@ class Population:
                     mol._cache[ck] = b
         if not todo:
             return
-        workers = workers if workers is not None else (os.cpu_count() or 1)
+        workers = default_workers(workers)
 
         def keep(t, b):
             mol, ck, key, _ = t
@@ -2283,7 +2408,7 @@ class Population:
                     mol._cache[ck] = np.load(f)
                 else:
                     todo.append((mol, ck, f, inp))
-        workers = workers if workers is not None else (os.cpu_count() or 1)
+        workers = default_workers(workers)
         if workers > 1 and len(todo) > 4:
             from concurrent.futures import ProcessPoolExecutor
 
@@ -2392,6 +2517,7 @@ class Population:
         if key not in self._arrays:
             out = None
             if self._kshell_on(shape):
+                self.prepare_escape(shape)
                 field1 = _unit_field(shape)
                 n, m = len(self.library), len(self.zs)
                 rows = {}
@@ -2409,6 +2535,37 @@ class Population:
                        "absorbed_hi": hi}
             self._arrays[key] = out
         return self._arrays[key]
+
+    def _escape_file(self, key):
+        return None if self.cache_dir is None else self.cache_dir / "escape" / f"{key}.npz"
+
+    def prepare_escape(self, shape, workers=None):
+        """``escape_table`` of the C 1s products of every live state under ``shape`` (z + 2, at most the top:
+        ``kshell_rates``): from memory, the disk cache (``cache_dir``/escape) or computed (``_run_jobs``)."""
+        todo = {}
+        for mol in self.library:
+            for z in self._live_charges(mol, shape):
+                zp = min(z + 2, max(mol.charges))
+                key = _escape_key(mol, zp, self.p)
+                if key in _ESCAPE_TABLES or key in todo:
+                    continue
+                path = self._escape_file(key)
+                if path is not None and path.exists():
+                    with np.load(path) as d:
+                        _ESCAPE_TABLES[key] = d["P"]
+                else:
+                    todo[key] = (replace(mol, _cache={}), zp, self.p)    # light copies: no bases travel to the workers
+
+        def keep(job, P):
+            key = _escape_key(*job)
+            _ESCAPE_TABLES[key] = P
+            path = self._escape_file(key)
+            if path is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(f".{os.getpid()}.tmp.npz")
+                np.savez_compressed(tmp, P=P)
+                os.replace(tmp, path)
+        _run_jobs(_build_escape, list(todo.values()), default_workers(workers), keep)
 
     def _ion_stack(self, shape):
         """{(s, slot): [(dz, k at G0 = 1)]}: the photoionisations landing on each live state (``ionisation_products``), the
@@ -2446,7 +2603,7 @@ class Population:
                             mol._cache[ck] = (d["k_node"], float(d["beyond"]), float(d["power"]))
                     else:
                         todo.append((mol, z, ck, f, shape))
-        workers = workers if workers is not None else (os.cpu_count() or 1)
+        workers = default_workers(workers)
 
         def keep(t, r):
             mol, _, ck, f, _ = t
@@ -2506,23 +2663,46 @@ class Population:
 
     def prepare_hot(self, temperature_k, workers=None, ions=()):
         """``hot_passages`` of every state at ``temperature_k`` (per unit n_e, field-independent), ``hot_ion_passages``
-        of each of ``ions`` (names of ``chemistry.IONS``; per unit ion density) and the captures' ``capture_stopping``,
-        computed in parallel."""
+        of each of ``ions`` (names of ``chemistry.IONS``; per unit ion density) and the captures' ``capture_stopping``:
+        from memory, the disk cache (``cache_dir``/hot) or computed in parallel."""
         t = round(float(temperature_k), 6)
         key = lambda z, ion: ("hot", z, t, self.p) if ion is None else ("hot_ion", z, t, ion)       # noqa: E731
-        todo = [(mol, z, ion) for mol in self.library for z in mol.charges for ion in (None, *ions)
-                if key(z, ion) not in mol._cache]
-        workers = workers if workers is not None else (os.cpu_count() or 1)
+        todo = []
+        for mol in self.library:
+            for z in mol.charges:
+                for ion in (None, *ions):
+                    if key(z, ion) in mol._cache:
+                        continue
+                    hk = _hot_key(mol, z, self.p, t, ion)
+                    path = None if self.cache_dir is None else self.cache_dir / "hot" / f"{hk}.npz"
+                    if hk not in _HOT_MEMO and path is not None and path.exists():
+                        with np.load(path) as d:
+                            r = (d["k_node"], float(d["beyond"]), float(d["power"]))
+                            _HOT_MEMO[hk] = r if ion is None else (*r, {x[3:]: float(d[x]) for x in d.files if x[:3] == "ko_"})
+                    if hk in _HOT_MEMO:
+                        mol._cache[key(z, ion)] = _HOT_MEMO[hk]
+                    else:
+                        todo.append((mol, z, ion, hk, path))
+        workers = default_workers(workers)
+
+        def keep(t_, r):
+            mol, z, ion, hk, path = t_
+            mol._cache[key(z, ion)] = _HOT_MEMO[hk] = r
+            if path is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_suffix(f".{os.getpid()}.tmp.npz")
+                np.savez(tmp, k_node=r[0], beyond=r[1], power=r[2], **({} if ion is None else {f"ko_{x}": v for x, v in r[3].items()}))
+                os.replace(tmp, path)
         if workers > 1 and len(todo) > 2:
             from concurrent.futures import ProcessPoolExecutor
 
             with ProcessPoolExecutor(max_workers=workers) as ex:
-                jobs = [(replace(m, _cache={}), z, self.p, t, ion) for m, z, ion in todo]
-                for (mol, z, ion), r in zip(todo, ex.map(_build_hot, jobs)):
-                    mol._cache[key(z, ion)] = r
+                jobs = [(replace(m, _cache={}), z, self.p, t, ion) for m, z, ion, *_ in todo]
+                for t_, r in zip(todo, ex.map(_build_hot, jobs)):
+                    keep(t_, r)
         else:
-            for mol, z, ion in todo:
-                mol._cache[key(z, ion)] = _build_hot((mol, z, self.p, t, ion))
+            for t_ in todo:
+                keep(t_, _build_hot((t_[0], t_[1], self.p, t, t_[2])))
         self.prepare_stopping(workers)
 
     def _hot_rates(self, env):
@@ -2630,30 +2810,31 @@ class Population:
 
     def prepare_responses(self, shape, workers=None):
         """``_response`` of every live state under ``shape`` (``_response_sets``), the missing ones computed in parallel."""
-        todo = []
-        for s, mol in enumerate(self.library):
-            for z in self._live_charges(mol, shape):
-                for which in self._response_sets(s, z, shape):
-                    if (id(mol), z, which) in self._resp:
-                        continue
-                    inp = _response_inputs(mol, z, self.de_cm, self.e_max_cm, self.p, which)
-                    key = _response_key(inp)
-                    path = self._response_file(key)
-                    if key not in _RESPONSE_MEMO and (path is None or not path.exists()):
-                        todo.append((mol, z, which, inp, path))
-        workers = workers if workers is not None else (os.cpu_count() or 1)
-        if workers > 1 and len(todo) > 4:
-            from concurrent.futures import ProcessPoolExecutor
+        self._responses([(s, z, which) for s, mol in enumerate(self.library) for z in self._live_charges(mol, shape)
+                         for which in self._response_sets(s, z, shape)], workers)
 
-            with ProcessPoolExecutor(max_workers=workers) as ex:
-                for (mol, z, which, inp, path), r in zip(todo, ex.map(_build_response, [t_[3] for t_ in todo])):
-                    self._save_response(path, r)
-                    _RESPONSE_MEMO[_response_key(inp)] = r
-                    self._resp[(id(mol), z, which)] = (inp[0], r)
-        for s, mol in enumerate(self.library):
-            for z in self._live_charges(mol, shape):
-                for which in self._response_sets(s, z, shape):
-                    self._response(mol, z, which)
+    def _responses(self, sets, workers=None):
+        """``_response`` of each (s, z, which) of ``sets``: those in neither memory nor the disk cache computed together
+        (``_run_jobs``, ``default_workers``), so that the flows' consumers never build them one by one."""
+        todo, seen = [], set()
+        for s, z, which in sets:
+            mol = self.library[s]
+            if (id(mol), z, which) in self._resp:
+                continue
+            inp = _response_inputs(mol, z, self.de_cm, self.e_max_cm, self.p, which)
+            key = _response_key(inp)
+            path = self._response_file(key)
+            if key not in _RESPONSE_MEMO and key not in seen and (path is None or not path.exists()):
+                seen.add(key)
+                todo.append(inp)
+
+        def keep(inp, r):
+            key = _response_key(inp)
+            self._save_response(self._response_file(key), r)
+            _RESPONSE_MEMO[key] = r
+        _run_jobs(_build_response, todo, default_workers(workers), keep)
+        for s, z, which in sets:
+            self._response(self.library[s], z, which)
 
     def _deposit_flows(self, env, f=None):
         """[(s, z, which, index, rate, baked)] of the deposits the bases do not hold, per molecule [s^-1] (charge fractions
@@ -2663,8 +2844,31 @@ class Population:
         ``index`` of ``_ion_stack``), at f(z - dz) G0 k; the C 1s products z + j ("aug", heat node ``index``), at
         f(z) G0 k_node; the passages' products ("heat", ``_passages``) and the ions' charge transfer onto cations
         ("heat", ``_ion_heat``)."""
-        shape = field_shape(env)
         f = self.charge_matrix(env) if f is None else f
+        flows = []
+        for s, plain, passages in self._flow_terms(env):
+            for z, which, idx, i, a, b, keep, ib, ba, bb in plain:
+                r = f[s, i] * a * b
+                if keep or r > 0.0:
+                    flows.append((s, z, which, idx, r, 0.0 if ib is None else f[s, ib] * ba * bb))
+            for zp, parents in passages:                  # the passages' products, summed over their parents per node
+                r = 0.0
+                for i, k in parents:
+                    r = r + f[s, i] * k
+                for node in np.nonzero(r > 0.0)[0]:
+                    if HEAT_NODES_EV[node] > 0.0:          # E* = 0 heats nothing (its charge step is in the chain)
+                        flows.append((s, zp, "heat", int(node), float(r[node]), 0.0))
+        return flows
+
+    def _flow_terms(self, env):
+        """[(s, plain, passages)]: ``_deposit_flows`` at ``env`` as coefficients of the charge fractions, the part that
+        does not change while ``charge_matrix`` iterates. ``plain``: (z, which, index, slot, a, b, keep, baked slot, ba,
+        bb), a flow of rate f[s, slot] a b and baked f[s, baked slot] ba bb (none: 0), kept at rate 0 only if ``keep``;
+        ``passages``: (z', [(slot, k_node[node])]), the passages' products summed over their parents. The last FLOW_MEMO
+        environments are kept."""
+        if env in self._terms:
+            return self._terms[env]
+        shape = field_shape(env)
         cap = self._capture_rates(env.temperature_k) * env.n_e
         ke = np.minimum(self._capture_energy(env.temperature_k), REC_KE_NODES_EV[-1])
         k_up = self._stack(shape)[0]
@@ -2672,48 +2876,49 @@ class Population:
         ion = self._ion_stack(shape)
         cr = self._passages(env)
         ion_heat = self._ion_heat(env)
-        flows = []
+        out = []
         for s, mol in enumerate(self.library):
             live = set(self._live_charges(mol, shape))
+            plain = []
             for z in live:
                 i = z - self.zmin
                 if z + 1 in live:                           # out of the top: an overflow (chain_overflow)
                     for node, k in ion_heat.get((s, i), ()):
-                        flows.append((s, z + 1, "heat", node, f[s, i] * k, 0.0))
+                        plain.append((z + 1, "heat", node, i, k, 1.0, True, None, 0.0, 0.0))
                 if self.p.recombination_heating and z < max(mol.charges) and z + 1 in live:
                     # the capture deposits IP + the electron's kinetic energy, at the two nodes about it; the bases emit
                     # the IP alone, which is replaced once (node 0)
-                    rate, e = f[s, i + 1] * cap[s, i + 1], float(ke[s, i + 1])
+                    e = float(ke[s, i + 1])
                     j = min(int(np.searchsorted(REC_KE_NODES_EV, e, side="right")) - 1, REC_KE_NODES_EV.size - 2)
                     u = (e - REC_KE_NODES_EV[j]) / (REC_KE_NODES_EV[j + 1] - REC_KE_NODES_EV[j])
-                    share = {0: 0.0, j: rate * (1.0 - u)}
-                    share[j + 1] = share.get(j + 1, 0.0) + rate * u
-                    for node, r in share.items():
-                        if node == 0 or r > 0.0:
-                            flows.append((s, z, "rec", node, r, f[s, i] * env.g0 * k_up[s, i] if node == 0 else 0.0))
+                    c = cap[s, i + 1]
+                    base = (i, env.g0, k_up[s, i])
+                    if j == 0:
+                        plain.append((z, "rec", 0, i + 1, c, 1.0 - u, True, *base))
+                    else:
+                        plain += [(z, "rec", 0, i + 1, 0.0, 0.0, True, *base), (z, "rec", j, i + 1, c, 1.0 - u, False, None, 0.0, 0.0)]
+                    plain.append((z, "rec", j + 1, i + 1, c, u, False, None, 0.0, 0.0))
                 for r, (dz, k) in enumerate(ion.get((s, i), ())):
-                    flows.append((s, z, ("ion", shape), r, f[s, i - dz] * env.g0 * k, 0.0))
+                    plain.append((z, ("ion", shape), r, i - dz, env.g0, k, True, None, 0.0, 0.0))
                 if ks is not None and (s, i) in ks["k_node"]:
                     k_node = ks["k_node"][(s, i)]
                     for j in range(1, k_node.shape[0] + 1):
                         if z + j not in live:
                             continue                             # past the cold limit: an explosion (chain_overflow)
                         for node in np.nonzero(k_node[j - 1] > 0.0)[0]:
-                            flows.append((s, z + j, "aug", int(node), f[s, i] * env.g0 * k_node[j - 1, node], 0.0))
-            if cr is not None:                            # the passages' products, summed over their parents per node
-                acc = {}
+                            plain.append((z + j, "aug", int(node), i, env.g0, k_node[j - 1, node], True, None, 0.0, 0.0))
+            passages = {}
+            if cr is not None:
                 for z in live:
                     k_node = cr["k_node"][(s, z - self.zmin)]
                     for dz in range(k_node.shape[0]):
-                        if z + dz not in live:
-                            continue                      # past the cold limit: an explosion (chain_overflow)
-                        r = f[s, z - self.zmin] * k_node[dz]
-                        acc[z + dz] = acc.get(z + dz, 0.0) + r
-                for zp, r in acc.items():
-                    for node in np.nonzero(r > 0.0)[0]:
-                        if HEAT_NODES_EV[node] > 0.0:      # E* = 0 heats nothing (its charge step is in the chain)
-                            flows.append((s, zp, "heat", int(node), float(r[node]), 0.0))
-        return flows
+                        if z + dz in live:                # past the cold limit: an explosion (chain_overflow)
+                            passages.setdefault(z + dz, []).append((z - self.zmin, k_node[dz]))
+            out.append((s, plain, list(passages.items())))
+        if len(self._terms) >= FLOW_MEMO:
+            del self._terms[next(iter(self._terms))]
+        self._terms[env] = out
+        return out
 
     def _deposit_losses(self, env, f=None, by_state=False):
         """(dlh, dlh2, dlc, dlhp)[s, k]: the H, H2, C2H2 loss and proton-emission rates [s^-1 per molecule, as the
@@ -2721,13 +2926,58 @@ class Population:
         (``Params.recombination_dissociation``), the photoionisation, C 1s and cosmic-ray products' heat; the loss tables
         hold the photon deposits only (thermal ions' H knock-outs, per H atom, are the chain's own term:
         ``_chain_distributions``). ``by_state``: [s, slot, k], per product state."""
-        out = np.zeros((4, len(self.library), len(self.zs), N_EMITTING))
-        for s, z, which, idx, rate, _ in self._deposit_flows(env, f):
-            if which == "rec" and not self.p.recombination_dissociation:
-                continue
-            for k, (_, *p) in enumerate(self._response(self.library[s], z, which)[1][idx]):
-                out[:, s, z - self.zmin, k] += rate * np.asarray(p)
+        f = self.charge_matrix(env) if f is None else f
+        dst, src, P = self._loss_kernel(env)
+        x = f.ravel()[src]
+        size = len(self.library) * len(self.zs) * N_EMITTING
+        out = np.array([np.bincount(dst, weights=P[:, c] * x, minlength=size) for c in range(4)])
+        out = out.reshape(4, len(self.library), len(self.zs), N_EMITTING)
         return tuple(out) if by_state else tuple(out.sum(axis=2))
+
+    def _loss_kernel(self, env):
+        """(dst, src, P[entry, 4]): ``_deposit_losses`` as the linear map of the charge fractions it is,
+        out[c].ravel()[dst] += P[:, c] f.ravel()[src] (dst over [s, slot, member], src over [s, slot]), from
+        ``_flow_terms``: the flows' responses summed once per environment rather than once per iteration of
+        ``charge_matrix`` (the same sums to round-off). The last FLOW_MEMO environments are kept."""
+        if env in self._kernels:
+            return self._kernels[env]
+        m = len(self.zs)
+        terms = self._flow_terms(env)
+        use = lambda which: which != "rec" or self.p.recombination_dissociation      # noqa: E731
+        self._responses(dict.fromkeys([(s, z, w) for s, plain, _ in terms for z, w, *_ in plain if use(w)]
+                                      + [(s, zp, "heat") for s, _, passages in terms for zp, _ in passages]))
+        rows = {}                                   # (s, z, which) -> [members, 4] per index
+        dst, src, P = [], [], []
+
+        def add(s, z, which, idx, i, c):
+            if (s, z, which) not in rows:
+                rows[(s, z, which)] = [np.array([p for _, *p in members], dtype=float).reshape(-1, 4)
+                                       for members in self._response(self.library[s], z, which)[1]]
+            R = rows[(s, z, which)][idx]
+            dst.append((s * m + z - self.zmin) * N_EMITTING + np.arange(R.shape[0]))
+            src.append(np.full(R.shape[0], s * m + i))
+            P.append(c * R)
+        for s, plain, passages in terms:
+            for z, which, idx, i, a, b, *_ in plain:
+                if use(which) and a * b != 0.0:
+                    add(s, z, which, idx, i, a * b)
+            for zp, parents in passages:
+                for i, k in parents:
+                    for node in np.nonzero((k > 0.0) & (HEAT_NODES_EV > 0.0))[0]:
+                        add(s, zp, "heat", int(node), i, float(k[node]))
+        cat = lambda v, shape: np.concatenate(v) if v else np.zeros(shape)           # noqa: E731
+        kernel = (cat(dst, 0).astype(np.int64), cat(src, 0).astype(np.int64), cat(P, (0, 4)))
+        if len(self._kernels) >= FLOW_MEMO:
+            del self._kernels[next(iter(self._kernels))]
+        self._kernels[env] = kernel
+        return kernel
+
+    def _differing_flows(self, env):
+        """``_deposit_flows`` that differ from what the bases emit by more than round-off (none in a plain chain: its
+        captures run at k_up), their responses prepared (``_responses``)."""
+        flows = [fl for fl in self._deposit_flows(env) if abs(fl[4] - fl[5]) > ROUND_OFF * max(abs(fl[4]), abs(fl[5]))]
+        self._responses(dict.fromkeys((s, z, which) for s, z, which, *_ in flows))
+        return flows
 
     def _deposit_bands(self, env, h):
         """dF[s, band]: the IR band power of ``_deposit_flows`` per molecule, weighted by the hydrogenation shares
@@ -2736,9 +2986,7 @@ class Population:
         key = ("deposit_bands", shape, tuple(self.windows.items()), self.local, self.band_convention)
         RB = self._arrays.setdefault(key, {})       # (s, z, which) -> band powers [index, k, band] per deposit
         dF = np.zeros((len(self.library), len(self.bands)))
-        for s, z, which, idx, rate, baked in self._deposit_flows(env):
-            if abs(rate - baked) <= ROUND_OFF * max(abs(rate), abs(baked)):
-                continue                            # a plain chain's captures, which the bases emit at that rate
+        for s, z, which, idx, rate, baked in self._differing_flows(env):
             if (s, z, which) not in RB:
                 mol = self.library[s]
                 ladder, resp = self._response(mol, z, which)
@@ -2754,10 +3002,8 @@ class Population:
         these modes under its line profiles); what ``spectral_fit.molecule_table`` packs with the bases' modes."""
         h = self.emission_weights(env).sum(axis=1)
         out = {}
-        for s, z, which, idx, rate, baked in self._deposit_flows(env):
+        for s, z, which, idx, rate, baked in self._differing_flows(env):
             w = rate - baked
-            if abs(w) <= ROUND_OFF * max(abs(rate), abs(baked)):
-                continue
             ladder, resp = self._response(self.library[s], z, which)
             for k, (em, *_) in enumerate(resp[idx][:N_EMITTING]):
                 if h[s, k] > 0.0:
@@ -2778,10 +3024,8 @@ class Population:
         rows = self._arrays.setdefault(key, {})
         h = self.emission_weights(env).sum(axis=1)
         dP = np.zeros((len(self.library), nu.size))
-        for s, z, which, idx, rate, baked in self._deposit_flows(env):
+        for s, z, which, idx, rate, baked in self._differing_flows(env):
             w = rate - baked
-            if abs(w) <= ROUND_OFF * max(abs(rate), abs(baked)):
-                continue
             if (s, z, which, idx) not in rows:
                 mol = self.library[s]
                 ladder, resp = self._response(mol, z, which)
@@ -2887,7 +3131,7 @@ class Population:
     def prepare_stopping(self, workers=None):
         """``capture_stopping`` of every state that captures (field- and temperature-independent), in parallel."""
         todo = [(mol, z) for mol in self.library for z in mol.charges[1:] if ("stop", z) not in mol._cache]
-        workers = workers if workers is not None else (os.cpu_count() or 1)
+        workers = default_workers(workers)
         if workers > 1 and len(todo) > 2:
             from concurrent.futures import ProcessPoolExecutor
 
@@ -3225,7 +3469,7 @@ class Population:
                         mol._cache[ck] = {c: d[c] for c in d.files}
                 else:
                     todo.append((mol, ck, f, inp))
-        workers = workers if workers is not None else (os.cpu_count() or 1)
+        workers = default_workers(workers)
 
         def keep(t, r):
             mol, ck, f, _ = t
@@ -3281,14 +3525,17 @@ class Population:
         out = {}
         for c, tab in self._bare_stack(shape).items():
             out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
-        for s, z, which, idx, rate, _ in self._deposit_flows(env):
-            if p0[s] <= 0.0 or (which == "rec" and not self.p.recombination_dissociation):
-                continue
+        flows = [fl for fl in self._deposit_flows(env)
+                 if p0[fl[0]] > 0.0 and (fl[2] != "rec" or self.p.recombination_dissociation)]
+        top = {}       # one loss grid per molecule, to its largest deposit: a yield depends on the bins below it only
+        for s, z, which, *_ in flows:
+            energies, _ = self._flow_energies(self.library[s], z, which)
+            top[s] = max(top.get(s, LOSS_E_MAX_EV), float(energies.max()) + 5.0)
+        for s, z, which, idx, rate, _ in flows:
             mol = self.library[s]
             sp = bare_species(mol, z)
             energies, W = self._flow_energies(mol, z, which)
-            e_cl, Y = bare_event_yields(sp.freqs_cm, sp.einstein_a, bare_channels(mol, self.p),
-                                        max(LOSS_E_MAX_EV, float(energies.max()) + 5.0))
+            e_cl, Y = bare_event_yields(sp.freqs_cm, sp.einstein_a, bare_channels(mol, self.p), top[s])
             for c, y in Y.items():
                 p = np.interp(energies * dos.CM_PER_EV, e_cl, y)
                 pe = float(W[idx] @ p) if W is not None else float(p[idx])

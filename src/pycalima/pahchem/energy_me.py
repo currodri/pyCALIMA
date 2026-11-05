@@ -40,6 +40,78 @@ import scipy.sparse.linalg
 
 from pycalima.pahchem import cooling, dos
 
+try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers to round-off
+    from numba import njit
+    HAVE_NUMBA = True
+except ModuleNotFoundError:  # pragma: no cover - exercised only without numba
+    HAVE_NUMBA = False
+
+if HAVE_NUMBA:
+    @njit(cache=True)
+    def _yields_numba(k_modes, lo, hi, w, K, k_out):
+        """``CascadeModel.photon_yields``' recursion up the grid (its sums in mode order, not NumPy's)."""
+        n_c, n = K.shape
+        Y = np.zeros((n_c, n))
+        for j in range(n):
+            ksum, tself = 0.0, 0.0
+            for i in range(k_modes.shape[0]):
+                km = k_modes[i, j]
+                ksum += km
+                tself += km * ((1.0 - w[i, j]) * (lo[i, j] == j) + w[i, j] * (hi[i, j] == j))
+            denom = k_out[j] + ksum - tself
+            if denom <= 0.0:
+                continue
+            for c in range(n_c):
+                a_lo, a_hi = 0.0, 0.0
+                for i in range(k_modes.shape[0]):
+                    if lo[i, j] < j:
+                        a_lo += Y[c, lo[i, j]] * ((1.0 - w[i, j]) * k_modes[i, j])
+                    if hi[i, j] < j:
+                        a_hi += Y[c, hi[i, j]] * (w[i, j] * k_modes[i, j])
+                Y[c, j] = (K[c, j] + a_lo + a_hi) / denom
+        return Y
+
+    @njit(cache=True)
+    def _cascade_down_numba(k_modes, lo, hi, w, A, n_ir, per_bin):
+        """The sink-free cascade down the grid from the starts A[s, bin] (changed in place): the photons of each IR mode,
+        X[s, mode, bin] by the bin they leave (``per_bin``, ``emission.emission_by_energy``) or X[s, mode, 0] summed over
+        the bins (``population._emission_many``). The per-bin shares go every lower bin first, then every upper one, as
+        their ``np.add.at``; the bin sums in mode order."""
+        n_s, n = A.shape
+        X = np.zeros((n_s, n_ir, n if per_bin else 1))
+        for j in range(n - 1, 0, -1):
+            live = False
+            for s in range(n_s):
+                if A[s, j] > 0.0:
+                    live = True
+            if not live:
+                continue
+            ksum, tself = 0.0, 0.0
+            for i in range(k_modes.shape[0]):
+                km = k_modes[i, j]
+                ksum += km
+                tself += km * ((1.0 - w[i, j]) * (lo[i, j] == j) + w[i, j] * (hi[i, j] == j))
+            denom = ksum - tself
+            if denom <= 0.0:
+                continue                                   # cannot emit: the cascade ends here
+            b = j if per_bin else 0
+            for s in range(n_s):
+                if per_bin and A[s, j] <= 0.0:
+                    continue
+                for i in range(n_ir):
+                    X[s, i, b] += A[s, j] * (k_modes[i, j] / denom)
+            for i in range(k_modes.shape[0]):
+                if lo[i, j] < j:
+                    f = (1.0 - w[i, j]) * k_modes[i, j] / denom
+                    for s in range(n_s):
+                        A[s, lo[i, j]] += f * A[s, j]
+            for i in range(k_modes.shape[0]):
+                if hi[i, j] < j:
+                    f = w[i, j] * k_modes[i, j] / denom
+                    for s in range(n_s):
+                        A[s, hi[i, j]] += f * A[s, j]
+        return X
+
 
 def stationary_banded(band, lo, up, row0_extra=None):
     """Stationary p (Q p = 0, sum p = 1) of a banded rate matrix.
@@ -101,8 +173,9 @@ def stationary_banded(band, lo, up, row0_extra=None):
 
 
 def _split(position, n):
-    """Lower bin, upper bin and upper weight for a fractional bin position."""
-    lo = np.floor(position).astype(int)
+    """Lower bin, upper bin and upper weight for a fractional bin position (the bins int32: a cascade's mode x bin
+    arrays are most of its memory)."""
+    lo = np.floor(position).astype(np.int32)
     w_hi = position - lo
     lo = np.clip(lo, 0, n - 1)
     hi = np.clip(lo + 1, 0, n - 1)
@@ -213,8 +286,10 @@ class CascadeModel:
         ``channel_rates`` maps a channel name to k_c on ``self.energy_cm``.
         """
         names, K = self._channels(channel_rates)
-        Y = np.zeros((len(names), self.n))
         k_out = K.sum(axis=0)
+        if HAVE_NUMBA:
+            return dict(zip(names, _yields_numba(self.k_modes, self._lo, self._hi, self._w, np.ascontiguousarray(K), k_out)))
+        Y = np.zeros((len(names), self.n))
         for j in range(self.n):
             km = self.k_modes[:, j]
             lo, hi, w = self._lo[:, j], self._hi[:, j], self._w[:, j]
