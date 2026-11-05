@@ -630,6 +630,41 @@ higher charges, as before). In the population every molecule runs from its lowes
     C 1s products' heat: the loose transition state beats H loss at high energy, as for anthracene⁺. In PDRs it is
     10⁻¹²–10⁻¹⁰ s⁻¹ there, because those molecules are stripped and their fate is the bare skeleton's.
 
+### 2.2f The bare skeleton and the destruction of PAHs (2026-11-04)
+
+- *The skeleton's modes:*
+  - **PAHdb's own.** PAHdb v4.00 holds 812 N_H = 0 entries. 204 of its 3107 H-bearing neutrals have their own skeleton
+    computed, matched by carbon framework (`ames_suite` `carbon_graph`, `Molecule.bare`): N_C 14–34, 54, 66, 96. In
+    `library_v400` that covers 19 molecules, among them C24, C54, C66 and C96, often at several charges.
+  - **Calibrated, for the others.** The parent's `stripped(0)` keeps its frequencies, which set the state counts, but
+    it lacks the C–C bands that carry a skeleton's emission and so cools 4–12× too slowly. Its Einstein A are therefore
+    multiplied by `BARE_IR_LAW`, R = 54.7 N_C^−0.52: PAHdb skeleton over `stripped(0)` thermal IR power at 800 K,
+    166 pairs, rms ×2.0 about the law (C54 5.5, C66 3.4, C96 4.4). The cooling of an uncomputed skeleton is uncertain
+    by that factor.
+- *Its destruction* (`bare_channels`, `bare_loss_table`):
+  - **Carbon loss.** Léger, d'Hendecourt, Boissel & Désert 1989 (A&A 213, 351, Table 2, checked on the scan): C, C₂
+    and C₃ loss in the inverse-Laplace form (their eq. 8), A and B from graphite sublimation at 2000–4000 K (C 7.37 eV,
+    6.2×10¹⁵ s⁻¹; C₂ 8.49, 3.5×10¹⁷; C₃ 7.97, 1.5×10¹⁸), as `CARBON_LOSS` held them.
+  - **Folding.** For N_C ≥ 60, folding into a cage (Berné, Montillaud & Joblin 2015 Table 2: 4.0 eV, 10¹⁵ s⁻¹): the
+    PAH becomes a fullerene.
+  - **How it runs.** The channels compete in the skeleton's multiphoton cascade, heated as the charge state, with
+    single-event yields for the deposits the tables do not hold.
+  - **Output.** `Population.destruction_rates` weights them by the skeleton's share f(N_H = 0) of the hydrogenation
+    chain and adds C₂H₂ loss, Coulomb explosions and cosmic-ray passages beyond 320 eV. It gives the events
+    (1/lifetime) and the carbon lost. The chain is quasi-static: these are slow leaks from its steady state.
+- *Lifetimes* (`check_bare_skeletons.py`; C24–C216):
+  - **PDRs** (Kurucz 40 kK, n_H 10⁴, n_e 1). Bare C24 lasts 22 yr at G0 = 10³, 1.2 yr at 10⁴ and 11 days at 10⁵. C54,
+    10 % bare at 10⁵, lasts 1.9×10³ yr. N_C ≥ 96 stays hydrogenated and survives. That is the critical size of Jochims+94:
+    below ~30–40 C, PAHs dissociate in the far UV.
+  - **EUV.** C54 lasts 230, 10 and 0.07 yr at ψ = 10⁴, 10⁵, 10⁶. Stripped C96 folds into a cage in ~5 days at ψ = 10⁶.
+  - **X-rays only.** The molecules stay hydrogenated, and Coulomb explosions from C 1s multi-ionisation dominate: at
+    G0-equivalent 10⁴, C24 1.2 yr, C54 20 yr, C96 7×10³ yr, C216 9×10⁵ yr.
+  - **Cosmic rays** (§2.2d): 0.6–1.6×10⁸ yr at ζ_H = 10⁻¹⁶.
+- *Not yet:*
+  - C₂H₂ loss in the deeply dehydrogenated states (West+14);
+  - the skeleton's IR in the spectra;
+  - the ionisation threshold of the bare skeleton (it takes the parent's).
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.

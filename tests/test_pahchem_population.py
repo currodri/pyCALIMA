@@ -453,6 +453,53 @@ def test_c2h2_loss_and_proton_emission_open_where_their_physics_allows():
     assert on[4] > on[1] > 0.0 and on[1] <= off[1] and off[4] == 0.0
 
 
+def test_bare_skeletons_cool_as_calibrated_and_are_destroyed_only_where_stripped():
+    """``bare_species``: without PAHdb modes, the parent's stripped(0) frequencies with the Einstein A times BARE_IR_LAW;
+    folding only from N_C 60. ``destruction_rates``: nothing from the bare skeleton where no molecule is bare (a large
+    PAH in a mild field), C loss where a small one is stripped, more in a stronger field; the parts add up to the events,
+    and the carbon lost to the channels' atoms."""
+    from pycalima.pahchem.baseline import Params
+
+    lib = _library()
+    small = next(m for m in lib if m.nc <= 24)
+    big = next(m for m in lib if m.nc >= 54)
+    sp, st = population.bare_species(small, 0), small.species[0].stripped(0)
+    a, b = population.BARE_IR_LAW
+    assert np.array_equal(sp.freqs_cm, st.freqs_cm) and np.allclose(sp.einstein_a, st.einstein_a * a * small.nc ** b)
+    assert all(c[0] != "fold" for c in population.bare_channels(small, Params()))
+    assert any(c[0] == "fold" for c in population.bare_channels(population.extend_ladder(big), Params())) == (big.nc >= 60)
+    pop = population.Population([small, big], WINDOWS)
+    d = {g: pop.destruction_rates(Environment("pdr", g, 1e4, 1.0, 500.0, 40000)) for g in (1e3, 1e5)}
+    p0 = {g: [float(c[0]) for c in pop._chain_distributions(Environment("pdr", g, 1e4, 1.0, 500.0, 40000))] for g in d}
+    bare = lambda r, s: sum(r[c[0]][s] for c in population.bare_channels(pop.library[s], pop.p))   # noqa: E731
+    assert p0[1e3][1] == 0.0 and bare(d[1e3], 1) == 0.0
+    assert p0[1e5][0] > 0.5 and 0.0 < bare(d[1e3], 0) < bare(d[1e5], 0)
+    for r in d.values():
+        parts = [v for c, v in r.items() if c not in ("events", "carbon")]
+        assert np.allclose(r["events"], sum(parts))
+        n = {c[0]: c[1] for c in population.bare_channels(pop.library[0], pop.p)}
+        expect = sum(n[c] * r[c][0] for c in n) + 2.0 * r["C2H2"][0] + pop.nc[0] * (r["explosions"][0] + r["cr_beyond"][0])
+        assert r["carbon"][0] == pytest.approx(expect, rel=1e-12)
+
+
+def test_v400_bare_skeletons_attach_by_carbon_framework():
+    """PAHdb v4.00's N_H = 0 entries share their parent's carbon graph: coronene, circumcoronene and C96H24 carry theirs,
+    and ``bare_species`` takes it (at the charge, else the nearest computed)."""
+    from pycalima import _paths
+    from pycalima._datasets import DatasetUnavailable
+
+    try:
+        lib = population.library_v400(cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+    except DatasetUnavailable:
+        pytest.skip("PAHdb v4.00 not installed")
+    by = {m.name: m for m in lib}
+    for name in ("C24H12 (18)", "C54H18 (37)", "C96H24 (108)"):
+        m = by[name]
+        assert m.bare and 0 in m.bare and all(sp.nh == 0 and sp.nc == m.nc for sp in m.bare.values())
+        assert population.bare_species(m, 0) is m.bare[0]
+        assert population.bare_species(m, 9) is m.bare[max(m.bare)]
+
+
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():
     """The 1-5 eV grid: a field cut at 5 eV gives the rates of the old 5-13.6 eV grid; the photons below 5 eV only
     reach the anion's detachment (EA ~1.5 eV), not the neutral's or the cation's thresholds, and every state absorbs

@@ -178,6 +178,7 @@ class Molecule:
     ionisation_ev: dict | None = None   # {z: threshold of z -> z+1 [eV]}; default from ip_ev, ea_ev
     source: str = "pahdb-v3.20"
     stand_in_from: int | None = None    # the highest computed charge, where ``extend_ladder`` added stand-ins above it
+    bare: dict | None = None            # {Z: PAHSpecies} of the bare skeleton (N_H = 0) where PAHdb computed it (``library_v400``)
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self):
@@ -308,6 +309,9 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
       v4.00: C127H31 and C277H45 with IP2 < IP1, C212H44 with EA > IP), and the
       1522 skeletons with a neutral and a dication but no cation, which the
       charge chain cannot reach.
+    - **Bare skeletons** (``Molecule.bare``): PAHdb's N_H = 0 entries with the
+      molecule's carbon framework (``carbon_graph``), by charge: 204 of v4.00's
+      3107 H-bearing neutrals have one (N_C 14-34, 54, 66, 96).
 
     ``records`` defaults to ``ames_suite.xml_index`` of the v4.00 dataset
     (cached in ``cache_dir``).
@@ -316,6 +320,11 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
 
     if records is None:
         records = ames_suite.xml_index(ames_suite.xml_path("pahdb-theoretical-v4-00"), cache_dir)
+    # the bare skeletons PAHdb computed (N_H = 0, pure carbon), by their carbon framework: a molecule's shares its graph
+    bare = {}
+    for r in sorted(records, key=lambda r: r["uid"] if r["uid"] is not None else 10**9):
+        if r["pure_ch"] and r["nh"] == 0 and r.get("carbon_graph") and r["uid"] is not None:
+            bare.setdefault(r["carbon_graph"], {}).setdefault(r["charge"], r)
     off_edge = lambda r: r["nh"] - sum(r[f"n_{e}"] for e in (*EDGES, "quintet"))
     keep = [r for r in records if r["pure_ch"] and min_nc <= r["nc"] <= max_nc and r["nh"] > 0
             and (include_superh or (r["n_ch2"] == 0 and r["n_ch3"] == 0 and off_edge(r) == 0))
@@ -361,9 +370,12 @@ def library_v400(records=None, min_nc=21, max_nc=384, include_superh=False, cach
         formula = re.sub(r"[+-]\d*$", "", neu["formula"])
         edges = {e: neu[f"n_{e}"] for e in EDGES} | (
             {"aliphatic": off_edge(neu), "ch3": neu["n_ch3"]} if include_superh else {})
+        sk = bare.get(neu.get("carbon_graph"))
         out.append(Molecule(f"{formula} ({neu['uid']})", neu["nc"], neu["nh"], edges, species, {z: g[z]["uid"] for z in zs},
                             thresholds[0], thresholds.get(-1), "fit" if fitted else "dft",
-                            {z: thresholds[z] for z in zs[:-1]}, "pahdb-v4.00"))
+                            {z: thresholds[z] for z in zs[:-1]}, "pahdb-v4.00",
+                            bare={z: ames_suite.species_from_record(r, f"PAHdb v4.00 UID {r['uid']} (bare)")
+                                  for z, r in sk.items()} if sk else None))
     return sorted(out, key=lambda m: (m.nc, m.nh, m.uids[0]))
 
 
@@ -1499,6 +1511,124 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, 
             kh2 = np.array(out["H2"]) if "H2" in out else np.zeros(K_H_G0_GRID.size)
             return np.array(out["H"]), kh2, {c: np.array(v) for c, v in out.items() if c not in ("H", "H2")}
         e_max = min(e_max + LOSS_STEP_EV, LOSS_E_CAP_EV)
+
+
+# -- the bare skeleton (N_H = 0) and its destruction (2026-11-04) ----------------------------------------------------
+#: (a, b): a bare skeleton without PAHdb modes takes its parent's ``stripped(0)`` modes (their frequencies set its state
+#: counts) with the Einstein A times R = a N_C^b, the ratio of the thermal IR power at 800 K of PAHdb v4.00's bare skeletons
+#: to their parents' stripped(0), over the 166 matched pairs (neutral parents, N_C 14-96): ~12 at N_C ~ 17, 8-11 at 20-35,
+#: 5.5 (C54), 3.4 (C66), 4.4 (C96); rms x1.98 about the law. stripped(0) lacks the C-C bands that carry a bare skeleton's
+#: emission (``PAHSpecies.stripped``), so it would cool 4-12x too slowly
+BARE_IR_LAW = (54.66, -0.522)
+#: folding of a bare flake into a cage (a fullerene: the PAH gone), (A [s^-1], E_a [eV]) in the inverse-Laplace form:
+#: Berné, Montillaud & Joblin 2015 (A&A 577, A133) Table 2, from the MD of C96 by Lebedeva+12; for N_C >= BARE_FOLD_MIN_NC
+#: (C60, the smallest stable fullerene)
+BARE_FOLD, BARE_FOLD_MIN_NC = (1.0e15, 4.0), 60
+#: bump when ``bare_loss_table`` changes, so stored tables are rebuilt
+BARE_VERSION = 1
+
+
+def bare_species(mol, z):
+    """The bare skeleton of ``mol`` (N_H = 0) at charge z: PAHdb's (``Molecule.bare``, at z or the nearest charge it
+    computed), else the parent's ``stripped(0)`` with its Einstein A times BARE_IR_LAW."""
+    if mol.bare:
+        return mol.bare[min(mol.bare, key=lambda q: (abs(q - z), q))]
+    st = mol.species[z].stripped(0)
+    a, b = BARE_IR_LAW
+    return replace(st, einstein_a=st.einstein_a * a * mol.nc ** b, source=f"{st.source} (bare, BARE_IR_LAW)")
+
+
+def bare_channels(mol, params):
+    """((name, carbon atoms lost, form, A [s^-1] or dS [J/K/mol], E0 [eV]), ...): the bare skeleton's destruction channels,
+    ``baseline.CARBON_LOSS[params.carbon_loss]`` (Léger+89 Table 2 by default: C, C2 and C3 from graphite sublimation) and,
+    for N_C >= BARE_FOLD_MIN_NC, folding into a cage (BARE_FOLD, no carbon lost)."""
+    from pycalima.pahchem.baseline import CARBON_LOSS
+
+    form, frags = CARBON_LOSS[params.carbon_loss]
+    out = [(name, int(n), form, float(a), float(e0)) for name, (n, a, e0) in frags.items()]
+    if mol.nc >= BARE_FOLD_MIN_NC:
+        out.append(("fold", 0, "ilt", BARE_FOLD[0], BARE_FOLD[1]))
+    return tuple(out)
+
+
+def _bare_rates(freqs, E, counts, pick, beta, channels):
+    """{name: k(E) on the loss grid} of ``bare_channels``: inverse-Laplace (Léger+89 eq. 8) or RRKM with the C-C stretch."""
+    out = {}
+    for name, _, form, a, e0 in channels:
+        if form == "ilt":
+            k = rates.inverse_laplace_arrhenius(E, counts, a, e0 * dos.CM_PER_EV, beta=beta)
+        else:
+            k = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 1600.0, a, n_scaled=5), e0 * dos.CM_PER_EV,
+                           beta=beta)
+        out[name] = k[pick]
+    return out
+
+
+def bare_loss_table(freqs, einstein_a, channels, nc, z, yield_, shape, sigma_scale, threshold_ev, ionising_heat=False,
+                    electron_ev=None, uv_cross_section="li_draine"):
+    """{channel: rate [s^-1] on K_H_G0_GRID} of the bare skeleton (``freqs``, ``einstein_a``) at charge z under ``shape``:
+    its ``bare_channels`` competing in its multiphoton cascade, heated as the state (its sigma, yield and deposits); the
+    ceiling rises as ``_loss_tables``' does. Top-level, so it runs in worker processes."""
+    field1 = _unit_field(shape)
+    sigma = photo.sigma_uv(nc, z, E_PH, uv_cross_section) * sigma_scale
+    e_dep = deposit_grid(field1, sigma, yield_)
+    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev, e_dep)
+    if not np.any(h > 0.0):                          # no photon deposits (X-rays only): no photon-driven destruction
+        return {c[0]: np.zeros(K_H_G0_GRID.size) for c in channels}
+    f_ = np.asarray(freqs, dtype=float)
+    e_max = _loss_ceiling(e_dep, h)
+    while True:
+        cm, E, counts, beta = _loss_grid(f_, einstein_a, e_max)
+        pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+        ch = _bare_rates(f_, E, counts, pick, beta, channels)
+        out = {c: [] for c in ch}
+        for g in K_H_G0_GRID:
+            s = cm.steady_state(e_dep, g * h, ch)
+            for c in ch:
+                out[c].append(s.rates[c])
+        if _loss_converged(s) or e_max >= LOSS_E_CAP_EV:
+            return {c: np.array(v) for c, v in out.items()}
+        e_max = min(e_max + LOSS_STEP_EV, LOSS_E_CAP_EV)
+
+
+def _bare_inputs(mol, z, shape, de_cm, e_max_cm, params):
+    """``bare_loss_table``'s inputs for state z of ``mol`` under ``shape``."""
+    inp = _basis_inputs(mol, z, shape, de_cm, e_max_cm, params)
+    sp = bare_species(mol, z)
+    keep = ("nc", "z", "yield_", "shape", "sigma_scale", "threshold_ev", "ionising_heat", "electron_ev", "uv_cross_section")
+    return {k: inp[k] for k in keep if k in inp} | dict(freqs=np.asarray(sp.freqs_cm, dtype=float),
+                                                        einstein_a=np.asarray(sp.einstein_a, dtype=float),
+                                                        channels=bare_channels(mol, params))
+
+
+def _bare_key(inp):
+    h = hashlib.sha1(f"bare{BARE_VERSION}".encode())
+    h.update(np.ascontiguousarray(E_PH).tobytes())
+    h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
+    h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV)).encode())
+    for k in sorted(inp):
+        h.update(k.encode())
+        _feed(h, inp[k])
+    return h.hexdigest()[:20]
+
+
+def _build_bare(inp):
+    return bare_loss_table(**inp)
+
+
+def bare_event_yields(freqs, einstein_a, channels, e_max_ev):
+    """(loss-grid energies [cm^-1], {channel: P(E)}): the single-event destruction yields of a bare skeleton after a deposit
+    E (``CascadeModel.photon_yields``), for the deposits the tables do not hold (``Population._deposit_flows``)."""
+    h = hashlib.sha1(b"bare-yields")
+    for v in (np.asarray(freqs, dtype=float), np.asarray(einstein_a, dtype=float), tuple(channels), float(e_max_ev)):
+        _feed(h, v)
+    key = h.hexdigest()
+    if key not in _YIELD_MEMO:
+        f_ = np.asarray(freqs, dtype=float)
+        cl, E, counts, beta = _loss_grid(f_, einstein_a, e_max_ev)
+        pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
+        _YIELD_MEMO[key] = (cl.energy_cm, cl.photon_yields(_bare_rates(f_, E, counts, pick, beta, channels)))
+    return _YIELD_MEMO[key]
 
 
 def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev, threshold_ev,
@@ -2683,6 +2813,100 @@ class Population:
                 "electron_overflow": float(x @ self.chain_overflow(env)),
                 "gamma_pe": float(x @ gamma), "lambda_rec": float(x @ lam), "f": f}
 
+    # -- the bare skeleton and destruction ---------------------------------------------------------------------------
+    def prepare_bare(self, shape, workers=None):
+        """``bare_loss_table`` of every live state under ``shape``: from memory, the disk cache (``cache_dir``/bare) or
+        computed in parallel."""
+        todo = []
+        for mol in self.library:
+            for z in self._live_charges(mol, shape):
+                ck = ("bare", shape, z, self.de_cm, self.e_max_cm, self.p)
+                if ck in mol._cache:
+                    continue
+                inp = _bare_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
+                f = None if self.cache_dir is None else self.cache_dir / "bare" / f"{_bare_key(inp)}.npz"
+                if f is not None and f.exists():
+                    with np.load(f) as d:
+                        mol._cache[ck] = {c: d[c] for c in d.files}
+                else:
+                    todo.append((mol, ck, f, inp))
+        workers = workers if workers is not None else (os.cpu_count() or 1)
+
+        def keep(t, r):
+            mol, ck, f, _ = t
+            mol._cache[ck] = r
+            if f is not None:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                tmp = f.with_suffix(f".{os.getpid()}.tmp.npz")
+                np.savez(tmp, **r)
+                os.replace(tmp, f)
+        if workers > 1 and len(todo) > 2:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for t, r in zip(todo, ex.map(_build_bare, [t[3] for t in todo])):
+                    keep(t, r)
+        else:
+            for t in todo:
+                keep(t, bare_loss_table(**t[3]))
+
+    def _bare_stack(self, shape):
+        """{channel: [s, slot, K_H_G0_GRID]}: the bare skeletons' photon-driven destruction rates (``bare_loss_table``),
+        0 where a molecule lacks the channel or the state is not live."""
+        key = ("bare", shape)
+        if key not in self._arrays:
+            self.prepare_bare(shape)
+            out = {}
+            for s, mol in enumerate(self.library):
+                for z in self._live_charges(mol, shape):
+                    for c, v in mol._cache[("bare", shape, z, self.de_cm, self.e_max_cm, self.p)].items():
+                        out.setdefault(c, np.zeros((len(self.library), len(self.zs), K_H_G0_GRID.size)))[s, z - self.zmin] = v
+            self._arrays[key] = out
+        return self._arrays[key]
+
+    def _flow_energies(self, mol, z, which):
+        """(energies [eV], weights rows or None) of the deposits of response set ``which`` of state z (``_response_inputs``)."""
+        key = ("flow_energies", id(mol), z, which)
+        if key not in self._arrays:
+            inp = _response_inputs(mol, z, self.de_cm, self.e_max_cm, self.p, which)
+            self._arrays[key] = (np.asarray(inp[6], dtype=float), inp[7] if len(inp) > 7 else None)
+        return self._arrays[key]
+
+    def destruction_rates(self, env):
+        """Per molecule at ``env`` [s^-1]: {"fold", "C", "C2", "C3", ...: the bare skeleton's destruction events (its
+        share f(N_H = 0) of the chain, photon-driven from ``_bare_stack`` and after the deposits the tables do not hold,
+        ``bare_event_yields``), "C2H2" (``loss_rates``), "explosions" (``chain_overflow``), "cr_beyond" (``cr_beyond``),
+        "events": their sum, the rate at which the molecule leaves the library, and "carbon": the C atoms lost per second
+        (a whole molecule for an explosion or a passage beyond)}. The chain is quasi-static: these are slow leaks from its
+        steady state."""
+        shape = field_shape(env)
+        f = self.charge_matrix(env)
+        p0 = np.array([float(c[0]) for c in self._chain_distributions(env)])
+        out = {}
+        for c, tab in self._bare_stack(shape).items():
+            out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
+        for s, z, which, idx, rate, _ in self._deposit_flows(env):
+            if p0[s] <= 0.0 or (which == "rec" and not self.p.recombination_dissociation):
+                continue
+            mol = self.library[s]
+            sp = bare_species(mol, z)
+            energies, W = self._flow_energies(mol, z, which)
+            e_cl, Y = bare_event_yields(sp.freqs_cm, sp.einstein_a, bare_channels(mol, self.p),
+                                        max(LOSS_E_MAX_EV, float(energies.max()) + 5.0))
+            for c, y in Y.items():
+                p = np.interp(energies * dos.CM_PER_EV, e_cl, y)
+                pe = float(W[idx] @ p) if W is not None else float(p[idx])
+                out.setdefault(c, np.zeros(len(self.library)))[s] += rate * p0[s] * pe
+        out["C2H2"] = self.loss_rates(env)["C2H2"]
+        out["explosions"] = self.chain_overflow(env)
+        out["cr_beyond"] = self.cr_beyond(env)
+        nc_lost = {name: n for m in self.library for name, n, *_ in bare_channels(m, self.p)}
+        carbon = sum(nc_lost.get(c, 0) * v for c, v in out.items()) + 2.0 * out["C2H2"] \
+            + self.nc * (out["explosions"] + out["cr_beyond"])
+        out["events"] = sum(out.values())
+        out["carbon"] = carbon
+        return out
+
     def loss_rates(self, env):
         """{"C2H2": C2H2 losses, "Hp": proton emissions} [s^-1 per molecule] at ``env``: the loss tables at its G0 and the
         deposits (``_deposit_losses``), weighted over charge and the emitting hydrogenation states N_H0 ... N_H0-3
@@ -2945,29 +3169,41 @@ if HAVE_NUMBA:
 
 def _anderson(g, x0, tol, it_max, what, m=5):
     """The fixed point x = g(x) of charge fractions (one row per molecule, each summing to 1), from ``x0``, by Anderson
-    mixing of the last ``m`` iterates, molecule by molecule (the rows are coupled only within themselves): an affine
-    combination of g's outputs, so each row keeps its sum, and the plain step g(x) for a row whose mixed one would leave
-    [0, 1]. Converged when g moves no entry by more than ``tol`` = (absolute, relative) of the entry; raises past ``it_max``
-    iterations."""
+    mixing of the last ``m`` iterates, molecule by molecule (the rows are coupled only within themselves), in ln x: the
+    fractions span hundreds of decades, and there no mixed iterate turns negative or puts molecules in a state that holds
+    none (x = 0). The least squares is weighted by the fractions, so the states that hold molecules lead it; each mixed row
+    is normalised to 1. Converged when g moves no entry by more than ``tol`` = (absolute, relative) of the entry; raises
+    past ``it_max`` iterations."""
     atol, rtol = tol
     x = x0
-    xs, gs = [], []
+    hist = [[] for _ in range(x0.shape[0])]                  # per row: [(ln x, ln g(x))] on the states that hold molecules
     for _ in range(it_max):
         gx = g(x)
         step = float(np.max(np.abs(gx - x) / (atol + rtol * np.abs(gx))))
         if step <= 1.0:
             return gx
-        xs, gs = (xs + [x])[-(m + 1):], (gs + [gx])[-(m + 1):]
-        x = gx.copy()
-        if len(xs) > 1:
-            X, G = np.array(xs), np.array(gs)                      # [iterate, row, slot]
-            F = G - X
-            for r in range(gx.shape[0]):
-                dF, dG = np.diff(F[:, r], axis=0).T, np.diff(G[:, r], axis=0).T
-                gamma = np.linalg.lstsq(dF, F[-1, r], rcond=None)[0]
-                mixed = G[-1, r] - dG @ gamma
-                if np.all(np.isfinite(mixed)) and mixed.min() >= 0.0 and mixed.max() <= 1.0:
-                    x[r] = mixed
+        new = gx.copy()
+        for r in range(gx.shape[0]):
+            on = (gx[r] > 0.0) & (x[r] > 0.0)
+            if not np.array_equal(on, gx[r] > 0.0):              # g fills a state x left empty: take its step
+                hist[r] = []
+                continue
+            if hist[r] and not np.array_equal(on, hist[r][-1][2]):
+                hist[r] = []                                 # the states holding molecules changed: start again
+            hist[r] = (hist[r] + [(np.log(x[r][on]), np.log(gx[r][on]), on)])[-(m + 1):]
+            if len(hist[r]) < 2:
+                continue
+            Y = np.array([h[0] for h in hist[r]])
+            G = np.array([h[1] for h in hist[r]])
+            w = np.sqrt(gx[r][on])                           # the fractions lead the least squares
+            F = (G - Y) * w
+            dF, dG = np.diff(F, axis=0).T, np.diff(G, axis=0).T
+            gamma = np.linalg.lstsq(dF, F[-1], rcond=None)[0]
+            ly = G[-1] - dG @ gamma
+            row = np.zeros_like(gx[r])
+            row[on] = np.exp(ly - ly.max())
+            new[r] = row / row.sum()
+        x = new
     raise ValueError(f"{what} not converged in {it_max} iterations (last step {step:.1e} of the tolerance)")
 
 
