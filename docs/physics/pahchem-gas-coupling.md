@@ -665,7 +665,7 @@ higher charges, as before). In the population every molecule runs from its lowes
   - the skeleton's IR in the spectra;
   - the ionisation threshold of the bare skeleton (it takes the parent's).
 
-### 2.2g Hot gas: thermal electrons and ions (2026-11-04; steps 1–2 of replacing `PAH_sputtering`'s dissociation)
+### 2.2g Hot gas: thermal electrons and ions (2026-11-04; steps 1–3 of replacing `PAH_sputtering`'s dissociation)
 
 - *Why.* `models/PAH_gas_collisions/PAH_sputtering.py` (Micelotta+10a,b) computes the energy T₀ a collision leaves. It
   then turns T₀ into a dissociation probability with an outdated recipe: an Arrhenius rate at T_eff = 2000 K
@@ -747,16 +747,54 @@ higher charges, as before). In the population every molecule runs from its lowes
   - **Destruction as a PAH** stays electron-driven (stripping, folding): 0.03–0.4 yr for N_C 50 above 10⁵ K, at n_e = 1.
   - **At 10⁸ K** the friction's linear rise is used past v = 1 a.u. in the Maxwellian's tail. H's true stopping peaks
     near 100 keV, so the ions' heat there is an overestimate, up to ~2× in the tail.
-- *Found while doing it (step 3):*
-  - Electron capture (`capture_coefficient`, DS87 × sticking 1 on cations) is used at any temperature. A 0.1–10 keV
-    electron crosses a PAH losing ~10 eV and cannot be captured. At 10⁶–10⁸ K the capture rate (10⁻⁵–3×10⁻⁴ cm³ s⁻¹)
-    competes with or beats the passages' ionisation, and C216H36 comes out at ⟨Z⟩ −0.4 to −0.9 at 10⁷–10⁸ K. The
-    hot-gas ⟨Z⟩ above are lower bounds until capture requires the electron to be stopped (its passages' loss ≥ its
-    energy).
-  - The ions take no electrons from cations (`ion_up_rate`: a Coulomb barrier, valid below 10⁴ K), although at 10⁶ K
-    kT ≫ qZe²/R.
+- *Step 3, the charge in hot gas* (2026-11-04; `Params.hot_gas`; `check_hot_gas_charge.py`,
+  `pahchem_hot_gas_charge.png`). Steps 1–2 captured every electron that reached a PAH, at any energy (DS87 × sticking).
+  At 10⁶–10⁸ K that capture (10⁻⁵–3×10⁻⁴ cm³ s⁻¹) competed with the passages' ionisation, and C216H36 came out at
+  ⟨Z⟩ −0.4 to −0.9 at 10⁷–10⁸ K. But a 0.1–10 keV electron crosses a PAH losing ~10 eV.
+  - **A captured electron must lose its energy.** Weingartner & Draine (2001, Sect. 3.1) state it: the electron must
+    scatter inelastically before it leaves and transfer more than its kinetic energy, or it passes through and returns
+    to infinity. `population.capture_stopping` gives the chance from `impact`'s collisions (`impact.stopping_probability`):
+    Poisson-many collisions on each chord, a distant one losing W, a close one its mean Q, summed to ≥ the energy at
+    infinity (all the energy at the surface on an anion), at the Coulomb-focused impact energy.
+    - The chance peaks at 0.41–0.59 near 18–24 eV (C24–C216) and is 0.03 at 100 eV and 0 from 300 eV.
+    - Below ~3 eV the collisions vanish: the model lacks the channels that capture slow electrons (vibrations,
+      resonances; Geelen+19 find phonon and intraband losses dominate in graphene there).
+    - So `capture_stop_factors` keeps the measured sticking s (`attachment_sticking` × `_capture_factor`) up to the
+      peak and takes min(s, P_stop) above it: the energy-conservation bound (the user's choice of three ways of joining
+      them, 2026-11-04). The alternatives were the P_stop shape normalised at the peak, which nothing derives, and
+      WDB06's range cutoff (a fixed 10 Å escape length below 164 eV, Draine & Salpeter's bulk range law above), a
+      deterministic bulk-solid standard.
+    - Geelen+19's single-layer graphene inelastic mean free paths, ~10 Å near 0 eV to ~3 Å at 25 eV, give a 0.3–0.6
+      chance of an inelastic collision for one layer, consistent with the peak.
+    - Impact's stopping is 1.35–2.3× Joy's carbon at 30–50 eV, so the bound is an upper one there.
+    - **The capture factor** (Z = 1) is 1 at 10⁴ K, 0.86–0.89 at 10⁵ K, 0.10–0.12 at 10⁶ K, 1.5–2.2×10⁻³ at 10⁷ K
+      and 1.6–2.3×10⁻⁵ at 10⁸ K. The captured electrons' mean energy (`_capture_energy`) is that of the stopped ones.
+    - The RAMSES group tables (`group_tables`) are unchanged.
+  - **Ions take electrons from cations** (`chemistry.ion_cation_transfer`, `ion_up_rate`), where it is exothermic: the
+    atom's IP above the state's threshold, so H⁺ up to 13.6 eV and He⁺ up to 24.6 eV.
+    - The rate is 0.9 × 0.82 πa² v J̃(Z, +1): DS87's repulsion, the ion–neutral efficiency.
+    - It is cut where the ion crosses faster than the Bohr speed and leaves still ionised (Draine & Salpeter 1979:
+      arrivals above (M/m_e) I_H).
+    - Endothermic transfers wait for the measured keV ion + C60 capture (Martin+04, Phys. Scr. T110, 325; Hadjar+01)
+      and Zettergren+02's over-the-barrier model. A literature check found nothing verified, and the Massey suppression
+      would rest on Hasted's atomic a ≈ 7 Å.
+    - `gas_rates["alpha_ct_cations"]` reports the ions neutralised.
+  - **Result** (n_H = n_e = 1, Micelotta's ions):
+    - Above ~3×10⁵ K the PAHs charge up to their ladder tops: C54H18 +9–10, C96H24 +16–19, C216H36 +27–32 from 10⁶ K.
+      Without the bound ⟨Z⟩ was 0–2.
+    - The repo's WDB06 charging of graphite grains of the same radii (`dust_charge`: range transmission, secondary
+      electrons) also climbs to its cap, ion field emission's +4 and +8. Where neither is capped the two agree:
+      3.2×10⁵ K +3.8 vs +3.0 (C54) and +5.8 vs +6.9 (C216); 10⁵ K +0.2 vs +0.5 (C54).
+    - Coulomb explosions out of the top then destroy the PAHs in 0.005–0.02 yr at n_e = 1 from 10⁶ K, and 0.02–0.08 yr
+      at 3×10⁵ K.
+    - Against Micelotta+10b (`check_hot_gas_micelotta.py`), whose PAHs stay neutral, the carbon loss (a whole molecule
+      per explosion) is 5–850× their electrons + ions from 10⁶ K, and their lifetimes are 13–500× longer.
+    - The step-2 comparison above stands for the passages; its ⟨Z⟩ and lifetimes are superseded.
+    - The ladder top (`impact.coulomb_limit`, min(0.2 N_C, the proton-emission barrier)) now sets hot-gas lifetimes,
+      and that top is an extrapolation beyond N_C ~ 24.
 - *Not yet:*
   - `PAH_sputtering`'s per-bin tables through pahchem (step 4);
+  - endothermic ion charge transfer (papers above);
   - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
   - the friction's Γ₀ against Puska & Nieminen.
 

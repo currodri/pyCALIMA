@@ -569,6 +569,42 @@ def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yie
     return Passages(e, de, out / de, beyond, passages, 4.0 * np.pi * sigma_tot)
 
 
+def stopping_probability(coll: Collisions, nc: int, loss_ev: float, n_theta: int = 24, n_bins: int = 200,
+                         tol: float = 1e-10) -> float:
+    """P(the projectile loses at least ``loss_ev`` crossing the disc): its collisions ``coll`` (a distant one loses W, a
+    close one ``close_loss``), Poisson-many on each chord as in ``passage_outcomes`` (nu = sigma_tot / sigma_g), over
+    isotropic passages. The n-fold sums of the single losses are histograms on ``n_bins`` bins below ``loss_ev``, each loss
+    at its bin's lower edge, so P is low by at most one bin per collision. An electron that does not lose its energy at
+    infinity passes through: Weingartner & Draine (2001, Sect. 3.1)'s condition for a capture."""
+    if loss_ev <= 0.0:
+        return 1.0
+    tw = _trapezoid_weights(coll.w)
+    loss = np.concatenate([coll.w, coll.close_loss])
+    rate = np.concatenate([coll.distant * tw, coll.close * tw])
+    sigma = float(rate.sum())
+    if sigma <= 0.0:
+        return 0.0
+    k = np.floor(loss / (loss_ev / n_bins)).astype(int)
+    keep = k < n_bins
+    p = np.bincount(k[keep], rate[keep], n_bins) / sigma                  # one collision, staying below loss_ev
+    r, d = disc_radius_cm(nc), DISC_THICKNESS_CM
+    th = (np.arange(n_theta) + 0.5) * (0.5 * np.pi / n_theta)
+    sg = np.pi * r**2 * np.cos(th) + 2.0 * r * d * np.sin(th)
+    nu = sigma / sg
+    q, dist = [1.0], np.eye(1, n_bins).ravel()                              # P(sum of n losses < loss_ev)
+    n_max = int(nu.max() + 10.0 * np.sqrt(nu.max()) + 10)
+    for _ in range(n_max):
+        dist = np.convolve(dist, p)[:n_bins]
+        q.append(float(dist.sum()))
+        if q[-1] < tol:
+            break
+    n = np.arange(len(q))
+    pois = np.exp(n[None, :] * np.log(nu[:, None]) - nu[:, None] - gammaln(n + 1.0)[None, :])
+    below = pois @ np.array(q)
+    w_th = sg * np.sin(th)
+    return float(1.0 - (w_th * below).sum() / w_th.sum())
+
+
 def _edge_split(one: "Deposition", dz_max: int):
     """(p[dz, k], the mass beyond the grid, the grid E_k = k de, k = 0 ... n_bins): one collision's ``deposition`` with
     each bin's mass split equally between the two grid points at its edges. That keeps every collision's mean E*, so the

@@ -26,11 +26,12 @@ Result (2026-11-04):
 - Knock-outs at MJT's T_0 are 1.7-2.8x their nuclear-dominated ion fits (3e4-1e5 K; H, He, C; N_C 50, 200): the factor
   1/2 of MJT eq. 22, which pahchem drops. The repo's nuclear rate puts T_0 at E where MJT eq. 15 has E_0n = T_0 / gamma:
   H x3000 at 3e4 K, x24 at 1e5 K.
-- pahchem with ions, N_C ~ 50: carbon loss 0.08-0.8x Micelotta's electrons + ions above 3e5 K; N_C ~ 100-200: 1e-3-
-  1.5e-2x up to 1e7 K (the stripped skeletons fold), 0.05-3.6x at 3e7-1e8 K. Destroyed sooner than Micelotta's carbon
-  lifetime above 1e5 K: 1.3-50x for N_C 50, 8-2500x for N_C 100-200. Against the electrons alone the ions add 1 % (N_C
-  50, 1e6 K) to x25 (1e8 K), and x3-30 for N_C 100-200 at 1e6-1e7 K, where the knock-outs (T_0 = 23.3 eV) are 50-98 % of
-  the carbon lost. C216H36's <Z> < 0 at 1e7-1e8 K is the capture of keV electrons (gas-coupling 2.2g, step 3).
+- pahchem (step 3: a fast electron must lose its energy to be captured, ``population.capture_stop_factors``): above
+  ~3e5 K the PAHs charge up to their ladder tops (C54H18 +10, C96H24 +19, C216H36 +32 from 1e6 K), and Coulomb
+  explosions out of the top destroy them in 0.005-0.02 yr at n_e = 1 from 1e6 K (0.02-0.08 yr at 3e5 K); the carbon
+  loss, a whole molecule per explosion, is 5-850x Micelotta's electrons + ions from 1e6 K. At 1e5 K (<Z> ~ 0) it is
+  3x theirs for N_C 50, 0.02-0.2x for 100-200. Knock-outs (T_0 = 23.3 eV) are 0.3-0.8 of MJT's above 1e6 K and a small
+  part of the carbon lost. Step 2's numbers, with every arriving electron captured, are in gas-coupling 2.2g.
 
     check_hot_gas_micelotta.py [--workers 4] [--out DIR]
 """

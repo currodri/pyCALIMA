@@ -163,6 +163,30 @@ def mutual_neutralisation(nc, nh, charge, ion, temperature_k, efficiency=MN_EFFI
     return efficiency * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k))
 
 
+#: the energy per amu [eV] above which an ion leaves a grain still ionised, (M / m_e) I_H at the Bohr speed (Draine &
+#: Salpeter 1979, Sect. III.b)
+BOHR_EV_PER_AMU = 13.605693 / 5.48579909e-4
+
+
+def ion_cation_transfer(nc, nh, charge, ion, temperature_k, efficiency=ION_NEUTRAL_EFFICIENCY, disc_factor=0.82):
+    """X+ + PAH^Z (Z >= 1) -> X + PAH^(Z+1) in hot gas [cm^3 s^-1]: efficiency x 0.82 pi a^2 v J~(Z, +1) (DS87, the
+    repulsion, as ``mutual_neutralisation``), less the ions that cross the molecule faster than the Bohr speed and leave
+    still ionised (DS79: arrivals above E_B = (M / m_e) I_H, a fraction (1 + x) e^-x, x = E_B / kT; the energy they lose
+    inside, tens of eV, is neglected against E_B ~ 25 keV per amu). Whether it happens (exothermic: IP(X) above the
+    PAH's) is the caller's. No measured cross section for an atomic ion on a PAH cation: the efficiency is the
+    ion-neutral one."""
+    from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
+
+    if charge < 1:
+        raise ValueError("ion_cation_transfer needs a positive PAH")
+    a = disc_radius_cm(nc)
+    v = np.sqrt(8.0 * KB_CGS * temperature_k / (np.pi * _reduced_mass_g(ion, nc, nh)))
+    x = IONS[ion][0] * BOHR_EV_PER_AMU / (KB_EV * float(temperature_k))
+    passes = (1.0 + x) * np.exp(-x)
+    return efficiency * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k)) \
+        * (1.0 - passes)
+
+
 def ion_neutral_rate(nc, nh, ion, efficiency=ION_NEUTRAL_EFFICIENCY, alpha_per_c_a3=ALPHA_PER_C_A3):
     """X+ + PAH0 -> products with Delta Z = +1 [cm^3 s^-1]: efficiency x Langevin 2 pi e (alpha/mu)^1/2.
 

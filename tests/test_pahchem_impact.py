@@ -203,6 +203,26 @@ def test_thermal_ion_heat_and_knock_outs():
     assert ko_z[0] > ko_z[1] > ko_z[2] > 0.0
 
 
+def test_stopping_probability_is_the_poisson_chance_of_enough_collisions():
+    """``stopping_probability``: with every collision losing the same W, losing >= t takes ceil(t / W) collisions, so P is
+    the passages' mean Poisson tail at nu = sigma / sigma_g; P = 1 for nothing to lose, and falls as the threshold rises."""
+    from scipy.stats import poisson
+
+    nc, w0 = 54, 10.0
+    w = np.linspace(5.0, 15.0, 101)
+    distant = np.where(np.isclose(w, w0), 2e-16 / (w[1] - w[0]), 0.0)
+    coll = im.Collisions(w, distant, np.zeros_like(w), np.zeros_like(w))
+    r, d = im.disc_radius_cm(nc), im.DISC_THICKNESS_CM
+    th = (np.arange(24) + 0.5) * (0.5 * np.pi / 24)
+    sg = np.pi * r**2 * np.cos(th) + 2.0 * r * d * np.sin(th)
+    sigma = np.trapezoid(distant, w)
+    for t, n0 in ((25.0, 3), (5.0, 1), (35.0, 4)):
+        exact = (sg * np.sin(th) * poisson.sf(n0 - 1, sigma / sg)).sum() / (sg * np.sin(th)).sum()
+        assert im.stopping_probability(coll, nc, t) == pytest.approx(exact, rel=1e-6)
+    assert im.stopping_probability(coll, nc, 0.0) == 1.0
+    assert im.stopping_probability(coll, nc, 15.0) > im.stopping_probability(coll, nc, 25.0)
+
+
 def test_measured_partition_leaves_the_photons_hole():
     """``partition="measured"``: the distant ionisations leave the mean hole of a photoionisation at W
     (``photo.photoelectron_energy``), so their mean E* is the hole weighted by their rates, to within the bin."""

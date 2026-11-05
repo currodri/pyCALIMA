@@ -529,6 +529,29 @@ def test_hot_gas_electrons_ionise_and_strip_only_where_the_gas_is_hot():
     assert kn[1:].sum() == 0.0 and pw > 0.0 and set(ko) == {"C", "H"}
 
 
+def test_hot_gas_bounds_the_capture_of_fast_electrons_and_lets_ions_ionise_cations():
+    """``capture_stop_factors``: a captured electron must lose its energy in the molecule (WD01 Sect. 3.1), so in hot gas
+    the capture falls with T (nothing changes at 1e3-1e4 K) and the electrons captured are slower than those arriving.
+    ``ion_up_rate``: with ``Params.hot_gas`` the ions take electrons from cations whose threshold lies below the atom's IP
+    (He+ up to 24.6 eV, H+ to 13.6 eV), and none without it."""
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    p = Params(hot_gas=True)
+    for z in mol.charges[1:3]:                                     # the states that capture
+        ps = population.capture_stopping(mol, z)
+        assert ps.max() <= 1.0 and ps[-1] < 1e-6
+        f = [population.capture_stop_factors(mol, z, T, p, ps) for T in (1e3, 1e4, 1e5, 1e6, 1e7)]
+        assert f[0][0] == pytest.approx(1.0, rel=1e-12) and f[1][0] == pytest.approx(1.0, rel=1e-6)
+        assert f[2][0] > f[3][0] > f[4][0] > 0.0 and f[3][1] < 1.0
+    hot = lambda ion: Environment("hot", 1.0, 1e-4, 1.0, 1e6, None, optical_isrf=0.0, ions=((ion, 1.0),))   # noqa: E731
+    for z in mol.charges[1:-1]:
+        thr = population.state_threshold(mol, z)
+        for ion, ip in (("H+", 13.598), ("He+", 24.587)):
+            assert (population.ion_up_rate(mol, z, hot(ion), p) > 0.0) == (thr < ip)
+            assert population.ion_up_rate(mol, z, hot(ion), Params()) == 0.0
+
+
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():
     """The 1-5 eV grid: a field cut at 5 eV gives the rates of the old 5-13.6 eV grid; the photons below 5 eV only
     reach the anion's detachment (EA ~1.5 eV), not the neutral's or the cation's thresholds, and every state absorbs

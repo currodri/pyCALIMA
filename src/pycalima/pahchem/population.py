@@ -790,6 +790,10 @@ def hot_ion_passages(mol, z, temperature_k, ion):
     return (*_passage_nodes({ion: ps}), ko)
 
 
+def _build_stop(job):
+    return capture_stopping(*job)
+
+
 def _build_hot(job):
     mol, z, params, temperature_k, ion = job
     return hot_passages(mol, z, params, temperature_k) if ion is None else hot_ion_passages(mol, z, temperature_k, ion)
@@ -1110,13 +1114,65 @@ def capture_energy(mol, z, temperature_k):
             / J_function_DS87(z, -1, a, temperature_k))
 
 
+#: kinetic energies at infinity [eV] on which an arriving electron's stopping probability is tabulated (``capture_stopping``)
+CAPTURE_STOP_EV = np.geomspace(1.0, 1.0e5, 41)
+
+
+def capture_stopping(mol, z):
+    """P_stop on CAPTURE_STOP_EV: the probability that an electron arriving on charge z with that kinetic energy at
+    infinity loses enough crossing the molecule to stay (``impact.stopping_probability``): its energy at infinity, or on
+    an anion all it has at the surface. Its collisions are at the impact energy (``impact.coulomb_focus``), with z's
+    threshold for Kim's scaling, as in ``hot_passages``."""
+    u = -float(z) * impact.E2_EV_CM / impact.disc_radius_cm(mol.nc)       # the electron's potential energy there
+    ip = _ladder_ip(mol, z)
+    w = impact.w_grid()
+    df = impact.oscillator_strength(mol.nc, mol.nh, z, w)
+    out = np.zeros(CAPTURE_STOP_EV.size)
+    for i, e in enumerate(CAPTURE_STOP_EV):
+        t = e - u
+        if t <= 0.0:
+            continue
+        c = impact.collisions(impact.ELECTRON, t, df, w, correction=impact.low_speed_correction(impact.ELECTRON, t),
+                              ip_ev=ip)
+        out[i] = impact.stopping_probability(c, mol.nc, e - max(u, 0.0))
+    return out
+
+
+def capture_stop_factors(mol, z, temperature_k, params, p_stop):
+    """(rate, energy): the factors on ``capture_coefficient`` and ``capture_energy`` of charge z in hot gas
+    (``Params.hot_gas``) when a captured electron must lose its energy in the molecule (Weingartner & Draine 2001,
+    Sect. 3.1; ``p_stop`` = ``capture_stopping``). An arrival at E sticks with the effective low-energy sticking s
+    (``attachment_sticking`` x ``_capture_factor``) up to the energy where P_stop peaks, ~20-26 eV (below it the
+    collisions lack the channels that capture slow electrons: vibrations, resonances), and with min(s, P_stop(E)) above it,
+    the bound of energy conservation (the user's choice, 2026-11-04). Arrivals weigh E exp(-E/kT) (1 - U/E), classical
+    focusing; both factors are 1 below ~1e4 K."""
+    kt = chemistry.KB_EV * float(temperature_k)
+    u = -float(z) * impact.E2_EV_CM / impact.disc_radius_cm(mol.nc)
+    s = (attachment_sticking(mol, temperature_k, params) if z == 0 else 1.0) * _capture_factor(mol, z, params,
+                                                                                               temperature_k)
+    e = np.geomspace(1e-3 * kt, 50.0 * kt, 400)
+    w = impact._trapezoid_weights(np.log(e)) * e * e * np.exp(-e / kt) * np.clip(1.0 - u / e, 0.0, None)
+    if s <= 0.0 or w.sum() <= 0.0:
+        return 1.0, 1.0
+    e_peak = CAPTURE_STOP_EV[int(np.argmax(p_stop))]
+    ps = np.interp(np.log(e), np.log(CAPTURE_STOP_EV), p_stop)
+    stick = np.where(e <= e_peak, s, np.minimum(s, ps))
+    if (w * stick).sum() <= 0.0:
+        return 0.0, 1.0
+    rate = float((w * stick).sum() / (w.sum() * s))
+    energy = float(((w * stick * e).sum() / (w * stick).sum()) / ((w * e).sum() / w.sum()))
+    return rate, energy
+
+
 def ion_up_rate(mol, z, env, params=Params()):
     """Rate [s^-1] at which ions take the molecule from charge z to z + 1 at ``env`` (``env.ions``).
 
     Anions: mutual neutralisation with every ion (``chemistry.mutual_neutralisation``). Neutrals: the ion-neutral
     reaction (``chemistry.ion_neutral_rate``) for ions whose atom's IP exceeds the molecule's, plus the [M-PAH]+
-    adducts of ``chemistry.ADDUCT_IONS`` below it if ``Params.metal_adducts``. Cations and above: none (Coulomb
-    barrier, below 1e4 K).
+    adducts of ``chemistry.ADDUCT_IONS`` below it if ``Params.metal_adducts``. Cations and above: none without
+    ``Params.hot_gas`` (a Coulomb barrier, below ~1e4 K); with it the exothermic transfers (the atom's IP above the
+    state's threshold) of ``chemistry.ion_cation_transfer``, below the top state. Endothermic ones are not followed yet
+    (2026-11-04: they await the measured keV ion + C60 capture, Martin+04, Hadjar+01, and Zettergren+02's model).
     """
     up = 0.0
     for ion, n in getattr(env, "ions", ()):
@@ -1125,6 +1181,9 @@ def ion_up_rate(mol, z, env, params=Params()):
         elif z == 0:
             if chemistry.IONS[ion][1] > mol.ionisation_ev[0] or (params.metal_adducts and ion in chemistry.ADDUCT_IONS):
                 up += n * chemistry.ion_neutral_rate(mol.nc, mol.nh, ion, params.ion_neutral_efficiency)
+        elif z >= 1 and params.hot_gas and z < max(mol.charges) and chemistry.IONS[ion][1] > state_threshold(mol, z):
+            up += n * chemistry.ion_cation_transfer(mol.nc, mol.nh, z, ion, env.temperature_k,
+                                                    params.ion_neutral_efficiency)
     return up
 
 
@@ -1974,6 +2033,7 @@ class Population:
         self._capture = {}
         self._chains = {}                # environment -> ``_chain_distributions``, the last CHAIN_MEMO of them
         self._charges = {}               # environment -> ``charge_matrix``, the last CHAIN_MEMO of them
+        self._ion_ups = {}               # environment -> ``_ion_up``, the last CHAIN_MEMO of them
         self._resp = {}                  # (id(mol), z) -> ``_response``
 
     def _own(self, mol):
@@ -2381,8 +2441,9 @@ class Population:
         return self._arrays[key]
 
     def prepare_hot(self, temperature_k, workers=None, ions=()):
-        """``hot_passages`` of every state at ``temperature_k`` (per unit n_e, field-independent) and ``hot_ion_passages``
-        of each of ``ions`` (names of ``chemistry.IONS``; per unit ion density), computed in parallel."""
+        """``hot_passages`` of every state at ``temperature_k`` (per unit n_e, field-independent), ``hot_ion_passages``
+        of each of ``ions`` (names of ``chemistry.IONS``; per unit ion density) and the captures' ``capture_stopping``,
+        computed in parallel."""
         t = round(float(temperature_k), 6)
         key = lambda z, ion: ("hot", z, t, self.p) if ion is None else ("hot_ion", z, t, ion)       # noqa: E731
         todo = [(mol, z, ion) for mol in self.library for z in mol.charges for ion in (None, *ions)
@@ -2398,6 +2459,7 @@ class Population:
         else:
             for mol, z, ion in todo:
                 mol._cache[key(z, ion)] = _build_hot((mol, z, self.p, t, ion))
+        self.prepare_stopping(workers)
 
     def _hot_rates(self, env):
         """The thermal electrons' and ions' passages at ``env`` [s^-1 per molecule], ``_cr_stack``'s keys: ``hot_passages``
@@ -2738,11 +2800,29 @@ class Population:
         t = round(float(temperature_k), 6)
         if t not in self._capture:
             a = np.zeros((len(self.library), len(self.zs)))
+            if self.p.hot_gas:
+                self.prepare_stopping()
             for s, mol in enumerate(self.library):
                 for z in mol.charges[1:]:
                     a[s, z - self.zmin] = capture_coefficient(mol, z, temperature_k, self.p)
+                    if self.p.hot_gas:                           # a fast electron must lose its energy to stay
+                        a[s, z - self.zmin] *= capture_stop_factors(mol, z, t, self.p, mol._cache[("stop", z)])[0]
             self._capture[t] = a
         return self._capture[t]
+
+    def prepare_stopping(self, workers=None):
+        """``capture_stopping`` of every state that captures (field- and temperature-independent), in parallel."""
+        todo = [(mol, z) for mol in self.library for z in mol.charges[1:] if ("stop", z) not in mol._cache]
+        workers = workers if workers is not None else (os.cpu_count() or 1)
+        if workers > 1 and len(todo) > 2:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for (mol, z), r in zip(todo, ex.map(_build_stop, [(replace(m, _cache={}), z) for m, z in todo])):
+                    mol._cache[("stop", z)] = r
+        else:
+            for mol, z in todo:
+                mol._cache[("stop", z)] = capture_stopping(mol, z)
 
     # -- an environment --------------------------------------------------------------------------
     def charge_matrix(self, env):
@@ -2778,6 +2858,19 @@ class Population:
                 down[s, i] = p @ _deep_rates(mol.nh, per[s, i])
         return down
 
+    def _ion_up(self, env):
+        """up[s, slot] [s^-1]: the ions' up-steps of every state but the top (``ion_up_rate``); the last CHAIN_MEMO
+        environments are kept (``charge_matrix`` iterates on them)."""
+        if env not in self._ion_ups:
+            up = np.zeros((len(self.library), len(self.zs)))
+            for s, mol in enumerate(self.library):
+                for z in mol.charges[:-1]:
+                    up[s, z - self.zmin] = ion_up_rate(mol, z, env, self.p)
+            if len(self._ion_ups) >= CHAIN_MEMO:
+                del self._ion_ups[next(iter(self._ion_ups))]
+            self._ion_ups[env] = up
+        return self._ion_ups[env]
+
     def _charge_solve(self, env, extra_down):
         """``charge_matrix``'s chain with the down-steps ``extra_down`` [s, slot] added to the captures."""
         shape = field_shape(env)
@@ -2787,10 +2880,7 @@ class Population:
         if self.zmin == -1:
             up[:, 0] += anion_associative_detachment(self.p) * env.n_h
         if getattr(env, "ions", ()):
-            for s, mol in enumerate(self.library):
-                for z in (-1, 0):
-                    if z in mol.charges and z + 1 in mol.charges:
-                        up[s, z - self.zmin] += ion_up_rate(mol, z, env, self.p)
+            up = up + self._ion_up(env)
         down = self._capture_rates(env.temperature_k) * env.n_e
         if extra_down is not None:
             down = down + extra_down
@@ -2861,14 +2951,19 @@ class Population:
 
     def _capture_energy(self, temperature_k):
         """E[s, slot]: mean kinetic energy an electron captured by each state takes from the gas [eV], kT Lambda~/J~
-        of Draine & Sutin 1987 (eqs. 3.4-3.6) at the capture radius (``chemistry.disc_radius_cm``)."""
+        of Draine & Sutin 1987 (eqs. 3.4-3.6) at the capture radius (``chemistry.disc_radius_cm``); in hot gas
+        (``Params.hot_gas``) of the electrons that are stopped (``capture_stop_factors``)."""
         t = round(float(temperature_k), 6)
         key = ("capture_energy", t)
         if key not in self._capture:
             E = np.zeros((len(self.library), len(self.zs)))
+            if self.p.hot_gas:
+                self.prepare_stopping()
             for s, mol in enumerate(self.library):
                 for z in mol.charges[1:]:
                     E[s, z - self.zmin] = capture_energy(mol, z, t)
+                    if self.p.hot_gas:
+                        E[s, z - self.zmin] *= capture_stop_factors(mol, z, t, self.p, mol._cache[("stop", z)])[1]
             self._capture[key] = E
         return self._capture[key]
 
@@ -2890,6 +2985,8 @@ class Population:
         Per H nucleus, from one steady state of ``charge_matrix``:
         - ``alpha_mn[ion]``, ``alpha_ct[ion]`` [cm^3 s^-1]: dn(X+)/dt = -(alpha_mn + alpha_ct) n(X+) n_H, mutual
           neutralisation on anions and ion-neutral reactions on neutrals (``ion_up_rate``);
+        - ``alpha_ct_cations[ion]`` [cm^3 s^-1]: the same for charge transfer onto cations, in hot gas only
+          (``Params.hot_gas``);
         - ``carbon_accretion`` [cm^3 s^-1]: the share of C+ + PAH0 that keeps the C (0.4, Canosa+95), within
           alpha_ct["C+"]; the rest returns C to the gas;
         - ``electron_source`` [s^-1]: electrons made by photoionisation, photodetachment and associative detachment
@@ -2916,18 +3013,20 @@ class Population:
         if self.zmin == -1:
             photo_up[:, 0] += anion_associative_detachment(self.p) * env.n_h   # it frees an electron too
         capture = self._capture_rates(env.temperature_k) * env.n_e
-        alpha_mn, alpha_ct = {}, {}
+        alpha_mn, alpha_ct, alpha_cat = {}, {}, {}
         for ion, _ in getattr(env, "ions", ()):
             unit = replace(env, ions=((ion, 1.0),))
             mn = np.array([f[s, -1 - self.zmin] * ion_up_rate(m, -1, unit, self.p) if -1 in m.charges else 0.0
                            for s, m in enumerate(self.library)])
             ct = np.array([f[s, 0 - self.zmin] * ion_up_rate(m, 0, unit, self.p) if 1 in m.charges else 0.0
                            for s, m in enumerate(self.library)])
-            alpha_mn[ion], alpha_ct[ion] = float(x @ mn), float(x @ ct)
+            cat = np.array([sum(f[s, z - self.zmin] * ion_up_rate(m, z, unit, self.p) for z in m.charges[:-1] if z >= 1)
+                            for s, m in enumerate(self.library)])
+            alpha_mn[ion], alpha_ct[ion], alpha_cat[ion] = float(x @ mn), float(x @ ct), float(x @ cat)
         gamma = self.photoelectric_heating(env)[0]
         lam = self.recombination_cooling(env)[0]
         protons = (f * self._proton_down(env, f)).sum(axis=1) if self.p.fission else np.zeros(len(self.library))
-        return {"alpha_mn": alpha_mn, "alpha_ct": alpha_ct, "proton_source": float(x @ protons),
+        return {"alpha_mn": alpha_mn, "alpha_ct": alpha_ct, "alpha_ct_cations": alpha_cat, "proton_source": float(x @ protons),
                 "carbon_accretion": 0.4 * alpha_ct.get("C+", 0.0),
                 "electron_source": float(x @ ((f * photo_up).sum(axis=1) - (f * capture).sum(axis=1))),
                 "electron_overflow": float(x @ self.chain_overflow(env)),
