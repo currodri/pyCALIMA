@@ -3381,6 +3381,7 @@ class Population:
         """What the PAHs give a gas network at ``env``, for ``abundance[s]`` molecules per H nucleus.
 
         Per H nucleus, from one steady state of ``charge_matrix``:
+
         - ``alpha_mn[ion]``, ``alpha_ct[ion]`` [cm^3 s^-1]: dn(X+)/dt = -(alpha_mn + alpha_ct) n(X+) n_H, mutual
           neutralisation on anions and ion-neutral reactions on neutrals (``ion_up_rate``);
         - ``alpha_ct_cations[ion]`` [cm^3 s^-1]: the same for charge transfer onto cations, in hot gas only
@@ -3400,6 +3401,7 @@ class Population:
           returns to the gas). The stopped electrons' energy is here, not in ``lambda_rec`` (pahchem audit M2: it was
           1.6-112x lambda_rec for C54H18 and C216H36 at 1e5-1e7 K, and not reported);
         - ``f``: the charge fractions [s, slot] over ``self.zs``.
+
         H2 formation on PAHs is not here: it needs the hydrogenation network (``network.PAHNetwork``).
         """
         x = np.asarray(abundance, dtype=float)

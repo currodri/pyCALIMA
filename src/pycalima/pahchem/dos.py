@@ -143,7 +143,7 @@ def count_tilt(freqs_cm, e_max_cm, grain_cm=1.0):
 
 
 def tilted_window_sum(values, half, beta_grain=0.0):
-    """sum_{|d| <= half} v[i + d] exp(beta_grain d), clipped at the grid's ends: the window sum of the untilted
+    """``sum_{|d| <= half} v[i + d] exp(beta_grain d)``, clipped at the grid's ends: the window sum of the untilted
     values, times exp(-beta E_i), from tilted ``values`` (``beyer_swinehart``); a plain window sum for 0."""
     if not beta_grain:
         total = np.concatenate([[0.0], np.cumsum(values)])

@@ -17,12 +17,14 @@ The laws, per class of the scaled frequency (``CLASSES``):
 
 - **Shifts:** chi'_cl x T_cl, where T_cl is the classical temperature of equal vibrational energy,
   E_vib(T) / (s k_B) for the s modes of the state (energy matching). chi'_cl is a classical-MD slope:
+
   - out-of-plane (solo 860-1000, duo 800-860, trio and quartet 600-800 cm^-1): Mai+25's ML-MD slopes by class and
     N_C;
   - CC 6.2 (1500-1800): Mai+25, -0.056 (coronene lab -0.038 / dT_cl/dT 0.70 = -0.054);
   - 7.7 (1200-1500) and 8.6 (1000-1200): -0.034 and -0.012 (Pech+02 Table 2, coronene, / 0.70);
   - CH (2600-3300): 0.75 x Mai+25 by N_C (energy matching overshoots Joblin+95's three slopes by x1.2-1.4; the
     hot-minus-cold totals of Joblin+94 favour x1.0, so the bracket is 0.75-1.0; the 3.3 window does not see it).
+
   Energy matching reproduces the lab slopes (ovalene oop -0.018, ovalene solo -0.0095 against -0.0098, coronene 6.2
   -0.040 against -0.038) and the plateau below ~200-300 K (Pech+02 Sect. 3.1, Chakraborty+21).
   ``t_map=("factor", q)`` replaces T_cl by q x T, the earlier mapping (q = 0.5), kept as a bracket.

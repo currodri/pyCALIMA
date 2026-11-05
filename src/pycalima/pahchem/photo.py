@@ -20,8 +20,8 @@ Cross sections [cm^2] on an energy grid in eV:
 - ``sigma_malloci_coronene``: Malloci et al. (2007) TD-DFT for C24H12 at
   Z = 0, +1, from the fetched ``malloci2007-spectra`` (the served anion file is a C54H18- spectrum,
   ``malloci2007.INCONSISTENT``).
-- ``sigma_malloci_average``: Berne+22's strategy, pahchem's default from 2026-10-26 to 2026-10-31 (``Params.uv_cross_section``).
-- ``octopus_library*``: ``uvlib``'s Octopus TD-DFT rule, pahchem's default since 2026-11-01.
+- ``sigma_malloci_average``: Berne+22's strategy, pahchem's default from 2026-10-26 to 2026-10-31 (``Params.uv_cross_section``):
+
   - sigma / N_C is averaged per charge over the Malloci+07 spectra of nine compact PAHs, N_C 32-66
     (``MALLOCI_AVERAGE_MOLECULES``), times N_C.
   - Berne+22 use it at 5-13.6 eV, where their field is. Here it covers 5-30 eV, Malloci's range; Li & Draine is used
@@ -31,7 +31,9 @@ Cross sections [cm^2] on an energy grid in eV:
     (results/pahchem/uv_sigma_2026-10-26).
   - At 5-13.6 eV the average absorbs 0.69-0.87x Li & Draine's photons; at 17 eV it is 0.66x.
   - Z = +3, which Malloci did not compute, takes the dication average.
-- ``octopus_library``: our own TD-DFT library, 0.02 eV to 10 keV (``uvlib``; not the default yet: it needs its bundled anchor file).
+
+- ``octopus_library``: our own Octopus TD-DFT library, 0.02 eV to 10 keV (``uvlib``, from its bundled anchor file),
+  pahchem's default since 2026-11-01 (``octopus_library@<hash>`` in cache keys, ``uv_model_key``).
 - ``sigma_uv``: the cross section of a ``Params.uv_cross_section`` name.
 - ``sigma_malloci_molecule``: one Malloci+07 molecule, optionally scaled to another N_C, for the reproductions of
   papers that used it (Andrews+16, Montillaud+13).
@@ -396,6 +398,7 @@ def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTIT
     - Above 21.9 eV: the ion keeps the internal energy it has at 21.9 eV (the hole energy, ~6 eV for these
       PAHs), and the electron takes the rest, E - threshold - E_int. No photoelectron spectra of PAHs exist
       above 22 eV; this is the molecular limit (KE = hv - binding energy), not the solid-state WDB06 parabola.
+
     Zero below the threshold. A share above 1 is capped (the electron cannot take more than the excess).
 
     The shares were measured on neutrals, at photon energies. ``reference_ev`` (the molecule's neutral IP) reads them
