@@ -503,11 +503,14 @@ def test_v400_bare_skeletons_attach_by_carbon_framework():
 
 def test_hot_gas_electrons_ionise_and_strip_only_where_the_gas_is_hot():
     """``Params.hot_gas``: thermal electrons' passages (``hot_passages``) raise the charge of a PAH in 1e6 K gas and strip it
-    where no H re-hydrogenates it, and do nothing measurable at 100 K (no electron reaches 1 eV)."""
+    where no H re-hydrogenates it, and do nothing measurable at 100 K (no electron reaches 1 eV). The gas's ions
+    (``hot_ion_passages``) heat it too, knock out C atoms (one C each in ``destruction_rates``) and H atoms (in the
+    chain's H loss), and nothing without ions."""
     from pycalima.pahchem.baseline import Params
 
     mol = next(m for m in _library() if m.nc <= 24)
-    hot = lambda T: Environment("hot", 1.0, 1e-4, 1.0, T, None, optical_isrf=0.0, ions=(("H+", 1.0),))   # noqa: E731
+    hot = lambda T, ions=(("H+", 1.0),): Environment("hot", 1.0, 1e-4, 1.0, T, None, optical_isrf=0.0,   # noqa: E731
+                                                     ions=ions)
     on = population.Population([mol], WINDOWS, params=Params(hot_gas=True))
     off = population.Population([mol], WINDOWS, params=Params(hot_gas=False))
     zs = np.array(on.zs, dtype=float)
@@ -515,6 +518,15 @@ def test_hot_gas_electrons_ionise_and_strip_only_where_the_gas_is_hot():
     assert on.destruction_rates(hot(1e6))["events"][0] > off.destruction_rates(hot(1e6))["events"][0]
     k_node, beyond, power = population.hot_passages(on.library[0], 0, on.p, 100.0)
     assert k_node[1:].sum() < 1e-30 and power < 1e-28
+    d, bare = on.destruction_rates(hot(1e6)), on.destruction_rates(hot(1e6, ()))
+    assert d["knockout"][0] > 0.0 and bare["knockout"][0] == 0.0 and off.destruction_rates(hot(1e6))["knockout"][0] == 0.0
+    with_ions, without = on._hot_rates(hot(1e6)), on._hot_rates(hot(1e6, ()))
+    assert np.all(with_ions["power"] >= without["power"]) and with_ions["power"].sum() > without["power"].sum()
+    assert with_ions["knockout_h"].max() > 0.0 and not without["knockout_h"].any()
+    dlh = on._deposit_losses(hot(1e6))[0]
+    assert np.all(dlh >= on._deposit_losses(hot(1e6, ()), f=on.charge_matrix(hot(1e6)))[0] - 1e-30)
+    kn, b, pw, ko = population.hot_ion_passages(on.library[0], 0, 1e6, "He+")
+    assert kn[1:].sum() == 0.0 and pw > 0.0 and set(ko) == {"C", "H"}
 
 
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():

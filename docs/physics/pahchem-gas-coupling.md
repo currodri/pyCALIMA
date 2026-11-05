@@ -665,7 +665,7 @@ higher charges, as before). In the population every molecule runs from its lowes
   - the skeleton's IR in the spectra;
   - the ionisation threshold of the bare skeleton (it takes the parent's).
 
-### 2.2g Hot gas: thermal electrons (2026-11-04; step 1 of replacing `PAH_sputtering`'s dissociation)
+### 2.2g Hot gas: thermal electrons and ions (2026-11-04; steps 1–2 of replacing `PAH_sputtering`'s dissociation)
 
 - *Why.* `models/PAH_gas_collisions/PAH_sputtering.py` (Micelotta+10a,b) computes the energy T₀ a collision leaves. It
   then turns T₀ into a dissociation probability with an outdated recipe: an Arrhenius rate at T_eff = 2000 K
@@ -685,7 +685,9 @@ higher charges, as before). In the population every molecule runs from its lowes
 - *Hot, ionised gas* (n_e = 1, n(H) = 10⁻⁴, a weak G0 = 1 field):
   - **Effect.** The electrons raise ⟨Z⟩ by 0.3–2.4 and strip C24–C96 completely. Their bare skeletons then lose carbon,
     and C96 folds into a cage: lifetimes 0.02–0.4 yr, ∝ 1/n_e. Without electrons, 10⁴–10²⁵ yr.
-- *Against Micelotta+10a's model* (`check_hot_gas_micelotta.py`, `pahchem_hot_gas_micelotta.png`):
+- *Against Micelotta+10b's model* (A&A 510, A37, "PAH processing in a hot gas"; its companion on shocks, A36, is
+  Micelotta+10a or MJT; `check_hot_gas_micelotta.py`, `pahchem_hot_gas_micelotta.png`). Step 1 compared the electrons
+  alone; step 2 below adds the ions.
   - **Reading the published fits.** Their Table 2 fits of the electrons' carbon-loss rate constant reproduce their
     Table 3 lifetimes to 4–10 % (M82 156 vs 162 yr; the 2 C per event are in the fits). Their N_C = 50 electron fit is
     printed with a = +2136.83; with −2136.83, as for N_C 100 and 200, it gives their Fig. 7.
@@ -702,12 +704,61 @@ higher charges, as before). In the population every molecule runs from its lowes
     pahchem's electrons also ionise (⟨Z⟩ 1–2) and are focused.
   - **pahchem needs inputs Micelotta's model does not.** Its rates depend on the re-hydrogenation (n(H) = 10⁻⁴ n_e here)
     and on the field (G0 = 1). Their 2/3-of-the-carbon criterion becomes "carbon lost" or "destroyed as a PAH".
+- *Thermal ions* (step 2, 2026-11-04; `Params.hot_gas`, the ions of `Environment.ions`):
+  - **Electronic friction.** `impact.thermal_ion_passages` ports Micelotta+10b's slow-ion stopping (eqs 1–7). The disc
+    holds a jellium of density 0.15 exp(−x²/2.7) a.u. at height x; its column is graphene's four valence electrons per C.
+    The friction is Puska & Nieminen's, γ = Γ₀ exp(−(r_s − 1.5)/R₂), and an ion loses v ∫γ ds along its path, linear in
+    the speed (v ≲ 1 a.u.).
+    - Micelotta print R₂ only (H 2.28, He 0.88, C 0.90). Γ₀ (0.33, 0.75, 1.68; O 1.62, 0.57) is `PAH_sputtering`'s and
+      has no source: Puska & Nieminen 1983 (PRB 27, 6121) is needed to check it. Other ions get no friction.
+    - `impact.disc_chords` follows every chord at every angle and offset, so the mean deposit is exact (int γ dV, to
+      8×10⁻⁴). Micelotta take the central chord at each angle, 4/π too long edge-on, with no spread.
+  - **Elastic collisions below threshold are heat.** `impact.knock_on` gives the ZBL stopping of transfers below the
+    knock-out threshold, S_n0 min(1, T₀/T_m)^(1−m) (the complement of MJT eq. 14), per C and per H atom. MJT leave it out
+    ("radiated away"), but in pahchem every deposit is heat. On C54H18 it is 6–10× the friction's for He and C at
+    10⁴–10⁵ K, 1.6–3× at 10⁶ K and 0.4–0.8× at 10⁷ K; for H, 2.6×, 0.5× and 0.1× at 10⁴, 10⁶ and 10⁷ K. The H atoms take
+    10–45 % of it; they sit on the rim but are spread over the disc like the C atoms.
+  - **Knock-outs** remove C atoms (one C each in `destruction_rates["knockout"]`, a molecule leaving the library) and H
+    atoms (an H loss in the hydrogenation chain, N_H times the rate per atom, `_deposit_losses`).
+    - **Cross section.** MJT eq. 15, zero below E₀ₙ = T₀/γ.
+    - **Thresholds.** T₀(C) = 23.3 eV, Stockett+15's MD energy transfer at their measured He + PAH⁺ thresholds (their MD
+      alone 27.0; Postma+14 27; graphene 23.6). MJT took 7.5 (4.5–15) eV, below every later number. T₀(H) = 9 eV, Chen+14
+      after Postma+14's MD.
+    - **No factor 1/2.** MJT's eq. 22 multiplies by 1/2, their Appendix C average of the projected area, ⟨cos θ⟩. A
+      per-atom cross section already samples every orientation: the atom column an ion crosses grows as 1/cos θ where
+      the projection shrinks as cos θ. No later work uses the factor.
+    - **Shadowing** of the molecule's atoms by each other is not followed. Chen+14's Monte Carlo puts whole-molecule
+      cross sections at 0.44 (H) and 0.74 (He) of the atoms' sum, for their own per-atom cross section.
+  - **Coulomb focusing** on the charged PAH as for the electrons.
+  - **Population.** `population.hot_ion_passages` (heat at dz = 0, knock-outs) per unit ion density, summed in
+    `_hot_rates`.
+- *Ions against Micelotta+10b:*
+  - **Implementation check.** Table 2's ion fits give Table 3's Orion lifetime, set by the ions, to 1.8×10⁷ vs 1.3×10⁷ yr.
+    At MJT's T₀ = 7.5 eV, pahchem's knock-outs are 1.7–2.8× their ion fits at 3×10⁴–10⁵ K, where the nuclear part
+    dominates, for H, He and C on N_C 50 and 200. That is their factor 1/2: the ZBL cross section is reproduced.
+  - **`PAH_sputtering`'s nuclear rate** applies T₀ to the ion's energy where MJT eq. 15 has E₀ₙ = T₀/γ. It
+    overestimates H knock-outs ×3000 at 3×10⁴ K and ×24 at 10⁵ K. He and C are close (γ = 0.75, 1).
+  - **In gas of n_H = n_e = 1** (Micelotta's ions: H⁺ 1, He⁺ 0.1, C⁺ 10⁻⁴), the ions change pahchem's carbon loss
+    against the electrons alone:
+    - N_C 50: +1 % at 10⁶ K, +56 % at 10⁷ K, ×25 at 10⁸ K (0.79× Micelotta's electrons + ions there);
+    - N_C 100–200 at 10⁶–10⁷ K: ×3–30. The knock-outs (T₀ 23.3 eV) are 50–98 % of the carbon lost there, because the
+      stripped skeletons fold with their carbon.
+  - **Knock-outs at T₀ = 23.3 eV** are 10⁻³ of MJT's at 3×10⁴ K, and 0.4–0.8 of them above 10⁶ K.
+  - **Destruction as a PAH** stays electron-driven (stripping, folding): 0.03–0.4 yr for N_C 50 above 10⁵ K, at n_e = 1.
+  - **At 10⁸ K** the friction's linear rise is used past v = 1 a.u. in the Maxwellian's tail. H's true stopping peaks
+    near 100 keV, so the ions' heat there is an overestimate, up to ~2× in the tail.
+- *Found while doing it (step 3):*
+  - Electron capture (`capture_coefficient`, DS87 × sticking 1 on cations) is used at any temperature. A 0.1–10 keV
+    electron crosses a PAH losing ~10 eV and cannot be captured. At 10⁶–10⁸ K the capture rate (10⁻⁵–3×10⁻⁴ cm³ s⁻¹)
+    competes with or beats the passages' ionisation, and C216H36 comes out at ⟨Z⟩ −0.4 to −0.9 at 10⁷–10⁸ K. The
+    hot-gas ⟨Z⟩ above are lower bounds until capture requires the electron to be stopped (its passages' loss ≥ its
+    energy).
+  - The ions take no electrons from cations (`ion_up_rate`: a Coulomb barrier, valid below 10⁴ K), although at 10⁶ K
+    kT ≫ qZe²/R.
 - *Not yet:*
-  - thermal ions: slow-ion electronic stopping, as Puska & Nieminen's friction in `PAH_sputtering`, and ZBL nuclear
-    knock-out above 7.5 eV, both to be ported into `impact`;
-  - `PAH_sputtering`'s per-bin tables through pahchem;
+  - `PAH_sputtering`'s per-bin tables through pahchem (step 4);
   - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
-  - a validation against Micelotta+10a's published lifetimes.
+  - the friction's Γ₀ against Puska & Nieminen.
 
 ### 2.3 Ion–PAH collisions (new)
 

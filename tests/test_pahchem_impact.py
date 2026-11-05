@@ -153,6 +153,56 @@ def test_maxwellian_flux_and_coulomb_focus_of_thermal_particles():
     assert np.array_equal(im.coulomb_focus(im.PROTON, 0, 24, t)[0], np.ones(3))
 
 
+def test_disc_chords_hold_the_disc_s_electrons_and_atoms():
+    """``disc_chords``: summed over every chord (weights in cm^2 sr), the friction column is 4 pi HARTREE int gamma dV and
+    the atom column 4 pi N_C, whatever the friction law; an ion without a friction has none."""
+    nc = 54
+    r = im.disc_radius_cm(nc) / im.BOHR_CM
+    x = np.linspace(0.0, im.JELLIUM_EXTENT_AU, 4001)
+    for el in ("H", "He", "C"):
+        ch = im.disc_chords(nc, el)
+        volume = np.pi * r**2 * 2.0 * np.trapezoid(im.friction_coefficient(el, x), x) * im.BOHR_CM**2
+        assert (ch.weight * ch.friction).sum() == pytest.approx(4.0 * np.pi * im.HARTREE_EV * volume, rel=2e-3)
+        assert (ch.weight * ch.atoms).sum() == pytest.approx(4.0 * np.pi * nc, rel=2e-3)
+    assert im.disc_chords(nc, "Fe").friction is None
+
+
+def test_knock_on_starts_at_the_critical_energy_and_leaves_the_rest_as_heat():
+    """``knock_on`` (MJT eqs 14-15): no knock-out below E_0n = T_0 / gamma (MJT Table 2: 26.4, 10 and 7.5 eV for H, He and C
+    on C at T_0 = 7.5 eV), one above it, vanishing at it; below it all the elastic stopping is heat, above it less."""
+    for el, table in (("H", 26.4), ("He", 10.0), ("C", 7.5)):
+        m1, m2 = im.ATOMS[el][1], im.ATOMS["C"][1]
+        e0n = 7.5 * (m1 + m2) ** 2 / (4.0 * m1 * m2)
+        assert e0n == pytest.approx(table, rel=0.01)
+        sigma, below = im.knock_on(el, np.array([0.999 * e0n, 1.0001 * e0n, 3.0 * e0n]), 7.5)
+        assert sigma[0] == 0.0 and 0.0 < sigma[1] < 1e-2 * sigma[2]
+        s0 = im.knock_on(el, np.array([3.0 * e0n]), 1e9)[1][0]                    # no transfer reaches T_0: S_n0
+        assert below[2] < s0 and below[0] > 0.0
+
+
+def test_thermal_ion_heat_and_knock_outs():
+    """``thermal_ion_passages``: the heat in the grid is the friction and elastic stopping of every chord (``disc_chords``'
+    sums), to the grid's split; at MJT's T_0 the He knock-outs at 1e5 K are twice Micelotta+10b's nuclear-dominated fit
+    (their factor 1/2, which is dropped); a cation draws fewer of them than the neutral, an anion more."""
+    nc, t = 50, 1e5
+    ps, ko = im.thermal_ion_passages(nc, "He", t)
+    assert ps.beyond == 0.0 and ps.P[1:].sum() == 0.0 and set(ko) == {"C"}
+    kt = 8.617333262e-5 * t
+    tt = np.geomspace(1e-2 * kt, 40.0 * kt, 48)
+    proj = im.nucleus("He", 1, im.ATOMS["He"][1])
+    wt = im._trapezoid_weights(np.log(tt)) * tt * im.maxwellian_flux(proj, t, 1.0)(tt)
+    ch = im.disc_chords(nc, "He")
+    v_au = np.sqrt(2.0 * tt / proj.rest_ev) * im.C_CM_S / im.V_AU_CM_S
+    below = im.knock_on("He", tt, im.KNOCKOUT_T0_EV["C"])[1]
+    heat = np.sum(wt * (v_au * (ch.weight * ch.friction).sum() + below * (ch.weight * ch.atoms).sum()))
+    assert (ps.P[0] * ps.e).sum() * ps.de == pytest.approx(heat, rel=1e-6)
+    x = np.log10(t)
+    fit = 10.0 ** sum(c * x**i for i, c in enumerate((-971.448, 770.259, -245.561, 38.8995, -3.05787, 0.0954303)))
+    assert im.thermal_ion_passages(nc, "He", t, t0_ev={"C": 7.5})[1]["C"] / (fit / 0.1) == pytest.approx(2.0, rel=0.15)
+    ko_z = [im.thermal_ion_passages(nc, "H", t, charge=z)[1]["C"] for z in (-1, 0, 2)]
+    assert ko_z[0] > ko_z[1] > ko_z[2] > 0.0
+
+
 def test_measured_partition_leaves_the_photons_hole():
     """``partition="measured"``: the distant ionisations leave the mean hole of a photoionisation at W
     (``photo.photoelectron_energy``), so their mean E* is the hole weighted by their rates, to within the bin."""

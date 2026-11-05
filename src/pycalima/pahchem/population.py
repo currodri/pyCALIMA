@@ -780,9 +780,19 @@ def hot_passages(mol, z, params, temperature_k):
     return _passage_nodes(ps)
 
 
+def hot_ion_passages(mol, z, temperature_k, ion):
+    """Thermal ions ``ion`` (a name of ``chemistry.IONS``, its charge the count of "+") through charge z per unit ion
+    density [cm^-3] at ``temperature_k``: ``impact.thermal_ion_passages`` (heat at dz = 0: friction on the valence
+    electrons and elastic collisions below threshold), as ``cr_passages``, and {"C", "H": knock-outs [s^-1]}."""
+    el = ion.rstrip("+")
+    ps, ko = impact.thermal_ion_passages(mol.nc, el, temperature_k, 1.0, z, len(ion) - len(el), nh=mol.nh,
+                                         de=CR_DE_EV, e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX)
+    return (*_passage_nodes({ion: ps}), ko)
+
+
 def _build_hot(job):
-    mol, z, params, temperature_k = job
-    return hot_passages(mol, z, params, temperature_k)
+    mol, z, params, temperature_k, ion = job
+    return hot_passages(mol, z, params, temperature_k) if ion is None else hot_ion_passages(mol, z, temperature_k, ion)
 
 
 def _cr_key(mol, z, params, protons):
@@ -2370,46 +2380,60 @@ class Population:
                                  "k_node": {si: sum(a[sh] * st[sh]["k_node"][si] for sh in CR_SHAPES) for si in st["L"]["k_node"]}}
         return self._arrays[key]
 
-    def prepare_hot(self, temperature_k, workers=None):
-        """``hot_passages`` of every state at ``temperature_k`` (per unit n_e, field-independent), computed in parallel."""
+    def prepare_hot(self, temperature_k, workers=None, ions=()):
+        """``hot_passages`` of every state at ``temperature_k`` (per unit n_e, field-independent) and ``hot_ion_passages``
+        of each of ``ions`` (names of ``chemistry.IONS``; per unit ion density), computed in parallel."""
         t = round(float(temperature_k), 6)
-        todo = [(mol, z) for mol in self.library for z in mol.charges if ("hot", z, t, self.p) not in mol._cache]
+        key = lambda z, ion: ("hot", z, t, self.p) if ion is None else ("hot_ion", z, t, ion)       # noqa: E731
+        todo = [(mol, z, ion) for mol in self.library for z in mol.charges for ion in (None, *ions)
+                if key(z, ion) not in mol._cache]
         workers = workers if workers is not None else (os.cpu_count() or 1)
         if workers > 1 and len(todo) > 2:
             from concurrent.futures import ProcessPoolExecutor
 
             with ProcessPoolExecutor(max_workers=workers) as ex:
-                for (mol, z), r in zip(todo, ex.map(_build_hot, [(replace(m, _cache={}), z, self.p, t) for m, z in todo])):
-                    mol._cache[("hot", z, t, self.p)] = r
+                jobs = [(replace(m, _cache={}), z, self.p, t, ion) for m, z, ion in todo]
+                for (mol, z, ion), r in zip(todo, ex.map(_build_hot, jobs)):
+                    mol._cache[key(z, ion)] = r
         else:
-            for mol, z in todo:
-                mol._cache[("hot", z, t, self.p)] = hot_passages(mol, z, self.p, t)
+            for mol, z, ion in todo:
+                mol._cache[key(z, ion)] = _build_hot((mol, z, self.p, t, ion))
 
     def _hot_rates(self, env):
-        """The thermal electrons' passages at ``env`` [s^-1 per molecule], ``_cr_stack``'s keys: ``hot_passages`` at its
-        temperature times n_e; None without ``Params.hot_gas``."""
+        """The thermal electrons' and ions' passages at ``env`` [s^-1 per molecule], ``_cr_stack``'s keys: ``hot_passages``
+        at its temperature times n_e plus ``hot_ion_passages`` of each of ``env.ions`` times its density; and
+        "knockout_c" [s, slot] (C knock-outs per molecule), "knockout_h" (H knock-outs per H atom) [s^-1]. None without
+        ``Params.hot_gas``."""
         if not self.p.hot_gas:
             return None
         t = round(float(env.temperature_k), 6)
-        key = ("hot_rates", t, float(env.n_e))
+        ions = tuple((name, float(n)) for name, n in env.ions if n > 0.0)
+        key = ("hot_rates", t, float(env.n_e), ions)
         if key not in self._arrays:
-            self.prepare_hot(t)
+            self.prepare_hot(t, ions=tuple(dict(ions)))
             n, m = len(self.library), len(self.zs)
             K = np.zeros((CR_DZ_MAX, n, m))
             beyond, power, nodes = np.zeros((n, m)), np.zeros((n, m)), {}
+            ko_c, ko_h = np.zeros((n, m)), np.zeros((n, m))
             for s, mol in enumerate(self.library):
                 for z in mol.charges:
-                    k_node, b, pw = mol._cache[("hot", z, t, self.p)]
+                    k_node, b, pw = (env.n_e * x for x in mol._cache[("hot", z, t, self.p)])
                     i = z - self.zmin
-                    nodes[(s, i)] = env.n_e * k_node
-                    beyond[s, i], power[s, i] = env.n_e * b, env.n_e * pw
-                    K[: k_node.shape[0] - 1, s, i] = env.n_e * k_node[1:].sum(axis=1)
-            self._arrays[key] = {"k": K, "k_node": nodes, "beyond": beyond, "power": power}
+                    for name, dens in ions:
+                        kn, bi, pi, ko = mol._cache[("hot_ion", z, t, name)]
+                        k_node, b, pw = k_node + dens * kn, b + dens * bi, pw + dens * pi
+                        ko_c[s, i] += dens * ko.get("C", 0.0)
+                        ko_h[s, i] += (dens * ko.get("H", 0.0) / mol.nh) if mol.nh else 0.0
+                    nodes[(s, i)] = k_node
+                    beyond[s, i], power[s, i] = b, pw
+                    K[: k_node.shape[0] - 1, s, i] = k_node[1:].sum(axis=1)
+            self._arrays[key] = {"k": K, "k_node": nodes, "beyond": beyond, "power": power,
+                                 "knockout_c": ko_c, "knockout_h": ko_h}
         return self._arrays[key]
 
     def _passages(self, env):
-        """The passages of every source at ``env`` (cosmic rays, ``_cr_rates``; thermal electrons, ``_hot_rates``), summed;
-        None when there are none."""
+        """The passages of every source at ``env`` (cosmic rays, ``_cr_rates``; thermal electrons and ions,
+        ``_hot_rates``), summed; None when there are none."""
         srcs = [r for r in (self._cr_rates(env), self._hot_rates(env)) if r is not None]
         if not srcs:
             return None
@@ -2420,7 +2444,8 @@ class Population:
                 "k_node": {si: a["k_node"][si] + b["k_node"][si] for si in a["k_node"]}}
 
     def hot_beyond(self, env):
-        """Thermal electrons' passages per molecule [s^-1] beyond the heat nodes or CR_DZ_MAX charges (``cr_beyond``)."""
+        """Thermal electrons' and ions' passages per molecule [s^-1] beyond the heat nodes or CR_DZ_MAX charges
+        (``cr_beyond``)."""
         hot = self._hot_rates(env)
         if hot is None:
             return np.zeros(len(self.library))
@@ -2553,13 +2578,19 @@ class Population:
         """(dlh, dlh2, dlc, dlhp)[s, k]: the H, H2, C2H2 loss and proton-emission rates [s^-1 per molecule, as the
         charge-averaged chain takes them] of ``_deposit_flows`` (charge fractions ``f``): dissociative recombination
         (``Params.recombination_dissociation``), the photoionisation, C 1s and cosmic-ray products' heat; the loss tables
-        hold the photon deposits only. ``by_state``: [s, slot, k], per product state."""
+        hold the photon deposits only. Thermal ions' H knock-outs (``_hot_rates``) add to the H loss, N_H times the rate
+        per H atom. ``by_state``: [s, slot, k], per product state."""
         out = np.zeros((4, len(self.library), len(self.zs), N_EMITTING))
         for s, z, which, idx, rate, _ in self._deposit_flows(env, f):
             if which == "rec" and not self.p.recombination_dissociation:
                 continue
             for k, (_, *p) in enumerate(self._response(self.library[s], z, which)[1][idx]):
                 out[:, s, z - self.zmin, k] += rate * np.asarray(p)
+        hot = self._hot_rates(env)
+        if hot is not None and hot["knockout_h"].any():
+            f = self.charge_matrix(env) if f is None else f
+            n_h = np.array([np.clip(m.nh - np.arange(N_EMITTING), 0, None) for m in self.library], dtype=float)
+            out[0] += (f * hot["knockout_h"])[:, :, None] * n_h[:, None, :]
         return tuple(out) if by_state else tuple(out.sum(axis=2))
 
     def _deposit_bands(self, env, h):
@@ -2965,7 +2996,7 @@ class Population:
         """Per molecule at ``env`` [s^-1]: {"fold", "C", "C2", "C3", ...: the bare skeleton's destruction events (its
         share f(N_H = 0) of the chain, photon-driven from ``_bare_stack`` and after the deposits the tables do not hold,
         ``bare_event_yields``), "C2H2" (``loss_rates``), "explosions" (``chain_overflow``), "cr_beyond" (``cr_beyond``),
-        "hot_beyond" (``hot_beyond``),
+        "hot_beyond" (``hot_beyond``), "knockout" (thermal ions' C knock-outs, ``_hot_rates``; one C each),
         "events": their sum, the rate at which the molecule leaves the library, and "carbon": the C atoms lost per second
         (a whole molecule for an explosion or a passage beyond)}. The chain is quasi-static: these are slow leaks from its
         steady state."""
@@ -2991,8 +3022,10 @@ class Population:
         out["explosions"] = self.chain_overflow(env)
         out["cr_beyond"] = self.cr_beyond(env)
         out["hot_beyond"] = self.hot_beyond(env)
+        hot = self._hot_rates(env)
+        out["knockout"] = (f * hot["knockout_c"]).sum(axis=1) if hot is not None else np.zeros(len(self.library))
         nc_lost = {name: n for m in self.library for name, n, *_ in bare_channels(m, self.p)}
-        carbon = sum(nc_lost.get(c, 0) * v for c, v in out.items()) + 2.0 * out["C2H2"] \
+        carbon = sum(nc_lost.get(c, 0) * v for c, v in out.items()) + 2.0 * out["C2H2"] + out["knockout"] \
             + self.nc * (out["explosions"] + out["cr_beyond"] + out["hot_beyond"])
         out["events"] = sum(out.values())
         out["carbon"] = carbon

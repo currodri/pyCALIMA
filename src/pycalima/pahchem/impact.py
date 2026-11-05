@@ -872,6 +872,178 @@ def coulomb_focus(proj: Projectile, charge: int, nc: int, t_ev):
     return np.clip(1.0 - u / t, 0.0, None), np.maximum(t - u, 0.0)
 
 
+# --- thermal ions: electronic friction and elastic collisions (Micelotta, Jones & Tielens 2010a, b) -------------------
+
+BOHR_CM = 0.529177210903e-8
+HARTREE_EV = 27.211386245988
+#: the atomic unit of speed, alpha c [cm s^-1]
+V_AU_CM_S = 2.18769126364e8
+#: (n_0, w) of the disc's valence-electron density n_0 exp(-x^2 / w) [a.u.], x the height above its plane [a.u.]
+#: (Micelotta+10b eq. 4, after Hadjar+01 for C60). Its column, 0.437 a.u. = 1.56 e A^-2, is graphene's four valence
+#: electrons per C (1.53 e A^-2)
+JELLIUM = (0.15, 2.7)
+#: the height [a.u.] beyond which the disc holds nothing: the H friction is below 1e-6 of its peak beyond 5.2 a.u.
+JELLIUM_EXTENT_AU = 8.0
+#: {element: (Gamma_0, R_2)} of the friction coefficient of a slow ion in an electron gas of density parameter r_s,
+#: gamma = Gamma_0 exp(-(r_s - 1.5) / R_2) [a.u.]: Micelotta+10b eq. 6, their fit to Puska & Nieminen (1983, PRB 27,
+#: 6121). R_2 of H, He and C as printed there; Gamma_0 (gamma at r_s = 1.5) is not printed, and these values and O's
+#: are ``models.PAH_gas_collisions.PAH_sputtering``'s, source unverified (2026-11-04). Other ions have no friction
+FRICTION = {"H": (0.33, 2.28), "He": (0.75, 0.88), "C": (1.68, 0.90), "O": (1.62, 0.57)}
+#: {element: (Z, mass [amu])}: the thermal ions of ``chemistry.IONS`` and the PAH's atoms
+ATOMS = {"H": (1, 1.008), "He": (2, 4.0026), "C": (6, 12.011), "N": (7, 14.007), "O": (8, 15.999), "Ne": (10, 20.180),
+         "Na": (11, 22.990), "Mg": (12, 24.305), "Si": (14, 28.086), "S": (16, 32.06), "Fe": (26, 55.845)}
+#: {target: the energy [eV] an elastic collision must give the PAH's atom to remove it}. C: Stockett+15 (J. Phys. Chem.
+#: Lett. 6, 4504), the MD energy transfer at their measured He + PAH+ thresholds (anthracene, pyrene, coronene),
+#: 23.3 +- 0.3 eV (their MD alone 27.0; Postma+14 MD of anthracene 27; graphene 23.6); Micelotta+10a (MJT) took 7.5
+#: (4.5-15) eV. H: 9 eV, Chen+14 (J. Chem. Phys. 140, 224306) after Postma+14's MD (not checked in Postma's tables)
+KNOCKOUT_T0_EV = {"C": 23.3, "H": 9.0}
+#: Ziegler+85's exponent m(epsilon) of the power-law cross section (MJT eq. 13) is fitted from epsilon_1 = 1e-9 up
+ZIEGLER_EPS1 = 1.0e-9
+ZIEGLER_M = (-2.432, -0.1509, 2.648, -2.742, 1.215, -0.1665)
+
+
+def friction_coefficient(element: str, x_au) -> np.ndarray:
+    """gamma [a.u.] of a slow ion of ``element`` at height ``x_au`` [a.u.] above the disc (``FRICTION``, ``JELLIUM``)."""
+    n0, w = JELLIUM
+    g0, r2 = FRICTION[element]
+    n = n0 * np.exp(-np.asarray(x_au, dtype=float) ** 2 / w)
+    with np.errstate(divide="ignore", over="ignore"):
+        rs = (4.0 / 3.0 * np.pi * n) ** (-1.0 / 3.0)
+    return g0 * np.exp(-(rs - 1.5) / r2)
+
+
+@dataclass(frozen=True)
+class Chords:
+    """Straight passages through the disc from an isotropic intensity. Per chord: ``friction`` = HARTREE int gamma ds
+    [eV per a.u. of speed; None without a friction], ``atoms`` = the C atoms it crosses per unit area [cm^-2], and
+    ``weight`` [cm^2 sr], whose sum is the passages per unit intensity."""
+
+    friction: np.ndarray | None
+    atoms: np.ndarray
+    weight: np.ndarray
+
+
+def disc_chords(nc: int, element: str | None = None, n_theta: int = 24, n_u: int = 96, n_w: int = 32) -> Chords:
+    """Every chord through Micelotta's disc: radius R = ``disc_radius_cm``, its electrons (``JELLIUM``) and atoms spread
+    over the height x alike, nothing beyond R. A chord at angle theta to the normal, offset (u, w) across the beam,
+    is at height x = -u / sin theta + s cos theta along its length s, inside while its radius is below R: its columns
+    are differences of the height integrals over cos theta. The mean over chords is exact (int gamma dV and N_C, to 1e-3
+    on this grid); Micelotta+10b eq. 7 takes the central chord at each angle (2R edge-on, against pi R / 2 on average)."""
+    r = disc_radius_cm(nc) / BOHR_CM
+    x = np.linspace(0.0, JELLIUM_EXTENT_AU, 4001)
+
+    def odd_integral(y):
+        c = np.concatenate([[0.0], np.cumsum(0.5 * (y[1:] + y[:-1]) * np.diff(x))])
+        return lambda z: np.sign(z) * np.interp(np.abs(z), x, c)
+    profile = np.exp(-x**2 / JELLIUM[1])
+    A = odd_integral(profile / (2.0 * np.trapezoid(profile, x)))
+    F = odd_integral(friction_coefficient(element, x)) if element in FRICTION else None
+    dth = 0.5 * np.pi / n_theta
+    fr, at, wt = [], [], []
+    for t in (np.arange(n_theta) + 0.5) * dth:
+        span = r * np.cos(t) + JELLIUM_EXTENT_AU * np.sin(t)
+        u, w = np.meshgrid((np.arange(n_u) + 0.5) * span / n_u, (np.arange(n_w) + 0.5) * r / n_w, indexing="ij")
+        mid, half = -u / np.sin(t), np.sqrt(r**2 - w**2) / np.tan(t)
+        at.append((nc / (np.pi * (r * BOHR_CM) ** 2) * (A(mid + half) - A(mid - half)) / np.cos(t)).ravel())
+        if F is not None:
+            fr.append((HARTREE_EV * (F(mid + half) - F(mid - half)) / np.cos(t)).ravel())
+        # the four quadrants of (u, w), both hemispheres
+        wt.append(np.full(u.size, 4.0 * span / n_u * r / n_w * BOHR_CM**2 * 4.0 * np.pi * np.sin(t) * dth))
+    return Chords(np.concatenate(fr) if F is not None else None, np.concatenate(at), np.concatenate(wt))
+
+
+def knock_on(element: str, t_ev, t0_ev: float, target: str = "C"):
+    """(sigma [cm^2], S_below [eV cm^2]) per ``target`` atom at rest of an elastic collision with an ion of ``element``
+    and kinetic energy ``t_ev``: the cross section for transferring more than ``t0_ev`` (MJT eq. 15, zero below
+    E_0n = t0 / gamma) and the stopping cross section of the transfers below it, S_n0 min(1, t0 / T_m)^(1 - m) (MJT
+    eq. 14's complement), heat left in the molecule. ZBL screening length and universal reduced stopping (MJT eqs 1, 2, 5,
+    6); m(epsilon) of Ziegler+85 (eq. 13) at epsilon >= ZIEGLER_EPS1, the fit's lower end (energies below 1e-4 eV)."""
+    z1, m1 = ATOMS[element]
+    z2, m2 = ATOMS[target]
+    e = np.asarray(t_ev, dtype=float)
+    e2 = E2_EV_CM * 1e8                                                       # e^2 [eV A]
+    a = 0.8854 * BOHR_CM * 1e8 / (z1**0.23 + z2**0.23)                        # [A]
+    eps = m2 / (m1 + m2) * a / (z1 * z2 * e2) * e
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sn = np.where(eps <= 30.0,
+                      0.5 * np.log1p(1.1383 * eps) / (eps + 0.01321 * eps**0.21226 + 0.19593 * eps**0.5),
+                      np.log(np.maximum(eps, 30.0)) / (2.0 * np.maximum(eps, 30.0)))
+    sn = np.where(eps > 0.0, sn, 0.0)
+    u = 0.1 * np.log(np.maximum(eps, ZIEGLER_EPS1) / ZIEGLER_EPS1)
+    m = 1.0 - np.exp(-np.exp(sum(c * u**i for i, c in enumerate(ZIEGLER_M))))
+    s0 = 4.0 * np.pi * a * z1 * z2 * e2 * m1 / (m1 + m2) * sn * 1e-16        # [eV cm^2]
+    tm = 4.0 * m1 * m2 / (m1 + m2) ** 2 * e
+    above = tm > t0_ev
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sigma = np.where(above, s0 * (1.0 - m) / (m * tm) * ((tm / t0_ev) ** m - 1.0), 0.0)
+        below = np.where(above, s0 * (t0_ev / tm) ** (1.0 - m), s0)
+    return sigma, below
+
+
+def thermal_ion_passages(nc: int, element: str, temperature_k: float, density: float = 1.0, charge: int = 0,
+                         ion_charge: int = 1, nh: int = 0, n_t: int = 48, de: float = 1.0, e_max: float = 512.0,
+                         dz_max: int = 15, t0_ev: dict = KNOCKOUT_T0_EV):
+    """(Passages, {target: knock-outs [s^-1]}) per molecule of a thermal gas of ions of ``element`` and charge
+    ``ion_charge`` at ``temperature_k`` and ``density`` [cm^-3] on C_{nc}H_{nh} of ``charge``.
+
+    - **Heat** (dz = 0 only): along its chord (``disc_chords``) the ion loses v HARTREE int gamma ds to the valence
+      electrons (Micelotta+10b eqs 1-7: friction linear in the speed, for v <~ 1 a.u., H below ~1e8 K) and, to each
+      target atom it crosses, S_below of elastic collisions below the target's knock-out threshold (``knock_on``). MJT
+      leave the latter out ("radiated away"); it is heat like the friction's, and exceeds it below ~1e6 K for He and C.
+      The H atoms, on the rim, are spread over the disc like the C atoms. Ions without a ``FRICTION`` entry deposit the
+      elastic part only.
+    - **Knock-outs** of each target in ``t0_ev`` (C, H): N int sigma v f(v) dv (MJT eq. 22 without its factor 1/2, their
+      Appendix C's <cos theta> of the projected area: a per-atom cross section already counts every orientation, the
+      atom column an ion crosses growing as 1 / cos theta where the projection shrinks as cos theta; no later work uses
+      it). The molecule's shadowing of its own atoms is not followed: Chen+14's Monte Carlo puts whole-molecule cross
+      sections at 0.44 (H) and 0.74 (He) of the atoms' sum, for their own per-atom cross section.
+
+    Maxwellian fluxes (``maxwellian_flux``) Coulomb-focused on the charged PAH (``coulomb_focus``). ``P[dz, k]`` and
+    ``e`` are as for ``passage_outcomes``: each chord's deposit is split between the grid points E_k = k de about it,
+    keeping its mean, and those beyond ``e_max`` go to ``beyond``.
+    """
+    proj = nucleus(element, ion_charge, ATOMS[element][1])
+    kt = 8.617333262e-5 * float(temperature_k)
+    j = maxwellian_flux(proj, temperature_k, density)
+    ch = disc_chords(nc, element)
+    counts = {"C": nc, "H": nh}
+    targets = [x for x in t0_ev if counts[x] > 0]
+    n_bins = int(round(e_max / de))
+    e = np.arange(n_bins + 1) * de
+    P = np.zeros((dz_max + 1, n_bins + 1))
+    beyond = passages = 0.0
+    t = np.geomspace(1e-2 * kt, 40.0 * kt, n_t)
+    g, t_hit = coulomb_focus(proj, charge, nc, t)
+    wt = _trapezoid_weights(np.log(t)) * t * j(t) * g
+    # the elastic stopping below threshold per C atom of the column: the targets' per-atom values, by their numbers
+    below = sum((knock_on(element, t_hit, t0_ev[x], x)[1] * counts[x] / nc for x in targets), np.zeros_like(t))
+    for ti, wi, bi in zip(t_hit, wt, below):
+        if wi <= 0.0:
+            continue
+        dep = bi * ch.atoms
+        if ch.friction is not None:
+            dep = dep + np.sqrt(2.0 * ti / proj.rest_ev) * C_CM_S / V_AU_CM_S * ch.friction
+        r = wi * ch.weight
+        passages += float(r.sum())
+        k = np.floor(dep / de).astype(int)
+        inside = k < n_bins
+        beyond += float(r[~inside].sum())
+        frac = dep[inside] / de - k[inside]
+        P[0] += np.bincount(k[inside], r[inside] * (1.0 - frac), n_bins + 1)
+        P[0] += np.bincount(k[inside] + 1, r[inside] * frac, n_bins + 1)
+    # knock-outs above the threshold energy in the gas, E_0n + U, on a grid of their own per target
+    u_ev = float(proj.z) * float(charge) * E2_EV_CM / disc_radius_cm(nc)
+    knockouts = {}
+    for x in targets:
+        m1, m2 = ATOMS[element][1], ATOMS[x][1]
+        e0 = max(t0_ev[x] * (m1 + m2) ** 2 / (4.0 * m1 * m2) + u_ev, 0.0)
+        tk = e0 + kt * np.concatenate([[0.0], np.geomspace(1e-4, 40.0, 95)])
+        gk, tk_hit = coulomb_focus(proj, charge, nc, tk)
+        sigma, _ = knock_on(element, tk_hit, t0_ev[x], x)
+        knockouts[x] = float(counts[x] * np.sum(_trapezoid_weights(tk) * 4.0 * np.pi * j(tk) * gk * sigma))
+    return Passages(e, de, P / de, beyond, passages, passages), knockouts
+
+
 def destruction_rates(spectrum: dict, nc: int, nh: int, charge: int, chain: FragmentationChain,
                       coulomb: str = "cold_and_hot") -> dict:
     """Per projectile: the rates [s^-1 per molecule] of what passages do to C_{nc}H_{nh}^Z.
