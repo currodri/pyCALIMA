@@ -11,10 +11,12 @@ He+ 0.1, C+ 1e-4), n(H) = 1e-4, G0 = 1 (Draine). Shown:
    energy), against the repo's WDB06 charging of graphite grains of the same radii (``dust_charge``: Draine & Salpeter
    1979 range transmission, secondary electrons), whose charge is capped by ion field emission.
 
-Result (2026-11-04): the factor is 1 at 1e4 K, 0.85-0.9 at 1e5 K, 0.1-0.13 at 1e6 K, ~2e-3 at 1e7 K, ~2e-5 at 1e8 K.
-With it the PAHs charge up to their ladder tops above 1e6 K (C54H18 +9-10, C216H36 +27-32), as the WDB06 grains reach
-their field-emission caps (+4, +8); without it <Z> stays at 0-2 and goes negative for C216H36 above 1e7 K. At 1e5 and
-3.2e5 K pahchem and the grains agree to ~1-3 charges.
+Result (2026-11-05, with the pahchem audit's fixes C1, M1, A2 and the ions' capture on C60's): the factor is 1 at 1e4 K,
+0.86-0.89 at 1e5 K, 0.10-0.12 at 1e6 K, 1.5-2.2e-3 at 1e7 K, 1.6-2.3e-5 at 1e8 K. With it C54H18 is at +2.7 at 3.2e5 K,
++8.0 at 1e6 K and its top (+10) from 3.2e6 K; C216H36 at +4.1, +14.7 and +30-32 from 3.2e6 K. The WDB06 grains reach their
+field-emission caps (+4, +8) from 1e6 K. Without the bound <Z> stays at 0-2 and goes negative for C216H36 above 1e7 K.
+Uncapped, C54H18 and its grain agree (3.2e5 K: +2.7 vs +3.0; 1e5 K: +0.1 vs +0.5); C216H36 stays below its grain (+4.1
+vs +6.9; 1e5 K -0.4 vs +3.4). Before the fixes (2026-11-04) C54H18 was at +3.8 at 3.2e5 K and C216H36 at +26.7 at 1e6 K.
 
     check_hot_gas_charge.py [--workers 4] [--out DIR]
 """
@@ -81,7 +83,7 @@ def main():
     mols = [lib[n] for n in CHARGE_NAMES]
     bound = charges(P.Population(mols, {"all": (1.0, 1e4)}, params=p, cache_dir=FP.BASIS_CACHE), a.workers)
     keep = P.capture_stop_factors
-    P.capture_stop_factors = lambda *args: (1.0, 1.0)                     # step 2's capture, for comparison
+    P.capture_stop_factors = lambda *args: (1.0, 1.0, 1.0)                # step 2's capture, for comparison
     try:
         free = charges(P.Population([replace(m, _cache={}) for m in mols], {"all": (1.0, 1e4)}, params=p,
                                     cache_dir=FP.BASIS_CACHE), a.workers)

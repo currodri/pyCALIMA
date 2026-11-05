@@ -13,14 +13,15 @@ zeta_H of ``Environment.zeta_cr``, zeta(H2) = 2 zeta_H) in the charge chain and 
    passages beyond (destruction rates [s^-1]; lifetimes 1 / rate).
 Primary cosmic rays only: no secondary electrons, no cosmic-ray-induced UV. Nothing is fitted.
 
-Result (2026-11-04; 4 cores, every charge's bases in the two cloud fields):
+Result (2026-11-05, with the pahchem audit's C1, M1 and m7; 4 cores, every charge's bases in the two cloud fields):
 1. zeta(H2) of the shapes: L 7.8e-17, 3.0e-17, 1.7e-17 and H 1.4e-15, 6.0e-16, 2.3e-16 s^-1 through 1e20, 1e21, 1e22 cm^-2.
-2. Per unit zeta_H, L through 1e21: ionising passages 172 (C24), 395 (C54), 713 (C96), 1121 (C150), 1624 (C216) for Z = 0
-   (+1: 8-9 % fewer), <dz> 1.12-1.14, heat 1.8-15.7 keV; beyond 0.19-2.6. H gives 0.55-0.64x the ionisations,
-   0.70-0.77x the heat and 2-5x the beyond; within a model the columns move them +-15-20 %.
-3. Dark and translucent clouds, the L/H blend: <Z> moves <= 0.003, f(N_H0) not at all; the IR +0.1-0.2 % at zeta_H = 1e-16
-   in the dark (G0 1e-3), none at G0 = 1. Destruction (explosions for C24, C54; beyond for N_C >= 96): lifetimes
-   1.1-2.8e9 yr at zeta_H 1e-17 (L scaled), 0.64-1.6e8 yr at 1e-16 (w ~ 0.3), 0.61-1.5e7 yr at 1e-15 (H scaled).
+2. Per unit zeta_H, L through 1e21: ionising passages 171 (C24), 394 (C54), 711 (C96), 1118 (C150), 1621 (C216) for Z = 0
+   (+1: 7-23 % fewer), <dz> 1.09-1.13, heat 1.8-16.2 keV; beyond 0.10-1.1. H gives 0.59-0.64x the ionisations,
+   0.79-0.81x the heat and 2.1-2.3x the beyond; within a model the columns move them +-15-20 %.
+3. Dark and translucent clouds, the L/H blend: <Z> moves <= 0.002, f(N_H0) not at all; the IR +0.15-0.25 % at
+   zeta_H = 1e-16 in the dark (G0 1e-3), none at G0 = 1. Destruction (explosions for C24; beyond for N_C >= 54): lifetimes
+   2.8-11e9 yr at zeta_H 1e-17 (L scaled), 1.4-5.3e8 yr at 1e-16 (w ~ 0.3), 1.3-5.0e7 yr at 1e-15 (H scaled); 2-5x the
+   pre-audit 1.1-2.8e9, 0.64-1.6e8, 0.61-1.5e7 yr, whose explosions drew every collision at the starting IP.
 
     check_cosmic_rays.py [--workers 4] [--skip-shapes]
 """

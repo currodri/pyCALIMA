@@ -472,7 +472,7 @@ def test_bare_skeletons_cool_as_calibrated_and_are_destroyed_only_where_stripped
     d = {g: pop.destruction_rates(Environment("pdr", g, 1e4, 1.0, 500.0, 40000)) for g in (1e3, 1e5)}
     p0 = {g: [float(c[0]) for c in pop._chain_distributions(Environment("pdr", g, 1e4, 1.0, 500.0, 40000))] for g in d}
     bare = lambda r, s: sum(r[c[0]][s] for c in population.bare_channels(pop.library[s], pop.p))   # noqa: E731
-    assert p0[1e3][1] == 0.0 and bare(d[1e3], 1) == 0.0
+    assert p0[1e3][1] < 1e-30 and bare(d[1e3], 1) < 1e-30            # the exact chain's tail (lstsq rounded it to 0)
     assert p0[1e5][0] > 0.5 and 0.0 < bare(d[1e3], 0) < bare(d[1e5], 0)
     for r in d.values():
         parts = [v for c, v in r.items() if c not in ("events", "carbon")]
@@ -527,6 +527,9 @@ def test_hot_gas_electrons_ionise_and_strip_only_where_the_gas_is_hot():
     assert np.all(dlh >= on._deposit_losses(hot(1e6, ()), f=on.charge_matrix(hot(1e6)))[0] - 1e-30)
     kn, b, pw, ko = population.hot_ion_passages(on.library[0], 0, 1e6, "He+")
     assert kn[1:].sum() == 0.0 and pw > 0.0 and set(ko) == {"C", "H"}
+    # the collisional cooling (pahchem audit M2): what the passages take from the gas, none without hot gas
+    x = np.ones(1)
+    assert on.gas_rates(hot(1e6), x)["lambda_coll"] > 0.0 and off.gas_rates(hot(1e6), x)["lambda_coll"] == 0.0
 
 
 def test_hot_gas_bounds_the_capture_of_fast_electrons_and_lets_ions_ionise_cations():
@@ -552,6 +555,95 @@ def test_hot_gas_bounds_the_capture_of_fast_electrons_and_lets_ions_ionise_catio
             assert population.ion_up_rate(mol, z, hot(ion), Params()) == 0.0
 
 
+def test_ions_take_electrons_from_cations_at_the_c60_capture_and_leave_the_exothermicity_as_heat():
+    """``chemistry.capture_efficiency``: the Rapp-Francis fit to Moretto-Capelle+04's H+, H2+ and H3+ + C60 capture holds
+    their figure (to the reading's ~20 %) where it is fitted, and falls with speed; ``capture_efficiency_mean`` lies
+    between its values at the ends of the energies averaged. ``Population._ion_heat`` (``Params.hot_gas``): each
+    exothermic transfer onto a cation leaves IP(X) - IP(PAH^z) in the product, split between two heat nodes keeping its
+    mean; none without hot gas."""
+    from pycalima._paths import get_external_data_path
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.baseline import Params
+
+    with open(get_external_data_path("pahchem", "moretto2004_fig2_capture.csv")) as f:
+        rows = [line.strip().split(",") for line in f if not line.startswith("#")][1:]
+    e, sig = (np.array([float(r[i]) for r in rows]) for i in (1, 2))
+    fit = e <= chemistry.CAPTURE_FIT_MAX_KEV_AMU
+    ratio = chemistry.capture_efficiency(e[fit]) * chemistry.C60_GEOMETRIC_CM2 / (sig[fit] * 1e-16)
+    assert np.all(np.abs(np.log(ratio)) < np.log(1.25))
+    assert np.all(np.diff(chemistry.capture_efficiency(np.geomspace(1e-4, 50.0, 30))) < 0.0)
+    for T in (1e5, 1e6, 1e7):
+        eps = chemistry.capture_efficiency_mean(54, 18, 3, "He+", T)
+        kt_amu = chemistry.KB_EV * T / (chemistry._reduced_mass_g("He+", 54, 18) / chemistry.AMU_G) * 1e-3
+        assert chemistry.capture_efficiency(50.0 * kt_amu) < eps < chemistry.capture_efficiency(1e-4 * kt_amu)
+    with pytest.raises(ValueError):
+        chemistry.ion_cation_transfer(54, 18, 0, "H+", 1e6)
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    env = Environment("hot", 1.0, 1e-4, 1.0, 1e6, None, optical_isrf=0.0, ions=(("H+", 1.0), ("He+", 0.1)))
+    pop = population.Population([mol], WINDOWS, params=Params(hot_gas=True))
+    heat = pop._ion_heat(env)
+    assert heat and population.Population([mol], WINDOWS)._ion_heat(env) == {}
+    mol = pop.library[0]                                            # its cold-limit ladder
+    for z in mol.charges:
+        rows = heat.get((0, z - pop.zmin), [])
+        k, de = [], []
+        for ion, n in env.ions:
+            d = chemistry.IONS[ion][1] - population.state_threshold(mol, z)
+            if z >= 1 and d > 0.0:
+                k.append(n * chemistry.ion_cation_transfer(mol.nc, mol.nh, z, ion, 1e6))
+                de.append(d)
+        assert bool(rows) == bool(k)
+        if k:
+            nodes = np.array([population.HEAT_NODES_EV[j] for j, _ in rows])
+            rates = np.array([r for _, r in rows])
+            assert rates @ nodes == pytest.approx(np.dot(k, de), rel=1e-12)
+            assert rates.sum() <= sum(k) * (1.0 + 1e-12)
+
+
+def test_a_capture_deposits_the_threshold_and_the_electron_s_kinetic_energy():
+    """``_deposit_flows``' "rec" flows (pahchem audit M2): a capture into z deposits IP(z) plus the captured electron's mean
+    kinetic energy (``_capture_energy``), split between the two REC_KE_NODES_EV about it keeping its mean, at the capture
+    rate f(z+1) alpha(z+1) n_e; the energy the bases emit (the IP alone, at k_up) is replaced once, on node 0."""
+    mol = next(m for m in _library() if m.nc <= 24)
+    pop = population.Population([mol], WINDOWS)
+    env = Environment("t", 2e4, 5e4, 30.0, 1e4, 40000)
+    f = pop.charge_matrix(env)
+    cap = pop._capture_rates(env.temperature_k) * env.n_e
+    ke = pop._capture_energy(env.temperature_k)
+    acc = {}
+    for _, z, which, idx, rate, baked in pop._deposit_flows(env, f):
+        if which == "rec":
+            a = acc.setdefault(z, [0.0, 0.0, 0.0])
+            a[0] += rate
+            a[1] += rate * population.REC_KE_NODES_EV[idx]
+            a[2] += baked
+    assert acc
+    for z, (rate, energy, baked) in acc.items():
+        i = z - pop.zmin
+        assert rate == pytest.approx(f[0, i + 1] * cap[0, i + 1], rel=1e-12)
+        assert energy == pytest.approx(rate * ke[0, i + 1], rel=1e-12) and 0.5 < ke[0, i + 1] < 4.0
+        assert baked > 0.0
+        inp = population._response_inputs(pop.library[0], z, pop.de_cm, pop.e_max_cm, pop.p, "rec")
+        np.testing.assert_allclose(inp[-1], population.state_threshold(pop.library[0], z) + population.REC_KE_NODES_EV)
+
+
+def test_past_a_barrier_limited_top_a_molecule_emits_a_proton_rather_than_exploding():
+    """``Population._routed`` (pahchem audit A2): with ``Params.fission``, a molecule whose top is the proton-emission
+    barrier limit, below floor(0.2 N_C) (N_C >~ 115), returns to the top with an H less from a step past it; a small one,
+    whose top is the cold limit, explodes; without fission every one does."""
+    from pycalima.pahchem import impact
+    from pycalima.pahchem.baseline import Params
+
+    lib = _library()
+    small, big = next(m for m in lib if m.nc <= 24), next(m for m in lib if m.nc >= 130)
+    pop = population.Population([small, big], WINDOWS)
+    for m in pop.library:
+        assert max(m.charges) == impact.coulomb_limit(m.nc)
+    assert pop._routed().tolist() == [False, True]
+    assert not population.Population([small, big], WINDOWS, params=Params(fission=False))._routed().any()
+
+
 def test_the_cosmic_ray_induced_field_charges_pahs_more_as_zeta_rises():
     """A dark cloud lit only by the cosmic-ray-induced UV (``cr_uv.environment``, the "cr_uv" field shape): the charge
     chain runs on it, and <Z> rises with zeta_H (more photodetachment and photoionisation against the same captures)."""
@@ -561,7 +653,7 @@ def test_the_cosmic_ray_induced_field_charges_pahs_more_as_zeta_rises():
     mol = next(m for m in _library() if m.nc <= 24)
     pop = population.Population([mol], WINDOWS, params=Params(fission=False))
     zs = np.array(pop.zs, dtype=float)
-    z = [pop.charge_matrix(cr_uv.environment("dark", zeta, 1e-7, 1.0, 1e-3, 10.0))[0] @ zs for zeta in (1e-17, 1e-15)]
+    z = [pop.charge_matrix(cr_uv.environment("dark", zeta, 1.0, 1e-3, 10.0))[0] @ zs for zeta in (1e-17, 1e-15)]
     assert z[1] > z[0]
 
 
@@ -717,10 +809,11 @@ def test_kshell_auger_raises_the_charge_in_x_rays_and_conserves_electrons():
     assert r["gamma_pe"] > single.gas_rates(xray, x)["gamma_pe"]          # the ~250 eV Auger electrons heat
 
 
-def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alone():
+def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alone(monkeypatch):
     """X-rays only: no photon deposits (the loss tables are 0 and stay 0), so captures and Auger decays are the H loss,
     and dissociative recombination lowers f(N_H0). A plain chain (no C 1s, no ions, no ionisation heating) keeps its
-    band fluxes: the captures run at the rate the bases emit them at."""
+    band fluxes but for the captured electrons' kinetic energy (pahchem audit M2), ~kT on an IP of ~6 eV: without it the
+    captures run at the rate and energy the bases emit them at."""
     from dataclasses import replace
 
     from pycalima.pahchem.baseline import Params
@@ -737,12 +830,18 @@ def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alo
     F = chain.band_fluxes(pdr)[0]
     W = chain.emission_weights(pdr)
     plain = pdr.g0 * np.einsum("szk,szkb->sb", W, chain._hydrogenation_bands(population.field_shape(pdr)))
-    assert np.allclose(F, plain, rtol=1e-9)
+    assert np.all(F >= plain) and np.allclose(F, plain, rtol=2e-2)
+    monkeypatch.setattr(population.Population, "_capture_energy", lambda self, t: np.zeros((1, len(self.zs))))
+    chain = population.Population([mol], WINDOWS, params=Params(ionisation_heating=False, fission=False))
+    plain = pdr.g0 * np.einsum("szk,szkb->sb", chain.emission_weights(pdr),
+                               chain._hydrogenation_bands(population.field_shape(pdr)))
+    assert np.allclose(chain.band_fluxes(pdr)[0], plain, rtol=1e-9)
 
 
-def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains():
+def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains(monkeypatch):
     """The spectrum of the deposits integrates to their flows times the IR per deposit; a plain chain (no C 1s, no
-    ions, no ionisation heating) builds no deposit rows. The fits' shaped path (band_shape) carries the same power."""
+    ions, no ionisation heating) carries only its captured electrons' kinetic energy (pahchem audit M2), and without it
+    nothing. The fits' shaped path (band_shape) carries the same power."""
     from pycalima.pahchem import spectral_fit
     from pycalima.pahchem.baseline import Params
 
@@ -751,8 +850,12 @@ def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains():
     nu = np.linspace(200.0, 4000.0, 3801)
     pdr = Environment("pdr", 1e3, 1e4, 1.0, 500.0, 40000)
     plain = Params(ionisation_heating=False, fission=False)       # protons carry part of the down flux, the bases assume none
-    assert not population.Population([mol], WINDOWS, params=plain).deposit_spectra(pdr, nu).any()
-    assert pop.deposit_spectra(pdr, nu).any()                              # the photoionisation products
+    ke = population.Population([mol], WINDOWS, params=plain).deposit_spectra(pdr, nu)
+    full = pop.deposit_spectra(pdr, nu)                                     # the photoionisation products
+    assert ke.sum() > 0.0 and full.sum() > ke.sum()
+    with monkeypatch.context() as m:
+        m.setattr(population.Population, "_capture_energy", lambda self, t: np.zeros((1, len(self.zs))))
+        assert not population.Population([mol], WINDOWS, params=plain).deposit_spectra(pdr, nu).any()
     xray = Environment("xdr", 1e4, 1e4, 1e-2, 1e3, None, field_e_min_ev=300.0, field_e_max_ev=1e4, field_powerlaw=1.0)
     h = pop.emission_weights(xray).sum(axis=1)
     expect = 0.0
@@ -1191,16 +1294,25 @@ def test_dehydrogenated_emission_lowers_the_ch_bands_and_leaves_intact_molecules
     assert np.allclose(pop.spectra(env, nu)[1], old.spectra(env, nu)[1], rtol=1e-6, atol=0.0)
 
 
-def test_chain_kernel_matches_the_numpy_solve():
+def test_chain_kernel_balances_every_cut_and_matches_the_least_squares():
+    """The exact chain (log recursion, pahchem audit m2) passes no net flux across any cut, to round-off; its numba copy
+    is the same; the least squares agrees on the entries it resolves. With the per-molecule and per-H terms too."""
     rng = np.random.default_rng(5)
     for nh0 in (2, 5, 12, 30):
-        for _ in range(5):
+        for i in range(5):
             lh, lh2 = 10 ** rng.uniform(-8, -2, 4), 10 ** rng.uniform(-9, -3, 4)
             k_add = 10 ** rng.uniform(-7, -2)
-            fast = population._chain_distribution(nh0, nh0 // 3, lh, lh2, k_add)
-            slow = population._chain_distribution_numpy(nh0, nh0 // 3, lh, lh2, k_add)
+            extra = (10 ** rng.uniform(-8, -4), 10 ** rng.uniform(-9, -5)) if i % 2 else (0.0, 0.0)
+            fast = population._chain_distribution(nh0, nh0 // 3, lh, lh2, k_add, *extra)
+            exact = population._chain_exact(*population._chain_rates(nh0, nh0 // 3, lh, lh2, *extra), k_add)
+            slow = population._chain_distribution_numpy(nh0, nh0 // 3, lh, lh2, k_add, *extra)
             assert fast.sum() == pytest.approx(1.0) and np.all(fast >= 0)
-            assert fast == pytest.approx(slow, abs=1e-12)
+            np.testing.assert_allclose(fast, exact, rtol=1e-12, atol=0.0)
+            kH, kH2 = population._chain_rates(nh0, nh0 // 3, lh, lh2, *extra)
+            for m in range(nh0):
+                down = fast[m + 1] * (kH[m + 1] + kH2[m + 1]) + (fast[m + 2] * kH2[m + 2] if m + 2 <= nh0 else 0.0)
+                assert fast[m] * k_add == pytest.approx(down, rel=1e-10)
+            assert fast == pytest.approx(slow, abs=1e-8)
 
 
 def _ladder_molecules():
@@ -1332,11 +1444,15 @@ def test_multiphoton_loss_ceiling_rises_until_converged():
     cm, E, counts, beta = population._loss_grid(freqs, a_ein, population.LOSS_E_MAX_EV)
     k = population._h_loss_rate(freqs, E, counts, np.rint(cm.energy_cm / (E[1] - E[0])).astype(int), nh, p.h_even,
                                 p.h_odd, beta)
-    assert not population._loss_converged(cm.steady_state(e_dep, population.K_H_G0_GRID[-1] * h, {"H": k}))
+    assert not population._loss_converged(cm.steady_state(e_dep, population.K_H_G0_GRID[-1] * h, {"H": k}),
+                                          population.LOSS_E_MAX_EV)
     kh, *_ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep)
     kh_cap, *_ = population._loss_tables(freqs, a_ein, nh, h2_ok, h, p.h_even, p.h_odd, p.h2, e_dep=e_dep,
                                         e_max_ev=population.LOSS_E_CAP_EV)
     assert kh == pytest.approx(kh_cap, rel=0.02)
+    with pytest.raises(ValueError, match="not converged"):              # unconverged at the cap: an error (audit m5)
+        population._loss_converged(cm.steady_state(e_dep, population.K_H_G0_GRID[-1] * h, {"H": k}),
+                                   population.LOSS_E_CAP_EV)
 
 
 def test_anion_valence_threshold_is_one_coulomb_step_down_the_ladder():

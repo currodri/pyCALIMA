@@ -2,7 +2,11 @@
 
 Cosmic rays and their secondary electrons excite H2. Its Lyman-Werner decays and H's Lyman alpha then emit
 R(lambda) = zeta(H2) x(H2) P(lambda) photons per H nucleus (Heays, Bosman & van Dishoeck 2017, A&A 602, A105, eq. 16),
-with x(H2) = n(H2) / n_H and zeta(H2) the H2 ionisation rate, primary and secondary. The photons are absorbed close to
+with x(H2) = n(H2) / n_H and zeta(H2) the *primary* H2 ionisation rate: P(lambda) counts the photons per primary
+ionisation, its secondary electrons' excitations included (their Fig. 32). zeta(H2) = 2 zeta_H, zeta_H being RTZ's
+primary rate per H (``Environment.zeta_cr``). RTZ scales the Heays+17 rates by 2 zeta_H (1 + phi_s(x_e)) / 1e-16, the
+total rate, which counts the photons of the secondaries twice: 1.67x too many in neutral gas (pahchem audit A1, the
+user's choice of 2026-11-05: primary here; RTZ to be fixed in RAMSES). The photons are absorbed close to
 where they are made, mostly by dust, so a molecule sees the 4 pi photon flux F = R / sigma_abs, sigma_abs being the
 absorption cross section per H nucleus (their eqs. 17-18 with the dust alone).
 
@@ -37,7 +41,7 @@ from pycalima import _paths
 from pycalima.pahchem import fields
 
 HC_EV_NM = 1239.841984
-#: zeta(H2) [s^-1] of RTZ's normalisation: its CR-induced rates are Heays+17's at this zeta, scaled by zeta(H2) / 1e-16
+#: the primary zeta(H2) [s^-1] at which Heays+17 give their rates (and RTZ takes them)
 ZETA_REF = 1.0e-16
 #: x(H2) = n(H2) / n_H of Heays+17's dark cloud (x(H) = 1e-4), the default
 X_H2_REF = 0.5
@@ -59,21 +63,9 @@ def heays17():
 SOURCES = {"heays17": heays17}
 
 
-def secondary_factor(x_e):
-    """1 + phi_s(x_e): RTZ's secondary ionisation, phi_s = (1 - x_e / 1.2) 0.67 / (1 + x_e / 0.05)
-    (rtz/cosmic_ray_ionization_module.f90, secondary_cr_rates), x_e = n_e / n_H."""
-    x = np.asarray(x_e, dtype=float)
-    return 1.0 + (1.0 - x / 1.2) * 0.670 / (1.0 + x / 0.05)
-
-
-def zeta_h2(zeta_h, x_e):
-    """zeta(H2) [s^-1] as RTZ has it: 2 zeta_H (1 + phi_s(x_e)), zeta_H the primary rate per H (``Environment.zeta_cr``)."""
-    return 2.0 * float(zeta_h) * float(secondary_factor(x_e))
-
-
-def scale(zeta_h, x_e):
-    """zeta(H2) / ZETA_REF, RTZ's cosmic_ray_scale_factor: the g0 of an Environment with the "cr_uv" field shape."""
-    return zeta_h2(zeta_h, x_e) / ZETA_REF
+def scale(zeta_h):
+    """The primary zeta(H2) / ZETA_REF = 2 zeta_H / 1e-16: the g0 of an Environment with the "cr_uv" field shape."""
+    return 2.0 * float(zeta_h) / ZETA_REF
 
 
 @lru_cache(maxsize=None)
@@ -130,12 +122,12 @@ def field(zeta_h2_s: float, x_h2: float = X_H2_REF, source: str = "heays17", ene
     return fields.RadiationField(E, np.maximum(F, 0.0), f"cr_uv:{source}")
 
 
-def environment(name, zeta_h, x_e, n_h, n_e, temperature_k, x_h2=X_H2_REF, source="heays17", **kw):
+def environment(name, zeta_h, n_h, n_e, temperature_k, x_h2=X_H2_REF, source="heays17", **kw):
     """A ``baseline.Environment`` lit only by the cosmic-ray-induced field of ``source`` at the primary rate ``zeta_h``
-    [s^-1 per H] and x_e = n_e / n_H (RTZ's secondaries): g0 = ``scale(zeta_h, x_e)``, field shape "cr_uv". ``n_h`` is the
-    atomic H density (re-hydrogenation), as everywhere in ``baseline.Environment``. The direct passages need
-    ``zeta_cr`` (and ``Params.cosmic_rays``) besides, through ``kw``."""
+    [s^-1 per H]: g0 = ``scale(zeta_h)``, field shape "cr_uv". ``n_h`` is the atomic H density (re-hydrogenation), as
+    everywhere in ``baseline.Environment``. The direct passages need ``zeta_cr`` (and ``Params.cosmic_rays``) besides,
+    through ``kw``."""
     from pycalima.pahchem.baseline import Environment
 
-    return Environment(name, scale(zeta_h, x_e), n_h, n_e, temperature_k, None, optical_isrf=0.0, field_cr_uv=source,
+    return Environment(name, scale(zeta_h), n_h, n_e, temperature_k, None, optical_isrf=0.0, field_cr_uv=source,
                        cr_uv_x_h2=x_h2, **kw)

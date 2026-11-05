@@ -543,7 +543,8 @@ higher charges, as before). In the population every molecule runs from its lowes
 
 - *What RTZ takes.* RTZ takes one input, the primary ionisation rate per H, `rtz_primary_cosmic_ray_ionization_rate`
   (ζ_H). Its total is ζ_H (1 + φ_s(x_e)), with φ_s the secondaries (0.67 in neutral gas), and ζ(H₂) = 2 ζ_H
-  (`rtz/rtz_cooling_module.f90`). The CR-induced UV rates of the metals scale as ζ(H₂)/10⁻¹⁶.
+  (`rtz/rtz_cooling_module.f90`). The CR-induced UV rates of the metals scale as 2 ζ_H (1 + φ_s)/10⁻¹⁶ there, which
+  counts the secondaries twice (below, *The CR-induced UV*).
 - *The standard spectrum* (`cosmic_rays.standard_spectra`): Padovani+18 protons with the PDG nuclei and primary
   electrons, attenuated (CSDA) through N(H₂) and scaled so that its primary ζ(H₂) is 2 ζ_H. The H₂ cross sections are
   Padovani+09's, as CRISpy has them (Rudd+85 protons, Rudd 1991 electrons; nuclei the proton's at equal speed ×
@@ -561,35 +562,51 @@ higher charges, as before). In the population every molecule runs from its lowes
 - *In the population* (`Params.cosmic_rays`, `Environment.zeta_cr`; `population.cr_passages`):
   - **Passages.** Each state's passages per unit ζ_H come from `impact.passage_spectrum`: Poisson collisions per
     passage, distant ionisations leaving the photons' mean hole (`impact.deposition`, partition "measured", the
-    default since 2026-11-04 instead of "uniform"; the C 1s escape tables use it too).
+    default since 2026-11-04 instead of "uniform"; the C 1s escape tables use it too; on an anion, its
+    photodetachment's hole, pahchem audit m7).
+    - **Each collision at the charge reached** (pahchem audit M1, 2026-11-05). The (n+1)-th collision of a passage, after
+      k ionisations, uses charge z + k's oscillator strengths, IP and yield (`population.impact_ladder`,
+      `impact._poisson_chain`: Poisson uniformisation over the states, rates relative to the largest cross section).
+      Every collision used the starting state's before, which overcounted multiple ionisation: the single-collision
+      σ_ion of C24 at +4 is 0.44 of the neutral's.
+    - **Close collisions below the IP excite** (audit C1). On an oscillator W < IP a close collision ionises only if its
+      recoil Q exceeds the IP: the share n(IP)/n(W) of the Møller number (`impact.close_ionising`). The rest leave
+      their mean Q at dz = 0, without Kim's ionisation scaling. Every close collision ionised before; for an electron
+      of T < 2 IP none can, and on C54H18 at +10 that was 44–94 % of the counted ionisations at 30 eV–1 keV.
   - **Charge.** Their +1 … +15 steps join the charge chain.
   - **Heat.** Their E* goes on `HEAT_NODES_EV`, a "heat" response per product, dz = 0 included, so it adds to the IR
     and the H loss.
-  - **Not followed.** Steps past the cold limit are Coulomb explosions (`chain_overflow`). Passages beyond 320 eV or
-    15 charges are not followed (`cr_beyond`): an upper bound on destruction until the carbon loss is in.
+  - **Not followed.** Steps past the cold limit are Coulomb explosions (`chain_overflow`), or proton emissions past a
+    barrier-limited top (§2.2e). Passages beyond 320 eV or 15 charges are not followed (`cr_beyond`): an upper bound on
+    destruction until the carbon loss is in.
   - **Live states.** Every charge is live (more bases).
   - **G0 below 1.** The k_H tables continue their first log-log slope below G0 = 1, for shielded gas.
 - *Per unit ζ_H* (`check_cosmic_rays.py`, C24–C216):
-  - **Ionising passages.** Neutral C54H18 gets 395 s⁻¹ per s⁻¹ with L through 10²¹ cm⁻², ⟨dz⟩ 1.13, 3.9 keV of
-    heat; C24 172, C216 1624. Model H gives 0.55–0.64× the ionisations and 0.70–0.77× the heat, but 2–5× more
-    passages beyond.
+  - **Ionising passages** (2026-11-05, after the audit's fixes). Neutral C54H18 gets 394 s⁻¹ per s⁻¹ with L through
+    10²¹ cm⁻², ⟨dz⟩ 1.10, 4.1 keV of heat; C24 171, C216 1621. Model H gives 0.59–0.64× the ionisations and 0.79–0.81×
+    the heat, but 2.1–2.3× more passages beyond. Single ionisations barely move: M1 and C1 act on the multiple ones.
   - **Column dependence.** Within one model, the rates change by ±15–20 % from 10²⁰ to 10²² cm⁻².
   - **Shape.** For PAH rates per ζ the shape matters at a factor ~1.7. H's ζ is carried by sub-MeV protons, which
     ionise H₂ well but PAHs less: their low-speed stopping is below Bethe.
 - *In clouds* (dark: Draine G0 10⁻³, n_H 10⁴, n_e 10⁻⁴, T 10 K; translucent: G0 1, n_H 10³, n_e 0.1, T 50 K):
-  - **Charge, hydrogenation, IR.** Direct passages change ⟨Z⟩ by ≤ 0.003 and f(N_H0) not at all. Their heat adds
-    0.2–0.3 % of the IR at ζ_H = 10⁻¹⁶ in the dark cloud (2–3 % at 10⁻¹⁵) and nothing at G0 = 1. Attachment
+  - **Charge, hydrogenation, IR.** Direct passages change ⟨Z⟩ by ≤ 0.002 and f(N_H0) not at all. Their heat adds
+    0.15–0.25 % of the IR at ζ_H = 10⁻¹⁶ in the dark cloud (1.4–2.4 % at 10⁻¹⁵) and nothing at G0 = 1. Attachment
     (~10⁻⁹ s⁻¹) beats CR ionisation (~4×10⁻¹⁴) by orders of magnitude.
-  - **Destruction** (the blend). Lifetimes are 1.1–2.8×10⁹ yr at ζ_H = 10⁻¹⁷ (L alone, scaled),
-    0.64–1.6×10⁸ yr at 10⁻¹⁶ (w ≈ 0.3) and 0.61–1.5×10⁷ yr at 10⁻¹⁵ (H scaled). Coulomb explosions dominate for C24
-    and C54, passages beyond 320 eV for N_C ≥ 96, and H's low-energy nuclei shorten them. This is Micelotta+11's
-    order.
+  - **Destruction** (the blend). Lifetimes are 2.8–11×10⁹ yr at ζ_H = 10⁻¹⁷ (L alone, scaled),
+    1.4–5.3×10⁸ yr at 10⁻¹⁶ (w ≈ 0.3) and 1.3–5.0×10⁷ yr at 10⁻¹⁵ (H scaled). Coulomb explosions dominate for C24,
+    passages beyond 320 eV for N_C ≥ 54, and H's low-energy nuclei shorten them. This is Micelotta+11's order.
+    - These are 2–5× the lifetimes before the audit's fixes (1.1–2.8×10⁹, 0.64–1.6×10⁸, 0.61–1.5×10⁷ yr), whose
+      explosions came from every collision at the starting IP (M1, as the audit bounded).
 - *The CR-induced UV* (2026-11-04; `pahchem.cr_uv`, `check_cr_uv.py`):
   - **Physics.** Cosmic rays and their secondaries excite H₂. Its Lyman–Werner decays and H's Lyman α emit
     R(λ) = ζ(H₂) x(H₂) P(λ) photons per H (Heays+17 eq. 16). They are absorbed close to where they are made, so a PAH
     sees F = R/σ_abs.
     - The dust is Draine's (2003) R_V = 3.1 grains, the dust of Heays+17 and of CRISpy.
-    - ζ(H₂) is RTZ's 2 ζ_H (1 + φ_s(x_e)), φ_s = (1 − x_e/1.2) 0.67/(1 + x_e/0.05).
+    - ζ(H₂) is the primary rate 2 ζ_H (pahchem audit A1, 2026-11-05). Heays+17's P(λ) counts the photons per primary
+      ionisation, with the secondaries' excitation inside it: their eq. 16 takes "a primary ionisation rate", and Fig. 32
+      is "per primary cosmic-ray ionisation event". Until 2026-11-05 pahchem took RTZ's 2 ζ_H (1 + φ_s(x_e)), which
+      counts the secondaries twice: 1.67× too many photons in neutral gas. RTZ's own comment says it "assumes 10⁻¹⁶ s⁻¹
+      H₂⁻¹ for the primary", so its metals' rates carry the same factor; that is to be fixed in RAMSES.
   - **Source.** RAMSES-RTZ applies Heays+17's CR-induced rates for metals at ζ(H₂) = 10⁻¹⁶, scaled linearly, so pahchem
     takes the same P(λ) (the user's choice):
     - It is Gredel+89's spectrum, 0.36 photons per ionisation in all. It is not distributed as a file.
@@ -599,7 +616,7 @@ higher charges, as before). In the population every molecule runs from its lowes
       more entry, and its field replaces this one through `Environment.field_cr_uv`.
   - **In the population** (opt-in; the PDR paths are untouched):
     - `cr_uv.environment` builds a cell lit by this field only, with field shape ("cr_uv", source, x(H₂), signature).
-    - Its g0 is RTZ's scale factor ζ(H₂)/10⁻¹⁶; the signature, a hash of the data, keys the cached bases.
+    - Its g0 is 2 ζ_H/10⁻¹⁶ (`cr_uv.scale`); the signature, a hash of the data, keys the cached bases.
     - Each node of E_PH holds the photons of its cell, so every photon is counted once.
     - Mixing with an external field waits for the CRISpy coupling.
   - **Intensity.** At ζ(H₂) = 10⁻¹⁶ and x(H₂) = 0.5: 2.2×10⁴ photons cm⁻² s⁻¹ at 1–13.6 eV, a Habing G0 of 1.8×10⁻⁴.
@@ -610,9 +627,9 @@ higher charges, as before). In the population every molecule runs from its lowes
     - Hensley & Draine (2023) dust, tried first, absorbs 1.2–1.4× less at 100–150 nm and gave Si and Mg 1.4–1.6×.
   - **PAHs in a dark cloud** (n_H = 10⁴, n(H) = 1, x_e = 10⁻⁷, 10 K):
     - With almost no field every PAH is an anion.
-    - The induced field detaches C24H12's: ⟨Z⟩ −0.69, −0.18 and −0.02 at ζ_H = 10⁻¹⁷, 10⁻¹⁶ and 10⁻¹⁵. C54H18 and
-      C96H24 stay anions (−0.84 to −1.00).
-    - They absorb ~3×10⁻¹³ eV s⁻¹ per C at 10⁻¹⁷, ×10 per decade.
+    - The induced field detaches C24H12's: ⟨Z⟩ −0.79, −0.27 and −0.04 at ζ_H = 10⁻¹⁷, 10⁻¹⁶ and 10⁻¹⁵ (−0.69, −0.18
+      and −0.02 with RTZ's 1.67× before A1). C54H18 and C96H24 stay anions (−0.90 to −1.00).
+    - They absorb ~2×10⁻¹³ eV s⁻¹ per C at 10⁻¹⁷, ×10 per decade.
     - It does far more than the direct passages (⟨Z⟩ ≤ 0.003).
   - **Not followed:**
     - H₂'s absorption of its own lines to v'' = 0 (the photons re-pump H₂ and mostly re-emerge) and of the continuum
@@ -662,7 +679,15 @@ higher charges, as before). In the population every molecule runs from its lowes
     - Measured dication fission releases 1.5–3 eV, far below a point-charge estimate (Reitsma+13, Lee+22).
 - **The top of the ladder** (the user's choice, after a literature check): min(⌊0.2 N_C⌋, the highest q with B > 0,
   2.19 √N_C), so C150 has +26 (was +30) and C216 +32 (was +43). Both the thermodynamic and the barrier limits scale with
-  the radius. No astrophysical model prescribes either law:
+  the radius.
+  - **Past a barrier-limited top, a proton** (pahchem audit A2, the user's choice of 2026-11-05; `Population._routed`).
+    Where the barrier limits the top, below ⌊0.2 N_C⌋ (N_C ≳ 115), the next charge has no barrier and emits a proton
+    at once. A step past the top therefore returns the molecule to it with an H less, as the "Hp" channel does below
+    it, and is not a Coulomb explosion. The share p0 of the molecules that are bare skeletons has no H to emit and
+    explodes (`chain_overflow`, `destruction_rates["explosions"]`). The redirected steps enter the charge fixed point,
+    the protons the hydrogenation chain (one H per event) and `gas_rates["proton_source"]`. Before, every step past the
+    top was an explosion that took all N_C carbons.
+  - No astrophysical model prescribes either law:
   - PAH codes truncate (Murga+22: −2 … +8; Montillaud+13: 0, +1).
   - Grain physics (WDB06 §10.2.1, Hoang+15: Coulomb explosion or ion field emission) scales as a² ∝ N_C^(2/3), C216
     ~12–14. It puts coronene and C₆₀ at ~3, against coronene⁴⁺ and C₆₀¹²⁺ seen intact, so for molecules it is a lower
@@ -671,10 +696,13 @@ higher charges, as before). In the population every molecule runs from its lowes
   C54, +8 in C96, +12 in C216, and to 0.03–0.7 eV at the tops of C96–C216.
 - *Effects* (off → on):
   - **PDRs and EUV.** ⟨Z⟩ moves ≤ 0.01. Only highly charged molecules that are still intact are stripped: C96 at
-    ψ = 10⁵, f(N_H0) 0.967 → 0.463; C150 at 10⁶, 1.000 → 0.292. The small ones are bare there already.
+    ψ = 10⁵, f(N_H0) 0.949 → 0.060; C150 at 10⁶, 1.000 → 0.205. The small ones are bare there already.
+    - C96 sits at the edge of stripping there. The ~1 eV the captured electrons now bring at 10⁴ K (pahchem audit M2,
+      2026-11-05) takes it from 0.967 → 0.463 to 0.949 → 0.060: with their kinetic energy set to 0 the old values
+      return exactly.
   - **X-rays only, G0-equivalent 10⁴.** Hot C 1s products shed protons, with proton emission outrunning electron capture
-    by up to 40×. ⟨Z⟩ falls by 0.16 (C24), 0.91 (C54), 1.18 (C96), 0.99 (C150) and 0.74 (C216). f(N_H0) rises for
-    C54 and C96 (0.773 → 0.872, 0.820 → 0.865): lower charges deposit less on recombination.
+    by up to 40×. ⟨Z⟩ falls by 0.16 (C24), 0.88 (C54), 1.02 (C96), 0.87 (C150) and 0.65 (C216). f(N_H0) rises for
+    C54 and C96 (0.778 → 0.872, 0.828 → 0.867): lower charges deposit less on recombination.
   - **C₂H₂ loss.** Catacondensed C22H14 isomers lose C₂H₂ at ~5×10⁻⁸ s⁻¹ in X-ray gas (G0-equivalent 10⁴), from the
     C 1s products' heat: the loose transition state beats H loss at high energy, as for anthracene⁺. In PDRs it is
     10⁻¹²–10⁻¹⁰ s⁻¹ there, because those molecules are stripped and their fate is the bare skeleton's.
@@ -705,10 +733,14 @@ higher charges, as before). In the population every molecule runs from its lowes
   - **PDRs** (Kurucz 40 kK, n_H 10⁴, n_e 1). Bare C24 lasts 22 yr at G0 = 10³, 1.2 yr at 10⁴ and 11 days at 10⁵. C54,
     10 % bare at 10⁵, lasts 1.9×10³ yr. N_C ≥ 96 stays hydrogenated and survives. That is the critical size of Jochims+94:
     below ~30–40 C, PAHs dissociate in the far UV.
-  - **EUV.** C54 lasts 230, 10 and 0.07 yr at ψ = 10⁴, 10⁵, 10⁶. Stripped C96 folds into a cage in ~5 days at ψ = 10⁶.
+  - **EUV.** C54 lasts 220, 6.9 and 0.04 yr at ψ = 10⁴, 10⁵, 10⁶. Stripped C96 folds into a cage in ~3.5 days at
+    ψ = 10⁶. (230, 10, 0.07 yr and ~5 days before the captured electrons' kinetic energy was deposited, audit M2.)
   - **X-rays only.** The molecules stay hydrogenated, and Coulomb explosions from C 1s multi-ionisation dominate: at
-    G0-equivalent 10⁴, C24 1.2 yr, C54 20 yr, C96 7×10³ yr, C216 9×10⁵ yr.
-  - **Cosmic rays** (§2.2d): 0.6–1.6×10⁸ yr at ζ_H = 10⁻¹⁶.
+    G0-equivalent 10⁴, C24 1.3 yr, C54 41 yr, C96 1.2×10⁵ yr.
+    - Before the audit's C1 and M1 the outgoing electrons added more charges at high charge: 1.2 yr, 20 yr, 7×10³ yr.
+    - C150 and C216 emit protons past their barrier-limited tops (§2.2e, A2) and none is bare, so they do not explode:
+      > 10³⁰ yr (C216 9×10⁵ yr before).
+  - **Cosmic rays** (§2.2d): 1.4–5.3×10⁸ yr at ζ_H = 10⁻¹⁶.
 - *Not yet:*
   - (C₂H₂ loss in the deeply dehydrogenated states: not modelled, §2.2e);
   - the skeleton's IR in the spectra;
@@ -756,10 +788,14 @@ higher charges, as before). In the population every molecule runs from its lowes
 - *Thermal ions* (step 2, 2026-11-04; `Params.hot_gas`, the ions of `Environment.ions`):
   - **Electronic friction.** `impact.thermal_ion_passages` ports Micelotta+10b's slow-ion stopping (eqs 1–7). The disc
     holds a jellium of density 0.15 exp(−x²/2.7) a.u. at height x; its column is graphene's four valence electrons per C.
-    The friction is Puska & Nieminen's, γ = Γ₀ exp(−(r_s − 1.5)/R₂), and an ion loses v ∫γ ds along its path, linear in
-    the speed (v ≲ 1 a.u.).
-    - Micelotta print R₂ only (H 2.28, He 0.88, C 0.90). Γ₀ (0.33, 0.75, 1.68; O 1.62, 0.57) is `PAH_sputtering`'s and
-      has no source: Puska & Nieminen 1983 (PRB 27, 6121) is needed to check it. Other ions get no friction.
+    An ion loses v ∫γ ds along its path, linear in the speed (v ≲ 1 a.u.).
+    - The friction γ(r_s) is tabulated, for every ion (the user's choice, 2026-11-05). Micelotta's form
+      Γ₀ exp(−(r_s − 1.5)/R₂) prints R₂ only (H 2.28, He 0.88, C 0.90), and `PAH_sputtering`'s Γ₀ had no source.
+      Puska & Nieminen 1983 (PRB 27, 6121, Table I) confirm Γ₀ (H 0.310, He 0.755, C 1.692, O 1.631). Gerrits, Juaristi
+      & Meyer 2020 (PRB 102, 155130, Supplemental Tables S1–S3, S8, S9) reproduce them in LDA and give Z = 1–30 at
+      r_s = 1.5, 2, 2.5, 3.5 and 5 (`gerrits2020_friction_lda.csv`). `impact.friction_coefficient` interpolates ln η
+      linearly in r_s and continues the outer slopes: denser than r_s = 1.5 (the disc's core, 1.17) and beyond 5, where
+      it is negligible. Ions past Zn get no friction.
     - `impact.disc_chords` follows every chord at every angle and offset, so the mean deposit is exact (int γ dV, to
       8×10⁻⁴). Micelotta take the central chord at each angle, 4/π too long edge-on, with no spread.
   - **Elastic collisions below threshold are heat.** `impact.knock_on` gives the ZBL stopping of transfers below the
@@ -818,34 +854,72 @@ higher charges, as before). In the population every molecule runs from its lowes
     - Impact's stopping is 1.35–2.3× Joy's carbon at 30–50 eV, so the bound is an upper one there.
     - **The capture factor** (Z = 1) is 1 at 10⁴ K, 0.86–0.89 at 10⁵ K, 0.10–0.12 at 10⁶ K, 1.5–2.2×10⁻³ at 10⁷ K
       and 1.6–2.3×10⁻⁵ at 10⁸ K. The captured electrons' mean energy (`_capture_energy`) is that of the stopped ones.
-    - The RAMSES group tables (`group_tables`) are unchanged.
+    - The RAMSES group tables (`group_tables`) hold neither this bound nor the hot-gas collisions. They are valid to
+      `T_VALID_MAX_K` = 10⁵ K, written in each file's first line and returned by `solve` (pahchem audit m12).
   - **Ions take electrons from cations** (`chemistry.ion_cation_transfer`, `ion_up_rate`), where it is exothermic: the
-    atom's IP above the state's threshold, so H⁺ up to 13.6 eV and He⁺ up to 24.6 eV.
-    - The rate is 0.9 × 0.82 πa² v J̃(Z, +1): DS87's repulsion, the ion–neutral efficiency.
+    atom's IP above the state's threshold, so H⁺ up to 13.6 eV and He⁺ up to 24.6 eV. Out of the top state it is an
+    overflow, as a photoionisation is (pahchem audit m10).
+    - The rate is ε 0.82 πa² v J̃(Z, +1): DS87's repulsion with the image attraction.
+    - **The efficiency ε is anchored on H⁺ + C₆₀** (the user's choice, 2026-11-05). No atomic-ion capture on a PAH
+      cation has been measured. The nearest data are Moretto-Capelle, Rentenier, Bordenave-Montesquieu &
+      Bordenave-Montesquieu 2004 (Phys. Scr. T110, 325; cited as "Martin+04" before), Fig. 2: single capture by H⁺,
+      H₂⁺ and H₃⁺ on neutral C₆₀, alike at equal velocity, 6.7–130 keV/amu, read by eye from the figure
+      (`moretto2004_fig2_capture.csv`, ±0.15×10⁻¹⁶ cm²).
+      - `chemistry.capture_fit` fits Rapp & Francis's √σ = A − B ln E to the three projectiles up to 50 keV/amu, where
+        capture dominates their C₆₀⁺ production: A = 3.91, B = 0.61 (σ in 10⁻¹⁶ cm², E in keV/amu), within the reading's
+        ~20 % there.
+      - ε = σ/σ_geo, with their C₆₀ geometrical 35×10⁻¹⁶ cm²: 0.22–0.07 where measured, extrapolated below. The
+        extrapolation gives 0.44 at 1, 0.81 at 0.1 and 1.29 at 0.01 keV/amu, kT of H⁺ at ~10⁸, 10⁶ and 10⁵ K.
+      - `capture_efficiency_mean` averages it over the ions that reach the cation, at the speed of their relative
+        kinetic energy: the Maxwellian flux over DS87's reduced barrier θ, weight (E − θ) e^(−E/kT). For C54H18⁺ with
+        H⁺ that is 1.6 at 10⁴ K, 1.2 at 10⁵ K, 0.76 at 10⁶ K, 0.41 at 10⁷ K and 0.16 at 10⁸ K; heavier ions, slower at
+        the same T, get more (O⁺ 2.4 at 10⁴ K).
+      - The classical over-the-barrier capture radius of a conducting sphere (Zettergren+02), an upper bound that
+        allows no energy defect, is ~2.4 σ_geo for neutral C₆₀. The extrapolation reaches it near 10⁻⁴ keV/amu (kT at
+        ~10³ K for H⁺, ~10⁴ K for O⁺). It is not capped.
+      - Until 2026-11-05 ε was the ion–neutral 0.9 at every speed.
     - It is cut where the ion crosses faster than the Bohr speed and leaves still ionised (Draine & Salpeter 1979:
       arrivals above (M/m_e) I_H).
-    - Endothermic transfers wait for the measured keV ion + C60 capture (Martin+04, Phys. Scr. T110, 325; Hadjar+01)
-      and Zettergren+02's over-the-barrier model. A literature check found nothing verified, and the Massey suppression
-      would rest on Hasted's atomic a ≈ 7 Å.
+    - **The exothermicity is heat**: IP(X) − IP(PAH^z) stays in the product z + 1, on its two `HEAT_NODES_EV` about it
+      keeping the mean ("heat" responses; `Population._ion_heat`).
+    - Endothermic transfers are not followed. The Massey suppression would rest on Hasted's atomic a ≈ 7 Å, and
+      Rentenier+08's He²⁺ + C₆₀ capture is resonant, so it does not apply.
     - `gas_rates["alpha_ct_cations"]` reports the ions neutralised.
-  - **Result** (n_H = n_e = 1, Micelotta's ions):
-    - Above ~3×10⁵ K the PAHs charge up to their ladder tops: C54H18 +9–10, C96H24 +16–19, C216H36 +27–32 from 10⁶ K.
-      Without the bound ⟨Z⟩ was 0–2.
+  - **Collisional cooling** (pahchem audit M2, 2026-11-05): `gas_rates["lambda_coll"]` is what the thermal electrons'
+    and ions' passages take from the gas, the heat they leave in the molecule and the ionisation work of their charge
+    steps (IP(z) + … + IP(z+j−1) for +j). The audit, before the C1 fix, put it at 1.6–2.4× Λ_rec at 10⁵–3×10⁵ K and
+    77–112× at 10⁷ K (C54, C216); `gas_rates` returned Λ_rec alone before. It is not added for the stopped electrons, whose losses are
+    already in the passages. A capture's "rec" deposit now holds the captured electron's kinetic energy too, IP +
+    `_capture_energy` on `REC_KE_NODES_EV` (0–32 eV), in cold gas as well: Λ_rec took it from the gas while the
+    molecule received the IP alone, a leak of 10–25 % of the deposit at 10⁴ K.
+  - **Result** (2026-11-05, with the audit's fixes C1, M1, A2 and the ions' capture on C₆₀'s; n_H = n_e = 1,
+    Micelotta's ions):
+    - ⟨Z⟩ at 3.2×10⁵ / 10⁶ / 3.2×10⁶ K: C54H18 +2.7 / +8.0 / +9.8, C96H24 +3.1 / +10.6 / +18.2, C216H36 +4.1 /
+      +14.7 / +30.3. The tops (+10, +19, +32) are reached from ~3×10⁶ K. Without the bound ⟨Z⟩ was 0–2.
+    - Before the fixes (2026-11-04) they were at their tops from 10⁶ K (C216H36 +26.7 at 10⁶ K, C54H18 +3.8 at
+      3.2×10⁵ K). The audit, fixing C1 alone, predicted +14.8 and +2.96: C1 is most of the change.
     - The repo's WDB06 charging of graphite grains of the same radii (`dust_charge`: range transmission, secondary
-      electrons) also climbs to its cap, ion field emission's +4 and +8. Where neither is capped the two agree:
-      3.2×10⁵ K +3.8 vs +3.0 (C54) and +5.8 vs +6.9 (C216); 10⁵ K +0.2 vs +0.5 (C54).
-    - Coulomb explosions out of the top then destroy the PAHs in 0.005–0.02 yr at n_e = 1 from 10⁶ K, and 0.02–0.08 yr
-      at 3×10⁵ K.
-    - Against Micelotta+10b (`check_hot_gas_micelotta.py`), whose PAHs stay neutral, the carbon loss (a whole molecule
-      per explosion) is 5–850× their electrons + ions from 10⁶ K, and their lifetimes are 13–500× longer.
+      electrons) climbs to its cap, ion field emission's +4 and +8, from 10⁶ K. Where neither is capped C54H18 and its
+      grain agree, 3.2×10⁵ K +2.7 vs +3.0 and 10⁵ K +0.1 vs +0.5; C216H36 stays below its grain, +4.1 vs +6.9 and −0.4
+      vs +3.4.
+    - Destroyed as a PAH (1/events) in 0.006–0.025 yr at n_e = 1 from 10⁶ K, and 0.02–0.09 yr at 3×10⁵ K. Below the
+      tops that is stripping and the bare skeleton's carbon loss or folding; at the tops the bare skeletons explode.
+    - Against Micelotta+10b (`check_hot_gas_micelotta.py`), whose PAHs stay neutral: the carbon loss of N_C 50 is
+      0.86–1.4× their electrons + ions at 3×10⁵–10⁶ K and 3.5–12× above; that of N_C 100–200 is 0.3–1.3 % of theirs
+      at 3×10⁵–10⁶ K (the stripped skeletons fold, keeping the carbon) and 6–340× from 3×10⁶ K. Their carbon-loss
+      lifetimes are 10–400× pahchem's destruction lifetimes from 10⁶ K. Before the fixes the carbon loss was 5–850×
+      theirs from 10⁶ K.
     - The step-2 comparison above stands for the passages; its ⟨Z⟩ and lifetimes are superseded.
-    - The ladder top (`impact.coulomb_limit`, min(0.2 N_C, the proton-emission barrier)) now sets hot-gas lifetimes,
-      and that top is an extrapolation beyond N_C ~ 24.
+    - The ladder top (`impact.coulomb_limit`, min(0.2 N_C, the proton-emission barrier)) sets the hot-gas lifetimes
+      from ~3×10⁶ K, and that top is an extrapolation beyond N_C ~ 24. Past a barrier-limited top (C150, C216) a step
+      emits a proton (§2.2e, A2).
 - *Not yet:*
-  - `PAH_sputtering`'s per-bin tables through pahchem (step 4);
-  - endothermic ion charge transfer (papers above);
+  - `PAH_sputtering`'s per-bin tables through pahchem (step 4, deferred by the user);
+  - endothermic ion charge transfer;
   - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
-  - the friction's Γ₀ against Puska & Nieminen.
+  - impact's oscillator strengths (Li & Draine + Henke) against the photons' (Octopus), 0.72–0.93 below 13.6 eV (audit
+    m6, not approved);
+  - thermal ions' impact ionisation (keV protons at 10⁷–10⁸ K) and doubly charged ions (He²⁺).
 
 ### 2.3 Ion–PAH collisions (new)
 

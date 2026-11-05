@@ -196,6 +196,9 @@ class Collisions:
     #: factor on the ionising part of each oscillator's collisions (``deposition``): Kim's ionisation scaling
     #: over the excitation scaling that ``distant`` and ``close`` carry, for slow electrons; 1 otherwise
     ion_scale: np.ndarray | None = None
+    #: (Projectile, T [eV]) of ``collisions``, so ``deposition`` can tell the close collisions below the IP that
+    #: cannot ionise; None for hand-made collisions (every close collision then ionises)
+    kinematics: tuple | None = None
 
     @property
     def total(self) -> float:
@@ -252,7 +255,28 @@ def collisions(proj: Projectile, t_ev: float, df_dw, w, correction: float = 1.0,
     n, e = _close_number_and_loss(proj, t, beta2, q_max, w)
     with np.errstate(divide="ignore", invalid="ignore"):
         loss = np.where(n > 0, e / n, 0.0)
-    return Collisions(w, distant, pre * n, loss, ion_scale)
+    return Collisions(w, distant, pre * n, loss, ion_scale, (proj, t))
+
+
+def close_ionising(coll: Collisions, ip_ev: float):
+    """(share, q_exc) per oscillator W: the share of its close collisions whose recoil Q exceeds ``ip_ev`` and so frees
+    the electron, n(IP) / n(W) on W < IP (1 above; 0 where Q_max = T/2 or the nuclei's Q_max is below IP), and the mean
+    recoil of the others, int_W^IP Q dsigma / int_W^IP dsigma, which excites the molecule. Hand-made collisions without
+    ``kinematics``: share 1. Until 2026-11-05 every close collision ionised (pahchem audit C1: 22 % of the ionisations
+    of C54H18 2+ by 34 eV electrons were false, 94 % at +10)."""
+    w = coll.w
+    if coll.kinematics is None:
+        return np.ones_like(w), w
+    proj, t = coll.kinematics
+    beta2, _, q_max = (float(x) for x in kinematics(proj, t))
+    n_w, e_w = _close_number_and_loss(proj, t, beta2, q_max, w)
+    n_ip, e_ip = (float(x[0]) for x in _close_number_and_loss(proj, t, beta2, q_max, np.array([float(ip_ev)])))
+    below = (w < ip_ev) & (n_w > 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        share = np.where(below, np.minimum(n_ip, n_w) / np.where(n_w > 0.0, n_w, 1.0), 1.0)
+        dn = n_w - n_ip
+        q_exc = np.where(below & (dn > 0.0), (e_w - np.minimum(e_ip, e_w)) / np.where(dn > 0.0, dn, 1.0), w)
+    return share, q_exc
 
 
 # --- stopping: the Bethe limit and the measured polystyrene -----------------
@@ -403,7 +427,7 @@ def _trapezoid_weights(x):
 
 
 def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: float = 200.0,
-               de: float = 0.25, partition: str = "measured", reference_ev=None) -> Deposition:
+               de: float = 0.25, partition: str = "measured", reference_ev=None, hole=None) -> Deposition:
     """Map collisions on oscillators W to (charge change, internal energy E*).
 
     - **Distant collisions** have the outcome of a photon of energy W.
@@ -419,9 +443,13 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
         - ``"none"``: E* = 0, Montillaud+13's convention for photons;
         - ``"all"``: E* = W - IP.
 
-        The last three bracket the photoelectron spectrum, measured only on neutrals to 22 eV.
+        The last three bracket the photoelectron spectrum, measured only on neutrals to 22 eV. ``hole``, a callable of W,
+        replaces the partition: an anion's photodetachment hole (``population.impact_ladder``; pahchem audit m7, an anion
+        took the neutral's ~(1 - 0.46...0.58)(W - EA) until 2026-11-05).
       - Otherwise E* = W.
-    - **Close collisions** ionise. The hole is kept: E* = max(W, IP) - IP.
+    - **Close collisions** whose recoil Q exceeds IP ionise, and the hole is kept: E* = max(W, IP) - IP. On an oscillator
+      W < IP only the share n(IP) / n(W) does (``close_ionising``); the rest excite the molecule by their mean Q (dz = 0,
+      without Kim's ionisation scaling). Every close collision ionised until 2026-11-05 (pahchem audit C1).
     - **W above the carbon K edge**, either kind: Auger decay gives dz = +2 with
       E* = K_AUGER_EXCITATION_EV. (``ip2_ev`` is no longer used: it set the K hole's energy before 2026-11-03.)
 
@@ -439,22 +467,27 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
     y = np.where((w >= ip_ev) & ~k_shell, np.clip(y_all, 0.0, 1.0), 0.0)        # the round-off only
     s = np.ones_like(w) if coll.ion_scale is None else coll.ion_scale           # Kim ionisation scaling (C5)
     d, c, di = coll.distant * tw, coll.close * tw * s, coll.distant * tw * s
+    share, q_exc = close_ionising(coll, ip_ev)
 
     def hist(x, q):
         h, _ = np.histogram(x, bins=edges, weights=q)
         return h / de, float(q[x >= edges[-1]].sum())
 
     r0, o0 = hist(w, np.where(k_shell, 0.0, d * (1.0 - y)))
-    r1, o1 = hist(np.maximum(w, ip_ev) - ip_ev, np.where(k_shell, 0.0, c))
+    rx, ox = hist(q_exc, np.where(k_shell, 0.0, coll.close * tw * (1.0 - share)))   # close excitations below the IP
+    r0, o0 = r0 + rx, o0 + ox
+    r1, o1 = hist(np.maximum(w, ip_ev) - ip_ev, np.where(k_shell, 0.0, c * share))
     x = np.clip(w - ip_ev, 0.0, None)
     q = di * y
-    if partition == "uniform":
+    if partition == "uniform" and hole is None:
         span = np.where(x > 0, x, 1.0)
         overlap = np.clip(np.minimum(edges[1:][None, :], x[:, None]) - edges[:-1][None, :], 0.0, de)
         r1 = r1 + (q / span) @ overlap / de
         o1 += float((q * np.clip(x - edges[-1], 0.0, None) / span).sum())
     else:
-        if partition == "measured":
+        if hole is not None:
+            xe = np.asarray(hole(w), dtype=float)
+        elif partition == "measured":
             xe = photo.photoelectron_energy(w, ip_ev, reference_ev=reference_ev)[1]
         else:
             xe = x if partition == "all" else np.zeros_like(x)
@@ -536,7 +569,7 @@ class Passages:
 
 
 def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yield_, de: float = 1.0,
-                     e_max: float = 512.0, dz_max: int = 15, n_theta: int = 24, tol: float = 1e-12,
+                     e_max: float = 512.0, dz_max: int = 15, n_theta: int = 24, tol: float = 1e-12, chain=None,
                      **kwargs) -> Passages:
     """Several collisions in one passage, summed.
 
@@ -549,24 +582,23 @@ def passage_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yie
     the mean over the n-fold sums; bin centres before 2026-11-03, de/2 low per
     extra collision).
 
-    The n-fold sums ``p^{*n}`` are built once by linear 2-D convolution and
-    truncated to the grid; the mass that leaves the grid goes to ``beyond``.
-    The Poisson mixture over theta is then exact up to ``tol``. No circular
-    FFT wrap is involved, so arbitrarily large nu (slow heavy nuclei) is fine.
+    ``chain`` = [(Collisions, IP, IP2, yield) with 0, 1, ... charges added]: a collision after k ionisations takes the
+    k-th entry (the last for every k beyond), so the k-th ionisation costs IP(z + k) (``_poisson_chain``); None: every
+    collision is ``coll``'s, at ``ip_ev``. The sums are truncated to the grid, and the mass that leaves it goes to
+    ``beyond``. The mixture over theta is then exact up to ``tol``. No circular FFT wrap is involved, so arbitrarily
+    large nu (slow heavy nuclei) is fine. ``collisions`` is the first state's 4 pi sigma_tot.
     """
-    one = deposition(coll, ip_ev, ip2_ev, yield_, e_max=e_max, de=de, **kwargs)
-    p, lost1, e = _edge_split(one, dz_max)
-    sigma_tot = p.sum() + lost1
+    chain = [(coll, ip_ev, ip2_ev, yield_)] if chain is None else chain
+    kernels, s_max, s_first, e = _chain_kernels(chain, dz_max, e_max, de, **kwargs)
     r_disc, d = disc_radius_cm(nc), DISC_THICKNESS_CM
     th = (np.arange(n_theta) + 0.5) * (0.5 * np.pi / n_theta)
     sg = np.pi * r_disc**2 * np.cos(th) + 2.0 * r_disc * d * np.sin(th)
     w_th = 4.0 * np.pi * sg * np.sin(th) * (0.5 * np.pi / n_theta)     # dOmega over both hemispheres
     passages = float(w_th.sum())
-    if sigma_tot <= 0.0:
-        return Passages(e, de, np.zeros_like(p), 0.0, passages, 0.0)
-    p, lost1 = p / sigma_tot, lost1 / sigma_tot
-    out, beyond = _poisson_mixture(p, sigma_tot / sg, w_th, tol)
-    return Passages(e, de, out / de, beyond, passages, 4.0 * np.pi * sigma_tot)
+    if s_max <= 0.0:
+        return Passages(e, de, np.zeros_like(kernels[0][0]), 0.0, passages, 0.0)
+    out, beyond = _poisson_chain(kernels, s_max / sg, w_th, tol, dz_max + 1)
+    return Passages(e, de, out / de, beyond, passages, 4.0 * np.pi * s_first)
 
 
 def stopping_probability(coll: Collisions, nc: int, loss_ev: float, n_theta: int = 24, n_bins: int = 200,
@@ -625,33 +657,63 @@ def _edge_split(one: "Deposition", dz_max: int):
 FFT_ROUND_OFF = 1e-12
 
 
-def _poisson_mixture(p, nu, w, tol):
-    """(sum_i w_i sum_{n >= 1} Poisson(n; nu_i) p^{*n}, the weight that leaves the grid): ``p`` one collision's outcome
-    [dz, E* bin] (probabilities), ``nu`` the mean collisions of each path, ``w`` its weight. The n-fold sums by linear
-    2-D convolution (zero-padded FFT, no wrap), truncated to the grid; the mass beyond it, and the paths with more
-    collisions than followed once their tail is below ``tol``, are returned apart."""
-    dz_n, n_e = p.shape
-    shape = (2 * dz_n, 2 * n_e)
-    p_hat = np.fft.rfft2(p, s=shape)
-    out = np.zeros_like(p)
-    beyond = 0.0
-    cur = p
+def _poisson_chain(kernels, nu, w, tol, dz_n):
+    """(sum_i w_i sum_n Poisson(n; nu_i) x the outcome of n collisions, less the paths without one; the weight that
+    leaves the grid) when a collision's outcome depends on the charges the passage has added so far.
+
+    ``kernels[k]`` = (p_k[dz', E* bin], rate_k): one collision's outcome at k charges added (probabilities; the part off
+    the grid is the deficit of its sum) and its rate relative to the largest (the last kernel serves every k beyond).
+    ``nu``: the mean collisions of each path at the largest rate, ``w`` its weight; ``dz_n`` rows of charge are followed.
+    Uniformisation: each of the Poisson(nu) events is a collision with probability rate_k at k, else nothing, so the
+    result is exact. The sums go by linear convolution in E* (zero-padded FFT, no wrap), truncated to the grid; the mass
+    beyond it, and the paths with more events than followed once their tail is below ``tol``, are returned apart. With
+    every kernel the same this is the n-fold sum p^{*n} that served before 2026-11-05, when every collision of a passage
+    took its first charge's IP and yield (pahchem audit M1)."""
+    n_e = kernels[0][0].shape[1]
+    nfft = 2 * n_e
+    rows = max(int(np.max(np.nonzero(p.any(axis=1))[0], initial=0)) + 1 for p, _ in kernels)
+    khat = [np.fft.rfft(p[:rows], n=nfft, axis=1) * rate for p, rate in kernels]
+    stay = np.array([1.0 - kernels[min(k, len(kernels) - 1)][1] for k in range(dz_n)])
+    cur = np.zeros((dz_n, n_e))
+    cur[0, 0] = 1.0
+    out, beyond = np.zeros_like(cur), 0.0
     total = float(w.sum())
-    for n in range(1, 1_000_000):
-        if n > 1:
-            full = np.fft.irfft2(np.fft.rfft2(cur, s=shape) * p_hat, s=shape)
+    for n in range(0, 1_000_000):
+        if n > 0:
+            cur_hat = np.fft.rfft(cur, n=nfft, axis=1)
+            acc = np.zeros((dz_n + rows, nfft // 2 + 1), dtype=complex)
+            for k in np.nonzero(cur.any(axis=1))[0]:
+                acc[k:k + rows] += cur_hat[k] * khat[min(k, len(khat) - 1)]
+            full = np.fft.irfft(acc, n=nfft, axis=1)
             if full.min() < -FFT_ROUND_OFF * max(full.max(), 1e-300):
                 raise ValueError(f"convolution negative beyond round-off: {full.min():.3e} against {full.max():.3e}")
-            cur = np.maximum(full, 0.0)[:dz_n, :n_e]                      # the round-off below 0 only
+            cur = np.maximum(full, 0.0)[:dz_n, :n_e] + stay[:, None] * cur     # collisions (round-off below 0 only), null
         w_n = float((w * np.exp(n * np.log(nu) - nu - gammaln(n + 1))).sum())       # Poisson(n; nu_i)
         in_grid = float(cur.sum())
         out += w_n * cur
         beyond += w_n * (1.0 - in_grid)
-        tail = float((w * gammainc(n + 1, nu)).sum())                  # paths with more than n collisions
-        if in_grid < tol or (n > nu.max() and tail < tol * total):
+        tail = float((w * gammainc(n + 1, nu)).sum())                  # paths with more than n events
+        if n > 0 and (in_grid < tol or (n > nu.max() and tail < tol * total)):
             beyond += tail                                              # they end beyond, or are negligible
             break
+    out[0, 0] -= float((w * np.exp(-nu * kernels[0][1])).sum())        # the paths without a collision
+    if out[0, 0] < -FFT_ROUND_OFF * max(total, 1e-300):
+        raise ValueError(f"no-collision paths exceed the zero-energy outcome: {out[0, 0]:.3e}")
+    out[0, 0] = max(out[0, 0], 0.0)                                     # the round-off only
     return out, beyond
+
+
+def _chain_kernels(chain, dz_max, e_max, de, **kwargs):
+    """(kernels for ``_poisson_chain``, the largest total cross section [cm^2], the first state's, the grid E_k): one
+    collision's ``deposition`` at each state of ``chain`` = [(Collisions, IP, IP2, yield[, hole]) at 0, 1, ... charges
+    added], on the grid of ``_edge_split``."""
+    split = [_edge_split(deposition(c, ip, ip2, y, e_max=e_max, de=de, hole=h[0] if h else None, **kwargs), dz_max)
+             for c, ip, ip2, y, *h in chain]
+    sig = [float(p.sum() + lost) for p, lost, _ in split]
+    s_max = max(sig)
+    kernels = [(p / s if s > 0.0 else np.zeros_like(p), s / s_max if s_max > 0.0 else 0.0)
+               for (p, _, _), s in zip(split, sig, strict=True)]
+    return kernels, s_max, sig[0], split[0][2]
 
 
 @lru_cache(maxsize=None)
@@ -672,23 +734,24 @@ def _escape_paths(nc: int, n: int = 24):
 
 
 def escape_outcomes(coll: Collisions, nc: int, ip_ev: float, ip2_ev: float, yield_, de: float = 0.5,
-                    e_max: float = 320.0, dz_max: int = 6, tol: float = 1e-12, **kwargs):
+                    e_max: float = 320.0, dz_max: int = 6, tol: float = 1e-12, chain=None, **kwargs):
     """What an electron leaving the molecule from inside (an outgoing photo- or Auger electron) does to it on the way:
     (P[dz, k] the probability of ending with dz more charges and internal energy E* = k ``de``, k = 0 ... e_max / de, the
     probability beyond the grid). Poisson(nu) collisions along each path of ``_escape_paths``, nu = sigma_tot L / V (a
     uniform electron density over the disc, as ``passage_outcomes``), each with ``deposition``'s outcome on the grid of
-    ``_edge_split``; no collision sits at E* = 0."""
-    one = deposition(coll, ip_ev, ip2_ev, yield_, e_max=e_max, de=de, **kwargs)
-    p, lost1, _ = _edge_split(one, dz_max)
-    sigma_tot = p.sum() + lost1
+    ``_edge_split``, at the charges added so far (``chain`` as for ``passage_outcomes``); no collision sits at E* = 0.
+    The collision's own mass off the grid is in the mixture's beyond (it was counted twice before 2026-11-05, pahchem
+    audit m11)."""
+    chain = [(coll, ip_ev, ip2_ev, yield_)] if chain is None else chain
+    kernels, s_max, s_first, _ = _chain_kernels(chain, dz_max, e_max, de, **kwargs)
     w, L = _escape_paths(int(nc))
-    nu = sigma_tot * L / (np.pi * disc_radius_cm(nc) ** 2 * DISC_THICKNESS_CM)
-    P = np.zeros_like(p)
-    P[0, 0] = float((w * np.exp(-nu)).sum())
-    if sigma_tot <= 0.0:
+    per_sigma = L / (np.pi * disc_radius_cm(nc) ** 2 * DISC_THICKNESS_CM)
+    P = np.zeros_like(kernels[0][0])
+    P[0, 0] = float((w * np.exp(-s_first * per_sigma)).sum())
+    if s_max <= 0.0:
         return P, 0.0
-    out, beyond = _poisson_mixture(p / sigma_tot, nu, w, tol)
-    return P + out, beyond + lost1 / sigma_tot * float((w * -np.expm1(-nu)).sum())
+    out, beyond = _poisson_chain(kernels, s_max * per_sigma, w, tol, dz_max + 1)
+    return P + out, beyond
 
 
 # --- what the deposited energy does: sequential statistical fragmentation ---
@@ -852,7 +915,7 @@ def multifragmentation_energy(nc: int, charge) -> np.ndarray:
 
 
 def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float, spectra, yield_,
-                     n_t: int = 48, w=None, t_grid=None, focus: bool = False, **kwargs) -> dict:
+                     n_t: int = 48, w=None, t_grid=None, focus: bool = False, ladder=None, **kwargs) -> dict:
     """{projectile name: Passages} with rates per molecule: P [s^-1 eV^-1], and beyond,
     passages and collisions [s^-1], from int j(T) Passages(T) dT.
 
@@ -860,9 +923,12 @@ def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float,
     ``passage_outcomes``. ``t_grid``: {projectile name: kinetic energies [eV]} instead of
     the cosmic rays' (electrons 1 keV-1 PeV, nuclei from T_MIN_PER_U_EV per nucleon).
     ``focus``: the Coulomb focusing of thermal particles on a charged PAH (``coulomb_focus``).
+    ``ladder`` = [(IP, IP2, yield[, hole]) with 0, 1, ... charges added]: the collisions after k ionisations are on
+    charge ``charge`` + k's oscillator strengths, IP and yield (``passage_outcomes``' chain); None: all at ``charge``.
     """
     w = w_grid() if w is None else w
-    df = oscillator_strength(nc, nh, charge, w)
+    ladder = [(ip_ev, ip2_ev, yield_)] if ladder is None else ladder
+    dfs = [oscillator_strength(nc, nh, charge + k, w) for k in range(len(ladder))]
     out = {}
     for proj, j in spectra:
         if t_grid is not None and proj.name in t_grid:
@@ -877,8 +943,10 @@ def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float,
         for ti, wi in zip(t_hit, wt):
             if wi <= 0.0:
                 continue
-            c = collisions(proj, ti, df, w, correction=low_speed_correction(proj, ti), ip_ev=ip_ev)
-            ps = passage_outcomes(c, nc, ip_ev, ip2_ev, yield_, **kwargs)
+            corr = low_speed_correction(proj, ti)
+            chain = [(collisions(proj, ti, df, w, correction=corr, ip_ev=ip), ip, ip2, y, *h)
+                     for df, (ip, ip2, y, *h) in zip(dfs, ladder, strict=True)]
+            ps = passage_outcomes(chain[0][0], nc, ip_ev, ip2_ev, yield_, chain=chain, **kwargs)
             ps = Passages(ps.e, ps.de, wi * ps.P, wi * ps.beyond, wi * ps.passages, wi * ps.collisions)
             acc = ps if acc is None else Passages(ps.e, ps.de, acc.P + ps.P, acc.beyond + ps.beyond,
                                                   acc.passages + ps.passages, acc.collisions + ps.collisions)
@@ -920,11 +988,12 @@ V_AU_CM_S = 2.18769126364e8
 JELLIUM = (0.15, 2.7)
 #: the height [a.u.] beyond which the disc holds nothing: the H friction is below 1e-6 of its peak beyond 5.2 a.u.
 JELLIUM_EXTENT_AU = 8.0
-#: {element: (Gamma_0, R_2)} of the friction coefficient of a slow ion in an electron gas of density parameter r_s,
-#: gamma = Gamma_0 exp(-(r_s - 1.5) / R_2) [a.u.]: Micelotta+10b eq. 6, their fit to Puska & Nieminen (1983, PRB 27,
-#: 6121). R_2 of H, He and C as printed there; Gamma_0 (gamma at r_s = 1.5) is not printed, and these values and O's
-#: are ``models.PAH_gas_collisions.PAH_sputtering``'s, source unverified (2026-11-04). Other ions have no friction
-FRICTION = {"H": (0.33, 2.28), "He": (0.75, 0.88), "C": (1.68, 0.90), "O": (1.62, 0.57)}
+#: the friction of a slow atom in an electron gas, eta(Z, r_s) [a.u.], is interpolated in Gerrits, Juaristi & Meyer
+#: (2020, PRB 102, 155130)'s LDA tables (``gerrits2020_friction_lda.csv``, Z = 1-30 at r_s = 1.5-5), which reproduce
+#: Puska & Nieminen (1983, PRB 27, 6121) and so the friction Micelotta+10b fit, gamma = Gamma_0 exp(-(r_s - 1.5) / R_2)
+#: (their eq. 6). Until 2026-11-05 that fit served, with PAH_sputtering's unsourced Gamma_0 (H 0.33 against Puska &
+#: Nieminen's 0.310) and for H, He, C and O only.
+FRICTION_FILE = "gerrits2020_friction_lda.csv"
 #: {element: (Z, mass [amu])}: the thermal ions of ``chemistry.IONS`` and the PAH's atoms
 ATOMS = {"H": (1, 1.008), "He": (2, 4.0026), "C": (6, 12.011), "N": (7, 14.007), "O": (8, 15.999), "Ne": (10, 20.180),
          "Na": (11, 22.990), "Mg": (12, 24.305), "Si": (14, 28.086), "S": (16, 32.06), "Fe": (26, 55.845)}
@@ -938,14 +1007,41 @@ ZIEGLER_EPS1 = 1.0e-9
 ZIEGLER_M = (-2.432, -0.1509, 2.648, -2.742, 1.215, -0.1665)
 
 
+@lru_cache(maxsize=None)
+def _friction_table() -> dict:
+    """{element: (r_s [a.u.], eta [a.u.])} of FRICTION_FILE, the tabulated points only."""
+    with open(_paths.get_external_data_path("pahchem", FRICTION_FILE)) as f:
+        lines = [line.strip() for line in f if not line.startswith("#")]
+    cols = lines[0].split(",")
+    rs = np.array([float(c[2:]) for c in cols[2:]])
+    out = {}
+    for line in lines[1:]:
+        v = line.split(",")
+        eta = np.array([float(x) if x else np.nan for x in v[2:]])
+        ok = np.isfinite(eta)
+        out[v[1]] = (rs[ok], eta[ok])
+    return out
+
+
+def has_friction(element: str | None) -> bool:
+    return element is not None and element in _friction_table()
+
+
 def friction_coefficient(element: str, x_au) -> np.ndarray:
-    """gamma [a.u.] of a slow ion of ``element`` at height ``x_au`` [a.u.] above the disc (``FRICTION``, ``JELLIUM``)."""
+    """gamma [a.u.] of a slow ion of ``element`` at height ``x_au`` [a.u.] above the disc (``JELLIUM``): ln eta
+    interpolated linearly in r_s between the tabulated points of FRICTION_FILE, continued beyond them with the slope of
+    the outer two (denser than r_s = 1.5, the disc's core at 1.17, and above 5, where it is negligible)."""
     n0, w = JELLIUM
-    g0, r2 = FRICTION[element]
+    rs_t, eta_t = _friction_table()[element]
     n = n0 * np.exp(-np.asarray(x_au, dtype=float) ** 2 / w)
     with np.errstate(divide="ignore", over="ignore"):
         rs = (4.0 / 3.0 * np.pi * n) ** (-1.0 / 3.0)
-    return g0 * np.exp(-(rs - 1.5) / r2)
+    le = np.log(eta_t)
+    lo, hi = (le[1] - le[0]) / (rs_t[1] - rs_t[0]), (le[-1] - le[-2]) / (rs_t[-1] - rs_t[-2])
+    with np.errstate(invalid="ignore", over="ignore"):
+        ln = np.where(rs < rs_t[0], le[0] + lo * (rs - rs_t[0]),
+                      np.where(rs > rs_t[-1], le[-1] + hi * (rs - rs_t[-1]), np.interp(rs, rs_t, le)))
+    return np.where(np.isfinite(rs), np.exp(ln), 0.0)
 
 
 @dataclass(frozen=True)
@@ -973,7 +1069,7 @@ def disc_chords(nc: int, element: str | None = None, n_theta: int = 24, n_u: int
         return lambda z: np.sign(z) * np.interp(np.abs(z), x, c)
     profile = np.exp(-x**2 / JELLIUM[1])
     A = odd_integral(profile / (2.0 * np.trapezoid(profile, x)))
-    F = odd_integral(friction_coefficient(element, x)) if element in FRICTION else None
+    F = odd_integral(friction_coefficient(element, x)) if has_friction(element) else None
     dth = 0.5 * np.pi / n_theta
     fr, at, wt = [], [], []
     for t in (np.arange(n_theta) + 0.5) * dth:
@@ -1023,11 +1119,12 @@ def thermal_ion_passages(nc: int, element: str, temperature_k: float, density: f
     ``ion_charge`` at ``temperature_k`` and ``density`` [cm^-3] on C_{nc}H_{nh} of ``charge``.
 
     - **Heat** (dz = 0 only): along its chord (``disc_chords``) the ion loses v HARTREE int gamma ds to the valence
-      electrons (Micelotta+10b eqs 1-7: friction linear in the speed, for v <~ 1 a.u., H below ~1e8 K) and, to each
+      electrons (Micelotta+10b eqs 1-7, with Gerrits+20's tabulated friction: linear in the speed, for v <~ 1 a.u.,
+      H below ~1e8 K) and, to each
       target atom it crosses, S_below of elastic collisions below the target's knock-out threshold (``knock_on``). MJT
       leave the latter out ("radiated away"); it is heat like the friction's, and exceeds it below ~1e6 K for He and C.
-      The H atoms, on the rim, are spread over the disc like the C atoms. Ions without a ``FRICTION`` entry deposit the
-      elastic part only.
+      The H atoms, on the rim, are spread over the disc like the C atoms. Atoms without a friction table
+      (``has_friction``; Z = 1-30 have one) deposit the elastic part only.
     - **Knock-outs** of each target in ``t0_ev`` (C, H): N int sigma v f(v) dv (MJT eq. 22 without its factor 1/2, their
       Appendix C's <cos theta> of the projected area: a per-atom cross section already counts every orientation, the
       atom column an ion crosses growing as 1 / cos theta where the projection shrinks as cos theta; no later work uses

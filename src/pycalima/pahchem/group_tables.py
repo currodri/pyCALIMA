@@ -13,7 +13,7 @@ blackbody photon spectrum n_E ~ E^2 / (exp(E/kT_s) - 1) for each T_s of ``TS_GRI
     H_g(z) = < sigma Y <E_k> >_g      [cm^2 eV per PAH]    kinetic energy given to the gas
     A_g(z) = < sigma >_g              [cm^2 per PAH]       absorption
 
-with sigma, Y and <E_k> of ``population`` (``photo.sigma_li_draine``, ``population._yield``,
+with sigma, Y and <E_k> of ``population`` (``photo.sigma_uv`` under ``Params.uv_cross_section``, ``population._yield``,
 ``population.electron_energy``) on a grid from the lowest group edge: photons below 5 eV detach anions too (the
 population's grid starts at 1 eV). The same three are given for the UV background (``K_bg`` etc.,
 rates per PAH in the Mathis ISRF at G0 = 1 Habing, 1-13.6 eV, as WDB06rt). Collisions are tabulated in T:
@@ -40,7 +40,11 @@ molecule (``_chain``), also of the few with a +3 state in PAHdb, so it ionises o
 as ``Population``'s top states do.
 
 What it gives up against ``Population``: the in-group shape (blackbody), the averaging above, the dehydrogenated
-states (only the parents' thresholds), the multiphoton k_H, and the IR emission.
+states (only the parents' thresholds), the multiphoton k_H, and the IR emission. And hot gas: the tables are valid to
+T_VALID_MAX_K (written in the file's first line; ``solve`` returns ``valid``). Above it the population's ``Params.hot_gas``
+charges the PAHs by electron impact and ion transfer, and stops most of the captures (``population.capture_stop_factors``,
+x0.1 at 1e6 K): +8 to +32 at 1e6-1e8 K where the tables, which hold neither, give <Z> <= 0 (pahchem audit m12). The T
+axis still runs to 1e8 K, so that RAMSES clamps nothing.
 
     python -m pycalima.pahchem.group_tables --nc 20 50 --label small
 """
@@ -58,6 +62,8 @@ from pycalima.pahchem import population as pop
 from pycalima.pahchem.baseline import Params
 
 FORMAT_VERSION = 1
+#: the highest temperature [K] at which the tables hold the PAH charge (no hot-gas collisions; see the module docstring)
+T_VALID_MAX_K = 1e5
 CHARGES = (-1, 0, 1, 2)
 LT = np.round(np.arange(1.0, 8.0 + 1e-9, 0.05), 6)              # log10 T [K]
 ION_NAMES = tuple(f"{el}+" for el, _, _ in rg.RECOMB_IONS if f"{el}+" in chemistry.IONS)
@@ -222,7 +228,8 @@ def write_bin_table(t, path):
     nz, ng, nTs = t["K"].shape
     with open(path, "w") as f:
         f.write(f"# pyCALIMA pahchem PAH charge table for RT photon groups, format {t['version']}: bin {t['label']}, "
-                f"{t['n_mol']} PAHdb molecules; see pycalima.pahchem.group_tables\n")
+                f"{t['n_mol']} PAHdb molecules; valid to T = {T_VALID_MAX_K:g} K (no hot-gas collisions); "
+                f"see pycalima.pahchem.group_tables\n")
         f.write(f"# {t['meta']}\n")
         f.write(f"{t['version']} {nz} {ng} {nTs} {t['lT'].size} {len(t['ions'])} {t['n_mol']}\n")
         f.write(_line([t["nc"], t["nh"], t["nc"] * M_C + t["nh"] * M_H, t["k_ad"]]))
@@ -311,7 +318,8 @@ class PAHGroupTable:
         flux[g]: group photon fluxes c N_g [cm^-2 s^-1]; T [K]; n_e, n_h (atomic H) [cm^-3]; ions: ((name, n), ...)
         of ``ion names``; G0_bg: UV background [Habing]. Returns f(Z) over CHARGES; gamma, lam [erg s^-1]
         photoelectric heating and recombination cooling; electron_source and overflow [s^-1] (as
-        ``Population.gas_rates``); alpha_mn, alpha_ct, per ion [cm^3 s^-1]; carbon_accretion [cm^3 s^-1].
+        ``Population.gas_rates``); alpha_mn, alpha_ct, per ion [cm^3 s^-1]; carbon_accretion [cm^3 s^-1]; valid, T <=
+        T_VALID_MAX_K.
         """
         t = self.t
         F = np.asarray(flux, dtype=float)
@@ -336,7 +344,7 @@ class PAHGroupTable:
         ct = {name: float(f[1] * t["k_ct"][j]) for j, name in enumerate(t["ions"])}
         return dict(f=f, gamma=float(f @ heat * chemistry.EV_ERG), lam=float(lam * chemistry.EV_ERG),
                     electron_source=float(e_src), overflow=float(f[-1] * photo_up[-1]),
-                    alpha_mn=mn, alpha_ct=ct, carbon_accretion=0.4 * ct.get("C+", 0.0))
+                    alpha_mn=mn, alpha_ct=ct, carbon_accretion=0.4 * ct.get("C+", 0.0), valid=bool(T <= T_VALID_MAX_K))
 
 
 def group_fluxes(field, L0, L1):

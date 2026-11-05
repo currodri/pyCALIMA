@@ -14,12 +14,14 @@ For C24H12-C216H36 (``check_charge_ladder``) and three catacondensed v4.00 molec
    protons and C2H2 losses per molecule, and the fixed point's iterations.
 Nothing is fitted.
 
-Result (2026-11-04):
+Result (2026-11-05):
 1. Proton emission falls below the H loss's 4.41 eV from +4 in C24 (3.95 eV), +5 in C54, +8 in C96, +12 in C216; the tops of
    C96-C216 are at 0.03-0.7 eV. Tops: C150 +26 (0.2 N_C: 30), C216 +32 (43).
-2. PDRs and EUV: <Z> moves <= 0.01; intact highly charged molecules are stripped (C96 psi 1e5 f(N_H0) 0.967 -> 0.463, C150
-   1e6 1.000 -> 0.292), the small ones are bare already. X-rays only, G0-equivalent 1e4: <Z> -0.16 (C24), -0.91 (C54),
-   -1.18 (C96), -0.99 (C150), -0.74 (C216); f(N_H0) of C54, C96 0.773 -> 0.872, 0.820 -> 0.865 (less heat on capture).
+2. PDRs and EUV: <Z> moves <= 0.01; intact highly charged molecules are stripped (C96 psi 1e5 f(N_H0) 0.949 -> 0.060, C150
+   1e6 1.000 -> 0.205), the small ones are bare already. C96 sits at the edge: without the ~1 eV the captured electrons
+   now deposit at 1e4 K (pahchem audit M2) it was 0.967 -> 0.463. X-rays only, G0-equivalent 1e4: <Z> -0.16 (C24), -0.88
+   (C54), -1.02 (C96), -0.87 (C150), -0.65 (C216); f(N_H0) of C54, C96 0.778 -> 0.872, 0.828 -> 0.867 (less heat on
+   capture).
    C2H2 loss of the catacondensed C22H14 isomers ~5e-8 s^-1 there (C 1s products), 1e-12-1e-10 s^-1 in PDRs (stripped).
 
     check_fission_c2h2.py [--workers 4]

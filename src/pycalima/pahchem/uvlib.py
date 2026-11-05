@@ -10,7 +10,7 @@ assembled to 10 keV by ``diagnostics/pahchem/octopus/build_library.py`` and stor
 
 - interpolated linearly in ln N_C between the two anchor sizes that bracket N_C (16, 24, 32, 42, 54, 96, 150, 216), and held at the nearest anchor
   outside [16, 216];
-- of the charge Z itself for -1 <= Z <= +2; Z >= +3 takes the dication's (pahchem reaches +3 for its top state only);
+- of the charge Z itself for -1 <= Z <= +2; Z >= +3 takes the dication's (pahchem's cold-limit ladder runs to ``impact.coulomb_limit``, +10 for C54);
 - every anchor is a computed state (pyrene, coronene and ovalene were run as dications on megatron, 2026-10-30, with the neutral's
   geometry: coronene a triplet, the others closed-shell singlets); ``proxy`` flags an anchor that takes another charge's, none now;
 - the hydrogen count does not enter. Above ~80 eV, where H 1s adds to the atomic sum, the spectra carry the library's mean H/C.

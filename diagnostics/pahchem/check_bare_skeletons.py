@@ -10,13 +10,15 @@
    explosions; cosmic-ray passages beyond the heat nodes), the lifetime 1 / events and the carbon lost.
 Nothing is fitted but the calibration.
 
-Result (2026-11-04):
+Result (2026-11-05):
 1. 166 pairs (9 superhydrogenated skipped), N_C 14-96: R(800 K) ~12 at N_C 14-20, 8-11 at 20-35, 5.5 (C54), 3.4 (C66), 4.4
    (C96); fit 54.68 N_C^-0.522, rms x1.98 (BARE_IR_LAW).
 2. Lifetimes: PDRs (Kurucz 40 kK) bare C24 22 yr at G0 1e3, 1.2 yr at 1e4, 11 days at 1e5; C54 (10 % bare) 1.9e3 yr at 1e5;
-   N_C >= 96 hydrogenated, intact. EUV: C54 230, 10, 0.07 yr at psi 1e4, 1e5, 1e6; stripped C96 folds in ~5 days at 1e6.
-   X-rays only (G0-equivalent 1e4): hydrogenated, Coulomb explosions from C 1s multi-ionisation, C24 1.2 yr, C54 20 yr,
-   C96 7e3 yr, C216 9e5 yr.
+   N_C >= 96 hydrogenated, intact. EUV: C54 220, 6.9, 0.04 yr at psi 1e4, 1e5, 1e6; stripped C96 folds in ~3.5 days at
+   1e6 (230, 10, 0.07 yr and ~5 days before the captured electrons' kinetic energy was deposited, pahchem audit M2).
+   X-rays only (G0-equivalent 1e4): hydrogenated, Coulomb explosions from C 1s multi-ionisation, C24 1.3 yr, C54 41 yr,
+   C96 1.2e5 yr (1.2, 20, 7e3 yr before the outgoing electrons' collisions were fixed, audit C1 and M1); C150 and C216
+   emit protons past their barrier-limited tops instead (audit A2): > 1e30 yr (C216 9e5 yr before).
 """
 import argparse
 import sys

@@ -120,12 +120,15 @@ def test_steady_state_passes_the_ions_charge_to_the_electrons():
     assert r["f"].sum() == pytest.approx(1.0)
     neutralised = sum(n * (r["alpha_mn"][i] + r["alpha_ct"][i]) for i, n in ions)
     assert r["electron_source"] == pytest.approx(-neutralised, rel=1e-9)
+    assert r["valid"] and not gt.solve([1e7, 1e6, 1e5], 1e6, 0.03)["valid"]       # no hot-gas collisions (audit m12)
 
 
 def test_bin_table_survives_a_round_trip(tmp_path):
     _, lib = _v400()
     tab = _table([m for m in lib if G.complete(m) and 30 <= m.nc < 34][:2])
-    back = G.read_bin_table(G.write_bin_table(tab, tmp_path / "t.dat"))
+    path = G.write_bin_table(tab, tmp_path / "t.dat")
+    back = G.read_bin_table(path)
+    assert f"valid to T = {G.T_VALID_MAX_K:g} K" in path.read_text().splitlines()[0]
     for key in ("A", "K", "H", "egy", "A_bg", "K_bg", "H_bg", "alpha", "L", "k_mn", "k_ct", "lT", "log10_Ts"):
         assert np.allclose(back[key], tab[key], rtol=1e-11, atol=0), key
     assert back["ions"] == tab["ions"] and back["nc"] == pytest.approx(tab["nc"])

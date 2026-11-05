@@ -21,6 +21,8 @@ Multiply by the partner's density to get a rate in s^-1.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import numpy as np
 
 KB_CGS = 1.380649e-16
@@ -168,23 +170,70 @@ def mutual_neutralisation(nc, nh, charge, ion, temperature_k, efficiency=MN_EFFI
 BOHR_EV_PER_AMU = 13.605693 / 5.48579909e-4
 
 
-def ion_cation_transfer(nc, nh, charge, ion, temperature_k, efficiency=ION_NEUTRAL_EFFICIENCY, disc_factor=0.82):
-    """X+ + PAH^Z (Z >= 1) -> X + PAH^(Z+1) in hot gas [cm^3 s^-1]: efficiency x 0.82 pi a^2 v J~(Z, +1) (DS87, the
-    repulsion, as ``mutual_neutralisation``), less the ions that cross the molecule faster than the Bohr speed and leave
-    still ionised (DS79: arrivals above E_B = (M / m_e) I_H, a fraction (1 + x) e^-x, x = E_B / kT; the energy they lose
-    inside, tens of eV, is neglected against E_B ~ 25 keV per amu). Whether it happens (exothermic: IP(X) above the
-    PAH's) is the caller's. No measured cross section for an atomic ion on a PAH cation: the efficiency is the
-    ion-neutral one."""
+#: the C60 geometrical cross section Moretto-Capelle+04 refer their capture to [cm^2] ("about 35e-16")
+C60_GEOMETRIC_CM2 = 35e-16
+#: the collision energies [keV per amu] of the Rapp-Francis fit, where capture dominates the C60+ production
+CAPTURE_FIT_MAX_KEV_AMU = 50.0
+
+
+@lru_cache(maxsize=None)
+def capture_fit():
+    """(A, B) of sqrt(sigma / 1e-16 cm^2) = A - B ln(E / keV per amu), Rapp & Francis (1962)'s form, fitted to the single
+    capture of H+, H2+ and H3+ on C60 at equal velocities up to CAPTURE_FIT_MAX_KEV_AMU (Moretto-Capelle+04 Fig. 2, read
+    from the figure: ``moretto2004_fig2_capture.csv``)."""
+    from pycalima._paths import get_external_data_path
+
+    with open(get_external_data_path("pahchem", "moretto2004_fig2_capture.csv")) as f:
+        rows = [line.strip().split(",") for line in f if not line.startswith("#")][1:]
+    e = np.array([float(r[1]) for r in rows])
+    sig = np.array([float(r[2]) for r in rows])
+    keep = e <= CAPTURE_FIT_MAX_KEV_AMU
+    slope, a = np.polyfit(np.log(e[keep]), np.sqrt(sig[keep]), 1)
+    return float(a), float(-slope)
+
+
+def capture_efficiency(e_kev_per_amu):
+    """sigma_capture / C60_GEOMETRIC_CM2 of H+ + C60 at ``e_kev_per_amu`` (``capture_fit``): measured at 6.7-50 keV per amu
+    (0.22-0.07 on the fit), an extrapolation below it: 0.44 at 1, 0.81 at 0.1, 1.29 at 0.01 keV per amu (kT of H+ at
+    ~1e8, 1e6, 1e5 K). It reaches the ~2.4 of the classical over-the-barrier capture radius on neutral C60 (Zettergren+02,
+    an upper bound for a conducting sphere) near 1e-4 keV per amu, kT at ~1e3 K for H+ and ~1e4 K for O+ (where
+    ``capture_efficiency_mean`` gives 2.4); it is not capped."""
+    a, b = capture_fit()
+    root = np.maximum(a - b * np.log(np.asarray(e_kev_per_amu, dtype=float)), 0.0)
+    return root**2 * 1e-16 / C60_GEOMETRIC_CM2
+
+
+def capture_efficiency_mean(nc, nh, charge, ion, temperature_k, n=200):
+    """``capture_efficiency`` averaged over the ions that reach PAH^Z (Z >= 1), each at the speed of its relative kinetic
+    energy E: the Maxwellian flux over DS87's reduced barrier theta = nu / (1 + nu^-1/2) e^2 / a (nu = Z, their eq. 3.6),
+    weight (E - theta) e^(-E / kT)."""
+    nu = float(charge)
+    kt = KB_EV * float(temperature_k)
+    theta = nu / (1.0 + nu**-0.5) * E_STATC**2 / disc_radius_cm(nc) / EV_ERG
+    x = kt * np.geomspace(1e-4, 50.0, n)                                  # kinetic energy above the barrier [eV]
+    w = x * np.exp(-x / kt) * x                                           # (E - theta) e^(-E/kT), per d ln x
+    eps = capture_efficiency((theta + x) / (_reduced_mass_g(ion, nc, nh) / AMU_G) * 1e-3)
+    return float(np.trapezoid(w * eps, np.log(x)) / np.trapezoid(w, np.log(x)))
+
+
+def ion_cation_transfer(nc, nh, charge, ion, temperature_k, disc_factor=0.82):
+    """X+ + PAH^Z (Z >= 1) -> X + PAH^(Z+1) in hot gas [cm^3 s^-1]: eps 0.82 pi a^2 v J~(Z, +1) (DS87, repulsive with the
+    image attraction), less the ions that cross faster than the Bohr speed and leave still ionised (DS79: arrivals above
+    E_B = (M / m_e) I_H, a fraction (1 + x) e^-x, x = E_B / kT). eps is ``capture_efficiency_mean``: the single capture of
+    H+ on neutral C60 over its geometrical cross section at the same speed (Moretto-Capelle+04, the only measured analogue;
+    no atomic-ion capture on a PAH cation has been measured), measured at 6.7-50 keV per amu and extrapolated below it with
+    Rapp & Francis' form (``capture_fit``). Whether it happens (exothermic: IP(X) above the PAH's) is the caller's.
+    Until 2026-11-05 eps was the ion-neutral 0.9 at every speed (pahchem audit, the user's choice)."""
     from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
 
     if charge < 1:
         raise ValueError("ion_cation_transfer needs a positive PAH")
     a = disc_radius_cm(nc)
     v = np.sqrt(8.0 * KB_CGS * temperature_k / (np.pi * _reduced_mass_g(ion, nc, nh)))
-    x = IONS[ion][0] * BOHR_EV_PER_AMU / (KB_EV * float(temperature_k))
-    passes = (1.0 + x) * np.exp(-x)
-    return efficiency * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k)) \
-        * (1.0 - passes)
+    eps = capture_efficiency_mean(nc, nh, charge, ion, temperature_k)
+    x = IONS[ion][0] * BOHR_EV_PER_AMU / (KB_EV * temperature_k)
+    return (eps * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k))
+            * (1.0 - (1.0 + x) * np.exp(-x)))
 
 
 def ion_neutral_rate(nc, nh, ion, efficiency=ION_NEUTRAL_EFFICIENCY, alpha_per_c_a3=ALPHA_PER_C_A3):

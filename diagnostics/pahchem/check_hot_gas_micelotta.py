@@ -20,18 +20,22 @@ Models of the carbon loss from PAHs of N_C ~ 50, 100, 200 at T = 1e4.5-1e8 K:
 Lifetimes with Micelotta's definition, tau_0 = N_C / (carbon-loss rate); for pahchem also 1 / (destruction events): a
 bare skeleton of N_C >= 60 folds into a cage, which destroys the PAH but loses no carbon. Nothing is fitted.
 
-Result (2026-11-04):
+Result (2026-11-05):
 - Table 2 gives Table 3 to 4-10 % for the electrons (M82 156 vs 162 yr, M17 7.9 vs 8.2, N132D 0.27 vs 0.3) and to 35 %
   for Orion (ions, 1.8e7 vs 1.3e7 yr).
 - Knock-outs at MJT's T_0 are 1.7-2.8x their nuclear-dominated ion fits (3e4-1e5 K; H, He, C; N_C 50, 200): the factor
   1/2 of MJT eq. 22, which pahchem drops. The repo's nuclear rate puts T_0 at E where MJT eq. 15 has E_0n = T_0 / gamma:
   H x3000 at 3e4 K, x24 at 1e5 K.
-- pahchem (step 3: a fast electron must lose its energy to be captured, ``population.capture_stop_factors``): above
-  ~3e5 K the PAHs charge up to their ladder tops (C54H18 +10, C96H24 +19, C216H36 +32 from 1e6 K), and Coulomb
-  explosions out of the top destroy them in 0.005-0.02 yr at n_e = 1 from 1e6 K (0.02-0.08 yr at 3e5 K); the carbon
-  loss, a whole molecule per explosion, is 5-850x Micelotta's electrons + ions from 1e6 K. At 1e5 K (<Z> ~ 0) it is
-  3x theirs for N_C 50, 0.02-0.2x for 100-200. Knock-outs (T_0 = 23.3 eV) are 0.3-0.8 of MJT's above 1e6 K and a small
-  part of the carbon lost. Step 2's numbers, with every arriving electron captured, are in gas-coupling 2.2g.
+- pahchem (step 3: a fast electron must lose its energy to be captured, ``population.capture_stop_factors``; with the
+  pahchem audit's fixes of 2026-11-05: sub-IP close collisions excite, each collision of a passage at the charge reached,
+  ions' capture on C60's, a proton past a barrier-limited top). <Z> at 3.2e5 / 1e6 / 3.2e6 K: C54H18 +2.7 / +8.0 / +9.8,
+  C96H24 +3.1 / +10.6 / +18.2, C216H36 +4.1 / +14.7 / +30.3; the tops (+10, +19, +32) from ~3e6 K. Carbon loss against
+  Micelotta's electrons + ions: N_C 50 0.86-1.4x at 3e5-1e6 K, 3.5-12x above; N_C 100-200 0.3-1.3 % at 3e5-1e6 K (no
+  molecule at the top; their stripped skeletons fold, keeping the carbon), 6-340x from 3e6 K (bare skeletons exploding
+  at the top). Destroyed as a PAH (1 / events) in 0.006-0.025 yr at n_e = 1 from 1e6 K, 10-400x sooner than Micelotta's
+  carbon-loss lifetime; 0.02-0.09 yr at 3e5 K. Knock-outs (T_0 = 23.3 eV) are 0.35-0.8 of MJT's above 1e6 K. The
+  pre-audit run (2026-11-04): tops from 1e6 K, carbon loss 5-850x theirs. Step 2's numbers, with every arriving electron
+  captured, are in gas-coupling 2.2g.
 
     check_hot_gas_micelotta.py [--workers 4] [--out DIR]
 """

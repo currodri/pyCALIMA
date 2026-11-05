@@ -9,18 +9,18 @@ Heays+17's (RAMSES-RTZ's), and what it does to PAHs in a dark cloud.
    (rtz/cosmic_ray_ionization_module.f90). This field has dust alone in the denominator, Heays+17 dust and gas: H2's
    lines and continuum below 110 nm, which shield C (ionised below 110 nm) and S (120 nm) most.
 3. PAHs in a dark cloud (n_H = 1e4 with n(H) = 1, x_e = 1e-7, T = 10 K; only this field) at zeta_H = 1e-17, 1e-16 and
-   1e-15 (zeta(H2) = 2 zeta_H (1 + phi_s)), and 1e-19 as an almost dark reference: photoionisation and capture rates
+   1e-15 (the primary zeta(H2) = 2 zeta_H), and 1e-19 as an almost dark reference: photoionisation and capture rates
    and <Z>, and the absorbed power per C.
 
-Result (2026-11-04):
+Result (2026-11-05, the primary scale 2 zeta_H / 1e-16 of pahchem audit A1):
 - 0.36 photons per ionisation (0.002 of them below 91.2 nm). At zeta(H2) = 1e-16, x(H2) = 0.5: 2.2e4 photons cm^-2 s^-1
   at 1-13.6 eV, a Habing-equivalent G0 of 1.8e-4. Photon conservation exact.
 - Atoms against Heays+17 (RTZ): Si 1.13x, Mg 1.18x; C 1.38x (H2's shielding below 110 nm, not followed here); S 3.0x
   and Fe 5.7x (their narrow autoionising resonances against the lines, integrated at 0.001 nm by Heays+17; a smooth
   absorber such as a PAH does not see it). With Hensley & Draine (2023) dust instead, Si and Mg came out 1.4-1.6x.
-- PAHs, dark cloud: with almost no field (zeta_H 1e-19) all are anions; the induced field detaches C24H12's, <Z> -0.69,
-  -0.18, -0.02 at zeta_H 1e-17, 1e-16, 1e-15; C54H18 and C96H24 stay anions (-0.84 to -1.00). They absorb 3e-13 eV
-  s^-1 per C at 1e-17 (x10 per decade).
+- PAHs, dark cloud: with almost no field (zeta_H 1e-19) all are anions; the induced field detaches C24H12's, <Z> -0.79,
+  -0.27, -0.04 at zeta_H 1e-17, 1e-16, 1e-15 (-0.69, -0.18, -0.02 with RTZ's 1.67x before); C54H18 and C96H24 stay anions
+  (-0.90 to -1.00). They absorb 1.6-2.1e-13 eV s^-1 per C at 1e-17 (x10 per decade).
 
     check_cr_uv.py [--leiden-zip PATH] [--workers 4]
 """
@@ -83,8 +83,8 @@ def main():
     print(f"   field at zeta(H2) = 1e-16, x(H2) = 0.5: {band(1.0, 13.6):.3e} photons cm^-2 s^-1 at 1-13.6 eV, "
           f"{band(6.0, 13.6):.3e} at 6-13.6 eV; Habing-equivalent G0 {f.g0():.2e}")
     print(f"   photon conservation: int F sigma_abs dE {np.trapezoid(F * sig, E):.4e} = generated {gen:.4e} per H s^-1")
-    print(f"   RTZ scale factor: zeta_H 1e-16 at x_e 1e-7 -> {cr_uv.scale(1e-16, 1e-7):.3f}; at x_e 1e-2 -> "
-          f"{cr_uv.scale(1e-16, 1e-2):.3f}")
+    print(f"   scale (primary 2 zeta_H / 1e-16) at zeta_H 1e-16: {cr_uv.scale(1e-16):.3f}; RTZ's total rate would give "
+          f"x(1 + phi_s) = 1.67 more at x_e -> 0 (pahchem audit A1)")
     if a.leiden_zip is not None:
         print("\n2. Photoionisation rates at zeta(H2) = 1e-16 [s^-1]: this field (dust only) / Heays+17 (dust + gas) = ratio")
         with zipfile.ZipFile(a.leiden_zip) as zf:
@@ -98,7 +98,7 @@ def main():
     pop = P.Population(lib, {"all": (1.0, 1e4)}, cache_dir=FP.BASIS_CACHE)
     zs = np.array(pop.zs, float)
     for zeta in (1e-19, 1e-17, 1e-16, 1e-15):                              # 1e-19: almost no field, the reference
-        env = cr_uv.environment("dark", zeta, 1e-7, 1.0, 1e-3, 10.0)
+        env = cr_uv.environment("dark", zeta, 1.0, 1e-3, 10.0)
         shape = P.field_shape(env)
         pop.prepare(shape, workers=a.workers)
         pop.prepare_responses(shape, workers=a.workers)

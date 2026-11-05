@@ -32,13 +32,11 @@ def test_field_counts_every_photon_once_on_the_population_grid():
     assert a.photon_flux[i] > 5.0 * max(a.photon_flux[i - 2], a.photon_flux[i + 2])
 
 
-def test_rtz_scale_and_the_cr_uv_environment():
-    """RTZ's secondaries, phi_s = 0.67 at x_e -> 0 and 0 at x_e = 1.2; the scale zeta(H2) / 1e-16 = 2 zeta_H (1 + phi_s)
-    / 1e-16 is the g0 of ``cr_uv.environment``, whose field shape is "cr_uv" and whose field is g0 times the unit one."""
-    assert cr_uv.secondary_factor(0.0) == pytest.approx(1.67)
-    assert cr_uv.secondary_factor(1.2) == pytest.approx(1.0)
-    env = cr_uv.environment("dark", 1e-16, 1e-7, 1.0, 1e-3, 10.0)
-    assert env.g0 == pytest.approx(cr_uv.scale(1e-16, 1e-7)) and env.g0 == pytest.approx(3.34, rel=1e-3)
+def test_primary_scale_and_the_cr_uv_environment():
+    """The field scales with the primary zeta(H2) = 2 zeta_H, as Heays+17 define P(lambda) (pahchem audit A1): g0 of
+    ``cr_uv.environment`` is 2 zeta_H / 1e-16, its field shape "cr_uv", and its field g0 times the unit one."""
+    env = cr_uv.environment("dark", 1e-16, 1.0, 1e-3, 10.0)
+    assert env.g0 == pytest.approx(cr_uv.scale(1e-16)) and env.g0 == pytest.approx(2.0)
     shape = population.field_shape(env)
     assert shape[:3] == ("cr_uv", "heays17", 0.5) and shape[3] == cr_uv.signature("heays17")
     np.testing.assert_allclose(population.env_field(env).photon_flux,

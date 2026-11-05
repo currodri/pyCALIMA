@@ -164,7 +164,23 @@ def test_disc_chords_hold_the_disc_s_electrons_and_atoms():
         volume = np.pi * r**2 * 2.0 * np.trapezoid(im.friction_coefficient(el, x), x) * im.BOHR_CM**2
         assert (ch.weight * ch.friction).sum() == pytest.approx(4.0 * np.pi * im.HARTREE_EV * volume, rel=2e-3)
         assert (ch.weight * ch.atoms).sum() == pytest.approx(4.0 * np.pi * nc, rel=2e-3)
-    assert im.disc_chords(nc, "Fe").friction is None
+    assert im.disc_chords(nc, None).friction is None and im.disc_chords(nc, "Fe").friction is not None
+
+
+def test_friction_interpolates_the_gerrits_table_and_falls_with_height():
+    """``friction_coefficient``: at the heights where the disc's jellium has a tabulated r_s it returns Gerrits+20's LDA
+    eta; it falls monotonically out of the disc and vanishes far from it. Every element to Zn has a table, none beyond."""
+    n0, w = im.JELLIUM
+    x = np.linspace(0.0, 2.0 * im.JELLIUM_EXTENT_AU, 400)
+    for el in ("H", "He", "C", "O", "Fe"):
+        rs, eta = im._friction_table()[el]
+        n = 3.0 / (4.0 * np.pi * rs**3)
+        np.testing.assert_allclose(im.friction_coefficient(el, np.sqrt(-w * np.log(n / n0))), eta, rtol=1e-10)
+        g = im.friction_coefficient(el, x)
+        on = g > 0.0                                      # far out, where r_s ~ 1e3, it underflows to 0
+        assert on[x <= np.sqrt(-w * np.log(n[-1] / n0))].all() and np.all(np.diff(g[on]) < 0.0) and np.all(np.diff(g) <= 0.0)
+        assert g[-1] < 1e-6 * g[0]
+    assert im.has_friction("Zn") and not im.has_friction("Kr") and not im.has_friction(None)
 
 
 def test_knock_on_starts_at_the_critical_energy_and_leaves_the_rest_as_heat():
@@ -221,6 +237,50 @@ def test_stopping_probability_is_the_poisson_chance_of_enough_collisions():
         assert im.stopping_probability(coll, nc, t) == pytest.approx(exact, rel=1e-6)
     assert im.stopping_probability(coll, nc, 0.0) == 1.0
     assert im.stopping_probability(coll, nc, 15.0) > im.stopping_probability(coll, nc, 25.0)
+
+
+def test_close_collisions_below_the_ip_excite_and_do_not_ionise():
+    """``close_ionising`` (pahchem audit C1): a close collision frees the electron only if its recoil exceeds the IP.
+    A 12 eV electron (Q_max = 6 eV < IP) ionises through distant collisions alone, as if it had no close ones; for
+    protons, whose scaling is 1, the split moves collisions between dz = 0 and +1 and loses none; above the IP every
+    close collision ionises."""
+    nc, nh, ip = 24, 12, 7.4
+    w = im.w_grid()
+    df = im.oscillator_strength(nc, nh, 0, w)
+    y = lambda E: photo.yield_jochims1996(E, ip)                                   # noqa: E731
+    c = im.collisions(im.ELECTRON, 12.0, df, w, ip_ev=ip)
+    share, _ = im.close_ionising(c, ip)
+    active = c.close > 0.0                                                         # oscillators with close collisions
+    assert active.any() and not share[(w < ip) & active].any() and np.all(share[w >= ip] == 1.0)
+    bare = im.Collisions(w, c.distant, np.zeros_like(w), np.zeros_like(w), c.ion_scale, c.kinematics)
+    assert im.deposition(c, ip, 18.9, y).total(1) == pytest.approx(im.deposition(bare, ip, 18.9, y).total(1), rel=1e-12)
+    p = im.collisions(im.PROTON, 1e6, df, w, correction=im.low_speed_correction(im.PROTON, 1e6), ip_ev=ip)
+    share, q = im.close_ionising(p, ip)
+    assert np.all((share > 0.0) & (share <= 1.0)) and np.all(q[w < ip] < ip)
+    assert im.deposition(p, ip, 18.9, y, e_max=1e5).total() == pytest.approx(p.total, rel=1e-9)
+
+
+def test_passage_chain_reduces_to_one_state_and_rising_ips_ionise_less():
+    """``passage_outcomes``' chain (pahchem audit M1): a chain of identical states gives the single-state passages
+    exactly; with the IP rising by 3 eV per charge added, 4 MeV alphas (2.5 collisions per passage) leave fewer multiply
+    ionised products and a lower mean charge, and no passage is lost."""
+    nc, nh, ip = 24, 12, 7.4
+    w = im.w_grid()
+    fe = im.nucleus("He", 2, 4.0026)
+    t = 4e6
+    ladder = [(ip + 3.0 * k, ip + 3.0 * (k + 1), lambda E, i=ip + 3.0 * k: photo.yield_jochims1996(E, i))
+              for k in range(6)]
+    chain = [(im.collisions(fe, t, im.oscillator_strength(nc, nh, 0, w), w, correction=im.low_speed_correction(fe, t),
+                            ip_ev=a), a, b, f) for a, b, f in ladder]
+    one = im.passage_outcomes(chain[0][0], nc, *ladder[0])
+    same = im.passage_outcomes(chain[0][0], nc, *ladder[0], chain=[chain[0]] * 6)
+    np.testing.assert_allclose(same.P, one.P, rtol=1e-9, atol=1e-12 * one.P.max())
+    assert same.beyond == pytest.approx(one.beyond, rel=1e-9, abs=1e-30)
+    rising = im.passage_outcomes(chain[0][0], nc, *ladder[0], chain=chain)
+    assert rising.P[2:].sum() < 0.95 * one.P[2:].sum()
+    mean_dz = lambda ps: (np.arange(ps.P.shape[0]) @ ps.P.sum(axis=1)) / ps.P.sum()   # noqa: E731
+    assert mean_dz(rising) < mean_dz(one)
+    assert rising.P.sum() * rising.de + rising.beyond == pytest.approx(one.P.sum() * one.de + one.beyond, rel=1e-9)
 
 
 def test_measured_partition_leaves_the_photons_hole():
