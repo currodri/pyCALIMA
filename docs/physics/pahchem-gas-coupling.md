@@ -584,9 +584,43 @@ higher charges, as before). In the population every molecule runs from its lowes
     0.64–1.6×10⁸ yr at 10⁻¹⁶ (w ≈ 0.3) and 0.61–1.5×10⁷ yr at 10⁻¹⁵ (H scaled). Coulomb explosions dominate for C24
     and C54, passages beyond 320 eV for N_C ≥ 96, and H's low-energy nuclei shorten them. This is Micelotta+11's
     order.
-  - **Missing piece.** In dark gas the CR-induced UV (H₂ Lyman–Werner emission) matters more for the charge and
-    heating; it is not in yet.
-- *Open:* the column of the blend (10²¹ cm⁻²); the secondary electrons (CRISpy); the induced UV.
+- *The CR-induced UV* (2026-11-04; `pahchem.cr_uv`, `check_cr_uv.py`):
+  - **Physics.** Cosmic rays and their secondaries excite H₂. Its Lyman–Werner decays and H's Lyman α emit
+    R(λ) = ζ(H₂) x(H₂) P(λ) photons per H (Heays+17 eq. 16). They are absorbed close to where they are made, so a PAH
+    sees F = R/σ_abs.
+    - The dust is Draine's (2003) R_V = 3.1 grains, the dust of Heays+17 and of CRISpy.
+    - ζ(H₂) is RTZ's 2 ζ_H (1 + φ_s(x_e)), φ_s = (1 − x_e/1.2) 0.67/(1 + x_e/0.05).
+  - **Source.** RAMSES-RTZ applies Heays+17's CR-induced rates for metals at ζ(H₂) = 10⁻¹⁶, scaled linearly, so pahchem
+    takes the same P(λ) (the user's choice):
+    - It is Gredel+89's spectrum, 0.36 photons per ionisation in all. It is not distributed as a file.
+    - Digitised from Heays+17 Fig. 32 (`digitise_heays17_fig32.py`): calibrated to 0.04 nm and 0.001.
+    - Lyman α, smeared by the plotted line's width, is restored as a step of 0.049 photons (13.5 %; the paper: 15 %).
+    - `cr_uv.SOURCES` maps a name to a generation spectrum. CRISpy's escaping Lyman–Werner lines are to be added as one
+      more entry, and its field replaces this one through `Environment.field_cr_uv`.
+  - **In the population** (opt-in; the PDR paths are untouched):
+    - `cr_uv.environment` builds a cell lit by this field only, with field shape ("cr_uv", source, x(H₂), signature).
+    - Its g0 is RTZ's scale factor ζ(H₂)/10⁻¹⁶; the signature, a hash of the data, keys the cached bases.
+    - Each node of E_PH holds the photons of its cell, so every photon is counted once.
+    - Mixing with an external field waits for the CRISpy coupling.
+  - **Intensity.** At ζ(H₂) = 10⁻¹⁶ and x(H₂) = 0.5: 2.2×10⁴ photons cm⁻² s⁻¹ at 1–13.6 eV, a Habing G0 of 1.8×10⁻⁴.
+  - **Against Heays+17 (RTZ)**, atoms' photoionisation:
+    - Si 1.13×, Mg 1.18× and C 1.38×; the last is H₂'s shielding below 110 nm, which is not followed here.
+    - S 3.0× and Fe 5.7×: their narrow autoionising resonances against the lines, which Heays+17 integrate at 0.001 nm
+      and a PAH's smooth absorption does not see.
+    - Hensley & Draine (2023) dust, tried first, absorbs 1.2–1.4× less at 100–150 nm and gave Si and Mg 1.4–1.6×.
+  - **PAHs in a dark cloud** (n_H = 10⁴, n(H) = 1, x_e = 10⁻⁷, 10 K):
+    - With almost no field every PAH is an anion.
+    - The induced field detaches C24H12's: ⟨Z⟩ −0.69, −0.18 and −0.02 at ζ_H = 10⁻¹⁷, 10⁻¹⁶ and 10⁻¹⁵. C54H18 and
+      C96H24 stay anions (−0.84 to −1.00).
+    - They absorb ~3×10⁻¹³ eV s⁻¹ per C at 10⁻¹⁷, ×10 per decade.
+    - It does far more than the direct passages (⟨Z⟩ ≤ 0.003).
+  - **Not followed:**
+    - H₂'s absorption of its own lines to v'' = 0 (the photons re-pump H₂ and mostly re-emerge) and of the continuum
+      below 110 nm;
+    - photons above 13.6 eV;
+    - the dust-to-gas ratio (F ∝ 1/σ_abs).
+- *Open:* the column of the blend (10²¹ cm⁻²); the secondary electrons (CRISpy); the induced UV's own line transfer
+  (CRISpy).
 
 ### 2.2e Proton emission by hot ions and C₂H₂ loss (2026-11-04)
 
@@ -600,7 +634,16 @@ higher charges, as before). In the population every molecule runs from its lowes
   - **Model.** A channel only for skeletons with catacondensed end rings (PAHdb's quartet H): Ling98's anthracene⁺
     parameters, path degeneracy ½ per end ring, the C–C stretch as reaction coordinate. None for pericondensed parents.
     It destroys the molecule as the library holds it (`Population.loss_rates`).
-  - **Not yet.** The deeply dehydrogenated states, where West+14 see it open, are part of the bare-skeleton item.
+  - **Deep dehydrogenation: not modelled** (the user's choice, 2026-11-04, after a literature check).
+    - **Pyrene.** West+14's DFT (their Table 2) is the only energetics for partly stripped cations. C₂H₂ loss stays at
+      ~6.0 eV while the rings are intact: C₁₆H₁₀⁺ 6.02 eV against H loss at 5.10, C₁₆H₈⁺ 6.00 against 4.48. It
+      collapses once the ring system breaks: C₁₆H₅⁺ 3.94 eV against 4.08 (50 % measured branching), C₁₆H₄⁺ 3.35 eV,
+      which no longer loses H. Their RRKM entropies are not significant.
+    - **Size.** Castellanos+18 (A&A 616, A166, citing Ekern+97/98, West+14 and Zhen+14) put the boundary at ~24 C.
+      Smaller PAHs lose C₂H₂ before they are fully stripped; larger ones strip completely first, as Montillaud+13
+      assume and as pahchem does (H loss until bare, then the skeleton's carbon loss, §2.2f).
+    - **What it misses.** `library_v400` starts at N_C = 21, and only 5 of its 1424 molecules (C₂₂ isomers) lie
+      below 24. They lack this channel.
 - **Proton emission** (`Params.fission`):
   - **Barrier.** Holm+11's DFT fission barriers for H⁺ emission (Fig. 7, five PAHs, q = 3–10, read from the figure)
     collapse on q/√N_C, the charge over the radius: B = 6.30 − 2.88 q/√N_C eV, rms 0.28 eV (q/N_C: 0.53).
@@ -610,7 +653,13 @@ higher charges, as before). In the population every molecule runs from its lowes
     The proton takes the charge (q → q − 1) and an H, so it is a down-step of the charge chain and an H loss of the
     hydrogenation chain. The two are solved together (`charge_matrix`: per-molecule Anderson mixing to 10⁻¹²,
     6–86 iterations).
-  - **Not modelled.** C₂H₂⁺ emission, computed for naphthalene only.
+  - **C₂H₂⁺ emission: not modelled** (the user's choice, 2026-11-04, after a literature check). Proton emission is the
+    only charge-separating channel below the ladder top, for these reasons:
+    - Barriers exist for naphthalene only (Holm+11 Fig. 6: 3.53, 2.48, −0.66 eV at q = 3–5). They fall below its H⁺
+      barrier only at q ≥ 4, q/N_C ≥ 0.4, above the cold limit of 0.2 N_C, where pahchem's ions already explode.
+    - Lee+22 (PCCP 24, 23096) see H⁺ or H₂⁺ leave first in their MD of fluorene³⁺.
+    - C₂H₂ loss needs an azulene-type rearrangement that pericondensed skeletons resist (West+19).
+    - Measured dication fission releases 1.5–3 eV, far below a point-charge estimate (Reitsma+13, Lee+22).
 - **The top of the ladder** (the user's choice, after a literature check): min(⌊0.2 N_C⌋, the highest q with B > 0,
   2.19 √N_C), so C150 has +26 (was +30) and C216 +32 (was +43). Both the thermodynamic and the barrier limits scale with
   the radius. No astrophysical model prescribes either law:
@@ -661,7 +710,7 @@ higher charges, as before). In the population every molecule runs from its lowes
     G0-equivalent 10⁴, C24 1.2 yr, C54 20 yr, C96 7×10³ yr, C216 9×10⁵ yr.
   - **Cosmic rays** (§2.2d): 0.6–1.6×10⁸ yr at ζ_H = 10⁻¹⁶.
 - *Not yet:*
-  - C₂H₂ loss in the deeply dehydrogenated states (West+14);
+  - (C₂H₂ loss in the deeply dehydrogenated states: not modelled, §2.2e);
   - the skeleton's IR in the spectra;
   - the ionisation threshold of the bare skeleton (it takes the parent's).
 

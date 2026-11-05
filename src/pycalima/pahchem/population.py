@@ -1256,8 +1256,14 @@ def _unit_field(shape):
     - ("kurucz", T_eff[, e_max_ev[, e_min_ev]]): the star's whole spectrum from ``E_PH_MIN_EV`` (or e_min_ev);
     - ("draine",): Draine's (1978) far-UV fit from 5 eV, nothing below;
     - ("draine", r[, e_min_ev]): the same plus r x the solar-circle old-star light below 5 eV (``fields.old_stars_flux``),
-      r = ``Environment.optical_isrf`` / G0, so that G0 times this field leaves the old stars unscaled.
+      r = ``Environment.optical_isrf`` / G0, so that G0 times this field leaves the old stars unscaled;
+    - ("cr_uv", source, x_h2, signature): the cosmic-ray-induced field at zeta(H2) = ``cr_uv.ZETA_REF`` (``cr_uv.field``
+      on E_PH), so that "G0" is zeta(H2) / 1e-16, RTZ's scale factor; ``cr_uv.signature`` keys the cached bases.
     """
+    if shape[0] == "cr_uv":
+        from pycalima.pahchem import cr_uv
+
+        return cr_uv.field(cr_uv.ZETA_REF, shape[2], shape[1], energy_ev=E_PH)
     if shape[0] == "kurucz":
         e_max = shape[2] if len(shape) > 2 else fields.LYMAN_EV
         e_min = shape[3] if len(shape) > 3 else E_PH_MIN_EV
@@ -1277,6 +1283,10 @@ def field_shape(env):
     The Draine shape carries the old-star light per unit G0, ``optical_isrf / g0`` (none if the field starts at
     5 eV or above): one shape per G0 for such cells, within which every rate is again G0 times its basis value.
     """
+    if getattr(env, "field_cr_uv", None) is not None:
+        from pycalima.pahchem import cr_uv
+
+        return ("cr_uv", str(env.field_cr_uv), float(getattr(env, "cr_uv_x_h2", 0.5)), cr_uv.signature(env.field_cr_uv))
     e_min = float(getattr(env, "field_e_min_ev", E_PH_MIN_EV))
     if getattr(env, "field_powerlaw", None) is not None:
         return ("powerlaw", float(env.field_powerlaw), float(env.field_e_max_ev), e_min)

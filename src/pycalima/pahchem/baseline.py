@@ -183,8 +183,15 @@ class Environment:
     #                                           field_e_min_ev > 13.6: X-rays only, and g0 is their energy flux in Habing units
     zeta_cr: float = 0.0                      # primary cosmic-ray ionisation rate per H [s^-1], RAMSES-RTZ's input, an input like
     #                                           n_e (population with Params.cosmic_rays; cosmic_rays.standard_spectra)
+    field_cr_uv: str | None = None            # the cosmic-ray-induced field of pahchem.cr_uv (a source name) instead of a star;
+    #                                           g0 is then zeta(H2) / 1e-16 (cr_uv.scale; build with cr_uv.environment)
+    cr_uv_x_h2: float = 0.5                   # n(H2) / n_H of that field (cr_uv.X_H2_REF)
 
     def field(self):
+        if self.field_cr_uv is not None:
+            from pycalima.pahchem import cr_uv
+
+            return cr_uv.field(self.g0 * cr_uv.ZETA_REF, self.cr_uv_x_h2, self.field_cr_uv)
         if self.field_powerlaw is not None:
             return fields.powerlaw(self.field_powerlaw, self.g0, e_min=self.field_e_min_ev, e_max=self.field_e_max_ev)
         return (fields.kurucz(self.teff_k, self.g0, e_max=self.field_e_max_ev) if self.teff_k is not None

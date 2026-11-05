@@ -552,6 +552,19 @@ def test_hot_gas_bounds_the_capture_of_fast_electrons_and_lets_ions_ionise_catio
             assert population.ion_up_rate(mol, z, hot(ion), Params()) == 0.0
 
 
+def test_the_cosmic_ray_induced_field_charges_pahs_more_as_zeta_rises():
+    """A dark cloud lit only by the cosmic-ray-induced UV (``cr_uv.environment``, the "cr_uv" field shape): the charge
+    chain runs on it, and <Z> rises with zeta_H (more photodetachment and photoionisation against the same captures)."""
+    from pycalima.pahchem import cr_uv
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _library() if m.nc <= 24)
+    pop = population.Population([mol], WINDOWS, params=Params(fission=False))
+    zs = np.array(pop.zs, dtype=float)
+    z = [pop.charge_matrix(cr_uv.environment("dark", zeta, 1e-7, 1.0, 1e-3, 10.0))[0] @ zs for zeta in (1e-17, 1e-15)]
+    assert z[1] > z[0]
+
+
 def test_photons_below_5ev_detach_anions_and_leave_the_higher_thresholds_alone():
     """The 1-5 eV grid: a field cut at 5 eV gives the rates of the old 5-13.6 eV grid; the photons below 5 eV only
     reach the anion's detachment (EA ~1.5 eV), not the neutral's or the cation's thresholds, and every state absorbs

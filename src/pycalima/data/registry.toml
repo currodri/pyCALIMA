@@ -168,16 +168,18 @@ kind = "bundled"
 dest = "external_data/pahchem"
 files = ["henke1993_carbon_f2.csv", "henke1993_hydrogen_f2.csv",
          "nist_pstar_polystyrene.csv", "nist_astar_polystyrene.csv", "nist_estar_polystyrene.csv",
-         "nist_pstar_hydrogen.csv", "nist_astar_hydrogen.csv", "nist_estar_hydrogen.csv"]
-size_bytes = 68_000
-citation = "Henke, Gullikson & Davis (1993), ADNDT 54, 181 (CXRO atomic scattering factors f2 of C and H); Berger, Coursey, Zucker & Chang, NIST SRD 124 (PSTAR, ASTAR, ESTAR for polystyrene and H2 gas; public domain)"
+         "nist_pstar_hydrogen.csv", "nist_astar_hydrogen.csv", "nist_estar_hydrogen.csv",
+         "heays17_cr_uv_cumulative.csv", "draine2003_mw_rv3.1_uv.csv"]
+size_bytes = 106_000
+citation = "Henke, Gullikson & Davis (1993), ADNDT 54, 181 (CXRO atomic scattering factors f2 of C and H); Berger, Coursey, Zucker & Chang, NIST SRD 124 (PSTAR, ASTAR, ESTAR for polystyrene and H2 gas; public domain); Heays, Bosman & van Dishoeck (2017), A&A 602, A105, Fig. 32 (cosmic-ray-induced photons, digitised); Draine (2003), ApJ 598, 1017 and Weingartner & Draine (2001), ApJ 548, 296 (Milky Way R_V = 3.1 extinction and albedo, kext_albedo_WD_MW_3.1_60_D03)"
 url = "https://physics.nist.gov/Star"
 url_status = "confirmed"
 notes = """Inputs of pahchem.impact and pahchem.cosmic_rays (cosmic-ray collisions with PAHs):
 the C and H photoabsorption above 40 eV for the PAH oscillator strength, the measured
 stopping of polystyrene (the aromatic CH reference for the low-speed correction) and of H2
 (CSDA attenuation). Retrieved 2026-10-08 from henke.lbl.gov/optical_constants and the NIST
-STAR forms; each file's header records its source."""
+STAR forms; each file's header records its source. The cosmic-ray-induced UV generation spectrum
+(pahchem.cr_uv) was digitised 2026-11-04 with diagnostics/pahchem/digitise_heays17_fig32.py."""
 
 [datasets.digitised-figures]
 kind = "bundled"

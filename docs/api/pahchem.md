@@ -25,6 +25,7 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.attachment
    pycalima.pahchem.impact
    pycalima.pahchem.cosmic_rays
+   pycalima.pahchem.cr_uv
    pycalima.pahchem.micelotta2011
    pycalima.pahchem.network
    pycalima.pahchem.emission
