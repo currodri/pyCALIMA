@@ -7,7 +7,10 @@ Per state whose three kicks have reached T = 20 (``plot_dial3_library.states``),
 1. **TD-LDA** sigma(E) from the kicks (``plot_progress.octopus_sigma``) to 150 eV, with a Gaussian window of
    s0 = 0.15 eV. That is the narrowest width T = 20 gives cleanly (exp(-4.5) is left at the cut), and the warm-vapour
    width of the pyrene calibration. Cold molecules (s ~ 0.08 eV) would need T = 40; on coronene that changes
-   pahchem's rates by <= 2.4 % (§4).
+   pahchem's rates by <= 2.4 % (§4). The window's ringing, negative values below 7.5 eV down to -1e-3 of the maximum
+   (mostly below the neutrals' first band), is set to zero: absorption from the ground state is a sum of
+   |<n|d|0>|^2 terms, so sigma >= 0, and pahchem's collisions (``impact.oscillator_strength``) need it as an oscillator
+   strength. The f removed is in ``checks.csv``.
 2. **Width** s(E):
    - s0 up to 7.5 eV;
    - rising to 0.8 eV at 14 eV, which removes the box artefacts of the discretised continuum. The width added to s0,
@@ -37,7 +40,8 @@ Per state whose three kicks have reached T = 20 (``plot_dial3_library.states``),
 
 Checks per state go to stdout and ``checks.csv``:
 - the oscillator strength to 13.6 and 30 eV, final over raw (the §4 guard asks < 0.5 % at 30 eV);
-- the most negative sigma over the maximum (guard >= -1e-3);
+- the ringing set to zero (stage 1): its most negative sigma over the maximum (guard >= -1e-3) and its f below 13.6 eV
+  over the state's;
 - f to 54.4 eV, 130 eV and 10 keV, against the valence electrons and the C 1s electrons;
 - the valence scale k;
 - rates final over raw in three fields: Mathis+83 (0.1-13.6 eV), Draine 1978 (5-13.6 eV) and a Kurucz 40 000 K star
@@ -164,7 +168,7 @@ def build(run, nc, nh, kedge=None, shift=0.0):
     """Stages 1-4 of one state: {stage: (E, sigma [cm^2])}, and the valence scale k."""
     _, raw, _ = octopus_sigma(run, energies=E_TD)
     _, gauss, _ = octopus_sigma(run, damp=lambda t, T: np.exp(-0.5 * (S0 * t) ** 2), energies=E_TD)
-    wide = shift_bands(E_TD, widen(E_TD, gauss), shift)
+    wide = shift_bands(E_TD, widen(E_TD, np.maximum(gauss, 0.0)), shift)   # the window's ringing removed (stage 1)
     k = (E_TD >= E_JOIN[0]) & (E_TD <= E_JOIN[1])
     scale = np.trapezoid(wide[k], E_TD[k]) / np.trapezoid(sigma_atomic(nc, nh, E_TD[k]), E_TD[k])
     low = E_OUT <= E_JOIN[1] + 1e-9
@@ -185,6 +189,7 @@ def rate(field, E, s):
 def checks(label, nc, nh, z, st, scale):
     E, s = st["final"]
     Er, r = st["raw"]
+    Eg, g = st["gauss"]
     lo = E <= E_JOIN[1]
     mathis = fields.mathis1983(e_min=0.1, n=2000)
     d78 = fields.draine1978()
@@ -195,6 +200,8 @@ def checks(label, nc, nh, z, st, scale):
         "f13.6_final_over_raw": M.oscillator_strength(E, s, 0, 13.6) / M.oscillator_strength(Er, r, 0, 13.6),
         "f30_final_over_raw": M.oscillator_strength(E, s, 0, 30) / M.oscillator_strength(Er, r, 0, 30),
         "min_over_max": s[lo].min() / s[lo].max(),
+        "ringing_min_over_max": g.min() / g.max(),
+        "ringing_f13.6_over_f13.6": -M.oscillator_strength(Eg, np.minimum(g, 0.0), 0, 13.6) / M.oscillator_strength(Eg, g, 0, 13.6),
         "f54_over_valence": M.oscillator_strength(E, s, 0, 54.4) / n_val,
         "f130_over_valence": M.oscillator_strength(E, s, 0, 130) / n_val,
         "f10keV_over_valence_plus_1s": M.oscillator_strength(E, s) / (n_val + 2 * nc),
