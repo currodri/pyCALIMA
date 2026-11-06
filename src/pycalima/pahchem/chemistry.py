@@ -203,37 +203,55 @@ def capture_efficiency(e_kev_per_amu):
     return root**2 * 1e-16 / C60_GEOMETRIC_CM2
 
 
-def capture_efficiency_mean(nc, nh, charge, ion, temperature_k, n=200):
-    """``capture_efficiency`` averaged over the ions that reach PAH^Z (Z >= 1), each at the speed of its relative kinetic
-    energy E: the Maxwellian flux over DS87's reduced barrier theta = nu / (1 + nu^-1/2) e^2 / a (nu = Z, their eq. 3.6),
-    weight (E - theta) e^(-E / kT)."""
+def ds87_barrier_ev(nc, charge):
+    """DS87's reduced barrier for a singly charged ion on PAH^Z (Z >= 1) [eV]: theta = nu / (1 + nu^-1/2) e^2 / a, nu = Z
+    (their eq. 3.6, the image attraction included)."""
     nu = float(charge)
+    return nu / (1.0 + nu**-0.5) * E_STATC**2 / disc_radius_cm(nc) / EV_ERG
+
+
+def capture_efficiency_mean(nc, nh, charge, ion, temperature_k, n=200, deficit_ev=0.0):
+    """``capture_efficiency`` averaged over the ions that reach PAH^Z (Z >= 1), each at the speed of its relative kinetic
+    energy E: the Maxwellian flux over DS87's reduced barrier theta (``ds87_barrier_ev``), weight (E - theta) e^(-E / kT);
+    for an endothermic transfer (``ion_cation_transfer``'s ``deficit_ev``) over those with E >= deficit_ev only."""
     kt = KB_EV * float(temperature_k)
-    theta = nu / (1.0 + nu**-0.5) * E_STATC**2 / disc_radius_cm(nc) / EV_ERG
-    x = kt * np.geomspace(1e-4, 50.0, n)                                  # kinetic energy above the barrier [eV]
-    w = x * np.exp(-x / kt) * x                                           # (E - theta) e^(-E/kT), per d ln x
+    theta = ds87_barrier_ev(nc, charge)
+    x0 = max(float(deficit_ev) - theta, 0.0)                              # the least kinetic energy above the barrier
+    u = kt * np.geomspace(1e-4, 50.0, n)
+    x = x0 + u                                                            # kinetic energy above the barrier [eV]
+    w = x * np.exp(-u / kt) * u                                           # (E - theta) e^(-E/kT), per d ln u
     eps = capture_efficiency((theta + x) / (_reduced_mass_g(ion, nc, nh) / AMU_G) * 1e-3)
-    return float(np.trapezoid(w * eps, np.log(x)) / np.trapezoid(w, np.log(x)))
+    return float(np.trapezoid(w * eps, np.log(u)) / np.trapezoid(w, np.log(u)))
 
 
-def ion_cation_transfer(nc, nh, charge, ion, temperature_k, disc_factor=0.82):
+def ion_cation_transfer(nc, nh, charge, ion, temperature_k, disc_factor=0.82, deficit_ev=0.0):
     """X+ + PAH^Z (Z >= 1) -> X + PAH^(Z+1) in hot gas [cm^3 s^-1]: eps 0.82 pi a^2 v J~(Z, +1) (DS87, repulsive with the
     image attraction), less the ions that cross faster than the Bohr speed and leave still ionised (DS79: arrivals above
     E_B = (M / m_e) I_H, a fraction (1 + x) e^-x, x = E_B / kT). eps is ``capture_efficiency_mean``: the single capture of
     H+ on neutral C60 over its geometrical cross section at the same speed (Moretto-Capelle+04, the only measured analogue;
     no atomic-ion capture on a PAH cation has been measured), measured at 6.7-50 keV per amu and extrapolated below it with
-    Rapp & Francis' form (``capture_fit``). Whether it happens (exothermic: IP(X) above the PAH's) is the caller's.
-    Until 2026-11-05 eps was the ion-neutral 0.9 at every speed (pahchem audit, the user's choice)."""
+    Rapp & Francis' form (``capture_fit``). Until 2026-11-05 eps was the ion-neutral 0.9 at every speed (pahchem audit, the
+    user's choice).
+
+    ``deficit_ev`` > 0: the transfer is endothermic by that much (the atom's IP below the PAH state's threshold; the
+    caller's). The ion leaves neutral, so the Coulomb energy it climbed returns to the pair and its kinetic energy at
+    infinity E must cover the deficit; the arrivals over the barrier theta (``ds87_barrier_ev``) are a flux
+    (E - theta) e^(-E/kT), of which those with E >= deficit are (1 + y) e^-y, y = max(deficit - theta, 0) / kT, and eps is
+    their mean (the threshold law, the user's choice of 2026-11-06; endothermic transfers were dropped before)."""
     from pycalima.models.PAH_photophysics.pah_charge_utils import J_function_DS87
 
     if charge < 1:
         raise ValueError("ion_cation_transfer needs a positive PAH")
     a = disc_radius_cm(nc)
     v = np.sqrt(8.0 * KB_CGS * temperature_k / (np.pi * _reduced_mass_g(ion, nc, nh)))
-    eps = capture_efficiency_mean(nc, nh, charge, ion, temperature_k)
+    eps = capture_efficiency_mean(nc, nh, charge, ion, temperature_k, deficit_ev=deficit_ev)
     x = IONS[ion][0] * BOHR_EV_PER_AMU / (KB_EV * temperature_k)
-    return (eps * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k))
+    rate = (eps * disc_factor * np.pi * a**2 * v * J_function_DS87(int(charge), 1, a, float(temperature_k))
             * (1.0 - (1.0 + x) * np.exp(-x)))
+    if deficit_ev > 0.0:
+        y = max(float(deficit_ev) - ds87_barrier_ev(nc, charge), 0.0) / (KB_EV * temperature_k)
+        rate *= (1.0 + y) * np.exp(-y)
+    return rate
 
 
 def ion_neutral_rate(nc, nh, ion, efficiency=ION_NEUTRAL_EFFICIENCY, alpha_per_c_a3=ALPHA_PER_C_A3):

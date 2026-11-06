@@ -98,11 +98,14 @@ def test_thomas_reiche_kuhn_count_is_kept(lib):
         assert 3.8 < f < 4.5
 
 
-def test_spectra_are_non_negative_to_the_ringing_level_and_vanish_outside_the_range(lib):
+def test_spectra_are_non_negative_and_vanish_outside_the_range(lib):
+    """Every anchor is >= 0: ``build_library.py`` removes the window's ringing (absorption from the ground state cannot be
+    negative; impact's collisions take the spectra as oscillator strengths, pahchem audit m6). Down to -1e-3 of the maximum
+    before 2026-11-06."""
+    assert lib["sigma"].min() >= 0.0
     for n in (16, 70, 216):
         for z in (-1, 0, 1, 2):
-            s = uvlib.per_carbon(n, z, E)
-            assert s.min() >= -2e-3 * s.max()
+            assert uvlib.per_carbon(n, z, E).min() >= 0.0
     assert uvlib.per_carbon(54, 0, np.array([0.001, 2e4])).tolist() == [0.0, 0.0]
 
 

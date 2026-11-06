@@ -126,7 +126,12 @@ TD-DFT gives vertical excitations, not the vibronic envelope, so the envelope is
 is one state, so the Gaussian needed equals the laboratory spread: s = 0.15 eV at 313 K, 0.16 at 423 K and 0.18 at
 873 K (±0.02 for the choice of band edges). The final profile:
 
-1. **Gaussian window of s₀ = 0.15 eV** at T = 20 (the narrowest clean width, and the warm-vapour value).
+1. **Gaussian window of s₀ = 0.15 eV** at T = 20 (the narrowest clean width, and the warm-vapour value). Its ringing,
+   negative σ below 7.6 eV down to −4.5 × 10⁻⁴ of the maximum (mostly below the neutrals' first band), is set to zero
+   (since 2026-11-06): absorption from the ground state is a sum of |⟨n|d|0⟩|² terms, so σ ≥ 0, and pahchem's
+   collisions take the spectra as oscillator strengths (`impact.oscillator_strength`, pahchem audit m6), where the
+   negative values became negative collision probabilities. It removes at most 1.1 × 10⁻⁴ of f below 13.6 eV and raises
+   the anchors' Mathis-field absorption by at most 0.3 %.
 2. **Widening to s(E):** s₀ to 7.5 eV, rising to 0.8 eV at 14 eV and flat to 30 eV, then rising to 4 eV at 40 eV and flat.
    - Why: it removes the box artefacts of the discretised continuum (the local shape then agrees between boxes to ≤ 3 %
      at 14–30 eV; with 4 eV above 40 eV, O-star rates agree to ≤ 1 %) and widens the 17 eV hump by < 2 %. The 8–13.6 eV
@@ -232,7 +237,7 @@ own TD-LDA at 80–130 eV, benzene's is 0.78.
 |---|---|
 | f to 30 eV, final over raw | within 0.2 % |
 | f to 150 eV over valence electrons | 98.8–98.9 % |
-| most negative σ over the maximum | −3 × 10⁻⁴ (T = 20 ringing below the first band of neutrals) |
+| most negative σ over the maximum | 0; the T = 20 ringing removed in step 1 reached −4.5 × 10⁻⁴, and its f at most 1.1 × 10⁻⁴ of f below 13.6 eV (`ringing_*` columns) |
 | f below 13.6 eV, final over raw | −0.1 to +4.8 % (the 0.75 eV smoothing of the rise to the 17 eV hump; inside the box uncertainty) |
 | rates, final over Octopus's own spectrum, charged states | Mathis −0.9 to +0.3 %; Draine 1978 −0.6 to +3.4 %; Kurucz 40 000 K −2.5 to +0.3 % |
 | the same, neutrals (shifted by 0.4 eV) | Mathis 0.59–0.72; Draine 1978 1.02–1.39; Kurucz 40 000 K 0.98–1.00 |

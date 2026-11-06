@@ -459,6 +459,10 @@ def loss_extras(mol, z, n_h, params):
     - "C2H2" (``Params.c2h2_loss``): only for a skeleton with catacondensed end rings (PAHdb's quartet H), degeneracy 1/2
       per end ring (Ling & Lifshitz 1998 fitted 1 for anthracene's two), the C-C stretch as reaction coordinate (as
       ``impact``'s West+18 channel); none for pericondensed parents, which West+18 see lose no hydrocarbon fragment.
+      Only for cations and above (pahchem audit m9, the user's choice of 2026-11-06): the parameters are anthracene+'s, and
+      West+18's cations (Table 1, E0 2.6-5.2 eV) bracket them; no barrier is measured or computed for a neutral or an anion,
+      whose hot relatives (benzene, 1-naphthol, azulene at 193 nm) lose H instead. Dications and above take the cation's,
+      untested (their C2Hx+ losses are mostly charge separation).
     - "Hp" (``Params.fission``): proton emission from z >= +1 (to z - 1, one H less), over max(D, B): D = the member's H-loss
       E0 + IE_H_EV - IP(z - 1 -> z) (the ladder's; within 0.1-1 eV of Holm+11's Table V), B = ``impact.fission_barrier``;
       the H-loss transition state (dS, degeneracy N_H for even N_H, the radical's for odd), an assumption: Holm+11
@@ -466,7 +470,7 @@ def loss_extras(mol, z, n_h, params):
       leaves the barrierless RRKM rate, E0 = 0."""
     out = []
     quartets = mol.edges.get("quartet", 0) / 4.0
-    if params.c2h2_loss is not None and quartets > 0 and n_h >= 2:
+    if params.c2h2_loss is not None and quartets > 0 and n_h >= 2 and z >= 1:
         out.append(("C2H2", float(params.c2h2_loss[0]), float(params.c2h2_loss[1]), 0.5 * quartets, 1600.0))
     if params.fission and z >= 1 and n_h >= 1:
         (e0_h, ds_h), deg = (params.h_even, n_h) if n_h % 2 == 0 else (params.h_odd, 1)
@@ -582,8 +586,8 @@ def impact_ladder(mol, z, params, dz_max):
 
 def escape_table(mol, z, params):
     """P[T, dz, E* bin] on ESCAPE_T_GRID: what an outgoing electron of each energy does to charge z on its way out,
-    ``impact.escape_outcomes`` with ``impact.impact_collisions`` on the molecule (Bethe on its oscillator strengths, the
-    polystyrene low-speed correction, Kim's binary-encounter scaling for slow electrons) and z's threshold and yield.
+    ``impact.escape_outcomes`` with ``impact.impact_collisions`` on the molecule (Bethe on its oscillator strengths, below
+    ``impact.join_ev`` its photons' cross section ``Params.uv_cross_section``, pahchem audit m6; the polystyrene low-speed correction, Kim's binary-encounter scaling for slow electrons) and z's threshold and yield.
     A distant ionising collision leaves the photoionisation's mean hole (partition "measured", ``photo.photoelectron_energy``
     under ``Params.photoelectron_reference``), as the population's photons do (``Params.ionisation_heating``; "none", no E*,
     before 2026-11-04); close collisions keep the hole (``impact.deposition``). Cached per process under ``_escape_key``
@@ -595,8 +599,9 @@ def escape_table(mol, z, params):
         ladder = impact_ladder(mol, z, params, ESCAPE_DZ_MAX)
         rows = []
         for t in ESCAPE_T_GRID:
-            chain = [(impact.impact_collisions(impact.ELECTRON, float(t), mol.nc, mol.nh, z + k, ip_ev=ipk), ipk, ip2k, yk,
-                      hk) for k, (ipk, ip2k, yk, hk) in enumerate(ladder)]
+            chain = [(impact.impact_collisions(impact.ELECTRON, float(t), mol.nc, mol.nh, z + k, ip_ev=ipk,
+                                               uv_model=params.uv_cross_section), ipk, ip2k, yk, hk)
+                     for k, (ipk, ip2k, yk, hk) in enumerate(ladder)]
             P, beyond = impact.escape_outcomes(chain[0][0], mol.nc, ip, ip2, y, de=ESCAPE_DE,
                                                e_max=float(HEAT_NODES_EV[-1]), dz_max=ESCAPE_DZ_MAX, chain=chain,
                                                partition="measured", reference_ev=photoelectron_reference(mol, params))
@@ -613,7 +618,8 @@ def _escape_key(mol, z, params):
     h = hashlib.sha1(f"escape{ESCAPE_VERSION}".encode())
     w = impact.w_grid()
     for v in (mol.nc, mol.nh, z, tuple(sorted(mol.ionisation_ev.items())), photoelectron_reference(mol, params),
-              ESCAPE_T_GRID, ESCAPE_DE, ESCAPE_DZ_MAX, HEAT_NODES_EV, photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION):
+              ESCAPE_T_GRID, ESCAPE_DE, ESCAPE_DZ_MAX, HEAT_NODES_EV, photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION,
+              photo.uv_model_key(params.uv_cross_section)):
         _feed(h, v)
     for ip, ip2, y, hole in impact_ladder(mol, z, params, ESCAPE_DZ_MAX):   # every state its collisions ionise through
         _feed(h, (ip, ip2))
@@ -816,7 +822,8 @@ def cr_passages(mol, z, params, protons="L", n_h2=None):
     ``cosmic_rays.STANDARD_COLUMN`` by default; the population blends L and H per zeta, ``cosmic_rays.blend_weights``):
     (k_node[dz, node] [s^-1] for dz = 0 ... CR_DZ_MAX with the product's E* on HEAT_NODES_EV, split keeping the mean;
     the rate of passages beyond them, E* above the top node or more than CR_DZ_MAX charges; the heat deposited inside
-    [eV s^-1]). ``impact.passage_spectrum`` on the molecule's oscillator strengths, Poisson collisions per passage, each
+    [eV s^-1]). ``impact.passage_spectrum`` on the molecule's oscillator strengths (below ``impact.join_ev`` its photons'
+    cross section ``Params.uv_cross_section``, pahchem audit m6), Poisson collisions per passage, each
     distant ionisation leaving the photons' mean hole (partition "measured"), with z's threshold and yield."""
     from pycalima.pahchem import cosmic_rays
 
@@ -825,7 +832,7 @@ def cr_passages(mol, z, params, protons="L", n_h2=None):
     spectra = cosmic_rays.projectile_spectra(protons, cosmic_rays.STANDARD_COLUMN if n_h2 is None else n_h2)
     ps = impact.passage_spectrum(mol.nc, mol.nh, z, ip, ip2, spectra, y, de=CR_DE_EV,
                                  e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX, partition="measured",
-                                 ladder=impact_ladder(mol, z, params, CR_DZ_MAX),
+                                 ladder=impact_ladder(mol, z, params, CR_DZ_MAX), uv_model=params.uv_cross_section,
                                  reference_ev=photoelectron_reference(mol, params))
     return _passage_nodes(ps)
 
@@ -859,7 +866,7 @@ def hot_passages(mol, z, params, temperature_k):
     spectra = [(impact.ELECTRON, impact.maxwellian_flux(impact.ELECTRON, temperature_k, 1.0))]
     ps = impact.passage_spectrum(mol.nc, mol.nh, z, ip, ip2, spectra, y, t_grid={"e": t}, focus=True, de=CR_DE_EV,
                                  e_max=CR_E_MAX_EV, dz_max=CR_DZ_MAX, partition="measured",
-                                 ladder=impact_ladder(mol, z, params, CR_DZ_MAX),
+                                 ladder=impact_ladder(mol, z, params, CR_DZ_MAX), uv_model=params.uv_cross_section,
                                  reference_ev=photoelectron_reference(mol, params))
     return _passage_nodes(ps)
 
@@ -893,7 +900,7 @@ def _hot_key(mol, z, params, temperature_k, ion):
         return h.hexdigest()[:20]
     w = impact.w_grid()
     for v in (tuple(sorted(mol.ionisation_ev.items())), photoelectron_reference(mol, params), HOT_T_SPAN, HOT_N_T,
-              photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION):
+              photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION, photo.uv_model_key(params.uv_cross_section)):
         _feed(h, v)
     for ip, ip2, y, hole in impact_ladder(mol, z, params, CR_DZ_MAX):   # every state the passages ionise through
         _feed(h, (ip, ip2))
@@ -919,7 +926,8 @@ def _cr_key(mol, z, params, protons):
     w = impact.w_grid()
     for v in (mol.nc, mol.nh, z, tuple(sorted(mol.ionisation_ev.items())), protons, cosmic_rays.STANDARD_COLUMN,
               photoelectron_reference(mol, params), CR_DZ_MAX, CR_DE_EV, CR_E_MAX_EV, HEAT_NODES_EV,
-              impact.K_AUGER_EXCITATION_EV, photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION):
+              impact.K_AUGER_EXCITATION_EV, photo.PARTITION_NODES, photo.PHOTOELECTRON_PARTITION,
+              photo.uv_model_key(params.uv_cross_section)):
         _feed(h, v)
     for ip, ip2, y, hole in impact_ladder(mol, z, params, CR_DZ_MAX):   # every state the passages ionise through
         _feed(h, (ip, ip2))
@@ -1015,9 +1023,34 @@ def kshell_applies(params, shape):
     return params.kshell == "auger" and _unit_field(shape).energy_ev.max() >= K_GRID[0]
 
 
+def absorption_sigma(nc, z, energy_ev, uv_cross_section="li_draine", sigma_scale=1.0, detach_ea=None):
+    """The absorption cross section [cm^2] of charge z on ``energy_ev``: ``photo.sigma_uv`` times ``sigma_scale``, and for an
+    anion whose EA ``detach_ea`` is given (``_detach_ea``) at least the WD01 photodetachment cross section (eq. 20) that
+    ``statistical_detachment`` takes as its prompt share, which is part of the absorption. Before 2026-11-06 the share was
+    clipped at 1 where it lay above (pahchem audit m8: C24H12- up to 2.9x at 1.5-2.4 eV with the Octopus library, 61x with
+    Li & Draine; none from N_C 96)."""
+    sigma = photo.sigma_uv(nc, z, energy_ev, uv_cross_section) * sigma_scale
+    if detach_ea is None:
+        return sigma
+    from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
+
+    return np.maximum(sigma, photodetachment_cross_section_vec(np.asarray(energy_ev, dtype=float), detach_ea, -1))
+
+
+def _detach_ea(mol, z, params):
+    """The EA ``absorption_sigma`` raises the anion's absorption with: with ``Params.detachment`` "statistical" or
+    "valence" (WD01's prompt photodetachment), else None."""
+    return float(mol.ionisation_ev[-1]) if z == -1 and params.detachment in ("statistical", "valence") else None
+
+
+def state_sigma(mol, z, params, energy_ev=E_PH):
+    """``absorption_sigma`` of charge z of ``mol`` under ``params``."""
+    return absorption_sigma(mol.nc, z, energy_ev, params.uv_cross_section, params.sigma_scale, _detach_ea(mol, z, params))
+
+
 def valence_sigma(mol, z, params, shape):
     """The state's cross section on E_PH less its C 1s part when that has its own branching (``kshell_applies``)."""
-    sigma = photo.sigma_uv(mol.nc, z, E_PH, params.uv_cross_section) * params.sigma_scale
+    sigma = state_sigma(mol, z, params)
     if kshell_applies(params, shape):
         sigma = sigma - sigma_kshell(mol.nc, params, E_PH) * params.sigma_scale
     return sigma
@@ -1095,7 +1128,8 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
     removal of a valence electron too. Any grid works, also below 5 eV, where the photons above the EA detach too.
 
     - Prompt: the WD01 photodetachment cross section (eq. 20, ``shared_physics.photodetachment_cross_section_vec``,
-      threshold EA), as a share of the absorption; the electron takes E - EA.
+      threshold EA), as a share of the absorption (``absorption_sigma``, at least that cross section); the electron takes
+      E - EA.
     - Valence (``valence``): of the other absorptions, a share y_v leaves promptly with a valence electron, the
       neutral left excited: WD01's valence-band photoemission of a negative grain (their eq. 2 and Sect. 2), with
       pahchem's photoionisation yield (``photo.yield_jochims1996``) above ``anion_valence_threshold`` and the
@@ -1120,9 +1154,8 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
         lyman = E_PH_FUV[-1]
         lo = grid <= lyman
         E = np.append(grid[lo], lyman)                    # with 13.6 eV, where the EUV ramp starts
-        sigma = photo.sigma_uv(mol.nc, -1, E, params.uv_cross_section) * params.sigma_scale
-        y_p = np.clip(np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma,
-                                out=np.zeros_like(E), where=sigma > 0), 0.0, 1.0)
+        sigma = absorption_sigma(mol.nc, -1, E, params.uv_cross_section, params.sigma_scale, ea)
+        y_p = np.divide(photodetachment_cross_section_vec(E, ea, -1), sigma, out=np.zeros_like(E), where=sigma > 0)
         # not kept after: its arrays are ~0.5 MB a molecule (0.4 GB for v4.00), and the result is cached by grid
         at = Attachment(mol.species[0], mol.species[-1], ea, chemistry.disc_radius_cm(mol.nc),
                         e_excess_cm=(lyman - ea + 0.5) * dos.CM_PER_EV, grain_cm=grain_cm, capture_fraction=f_att)
@@ -1250,15 +1283,15 @@ def capture_energy(mol, z, temperature_k):
 CAPTURE_STOP_EV = np.geomspace(1.0, 1.0e5, 41)
 
 
-def capture_stopping(mol, z):
+def capture_stopping(mol, z, params=Params()):
     """P_stop on CAPTURE_STOP_EV: the probability that an electron arriving on charge z with that kinetic energy at
     infinity loses enough crossing the molecule to stay (``impact.stopping_probability``): its energy at infinity, or on
     an anion all it has at the surface. Its collisions are at the impact energy (``impact.coulomb_focus``), with z's
-    threshold for Kim's scaling, as in ``hot_passages``."""
+    threshold for Kim's scaling and the oscillator strengths of ``Params.uv_cross_section``, as in ``hot_passages``."""
     u = -float(z) * impact.E2_EV_CM / impact.disc_radius_cm(mol.nc)       # the electron's potential energy there
     ip = _ladder_ip(mol, z)
     w = impact.w_grid()
-    df = impact.oscillator_strength(mol.nc, mol.nh, z, w)
+    df = impact.oscillator_strength(mol.nc, mol.nh, z, w, params.uv_cross_section)
     out = np.zeros(CAPTURE_STOP_EV.size)
     for i, e in enumerate(CAPTURE_STOP_EV):
         t = e - u
@@ -1308,9 +1341,10 @@ def ion_up_rate(mol, z, env, params=Params()):
     Anions: mutual neutralisation with every ion (``chemistry.mutual_neutralisation``). Neutrals: the ion-neutral
     reaction (``chemistry.ion_neutral_rate``) for ions whose atom's IP exceeds the molecule's, plus the [M-PAH]+
     adducts of ``chemistry.ADDUCT_IONS`` below it if ``Params.metal_adducts``. Cations and above: none without
-    ``Params.hot_gas`` (a Coulomb barrier, below ~1e4 K); with it the exothermic transfers (the atom's IP above the
-    state's threshold) of ``chemistry.ion_cation_transfer`` (anchored on H+ + C60, Moretto-Capelle+04); out of the top
-    state it is an overflow (``chain_overflow``, pahchem audit m10). Endothermic ones are not followed.
+    ``Params.hot_gas`` (a Coulomb barrier, below ~1e4 K); with it the transfers of ``chemistry.ion_cation_transfer``
+    (anchored on H+ + C60, Moretto-Capelle+04): exothermic where the atom's IP lies above the state's threshold, and
+    endothermic below it, by the threshold law (``deficit_ev``, the user's choice of 2026-11-06; before, they were not
+    followed). Out of the top state it is an overflow (``chain_overflow``, pahchem audit m10).
     """
     up = 0.0
     for ion, n in getattr(env, "ions", ()):
@@ -1319,9 +1353,29 @@ def ion_up_rate(mol, z, env, params=Params()):
         elif z == 0:
             if chemistry.IONS[ion][1] > mol.ionisation_ev[0] or (params.metal_adducts and ion in chemistry.ADDUCT_IONS):
                 up += n * chemistry.ion_neutral_rate(mol.nc, mol.nh, ion, params.ion_neutral_efficiency)
-        elif z >= 1 and params.hot_gas and chemistry.IONS[ion][1] > state_threshold(mol, z):
-            up += n * chemistry.ion_cation_transfer(mol.nc, mol.nh, z, ion, env.temperature_k)
+        elif z >= 1 and params.hot_gas:
+            up += n * chemistry.ion_cation_transfer(mol.nc, mol.nh, z, ion, env.temperature_k,
+                                                    deficit_ev=transfer_deficit(mol, z, ion))
     return up
+
+
+def transfer_deficit(mol, z, ion):
+    """[eV]: by how much ``ion``'s charge transfer onto charge z (z >= 1) is endothermic, the state's threshold less the
+    atom's IP; 0 if it is exothermic."""
+    return max(float(state_threshold(mol, z)) - chemistry.IONS[ion][1], 0.0)
+
+
+def transfer_cooling(mol, z, env, params=Params()):
+    """[eV s^-1]: what the endothermic transfers out of charge z (``ion_up_rate``) take from the gas, each its deficit
+    (``transfer_deficit``) from the pair's kinetic energy; the product keeps none of it."""
+    if z < 1 or not params.hot_gas:
+        return 0.0
+    out = 0.0
+    for ion, n in getattr(env, "ions", ()):
+        d = transfer_deficit(mol, z, ion)
+        if d > 0.0:
+            out += n * d * chemistry.ion_cation_transfer(mol.nc, mol.nh, z, ion, env.temperature_k, deficit_ev=d)
+    return out
 
 
 def env_field(env):
@@ -1352,7 +1406,7 @@ def charge_fractions(mol, env, params=Params()):
     zs = mol.charges
     f = {zs[0]: 1.0}
     for z in zs[:-1]:
-        sigma = photo.sigma_uv(mol.nc, z, E_PH, params.uv_cross_section) * params.sigma_scale
+        sigma = state_sigma(mol, z, params)
         up = photo.ionisation_rate(field_, sigma, _yield(mol, z, params), E_PH)
         if z == -1:
             up += anion_associative_detachment(params) * env.n_h
@@ -1541,6 +1595,8 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
                 ionising_heat=bool(params.ionising_photons_heat),
                 # the UV cross section enters the inputs (and the key) unless it is Li & Draine's, the bases before 2026-10-26
                 **({"uv_cross_section": photo.uv_model_key(params.uv_cross_section)} if params.uv_cross_section != "li_draine" else {}),
+                # the anion's absorption raised to its photodetachment (``absorption_sigma``; enters the key only then)
+                **({"detach_ea": _detach_ea(mol, z, params)} if _detach_ea(mol, z, params) is not None else {}),
                 # only then does the electron's share enter the basis (and its key)
                 **({"electron_ev": electron_energy(mol, z, params)} if params.ionising_photons_heat else {}))
 
@@ -1823,12 +1879,12 @@ def _bare_rates(freqs, E, counts, pick, beta, channels):
 
 
 def bare_loss_table(freqs, einstein_a, channels, nc, z, yield_, shape, sigma_scale, threshold_ev, ionising_heat=False,
-                    electron_ev=None, uv_cross_section="li_draine"):
+                    electron_ev=None, uv_cross_section="li_draine", detach_ea=None):
     """{channel: rate [s^-1] on K_H_G0_GRID} of the bare skeleton (``freqs``, ``einstein_a``) at charge z under ``shape``:
     its ``bare_channels`` competing in its multiphoton cascade, heated as the state (its sigma, yield and deposits); the
     ceiling rises as ``_loss_tables``' does. Top-level, so it runs in worker processes."""
     field1 = _unit_field(shape)
-    sigma = photo.sigma_uv(nc, z, E_PH, uv_cross_section) * sigma_scale
+    sigma = absorption_sigma(nc, z, E_PH, uv_cross_section, sigma_scale, detach_ea)
     e_dep = deposit_grid(field1, sigma, yield_)
     h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev, e_dep)
     if not np.any(h > 0.0):                          # no photon deposits (X-rays only): no photon-driven destruction
@@ -1853,7 +1909,8 @@ def _bare_inputs(mol, z, shape, de_cm, e_max_cm, params):
     """``bare_loss_table``'s inputs for state z of ``mol`` under ``shape``."""
     inp = _basis_inputs(mol, z, shape, de_cm, e_max_cm, params)
     sp = bare_species(mol, z)
-    keep = ("nc", "z", "yield_", "shape", "sigma_scale", "threshold_ev", "ionising_heat", "electron_ev", "uv_cross_section")
+    keep = ("nc", "z", "yield_", "shape", "sigma_scale", "threshold_ev", "ionising_heat", "electron_ev", "uv_cross_section",
+            "detach_ea")
     return {k: inp[k] for k in keep if k in inp} | dict(freqs=np.asarray(sp.freqs_cm, dtype=float),
                                                         einstein_a=np.asarray(sp.einstein_a, dtype=float),
                                                         channels=bare_channels(mol, params))
@@ -1893,13 +1950,13 @@ def bare_event_yields(freqs, einstein_a, channels, e_max_ev):
 
 
 def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev, threshold_ev,
-                   ionising_heat, electron_ev, uv_cross_section="li_draine"):
+                   ionising_heat, electron_ev, uv_cross_section="li_draine", detach_ea=None):
     """(h(e_dep), k_up, recombination power, CascadeModel, start, e_dep) of one state at G0 = 1, e_dep its
     ``deposit_grid``; the model and start are None when nothing is left to emit (every absorption ionises or
     detaches, and no recombination heats). The cascade reaches ``e_max_cm``, or 0.5 eV above the state's hardest
     deposit and its recombination energy where those lie higher (highly charged states)."""
     field1 = _unit_field(shape)
-    sigma = photo.sigma_uv(nc, z, E_PH, uv_cross_section) * sigma_scale
+    sigma = absorption_sigma(nc, z, E_PH, uv_cross_section, sigma_scale, detach_ea)
     e_dep = deposit_grid(field1, sigma, yield_)
     h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev, e_dep)
     k_up = float(photo.ionisation_rate(field1, sigma, yield_, E_PH))
@@ -1927,14 +1984,16 @@ def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sig
 
 
 def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev=0.0,
-                                threshold_ev=0.0, ionising_heat=False, electron_ev=None, uv_cross_section="li_draine", **_):
+                                threshold_ev=0.0, ionising_heat=False, electron_ev=None, uv_cross_section="li_draine",
+                                detach_ea=None, **_):
     """W[class, T bin]: how each mode class's IR power is spread over emission temperature (``band_conventions``)
     for the state of these ``_basis_inputs`` (N_H0; the dehydrogenated states take the same shares). The cascade
     of ``build_state_basis``, followed per bin; zeros when the state does not emit."""
     from pycalima.pahchem import band_conventions as bc
 
     _, _, _, cm, start, _ = _cascade_start(np.asarray(freqs, dtype=float), einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
-                                           sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev, uv_cross_section)
+                                           sigma_scale, recomb_ev, threshold_ev, ionising_heat, electron_ev, uv_cross_section,
+                                           detach_ea)
     if cm is None:
         return np.zeros((bc.N_CLASSES, bc.T_MID.size))
     X = emission.emission_by_energy(cm, start)
@@ -1943,7 +2002,7 @@ def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, 
 
 def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
                       ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
-                      electron_ev=None, uv_cross_section="li_draine", extras=()):
+                      electron_ev=None, uv_cross_section="li_draine", extras=(), detach_ea=None):
     """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
 
     ``recomb_ev`` is the energy each recombination (attachment) into this state
@@ -1951,7 +2010,7 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
     """
     h, k_up, recomb_power, cm, start, e_dep = _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm,
                                                              sigma_scale, recomb_ev, threshold_ev, ionising_heat,
-                                                             electron_ev, uv_cross_section)
+                                                             electron_ev, uv_cross_section, detach_ea)
     if cm is None:                                     # every absorption ionises or detaches: nothing to emit
         return StateBasis(np.asarray(freqs, dtype=float), np.zeros(len(freqs)), k_up,
                           np.zeros(K_H_G0_GRID.size), 0.0)
@@ -2475,7 +2534,7 @@ class Population:
             k = np.zeros((len(self.library), len(self.zs)))
             for s, mol in enumerate(self.library):
                 for z in self._live_charges(mol, shape):
-                    sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+                    sigma = state_sigma(mol, z, self.p)
                     k[s, z - self.zmin] = photo.ionisation_rate(field1, sigma, _yield(mol, z, self.p), E_PH)
             self._arrays[key] = k
         return self._arrays[key]
@@ -3124,23 +3183,25 @@ class Population:
                 for z in mol.charges[1:]:
                     a[s, z - self.zmin] = capture_coefficient(mol, z, temperature_k, self.p)
                     if self.p.hot_gas:                           # a fast electron must lose its energy to stay
-                        a[s, z - self.zmin] *= capture_stop_factors(mol, z, t, self.p, mol._cache[("stop", z)])[0]
+                        a[s, z - self.zmin] *= capture_stop_factors(mol, z, t, self.p,
+                                                                    mol._cache[("stop", z, self.p.uv_cross_section)])[0]
             self._capture[t] = a
         return self._capture[t]
 
     def prepare_stopping(self, workers=None):
         """``capture_stopping`` of every state that captures (field- and temperature-independent), in parallel."""
-        todo = [(mol, z) for mol in self.library for z in mol.charges[1:] if ("stop", z) not in mol._cache]
+        uv = self.p.uv_cross_section
+        todo = [(mol, z) for mol in self.library for z in mol.charges[1:] if ("stop", z, uv) not in mol._cache]
         workers = default_workers(workers)
         if workers > 1 and len(todo) > 2:
             from concurrent.futures import ProcessPoolExecutor
 
             with ProcessPoolExecutor(max_workers=workers) as ex:
-                for (mol, z), r in zip(todo, ex.map(_build_stop, [(replace(m, _cache={}), z) for m, z in todo])):
-                    mol._cache[("stop", z)] = r
+                for (mol, z), r in zip(todo, ex.map(_build_stop, [(replace(m, _cache={}), z, self.p) for m, z in todo])):
+                    mol._cache[("stop", z, uv)] = r
         else:
             for mol, z in todo:
-                mol._cache[("stop", z)] = capture_stopping(mol, z)
+                mol._cache[("stop", z, uv)] = capture_stopping(mol, z, self.p)
 
     # -- an environment --------------------------------------------------------------------------
     def charge_matrix(self, env):
@@ -3200,8 +3261,8 @@ class Population:
     def _ion_heat(self, env):
         """{(s, slot): [(node, k)]} [s^-1 per molecule in the slot]: the ions' exothermic charge transfer onto its cation
         (``Params.hot_gas``, ``ion_up_rate``) leaves IP(X) - IP(PAH^z) in the product z + 1 (the user's choice of
-        2026-11-05), split between the two HEAT_NODES_EV about it keeping its mean (its "heat" responses); the last
-        CHAIN_MEMO environments are kept."""
+        2026-11-05), split between the two HEAT_NODES_EV about it keeping its mean (its "heat" responses); an endothermic
+        one leaves nothing (its deficit is the gas's, ``transfer_cooling``). The last CHAIN_MEMO environments are kept."""
         if env not in self._ion_heats:
             heat = {}
             if self.p.hot_gas:
@@ -3306,7 +3367,7 @@ class Population:
             G, A = np.zeros((n, m)), np.zeros((n, m))
             for s, mol in enumerate(self.library):
                 for z in self._live_charges(mol, shape):
-                    sigma = photo.sigma_uv(mol.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
+                    sigma = state_sigma(mol, z, self.p)
                     i = z - self.zmin
                     A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
                     sigma = self._valence_sigma(mol, z, shape)     # the C 1s electrons are added below (kshell_rates)
@@ -3361,7 +3422,8 @@ class Population:
                 for z in mol.charges[1:]:
                     E[s, z - self.zmin] = capture_energy(mol, z, t)
                     if self.p.hot_gas:
-                        E[s, z - self.zmin] *= capture_stop_factors(mol, z, t, self.p, mol._cache[("stop", z)])[2]
+                        E[s, z - self.zmin] *= capture_stop_factors(mol, z, t, self.p,
+                                                                    mol._cache[("stop", z, self.p.uv_cross_section)])[2]
             self._capture[key] = E
         return self._capture[key]
 
@@ -3399,7 +3461,8 @@ class Population:
           and ions' passages take from the gas: the heat they leave in the molecule (``_hot_rates`` power) and the
           ionisation work of their charge steps, IP(z) + ... + IP(z+j-1) for +j (the ejected electrons' kinetic energy
           returns to the gas). The stopped electrons' energy is here, not in ``lambda_rec`` (pahchem audit M2: it was
-          1.6-112x lambda_rec for C54H18 and C216H36 at 1e5-1e7 K, and not reported);
+          1.6-112x lambda_rec for C54H18 and C216H36 at 1e5-1e7 K, and not reported). With ``env.ions`` also the
+          deficits of the endothermic charge transfers onto cations (``transfer_cooling``);
         - ``f``: the charge fractions [s, slot] over ``self.zs``.
 
         H2 formation on PAHs is not here: it needs the hydrogenation network (``network.PAHNetwork``).
@@ -3447,7 +3510,11 @@ class Population:
                     i = z - self.zmin
                     cum = np.cumsum([_ladder_ip(mol, z + q) for q in range(hot["k"].shape[0])])
                     work[s_, i] = float(hot["k"][:, s_, i] @ cum)
-            lam_coll = (f * (hot["power"] + work)).sum(axis=1) * chemistry.EV_ERG
+            cool = np.zeros_like(f)
+            for s_, mol in enumerate(self.library):
+                for z in mol.charges:
+                    cool[s_, z - self.zmin] = transfer_cooling(mol, z, env, self.p)
+            lam_coll = (f * (hot["power"] + work + cool)).sum(axis=1) * chemistry.EV_ERG
         return {"alpha_mn": alpha_mn, "alpha_ct": alpha_ct, "alpha_ct_cations": alpha_cat, "proton_source": float(x @ protons),
                 "carbon_accretion": 0.4 * alpha_ct.get("C+", 0.0),
                 "electron_source": float(x @ ((f * photo_up).sum(axis=1) - (f * capture).sum(axis=1) + stay * freed)),

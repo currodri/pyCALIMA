@@ -15,10 +15,13 @@ from pycalima.pahchem import photo
 PARENTS = [(24, 12), (54, 18), (96, 24)]
 
 
+@pytest.mark.parametrize("uv_model", ["li_draine", "octopus_library"])
 @pytest.mark.parametrize("nc,nh", PARENTS)
-def test_oscillator_strength_obeys_the_trk_sum_rule(nc, nh):
+def test_oscillator_strength_obeys_the_trk_sum_rule(nc, nh, uv_model):
+    """With either UV model below its join to Henke's atoms (``im.join_ev``): the population's collisions take its photons'
+    (pahchem audit m6)."""
     w = im.w_grid()
-    total = np.trapezoid(im.oscillator_strength(nc, nh, 0, w), w)
+    total = np.trapezoid(im.oscillator_strength(nc, nh, 0, w, uv_model), w)
     assert total == pytest.approx(6 * nc + nh, rel=0.05)
 
 
