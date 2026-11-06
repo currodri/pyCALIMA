@@ -431,8 +431,8 @@ def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
 
 
 def test_c2h2_loss_and_proton_emission_open_where_their_physics_allows():
-    """``population.loss_extras``: C2H2 loss only for skeletons with catacondensed end rings (quartet H), proton emission only
-    from Z >= +1 over max(the ladder's H+ dissociation energy, ``impact.fission_barrier``). For a compact closed-shell PAH
+    """``population.loss_extras``: C2H2 loss only for skeletons with catacondensed end rings (quartet H) and only from
+    Z >= +1, where it was measured (pahchem audit m9), proton emission only from Z >= +1 over max(the ladder's H+ dissociation energy, ``impact.fission_barrier``). For a compact closed-shell PAH
     of 20-32 C at +4 the barrier (< 4.1 eV) is below the H loss's 4.41 eV, so a hot deposit sheds more protons than H atoms
     (a radical's weakest C-H, 3.16 eV, would not); the extra
     sinks compete, and never raise the H-loss yield of the same deposit."""
@@ -446,7 +446,8 @@ def test_c2h2_loss_and_proton_emission_open_where_their_physics_allows():
     cata = next(m for m in lib if m.edges.get("quartet", 0) > 0)
     peri = next(m for m in lib if m.edges.get("quartet", 0) == 0 and 20 <= m.nc <= 32 and m.nh % 2 == 0)   # closed shell
     names = lambda m, z: [c[0] for c in population.loss_extras(population.extend_ladder(m), z, m.nh, p)]   # noqa: E731
-    assert "C2H2" in names(cata, 0) and "C2H2" not in names(peri, 0)
+    assert "C2H2" in names(cata, 1) and "C2H2" in names(cata, 2) and "C2H2" not in names(peri, 1)
+    assert "C2H2" not in names(cata, 0) and "C2H2" not in names(cata, -1)
     assert "Hp" not in names(peri, 0) and "Hp" in names(peri, 1)
     cor = population.extend_ladder(peri)
     hp = dict((c[0], c) for c in population.loss_extras(cor, 4, cor.nh, p))["Hp"]
@@ -541,8 +542,9 @@ def test_hot_gas_electrons_ionise_and_strip_only_where_the_gas_is_hot():
 def test_hot_gas_bounds_the_capture_of_fast_electrons_and_lets_ions_ionise_cations():
     """``capture_stop_factors``: a captured electron must lose its energy in the molecule (WD01 Sect. 3.1), so in hot gas
     the capture falls with T (nothing changes at 1e3-1e4 K) and the electrons captured are slower than those arriving.
-    ``ion_up_rate``: with ``Params.hot_gas`` the ions take electrons from cations whose threshold lies below the atom's IP
-    (He+ up to 24.6 eV, H+ to 13.6 eV), and none without it."""
+    ``ion_up_rate``: with ``Params.hot_gas`` the ions take electrons from cations, by ``chemistry.ion_cation_transfer``
+    with the endothermic deficit above the atom's IP (He+ 24.6 eV, H+ 13.6 eV), and none without it."""
+    from pycalima.pahchem import chemistry
     from pycalima.pahchem.baseline import Params
 
     mol = next(m for m in _library() if m.name == "C54H18 (37)")
@@ -557,8 +559,91 @@ def test_hot_gas_bounds_the_capture_of_fast_electrons_and_lets_ions_ionise_catio
     for z in mol.charges[1:-1]:
         thr = population.state_threshold(mol, z)
         for ion, ip in (("H+", 13.598), ("He+", 24.587)):
-            assert (population.ion_up_rate(mol, z, hot(ion), p) > 0.0) == (thr < ip)
+            if z < 1:                                               # the ion-neutral reaction, exothermic only
+                assert (population.ion_up_rate(mol, z, hot(ion), p) > 0.0) == (thr < ip)
+                continue
+            k = chemistry.ion_cation_transfer(mol.nc, mol.nh, z, ion, 1e6, deficit_ev=max(thr - ip, 0.0))
+            assert population.ion_up_rate(mol, z, hot(ion), p) == pytest.approx(k, rel=1e-12) and k > 0.0
             assert population.ion_up_rate(mol, z, hot(ion), Params()) == 0.0
+
+
+def test_endothermic_ion_transfer_follows_the_threshold_law():
+    """``chemistry.ion_cation_transfer``'s ``deficit_ev``: a deficit the Coulomb barrier's energy covers changes nothing
+    (the ion leaves neutral, so that energy comes back); above it the rate falls with the deficit, by at most
+    (1 + y) e^-y with y = (deficit - barrier) / kT, and less so in hotter gas. ``transfer_cooling`` takes each deficit
+    from the gas: zero for exothermic transfers and without hot gas."""
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.baseline import Params
+
+    nc, nh, z = 54, 18, 3
+    theta = chemistry.ds87_barrier_ev(nc, z)
+    for T in (1e5, 1e6):
+        k0 = chemistry.ion_cation_transfer(nc, nh, z, "H+", T)
+        assert chemistry.ion_cation_transfer(nc, nh, z, "H+", T, deficit_ev=0.9 * theta) == k0
+        d = theta + np.array([0.5, 2.0, 5.0, 10.0])
+        k = np.array([chemistry.ion_cation_transfer(nc, nh, z, "H+", T, deficit_ev=x) for x in d])
+        y = (d - theta) / (chemistry.KB_EV * T)
+        assert np.all(np.diff(k) < 0.0) and np.all(k < k0)
+        eps = np.array([chemistry.capture_efficiency_mean(nc, nh, z, "H+", T, deficit_ev=x) for x in d])
+        eps0 = chemistry.capture_efficiency_mean(nc, nh, z, "H+", T)
+        np.testing.assert_allclose(k / k0, (1.0 + y) * np.exp(-y) * eps / eps0, rtol=1e-12)
+        assert np.all(eps <= eps0)                                  # the faster ions that remain capture less
+    ratio = [chemistry.ion_cation_transfer(nc, nh, z, "H+", T, deficit_ev=theta + 5.0) / chemistry.ion_cation_transfer(
+        nc, nh, z, "H+", T) for T in (1e5, 1e6, 1e7)]
+    assert ratio[0] < ratio[1] < ratio[2] < 1.0
+
+    mol = next(m for m in _library() if m.name == "C54H18 (37)")
+    hot = Environment("hot", 1.0, 1e-4, 1.0, 1e6, None, optical_isrf=0.0, ions=(("H+", 1.0),))
+    for q in mol.charges:
+        d = population.transfer_deficit(mol, q, "H+") if q >= 1 else 0.0
+        cool = population.transfer_cooling(mol, q, hot, Params(hot_gas=True))
+        assert cool == (pytest.approx(d * population.ion_up_rate(mol, q, hot, Params(hot_gas=True)), rel=1e-12)
+                        if d > 0.0 else 0.0)
+        assert population.transfer_cooling(mol, q, hot, Params()) == 0.0
+
+
+def test_collisions_take_the_photons_cross_section_and_key_on_it():
+    """pahchem audit m6: the cosmic-ray, escape-table and hot-electron collisions and the capture's stopping use the
+    molecule's photon cross section (``Params.uv_cross_section``) below ``impact.join_ev``, and their cache keys hold it."""
+    from pycalima.pahchem import impact, photo
+    from pycalima.pahchem.baseline import Params
+
+    mol = next(m for m in _all_anions() if m.name == "C54H18 (37)")
+    ld, oc = Params(uv_cross_section="li_draine"), Params()
+    for key in (lambda p: population._cr_key(mol, 0, p, "L"), lambda p: population._escape_key(mol, 0, p),
+                lambda p: population._hot_key(mol, 0, p, 1e6, None)):
+        assert key(ld) != key(oc)
+    w = impact.w_grid()
+    lo = w < impact.join_ev(oc.uv_cross_section)
+    np.testing.assert_array_equal(impact.oscillator_strength(mol.nc, mol.nh, 1, w, oc.uv_cross_section)[lo],
+                                  impact.F_PER_CM2_EV * photo.sigma_uv(mol.nc, 1, w[lo], oc.uv_cross_section))
+    assert not np.allclose(population.capture_stopping(mol, 1, ld), population.capture_stopping(mol, 1, oc))
+
+
+def test_an_anion_absorbs_at_least_what_it_photodetaches():
+    """``absorption_sigma`` (pahchem audit m8): WD01's photodetachment is part of the anion's absorption, which is raised
+    to it where it lies below, so its prompt share needs no clip (C24H12-, EA 0.48 eV, was clipped with the Octopus
+    library); the other charges, and detachment models that do not use it, keep ``photo.sigma_uv``. Only the anion's
+    basis inputs carry the EA."""
+    from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec as det
+    from pycalima.pahchem import photo
+    from pycalima.pahchem.baseline import Params
+
+    E = population.E_PH
+    sigma = photo.sigma_uv(24, -1, E, "octopus_library")
+    assert np.any(det(E, 0.48, -1) > sigma)
+    np.testing.assert_array_equal(population.absorption_sigma(24, -1, E, "octopus_library", 1.0, 0.48),
+                                  np.maximum(sigma, det(E, 0.48, -1)))
+    mol = next(m for m in _all_anions() if m.name == "C54H18 (37)")
+    p = Params()
+    lo = E <= 13.6
+    prompt = det(E, mol.ionisation_ev[-1], -1)
+    assert np.all((population._yield(mol, -1, p) * population.state_sigma(mol, -1, p))[lo] >= prompt[lo] * (1.0 - 1e-12))
+    for z, q in ((0, p), (-1, Params(detachment="jochims"))):
+        assert population._detach_ea(mol, z, q) is None
+        np.testing.assert_array_equal(population.state_sigma(mol, z, q), photo.sigma_uv(mol.nc, z, E, q.uv_cross_section))
+    inp = {z: population._basis_inputs(mol, z, ("draine",), 10.0, 4.0e5, p) for z in (-1, 0)}
+    assert inp[-1]["detach_ea"] == mol.ionisation_ev[-1] and "detach_ea" not in inp[0]
 
 
 def test_ions_take_electrons_from_cations_at_the_c60_capture_and_leave_the_exothermicity_as_heat():

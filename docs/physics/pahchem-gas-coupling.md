@@ -564,6 +564,14 @@ higher charges, as before). In the population every molecule runs from its lowes
     passage, distant ionisations leaving the photons' mean hole (`impact.deposition`, partition "measured", the
     default since 2026-11-04 instead of "uniform"; the C 1s escape tables use it too; on an anion, its
     photodetachment's hole, pahchem audit m7).
+    - **The photons' oscillator strengths** (pahchem audit m6, 2026-11-06). Below `impact.join_ev` the collisions take
+      the molecule's photon cross section (`Params.uv_cross_section`), and Henke's atoms above: the Octopus library to
+      130 eV, where its own hand-over to the scaled atoms ends (its TD-LDA is 1.3–1.46× the atoms at 40–70 eV, as
+      measured benzene is), Li & Draine to 40 eV. The cosmic-ray passages, the hot electrons, the C 1s escape tables
+      and the captures' stopping use it, and their cache keys hold the model. Before, every collision took Li & Draine
+      (0.72–0.93 of Octopus below 13.6 eV). With Octopus, int f dW is 0.97–1.00 of 6 N_C + N_H for C24–C216 (0.95–0.98
+      at C14), against Li & Draine's 0.93–1.01, and Bethe's I rises from 59 to 61–64 eV. The library's window ringing,
+      which made negative collision probabilities below the gap, is removed where the library is built ({doc}`pahchem-uv-absorption` §4a).
     - **Each collision at the charge reached** (pahchem audit M1, 2026-11-05). The (n+1)-th collision of a passage, after
       k ionisations, uses charge z + k's oscillator strengths, IP and yield (`population.impact_ladder`,
       `impact._poisson_chain`: Poisson uniformisation over the states, rates relative to the largest cross section).
@@ -582,6 +590,9 @@ higher charges, as before). In the population every molecule runs from its lowes
   - **Live states.** Every charge is live (more bases).
   - **G0 below 1.** The k_H tables continue their first log-log slope below G0 = 1, for shielded gas.
 - *Per unit ζ_H* (`check_cosmic_rays.py`, C24–C216):
+  - **To be rerun.** The 2026-11-05 numbers below predate the photons' oscillator strengths in the collisions (audit m6)
+    and the library's ringing fix (2026-11-06). Per state those lower the ionising passages by 0–8.5 % (C24 +0 0.98,
+    C54 0.96, C96 0.92) and their heat by 2–6 % (`results/pahchem/audit_open_2026-11-06/m6_effect.txt`).
   - **Ionising passages** (2026-11-05, after the audit's fixes). Neutral C54H18 gets 394 s⁻¹ per s⁻¹ with L through
     10²¹ cm⁻², ⟨dz⟩ 1.10, 4.1 keV of heat; C24 171, C216 1621. Model H gives 0.59–0.64× the ionisations and 0.79–0.81×
     the heat, but 2.1–2.3× more passages beyond. Single ionisations barely move: M1 and C1 act on the multiple ones.
@@ -651,6 +662,11 @@ higher charges, as before). In the population every molecule runs from its lowes
   - **Model.** A channel only for skeletons with catacondensed end rings (PAHdb's quartet H): Ling98's anthracene⁺
     parameters, path degeneracy ½ per end ring, the C–C stretch as reaction coordinate. None for pericondensed parents.
     It destroys the molecule as the library holds it (`Population.loss_rates`).
+  - **Cations and above only** (pahchem audit m9, the user's choice of 2026-11-06, after a literature check). West+18's
+    cations (Table 1: E₀ 2.6–5.2 eV, mean 4.2 eV) and naphthalene⁺ (4.1–4.4 eV) bracket Ling98's 4.50 eV. No barrier is
+    measured or computed for a neutral or an anion. Their hot relatives lose H instead: benzene at 193 nm (99.6 % H),
+    1-naphthol (H only), azulene (isomerises to naphthalene, then H). Dications and above keep the cation's parameters,
+    untested: their observed C₂Hₓ⁺ losses are mostly charge separation. Before, every charge took them.
   - **Deep dehydrogenation: not modelled** (the user's choice, 2026-11-04, after a literature check).
     - **Pyrene.** West+14's DFT (their Table 2) is the only energetics for partly stripped cations. C₂H₂ loss stays at
       ~6.0 eV while the rings are intact: C₁₆H₁₀⁺ 6.02 eV against H loss at 5.10, C₁₆H₈⁺ 6.00 against 4.48. It
@@ -687,6 +703,10 @@ higher charges, as before). In the population every molecule runs from its lowes
     explodes (`chain_overflow`, `destruction_rates["explosions"]`). The redirected steps enter the charge fixed point,
     the protons the hydrogenation chain (one H per event) and `gas_rates["proton_source"]`. Before, every step past the
     top was an explosion that took all N_C carbons.
+    - *Check* (`check_a2_routing.py`, 2026-11-06; X-rays only at G0-equivalent 10⁴, where the large molecules keep
+      their H): C150H30 and C216H36 explode at ~10⁻⁴⁸ s⁻¹ with fission, at 2.9×10⁻¹¹ and 5.4×10⁻¹² s⁻¹ without
+      (lifetimes 1.1×10³ and 5.9×10³ yr); C24H12, at the cold limit, explodes on every step either way. In 10⁷ K gas
+      they are bare skeletons (C130H28: p0 = 1.000), so every step there is rightly an explosion.
   - No astrophysical model prescribes either law:
   - PAH codes truncate (Murga+22: −2 … +8; Montillaud+13: 0, +1).
   - Grain physics (WDB06 §10.2.1, Hoang+15: Coulomb explosion or ion field emission) scales as a² ∝ N_C^(2/3), C216
@@ -882,18 +902,27 @@ higher charges, as before). In the population every molecule runs from its lowes
       arrivals above (M/m_e) I_H).
     - **The exothermicity is heat**: IP(X) − IP(PAH^z) stays in the product z + 1, on its two `HEAT_NODES_EV` about it
       keeping the mean ("heat" responses; `Population._ion_heat`).
-    - Endothermic transfers are not followed. The Massey suppression would rest on Hasted's atomic a ≈ 7 Å, and
-      Rentenier+08's He²⁺ + C₆₀ capture is resonant, so it does not apply.
+    - **Endothermic transfers by the threshold law** (the user's choice of 2026-11-06; not followed before). Where the
+      atom's IP lies below the state's threshold by Δ (`population.transfer_deficit`), the ion leaves neutral, so the
+      Coulomb energy it climbed returns to the pair: its kinetic energy at infinity E must cover Δ, besides crossing
+      DS87's barrier θ. Of the arrivals over θ, a flux (E − θ) e^(−E/kT), those with E ≥ Δ are (1 + y) e^(−y), y =
+      max(Δ − θ, 0)/kT, and ε is their mean (`chemistry.ion_cation_transfer`'s `deficit_ev`). A deficit θ covers changes
+      nothing. The product keeps no energy; the deficit is the gas's (`population.transfer_cooling`, in `lambda_coll`).
+      No Massey suppression is applied: it would rest on Hasted's atomic a ≈ 7 Å, and Rentenier+08's He²⁺ + C₆₀ capture
+      is resonant, so it does not apply.
     - `gas_rates["alpha_ct_cations"]` reports the ions neutralised.
   - **Collisional cooling** (pahchem audit M2, 2026-11-05): `gas_rates["lambda_coll"]` is what the thermal electrons'
     and ions' passages take from the gas, the heat they leave in the molecule and the ionisation work of their charge
-    steps (IP(z) + … + IP(z+j−1) for +j). The audit, before the C1 fix, put it at 1.6–2.4× Λ_rec at 10⁵–3×10⁵ K and
+    steps (IP(z) + … + IP(z+j−1) for +j), and the deficits of the endothermic ion transfers (since 2026-11-06). The
+    audit, before the C1 fix, put it at 1.6–2.4× Λ_rec at 10⁵–3×10⁵ K and
     77–112× at 10⁷ K (C54, C216); `gas_rates` returned Λ_rec alone before. It is not added for the stopped electrons, whose losses are
     already in the passages. A capture's "rec" deposit now holds the captured electron's kinetic energy too, IP +
     `_capture_energy` on `REC_KE_NODES_EV` (0–32 eV), in cold gas as well: Λ_rec took it from the gas while the
     molecule received the IP alone, a leak of 10–25 % of the deposit at 10⁴ K.
   - **Result** (2026-11-05, with the audit's fixes C1, M1, A2 and the ions' capture on C₆₀'s; n_H = n_e = 1,
-    Micelotta's ions):
+    Micelotta's ions). **To be rerun:** it predates m6, the library's ringing fix and the endothermic ion transfers
+    (2026-11-06). Per state, m6 lowers the 10⁶ K electrons' ionising passages by 4–7 % and their heat by 6–13 %
+    (`results/pahchem/audit_open_2026-11-06/m6_effect.txt`):
     - ⟨Z⟩ at 3.2×10⁵ / 10⁶ / 3.2×10⁶ K: C54H18 +2.7 / +8.0 / +9.8, C96H24 +3.1 / +10.6 / +18.2, C216H36 +4.1 /
       +14.7 / +30.3. The tops (+10, +19, +32) are reached from ~3×10⁶ K. Without the bound ⟨Z⟩ was 0–2.
     - Before the fixes (2026-11-04) they were at their tops from 10⁶ K (C216H36 +26.7 at 10⁶ K, C54H18 +3.8 at
@@ -915,10 +944,7 @@ higher charges, as before). In the population every molecule runs from its lowes
       emits a proton (§2.2e, A2).
 - *Not yet:*
   - `PAH_sputtering`'s per-bin tables through pahchem (step 4, deferred by the user);
-  - endothermic ion charge transfer;
   - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
-  - impact's oscillator strengths (Li & Draine + Henke) against the photons' (Octopus), 0.72–0.93 below 13.6 eV (audit
-    m6, not approved);
   - thermal ions' impact ionisation (keV protons at 10⁷–10⁸ K) and doubly charged ions (He²⁺).
 
 ### 2.3 Ion–PAH collisions (new)
@@ -1268,7 +1294,7 @@ radiative P(E) at G₀ = 1; `sticking_neutral=1.0` restores the old behaviour.
 | step | what | where | status |
 |---|---|---|---|
 | 1 | photoelectric heating per state, from the charge balance's rates | `photo.photoelectron_power`, `Population.photoelectric_heating` | done; reproduces Berné+22's code to ≤ 0.3 % with their inputs (`check_berne22_pe_heating.py`; rerun 2026-10-23 after fixing its yield grid for the 5–500 eV `E_PH`) |
-| 1b | anion photodetachment: prompt (WD01 σ_pdt) plus delayed (detailed-balance autodetachment, thermionic electrons); with `"valence"` also the prompt removal of a valence electron above `anion_valence_threshold` | `Params.detachment = "statistical"` or `"valence"`, `population.statistical_detachment`, `Attachment.delayed_detachment` | done, opt-in; C₅₄H₁₈ ε 0.03 (statistical) or 0.045–0.12 (valence) at γ ≤ 10³, instead of 0.15–0.47; only valence passes V14 for C₉₆H₂₄ |
+| 1b | anion photodetachment: prompt (WD01 σ_pdt) plus delayed (detailed-balance autodetachment, thermionic electrons); with `"valence"` also the prompt removal of a valence electron above `anion_valence_threshold` | `Params.detachment = "statistical"` or `"valence"`, `population.statistical_detachment`, `Attachment.delayed_detachment` | done, opt-in; C₅₄H₁₈ ε 0.03 (statistical) or 0.045–0.12 (valence) at γ ≤ 10³, instead of 0.15–0.47; only valence passes V14 for C₉₆H₂₄. Since 2026-11-06 the anion's absorption is at least σ_pdt (`population.absorption_sigma`, pahchem audit m8), which is part of it; the prompt share was clipped at 1 before where σ_pdt lay above (C₂₄H₁₂⁻ up to 2.9× at 1.5–2.4 eV with the Octopus library, none from N_C 96) |
 | 1c | the EUV: 5–500 eV grid (1–500 eV since 2026-10-24, §4d), Y = 1 above 20 eV, measured photoelectron share to 21.9 eV, constant ion internal energy above, deposits into the cascades | `population.E_PH`, `photo.photoelectron_energy`, `population.deposit_spectrum`, `Environment.field_e_max_ev` | done; Lyman-cut fields unchanged (≤ 3×10⁻⁷); top-state ionisations reported by `chain_overflow` |
 | 2 | recombination cooling, kT Λ̃/J̃ per capture | `Population.recombination_cooling` | done |
 | 3 | ion–PAH collisions: mutual neutralisation, ion–neutral reactions, optional adducts | `chemistry.mutual_neutralisation`, `chemistry.ion_neutral_rate`, `population.ion_up_rate`, `Environment.ions` | done |

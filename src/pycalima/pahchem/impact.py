@@ -31,10 +31,12 @@ ln(2 m c^2 beta^2 gamma^2 / I) - beta^2, with ln I = int f ln W / int f.
 Bethe needs no other input. Its validity at low speed is set by the measured
 stopping of polystyrene, an aromatic CH polymer (``low_speed_correction``).
 
-df/dW is the Li & Draine (2001) cross section of the PAH below ``W_JOIN_EV``
-and the Henke et al. (1993) atomic C and H photoabsorption above it. It obeys
-the Thomas-Reiche-Kuhn sum rule int f dW = 6 N_C + N_H to 1-4% for
-C14-C96 (``tests/test_pahchem_impact.py``).
+df/dW is a UV cross section of the PAH (``uv_model``, one of ``photo.UV_CROSS_SECTIONS``:
+Li & Draine 2001 by default; the population passes its photons', ``Params.uv_cross_section``,
+pahchem audit m6) below ``join_ev`` and the Henke et al. (1993) atomic C and H
+photoabsorption above it. It obeys the Thomas-Reiche-Kuhn sum rule
+int f dW = 6 N_C + N_H to 0-4% for C24-C96 (7% at C14) with Li & Draine, and to 0-3% for
+C24-C216 at charges -1 to +3 (2-5% at C14) with the Octopus library (``tests/test_pahchem_impact.py``).
 
 Energies are in eV and cross sections in cm^2.
 """
@@ -63,6 +65,16 @@ F_PER_CM2_EV = 1.0 / (np.pi * R_E_CM * HC_EV_CM)
 #: Li & Draine (2001) below this energy, Henke atomic C+H above (the two agree
 #: to 13% here for C24-C96; 25% at 30 and 50 eV)
 W_JOIN_EV = 40.0
+#: the Octopus library below this energy: where its own hand-over to the scaled atoms ends (80-130 eV,
+#: ``diagnostics/pahchem/octopus/build_library.py``'s E_JOIN), within 1-2% of Henke's there and to 280 eV. Below 80 eV it is
+#: TD-LDA, 1.3-1.46x the atoms at 40-70 eV, as measured benzene is (x1.30); a join at W_JOIN_EV would cut that excess
+#: (f sum 0.94-0.96 of TRK, against 0.98-1.00)
+OCTOPUS_JOIN_EV = 130.0
+
+
+def join_ev(uv_model: str) -> float:
+    """Where ``oscillator_strength`` hands ``uv_model``'s cross section over to Henke's atoms [eV]."""
+    return OCTOPUS_JOIN_EV if str(uv_model).startswith("octopus_library") else W_JOIN_EV
 #: polystyrene (C8H8)n, the STAR reference: I, electrons and mass per C8H8
 POLYSTYRENE = {"I_ev": 68.7, "electrons": 56, "mass_g": 104.15 / 6.02214076e23}
 
@@ -113,14 +125,14 @@ def henke_sigma(element: str, energy_ev) -> np.ndarray:
     return np.where((w >= E[0]) & (w <= E[-1]), out, 0.0)
 
 
-def oscillator_strength(nc: int, nh: int, charge: int, energy_ev) -> np.ndarray:
-    """df/dW [eV^-1] of C_{nc}H_{nh} at charge Z: Li & Draine below W_JOIN_EV,
+def oscillator_strength(nc: int, nh: int, charge: int, energy_ev, uv_model: str = "li_draine") -> np.ndarray:
+    """df/dW [eV^-1] of C_{nc}H_{nh} at charge Z: ``photo.sigma_uv`` of ``uv_model`` below ``join_ev(uv_model)``,
     N_C sigma_C + N_H sigma_H (Henke) above."""
     w = np.asarray(energy_ev, dtype=float)
-    low = w < W_JOIN_EV
+    low = w < join_ev(uv_model)
     sigma = np.empty_like(w)
     if low.any():
-        sigma[low] = photo.sigma_li_draine(nc, charge, w[low])
+        sigma[low] = photo.sigma_uv(nc, charge, w[low], uv_model)
     sigma[~low] = nc * henke_sigma("carbon", w[~low]) + nh * henke_sigma("hydrogen", w[~low])
     return F_PER_CM2_EV * sigma
 
@@ -130,10 +142,10 @@ def w_grid(n: int = 1200, w_min: float = 0.5, w_max: float = 3.0e4) -> np.ndarra
     return np.geomspace(w_min, w_max, n)
 
 
-def mean_excitation_energy(nc: int, nh: int, charge: int = 0, w=None) -> float:
+def mean_excitation_energy(nc: int, nh: int, charge: int = 0, w=None, uv_model: str = "li_draine") -> float:
     """Bethe's I [eV]: ln I = int f ln W dW / int f dW."""
     w = w_grid() if w is None else w
-    f = oscillator_strength(nc, nh, charge, w)
+    f = oscillator_strength(nc, nh, charge, w, uv_model)
     return float(np.exp(np.trapezoid(f * np.log(w), w) / np.trapezoid(f, w)))
 
 
@@ -365,11 +377,11 @@ def low_speed_correction(proj: Projectile, t_ev: float) -> float:
 
 
 def impact_collisions(proj: Projectile, t_ev: float, nc: int, nh: int, charge: int = 0,
-                      ip_ev: float | None = None, w=None) -> Collisions:
-    """``collisions`` on C_{nc}H_{nh}, with the low-speed correction and (for slow
-    electrons, given ``ip_ev``) the binary-encounter scaling applied."""
+                      ip_ev: float | None = None, w=None, uv_model: str = "li_draine") -> Collisions:
+    """``collisions`` on C_{nc}H_{nh} (``oscillator_strength`` of ``uv_model``), with the low-speed correction and (for
+    slow electrons, given ``ip_ev``) the binary-encounter scaling applied."""
     w = w_grid() if w is None else w
-    return collisions(proj, t_ev, oscillator_strength(nc, nh, charge, w), w,
+    return collisions(proj, t_ev, oscillator_strength(nc, nh, charge, w, uv_model), w,
                       correction=low_speed_correction(proj, t_ev), ip_ev=ip_ev)
 
 
@@ -498,16 +510,16 @@ def deposition(coll: Collisions, ip_ev: float, ip2_ev: float, yield_, e_max: flo
 
 
 def impact_rates(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float, spectra, yield_,
-                 t_grid=None, w=None, **kwargs) -> dict:
+                 t_grid=None, w=None, uv_model: str = "li_draine", **kwargs) -> dict:
     """{projectile name: Deposition [s^-1 eV^-1 per molecule]} for ``spectra``.
 
     ``spectra``: [(Projectile, j(T))] with j in particles eV^-1 s^-1 cm^-2 sr^-1
     (``cosmic_rays.projectile_spectra``), integrated as 4 pi int j D dT.
     Single collisions per passage are assumed; ``passage_multiplicity`` says
-    where that fails. ``kwargs`` go to ``deposition``.
+    where that fails. ``uv_model``: ``oscillator_strength``'s. ``kwargs`` go to ``deposition``.
     """
     w = w_grid() if w is None else w
-    df = oscillator_strength(nc, nh, charge, w)
+    df = oscillator_strength(nc, nh, charge, w, uv_model)
     out = {}
     for proj, j in spectra:
         t = (np.geomspace(max(T_MIN_PER_U_EV * proj.nucleons, 1.0e5), 1.0e12 * proj.nucleons, 120)
@@ -926,7 +938,8 @@ def multifragmentation_energy(nc: int, charge) -> np.ndarray:
 
 
 def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float, spectra, yield_,
-                     n_t: int = 48, w=None, t_grid=None, focus: bool = False, ladder=None, **kwargs) -> dict:
+                     n_t: int = 48, w=None, t_grid=None, focus: bool = False, ladder=None, uv_model: str = "li_draine",
+                     **kwargs) -> dict:
     """{projectile name: Passages} with rates per molecule: P [s^-1 eV^-1], and beyond,
     passages and collisions [s^-1], from int j(T) Passages(T) dT.
 
@@ -936,10 +949,11 @@ def passage_spectrum(nc: int, nh: int, charge: int, ip_ev: float, ip2_ev: float,
     ``focus``: the Coulomb focusing of thermal particles on a charged PAH (``coulomb_focus``).
     ``ladder`` = [(IP, IP2, yield[, hole]) with 0, 1, ... charges added]: the collisions after k ionisations are on
     charge ``charge`` + k's oscillator strengths, IP and yield (``passage_outcomes``' chain); None: all at ``charge``.
+    ``uv_model``: ``oscillator_strength``'s.
     """
     w = w_grid() if w is None else w
     ladder = [(ip_ev, ip2_ev, yield_)] if ladder is None else ladder
-    dfs = [oscillator_strength(nc, nh, charge + k, w) for k in range(len(ladder))]
+    dfs = [oscillator_strength(nc, nh, charge + k, w, uv_model) for k in range(len(ladder))]
     out = {}
     for proj, j in spectra:
         if t_grid is not None and proj.name in t_grid:
