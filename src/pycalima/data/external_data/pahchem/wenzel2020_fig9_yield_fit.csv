@@ -1,0 +1,27 @@
+# Wenzel et al. (2020) Fig. 9, read from the vector source (arXiv:2005.02103, figures/PhotoionizationYieldFit.pdf)
+# with diagnostics/pahchem/digitise_vector_figure.py (calibration residual 3e-4 eV, 3e-5 in y).
+# wenzel_eq4: every vertex of their Eq. (4) yield for N_C = 34, 48, 60.
+# jochims96_shifted: end points of the Jochims+96 linear ramps shifted to IP2+ (straight lines; the curve
+#   continues flat at 1 above the last point), as they plot for the comparison of their Sect. 4.2.
+# The text states the Eq. (4) integral from IP2+ to 13.6 eV is +19 % (N_C = 34) and -14 % (N_C = 60)
+# against these ramps; the plotted curves integrate to +25 % and -11 %.
+curve,nc,hnu_ev,y
+wenzel_eq4,34,9.7998,0.0
+wenzel_eq4,34,11.2999,0.3
+wenzel_eq4,34,12.8999,0.3
+wenzel_eq4,34,15.0,0.865
+wenzel_eq4,34,20.0003,0.865
+wenzel_eq4,48,9.0998,0.0
+wenzel_eq4,48,11.2999,0.3
+wenzel_eq4,48,12.8999,0.3
+wenzel_eq4,48,15.0,0.979
+wenzel_eq4,48,20.0003,0.979
+wenzel_eq4,60,8.6997,0.0
+wenzel_eq4,60,11.2999,0.3
+wenzel_eq4,60,12.8999,0.3
+wenzel_eq4,60,15.0,1.0
+wenzel_eq4,60,20.0003,1.0
+jochims96_shifted,34,9.7998,0.0
+jochims96_shifted,34,19.0002,1.0
+jochims96_shifted,60,8.6997,0.0
+jochims96_shifted,60,17.9002,1.0

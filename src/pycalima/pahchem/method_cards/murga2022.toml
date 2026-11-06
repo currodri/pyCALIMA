@@ -1,0 +1,199 @@
+# Method card: Murga, Kirsanova, Wiebe & Boley 2022, MNRAS 509, 800,
+# "Orion Bar as a window to the evolution of PAHs" (arXiv:2111.05583).
+#
+# Conventions as in andrews16.toml: each value has a `source` in the paper and
+# a `confidence` (A experiment, B benchmarked theory, C theory,
+# D extrapolation, E assumption). "not stated" marks what the paper does not
+# give. Sect./Fig./Table numbers are those of the arXiv v1 source (accepted
+# version); Figs. 1-10 and Tables 1-4 in order of appearance, App. A/B tables
+# are A1/B1.
+#
+# The PAH model is Shiva (Murga+2019, MNRAS 488, 965) with the additions of
+# Murga+2020 (MNRAS 497, 2327). This card records only what 2022 states; the
+# rate forms, heating, H/C addition and N_C(a) live in those cards.
+#
+# The model output is public: Figshare doi:10.6084/m9.figshare.14892612.v1
+# (result_marion1_av{,_nodestr,_nodestr60}.dat = models c, b, d;
+# bands_fix_*.dat = band intensities). Layout as read on 2026-10-05:
+# 158 locations; per location 12 charge blocks (Z = 0..9, -1, -2) x 11 output
+# times; each block has a header "counter nH T chi Z" then 5 hydrogenation
+# bins x 10 size bins with columns a[cm] | X_H | n[cm^-3] | Z | f(a, Z).
+# n differs between Z blocks; f(a, Z) is independent of time and X_H.
+# Weighting n by f reproduces Fig. 8 (<a> = 8.9, 8.5, 6.4, 4.7 A at HII, PDR,
+# DF, deep MC at the last time).
+
+[card]
+name = "Murga2022"
+bib_key = "Murga2022"
+citation = "Murga, Kirsanova, Wiebe & Boley 2022, MNRAS 509, 800 (arXiv:2111.05583), doi:10.1093/mnras/stab3061"
+read_from = "arXiv v1 LaTeX source, all sections, Apps. A-B, Figs. 1-10 and A1 viewed; Figshare 14892612 data files (model c parsed in full); Kirsanova & Wiebe 2019 (arXiv:1904.04423) Sect. 2 for the MARION setup"
+status = "draft"
+builds_on = "Shiva: Murga, Wiebe, Sivkova & Akimkin 2019, MNRAS 488, 965 (verified: this is the dust destruction model, not an Orion Bar paper); Murga, Kirsanova, Vasyunin & Pavlyuchenkov 2020, MNRAS 497, 2327 (rates R_H, H, R_C, C)"
+
+[species]
+description = "PAH-size grains binned in mass (C + H) and in hydrogen mass; one population per charge"
+size_range = { value = [3.3, 25.0], unit = "Angstrom", source = "Sect. 3.2", confidence = "E" }
+n_size_bins = { value = 10, unit = "", source = "Sect. 3.2 (N_m = 10)", confidence = "E" }
+size_grid_figshare = "a = 3.3, 5.0, 6.0, 7.0, 7.8, 8.7, 11.7, 14.2, 19.9, 50 A in the Figshare files; the last value contradicts the stated 25 A upper limit"
+n_hydrogenation_bins = { value = 5, unit = "", source = "Sect. 3.2 (N_mH = 5)", confidence = "E" }
+hydrogenation_range = { value = [0.0, 2.5], unit = "X_H / X_H0", source = "Sect. 3.2", confidence = "E" }
+hydrogenation_grid_figshare = "X_H column = 0.357, 0.871, 1.385, 1.899, 2.413, with 1.385 the normal state (initial), i.e. X_H/X_H0 = 0.26, 0.63, 1.0, 1.37, 1.74; Fig. 9 labels the bins X0/3, 2X0/3, X0, 1.5X0, 2X0"
+X_H_definition = "called the C-to-H number ratio in Sect. 3.1, but used as H/C (super-hydrogenated if X_H > X_H0)"
+normal_state = "X_H = X_H0: every peripheral C with a free valence bonded to one H (Sect. 3.1)"
+max_state = "hypothetical: every peripheral C bonded to two H and every inner C to one H (Sect. 3.1)"
+X_H0_of_size = "not stated (Shiva)"
+nc_of_size = "not stated; N_C = 60 is quoted as a ~ 5 A (Sect. 3.1)"
+charges = { value = [-2, 8], unit = "e", source = "Sect. 3.2 (N_Z = 11)", confidence = "E" }
+charges_figshare = "Z = -2..9 (12 states) in the Figshare files"
+structure = "compact PAHs; aliphatic C-H exists only through super-hydrogenation (H-PAHs); no clusters, isomerisation, fullerenes, methyl groups, HAC (Sect. 1, 3.1)"
+initial_state = "all grains in the normal hydrogenation bin (Fig. 8 dotted line; Figshare t = 0)"
+initial_size_distribution = "the MARION dust distribution of Kirsanova & Wiebe 2019 (WD01, R_V = 5.5, PAH = 4% of dust mass), redistributed in space by MARION dust drift: dn/da peaks at the DF (Fig. 6 bottom right; Figshare t = 0)"
+source = "Sect. 3.1, 3.2"
+
+[field]
+shape = "MARION 'M42 inner' field: five massive stars of Ferland+2012 at 0.22 pc (111 arcsec), no photons below 91.2 nm (Kirsanova & Wiebe 2019, Sect. 2)"
+chi_surface = { value = 4.4e4, unit = "Draine 1978 field, 91.2-200 nm", source = "Kirsanova & Wiebe 2019, Sect. 2 and Table 1", confidence = "C" }
+chi_hii_figshare = { value = 4.0e4, unit = "chi (Figshare header, locations in the HII region)", source = "Figshare result files", confidence = "C" }
+chi_definition_sect2 = "Sect. 2.1 describes the Orion Bar field as MMP83 scaled by chi, mean photon energy ~6 eV; which unit chi has in the PAH evolution is not stated (MARION uses Draine)"
+euv_added = "photons above 13.6 eV with the flux of an O6 star added for the HII-region points, because Kirsanova & Wiebe 2019 excluded them (Sect. 3.2); spectrum and normalisation not stated"
+euv_inferred = "the Figshare HII f(a, Z) is reproduced (median <Z> within 0.06 for a <= 14.2 A, max |df| 0.11) by a Kurucz 40000 K EUV above 13.6 eV, matched to the field at 6-13.6 eV and scaled x4 (pahchem.murga_charge.EUV_FACTOR_HII); one factor fits all ten sizes, which a lower n_e cannot. Inference, confidence E"
+attenuation = "from MARION: tau(5000 A) of the drifting dust distribution, A_V/N_H = 5.3e-22 cm^2 for the initial dust (Kirsanova & Wiebe 2019, Sect. 2); PAH evolution uses chi(position) only"
+spectral_shape_vs_depth = "not stated"
+chi_iso_slit = { value = 1.0e4, unit = "chi", source = "Sect. 2.1, item 3 (from Goicoechea+2015 FIR map)", confidence = "C" }
+
+[environment]
+pdr_code = "MARION chemo-dynamical model (Kirsanova+2009), plane-parallel version of Kirsanova & Wiebe 2019 with gas-dust drift (Akimkin+2015, 2017)"
+snapshot = "one MARION time, 'moving stationary' fronts; structure kept fixed during PAH evolution (Sect. 3.2)"
+quantities_used = "T_gas, n_H (atomic), n_H2, n(H) = n_H + n_H2, chi, n_e, n_C+, n_C (Sect. 3.2)"
+profile_figure = "Fig. 6: T_gas, chi, n_C+, n_C (upper left); n_H, n_H2, n(H), n_e (upper right); chi sqrt(T)/n_e and chi/n_H (bottom left); dn/da at 3.3, 5, 8, 12, 20 A (bottom right), all vs distance 110-180 arcsec"
+profile_tabulated = "n_H, T_gas, chi per location in the Figshare headers (158 points); n_e, n_H2, n_C, n_C+ and distance per location only in Fig. 6 (digitise)"
+distance_range = { value = [110.0, 180.0], unit = "arcsec from theta1 Ori C", source = "Sect. 3.2", confidence = "E" }
+n_locations_figshare = { value = 158, unit = "", source = "Figshare description", confidence = "E" }
+if_distance = { value = 113.0, unit = "arcsec", source = "Sect. 2.5, O'Dell 2000", confidence = "A" }
+df_distance = { value = 130.0, unit = "arcsec", source = "Sect. 2.5: DF - IF = 17 arcsec (van der Werf+1996)", confidence = "A" }
+distance_pc = { value = 414.0, unit = "pc", source = "Sect. 1, Menten+2007", confidence = "A" }
+locations = { value = [110.0, 120.0, 129.0, 130.0, 160.0], unit = "arcsec (HII, PDR 1, PDR 2, DF, MC)", source = "Sect. 4", confidence = "E" }
+hii_point_figshare = "n_H = 0 (atomic), T = 8000 K, chi = 4e4"
+pdr1_like_figshare = "n_H ~ 1.1-1.2e4 cm^-3, T ~ 4000-5500 K, chi ~ 3.3e4-1.6e4"
+pdr2_like_figshare = "n_H peak 1.69e5 cm^-3 at T = 1000 K, chi = 3000 (Sect. 4.1: PDR 2 is where n_H peaks)"
+mc_figshare = "n_H = 5.5-80 cm^-3, T = 13-240 K, chi = 110 down to 2e-6"
+mc_total_density = "n(H) ~ 5e4 cm^-3 behind the DF, peak ~1e6 cm^-3 at the DF (Fig. 6, upper right; read off the figure)"
+cosmic_ray_rate = { value = 5.0e-17, unit = "s^-1", source = "Kirsanova & Wiebe 2019, Sect. 2", confidence = "E" }
+dust_temperature = "not stated"
+source = "Sect. 3.2, Fig. 6"
+
+[photophysics]
+absorption_cross_section = "not stated (Shiva)"
+ionisation = "not modelled as a rate; charge from WD01 equilibrium f(Z) (Sect. 3.1)"
+ip = "WD01 generalised IP for an 'average' PAH (Sect. 4.3.3)"
+note = "Sect. 4.3.3 names the WD01 IP as the likely cause of too few neutrals and I7.7/I11.2 2-3x too high"
+
+[heating]
+method = "not stated for the PAH evolution (Shiva / Murga+2020)"
+emission_heating = "dP/dT from DustEM for the synthetic spectra (Sect. 3.2, eq. 8); multiphoton method of Pavlyuchenkov+2012 for the ISO fit (Sect. 2.1, item 3)"
+
+[dissociation]
+rate_form = "not stated in 2022: rates 'depend on E_0 and Delta S' (Shiva, Murga+2020)"
+E0_meaning = "for super-H states E_0 is treated as a yield parameter, not an activation energy (Sect. 3.1)"
+channels = "H, H2, C2H2 or C2 loss (Sect. 3.1); R_H is the net H loss including H in H2 and C2H2"
+r_h_in_model_b = "R_H counts the 2 H of each C2H2 loss while model b keeps the carbon (B = 0): 'R_H is the net rate of detachment of all hydrogen atoms which might be detached from a PAH both separately and also inside hydrogen or acetylene molecules' (Sect. 3.1) with 'b) PAHs can lose hydrogen atoms but cannot lose carbon atoms'. With it the deep-MC step rate is 0.87-1.44x ours (1.5-2.5x without), the step ratio 1.257 (Figshare 1.250; 1.278 without), and every 3.3 A region within 0.03 of Figshare (pahchem.murga2022, 2026-10-06). Reading, confidence D"
+h_loss_normal_dehydro = { E_act = 4.3, dS_cal_K_mol = 11.8, unit = "eV", source = "Table 3, X_H <= X_H0, all Z; 'parameters adopted by Andrews+16' (Sect. 3.1), but Andrews' Table 2 has 4.6/4.1 eV, 10.7/13.3 cal; derivation not stated", confidence = "D" }
+h2_loss = { E_act = 3.52, dS_cal_K_mol = -12.69, unit = "eV", source = "Table 3, X_H <= X_H0 only (= Andrews+16, -53.1 J K^-1 mol^-1)", confidence = "D" }
+c2h2_loss_normal_dehydro = { E_act = 4.6, dS_cal_K_mol = 10.0, unit = "eV", source = "Table 3, X_H <= X_H0, all Z; Micelotta+2010 (Sect. 3.1)", confidence = "D" }
+superh_law = "E_0 = a* X_H/X_H0 + b*, linear; fixed by E_0(X_H0) = normal value and E_0(2 X_H0) (eq. 6, Sect. 3.1)"
+h_loss_superh_anion = { a_star = -2.5, b_star = 6.8, dS_cal_K_mol = 13.3, unit = "eV", source = "Table 3, Z < 0", confidence = "E" }
+h_loss_superh_cation = { a_star = -2.4, b_star = 6.7, dS_cal_K_mol = 13.3, unit = "eV", source = "Table 3, Z > 0", confidence = "E" }
+h_loss_superh_neutral = { a_star = -2.7, b_star = 7.0, dS_cal_K_mol = 13.3, unit = "eV", source = "Table 3, Z = 0", confidence = "E" }
+h_loss_at_2XH0 = { value = [1.8, 1.6, 1.9], unit = "eV (anion, neutral, cation)", source = "Sect. 3.1: 'mean values for solo and duo H' of Andrews+16 (Andrews Table 2 lists 1.4 / 1.55 eV)", confidence = "C" }
+c2h2_loss_superh_anion = { a_star = -2.7, b_star = 7.3, dS_cal_K_mol = 10.0, unit = "eV", source = "Table 3, Z < 0", confidence = "E" }
+c2h2_loss_superh_cation = { a_star = -2.6, b_star = 7.2, dS_cal_K_mol = 10.0, unit = "eV", source = "Table 3, Z > 0", confidence = "E" }
+c2h2_loss_superh_neutral = { a_star = -2.9, b_star = 7.5, dS_cal_K_mol = 10.0, unit = "eV", source = "Table 3, Z = 0", confidence = "E" }
+c2h2_loss_at_2XH0 = { value = [1.9, 1.7, 2.0], unit = "eV (anion, neutral, cation)", source = "Sect. 3.1: fitted so that Shiva yields match Rapacioli+2018 fully hydrogenated coronene (C2H2 yield x50, survival /2)", confidence = "E" }
+h2_loss_superh = "not given ('--' in Table 3)"
+c_loss_size_limit = "four cases (Table 4): a no H or C loss; b H loss only; c H and C loss at all sizes; d C loss only for N_C < 60 (Zhen+2015); limit applied to all hydrogenation states"
+nc_limit_case_d = { value = 60, unit = "C atoms", source = "Sect. 3.1, Table 4", confidence = "D" }
+which_c_fragment_when = "not stated (C2H2 vs C2 by hydrogenation state)"
+degeneracy = "not stated"
+source = "Sect. 3.1, Tables 3-4"
+
+[cooling]
+ir_cooling = "not stated (Shiva)"
+
+[electrons]
+charge_model = "f_i(Z) per size bin from Weingartner & Draine 2001 (Sect. 3.1)"
+coupling = "each Z evolves its own (a, X_H) distribution with Z-dependent rates; f(Z) weights the populations (eq. 8). f is independent of time and X_H in the Figshare files, so there is no charge exchange inside the network (inferred)"
+anion_ir_properties = "anions treated as cations in the spectra (Sect. 4.3.3)"
+inferred_from_figshare = "f(a, Z) of the Figshare files is reproduced (median <Z> within 0.04 outside the HII region; pahchem.murga_charge.MURGA2022) only with: electron sticking 1 for every Z; chi in MMP83 units; no ion collisions; WD01 eq. 24 Z_min truncated as printed; the chain truncated at Z = -2..9. Not stated in the paper: an inference, confidence D"
+source = "Sect. 3.1, 3.2, 4.3.3"
+
+[hydrogen]
+h_addition = "rate H^ij from Murga+2020 (not restated); neutrals react fast with H at high T (Rauls & Hornekaer 2008, Sect. 4.1)"
+h2_addition = "none: 'PAHs do not interact with molecular hydrogen' (Sect. 4.3.4)"
+boundary = "no H loss from the lowest bin, no H addition into the top bin (Sect. 3.1)"
+source = "Sect. 3.1, 4.1, 4.3.4"
+
+[carbon]
+c_addition = "rate C^ij from Murga+2020 (not restated); uses n_C and n_C+ of MARION (Sect. 3.2)"
+boundary = "no inflow into the smallest bin from outside; grains may leave bin 1 (Sect. 3.1)"
+
+[aromatisation]
+modelled = "no; aliphatic content = super-hydrogenation only; isomerisation and clusters excluded (Sect. 1)"
+
+[network]
+equation = "eq. 1: dN_ij/dt with H loss/addition (A^(1,2), eq. 2-3) and C loss/addition (B^(1,2), eq. 4-5) as bin-to-bin mass fluxes"
+time_dependent = "yes, from the initial distribution in a fixed environment"
+age = { value = 1.0e5, unit = "yr", source = "Sect. 4.1 (Salgado+2016, Kirsanova & Wiebe 2019)", confidence = "E" }
+n_output_times_figshare = { value = 11, unit = "", source = "Figshare description", confidence = "E" }
+output_times = "not stated; in model c most locations change little after the first output time"
+output_times_inferred = "linear, 0, 1e4, ..., 1e5 yr: the pure-loss 3.3 A neutral chains of the deep MC (Figshare locations 134-151) fall by the same factor at every output (pahchem.murga2022, gate 1); inference, confidence D"
+temperature_relation_inferred = "DL01 T(E) with the post-absorption M20 yield and independent channels: the second/first H-loss step ratio of the Figshare chains is 1.250 at every chi (DL01: 1.257; Tielens: 0.787; with the C2H2 hydrogen in R_H). The time-averaged p(E) gives rates 1e-12 x smaller there, and competing channels (M19 eq. B2) 3.2x smaller; inference, confidence D"
+stated_changes_vs_m20 = [
+  "super-H E0: 'we consider E_0 as a parameter describing the yield of destruction rather than the activation energy', linear in X_H/X_H0 (eq. 6, Table 3), calibrated on Rapacioli+2018 (replaces M20's fixed 1.4/1.55 eV H and 2.0 eV C2H2)",
+  "bin-to-bin network: 'A_ij = eps_ij / (m_Hb^ij+1 - m_Hb^ij)', eps = (mu_H/N_A) R_H, and B likewise for C (eqs. 1-5; M20 followed single molecules)",
+  "R_H: 'the net rate of detachment of all hydrogen atoms ... both separately and also inside hydrogen or acetylene molecules' (Sect. 3.1)",
+  "hydrogenation grid: 'N_mH = 5 bins, spanning a range from 0 to 2.5 X_H0' (Sect. 3.2); the Figshare labels (0.26-1.74 X_H0 centres) do not match uniform bins on [0, 2.5]",
+  "carbon-loss cases a-d, d: 'only PAHs with N_C < 60 can lose their carbon atoms' (Sect. 3.1, Table 4)",
+  "H2: 'In our model, PAHs do not interact with molecular hydrogen' (Sect. 4.3.4; M20 had 5e-13 n_H2 for ions)",
+  "emission: DL07 C_abs 'with modifications concerning the bands at 3.3, 3.4, and 11.2 um' (Sect. 3.2, App. A-B; spectra only)",
+]
+not_stated_as_changed = "charge (f_i(Z) from WD01, as M20 weighted by f(i, Z)), p(E) reading, channel branching, H-addition rates (H^ij 'given by murga20'), T(E), the 5-13.6 eV range, the field shape: any M20/M22 difference in these is a question for the authors"
+charge_classes_inferred = "every Z >= 1 evolves identically in the files, and so do Z = -1, -2: three charge classes (anion, neutral, cation) for the rates"
+solver = "not stated"
+source = "Sect. 3.1, 4.1"
+
+[emission]
+code = "DustEM (Compiegne+2011), 55 PAH types (5 X_H x 11 Z) each with its own size distribution, plus DL07 graphite and silicate grains without evolution (Sect. 3.2)"
+cross_sections = "DL07 C_abs, with the 3.3 and 3.4 um bands replaced by X_H-dependent Drude bands (App. A, Table A1) and the 3.3, 11.2, 12.6 um bands scaled for dehydrogenation (App. B, Table B1); band data from NASA Ames PAHdb"
+total = "eq. 8: I = sum_i f_i(Z) int dn_i/da da int C_abs B_nu(T) dP/dT dT"
+band_33_34_112 = "continuum + plateau removal and integration as for the data (Sects. 2.2, 2.3)"
+band_36_66_77 = "filter integration, eq. 9 (IRAC: Hora+2008; FORCAST: Herter+2013)"
+bkg_36 = "a 3 um background measured in the ISO spectrum is added to I_3.6, scaled by chi(x)/chi(ISO slit); gives I_3.6^bkg (Sect. 3.2)"
+sigma_33_neutral = { value = 2.23e-18, unit = "integrated cross-section, units as Table A1; times (a^h X_H/X_H0 + b^h), a^h = -0.76, b^h = 1.82, FWHM 0.010", source = "Table A1", confidence = "C" }
+sigma_33_ionised = { value = 2.71e-19, unit = "as Table A1; a^h = -0.46, b^h = 1.40, FWHM 0.010", source = "Table A1", confidence = "C" }
+sigma_34_neutral = { value = 3.96e-18, unit = "as Table A1; a^h = 1.16, b^h = -1.29, FWHM 0.015", source = "Table A1", confidence = "C" }
+sigma_34_ionised = { value = 1.26e-18, unit = "as Table A1; a^h = 2.74, b^h = -1.30, FWHM 0.015", source = "Table A1", confidence = "C" }
+dehydro_scaling = "Table B1: a^d, b^d = 0.948, 0.003 (3.3); 0.987, 0.041 (11.2); 0.799, 0.200 (12.6)"
+units_of_table_A1 = "not stated"
+
+[observations]
+iso = "ISO SWS 2.4-45.4 um at the H2 peak (Verstraete+2001); continuum by 5th-order polynomial; F11.2/F3.3 ~ 16, F11.2/F7.7 ~ 1 in the Maragkoudakis+2020 bands (Sect. 2.1)"
+spitzer_irs = "IRS SH, 46 slits, 9.89-19.51 um, R = 600; F11.2 over 10.9-11.6 um after continuum and plateau removal; 20% error (Sect. 2.2)"
+ukirt = "Sloan+1997 long slit, 3.0-3.7 um, 32 spectra, 28 Oct 1995, 2.5 arcsec slit; Gaussian fits to 3.3 and 3.4 um (Sect. 2.3)"
+photometry = "SOFIA FORCAST 6.6 and 7.7 um (7.7 minus 6.6 as background, Salgado+2012), Spitzer IRAC 3.6 um (programme 50); 1.2 arcsec stripes of 54 arcsec; F7.7^conv at IRAC resolution (Sect. 2.4)"
+table1 = "F3.6, F7.7, F11.2 (1e8 Jy sr^-1) at 12 slit distances 44.1-161.6 arcsec"
+iso_fit = "Table 2: 10-PAH PAHdb v3.0 mixture; >80% from C96H26, C98H28+, C142H30; ~17% small dehydrogenated catacondensed (C21, C34H20+)"
+size_from_diagrams = "N_C = 120-130, cations ~ neutrals (Maragkoudakis+2020 diagrams, Sect. 2.5)"
+
+[targets]
+# (a) chemistry outputs, comparable without an emission model; ranked.
+a1_fig8_model_b = "Model b (H loss only, no C loss) <X_H/X_H0>(distance) and the (a, X_H, Z) populations: Figshare result_marion1_av_nodestr.dat (tabulated). Closest to pahchem's (Z, N_H) network at fixed skeleton. The paper plots Fig. 8 for c and d only (b map exists only in the arXiv extrafigures)"
+a2_fig8 = "<a> [A] and <X_H/X_H0> vs distance [arcsec], 105-180, models c (left) and d (right), dotted = initial; tabulated in Figshare. Sect. 4.1-4.2: 'In model c, the average size of PAHs at the IF is approximately 8 A. At ~125 arcsec it starts to increase, reaching 12 A at ~129 arcsec. Then <a> rapidly drops to ~6 A at ~130 arcsec'; 'The highest hydrogenation level (1.1 and 1.2 for models c and d, respectively) appears in the PDR 2 location'; 'In the MC, it drops to 1-1.05 and then decreases to 0.6 behind ~150 arcsec'; rises again behind 170 arcsec"
+a3_fig9 = "log n [cm^-3] maps over Z (-2..7) x X_H (X0/3..2X0) for a = 3.3, 5, 7, 9, 12, 20 A at HII, PDR 1, PDR 2, DF, MC (model c); reconstructible from Figshare n x f. Sect. 4.2: 3.3 A mostly Z = 1 in PDR, 0 at DF/MC, dehydrogenated almost everywhere; 5 A Z 0..3 in PDR, normal H; 7 A Z -1..4 (HII, PDR), -1..3 (DF, MC), gap at Z = 0 in PDR from hydrogenation then destruction; 9 A Z -2..5 (PDR), no neutrals in PDR 1-2; 12 A Z -2..10 in PDR, -2..4 DF, -2..3 MC; 20 A cations in PDR, anions at DF/MC"
+a4_fZ = "f(a, Z) per location: Figshare column 5 (tabulated). A pure charge test against BT94/WD01 for the same (chi, T, n_e); needs n_e(x) digitised from Fig. 6"
+a5_fig7 = "dn/da [cm^-1 cm^-3] vs a [A] (3-40) at HII, PDR 1, PDR 2, DF, MC after 1e5 yr, models c (left) and d (right), dotted = initial; tabulated in Figshare. Sect. 4.1: model c critical size '8 A at the HII, PDR 1, and DF points, ~15 A at PDR 2 and ~5 A at MC'; model d: N_C < 60 abundances go to zero at HII, PDR 1, PDR 2; 'PAHs with radii smaller than 5 A are destroyed throughout the model region, except for the deep interior of the MC (farther than 160 arcsec)'"
+a6_fig6 = "MARION inputs (not an output): digitise n_e, n_H2, n_C, n_C+ and the distance axis; the rest is in the Figshare headers"
+# (b) outputs that need an emission model (pahchem M7) or the observations.
+b1_fig10 = "I3.6/I11.2, I3.6bkg/I11.2, I7.7/I3.6, I7.7/I3.6bkg, I3.3/I3.4, I7.7/I11.2 vs distance, 4 panels (models a-d), log 1e-2..1e2, observations overplotted. Model values in Figshare bands_fix_*.dat: 6 data columns against 7 described (I3.3, I3.4, I11.2, I3.6, I3.6bkg, I6.4, I7.7); col1/col2 = I3.3/I3.4 and col3, col6 = I11.2, I7.7 look right, the 3.6 columns are ambiguous. Sect. 4.3: model I7.7/I11.2 '2-3 times (sometimes up to ~order of magnitude) higher than the observational points'; model d I3.3/I3.4 'within several percent' at IF and PDR 1; observed F7.7conv/F3.6 above the models by '0.5-1 order of magnitude' in the PDR; Sect. 5: 'reasonably close to the observations (up to a factor of 3)'"
+b2_fig4 = "observed F3.6/F11.2, F7.7/F11.2, F3.3/F3.4, F7.7conv/F3.6 vs distance; F3.6, F7.7, F11.2 in Table 1 (tabulated), F3.3/F3.4 (UKIRT) and F7.7conv/F3.6 stripes must be digitised. Sect. 2.5: F3.4/F3.3 peaks near the IF, minimum near the DF; F3.6/F11.2 ~ 0.1 in the MC (Sect. 4.3.1); F3.3/F3.4 drops 'by at least a factor of 2 from the IF to the DF' (Sect. 4.3.4)"
+b3_fig5_table2 = "ISO spectrum fit with PAHdb (an emission-model test, not chemistry)"
+b4_figA1 = "integrated 3.3/3.4 um cross-sections vs X_H/X_H0 for 8 PAHdb molecules (inputs to M7, Tables A1/B1)"

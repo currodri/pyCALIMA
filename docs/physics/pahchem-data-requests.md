@@ -1,0 +1,420 @@
+(physics-pahchem-data-requests)=
+# PAHchem: quantum-chemistry data requests
+
+This page is the list of molecular data that `pycalima.pahchem` needs and
+cannot get from the literature, in the form we would send to collaborators.
+{doc}`pahchem-spec` gives the reason for each item. It is tiered by the
+capability required:
+
+- **T1:** spectra-style DFT (minima, frequencies, intensities, energies). The
+  Rigopoulou group has done this up to $N_{\rm C} \approx 450$
+  {cite:p}`Rigopoulou2021,Kerkeni2022`.
+- **T2:** reaction paths and transition states, from the chemists working with
+  them.
+- **T3:** excited states. This is a new capability for the group.
+
+T1 and the T2 validation item can be asked for now.
+
+**Priority, from the M5 sensitivity ranking** ({doc}`pahchem-spec`). The
+observables are C$_{54}$H$_{18}$ dehydrogenation and charge at the NGC 7023
+edge and in the Orion Bar.
+
+1. **Per-state vibrational modes along the hydrogenation ladder** (T1.1):
+   ~1 dex on dehydrogenation in the Orion Bar.
+2. **UV absorption cross sections per charge and hydrogenation state** (T3):
+   ~1 dex on dehydrogenation, and the largest effect on charge.
+3. **H- and H$_2$-loss barriers of the even, odd and dehydrogenated states**
+   (T2.1–T2.2): 0.5–1 dex per −0.5 eV.
+4. **Electronic states for recurrent fluorescence** (T3), together with
+   anharmonic cooling: ~0.8 dex if cooling is 3× faster.
+5. Below that: H-addition barriers (≤ 0.4 dex). Super-H and Eley–Rideal
+   energetics do not move these observables; they matter only for the super-H
+   fraction and for H$_2$ formation.
+
+Outside DFT, the electron-capture (recombination) rates of large cations move
+the charge by up to 0.5 in $f_+$, and no measurement exists above C$_{16}$.
+
+## Common specification for every deliverable
+
+**Output.** The raw output (Gaussian `.log` and `.fchk`, or the ORCA
+equivalent) plus one summary record per stationary point. The record holds:
+- formula, charge, spin multiplicity and $\langle S^2\rangle$;
+- functional, basis and code version;
+- the optimised geometry;
+- the electronic energy and ZPE;
+- **unscaled** harmonic frequencies, with the scaling factor they recommend;
+- IR intensities (km mol$^{-1}$);
+- the isomer or site label (which carbon carries the extra H, or which H is
+  missing).
+
+For transition states, the record also holds:
+- the imaginary frequency;
+- the reactant and product it connects, verified by IRC.
+
+**Level of theory.**
+- **Minima:** B3LYP/6-31G(d,p), or 6-31G*, the PAHdb v4.00 level
+  {cite:p}`Ricca2025`, so that every species overlapping PAHdb is a direct
+  cross-check. Not 4-31G.
+- **EAs and anions:** add diffuse functions, 6-31+G(d).
+- **Barriers:** a dispersion-corrected or range-separated functional (M06-2X or
+  ωB97X-D)/6-311G(d,p), with DLPNO-CCSD(T) single points on a subset.
+
+**Spin.** Use unrestricted references for open-shell species. For
+dehydrogenated species, report the two lowest multiplicities.
+
+**Species.**
+
+| Species | Role |
+|---|---|
+| Pyrene, C$_{16}$H$_{10}$ | protocol validation against iPEPICO {cite:p}`West2018` and DFT {cite:p}`Trinquier2017` |
+| Coronene, C$_{24}$H$_{12}$ | Andrews and Montillaud benchmarks; laboratory data |
+| Circumcoronene, C$_{54}$H$_{18}$ | Andrews and Montillaud benchmarks |
+| Circumcircumcoronene, C$_{96}$H$_{24}$ | Andrews benchmark; no UV data exist |
+
+## T1: minima ladders (ask now)
+
+1. **States.** Each parent at $Z = -1, 0, +1, +2$, with $N_{\rm H}$ from
+   $N_{\rm H0}-4$ to $N_{\rm H0}+6$. For super- and dehydrogenated states, give
+   the 2–3 lowest-energy site isomers. These states are the whole hydrogenation
+   ladder that the benchmark models assume shares the parent's modes.
+2. **Outputs per state.** Frequencies, intensities, total energy and ZPE. They
+   give the density of states for every state, the per-state IR spectra, and
+   the reaction energies along the ladder.
+3. **Ionisation and attachment energies.** Adiabatic and vertical IP$_1$–IP$_3$
+   and EAs (ΔSCF) over the same ladder, calibrated against experimental IP$_1$
+   for pyrene and coronene. The benchmark models extrapolate these with a
+   constant 0.1 eV per missing H.
+4. **Optional.** If the ML-MD route is available, temperature-dependent band
+   shifts and widths for the three parents.
+
+Count: about 4 charges × 11 hydrogenation states × 2–3 isomers × 3 parents,
+plus pyrene. That is roughly 300 optimisations and frequency jobs, nearly all at
+or below C$_{96}$.
+
+## T2: reaction paths
+
+**Validation first (ask now).** Pyrene$^+$ and coronene$^+$ H loss and H$_2$
+loss, comparing $E_0$ with {cite:t}`West2018` and the pathways with
+{cite:t}`Trinquier2017`. This fixes the protocol before it is scaled up.
+
+**Then, in priority order.** This order follows the M5 sensitivity ranking.
+An earlier draft put H addition first.
+
+1. **H$_2$ loss and H roaming.** Tight transition states, following the
+   protocol of {cite:t}`Castellanos2018`, for cations and neutrals, along the
+   even and dehydrogenated ladder. A −0.5 eV change in this $E_0$ moves C$_{54}$
+   dehydrogenation by up to 1 dex.
+2. **Aromatic H loss along the ladder, even and odd (radical) states.**
+   Relaxed C–H dissociation scans, **not** a TS search: the channel has no
+   saddle point and needs variational TST. A −0.5 eV change moves
+   dehydrogenation by 0.5–1 dex. The laboratory thresholds disagree by
+   0.7–1.4 eV ({doc}`pahchem-spec`, M2).
+3. **H addition.**
+   - *What:* transition states for H addition per site class (outer-edge
+     solo, duo and trio, and sites next to an sp$^3$ carbon), for
+     $Z = 0, +1, -1$ and $n$ = 1–6 extra H, for the coronene family.
+   - *With:* IRC, TS frequencies, and the imaginary frequency for a
+     tunnelling correction.
+   - *Why:* this moves dehydrogenation by ≤ 0.4 dex, but sets the super-H
+     fraction and the H$_2$-formation route. The only systematic set is for
+     coronene$^+$ {cite:p}`Cazaux2016`.
+4. **H abstraction (Eley–Rideal), H + HPAH → H$_2$ + PAH, and sp$^3$ H loss
+   from super-H states.**
+   - Transition states for abstraction from sp$^3$ CH$_2$ groups and from
+     aromatic C–H, per charge.
+   - The sp$^3$ H loss is the reverse of item 3; the models assume
+     1.4–1.55 eV.
+   - Neither moves dehydrogenation or charge. Both matter for H$_2$
+     formation on PAHs. The current models use one cross section measured on
+     coronene films {cite:p}`Mennella2012`.
+
+## T3: excited states (later)
+
+- **TD-DFT for recurrent fluorescence.** The lowest ~10 doublet states and their
+  oscillator strengths for the cations, at CAM-B3LYP or ωB97X-D/6-31+G(d) on the
+  D$_0$ geometry. Validate first on anthracene$^+$ and tetracene$^+$, whose
+  rates were measured in storage rings {cite:p}`Martin2013,Bernard2023`.
+- **Vibronic oscillator strengths.** Equilibrium-geometry $f$ is not enough:
+  storage-ring studies find RF needs vibronically enhanced, effective $f$
+  10–100× larger. Examples are a Franck–Condon–Herzberg–Teller $f = 0.011$
+  against $10^{-4}$ without it for 1-cyanonaphthalene$^+$, and AIMD-averaged
+  $f$ 30–65× the TD-DFT value for biphenylene$^+$
+  {cite:p}`NavarroNavarrete2023,Subramani2025`. Ask for Herzberg–Teller $f$
+  (Gaussian `freq=(FC,HT)` on the D$_0$/D$_n$ pair), or $f$ averaged along MD
+  at 2–10 eV of vibrational energy, for at least coronene$^+$. For degenerate
+  (Jahn–Teller) D$_0$ states, report the degeneracies as well.
+- **Excited states of dehydrogenated cations.** The same lowest ~10 doublet
+  (or singlet/triplet) states and $f$ for coronene$^+$ with 2, 4, 6 and 12 H
+  removed. In the model the Extended Red Emission hinges on them: coronene$^+$
+  at 1.70 eV emits at 730 nm, but the family is almost fully dehydrogenated
+  where ERE is seen ({doc}`pahchem-spec`, ERE test).
+- **UV absorption.** $\sigma(E)$ up to 13.6 eV for species not covered by
+  {cite:t}`Malloci2007`: C$_{96}$H$_{24}$ and the hydrogenation ladders.
+
+## Not requested
+
+- **Photoionisation yields.** These are set by super-excited-state dynamics that
+  DFT does not give. Use the measured yields and parametrisations
+  {cite:p}`Jochims1996,Zhen2016,Wenzel2020`, with the DFT IPs as thresholds.
+- **Electron recombination rate coefficients.** Capture theory and experiment
+  give these; DFT is needed only for the products, via the T1/T2 energies.
+- **C$_2$H$_2$ and C$_2$ skeleton loss.** These are multi-step and
+  multi-configurational. Keep them parametric, with the constraint that compact
+  PAHs strip their H first {cite:p}`West2019`.
+
+## Asked of others
+
+- **Electron recombination of large PAH cations (experimental groups).** With
+  the photoionisation yields, this rate sets the PDR charge balance
+  ({doc}`pahchem-spec`, "Charge inputs").
+  - The data: measured PAH⁺ + e⁻ coefficients stop at pyrene (N_C = 16).
+    There the fit to them gives 0.07–0.18 of the BT94 capture theory, and
+    the ratio rises as 10$^{-1.96}$ N_C$^{1.01}$ (`chemistry.lab_recombination_factor`),
+    ≈ 1.15 at N_C = 100 if extrapolated, which is a guess.
+  - Why it matters: it is the factor-2 uncertainty of this rate
+    ({doc}`pahchem-gas-coupling`, §2.2). (The earlier conclusion that the
+    PDRs4All fits need capture ≈ 3× BT94 was withdrawn: {doc}`pahchem-spec`,
+    finding C1.)
+  - The ask: one or two coefficients for a compact cation with N_C ≥ 24, at
+    100–1000 K. Coronene⁺ is the minimum, circumcoronene⁺ the ideal.
+  - Who could measure it: FALP or CRESU flow tubes (Biennier and Rowe,
+    Rennes, who measured the small PAHs); cryogenic storage rings with merged
+    electron beams (DESIREE Stockholm, CSR Heidelberg); ion traps (PIRENEA
+    Toulouse).
+  - Also the dication (Z = +2 → +1) coefficient for one of them, which pahchem
+    now sets with the same factor.
+- **Temperature-dependent anharmonic spectra (Mai, Z. Wang et al. 2025,
+  MNRAS 541, 3073; Z. Wang is in the Rigopoulou group's circle).** Their
+  ML-MD neutral spectra already constrain the thermal band shifts and widths
+  ({doc}`pahchem-spec`, "Temperature-dependent band profiles"). What would
+  make them usable directly:
+  - the models or spectra for **cations and dications**;
+  - runs at 800–1500 K, or NVE runs at fixed internal energy (the
+    classical-temperature mapping is the largest uncertainty);
+  - several trajectories per molecule, with rotation removed;
+  - unnormalised cross-sections or the raw dipole autocorrelations, so the
+    quantum correction can be applied here (D = 1 in the release);
+  - per-mode shifts and widths;
+  - a retrain at 6-31G* on PAHdb v4.00 geometries;
+  - whether derived per-band tables may be redistributed (the data are
+    CC BY-NC-SA; the code Apache 2.0, Zenodo doi:10.5281/zenodo.15771437,
+    fetched as `mai2025-mlmd`);
+  - their 1704-PAH spectra show the 3.3 µm peak of N$_C$ ≥ 60 shifting
+    1.4–1.9× as far as C$_{24}$–C$_{39}$ at equal energy per mode
+    ({doc}`pahchem-spec`, "The 3.3 µm band against size"). Quantum-corrected
+    or NVE runs of three or four sizes would turn that into a law.
+- **CH-stretch intensities of large PAHs (Rigopoulou group, T1 item 3, or the
+  laboratory).** Against 35 matrix-isolation neutrals (PAHdb experimental
+  v3.10, N_C ≤ 50), B3LYP/6-31G* puts 2× too much intensity in the CH stretch
+  relative to the CH out-of-plane bands. pahchem applies the lab ratio as a
+  stated input (`population.LAB_STRETCH_SCALE`).
+  - The ask: whether this holds at N_C ~ 100, and for cations (3 lab cations
+    only). Anharmonic (VPT2) or ML-MD spectra of two or three compact PAHs
+    with N_C ≥ 54 would show it.
+  - Why it matters: 3.3/11.2 drives the inferred size.
+- **Aliphatic carriers of the 3.4 µm complex (Rigopoulou group: Thatte,
+  Kerkeni; {cite:t}`Thatte2026`).** The PAHdb v4.00 aliphatic species cannot
+  give the observed 3.4/3.29 ({doc}`pahchem-spec`, "The 3.4 µm aliphatic
+  complex"): 28 molecules with N_C ≥ 21 have both a neutral and a cation, and
+  most carry 1–3 off-edge H. What would close the gap:
+  - (CH$_2$ and CH$_3$ side groups radiating from the fitted population's own
+    cascades already give the complex with 2.3–4.5 % aliphatic carbon,
+    {doc}`pahchem-spec`, "Aliphatic side groups on the fitted population";
+    these spectra would replace that approximation with computed carriers)
+  - their coronene + methyl / ethyl / vinyl spectra (B3LYP/6-311++G(d,p),
+    harmonic) as frequency and intensity tables, and the cascade emission
+    behind their Fig. 3;
+  - the same side groups on larger compact PAHs (circumcoronene) and on the
+    cations, several groups per molecule, and CH2 rings (super-H) at the
+    same level;
+  - the per-bond A(3.4)/A(3.3) at that level against PAHdb's 6-31G* (PAHdb
+    neutrals give 0.6–1.3 per CH, {cite:t}`Yang2020`-type values ~2);
+  - anharmonic (VPT2 with Fermi polyads) spectra of one or two of them: the
+    3.42–3.56 µm structure is Fermi resonances that harmonic spectra miss
+    ({cite:t}`Maltseva2018`).
+- **Demyk, Joblin et al. ({cite:t}`Demyk2026`).** Their Table 4 laws are for
+  pyrene-sized molecules. With PAHdb modes of a C ~ 80 population they make
+  the 3.29 band ~11 cm⁻¹ too blue and too narrow. The ask: whether the
+  CosmicPAH-IRDB holds (or will hold) shift and width laws for larger PAHs,
+  for a methylated large PAH, and the cascade code behind their 6H-pyrene fit.
+- **Mackie, Candian, Tielens et al. ({cite:t}`Mackie2018`).** Their
+  supplement gives the quartic force fields of 19 PAHs, from which pahchem
+  recomputes VPT2 χ and polyads ({doc}`pahchem-spec`, "Anharmonic cascade
+  spectra after Mackie+18"). 6H-pyrene's CH-stretch cascades are reproduced
+  (rms 0.09–0.13). 9-methylanthracene is not (0.19–0.22): its sharp 2935 cm⁻¹
+  methyl band comes out too weak and its aromatic band too red. No
+  reassignment of harmonic intensities fixes it: the rank mapping is the best
+  of 16 permutations. The asks:
+  - their VPT2 output for 9-methylanthracene and 9,10-dimethylanthracene: the
+    anharmonic intensities (fundamentals, overtones and combinations), the
+    polyad states and couplings, and the Darling–Dennison terms;
+  - the dipole derivatives of their B3LYP/N07D runs, or at least the harmonic
+    intensities of the supplement's modes (the supplement has none; pahchem
+    maps PAHdb's by frequency rank);
+  - which interaction-strength cut-off (SPECTRO's W) and which treatment of
+    the methyl torsion they used;
+  - force fields for a methylated or superhydrogenated PAH with N_C ≥ 24.
+- **ALPAHCAS (Reems, Candian, Rol, Esposito, Kamp, Buma, Tielens; conference
+  abstract, Aromatic Universe 2026).** An open-source successor to the Mackie+18
+  cascade code (VPT2 quartic force fields, B3LYP/N07D). The ask: the code or
+  its release date, and through it the 9-methylanthracene items above.
+- **Esposito et al. (PAHdb anharmonic library; Esposito et al. 2024, MNRAS 535, 3239).**
+  Their indene / 2-ethynyltoluene cascades treat CH$_2$ in a ring and a hindered
+  CH$_3$ (MNRAS 535, 3239). The ask: χ and VPT2 intensities of those molecules
+  (the supplement holds only harmonic data), and any methylated PAH with N$_C$
+  ≥ 16.
+- **NASA Ames PAHdb team (anharmonic library v1.00).** Report: the phenanthrene
+  entry (UID 273) holds pyrene's transitions (UID 334), line for line. The asks:
+  anharmonic spectra of larger cations (coronene⁺ and up). Their 3.4 µm-window
+  combination bands hold 2–6× a neutral's intensity and ~0.03 of their 6–9 µm
+  band ({doc}`pahchem-spec`, "Aromatic overtone and combination bands"). This
+  decides how much of the 3.4 µm complex needs aliphatic carriers at all.
+- **Ricca, Sloan, Peeters, Cami et al. (arXiv:2609.30574, JWST Proto-PAH).** Their
+  C$_{130}$H$_{96}$ aliphatic-rich carrier matches post-AGB 3.4 µm positions to
+  ~0.001 µm with one 0.959 scale. The ask: the spectrum and mode list (promised
+  in NGdb, https://nanograin.odr.io/) as a check of side-group positions on a
+  large molecule.
+
+- **Cosmic-ray collisions** ({doc}`pahchem-spec`, "Cosmic-ray collisions").
+  The fast-particle part is calibrated on NIST stopping. Two items are now
+  covered:
+  - **The secondary-electron spectrum** (done 2026-10-19). It is exported
+    from CRISpy, so it is no longer needed from Ivlev et al. (2021) or
+    Padovani et al. (2024). See {doc}`pahchem-spec`, "Cosmic-ray collisions".
+  - **Electron-impact ionisation cross sections** (obtained 2026-10-19). We
+    have the papers: Appl. Sci. 15, 9562 (2025); Krishnadas et al. 2024,
+    Phys. Scr. 99, 095403 (doi:10.1088/1402-4896/ad640a); Singh et al. 2020,
+    J. Phys. Chem. A 124, 7088 (doi:10.1021/acs.jpca.0c05589). Their curves
+    are raster figures; only the peak tables can be read.
+    - We compute BEB(HF) ourselves and it reproduces their HF peaks
+      ({doc}`pahchem-spec`, gate G2).
+    - Still useful:
+      - the Appl. Sci. curves, which they say will be deposited in the MOST
+        Wiedzy repository;
+      - the Krishnadas curves, available on request;
+      - from the Rigopoulou group, OVGF or DFT orbital energies (B, U, N) for
+        coronene and circumcoronene, to bracket our HF values (a small
+        addition to T1);
+      - any laboratory σ$_{\rm ion}$ for a PAH larger than benzene.
+
+  Two inputs are still missing:
+  - **Double photoionisation yields** of PAHs at 20–100 eV (the 2+/1+ ratio),
+    which set the multiple-ionisation branching of distant collisions.
+  - **A laboratory Coulomb-explosion threshold for compact PAHs above C$_{42}$.**
+    Answered up to C$_{42}$ (2026-11-01): the Q/N$_C$ = 4/60 of Chabot et al.
+    (2020) is their boundary for hot ions, not a cold limit, and `impact.py`
+    now uses ⌊0.2 N$_C$⌋ (DFT limits of {cite:t}`Holm2011`, intact pyrene$^{4+}$
+    and coronene$^{4+}$, PAH$^{3+}$ up to HBC, C$_{60}^{12+}$) at any E*, with their Fig. 7 line
+    for hot ions. Storage-ring (DESIREE) or swift-ion data on
+    C$_{54}$H$_{18}^{q+}$ and larger would replace the extrapolation above
+    C$_{60}$.
+  - **For T3:** σ(E) up to ~100 eV for the coronene family. The distant
+    collisions use df/dW to 30 keV; above 40 eV it is atomic Henke C + H.
+
+- **Joblin/Montillaud:** for {cite:t}`Montillaud2013`, two questions
+  ({doc}`pahchem-audit`, section 4):
+  - whether their $k_{\rm IR}$ is the energy e-folding rate $(dE/dt)/E$. With
+    it and cation modes, $E_{\rm th}$ = 17.15 eV for C$_{54}$H$_{18}$ against
+    their 17 eV, and it accounts for 0.4–0.55 dex of their Fig. 10;
+  - which C$_{54}$ modes they used (Malloci's, scaled or not). The remaining
+    ~0.7 dex of Fig. 10 must lie there or in the Monte Carlo $k_{\rm IR}(E)$.
+
+  Coronene's $k(E)$ (their Fig. 3) now matches to −0.04…+0.02 dex, so it is
+  not asked.
+- **Mayer/West:** the iPEPICO $k(E)$ curves behind {cite:t}`West2018`, as
+  tables. (The ESI spreadsheet gives them for 7 of 25 reactions consistently
+  with Table 1; see {doc}`pahchem-spec`, M2.)
+- **Candian/Tielens:** for {cite:t}`Andrews2016`:
+  - how $G_n(T)$ is normalised;
+  - which temperature range enters $k_{\rm IR}$ in their eq. 8;
+  - the neutral electron sticking coefficients they computed;
+  - whether ionising photons are included in $G(T,E)$;
+  - the $G_0$ unit of their NGC 7023 profile;
+  - the electron affinity they used for C$_{96}$H$_{24}$.
+
+  Their Table B is reproduced only if they are, and their Fig. 7
+  hydrogenation needs a $k_{\rm IR}$ in eq. 8 ~$10^3$ smaller than the
+  cooling-path value ({doc}`pahchem-spec`, M5).
+- **Murga/Wiebe:** for {cite:t}`Murga2020` and {cite:t}`Murga2022` (SHIVA);
+  each item is a strict xfail or an inferred choice in {doc}`pahchem-spec`, M5:
+  - the O6-star EUV added above 13.6 eV in the H II region of Murga+2022
+    (Sect. 3.2): which spectrum, and how it is normalised. Their H II charges
+    are reproduced with a 40 000 K Kurucz EUV matched at 6–13.6 eV and scaled
+    ×4; the factor of 4 is our inference;
+  - which $p(E)$ reading SHIVA uses, and whether it changed between the
+    papers: Murga+2020 Fig. 4 needs the time-averaged one, the Murga+2022
+    Figshare chains the post-absorption one;
+  - whether the H, H$_2$ and C$_2$H$_2$ channels compete (as in Murga+2019
+    eq. B2) or are independent;
+  - how the super-H threshold is applied when $N_{\rm H}$ is real-valued
+    (Murga+2020 Fig. 4 needs a super-H contribution $10^2$–$10^4$× below
+    eq. 6 as printed);
+  - for PAHs $\ge$ 6 Å, only a confirmation: the Figshare files fix the
+    H-addition and super-H loss rates under which they stay normally
+    hydrogenated ({doc}`pahchem-audit`, C3); is the bin step, and the
+    Eley–Rideal event removing 2 H, as we read them;
+  - the charge settings: the electron sticking coefficient, the
+    $Z_{\rm min}$ rounding, C$^+$ collisions, and the $\chi$ field shape.
+    The Murga+2022 files imply $s_e = 1$, eq. 24 truncated and no ions,
+    but Murga+2020 Fig. 3 needs the floor $Z_{\rm min}$;
+  - the $T(E)$ relation of Murga & Wiebe 2022, which behaves like Tielens'
+    rather than the DL01 relation of Murga+2020/2022.
+- **Allain/Léger:** for {cite:t}`Allain1996a`, what "multi-quanta neglected"
+  means for $k_{\rm IR}$ above 24 C: with the occupation factor dropped (the
+  card's reading) PAH 50 C is −1.39 dex below their I Table 4, with it kept
+  −0.34 dex ({doc}`pahchem-spec`, "Allain+96 runner"). $N_{\rm H0}$ is not asked: the
+  audit found it would have to be 15–16, below the compact minimum.
+- **Le Page/Snow/Bierbaum:** for {cite:t}`LePage2001`, the $E_0$ of the
+  naphthalene⁺ rate check they quote (Table 2's 4.5 eV gives log k 2.8–2.9
+  and 6.8–6.9 at 7 and 10 eV against the quoted 3.9 and 7.5; ~4.2 eV
+  reproduces it), and the ionisation potentials behind the $k_{\rm ion}$ size
+  trend of their Table 2.
+- **Rigopoulou group:** for {cite:t}`Rigopoulou2021` (method card
+  `rigopoulou2021.toml`). Their Fig. 1 is reproduced exactly with the thermal
+  cascade and FWHM 15 cm$^{-1}$; the binned diagnostics are not. The
+  questions:
+  - the spectra of the 17 molecules computed independently, and whether they
+    were scaled;
+  - the code and the band FWHM actually used: 15 cm$^{-1}$ fits Fig. 1,
+    against the 30 cm$^{-1}$ stated;
+  - the bin edges and how the neutral–cation mixtures of Figs. 8–11 were
+    built;
+  - how "ISRF" and "$10^3\times$ISRF" were turned into photon energies;
+  - the CASSIS fit constraints behind 11.3/7.7: our window ratios for the
+    small bin are 2–4× theirs;
+  - the Table A1 UID corrections listed in the card.
+- **Borja, Calvo, Parneix & Falvo** (ISMO Orsay, LIPhy Grenoble): for
+  {cite:t}`Borja2026` (method card `borja2026.toml`). Their data and tools are
+  "available from the corresponding author upon reasonable request".
+  - **What we have done.** We fed their Table I inputs into the standard RF
+    rate, which uses the ground-state density of states and fixed $f$ with
+    PAHdb cation modes. Against their Fig. 8:
+    - allowed D2/D3 states: within 0.18 dex at 4–13 eV;
+    - symmetry-forbidden D1 states: within −0.14 to +0.49 dex.
+  - **What we would ask for**, for naphthalene$^+$, anthracene$^+$ and
+    pyrene$^+$:
+    1. the $k_{\rm RF}(E)$ of each state as tables: the Fig. 8 curves, and the
+       total RF rate;
+    2. the ωB97XD/cc-pVTZ frequencies of D0 and of each excited state
+       (D1–D3), with the Duschinsky matrices $J$ and shifts $K$;
+    3. the transition dipoles $d^0_e$ and their derivatives $d^1_e$ (the
+       Herzberg–Teller terms), or $f_{\rm HT}(T)$ on a temperature grid
+       rather than at 0 and 2000 K;
+    4. the emission spectra of Fig. 9 as tables.
+  - **Two questions:**
+    - whether "6.41 eV" (the Np$^+$ D1/D2 crossover in the text) or the
+      6.09 eV of the revised Fig. 8 is the published value;
+    - whether the coth($\beta\hbar\omega$) in their eqs. 28 and 30 should be
+      coth($\beta\hbar\omega/2$), the standard thermal result their App. E
+      uses.
+  - **What it would let us test.** With 1–2 we could check our
+    approximations one at a time against the same molecules:
+    - the excited state's own density of states;
+    - the Duschinsky rotation;
+    - the temperature dependence of $f_{\rm HT}$.
+
+    This would tell us where the simple RF rate is good enough for coronene-
+    to C$_{96}$-size cations, for which no such calculation exists.
+  - **A further question, if they are open to it:** whether they plan the
+    same treatment for larger cations (coronene$^+$ or bigger), the sizes our
+    RAMSES tables use.

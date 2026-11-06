@@ -1,0 +1,21 @@
+# Goumans 2011, MNRAS 415, 3129 (doi:10.1111/j.1365-2966.2011.18924.x), Table 3: modified Arrhenius fits to the
+# harmonic quantum TST (instanton) rate coefficients for H and D addition to pyrene sites (Fig. 1 of the paper),
+# k = alpha (T/300)^beta exp(-gamma/T) [cm^3 site^-1 s^-1] (eq. 1), for 2000 K - T_c ("high") and T_c - 40 K ("low");
+# T_c from Table 2. Sites 1 and 4 model edge C-H sites of larger PAHs, 3a1 a core (graphitic) site (Sect. 2). The fits
+# must not be used below 40 K (Sect. 3). D addition to the core site was not computed.
+# Transcribed by hand from the open-access copy (Leiden Scholarly Publications 1887/61527), 2026-10-05.
+# Checks against the text (Sect. 3): at 40 K the fits give log k = -22.2 (core; text -22.5 for the HQTST data, the core
+# fit being the worst), -16.6 / -17.1 (edge sites 1 / 4; text -16.9) and k_H/k_D = 61 at site 1 (text 64). The two
+# ranges do not join at T_c: k(T_c-)/k(T_c+) = 0.87, 0.80, 0.34 for sites 1, 4, 3a1.
+# Used by Murga+2020 (Sect. 2.2): k(Z = 0) = 0.5 (N_C,edge k_edge + N_C,core k_core), k_edge = 0.5 (k_1 + k_4), k_core = k_3a1.
+isotope,site,range,alpha_cm3_site_s,beta,gamma_K,t_c_K
+H,1,high,1.091e-12,2.200,746.3,185.1
+H,1,low,4.275e-14,8.283,-371.7,185.1
+D,1,high,1.167e-12,2.039,882.6,141.8
+D,1,low,1.628e-13,12.40,-485.6,141.8
+H,4,high,8.642e-13,2.263,854.1,189.7
+H,4,low,1.848e-14,8.171,-346.7,189.7
+D,4,high,1.255e-12,1.966,1106,145.4
+D,4,low,3.337e-14,11.61,-425.1,145.4
+H,3a1,high,4.457e-14,3.272,2785,270.7
+H,3a1,low,1.021e-19,12.26,-689.4,270.7

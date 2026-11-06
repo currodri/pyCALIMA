@@ -53,7 +53,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# numba is already guarded at all 3 import sites; this only makes it easy to get.
+# numba is guarded at every import site (a NumPy fallback); this only makes it easy to get.
 accel = ["numba>=0.59"]
 # yt: 3 peripheral RAMSES-reader modules.
 sim = ["yt>=4.3"]
@@ -146,6 +146,8 @@ pycalima = [
     "data/optical_props/*/*",
     "data/optical_props/*/*/*",
     "models/*.json",
+    "pahchem/method_cards/*.toml",
+    "pahchem/environments/*.toml",
     "solvers/configs/*.json",
     "solvers/ramses_source/*.f90",
     "solvers/ramses_source/*.md",

@@ -1,0 +1,22 @@
+# Jochims, Ruhl, Baumgartel, Tobita & Leach 1994, ApJ 420, 307, Table 1.
+# Photoion appearance potentials (AP) [eV] of PAH cation fragments, parent ionisation
+# energy ip_eV, parent thermal energy eth_eV, and the parent-ion internal energy at each
+# fragment AP, eint = AP - IP + <E_th> (+ E_isom; their eq. 1) [eV], at which they assume
+# k_d ~ 1e4 s^-1. Empty = not given. flag c: eint includes the isomerisation energy;
+# flag d: eint includes an isotopic shift (from the deuterated measurement).
+# Transcribed by hand from the ADS scan.
+molecule,formula,ip_eV,ap_H_eV,ap_H_err,ap_H2_eV,ap_H2_err,ap_C2H2_eV,ap_C2H2_err,eth_eV,eint_H_eV,eint_H2_eV,eint_C2H2_eV,flag
+benzene,C6H6,9.24,13.81,0.05,13.85,0.05,13.88,0.05,0.05,4.62,4.66,4.69,
+naphthalene,C10H8,8.12,15.41,0.1,15.60,0.05,15.50,0.1,0.11,7.40,7.59,7.49,
+azulene,C10H8,7.38,14.00,0.1,14.23,0.1,13.96,0.05,0.11,7.33,7.56,7.29,c
+anthracene-d10,C14D10,7.45,15.79,0.1,17.31,0.1,16.00,0.15,0.24,,,,
+anthracene-h10,C14H10,,,,,,,,0.19,8.20,9.75,8.42,d
+phenanthrene-d10,C14D10,7.90,15.35,0.1,17.22,0.1,15.61,0.15,0.24,,,,
+phenanthrene-h10,C14H10,,,,,,,,0.19,7.64,9.21,7.90,d
+pyrene,C16H10,7.45,16.30,0.15,18.42,0.15,17.6,0.2,0.21,9.06,11.18,10.35,
+fluoranthene,C16H10,7.87,16.82,0.15,18.90,0.15,17.6,0.2,0.21,9.16,11.24,9.95,
+tetracene,C18H12,6.96,16.2,0.3,17.1,0.2,,,0.25,9.45,10.41,,
+triphenylene-d12,C18D12,7.88,16.1,0.3,17.3,0.2,16.7,0.3,0.30,,,,
+triphenylene-h12,C18H12,,,,,,,,0.25,8.16,9.37,8.78,d
+perylene,C20H12,6.93,,,18.0,0.2,,,0.27,,11.34,,
+coronene,C24H12,7.27,18.70,0.15,20.12,0.15,,,0.62,12.05,13.43,,

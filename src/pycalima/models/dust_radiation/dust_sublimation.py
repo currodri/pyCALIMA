@@ -995,9 +995,9 @@ def effective_radius_loss_rate(material, a_cm, T_grid, P, dataset=None):
     """Stochastic-heating-weighted grain radius shrink rate [cm s^-1].
 
     Computes the expectation value of ``radius_loss_rate`` over the
-    temperature probability distribution ``P(T)``:
+    temperature probability distribution ``P(T)``::
 
-        <``|da/dt|``> = sum_i  P_i * ``|da/dt|``(T_i)
+        <|da/dt|> = sum_i  P_i * |da/dt|(T_i)
 
     Because sublimation is exponentially sensitive to temperature, the
     stochastic average can exceed the single-equilibrium-temperature value

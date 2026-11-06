@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 
 kB = 1.380649e-16       # erg/K
 mH = 1.6735575e-24      # g
-twopi = 2*np.pi
 pi = np.pi
 
 # ---------------------------
@@ -70,6 +69,11 @@ def beta_hp_over_alphapc(Tgas, Td, dust_index):
 # -------------------------------------------------------------------------
 # 5) H flux onto grain surface
 # -------------------------------------------------------------------------
+def mean_h_speed(Tgas):
+    """Mean thermal speed of H atoms, sqrt(8kT/(pi m_H)): the v_H of Cazaux & Spaans (2004), 1.45e5 (T/100)^0.5 cm/s."""
+    return np.sqrt(8.0 * kB * Tgas / (pi * mH))
+
+
 def h_flux(nH, vH):
     return nH * vH / Ns
 
@@ -143,7 +147,7 @@ def plot_recombination_efficiency_vs_size(
         elif T_dust_arr.size != asizes.size:
             raise ValueError("`T_dust` must be scalar or same length as `asizes`")
 
-    vH = np.sqrt(2 * kB * Tgas / mH)
+    vH = mean_h_speed(Tgas)
     F = h_flux(nH, vH)
 
     plt.figure(figsize=figsize)
@@ -206,7 +210,7 @@ def plot_recombination_efficiency_vs_Td(
     """
     T_dust_vals = np.atleast_1d(T_dust_vals).astype(float)
 
-    vH = np.sqrt(2 * kB * Tgas / mH)
+    vH = mean_h_speed(Tgas)
     F = h_flux(nH, vH)
 
     plt.figure(figsize=figsize)
@@ -300,7 +304,7 @@ def h2_formation_rate(
         asize[j]     = micron
         mgrain[j]    = g (mass per grain)
     """
-    vH = np.sqrt(2 * kB * Tgas / mH)
+    vH = mean_h_speed(Tgas)
     F = h_flux(nH, vH)
 
     total = 0.0
@@ -310,8 +314,8 @@ def h2_formation_rate(
         dtype = dust_types[j]      # 0 or 1
         Td = T_dust[j]
 
-        # Number density of grains * surface 2πa^2
-        sdust = (rho_dust[j] / mgrain[j]) * twopi * (asize[j]*1e-4)**2
+        # n_d sigma_d with the geometric cross section pi a^2 (Cazaux & Spaans 2004, eqs. 2 and 4)
+        sdust = (rho_dust[j] / mgrain[j]) * pi * (asize[j]*1e-4)**2
 
         R_H2 = sdust * recombination_efficiency(Tgas, Td, nH, vH, F, dtype)
         total += R_H2 * h2_sticking_coef(Tgas, Td)

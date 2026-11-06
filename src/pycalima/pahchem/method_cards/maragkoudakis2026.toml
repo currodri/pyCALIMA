@@ -1,0 +1,48 @@
+# Method card: Maragkoudakis, Boersma, Peeters et al. 2026, PDRs4All XVIII, A&A 709, A38 ("M26").
+#
+# Conventions as in andrews16.toml: each value has a `source` and a
+# `confidence` (A experiment, B benchmarked theory, C theory, D extrapolation,
+# E assumption). "not stated" marks what the paper does not give; "inferred"
+# marks what follows from reproducing their numbers.
+#
+# Status (2026-10-07): recovered on the templates. Runner pahchem.maragkoudakis2026,
+# diagnostics/pahchem/check_maragkoudakis2026.py and explore_maragkoudakis2026.py,
+# gates tests/test_pahchem_maragkoudakis2026.py (need the pyPAHdb matrix).
+
+[card]
+name = "Maragkoudakis2026"
+bib_key = "Maragkoudakis2026"
+citation = "Maragkoudakis, Boersma, Peeters et al. 2026, A&A 709, A38 (doi:10.1051/0004-6361/202556975; arXiv:2601.23282)"
+read_from = "arXiv v1 LaTeX source (OrionBar_pyPAHdb_R1.tex) and its vector figures; the pyPAHdb code (GitHub master, 2025-11) and the public v4.00-alpha matrix"
+status = "recovered (templates)"
+
+[species]
+database = { value = "pyPAHdb precomputed matrix v4.00-alpha: 7529 columns, charges -1..+3, 20 < N_C <= 384", source = "the pickle (dataset pypahdb-matrix-v4-00-alpha); releases.json says 7259", confidence = "A" }
+provenance_inferred = "Of 40 random columns, 20 are reproduced exactly (max |diff| < 1e-3 of the peak) by PAHdb v3.20 (B3LYP/4-31G) spectra and 9 by final v4.00 (6-31G*, the newest species); 11 (mostly dications) by neither. So the 'v4.00-alpha' matrix is mostly v3.20-era 4-31G spectra plus new 6-31G* species, not the final 6-31G* v4.00."
+dications = "included: 2273 dication and 7 trication columns, counted as 'cations' (pyPAHdb: charge > 0)"
+
+[dissociation]
+modelled = "no: emission only (the charge and size fractions are fitted, not computed)"
+
+[emission]
+model = { value = "AmesPAHdb thermal-approximation cascade after one 7 eV photon", source = "Sect. 2.4; every column integrates to 7 eV (1.12e-11 erg)", confidence = "A" }
+implementation = "emission.ThermalCascade, then emission.spectrum (Gaussian, FWHM 15 cm^-1, no shift): reproduces the matrix columns (above)"
+profile = { value = "Gaussian, FWHM 15 cm^-1, no redshift", source = "Sect. 2.4; releases.json 'no redshift applied'", confidence = "A" }
+
+[fit]
+range_um = { value = [5.0, 15.0], source = "Sect. 2.4", confidence = "A" }
+method = "pyPAHdb DecomposerBase: matrix interpolated onto the observation's points, matrix and spectrum scaled by their maxima, one unweighted NNLS (maragkoudakis2026.decompose)"
+fractions = "fractions of the NNLS weights; the columns hold one 7 eV photon each, so they are shares of the emitted energy, and N_C is emission-weighted"
+pixels = "per-pixel fits of the MRS mosaic averaged over zones (Table 1); the zone apertures are not tabulated"
+
+[observations]
+templates = { value = "PDRs4All MIRI MRS v2 additive stitching", source = "figure file names", confidence = "B" }
+continuum = { value = "pybaselines morphological, then imodpoly", source = "Sect. 2.3", confidence = "A" }
+continuum_parameters = { value = "half-window 0.8 um, order 3 (morphological curve, then imodpoly on it)", source = "inferred: best match to their own digitised band ratios, rms 0.046 dex (check_maragkoudakis2026)", confidence = "D" }
+lines = "masking not stated; pahchem uses a 0.02 um running median"
+extinction = "none (Sect. 2.3)"
+
+[targets]
+table1 = "maragkoudakis2026_table1.csv: on the templates their pipeline gives f_neut within 0.04, f_cat 0.03-0.07 low, N_C within 1-5 of Table 1"
+digitised = "maragkoudakis2026_templates_digitised.csv: template gamma, band ratios and N_C read from their figures"
+not_reproduced = "per-pixel maps and zone averages (no cubes here); the 3.3 um maps (Schefter et al. in prep.)"

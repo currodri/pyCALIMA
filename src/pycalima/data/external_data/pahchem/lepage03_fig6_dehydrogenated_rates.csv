@@ -1,0 +1,20 @@
+# Le Page, Snow & Bierbaum 2003, ApJ 584, 316, Fig. 6: photodissociation rates [s^-1] against N_C, for extremely dehydrogenated PAHs (C2 and C2H2 loss; the H-loss curve was not digitised).
+# Caption: C2 loss exceeds C+ insertion below ~18 C; PAHs under ~30 C are mostly dehydrogenated,
+# at nt = 25 cm^-3 and chi = 1 (Draine + Mathis field). Sect. 4.3 compares them with H addition to cations,
+# 2.5e-9 s^-1, and C+ insertion on neutral PAHs, 3.5e-12 s^-1. Channels (Sect. 4.3): H loss 4.8 eV / 5 cal/K;
+# C2H2 loss 4.5 eV for small PAHs, 5.5 eV for pyrene+, 6.0 eV for large cations, 10 cal/K, x6 paths in compact
+# PAHs; C2 loss ~8 eV. Digitised from the journal PDF with WebPlotDigitizer, 2026-10-05. n_c is read off the curve.
+channel,n_c,k_s
+C2,5.959,3.2187e-09
+C2,9.924,3.3059e-09
+C2,11.920,2.0794e-09
+C2,13.949,7.9688e-10
+C2,15.909,9.8339e-11
+C2,19.996,2.0612e-13
+C2H2,13.819,7.1665e-09
+C2H2,15.888,6.9007e-09
+C2H2,20.018,5.9654e-09
+C2H2,23.840,1.9144e-09
+C2H2,27.430,1.7173e-10
+C2H2,31.847,5.5136e-12
+C2H2,36.980,1.1572e-13

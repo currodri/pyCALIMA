@@ -268,15 +268,19 @@ def compute_acetylene_dissociation_rate(args):
     for i in range(0, len(E)):
         if params['dehydrogenated']['C2H2']['E0'] <= E[i] <= 13.6:
             T_0 = E[i]
-            print(E[i])
             T_nmax = T_0 - n_max * Delta_epsilon
+            # Same guard as PAH_sputtering: below 0.2 E0 the effective
+            # temperature is non-positive, and the PAH cools before it can
+            # dissociate.
+            if T_nmax <= 0.2 * params['dehydrogenated']['C2H2']['E0']:
+                k.append(0.0)
+                continue
             T_0 = effective_temperature(Nc,T_0,params['dehydrogenated']['C2H2']['E0'])
             T_nmax = effective_temperature(Nc,T_nmax,params['dehydrogenated']['C2H2']['E0'])
             T_av = np.sqrt(T_0 * T_nmax)
             P = dissociation_probability(params['dehydrogenated']['C2H2']['S'],
                                          params['dehydrogenated']['C2H2']['E0'],
                                          Nc,T_av)
-            print(sigma_abs[i],I[i],P,E[i],T_av)
             k.append(sigma_abs[i] * I[i] * P / E[i] * 6.24150935e+18)
     k = np.array(k)
     R = np.trapezoid(k,E[mask])
@@ -325,10 +329,11 @@ def plot_acetylene_dissociation_rate(G0min,G0max,nHmin,nHmax,pah_bin_id=None,pah
         for y in nH:
             f.write(f"{y}\n")
         
-        # Write the Z array
+        # Write the Z array. A zero rate is floored at 1e-100 s^-1: -inf
+        # would turn bilinear interpolation into NaN at zero weight.
         for i in range(len(G0)):
             for j in range(len(nH)):
-                f.write(f"{np.log10(diss_rate[j, i])}\n")
+                f.write(f"{np.log10(max(diss_rate[j, i], 1e-100))}\n")
     
     # 5. Plot results
     import matplotlib.pyplot as plt

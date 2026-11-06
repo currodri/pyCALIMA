@@ -125,6 +125,15 @@ def collapse_optics():
         pytest.skip(f"optical constants not fetched: {', '.join(missing)}")
 
 
+@pytest.fixture
+def malloci2007():
+    """Skip unless the Malloci+07 TD-DFT spectra have been fetched (``calima-fetch-data fetch malloci2007-spectra``)."""
+    from pycalima._datasets import get_dataset
+
+    if get_dataset("malloci2007-spectra").locate() is None:
+        pytest.skip("Malloci+07 spectra not fetched (calima-fetch-data fetch malloci2007-spectra)")
+
+
 def _importable(name: str) -> bool:
     import importlib.util
 

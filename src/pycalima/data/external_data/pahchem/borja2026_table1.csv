@@ -1,0 +1,17 @@
+# Table I of Borja, Calvo, Parneix, Falvo, J. Chem. Phys. 164, 134106 (2026), doi:10.1063/5.0318065 (transcribed from arXiv:2601.02173v3 LaTeX source)
+# relative_energy_eV: adiabatic energy wrt neutral S0 minimum; transition_energy_calc_eV: ZPE-included 0-0 energy wrt neutral S0 v=0 (harmonic, wB97XD/cc-pVTZ (TD-)DFT)
+# transition_energy_exp_eV: PE data (a Bally+1998; b Boschi+1972 & Szczepanski+1993; c Boschi & Schmidt 1972). f values x1e-3; empty fFC = symmetry forbidden (marked x in paper)
+molecule,state,symmetry,relative_energy_eV,transition_energy_calc_eV,transition_energy_exp_eV,exp_ref,fFC_x1e3,fHT_0K_x1e3,fHT_2000K_x1e3
+Np,S0,X1Ag,0,0,0,,,,
+Np+,D0,X2Au,7.92,7.91,8.15,a,,,
+Np+,D1,A2B3u,8.74,8.76,8.88,a,,0.6596,0.9503
+Np+,D2,B2B2g,9.81,9.79,10.08,a,82.12,0.7252,1.926
+An,S0,X1Ag,0,0,0,,,,
+An+,D0,X2B2g,7.15,7.16,7.47,b,,,
+An+,D1,A2B1g,8.53,8.52,8.57,b,,4.745,7.641
+An+,D2,B2Au,9.03,9.05,9.23,b,164.0,1.113,1.571
+Py,S0,X1Ag,0,0,0,,,,
+Py+,D0,X2B1g,7.19,7.19,7.41,c,,,
+Py+,D1,A2B2g,8.25,8.26,8.26,c,,1.243,1.817
+Py+,D2,B2B3u,8.94,8.93,9.00,c,34.34,4.565,10.07
+Py+,D3,C2Au,9.32,9.35,9.29,c,58.67,15.43,18.44
