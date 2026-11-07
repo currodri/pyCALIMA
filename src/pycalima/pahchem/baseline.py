@@ -16,8 +16,10 @@ and their sources are in ``method_cards/pahchem_baseline.toml``.
   cation -> dication with Wenzel+20 where it applies (N_C >= 32); ionising
   photons deposit nothing.
 - **Charge and H chemistry.** Table A.1 IP/EA of Andrews+16 with 0.1 eV per
-  missing H; BT94 electron capture, with sticking 1 for cations and the
-  statistical s_e of ``attachment`` for neutrals; the Andrews+16 H addition,
+  missing H; BT94 electron capture with the population's sticking
+  (``BaselineModel.capture_coefficients``: the cation factor of
+  ``Params.capture_model``, and on neutrals the attachment fraction times the
+  statistical s_e of ``attachment``); the Andrews+16 H addition,
   associative detachment and Eley-Rideal.
 
 ``Params`` holds every knob. ``sensitivity`` perturbs them one at a time.
@@ -64,18 +66,90 @@ class Params:
     modes: str = "parent"                    # or "stripped"
     # photophysics
     sigma_scale: float = 1.0
+    # UV absorption (``photo.sigma_uv``): our Octopus TD-DFT library (``uvlib``; the default since 2026-11-01, with the neutrals' bands
+    # shifted up 0.4 eV, ad hoc and labelled in docs/physics/pahchem-uv-absorption.md section 5; "octopus_library_tdlda" keeps TD-LDA's
+    # positions), Berne+22's Malloci+07 average per C at 5-30 eV with Li & Draine outside ("malloci_average", the default from 2026-10-26),
+    # or "li_draine" everywhere (before)
+    uv_cross_section: str = "octopus_library"
     ir_scale: float = 1.0                    # proxy for recurrent fluorescence / anharmonic cooling
     yield_model: str = "jochims"             # or "lepage"
     yield_cation: str = "wenzel"             # Z = +1 where Wenzel+20 applies (N_C >= 32, IP2 < 11.3); or "jochims"
+    # population only, Z >= +2 (no yield measured): "none" (the lab laws, unity above max(20 eV, IP)), "window" (opt-in
+    # bound: capped by photo.yield_coulomb_window, the Coulomb-bound electrons autoionising against relaxation, u_c from
+    # the Z = +1 data) or "y2" (WD01's escape fraction, none of them autoionising; excluded at Z = +1)
+    coulomb_escape: str = "none"
+    # population only: "knockout" (opt-in) removes two electrons in photo.double_fraction of the photoionisations of
+    # Z >= 0 above IP(Z) + IP(Z+1) (dz = +2; from the state below the cold limit, a Coulomb explosion); "none" one each
+    double_ionisation: str = "none"
+    # population only: C 1s absorption (population.kshell_rates): "auger" (the default since 2026-11-03: the photoelectron
+    # plus Auger decay, +1 to +3 per absorption, to 10 keV) or "single" (before: one electron each, as the valence, to 500 eV)
+    kshell: str = "auger"
     ionising_photons_heat: bool = False
     # charge
     capture_scale: float = 1.0
-    detachment: str = "jochims"              # anion photodetachment: Jochims at the EA, "unity" above it, or "statistical" (population: WD01 prompt + detailed-balance delayed)
-    capture_model: str = "bt94"              # cation capture: BT94, or "lab_trend" (chemistry.lab_recombination_factor)
+    detachment: str = "valence"              # anion photodetachment: "valence" (statistical + valence photodetachment; default since 2026-10-25, the only one passing V2 and V14), "statistical" (population: WD01 prompt + detailed-balance delayed), "jochims" (Jochims at the EA, every electron taking E - EA; the default before) or "unity" above it
+    # cation capture (population and BaselineModel): "lab_cold" (chemistry.lab_sticking on the photo-ion data, the
+    # default since 2026-11-02; measured at N_C 10-16 only, its rise to 1 by N_C ~ 40 an extrapolation), "lab_pahs" (every PAH
+    # point), "bt94" (sticking 1, the default before), "lab_trend" (chemistry.lab_recombination_factor) or "wd01" (comparison:
+    # population.wd01_capture_ratio). docs/physics/pahchem-gas-coupling.md section 2.2b
+    capture_model: str = "lab_cold"
     capture_cap: float | None = None         # upper bound on the lab_trend factor (None: the power law as fitted)
+    # charge ladder (population only): "cold_limit" (the default since 2026-11-02: up to floor(0.2 N_C),
+    # impact.coulomb_limit; states above the highest computed charge are stand-ins, population.extend_ladder) or
+    # "library" (the charges the library computed, its top state holding the higher charges; before)
+    charge_ladder: str = "cold_limit"
+    capture_t_power: float = 0.0             # cation capture x (T/300 K)^-capture_t_power: 0.25 steepens BT94's ~T^-1/2 to the T^-0.75 of small aromatics in storage rings (Hamberg+11)
     stretch_scale: float = 1.0               # Einstein A of the CH stretches (CH_STRETCH_CM), every cascade; LAB_STRETCH_SCALE for the lab ratio
     recombination_heating: bool = True       # population only: each recombination into a state deposits its threshold
+    # population only: those deposits also drive H and H2 loss (dissociative recombination; population.deposit_response),
+    # the default since 2026-11-03; False: they only heat the IR, as before
+    recombination_dissociation: bool = True
+    # population only: each photoionisation (detachment) leaves its product the internal energy E - IP - <E_k>
+    # (photo.photoelectron_energy; the anion's statistical_detachment), followed down the product's own cascade (IR, H and
+    # H2 loss; population.ionisation_deposits), the default since 2026-11-03; False: that energy is lost, as before. Not with
+    # ionising_photons_heat, which puts it in the absorbing state's cascade instead (Montillaud's and the BaselineModel's)
+    ionisation_heating: bool = True
+    # population only: where the measured photoelectron shares (photo.photoelectron_energy, neutrals) are read for a state
+    # of threshold T: "neutral" (the default since 2026-11-04: at hv - (T - IP(0)), the molecule's neutral ladder shifted
+    # rigidly by its charge, as the Octopus ladders shift) or "photon" (at the photon energy, every state alike; before)
+    photoelectron_reference: str = "neutral"
+    # population only: cosmic-ray passages (impact.passage_spectrum of cosmic_rays.standard_spectra, per unit
+    # Environment.zeta_cr) in the charge chain (+dz steps) and as deposits (E* on population.HEAT_NODES_EV, the state's own
+    # with dz = 0). Every charge state is then live, so it costs bases the photons alone would not need; False: an
+    # Environment with zeta_cr > 0 raises
+    cosmic_rays: bool = False
+    # population only: thermal electrons of the gas at Environment.temperature_k and n_e pass through the PAHs
+    # (impact.passage_spectrum of impact.maxwellian_flux, Coulomb-focused), as cosmic rays do: charge steps, heat, the
+    # passages beyond. Opt-in (hot, shocked gas; 2026-11-04): it makes every charge live
+    hot_gas: bool = False
+    # population only: C2H2 loss of PAHs with catacondensed end rings (a quartet of edge H), the loss of their first carbon:
+    # RRKM (E0 [eV], dS(1000 K) [J/K/mol]) of Ling & Lifshitz 1998 Table 2 (anthracene+: 4.50 eV, +12.8 eu, a loose
+    # transition state, path degeneracy 1 for its two end rings; phenanthrene+ 3.99 eV, +12.3 eu); None: no C2H2 loss.
+    # Pericondensed parents get none: pyrene+, perylene+ and coronene+ lose no hydrocarbon fragments (West+18)
+    c2h2_loss: tuple | None = (4.50, 53.6)
+    # population only: hot ions emit protons (charge -1, one H less) over the larger of impact.fission_barrier (Holm+11)
+    # and the H+ dissociation energy (the H-loss E0 + IE(H) - IP(z-1)), with the H-loss transition state; False: none
+    fission: bool = True
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
+    # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
+    # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)
+    associative_detachment: str = "dehydrogenated"
+    # f with attachment_model "constant": share of classical captures on a neutral that form the anion
+    # (``attachment.Attachment.capture_fraction``; autodetachment scales with it by detailed balance). 1 is the classical limit
+    attachment_fraction: float = 1.0
+    # f per molecule (population.attachment_fraction; the population and BaselineModel): "size" (the
+    # default since 2026-11-02: attachment_f_low + (1 - attachment_f_low) / (1 + (attachment_nc_half / N_C)^attachment_nc_power)),
+    # "constant" (f = attachment_fraction; 1 before) or "ea" (a logistic in the electron affinity: attachment_f_low + (1 -
+    # attachment_f_low) / (1 + exp(-(EA - attachment_ea_half) / attachment_ea_width))). Anchors: ~0.003 for anthracene, perylene
+    # and coronene (lab, Carelli+13 upper bounds), ~0.5-0.7 for C60 (Viggiano+10, 400-625 K, a factor 3). Between C24 and C60
+    # nothing is measured: the logistic's midpoint and steepness there are an extrapolation, constrained only by the
+    # PDRs4All fronts and Wolfire+08 for N_C >~ 50 (docs/physics/pahchem-gas-coupling.md section 2.2b)
+    attachment_model: str = "size"
+    attachment_ea_half: float = 2.0
+    attachment_ea_width: float = 0.2
+    attachment_nc_half: float = 50.0
+    attachment_nc_power: float = 10.0
+    attachment_f_low: float = 0.003
     # ion-PAH collisions (population; Environment.ions): efficiencies on DS87 (anions) and Langevin (neutrals)
     mn_efficiency: float = 0.58
     ion_neutral_efficiency: float = 0.9
@@ -105,8 +179,21 @@ class Environment:
     ions: tuple = ()                          # ((name, n [cm^-3]), ...) of chemistry.IONS, inputs like n_e (population)
     field_e_min_ev: float = 1.0               # lowest photon energy the field reaches (population; 5.0: as before 2026-10-24)
     optical_isrf: float = 1.0                 # old-star light below 5 eV, x the solar circle's, not scaled by g0 (Draine shape, population)
+    field_powerlaw: float | None = None       # F_nu ~ nu^-alpha from field_e_min_ev to field_e_max_ev instead of a star (population);
+    #                                           field_e_min_ev > 13.6: X-rays only, and g0 is their energy flux in Habing units
+    zeta_cr: float = 0.0                      # primary cosmic-ray ionisation rate per H [s^-1], RAMSES-RTZ's input, an input like
+    #                                           n_e (population with Params.cosmic_rays; cosmic_rays.standard_spectra)
+    field_cr_uv: str | None = None            # the cosmic-ray-induced field of pahchem.cr_uv (a source name) instead of a star;
+    #                                           g0 is then zeta(H2) / 1e-16 (cr_uv.scale; build with cr_uv.environment)
+    cr_uv_x_h2: float = 0.5                   # n(H2) / n_H of that field (cr_uv.X_H2_REF)
 
     def field(self):
+        if self.field_cr_uv is not None:
+            from pycalima.pahchem import cr_uv
+
+            return cr_uv.field(self.g0 * cr_uv.ZETA_REF, self.cr_uv_x_h2, self.field_cr_uv)
+        if self.field_powerlaw is not None:
+            return fields.powerlaw(self.field_powerlaw, self.g0, e_min=self.field_e_min_ev, e_max=self.field_e_max_ev)
         return (fields.kurucz(self.teff_k, self.g0, e_max=self.field_e_max_ev) if self.teff_k is not None
                 else fields.draine1978(g0=self.g0))
 
@@ -117,8 +204,7 @@ class Environment:
 #: C54H18+ (1.05, 0.076), (2.40, 1.08). Equilibrium-geometry values, which Subramani+25 find
 #: underestimate measured RF: a lower bound. No spectrum exists for C96H24+ or the dications
 #: (pahchem-data-requests, T3), so RF is off there.
-RF_SPECTRA = {"C24": {1: "malloci_coronene_cation_sigma.dat"},
-              "C54": {1: "pahchem/malloci2007_circumcoronene_cation_sigma.dat"}}
+RF_SPECTRA = {"C24": {1: "coronene"}, "C54": {1: "circumcoronene"}}      # malloci2007-spectra names
 
 #: Carbon loss from the bare skeleton: name -> (rate form, {fragment: (n_C, A [s^-1] or dS [J/K/mol], E0 [eV])}).
 #:
@@ -152,15 +238,38 @@ class BaselineModel:
         self._cm = {}
         self._sticking = {}
 
+    def attachment_fraction(self):
+        """f of the parent: ``population.attachment_fraction`` under ``Params`` (the size logistic by default), as the
+        population gives a molecule of this N_C and Table A.1 EA."""
+        from types import SimpleNamespace
+
+        from pycalima.pahchem import population
+
+        th = IONISATION[self.parent]
+        return population.attachment_fraction(SimpleNamespace(nc=self.nc, ea_ev=th.get(-1), ionisation_ev=th), self.p)
+
+    def capture_coefficients(self, temperature_k):
+        """Electron capture coefficient of each charge [cm^3 s^-1], as the population's (``population.capture_coefficient``):
+        BT94 with the neutral's ``sticking_neutral`` and the cation factor of ``Params.capture_model`` (``lab_cold``
+        by default), ``capture_scale`` on every charge. Until 2026-11-02 the baseline took sticking 1 on cations
+        whatever ``capture_model``."""
+        from pycalima.pahchem import population
+
+        return np.array([chemistry.electron_capture(self.nc, z, temperature_k,
+                                                    sticking=self.sticking_neutral(temperature_k) if z == 0 else 1.0)
+                         * population._capture_factor(self, z, self.p, temperature_k) for z in self.charges])
+
     def sticking_neutral(self, temperature_k):
         """Electron sticking coefficient of the neutral at gas temperature T.
 
         A number in ``Params.sticking_neutral`` is used as given. With
-        "statistical" it is ``attachment.Attachment`` for the parent and its
+        "statistical" it is the parent's ``attachment_fraction`` f times the s_e of
+        ``attachment.Attachment`` (with that capture fraction) for the parent and its
         anion (PAHdb modes, EA of Andrews+16 Table A.1), the neutral's internal
         energy being its radiative P(E) under the Draine field at G0 = 1; that
         P(E) changes s_e by < 10 % up to G0 = 1e4 (pahchem-spec.md, M4). Every
-        N_H takes the parent's value.
+        N_H takes the parent's value. Until 2026-11-02 f was ``Params.attachment_fraction`` whatever
+        ``attachment_model``.
         """
         s = self.p.sticking_neutral
         if not isinstance(s, str):
@@ -171,18 +280,22 @@ class BaselineModel:
             raise ValueError("statistical neutral sticking needs the anion's modes (BaselineModel(anion=...))")
         key = round(float(temperature_k), 6)
         if key not in self._sticking:
-            if "attachment" not in self._cm:
-                from pycalima.pahchem.attachment import Attachment
+            from pycalima.pahchem.attachment import Attachment, grid_excess_cm
 
-                at = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
-                                chemistry.disc_radius_cm(self.nc), e_excess_cm=8000.0)
+            if "neutral_pe" not in self._cm:             # the neutral's radiative P(E) under Draine G0 = 1
                 cm = energy_me.CascadeModel(self.species.freqs_cm, scaled_einstein_a(self.species, self.p),
                                             e_max_cm=16.0 * dos.CM_PER_EV, de_cm=10.0, grain_cm=1.0)
-                sigma = photo.sigma_li_draine(self.nc, 0, E_PH)
+                sigma = photo.sigma_uv(self.nc, 0, E_PH, self.p.uv_cross_section)
                 _, h = self._absorption(fields.draine1978(g0=1.0), sigma, 0, self.nh0)
-                self._cm["attachment"] = (at, cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
-            at, e_n, p_n = self._cm["attachment"]
-            self._sticking[key] = at.sticking(temperature_k, e_n, p_n)
+                self._cm["neutral_pe"] = (cm.energy_cm, cm.steady_state(E_PH, h, {}).probability)
+            akey = ("attachment", grid_excess_cm(temperature_k))     # the grid holds the electrons' Maxwellian
+            f = self.attachment_fraction()
+            if akey not in self._cm:
+                self._cm[akey] = Attachment(self.species, self.anion, IONISATION[self.parent][-1],
+                                            chemistry.disc_radius_cm(self.nc), e_excess_cm=akey[1],
+                                            capture_fraction=f)
+            e_n, p_n = self._cm["neutral_pe"]
+            self._sticking[key] = f * self._cm[akey].sticking(temperature_k, e_n, p_n)
         return self._sticking[key]
 
     # -- per-state molecular inputs ------------------------------------------
@@ -193,10 +306,10 @@ class BaselineModel:
 
     def rf_levels(self, z):
         """Recurrent-fluorescence levels [(E_n cm^-1, f)] of charge z, or () (``RF_SPECTRA``)."""
-        path = RF_SPECTRA.get(self.parent, {}).get(z)
-        if not self.p.recurrent_fluorescence or path is None:
+        name = RF_SPECTRA.get(self.parent, {}).get(z)
+        if not self.p.recurrent_fluorescence or name is None:
             return ()
-        return tuple((e * dos.CM_PER_EV, f) for e, f in photo.malloci_rf_levels(path))
+        return tuple((e * dos.CM_PER_EV, f) for e, f in photo.malloci_rf_levels(name, z))
 
     def _cascade(self, nh, z=None):
         """Cascade of state N_H; with ``z``, including that charge's RF levels."""
@@ -253,7 +366,7 @@ class BaselineModel:
         field = env.field()
         out = {}
         for z in self.charges:
-            sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
+            sigma = photo.sigma_uv(self.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
             for nh in self.nh_values:
                 y, h = self._absorption(field, sigma, z, nh)
                 ch = self._channels(nh, z)
@@ -306,7 +419,7 @@ class BaselineModel:
         field = env.field()
         out = {}
         for z in self.charges:
-            sigma = photo.sigma_li_draine(self.nc, z, E_PH) * self.p.sigma_scale
+            sigma = photo.sigma_uv(self.nc, z, E_PH, self.p.uv_cross_section) * self.p.sigma_scale
             _, h = self._absorption(field, sigma, z, 0)
             r = cm.steady_state(E_PH, h, k).rates
             out[z] = float(sum(fragments[name][0] * r[name] for name in fragments))
@@ -323,9 +436,8 @@ class BaselineModel:
         net.add("H loss", get("H"), dnh=-1)
         net.add("H2 loss", get("H2"), dnh=-2, h2_released=1)
         net.add("photoionisation", np.where(Z < top_z, get("ion"), 0.0), dz=+1)
-        per_z = np.array([chemistry.electron_capture(self.nc, z, T, sticking=self.sticking_neutral(T) if z == 0 else 1.0)
-                          for z in self.charges])                      # independent of N_H
-        capture = np.repeat(per_z[:, None], len(self.nh_values), axis=1) * p.capture_scale
+        per_z = self.capture_coefficients(T)                               # independent of N_H
+        capture = np.repeat(per_z[:, None], len(self.nh_values), axis=1)
         net.add("electron capture", np.where(Z > min(self.charges), capture * env.n_e, 0.0), dz=-1)
         sigma_geo = CORONENE_GEOMETRIC_A2 * self.nc / 24.0
         barrier = np.select([NH == self.nh0, NH == self.nh0 + 2], [0.06, 0.035], 0.0)
@@ -335,7 +447,8 @@ class BaselineModel:
         can_add = NH < top_nh
         net.add("H addition, cations", np.where((Z > 0) & can_add, p.addition_cation * env.n_h, 0.0), dnh=+1)
         net.add("H addition, neutrals", np.where((Z == 0) & can_add, neutral * env.n_h, 0.0), dnh=+1)
-        net.add("associative detachment", np.where((Z == -1) & can_add, 7.8e-10 * env.n_h, 0.0), dz=+1, dnh=+1)
+        ad_from = {"dehydrogenated": NH < self.nh0, "all": can_add}[p.associative_detachment]
+        net.add("associative detachment", np.where((Z == -1) & ad_from, 7.8e-10 * env.n_h, 0.0), dz=+1, dnh=+1)
         er = chemistry.cross_section_rate(T, p.eley_rideal_a2) * env.n_h
         net.add("Eley-Rideal", np.where(NH > self.nh0, er, 0.0), dnh=-1, h2_released=1)
         return net

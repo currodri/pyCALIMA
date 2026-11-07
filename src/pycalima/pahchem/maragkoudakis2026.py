@@ -104,12 +104,12 @@ def fractions(weights, precomputed):
 
 def fit_error(wavelength_um, intensity, fit, fit_range_um=FIT_RANGE_UM):
     """pyPAHdb's error: integral of ``|residual|`` over the integral of the observation (in wavenumber)."""
-    lam = np.asarray(wavelength_um, dtype=float)
+    lam, obs, fit = (np.asarray(x, dtype=float) for x in (wavelength_um, intensity, fit))
     sel = (lam >= fit_range_um[0]) & (lam <= fit_range_um[1]) & np.isfinite(fit)
     nu = 1e4 / lam[sel]
     o = np.argsort(nu)
-    r = np.abs(fit[sel] - intensity[sel])[o]
-    return float(np.trapezoid(r, nu[o]) / np.trapezoid(np.asarray(intensity)[sel][o], nu[o]))
+    r = np.abs(fit[sel] - obs[sel])[o]
+    return float(np.trapezoid(r, nu[o]) / np.trapezoid(obs[sel][o], nu[o]))
 
 
 def baseline_pybaselines(wavelength_um, intensity, half_window, poly_order, variant="mor_then_imodpoly"):

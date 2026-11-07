@@ -125,7 +125,7 @@ class FamilyEmission:
         field = env.field()
         out = {}
         for z in self.model.charges:
-            sigma = photo.sigma_li_draine(self.model.nc, z, E_PH) * self.model.p.sigma_scale
+            sigma = photo.sigma_uv(self.model.nc, z, E_PH, self.model.p.uv_cross_section) * self.model.p.sigma_scale
             for nh in self.model.nh_values:
                 sp, cm = self._cascade(z, nh)
                 _, h = self.model._absorption(field, sigma, z, nh)

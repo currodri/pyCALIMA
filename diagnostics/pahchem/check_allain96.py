@@ -16,9 +16,9 @@ Measured (2026-10-05; Malloci+07 sigma, PAHdb A, Set 2 from I Fig. 5):
 - **I Table 4** (H, H2, C2H2 loss):
   - N_C <= 24: within 0.1 dex. The C16H10 Set 1 C2H2 entry, 1.29e-11, is
     compared with 0.1 x its H2 rate (a misprint).
-  - C32H14: -0.22 dex with k_IR = sum A (the card's reading), +0.20 with
+  - C32H14: -0.24 dex with k_IR = sum A (the card's reading), +0.20 with
     the occupation factor kept.
-  - PAH 50 C (C50H20): -1.35 dex, and -0.34 with the occupation kept.
+  - PAH 50 C (C50H20): -1.39 dex (H; -1.42 for H2 and C2H2), and -0.34 with the occupation kept.
     Allain's 2.27e-16 lies between our occupation-kept N_H = 18-20 (4.3e-16,
     1.0e-16) and occupation-dropped N_H = 16 (1.7e-16): N_H0 and the k_IR
     convention are both unstated.

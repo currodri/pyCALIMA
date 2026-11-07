@@ -128,6 +128,11 @@ IONISATION = {"C24": {-1: 0.47, 0: 7.20, 1: 11.50},
               "C54": {-1: 1.44, 0: 6.14, 1: 8.91, 2: 12.94},
               "C96": {-1: 0.56, 0: 5.68, 1: 8.24, 2: 10.80, 3: 13.36}}
 PARENTS = {"C24": (24, 12, 0), "C54": (54, 18, 6), "C96": (96, 24, 12)}   # N_C, N_H0, N_solo
+#: their UV cross sections (Sect. 2.4.1): Malloci+07 for C24H12 and C54H18, C96H24 as C54H18 scaled by N_C. Charges
+#: Malloci did not compute (coronene -1, whose served file is C54H18-'s; C54 +3; C96 +3, +4) take the nearest computed
+#: charge (``photo.sigma_malloci_molecule``); their dehydrogenated coronene (Malloci+08) is not available, so every
+#: N_H takes the parent's sigma ("closest N_H, same Z" for the states they lacked)
+MALLOCI_SIGMA = {"C24": "coronene", "C54": "circumcoronene", "C96": "circumcoronene"}
 DELTA_IP = 0.1          # eV per missing H (eq. 1)
 CORONENE_GEOMETRIC_A2 = 35.7
 
@@ -158,7 +163,8 @@ class Andrews16Model:
         self._e_max, self._de = e_max_ev, de_cm
         self._states = {}
         self._E_ph = np.linspace(5.0, 13.6, 345)
-        self._sigma = {z: _photo.sigma_li_draine(self.nc, z, self._E_ph) for z in self.charges}
+        self._sigma = {z: _photo.sigma_malloci_molecule(MALLOCI_SIGMA[parent], z, self._E_ph, nc=self.nc)
+                       for z in self.charges}
         self._teff = temperature_template
 
     def ionisation_energy(self, z, nh):

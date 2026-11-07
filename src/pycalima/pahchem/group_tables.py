@@ -13,7 +13,7 @@ blackbody photon spectrum n_E ~ E^2 / (exp(E/kT_s) - 1) for each T_s of ``TS_GRI
     H_g(z) = < sigma Y <E_k> >_g      [cm^2 eV per PAH]    kinetic energy given to the gas
     A_g(z) = < sigma >_g              [cm^2 per PAH]       absorption
 
-with sigma, Y and <E_k> of ``population`` (``photo.sigma_li_draine``, ``population._yield``,
+with sigma, Y and <E_k> of ``population`` (``photo.sigma_uv`` under ``Params.uv_cross_section``, ``population._yield``,
 ``population.electron_energy``) on a grid from the lowest group edge: photons below 5 eV detach anions too (the
 population's grid starts at 1 eV). The same three are given for the UV background (``K_bg`` etc.,
 rates per PAH in the Mathis ISRF at G0 = 1 Habing, 1-13.6 eV, as WDB06rt). Collisions are tabulated in T:
@@ -24,7 +24,8 @@ rates per PAH in the Mathis ISRF at G0 = 1 Habing, 1-13.6 eV, as WDB06rt). Colli
     k_ct(i)      ion-neutral reaction of the neutral with ion i [cm^3 s^-1] (zero where IP(X) < IP(PAH))
 
 (``population.ion_up_rate``; ions: those of ``rt_group_charging.RECOMB_IONS``), and associative detachment of the
-anion by H, ``ASSOCIATIVE_DETACHMENT`` n_H.
+anion by H, k_ad n_H (``population.anion_associative_detachment``: zero unless ``Params.associative_detachment``
+is "all").
 
 Per cell (``PAHGroupTable.solve``, the algorithm RAMSES would implement) the four states are in detailed balance,
 f(z+1)/f(z) = up(z) / down(z+1) with
@@ -34,11 +35,16 @@ f(z+1)/f(z) = up(z) / down(z+1) with
 
 F_g = c N_g the group photon flux. The rates are averaged over the bin before the balance is solved: one chain per
 bin, not one per molecule (``check_pah_group_tables.py`` measures what that costs). Photoionisation out of +2 leaves
-the chain (``overflow``): it adds electrons and heat, but the +3 state is not followed (as ``Population`` does for
-its top states).
+the chain (``overflow``): it adds electrons and heat, but the +3 state is not followed. +2 is the top state of every
+molecule (``_chain``), also of the few with a +3 state in PAHdb, so it ionises only above ``population.Y_UNITY_EV``
+as ``Population``'s top states do.
 
 What it gives up against ``Population``: the in-group shape (blackbody), the averaging above, the dehydrogenated
-states (only the parents' thresholds), the multiphoton k_H, and the IR emission.
+states (only the parents' thresholds), the multiphoton k_H, and the IR emission. And hot gas: the tables are valid to
+T_VALID_MAX_K (written in the file's first line; ``solve`` returns ``valid``). Above it the population's ``Params.hot_gas``
+charges the PAHs by electron impact and ion transfer, and stops most of the captures (``population.capture_stop_factors``,
+x0.1 at 1e6 K): +8 to +32 at 1e6-1e8 K where the tables, which hold neither, give <Z> <= 0 (pahchem audit m12). The T
+axis still runs to 1e8 K, so that RAMSES clamps nothing.
 
     python -m pycalima.pahchem.group_tables --nc 20 50 --label small
 """
@@ -56,9 +62,9 @@ from pycalima.pahchem import population as pop
 from pycalima.pahchem.baseline import Params
 
 FORMAT_VERSION = 1
+#: the highest temperature [K] at which the tables hold the PAH charge (no hot-gas collisions; see the module docstring)
+T_VALID_MAX_K = 1e5
 CHARGES = (-1, 0, 1, 2)
-#: H + PAH- -> PAH-H + e- [cm^3 s^-1], as ``population.charge_matrix``
-ASSOCIATIVE_DETACHMENT = 7.8e-10
 LT = np.round(np.arange(1.0, 8.0 + 1e-9, 0.05), 6)              # log10 T [K]
 ION_NAMES = tuple(f"{el}+" for el, _, _ in rg.RECOMB_IONS if f"{el}+" in chemistry.IONS)
 N_E_PER_GROUP = rg.N_E_PER_GROUP
@@ -77,7 +83,17 @@ def nc_range_weights(library, nc_min, nc_max):
 
 
 def _group_nodes(L0, L1, n_E):
-    return [np.geomspace(l0, l1, n_E) for l0, l1 in zip(L0, L1)]
+    """n_E geometric nodes per group. A group with the top state's step at ``population.Y_UNITY_EV`` inside it
+    gets nodes just below and at the step, so its trapezoid does not smear it (4 % for +2 in 13.6-24.6 eV)."""
+    out = []
+    for l0, l1 in zip(L0, L1):
+        e = pop.Y_UNITY_EV
+        if not l0 < e < l1:
+            out.append(np.geomspace(l0, l1, n_E))
+            continue
+        k = int(np.clip(round(n_E * np.log(e / l0) / np.log(l1 / l0)), 2, n_E - 2))
+        out.append(np.concatenate([np.geomspace(l0, e * (1.0 - 1e-9), k), np.geomspace(e, l1, n_E - k)]))
+    return out
 
 
 def _mathis_flux():
@@ -91,16 +107,30 @@ def _mathis_flux():
     return rg.C_CGS * u / (E * chemistry.EV_ERG)
 
 
+def _chain(mol):
+    """``mol`` with the charge states of ``CHARGES`` only, so that +2 is the top state for every molecule: the few
+    with a +3 state would otherwise ionise out of +2 from ~10 eV (``population._yield``) and the rest only above
+    ``population.Y_UNITY_EV``, two definitions of the overflow in one bin average."""
+    from dataclasses import replace
+
+    if max(mol.charges) <= CHARGES[-1]:
+        return mol
+    keep = [z for z in mol.charges if z <= CHARGES[-1]]
+    return replace(mol, species={z: mol.species[z] for z in keep}, uids={z: mol.uids[z] for z in keep if z in mol.uids},
+                   ionisation_ev={z: v for z, v in mol.ionisation_ev.items() if z < CHARGES[-1]}, _cache={})
+
+
 def molecule_kernels(job):
     """Everything one molecule gives the table: per state, (A, K, H) on the group nodes and the background rates,
     and the collisional tables on ``lT``. ``job`` = (mol, params, partition, L0, L1, n_E, lT)."""
     mol, params, partition, L0, L1, n_E, lT = job
+    mol = _chain(mol)
     nodes = _group_nodes(L0, L1, n_E)
     E = np.concatenate(nodes + [BG_GRID])
     nz, ng = len(CHARGES), len(nodes)
     A, K, H = (np.zeros((nz, E.size)) for _ in range(3))
     for i, z in enumerate(CHARGES):
-        sigma = photo.sigma_li_draine(mol.nc, z, E) * params.sigma_scale
+        sigma = photo.sigma_uv(mol.nc, z, E, params.uv_cross_section) * params.sigma_scale
         y = pop._yield(mol, z, params, energy_ev=E)
         A[i], K[i] = sigma, sigma * y
         H[i] = K[i] * pop.electron_energy(mol, z, params, partition, energy_ev=E)
@@ -118,7 +148,7 @@ def molecule_kernels(job):
         k_ct[j] = pop.ion_up_rate(mol, 0, SimpleNamespace(temperature_k=T[0], ions=((ion, 1.0),)), params)
     return dict(A=A[:, :cut].reshape(shape), K=K[:, :cut].reshape(shape), H=H[:, :cut].reshape(shape),
                 A_bg=bg[0], K_bg=bg[1], H_bg=bg[2], alpha=alpha, L=alpha * e_cap, k_mn=k_mn, k_ct=k_ct,
-                nc=mol.nc, nh=mol.nh)
+                k_ad=pop.anion_associative_detachment(params), nc=mol.nc, nh=mol.nh)
 
 
 def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, label="", meta=""):
@@ -129,7 +159,7 @@ def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, l
         raise ValueError("one non-negative weight per molecule, not all zero")
     w = w / w.sum()
     avg = {k: np.tensordot(w, np.array([m[k] for m in kernels]), axes=1)
-           for k in ("A", "K", "H", "A_bg", "K_bg", "H_bg", "alpha", "L", "k_mn", "k_ct", "nc", "nh")}
+           for k in ("A", "K", "H", "A_bg", "K_bg", "H_bg", "alpha", "L", "k_mn", "k_ct", "k_ad", "nc", "nh")}
     nodes = _group_nodes(L0, L1, n_E)
     nz, ng, nTs = len(CHARGES), len(nodes), np.size(Ts)
     egy = np.zeros((ng, nTs))
@@ -146,7 +176,7 @@ def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, l
                 log10_Ts=np.log10(np.atleast_1d(Ts)), egy=egy, **out,
                 A_bg=avg["A_bg"], K_bg=avg["K_bg"], H_bg=avg["H_bg"], lT=np.asarray(lT, float),
                 alpha=avg["alpha"], L=avg["L"], ions=ION_NAMES, k_mn=avg["k_mn"], k_ct=avg["k_ct"],
-                k_ad=ASSOCIATIVE_DETACHMENT)
+                k_ad=float(avg["k_ad"]))
 
 
 def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELECTRON_PARTITION,
@@ -159,6 +189,8 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
         raise ValueError("no molecule in the bin")
     if not all(complete(m) for m in mols):
         raise ValueError(f"every molecule of a bin needs the charges {CHARGES}")
+    if params.double_ionisation != "none":
+        raise ValueError("the group tables follow single ionisations only (Params.double_ionisation = 'none')")
     jobs = [(m, params, partition, group_L0, group_L1, n_E, lT) for m in mols]
     if workers > 1:
         with ProcessPoolExecutor(workers) as ex:
@@ -166,9 +198,14 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
     else:
         kernels = [molecule_kernels(j) for j in jobs]
     meta = (f"detachment={params.detachment} yield_model={params.yield_model} yield_cation={params.yield_cation} "
-            f"capture_model={params.capture_model} sigma_scale={params.sigma_scale} "
+            f"coulomb_escape={params.coulomb_escape} "
+            f"capture_model={params.capture_model} capture_t_power={params.capture_t_power} sigma_scale={params.sigma_scale} "
             f"mn_efficiency={params.mn_efficiency} ion_neutral_efficiency={params.ion_neutral_efficiency} "
-            f"metal_adducts={params.metal_adducts} partition={partition}")
+            f"metal_adducts={params.metal_adducts} associative_detachment={params.associative_detachment} "
+            f"attachment_fraction={params.attachment_fraction} attachment_model={params.attachment_model} "
+            f"attachment_ea_half={params.attachment_ea_half} attachment_ea_width={params.attachment_ea_width} "
+            f"attachment_nc_half={params.attachment_nc_half} attachment_nc_power={params.attachment_nc_power} attachment_f_low={params.attachment_f_low} uv_cross_section={photo.uv_model_key(params.uv_cross_section)} "
+            f"partition={partition}")
     return combine(kernels, w[w > 0], group_L0, group_L1, n_E, Ts, lT, label, meta)
 
 
@@ -191,7 +228,8 @@ def write_bin_table(t, path):
     nz, ng, nTs = t["K"].shape
     with open(path, "w") as f:
         f.write(f"# pyCALIMA pahchem PAH charge table for RT photon groups, format {t['version']}: bin {t['label']}, "
-                f"{t['n_mol']} PAHdb molecules; see pycalima.pahchem.group_tables\n")
+                f"{t['n_mol']} PAHdb molecules; valid to T = {T_VALID_MAX_K:g} K (no hot-gas collisions); "
+                f"see pycalima.pahchem.group_tables\n")
         f.write(f"# {t['meta']}\n")
         f.write(f"{t['version']} {nz} {ng} {nTs} {t['lT'].size} {len(t['ions'])} {t['n_mol']}\n")
         f.write(_line([t["nc"], t["nh"], t["nc"] * M_C + t["nh"] * M_H, t["k_ad"]]))
@@ -280,7 +318,8 @@ class PAHGroupTable:
         flux[g]: group photon fluxes c N_g [cm^-2 s^-1]; T [K]; n_e, n_h (atomic H) [cm^-3]; ions: ((name, n), ...)
         of ``ion names``; G0_bg: UV background [Habing]. Returns f(Z) over CHARGES; gamma, lam [erg s^-1]
         photoelectric heating and recombination cooling; electron_source and overflow [s^-1] (as
-        ``Population.gas_rates``); alpha_mn, alpha_ct, per ion [cm^3 s^-1]; carbon_accretion [cm^3 s^-1].
+        ``Population.gas_rates``); alpha_mn, alpha_ct, per ion [cm^3 s^-1]; carbon_accretion [cm^3 s^-1]; valid, T <=
+        T_VALID_MAX_K.
         """
         t = self.t
         F = np.asarray(flux, dtype=float)
@@ -305,7 +344,7 @@ class PAHGroupTable:
         ct = {name: float(f[1] * t["k_ct"][j]) for j, name in enumerate(t["ions"])}
         return dict(f=f, gamma=float(f @ heat * chemistry.EV_ERG), lam=float(lam * chemistry.EV_ERG),
                     electron_source=float(e_src), overflow=float(f[-1] * photo_up[-1]),
-                    alpha_mn=mn, alpha_ct=ct, carbon_accretion=0.4 * ct.get("C+", 0.0))
+                    alpha_mn=mn, alpha_ct=ct, carbon_accretion=0.4 * ct.get("C+", 0.0), valid=bool(T <= T_VALID_MAX_K))
 
 
 def group_fluxes(field, L0, L1):

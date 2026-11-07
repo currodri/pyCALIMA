@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pycalima.pahchem import dos
+from pycalima.pahchem import dos, energy_me
 
 
 def cascade_photons(model, channel_rates=None) -> np.ndarray:
@@ -63,6 +63,8 @@ def emission_by_energy(model, start) -> np.ndarray:
     if any, carry their share of the down-jumps but are not returned.
     """
     A = np.array(start, dtype=float)
+    if energy_me.HAVE_NUMBA:
+        return energy_me._cascade_down_numba(model.k_modes, model._lo, model._hi, model._w, A[None, :], model.n_ir, True)[0]
     X = np.zeros((model.n_ir, model.n))
     for j in range(model.n - 1, 0, -1):
         if A[j] <= 0.0:
@@ -128,6 +130,8 @@ class ThermalCascade:
         """Energy emitted in each mode [cm^-1] after absorbing ``energy_cm``."""
         if energy_cm > self.energy[-1]:
             raise ValueError("energy beyond the temperature grid; raise t_max")
+        if energy_cm <= 0.0:
+            return np.zeros_like(self.cumulative[0])
         k = np.searchsorted(self.energy, energy_cm)
         f = (energy_cm - self.energy[k - 1]) / (self.energy[k] - self.energy[k - 1])
         return (1 - f) * self.cumulative[k - 1] + f * self.cumulative[k]
@@ -144,9 +148,11 @@ def steady_state_emission(model, steady) -> np.ndarray:
 def spectrum(freqs_cm, band_strength, grid_cm, fwhm_cm=15.0, shift_cm=-15.0, profile="lorentzian"):
     """Sum of bands of strength ``band_strength`` (any unit) per cm^-1 on ``grid_cm``.
 
-    Defaults are the PAHdb convention (Bauschlicher+18): Lorentzian, FWHM
-    15 cm^-1, redshift 15 cm^-1 for anharmonicity. Each band integrates to its
-    strength over an infinite grid.
+    Defaults are pahchem's legacy convention (``band_conventions.LEGACY``):
+    Lorentzian, FWHM 15 cm^-1, redshift 15 cm^-1. It is not PAHdb's: the
+    redshift is Bauschlicher+10's (4-31G era), the 15 cm^-1 FWHM Boersma+13's
+    Gaussian, and PAHdb v4.00 applies no shift (Ricca+25). Each band integrates
+    to its strength over an infinite grid.
     """
     nu0 = np.asarray(freqs_cm, dtype=float)[:, None] + shift_cm
     x = np.asarray(grid_cm, dtype=float)[None, :] - nu0

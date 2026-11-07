@@ -502,7 +502,7 @@ def test_li_draine_radius_and_cross_section():
         assert 2e-17 < per_c < 2e-16, (nc, Z, per_c)
 
 
-def test_malloci_and_li_draine_agree_for_coronene():
+def test_malloci_and_li_draine_agree_for_coronene(malloci2007):
     """Measured: int sigma dE over 5-13.6 eV differs by 18 %."""
     ld = np.trapezoid(photo.sigma_li_draine(24, 0, E_PH), E_PH)
     ma = np.trapezoid(photo.sigma_malloci_coronene(0, E_PH), E_PH)
@@ -531,7 +531,7 @@ def test_lepage_yield_in_um_units_exceeds_montillaud_transcription_below_d():
     assert np.all(lp >= m13)
 
 
-def test_heating_and_ionisation_add_up_to_absorption():
+def test_heating_and_ionisation_add_up_to_absorption(malloci2007):
     f = fields.draine1978(g0=10.0)
     sigma = photo.sigma_malloci_coronene(1, E_PH)
     Y = photo.yield_jochims1996(E_PH, 11.5)
@@ -560,6 +560,54 @@ def test_mode_emission_rates_kernel_matches_the_numpy_loop(monkeypatch):
         slow = cooling.mode_emission_rates(E, counts, f, a_ein, at_cm=at)
         monkeypatch.undo()
         assert np.array_equal(fast, slow)
+
+
+def test_tilted_counts_give_the_untilted_densities_and_rates(monkeypatch):
+    """A tilt beta (``dos.beyer_swinehart``) returns c(E) exp(-beta E) by the same recursion. The log density, the mode
+    and recurrent-fluorescence rates (numba kernel and NumPy loop), RRKM and the inverse-Laplace rates from the tilted
+    counts equal those of the plain counts: the tilt cancels."""
+    f = _random_modes(40, seed=5)
+    a_ein = np.linspace(1.0, 10.0, f.size)
+    E, c = dos.beyer_swinehart(f, 10.0 * EV)
+    beta = 1.5e-3
+    _, ct = dos.beyer_swinehart(f, 10.0 * EV, beta=beta)
+    nz = c > 0
+    assert np.array_equal(ct > 0, nz)
+    assert np.allclose(ct[nz] * np.exp(beta * E[nz]), c[nz], rtol=1e-11, atol=0)
+    l0, l1 = dos.smoothed_log_density(E, c, 100.0), dos.smoothed_log_density(E, ct, 100.0, beta=beta)
+    fin = np.isfinite(l0)
+    assert np.array_equal(fin, np.isfinite(l1)) and np.allclose(l1[fin], l0[fin], rtol=0, atol=1e-10)
+    at = np.linspace(0.2, 9.5, 40) * EV
+    k0 = cooling.mode_emission_rates(E, c, f, a_ein, at_cm=at)
+    assert np.allclose(cooling.mode_emission_rates(E, ct, f, a_ein, at_cm=at, beta=beta), k0, rtol=1e-10, atol=0)
+    monkeypatch.setattr(cooling, "HAVE_NUMBA", False)
+    assert np.allclose(cooling.mode_emission_rates(E, ct, f, a_ein, at_cm=at, beta=beta), k0, rtol=1e-10, atol=0)
+    monkeypatch.undo()
+    rf = cooling.recurrent_fluorescence_rates(E, c, [8000.0], [0.07], at_cm=at)
+    assert np.allclose(cooling.recurrent_fluorescence_rates(E, ct, [8000.0], [0.07], at_cm=at, beta=beta), rf,
+                       rtol=1e-10, atol=0)
+    ts = 0.98 * f[1:]
+    assert np.allclose(rates.rrkm(E, ct, ts, 3.0 * EV, beta=beta), rates.rrkm(E, c, ts, 3.0 * EV), rtol=1e-9, atol=0)
+    assert np.allclose(rates.inverse_laplace_arrhenius(E, ct, 1e16, 3.0 * EV, beta=beta),
+                       rates.inverse_laplace_arrhenius(E, c, 1e16, 3.0 * EV), rtol=1e-9, atol=0)
+
+
+def test_count_tilt_only_where_the_plain_count_would_overflow():
+    """No tilt where the count fits float64. Where it would overflow (600 PAH-like modes to 40 eV), the tilted count is
+    finite and the emission rates it gives below 10 eV equal the plain count's on a 10 eV grid."""
+    assert dos.count_tilt(_random_modes(40), 10.0 * EV) == 0.0
+    f = _random_modes(600, seed=2)
+    a_ein = np.linspace(1.0, 10.0, f.size)
+    with pytest.raises(OverflowError):
+        dos.beyer_swinehart(f, 40.0 * EV, 2.0)
+    beta = dos.count_tilt(f, 40.0 * EV, 2.0)
+    assert beta > 0.0
+    E, ct = dos.beyer_swinehart(f, 40.0 * EV, 2.0, beta=beta)
+    assert np.isfinite(ct).all() and ct[-1] > 0.0
+    E10, c10 = dos.beyer_swinehart(f, 10.0 * EV, 2.0)
+    at = np.linspace(1.0, 9.5, 30) * EV
+    assert np.allclose(cooling.mode_emission_rates(E, ct, f, a_ein, at_cm=at, beta=beta),
+                       cooling.mode_emission_rates(E10, c10, f, a_ein, at_cm=at), rtol=1e-9, atol=0)
 
 
 @pytest.fixture(scope="module")
@@ -839,6 +887,31 @@ def test_every_state_of_a_baseline_network_is_balanced(pah_states):
     assert 0.0 < f.reshape(net.shape)[:, 0].sum() < 1e-40
 
 
+def test_baseline_captures_electrons_as_the_population_does(pah_states):
+    """On cations BT94 times ``Params.capture_model``'s factor (``population._capture_factor``); on neutrals the
+    parent's attachment fraction (``population.attachment_fraction``) times the statistical s_e at it, which is at most
+    f. ``capture_model="bt94"``, ``attachment_model="constant"`` give the baseline's sticking of before (1 and f = 1)."""
+    from types import SimpleNamespace
+
+    from pycalima.pahchem import chemistry, population
+    from pycalima.pahchem.baseline import BaselineModel, Params
+
+    sp, an = PAHSpecies.from_states_file(pah_states / "C24H12_0.dat"), _anion(pah_states, "C24H12")
+    new = BaselineModel("C24", sp, Params(), an)
+    old = BaselineModel("C24", sp, Params(capture_model="bt94", attachment_model="constant"), an)
+    T = 100.0
+    assert new.attachment_fraction() == pytest.approx(population.attachment_fraction(SimpleNamespace(nc=24), Params()))
+    assert old.attachment_fraction() == 1.0
+    assert 0.0 < new.sticking_neutral(T) <= new.attachment_fraction() and new.sticking_neutral(T) != old.sticking_neutral(T)
+    kn, ko = new.capture_coefficients(T), old.capture_coefficients(T)
+    for i, z in enumerate(new.charges):
+        s = new.sticking_neutral(T) if z == 0 else float(chemistry.lab_sticking(24, "cold"))
+        if z >= 0:
+            assert kn[i] == pytest.approx(chemistry.electron_capture(24, z, T, sticking=s))
+        if z >= 1:
+            assert ko[i] == pytest.approx(chemistry.electron_capture(24, z, T))
+
+
 def test_charge_chain_matches_the_four_state_closed_form():
     """A pure charge network is the four_state_charge_fractions of PAH_charge."""
     from pycalima.models.PAH_charge.PAH_photoelectric_heating import four_state_charge_fractions
@@ -884,6 +957,25 @@ def test_stripped_species_keeps_3n_minus_6_and_removes_ch_modes(pah_states):
     assert bare.n_modes == 3 * 54 - 6
     assert not np.any(bare.freqs_cm > 2900.0)                 # no C-H stretch left
     assert sp.stripped(10).n_modes == 3 * 64 - 6
+
+
+@pytest.mark.parametrize("parent, dehydrogenated", [("C96H24_0", "C96H23_0"), ("C96H24_0", "C96H22_0"),
+                                                    ("C54H18_1", "C54H17_1")])
+def test_stripped_modes_cool_as_pahdb_dehydrogenated_species(pah_states, parent, dehydrogenated):
+    """A few H lost (the population's range): the stripped modes' thermal IR power at 800 and 1500 K is
+    within 10 % of the PAHdb DFT species of the same N_H (0.91-1.09 measured)."""
+    files = [pah_states / f"{n}.dat" for n in (parent, dehydrogenated)]
+    if not all(f.exists() for f in files):
+        pytest.skip(f"model_data/PAH_states/ lacks {parent} or {dehydrogenated}")
+    sp, ref = (PAHSpecies.from_states_file(f) for f in files)
+    mine = sp.stripped(ref.nh)
+
+    def power(s, t):
+        f = np.asarray(s.freqs_cm, float)
+        return np.sum(np.asarray(s.einstein_a) * f / np.expm1(f / (dos.KB_CM * t)))
+
+    for t in (800.0, 1500.0):
+        assert power(mine, t) / power(ref, t) == pytest.approx(1.0, abs=0.10), t
 
 
 # ===========================================================================
@@ -959,7 +1051,7 @@ def test_montillaud13_circumcoronene_threshold_energy(pah_states):
     ("C54H18", 18, 18, 6, "table_B2_circumcoronene.csv", 0.5),
     ("C96H24", 24, 24, 12, "table_B3_circumcircumcoronene.csv", 0.6),
 ])
-def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, name, nh, nh0, n_solo, table, tol):
+def test_andrews16_eq7_emulation_reproduces_table_b(pah_states, malloci2007, name, nh, nh0, n_solo, table, tol):
     """Andrews+16 Table B is eq. 7, the sink-free average of k_i over the
     stationary distribution. With all absorptions heating and a Kurucz 15000 K
     field, measured |dex| at G0 = 1e2: 0.17 (C24H12), 0.08 (C24H13),
@@ -1124,10 +1216,11 @@ def test_conditions_card_has_sources_and_brackets():
 
     card = conditions.load("orion_bar")
     for t in card["region"]["templates"]:
-        for q in ("g0", "n_h", "t_gas"):
+        for q in ("g0", "n_h", "n_h_atomic", "t_gas"):
             e = card[t][q]
             assert e["source"] and e["confidence"] in "ABCDE" and isinstance(e["stated"], bool), (t, q)
         assert ("n_e" in card[t]) != ("x_e" in card[t]), t
         env = conditions.bracketing_environments("orion_bar", t)
         gamma = {k: v.g0 * np.sqrt(v.temperature_k) / v.n_e for k, v in env.items()}
+        assert all(v.n_h <= conditions.bounds(card[t]["n_h"])[1] for v in env.values()), t   # atomic <= total
         assert gamma["least ionising"] < gamma["most ionising"], t

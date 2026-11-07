@@ -204,7 +204,8 @@ def read_xml(path, select=None, geometry_hash=True):
     from the geometry), the integers of ``_XML_INT``, ``method``, ``basis``,
     ``total_e`` [hartree], ``nc``, ``nh``, ``pure_ch``, ``freqs_cm`` and
     ``intensity`` (km/mol), and, with ``geometry_hash``, ``graph`` (the
-    ``bond_graph_hash``). Frequencies are as written: already scaled, as in
+    ``bond_graph_hash``) and ``carbon_graph`` (that of the carbon atoms alone:
+    a molecule's bare skeleton, PAHdb's N_H = 0 entries, shares it). Frequencies are as written: already scaled, as in
     the ASCII export. ``select(record)`` (without modes) keeps a specie.
     Laboratory spectra (``<laboratory>``) are not read here.
     """
@@ -255,6 +256,8 @@ def read_xml(path, select=None, geometry_hash=True):
                 f"{e}{n}" for e, n in sorted(counts.items()) if e not in ("C", "H"))
         if geometry_hash and types:
             rec["graph"] = bond_graph_hash(types, xyz)
+            c = [i for i, t in enumerate(types) if t == 6]
+            rec["carbon_graph"] = bond_graph_hash([6] * len(c), [xyz[i] for i in c]) if c else None
         if select is None or select(rec):
             rec["freqs_cm"], rec["intensity"] = np.array(freqs), np.array(inten)
             out.append(rec)
@@ -262,8 +265,8 @@ def read_xml(path, select=None, geometry_hash=True):
     return out
 
 
-#: bump when read_xml changes what it returns, so cached indexes are rebuilt
-_XML_INDEX_VERSION = 3
+#: bump when read_xml changes what it returns, so cached indexes are rebuilt (4: ``carbon_graph``)
+_XML_INDEX_VERSION = 4
 
 
 def xml_index(path, cache_dir=None):

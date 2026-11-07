@@ -146,14 +146,15 @@ def _bin_table(task):
 def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=None, workers=None):
     """Write the tables of every free-PAH bin; bins run in parallel.
 
-    ``workers``: processes for the bins (default: one per bin, up to the CPU
-    count; 1 runs them in this process).
+    ``workers``: processes for the bins (default: one per bin, up to
+    ``population.default_workers``: $CALIMA_WORKERS, else min(8, cores);
+    1 runs them in this process).
     """
-    import os
     from concurrent.futures import ProcessPoolExecutor
 
     from pycalima.pahchem.baseline import Params
     from pycalima.pahchem.molecule import PAHSpecies
+    from pycalima.pahchem.population import default_workers
 
     if config_path:
         set_config_path(config_path)
@@ -180,7 +181,7 @@ def main(config_path=None, output_dir=None, axes=None, states_dir=None, params=N
         task = (key, states / fparent, states / fbare if bare else None, anion, params, axes)
         jobs.append((b, nc, species, bare, task))
 
-    n_workers = min(len(jobs), os.cpu_count() or 1) if workers is None else max(1, int(workers))
+    n_workers = min(len(jobs), default_workers()) if workers is None else max(1, int(workers))
     if n_workers > 1 and len(jobs) > 1:
         with ProcessPoolExecutor(max_workers=n_workers) as pool:
             tables = list(pool.map(_bin_table, [job[-1] for job in jobs]))
@@ -208,6 +209,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--config", default=None)
     ap.add_argument("--output-dir", default=None)
-    ap.add_argument("--workers", type=int, default=None, help="processes for the bins (default: one per bin)")
+    ap.add_argument("--workers", type=int, default=None, help="processes for the bins (default: one per bin, up to $CALIMA_WORKERS or 8)")
     args = ap.parse_args()
     main(config_path=args.config, output_dir=args.output_dir, workers=args.workers)

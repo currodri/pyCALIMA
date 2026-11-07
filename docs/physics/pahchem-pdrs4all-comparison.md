@@ -12,7 +12,9 @@ Sources:
 - pahchem numbers: the current spectral fit (`fit_pdrs4all_spectra.py
   --fit-shape`, result `392313363fe8`: v4.00, IPs calibrated, lab CH-stretch
   scale, BT94 capture, Gaussian profiles). The M26 metrics were recomputed at
-  our best cells for this page.
+  our best cells for this page. The 2026-10-24 refit with photons from 1 eV
+  (`14f2f8878d10`) barely moves them: the same best cell in 9 of 10 fits, rms
+  ~1 % better, charge shares within 0.006 ({doc}`pahchem-gas-coupling` §4d).
 
 ## 1. Summary
 
@@ -62,7 +64,7 @@ Sources:
 ### 2.1 Methods, ranked by how close they are to pahchem
 
 **M26: pyPAHdb per pixel** ({cite:t}`Maragkoudakis2026`, arXiv:2601.23282;
-numbered XIX in A&A, XVIII on arXiv). The closest analogue.
+PDRs4All XVIII, A&A 709, A38). The closest analogue.
 - Data: MIRI-MRS 5–15 µm, about 8 500 pixels and the five templates.
 - Preprocessing: lines, baseline and continuum are removed first
   (pybaselines morphological, then imodpoly). No extinction correction.
@@ -117,7 +119,7 @@ and size profile.
   spline continuum. Two surprises:
   - 6.2/11.2 changes by only 12 % against a ≈ 40× change in ionising flux;
   - 3.4/3.3 doubles from the APDR to DF3.
-- **Khan+26, PDRs4All XX** (arXiv:2510.06167). Band maps and a cut.
+- **Khan+26, PDRs4All XIX** (A&A 709, A39; arXiv:2510.06167). Band maps and a cut.
   - 6.2/11.2 is the best charge proxy; 6.2/8.6 and 7.7/8.6 are size proxies.
   - It gives synthetic-filter prescriptions.
 - **Habart+24, PDRs4All II.** Six imaging cuts.
@@ -175,6 +177,11 @@ section, which scales with N$_{\rm C}$.
 Note: the G$_0$ in the best-cell row is the Habing-integral value, 1/1.236 of
 the card's F$_\nu$(1030 Å) value.
 
+These fits predate the 2026-10-26 card change: n$_e$ is now x$_e$ n$_{\rm H}$ in
+the atomic PDR (n$_{\rm H}$ 0.4–3×10$^5$) and Cuadrado+19's 60–100 cm$^{-3}$ at
+the DFs (n$_{\rm H}$ 4–10×10$^5$), so the DF cells above (n$_e$ 2.6–4.9) are
+outside the card. The refit waits for the final model.
+
 Reading:
 - **Cations.** Both are near half, but M26 peak at the APDR and fall into
   the DFs, while pahchem is flat.
@@ -183,7 +190,7 @@ Reading:
   fillers. Our charge balance allows ≤ 1 %. This is the clearest gain from
   using physical charges.
 - **γ.**
-  - Ours is 0.99–1.07 × 10$^4$ in all five templates. That uniformity is
+  - Ours is 0.98–1.07 × 10$^4$ in all five templates. That uniformity is
     suspicious.
   - In four templates the best G$_0$ sits at the low edge of the card range.
   - So the fit is selecting the γ that the band-shape and library
@@ -201,8 +208,9 @@ Reading:
      43 (HII) to 34 cm$^{-1}$ (DF3), and the oop/rest widths change too.
   3. **The free continuum** takes 0.4–0.7 of the 5–15 µm power, so it can
      trade with the 11.2 and 12.7 µm wings.
-  4. **The intact filter** (≥ 0.5) removing small molecules at the surface
-     but not deeper in. That pushes the opposite way, so it would not
+  4. **The intact filter** (≥ 0.5; since 2026-10-25 on the share of
+     N$_{\rm H0}$ … N$_{\rm H0}$−3, which also emit) removing small molecules
+     at the surface but not deeper in. That pushes the opposite way, so it would not
      explain the flat profile.
 
 ## 4. Every degree of freedom in pahchem's fit
@@ -211,7 +219,7 @@ Reading:
 
 | quantity | number | how chosen | what it absorbs |
 |---|---|---|---|
-| molecule abundances w$_s$ ≥ 0 | 1424 candidates; 55–93 non-zero | NNLS | everything spectral: band ratios, positions through isomer choice |
+| molecule abundances w$_s$ ≥ 0 | 1424 candidates; 55–81 non-zero at the best cells | NNLS | everything spectral: band ratios, positions through isomer choice |
 | continuum | 4 B-splines (3.1–3.65 µm) + ~10 (5–15 µm), ≥ 0, knots 1.5 µm | NNLS, with the w$_s$ | the plateaus, band wings, VSG emission |
 | band shape | 5: CH shift, CH FWHM, CC shift, oop shift, rest FWHM | alternation with the scan | anharmonicity, emission temperature, carrier mismatch (CC blue shift) |
 | profile type | Gaussian or Lorentzian | best sse | — |
@@ -236,7 +244,9 @@ on the same γ grid point.
 - **Lab CH-stretch scale:** 10$^{-0.29}$.
 - **Field:** Kurucz 40 000 K, unattenuated, the same at all depths. G$_0$
   definitions per card entry.
-- **Intact threshold:** 0.5.
+- **Intact threshold:** 0.5, on the intact fraction; since 2026-10-25 on the
+  emitting share N$_{\rm H0}$ … N$_{\rm H0}$−3 ({doc}`pahchem-spec`,
+  "Dehydrogenated states emit": ≤ 2 % on these fits).
 - **Recombination heating:** on.
 - **Not included:** extinction; PANHs, clusters and dehydrogenated states as
   emitters.
@@ -308,7 +318,9 @@ Ranked by information gained per effort.
 7. **Hydrogenation states as emitters.**
    - Put dehydrogenated and side-group states in the main fit, with
      fractions from the H-loss chain, instead of the intact mask and the
-     separate 3.4 µm fit.
+     separate 3.4 µm fit. Done for N$_{\rm H0}$−1 … −3 on 2026-10-25
+     ({doc}`pahchem-spec`, "Dehydrogenated states emit"); the bare skeletons
+     and the side groups are still separate.
    - This gives a hydrogenation profile to compare with Elyajouri's E$_g$
      (more hydrogenated deeper in) and Chown's 3.4/3.3 doubling.
 8. **Extinction.** A foreground screen plus internal extinction, constrained

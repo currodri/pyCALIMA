@@ -7,7 +7,8 @@ band and component the anharmonicity laws::
     position(T) = chi0' + chi1' T,      FWHM(T) = chi0'' + chi1'' T,
 
 piecewise over temperature ranges, with the Lorentzian fraction of a
-pseudo-Voigt profile.
+pseudo-Voigt profile. ``Piece`` also carries a T^2 term, zero for the
+linear laws.
 
 - **Laws** come from the per-dataset JSON (``/machine/<molecule;formula>/
   <phase>/<category>/<id>``), by the dataset IDs of the paper's analysis

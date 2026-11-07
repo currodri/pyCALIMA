@@ -76,10 +76,21 @@ class PAHSpecies:
         5-20 eV, while d ln rho/dE (which sets k(E)) is closer to C54 than the
         parent's is. A placeholder until DFT modes of each state exist
         (pahchem-data-requests, T1).
+
+        Against the few dehydrogenated species PAHdb has, the thermal IR power
+        (300 / 800 / 1500 K) is right for a few H lost: C96H23 0.98 / 1.00 /
+        1.02, C96H22 0.86 / 0.91 / 0.99, C54H17+ 0.46 / 1.00 / 1.09 of PAHdb's
+        (the population strips at most 3 H). It is not for a bare skeleton:
+        C54 0.14 / 0.18 / 0.18, C24 0.08 / 0.09 / 0.10, because PAHdb's bare
+        skeletons carry C-C bands (C54: 5x the parent's 1350-1700 cm^-1) that
+        no rescaling of the parent's modes gives. For N_H = 0 pass the PAHdb
+        skeleton where it exists (``BaselineModel.carbon_loss_rates(bare=)``).
         """
         n = self.nh - int(nh)
         if n < 0:
             raise ValueError("stripped() removes hydrogens only")
+        if n == 0:
+            return self
         f = np.asarray(self.freqs_cm, dtype=float)
         A = np.ones_like(f) if self.einstein_a is None else np.asarray(self.einstein_a, dtype=float).copy()
         keep = np.ones(f.size, bool)

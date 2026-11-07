@@ -11,30 +11,40 @@ Updated after the code audit of 2026-10-20 ({doc}`pahchem-audit`):
 ```
 
 This page goes with the figure set in `<plots dir>/pahchem/briefing/` (run
-`calima-paths` to see where the plots dir resolves). It covers four things:
+`calima-paths` to see where the plots dir resolves). It covers five things:
 - what pahchem can already reproduce;
 - how a model spectrum is computed and fitted to the PDRs4All Orion Bar spectra;
 - what those fits imply;
-- what is still wrong or unexplained.
+- what is still wrong or unexplained;
+- what the PAHs give the gas: charge, ion neutralisation, photoelectric heating and recombination cooling,
+  against the published balances (section E, added 2026-10-25).
 
 The figures are in presentation order:
 - **A**: overview;
 - **B**: spectral fits;
 - **C**: reproduced benchmarks;
-- **D**: open problems.
+- **D**: open problems;
+- **E**: PAH–gas coupling ({doc}`pahchem-gas-coupling` §4).
 
 Each entry gives the result, then the points to discuss. The full record is
 {doc}`pahchem-spec`. The questions for collaborators are in
-{doc}`pahchem-data-requests`.
+{doc}`pahchem-data-requests`. The fits of section B are set against the
+PDRs4All methods in {doc}`pahchem-pdrs4all-comparison`.
 
 ```{admonition} Regenerating the set
 `diagnostics/pahchem/make_briefing.sh <PAH_states dir> <West+18 ESI .xlsx>`,
 run from the worktree root with `$CALIMA_PAHDB_DIR` set, rebuilds every
 figure in pyCALIMA's style (`pycalima.plotting_style`).
-- The benchmark runners take ~30 min.
+- The benchmark runners take ~30 min, and the gas-coupling runs of section E ~2.5 h more (`SKIP_RUNS=1`
+  reuses the figures in the plots dir; `BERNE_DIR` adds the Berné+22 step-by-step figure).
 - The spectral fits are not refitted: they are read from the cached
-  `fit_pdrs4all_spectra.py --fit-shape` result (key `392313363fe8`, refitted
-  2026-10-20 after the audit fixes). A refit needs the Van De Putte+25
+  `fit_pdrs4all_spectra.py --fit-shape` result. The numbers on this page are
+  from key `392313363fe8` (refitted 2026-10-20 after the audit fixes, 5 eV
+  photon grid). `make_briefing.sh` takes the newest cached fit without
+  aliphatics, which is now `14f2f8878d10` (2026-10-24, photons from 1 eV;
+  {doc}`pahchem-gas-coupling` §4d), unless `FIT_CACHE` names another
+  (`FIT_CACHE=results/pahchem_spectral_shape_392313363fe8.pkl` reproduces this
+  page). A refit needs the Van De Putte+25
   templates (CDS J/A+A/701/A111, in `results/pahchem/data/vdp25/`) and takes
   ~1 min with numba installed (`--workers`, one template per process).
 - Figures superseded before this date are kept in
@@ -43,15 +53,16 @@ figure in pyCALIMA's style (`pycalima.plotting_style`).
 
 ## A. Overview
 
-**A1 — benchmark scorecard.** These are all 131 comparisons recorded in
-{doc}`pahchem-spec`, grouped by milestone. Verdicts are taken from the spec
+**A1 — benchmark scorecard.** These are all 151 comparisons recorded in
+{doc}`pahchem-spec` (131) and {doc}`pahchem-gas-coupling` (20, milestone GC, added 2026-10-25), grouped by
+milestone. Verdicts are taken from those pages
 (table: `diagnostics/pahchem/briefing_benchmarks.csv`, one row each, with the
 metric, cause and spec line).
 
 | Verdict | Count | Meaning |
 |---|---|---|
-| Reproduced | 63 | within the stated tolerance |
-| Partly | 25 | some of it, or within a looser bound |
+| Reproduced | 72 | within the stated tolerance |
+| Partly | 36 | some of it, or within a looser bound |
 | Fails or open | 32 | |
 | Withdrawn | 11 | |
 
@@ -103,7 +114,10 @@ largest single contributor in DF2) through the chain. These are the steps:
      +0.64 eV (cation and dication).
    - The molecule's spectrum is the f-weighted sum of its states (panel 3).
    - Each molecule is also passed through a dehydrogenation chain at the same
-     conditions. It is kept only where its intact fraction is ≥ 0.5.
+     conditions. It is kept only where its intact fraction is ≥ 0.5 (the
+     numbers on this page; since 2026-10-25 N$_{\rm H0}$−1 … −3 emit as well
+     and the filter is on their joint share, which changes these fits by
+     ≤ 2 %: {doc}`pahchem-spec`, "Dehydrogenated states emit").
 4. **Fit.** One non-negative least squares over the whole library: 1424
    PAHdb v4.00 molecules, N$_{\rm C}$ = 22–268.
    - Only the abundances are fitted.
@@ -149,7 +163,9 @@ What to look at:
   neutrals.
 - **The 3.4 µm complex is not in the model.** It is the large positive
   residual at 3.40–3.6 µm in every template. The PAHdb aliphatic species
-  cannot produce the observed 3.4/3.29 (section D, D08).
+  cannot produce the observed 3.4/3.29 (section D, D08). A separate 3.1–3.65
+  µm fit with CH$_2$ and CH$_3$ side groups on this population does
+  ({doc}`pahchem-spec`, "Aliphatic side groups on the fitted population").
 - **The 3.25 µm shoulder** of the 3.29 band is over-predicted (negative
   residual).
 - **The Atomic PDR 8.6 µm band** is under-predicted. This is the worst fit
@@ -205,9 +221,8 @@ the paper's own stated inputs.
   check: with their B3LYP frequencies, transition states and Table 1 E$_0$,
   `rates.rrkm` gives their k(E) to a median 0.0002–0.01 dex.
 - **C02 — Montillaud+13 Fig. 3** (coronene k(E) with their A and E$_0$).
-  - The match is to a near-constant −0.11 to −0.26 dex.
-  - That offset is expected: they used Malloci modes, we use PAHdb neutral
-    modes.
+  - The match is to −0.04…+0.02 dex ({doc}`pahchem-audit`, section 2).
+  - They used Malloci modes, we use PAHdb neutral modes.
 - **C03 — Andrews+16 Fig. 5** (H and H$_2$ loss and k$_{\rm IR}$ for
   C$_{24}$H$_{12}$, C$_{54}$H$_{18}$, C$_{96}$H$_{24}$).
   - C$_{24}$ and C$_{54}$ are within a median 0.05–0.17 dex.
@@ -340,6 +355,9 @@ tuning targets.
     median; the best single species, C$_{96}$H$_{28}$, gives 0.64), against
     the observed 0.35–0.51.
   - This is a gap in the library, not a band-profile problem.
+  - CH$_2$ and CH$_3$ side groups radiating from the fitted population's own
+    cascades give the complex with 2.3–4.5 % aliphatic carbon
+    ({doc}`pahchem-spec`, "Aliphatic side groups on the fitted population").
   - *Needs:* aliphatic carrier spectra (Oxford group, Thatte+26).
 
 Other open items without a figure here: the ERE from cation RF has the wrong

@@ -212,7 +212,7 @@ def sigma_uv(nc, energy_ev, substitute=SIGMA):
 
 @lru_cache(maxsize=None)
 def _sigma_on_grid(nc, e_min, substitute):
-    # photo.sigma_li_draine re-reads its data file on every call
+    # one cross section per (N_C, grid, substitute), reused across the many rate evaluations
     return sigma_uv(nc, energy_grid(e_min), substitute)
 
 

@@ -1,0 +1,42 @@
+# Moretto-Capelle, Rentenier, Bordenave-Montesquieu & Bordenave-Montesquieu 2004, Physica Scripta T110, 325
+# (DOI 10.1238/Physica.Topical.110a00325), Fig. 2: single electron capture cross sections of H+, H2+ and H3+ on C60,
+# against the collision energy per amu (equal velocities; the authors find the three alike). The figure is a raster image
+# in the PDF: read by eye from a 300 dpi render, calibrated on the axis ticks (x 0-140 keV/amu, y 1-7 x 1e-16 cm^2);
+# reading uncertainty ~+-1 keV/amu and ~+-0.15e-16 cm^2. Solid triangles H+, half-filled H2+, open H3+. Their C60
+# geometrical cross section is "about 35e-16 cm^2". Read 2026-11-05 for pahchem.chemistry.ion_cation_transfer.
+projectile,energy_kev_per_amu,sigma_capture_1e16_cm2
+H+,20,5.38
+H+,30,3.72
+H+,40,2.53
+H+,50,2.37
+H+,60,2.42
+H+,70,2.28
+H+,80,2.08
+H+,90,2.12
+H+,100,1.98
+H+,110,1.96
+H+,120,1.96
+H+,130,2.04
+H2+,10,6.65
+H2+,15,5.13
+H2+,20,3.53
+H2+,25,3.65
+H2+,35,3.10
+H2+,40,2.79
+H2+,50,2.17
+H2+,55,2.19
+H2+,60,1.96
+H2+,65,1.66
+H3+,6.7,7.30
+H3+,10,6.05
+H3+,13.3,5.00
+H3+,16.7,4.87
+H3+,20,4.17
+H3+,23.3,4.08
+H3+,26.7,3.87
+H3+,30,3.43
+H3+,33.3,3.06
+H3+,36.7,2.85
+H3+,40,2.70
+H3+,43.3,2.41
+H3+,46.7,2.37

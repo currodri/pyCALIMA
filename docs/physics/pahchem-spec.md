@@ -97,9 +97,11 @@ of each published model:
 
 The engine runs in a card's configuration to reproduce that paper. A failed
 reproduction then points at one card entry. Cards exist for
-{cite:t}`Andrews2016` and {cite:t}`Montillaud2013`. Still to write:
-{cite:t}`Allain1996a`, {cite:t}`LePage2001`, {cite:t}`Murga2020`,
-{cite:t}`Murga2022`.
+{cite:t}`Andrews2016`, {cite:t}`Montillaud2013`, {cite:t}`Allain1996a`,
+{cite:t}`LePage2001`, {cite:t}`Murga2020`, {cite:t}`Murga2022`,
+{cite:t}`Micelotta2011`, {cite:t}`Maragkoudakis2020`,
+{cite:t}`Maragkoudakis2026`, {cite:t}`Rigopoulou2021`, {cite:t}`Borja2026`
+and {cite:t}`Demyk2026`, plus pahchem's own `pahchem_baseline.toml`.
 
 The two existing cards already differ in ways that matter:
 
@@ -185,8 +187,8 @@ already scaled; the SCALE column only records the factor that was applied.
   correction above), which confirms that the table is energy per
   mode.
 
-**M2 (unimolecular rates): level 0–1 passes; the laboratory gates are
-blocked on data.** {mod}`pycalima.pahchem.rates` implements:
+**M2 (unimolecular rates): level 0–1 passes, and so do the laboratory
+gates (below).** {mod}`pycalima.pahchem.rates` implements:
 
 - RRKM with an explicit transition state;
 - the inverse-Laplace Arrhenius form of Montillaud;
@@ -203,9 +205,9 @@ What passes:
   the grid-rounded frequencies, because rounding a ~30 cm$^{-1}$ mode moves
   its $Q$ by ~1 %.
 - **Montillaud Fig. 3** (coronene, $A = 6.8\times10^{17}$ s$^{-1}$,
-  $E_0 = 4.8$ eV). The curve is matched to within a near-constant −0.11 to
-  −0.26 dex. The offset is expected: they used Malloci modes, we use PAHdb
-  neutral modes.
+  $E_0 = 4.8$ eV). The curve is matched to −0.04…+0.02 dex
+  ({doc}`pahchem-audit`, section 2), with PAHdb neutral modes where they used
+  Malloci modes. The −0.11 to −0.26 dex quoted here before was stale.
 - **Andrews Fig. 5** (H and H$_2$ loss, C$_{24}$, C$_{54}$, C$_{96}$), more
   than 1.5 eV above threshold:
   - C$_{24}$ and C$_{54}$: median $|\Delta|$ = 0.05–0.17 dex, maximum 0.58.
@@ -275,9 +277,23 @@ of M5 should carry it as the uncertainty of the H-loss $E_0$.
 - {mod}`pycalima.pahchem.fields`: one field type (4$\pi$ photon flux per eV)
   and one $G_0$ (Habing, 6–13.6 eV). Draine (1978) has $G_0 = 1.67$ and
   Mathis et al. (1983) 1.13.
-- {mod}`pycalima.pahchem.photo`: Li & Draine $\sigma$ at the LD01 radius, the
-  Malloci coronene $\sigma$, and the Jochims and Le Page yields. Heating plus
-  ionisation equals absorption.
+- {mod}`pycalima.pahchem.photo`: the UV cross sections, the Jochims and Le Page
+  yields. Heating plus ionisation equals absorption.
+  - The default since 2026-11-01 is our Octopus TD-DFT library (`Params.uv_cross_section = "octopus_library"`,
+    `uvlib`, docs/physics/pahchem-uv-absorption.md); Berné+22's Malloci average, the default from 2026-10-26, is
+    `"malloci_average"`. That strategy: $N_{\rm C}$ times the Malloci+07 average
+    per C of nine compact PAHs ($N_{\rm C}$ 32–66, per charge; +3 takes +2) at
+    5–30 eV.
+  - Li & Draine at the LD01 radius is used below 5 eV, where Malloci's spectra
+    carry their damping-window floor, and above 30 eV.
+  - At 5–13.6 eV it absorbs 0.69–0.87× Li & Draine's photons.
+  - `"li_draine"` keeps the earlier cross section everywhere, and its cached
+    bases.
+  - The reproductions use their papers' cross sections: Malloci per molecule for
+    Andrews+16 and Montillaud+13 (`sigma_malloci_molecule`), the digitised Joblin
+    soot for Le Page+01, and Li & Draine for WD01 (`murga_charge`). Allain+96 is
+    Malloci where computed, else Li & Draine, because Joblin 1992 and Verstraete &
+    Léger 1992 are not available.
 - {mod}`pycalima.pahchem.cooling`: the exact harmonic microcanonical emission
   rate $k_i(E) = A_i\sum_{v\ge1}\rho(E-vh\nu_i)/\rho(E)$. For one oscillator
   it gives $nA$ exactly. It falls below the thermal approximation by 5 % at
@@ -476,7 +492,7 @@ variant, not their model:
 | Mode set for each state | 10 % contour | 50 % contour | 90 % contour |
 |---|---|---|---|
 | Parent C$_{54}$H$_{18}$ modes (their model) | +1.5 dex | +1.2 dex (+1.24 at $n_{\rm H} = 1276$) | +1.0 dex |
-| C–H modes stripped per missing H (variant) | +0.60 | +0.35 | +0.00 |
+| C–H modes stripped per missing H (variant, before C1: most intense first, no rescale) | +0.46 | +0.25 | −0.08 |
 | the same, with proportional stripping (2026-10-20 audit fix C1) | +0.84 | +0.59 | +0.28 |
 
 (Offsets are median log $G_0$, ours minus theirs, at the same $n_{\rm H}$.)
@@ -491,17 +507,22 @@ far below N$_H$/N$_{H0}$ of the parent's, so they dehydrogenated too easily
 threshold energy, $E_{\rm th}$, where $k_{\rm diss} = k_{\rm IR}$ (Sect. 6.1).
 With their $A$ and $E_0$:
 
-| Molecule | Theirs | Ours (PAHdb neutral modes) |
-|---|---|---|
-| Coronene | 9.6 eV | 10.25 eV |
-| C$_{54}$H$_{18}$ | 17 eV | 19.5 eV |
+| Molecule | Theirs | Ours (PAHdb neutral modes, photon-emission $k_{\rm IR}$) | Ours (cation modes, $k_{\rm IR} = (dE/dt)/E$) |
+|---|---|---|---|
+| Coronene | 9.6 eV | 10.25 eV | 9.35 eV |
+| C$_{54}$H$_{18}$ | 17 eV | 19.5 eV | 17.15 eV |
 
-- Their C$_{54}$ $k(E)$ is therefore ~10× faster than ours at the same $E$,
-  or their $k_{\rm IR}$ is slower. That is not a constant offset: for
-  coronene we match their Fig. 3 to within −0.2 dex.
-- PAHdb cation modes make the gap larger, not smaller: they radiate ~4×
-  faster at threshold, giving $E_{\rm th} = 20.3$ eV.
-- The difference must lie in inputs the paper does not publish: their Malloci
+- **The gap in $E_{\rm th}$ is the $k_{\rm IR}$ definition**
+  ({doc}`pahchem-audit`, section 2). Taking $k_{\rm IR}$ as the energy-loss
+  rate with cation modes (the card says their $k_{\rm IR}$ is for cations),
+  $E_{\rm th}$ matches theirs to 0.25 eV. So $E_{\rm th}$ is not evidence
+  that their C$_{54}$ $k(E)$ is faster; for coronene we match their Fig. 3 to
+  −0.04…+0.02 dex.
+- With the photon-emission $k_{\rm IR}$, PAHdb cation modes make the gap
+  larger, not smaller: they radiate ~4× faster at threshold, giving
+  $E_{\rm th} = 20.3$ eV.
+- About 0.4–0.55 dex of the Fig. 10 gap is this definition; ~0.7 dex remains
+  unexplained. It must lie in inputs the paper does not publish: their Malloci
   frequencies (scaled or not) and their Monte Carlo $k_{\rm IR}(E)$. Those are
   exactly the items under "asked of others" in {doc}`pahchem-data-requests`.
 
@@ -736,7 +757,7 @@ published since. Recent models reuse a classic law plus the
   - Pyrene$^-$ (391 K): 4 ns at $\eta = 1$ against 29 µs; $\eta \approx
     2\times10^{-4}$ from its laboratory rate would bring it to ~20 µs.
 
-**M6, RAMSES tables** ({mod}`pycalima.pahchem.export_pah_tables`, export
+**M6, RAMSES tables** (`pycalima.pahchem.export_pah_tables`, export
 stage `pahchem_dissociation_tables`, solver key
 `models.photolysis_model = "pahchem"`).
 
@@ -858,8 +879,26 @@ Open items:
     molecule cold before each absorption.
   - `steady_state_emission` gives $R_i = \sum_j P_j k_i(E_j)$ for the
     multiphoton steady state.
-  - `spectrum` broadens the bands with the PAHdb convention: Lorentzian,
+  - `spectrum` broadens the bands with pahchem's legacy convention: Lorentzian,
     FWHM 15 cm$^{-1}$, redshift 15 cm$^{-1}$.
+    - This is not PAHdb's convention. The redshift is Bauschlicher+10's,
+      from the 4-31G era; the 15 cm$^{-1}$ FWHM is Boersma+13's Gaussian.
+    - PAHdb v4.00 applies no shift (Ricca+25).
+    - On v4.00 positions it puts the 11.2 µm band at 11.39 µm, against
+      11.195 µm observed.
+  - `band_conventions` (2026-10-26) gives `Population` named conventions:
+    - `legacy` is the one above, and stays the default.
+    - `sourced` and `sourced_tdep` use the v4.00 positions (solo +3 cm$^{-1}$,
+      jet-cooled ovalene). Their shifts are classical-MD slopes at the
+      energy-matched temperature (Mai+25; Pech+02 for 7.7 and 8.6). Their
+      widths are lab laws with rotation removed.
+    - `sourced` evaluates these at a typical emission $T$ per class.
+      `sourced_tdep` evaluates them at each photon's bin temperature on the
+      cascade (`emission_temperature_shares`).
+    - The sources and the ratio sensitivities are in
+      `results/pahchem/band_profiles_2026-10-26/README.md`.
+    - 11.0/11.2 depends on the convention by ×2 or more, and X/11.2 of
+      cation-rich mixes by ×3–4. X/(11.0+11.2) stays within ×1.1–1.25.
 - **Gates:**
   - **Energy.** $\sum_i h\nu_i N_i(E) = E$ less < 150 cm$^{-1}$ left when no
     mode can emit (66 cm$^{-1}$ for C$_{24}$H$_{12}$ at 8 eV).
@@ -884,15 +923,15 @@ Open items:
       The thermal approximation overestimates high-frequency emission from a
       small energy content. This is the expected physical difference, not a
       tolerance.
-- **Not yet in.**
+- **Not yet in** (when this gate passed; the items marked done came later).
   - The emission spectrum of each $(Z, N_{\rm H})$ state, weighted by the
     network populations (M7b). Its prerequisite is per-charge modes: the
     baseline uses the neutral parent's modes for every charge, but the
     cation's C–C bands are ~10× stronger, which is what makes 6.2/11.2 trace
-    charge.
+    charge. Done: M7b below, with per-charge modes.
   - Temperature-dependent band shifts and widths (anharmonicity).
-  - Recurrent fluorescence.
-  - The comparison with observations (M7c).
+  - Recurrent fluorescence. Done: M3d above.
+  - The comparison with observations (M7c). Done: M7c below.
 
 **M7a, published emission models recovered** (2026-10-06). Two papers'
 results were reproduced from their stated inputs, each with a method card;
@@ -1052,8 +1091,8 @@ figure `family_emission`).
       resonances; anharmonic spectra of hydrogenated PAHs, Mackie+15/18).
     - The fallback states carry their neighbour's number of CH$_2$.
 - **Not yet in:** per-state (DFT) modes of dehydrogenated states (T1);
-  temperature-dependent band shifts and widths; the comparison with
-  observations (M7c).
+  temperature-dependent band shifts and widths. The comparison with
+  observations is M7c, below.
 
 **M7c, first comparison with the PDRs4All Orion Bar** (2026-10-06;
 `diagnostics/pahchem/compare_pdrs4all.py`; observed ratios in
@@ -1066,15 +1105,21 @@ figure `family_emission`).
   - **Stated:**
     - $G_0$ at the IF, 2.2–7.1×10$^4$ (Peeters+24);
     - $G_0$ at DF3, 1.3–5×10$^3$ (Zannese+26);
-    - $n_{\rm H}$: atomic PDR $(5$–$10)\times10^4$ (Habart+24), DFs from
-      Meudon fits to H$_2$ (Peeters+24);
+    - $n_{\rm H}$: atomic PDR $(5$–$10)\times10^4$ (Habart+24), widened to
+      the isobaric $(0.4$–$3)\times10^5$ (P = 3×10$^7$–2×10$^8$ K cm$^{-3}$);
+      DFs $(4$–$10)\times10^5$ (Cuadrado+19's $n_e$ at $x_e \le$ C/H;
+      Zannese+26, HCN/CN). The Meudon H$_2$ fits (Peeters+24) are 10–300×
+      lower.
     - $T$ from H$_2$ rotational temperatures (Van De Putte+24);
-    - $n_e$ = 10–100 cm$^{-3}$ in the atomic PDR, from C and S
-      recombination lines (Berné+22, citing Wyrowski+97, Cuadrado+19,
-      Goicoechea+21).
+    - $n_e$ = 60–100 cm$^{-3}$ at the DFs, from mm-wave carbon recombination
+      lines and [$^{13}$C II] (Cuadrado+19), which arise in the C$^+$/C/CO
+      layer. Until 2026-10-26 the card applied them (as 10–100) to the atomic
+      PDR, where they need $x_e$ up to 2×10$^{-3}$.
   - **Not stated:** $G_0$ at DF1 and DF2 (the DF3 range is used); $n_e$ in
-    the DFs (bounded by C$^+$ + S$^+$, $x_e$ = 1.4–1.6×10$^{-4}$); the H II
+    the atomic PDR (bounded by C$^+$ + S$^+$, $x_e$ = 1.4–1.6×10$^{-4}$); the H II
     template's background PDR (the atomic-PDR ranges are used).
+  - With these, γ is 1×10$^4$–2.8×10$^5$ in the atomic PDR and
+    2.6×10$^2$–2.2×10$^3$ at the DFs.
   - Each template is run at the two corners of its ranges, least and most
     ionising, and the model is reported as that range.
 - **Observed.** The Van De Putte+25 templates were measured here with one
@@ -1235,6 +1280,8 @@ What follows for pahchem:
 **Maragkoudakis+26 recovered, and why pahchem differed (2026-10-07;
 {mod}`pycalima.pahchem.maragkoudakis2026`, method card `maragkoudakis2026.toml`,
 `diagnostics/pahchem/check_maragkoudakis2026.py`, `explore_maragkoudakis2026.py`).**
+How pahchem's current spectral fit compares with M26 and the other PDRs4All
+methods, template by template, is in {doc}`pahchem-pdrs4all-comparison`.
 - **Their pipeline, from public pieces.**
   - pyPAHdb's NNLS (GitHub source) with the public v4.00-alpha matrix, on the
     MIRI v2 additive templates.
@@ -1443,7 +1490,9 @@ review_B).
   - M20 partner isomers;
   - result caches keyed without their inputs;
   - dications missing from reported cation shares;
-  - recurrent fluorescence and photons below 5 eV, absent from the population.
+  - recurrent fluorescence and photons below 5 eV, absent from the population
+    (photons now start at 1 eV, since 2026-10-24, {doc}`pahchem-gas-coupling`
+    §4d; RF is still absent).
 - **Step 1, the observable** ({mod}`pycalima.pahchem.spectral_fit`,
   `diagnostics/pahchem/fit_pdrs4all_spectra.py`).
   - The templates are now fitted as spectra: I_ν = Σ w_s P_s(conditions) +
@@ -1507,15 +1556,15 @@ review_B).
 
   | | HII | Atomic | DF1 | DF2 | DF3 |
   |---|---|---|---|---|---|
-  | rms | 0.048 | 0.102 | 0.091 | 0.067 | 0.055 |
+  | rms | 0.048 | 0.102 | 0.091 | 0.064 | 0.055 |
   | best γ | 9.8e3 | 1.0e4 | 1.0e4 | 9.9e3 | 1.1e4 |
-  | cation emission share (Z ≥ 2) | 0.55–0.61 (0.05); 0.48–0.51 (0.04) of the emitted power, audit C6 | | | | |
-  | ⟨N_C⟩, carbon-weighted | 85 | 87 | 85 | 81 | 83 |
-  | CH shift / FWHM | −28 / 40 | −29 / 35 | −29 / 36 | −28 / 35 | −28 / 34 |
-  | CC shift | +15 | +17 | +18 | +17 | +19 |
-  | oop shift / rest FWHM | −1 / 7 | 0 / 6 | 0 / 7 | −3 / 9 | +1 / 12 |
+  | cation emission share, Z ≥ 1 (Z ≥ 2 in brackets) | 0.55–0.61 (0.05); 0.48–0.51 (0.04) of the emitted power, audit C6 | | | | |
+  | ⟨N_C⟩, carbon-weighted | 84 | 87 | 84 | 85 | 83 |
+  | CH shift / FWHM | −29 / 43 | −29 / 36 | −29 / 37 | −29 / 32 | −28 / 34 |
+  | CC shift | +17 | +18 | +18 | +20 | +19 |
+  | oop shift / rest FWHM | +2 / 8 | +1 / 6 | 0 / 7 | +3 / 11 | +1 / 12 |
 
-  Lorentzian fits agree (rms 0.049–0.109).
+  Lorentzian fits agree (rms 0.048–0.109).
 - **Reading.**
   - The band shape is the same in all five templates.
   - The best γ is ≈ 1e4 everywhere, inside every template's stated range.
@@ -1692,6 +1741,60 @@ carriers and pahchem's emission physics give the complex?
   meaning, and 3.395/3.405 can be separated. The carrier spectra to ask for
   are in {doc}`pahchem-data-requests`.
 
+**Dehydrogenated states emit (2026-10-25; `Population(dehydrogenated_emission=True)`,
+the default; `diagnostics/pahchem/check_dehydrogenated_emission.py`).**
+- **What changed.** Before, only the intact molecule emitted, and the spectral fit kept a molecule
+  where its intact fraction was ≥ 0.5. Now N$_{\rm H0}$−1 … N$_{\rm H0}$−3 emit too, each on its
+  `PAHSpecies.stripped` modes and heated by the same deposits as the parent. They are weighted by the
+  steady state of the hydrogenation chain (`Population.emission_weights`), and a molecule is kept where
+  those four states hold ≥ 0.5 of it.
+  - The share below N$_{\rm H0}$−3 is not modelled (`hydrogenation_fractions`) and is reported as
+    `deep_share`. Against PAHdb's bare C$_{24}$ and C$_{54}$, the stripped modes are 5–12× too weak.
+  - The chain is nearly all-or-nothing: a molecule is mostly intact, or mostly below N$_{\rm H0}$−3.
+    {cite:t}`Montillaud2013` (partials never above 40 %) and {cite:t}`Andrews2016` (C$_{54}$) find the
+    same bimodality.
+- **What others did.** No published chemistry model gives each of its own dehydrogenated states a
+  DFT spectrum:
+
+  | Model | Which states emit | Spectra |
+  |---|---|---|
+  | {cite:t}`Andrews2016` | Every (N$_{\rm H}$, Z) with a spectrum; the rest are dropped (34 % of the C$_{54}$ emitters at A$_V$ = 0, App. F) | PAHdb or their own B3LYP/4-31G per state; C$_{54}$ only at N$_{\rm H}$ = 0, 1, 17–20 |
+  | {cite:t}`Murga2022` | Every X$_{\rm H}$ bin | DL07 with 3.3, 11.2 and 12.6 µm scaled as a X$_{\rm H}$/X$_{\rm H0}$ + b (App. B, Table B1: a ≈ 1 and b ≈ 0, except 12.6 µm at 0.80/0.20); C–C bands untouched |
+  | {cite:t}`Montillaud2013`, {cite:t}`Allain1996b`, {cite:t}`LePage2003` | None (abundances only) | — |
+  | PAHdb fits (Andrews et al. 2015; {cite:t}`Maragkoudakis2020`) | PAHdb species, bare ones (Andrews+15) or partial ones (M20) | Harmonic DFT; bare species take 2.4–4.8 % (Andrews+15 Tables 4, 7) |
+
+  pahchem's rule is Allain's, and in effect Murga's. Murga+22's 17 % "dehydrogenated" share in their
+  ISO fit is really about 5 %: their C$_{34}$H$_{20}^+$ is normally hydrogenated.
+- **Result: a null test, as expected for N$_{\rm C}$ ≳ 54.** The Orion Bar shape fits, `emit` against
+  `intact`, at the best cells:
+  - N$_{\rm H0}$−1 … −3 emit 0.1–1.6 % of the PAH power, and the unmodelled share is 0.01–1.2 %;
+  - rms, γ ≈ 10$^4$ and the best cells do not move (2 of 10 move to an adjacent cell);
+  - ⟨N$_{\rm C}$⟩ falls by ≤ 0.7, and band ratios move by ≤ 2 %.
+
+  This agrees with the observations: Hony et al. (2001, §6.2) find that dehydrogenation "has little
+  influence" on interstellar spectra, and neither {cite:t}`Chown2024` nor {cite:t}`Peeters2024` see it.
+  In the same runs, the atomic n(H) of the conditions card (`conditions.atomic_h`) moves the DF best
+  cells from n(H) = 1.9×10$^4$ to 1.3×10$^4$ cm$^{-3}$ and raises the anion share by 5–8 % of itself.
+- **Where the stripped modes depart from DFT** (PAHdb C$_{96}$H$_{23}$, C$_{96}$H$_{22}$, C$_{54}$H$_{17}^+$,
+  per band, relative to the parent):
+  - 3.3 µm falls about twice as fast as N$_{\rm H}$/N$_{\rm H0}$ for the first H: 0.84 for C$_{96}$H$_{22}$
+    against our 0.92, and 0.80 for C$_{54}$H$_{17}^+$ against 0.94. Pauzat et al. (1997) give 3/4 of
+    statistical after 2 H. So the rule is generous at 3.3 µm, by about 20 % at N$_{\rm H0}$−3.
+  - Even-H loss forms an aryne (C≡C): 6.2 µm rises by 41 % in C$_{96}$H$_{22}$ (35–50 % in C$_{66}$H$_{18}$),
+    which the rule cannot give. This pushes 6.2/11.2 up, in the same direction as ionisation.
+  - The 700–950 cm$^{-1}$ window is rescaled as a whole, so 11.2 (solo) and 12.7 µm (duo, trio) fall
+    together. If 12.7/11.2 is to be read for dehydrogenation (Hony et al. 2001), the stripping must
+    know which site loses the H.
+  - The odd-H radical cation C$_{54}$H$_{17}^+$ departs in every band: 6.2 µm 0.70×, 12.7 µm 3.3×.
+- **Next, if dehydrogenation is ever to be constrained here:**
+  - give the deep share the PAHdb bare-skeleton spectra (C$_{24}$, C$_{54}$, C$_{66}$, C$_{96}$ and
+    cations). Their cations carry a 5.1–5.35 µm C≡C band, 13–32 % of the IR intensity (Bauschlicher &
+    Ricca 2013), testable with NIRSpec and MIRI. Mackie et al. (2015) find that small bare species
+    restructure (pentagons, non-planar), so one planar isomer is a weak stand-in below about 34 C;
+  - use PAHdb's own species for N$_{\rm H0}$−1 … −3 where they exist, as {cite:t}`Andrews2016` did;
+  - reproduce Andrews+16 Fig. 11 (C$_{54}$, C$_{96}$ at NGC 7023 A$_V$ = 0–2), comparing our completeness
+    with their App. F percentages.
+
 **Demyk+26 emission model reproduced (2026-10-20; `pahchem.cosmicpah`,
 `pahchem.demyk2026`, `diagnostics/pahchem/check_demyk2026.py`, figure
 `demyk2026_reproduction`).** Before the laws of {cite:t}`Demyk2026` go into the
@@ -1863,14 +1966,13 @@ cascades (supplement, extracted from the vector paths of the PDF;
     3058.4 cm⁻¹, strong lines within a few cm⁻¹).
   - No interaction-strength cut-off helps, and no permutation of the CH
     intensities does: the rank mapping is the best of 16.
-  - What is missing is their VPT2 intensities and possibly the
-    Darling–Dennison terms. Asked in {doc}`pahchem-data-requests`. Their sharp
-  2935 cm⁻¹ methyl band is too weak in ours, and their aromatic band splits
-  into peaks near 3080, 3060 and 3030 cm⁻¹ while ours sits ~30 cm⁻¹ redder.
-  The suspects are the missing inputs: VPT2 intensities (including the
-  combination bands' own) and the dark–dark (Darling–Dennison) couplings.
-  Without those, methyl profiles taken from this reproduction are not
-  reliable.
+  - Their sharp 2935 cm⁻¹ methyl band is too weak in ours, and their
+    aromatic band splits into peaks near 3080, 3060 and 3030 cm⁻¹ while ours
+    sits ~30 cm⁻¹ redder.
+  - What is missing is their VPT2 intensities (including the combination
+    bands' own) and possibly the dark–dark (Darling–Dennison) couplings.
+    Asked in {doc}`pahchem-data-requests`. Without those, methyl profiles
+    taken from this reproduction are not reliable.
 
 **Anharmonic side-group profiles in the Orion Bar fit (2026-10-21;
 `fit_34um_sidegroups.py --profile chi`).** Each lab band takes the VPT2 χ
@@ -2094,8 +2196,8 @@ the same calculations as the gated tests:
 - Murga & Wiebe Fig. 1;
 - the sensitivity tornado.
 
-**Extended targets: method cards drafted 2026-10-05.** None of these models
-has a runner yet.
+**Extended targets: method cards drafted 2026-10-05.** Their runners follow
+below (Allain+96, Le Page+01/03, Murga+2020/2022 and SHIVA).
 - **`allain96.toml`** (Allain+96 I and II).
   - The model: one Jochims RRK law for every PAH, with single-photon
     branching at $E = h\nu$ and no cascade.
@@ -2148,7 +2250,7 @@ has a runner yet.
   - Set 1 equals `fields.draine1978` to 0.13 %.
 - **Photoionisation (I Table 5):** −0.11 to +0.03 dex for C$_{14}$–C$_{32}$.
 - **Dissociation (I Table 4):** C$_{14}$–C$_{24}$ within 0.09 dex and
-  C$_{32}$ at −0.22 dex. PAH 50 C is −1.35 dex, a strict xfail: its
+  C$_{32}$ at −0.24 dex. PAH 50 C is −1.39 dex (H; −1.42 for H$_2$ and C$_2$H$_2$), a strict xfail: its
   $N_{\rm H0}$ and $k_{\rm IR}$ convention are not stated.
 - **Network:** the II Table 5 single-state destruction times agree to ≤ 0.37
   dex. The critical sizes are 39–46 C in the UIR media and 64 C in the warm
@@ -2405,8 +2507,9 @@ What the Figshare data reveal:
   shape.
 
 Gates:
-- **Deep-MC step rate:** theirs is 0.87–1.44× ours (DL01; 1.5–2.5× without
-  the C$_2$H$_2$ hydrogen). The factor grows with depth, which suggests a
+- **Deep-MC step rate:** theirs is 0.70–1.16× ours after the audit fixes C2
+  and C3 (0.87–1.44× before; DL01; 1.22–2.02× without the C$_2$H$_2$
+  hydrogen). The factor grows with depth, which suggests a
   field shape that changes inward (not stated).
 - **3.3 Å dehydrogenation** at $10^5$ yr: within 0.03 in every region (0.07
   without the C$_2$H$_2$ hydrogen).
@@ -2477,8 +2580,11 @@ What the remaining targets need:
     Fig. 9 is not digitisable; the card readings stand.
 - **Murga:**
   - its figures are extracted (above);
-  - the network needs a size ($N_{\rm C}$) axis, time integration through a
-    profile, and a WD01 charge mode.
+  - the network needed a size ($N_{\rm C}$) axis, time integration through a
+    profile, and a WD01 charge mode. These are now the per-size chains at the
+    158 locations ({mod}`~pycalima.pahchem.murga2022`), the trajectories
+    ({mod}`~pycalima.pahchem.murga2020`) and the WD01 chain
+    ({mod}`~pycalima.pahchem.murga_charge`), above.
 
 Invariants hold at every level:
 - each per-molecule photo-rate is at most $r_{\rm abs}$, and each yield per
@@ -2487,10 +2593,10 @@ Invariants hold at every level:
 - steady-state populations sum to 1;
 - detailed balance holds where it applies.
 
-After M5, a one-at-a-time sensitivity analysis at Orion Bar and NGC 7023
-conditions ranks the uncertain inputs by their effect on $f(N_{\rm H})$ and
-$f(Z)$. That ranking decides the second round of requests in
-{doc}`pahchem-data-requests`.
+The one-at-a-time sensitivity analysis at Orion Bar and NGC 7023 conditions
+(M5, sensitivity ranking, above) ranks the uncertain inputs by their effect
+on $f(N_{\rm H})$ and $f(Z)$. That ranking decides the second round of
+requests in {doc}`pahchem-data-requests`.
 
 ## Cosmic-ray collisions
 
@@ -2666,13 +2772,35 @@ molecules keep the parent's modes, so the H loss is an upper limit at very
 high E*.
 
 **Destruction.** A molecule is destroyed when any of these happens:
-- its charge reaches 4 N$_C$/60 (Chabot+20, scaled from C$_{60}$);
+- its charge exceeds the cold limit ⌊0.2 N$_C$⌋ (`impact.coulomb_limit`), at
+  any E*;
+- its E* exceeds the multifragmentation energy at its final charge
+  (`impact.multifragmentation_energy`);
 - its E* leaves the grid (512 eV);
 - its expected carbon loss reaches N$_C$/3, Micelotta's criterion. Gradual
   carbon loss counts towards that third.
 
-The Chabot criterion makes C$_{24}$H$_{12}$ dications explode, and lab
-coronene dications are stable. That threshold needs a laboratory anchor.
+**The Coulomb limits (2026-11-01).** The two charge criteria replace the
+charge-only threshold Q/N$_C$ ≥ 4/60 of {cite:t}`Chabot2020`, which made every
+C$_{24}$H$_{12}$ dication explode although cold ones are stable in the lab:
+- **4/60 is a hot-ion boundary.** In Chabot et al.'s Fig. 7 (C$_{60}$, from
+  collision experiments), multifragmentation and fission are equally probable
+  at 105 eV for q = 3 and 60 eV for q = 5. Their CR internal energy (about
+  20 eV per charge) crosses that line near q = 4, hence 4/60. Their limit for a
+  cold molecule is a separate number, 14 for C$_{60}$ ({cite:t}`DiazTendero2005`).
+- **The hot-ion limit** is that line, per carbon (Q/N$_C$, E*/N$_C$, their
+  scaling), used only over its range: none below Q/N$_C$ = 3/60, held at
+  1 eV per C above 5/60. For C$_{24}$H$_{12}^{2+}$ that is 24 eV. Read from the
+  figure to ±5 eV; confidence D.
+- **The cold limit** ⌊0.2 N$_C$⌋ gives the DFT thermodynamic limits of
+  {cite:t}`Holm2011` (q ≤ 2 for naphthalene, biphenylene and anthracene, 3 for
+  pyrene, 4 for coronene) and the C$_{60}^{12+}$ seen intact. Metastable ions
+  reach one more: PAH$^{3+}$ of fluorene, phenanthrene and pyrene at 40.9 eV
+  {cite:p}`Lee2022`, pyrene$^{4+}$ and coronene$^{4+}$ in ion collisions
+  {cite:p}`Lawicki2011`. Ovalene$^{3+}$ and HBC$^{3+}$ are seen intact
+  {cite:p}`Zhen2015`. Above C$_{60}$ it is an extrapolation; confidence C.
+- `destruction_rates(..., coulomb="charge_only")` keeps Chabot et al.'s reading
+  for comparison.
 
 **Gate G4 passes.** {mod}`pycalima.pahchem.micelotta2011`, run from
 `method_cards/micelotta2011.toml`, reproduces both of their testable numbers:
@@ -2687,17 +2815,24 @@ are bracketed by the two C-loss channels:
 
 | | unattenuated, L | unattenuated, H | N(H$_2$) = 10$^{22}$, L | N(H$_2$) = 10$^{22}$, H |
 |---|---|---|---|---|
-| C$_{24}$H$_{12}$ | 3–5 Myr | 0.5–0.6 Myr | 150–220 Myr | 12–16 Myr |
-| C$_{54}$H$_{18}$ | 16–60 Myr | 0.8–1.0 Myr | 300–450 Myr | 25–35 Myr |
-| C$_{96}$H$_{24}$ | 35–180 Myr | 1.4–1.7 Myr | 460–650 Myr | 37–50 Myr |
+| C$_{24}$H$_{12}$ | 7–20 Myr | 1.0–1.3 Myr | 250–510 Myr | 22–40 Myr |
+| C$_{54}$H$_{18}$ | 18–100 Myr | 1.5–2.3 Myr | 420–830 Myr | 36–66 Myr |
+| C$_{96}$H$_{24}$ | 39–245 Myr | 2.2–3.6 Myr | 640–1170 Myr | 52–86 Myr |
+
+These are with the cold and hot Coulomb limits (2026-11-01). Chabot et al.'s
+charge-only threshold gave 3–5, 0.5–0.6, 150–220 and 12–16 Myr for C$_{24}$H$_{12}$,
+17–66, 0.8–1.0, 300–450 and 25–35 Myr for C$_{54}$H$_{18}$, and 38–195, 1.4–1.7,
+460–650 and 37–50 Myr for C$_{96}$H$_{24}$: the lifetimes rise by 1.0–4×,
+most (2–4×) for C$_{24}$H$_{12}$, whose dications no longer all explode.
 
 - **Against Micelotta+11** (their spectra, f = 1): 20 Myr at C$_{54}$ and
   40 Myr at C$_{96}$.
 - **Against {cite:t}`Chabot2020`.** They count Coulomb explosion by heavy CRs
   alone, scaling the C$_{60}$ threshold Q/N$_C$ = 4/60 to every size, and
-  find "billions of years" for C$_{54}$. Here explosions alone give
-  C$_{54}$H$_{18}$ 5×10⁸ yr (L, N(H$_2$) = 10$^{22}$). Most of the shorter
-  total lifetime is the statistical carbon loss of the sub-explosion deposits.
+  find "a few billion years" averaged over their PAHs. With their threshold,
+  explosions alone give C$_{54}$H$_{18}$ 5.3×10⁸ yr (L, N(H$_2$) = 10$^{22}$);
+  with the cold and hot limits 1.2×10⁹ yr. Most of the shorter total lifetime
+  is the statistical carbon loss of the sub-explosion deposits.
 - **Which projectiles matter.** At the cloud edge, primary electrons dominate
   for spectrum L. That rests on the extrapolation of the Padovani+18 electron
   spectrum to keV energies, where it is unmeasured. Deeper in, the Fe group
@@ -2761,7 +2896,7 @@ N(H$_2$) = 10$^{22}$. Under G$_0$ = 1 the same molecule absorbs
 | Recombination, attachment | DS87 $\tilde J$ capture | $s_e$, EA, product branching | {cite:t}`BakesTielens1994` | B | products after recombination | RRKM on the neutral | 1 |
 | Mutual neutralisation, charge transfer | P_MN DS87 J̃; P_CT Langevin | P_MN, P_CT, IP(X) > IP | Shuman+14, Canosa+95, {cite:t}`Wolfire2008` ({doc}`pahchem-gas-coupling`) | D | no PAH⁻ measurement | {doc}`pahchem-gas-coupling` | 1 |
 | CR collisions: energy transfer | Bethe over df/dW, distant + close | df/dW to 30 keV, IP | Li & Draine + {cite:t}`Henke1993`; NIST STAR (G1) | B | slow electrons (< 100 eV); PAH EII | literature, lab | 2 |
-| CR collisions: fragmentation | sequential RRKM | $E_0$, $\Delta S^\ddagger$ of C loss; Coulomb limit | {cite:t}`West2018`, Micelotta+10b, {cite}`Chabot2020` | D | C loss of benzenoid PAHs; $q_{\rm CE}$ | T2, lab | 2 |
+| CR collisions: fragmentation | sequential RRKM | $E_0$, $\Delta S^\ddagger$ of C loss; Coulomb limits | {cite:t}`West2018`, Micelotta+10b, {cite}`Chabot2020`; cold limit {cite:p}`Holm2011,Lawicki2011,Lee2022,Zhen2015,DiazTendero2005` | D (cold limit C) | C loss of benzenoid PAHs; Coulomb limits above C$_{60}$ | T2, lab | 2 |
 | CR spectra at the PAH | CSDA through N(H$_2$) | L/H, nuclei, secondaries | {cite:t}`Padovani2018`, {cite:t}`PDG2022` | C | secondary e⁻ spectrum | literature | 2 |
 
 ## Literature reviewed, and what it is used for

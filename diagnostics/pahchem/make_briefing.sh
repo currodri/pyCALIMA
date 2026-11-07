@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Build the briefing figure set described in docs/physics/pahchem-briefing.md.
 #
-# Writes <plots dir>/pahchem/briefing/ (A: overview, B: spectral fits, C: reproduced benchmarks, D: open problems).
+# Writes <plots dir>/pahchem/briefing/ (A: overview, B: spectral fits, C: reproduced benchmarks, D: open problems,
+# E: PAH-gas coupling, the V1-V16 validations of docs/physics/pahchem-gas-coupling.md).
 # Run from the worktree root, with the PAHdb data and the main checkout's PAH mode files:
 #   CALIMA_PAHDB_DIR=<main>/reference_data diagnostics/pahchem/make_briefing.sh <main>/model_data/PAH_states <West+18 ESI .xlsx>
-# Steps 1-2 take ~30 min (the benchmark runners); SKIP_RUNS=1 reuses their figures already in the plots dir.
+# Steps 1-2 take ~30 min (the benchmark runners), step 2b ~2.5 h (the gas coupling: V4 and the phases ~40 min and
+# ~1 h); SKIP_RUNS=1 reuses their figures already in the plots dir. BERNE_DIR (a checkout of Berné+22's
+# photoelectric-heating code) adds their step-by-step comparison; WORKERS (default 4) the processes of step 2b.
 # The figures of step 3 reuse cached results.
 set -euo pipefail
 STATES=${1:?usage: make_briefing.sh <PAH_states dir> <West+18 ESI xlsx>}
@@ -23,6 +26,18 @@ $PY diagnostics/pahchem/plot_benchmarks.py west18 jochims94 montillaud13_fig3 an
     --states-dir "$STATES" --west-esi "$ESI" --out "$PLOTS"
 # 2. cosmic-ray collisions (check_cr_impact.py writes cr_impact_*.png to the plots dir)
 $PY diagnostics/pahchem/check_cr_impact.py --states-dir "$STATES"
+# 2b. the PAH-gas coupling validations (each writes its pahchem_*.png to the plots dir), one at a time
+W=${WORKERS:-4}
+for s in check_pah_ion_rates check_wolfire08_cplus check_attachment_v6 check_thi20_recombination check_pah_h2_formation; do
+    $PY diagnostics/pahchem/$s.py
+done
+$PY diagnostics/pahchem/check_diffuse_ionisation.py --workers "$W"
+$PY diagnostics/pahchem/check_wd01b_alpha.py --workers "$W"
+$PY diagnostics/pahchem/check_pe_efficiency.py --workers "$W"
+$PY diagnostics/pahchem/check_tielens21_fz.py --workers "$W"
+$PY diagnostics/pahchem/check_charge_phases.py --workers "$W"
+$PY diagnostics/pahchem/check_dense_cloud_charge.py
+if [ -n "${BERNE_DIR:-}" ]; then $PY diagnostics/pahchem/check_berne22_pe_heating.py --berne-dir "$BERNE_DIR"; fi
 fi
 # 3. the spectral fits (cached fit_pdrs4all_spectra.py --fit-shape result) and the extra figures
 RESULTS=$($PY -c "from pycalima import _paths; print(_paths.get_results_dir())")
@@ -63,6 +78,25 @@ copy murga2022_model_b D04_murga2022_superhydrogenation
 copy jochims94 D05_west18_vs_jochims94_threshold
 mv -f "$OUT/cr_01_eii_vs_beb.png" "$OUT/D06_gate_G2_electron_impact_ionisation.png"
 copy sensitivity D07_sensitivity_ranking
+mv -f "$OUT/gc_00_scorecard.png" "$OUT/E00_gas_coupling_scorecard.png"
+copyif() { if [ -f "$PLOTS/$1.png" ]; then cp -f "$PLOTS/$1.png" "$OUT/$2.png"; else echo "missing $1.png"; fi; }
+copyif pahchem_ion_rates E01_ion_electron_rates_V1_V5_V7_V8
+copyif pahchem_v2_w08_cplus E02_wolfire08_cplus_V2
+copyif pahchem_v3_w08_cicii E03_wolfire08_cicii_V3
+copyif pahchem_v13_lepp88 E04_lepp88_metal_ions_V13
+copyif pahchem_wd01b_alpha E05_wd01b_ion_recombination_V4
+copyif pahchem_v4_wd01b_xe E06_wd01b_electron_fraction_V4
+copyif pahchem_thi20_recombination E07_thi20_recombination_V10
+copyif pahchem_attachment_v6 E08_electron_attachment_V6
+copyif pahchem_pe_efficiency E09_pe_efficiency_V9
+copyif pahchem_berne22_steps E10_berne22_step_by_step_V9
+copyif pahchem_wd01_heating_cooling E11_heating_and_recombination_cooling_V16
+copyif pahchem_wd01_mean_charge E12_mean_charge_vs_psi_V16
+copyif pahchem_v14_tielens21_fz E13_tielens21_charge_V14
+copyif pahchem_charge_phases E14_charge_across_phases
+copyif pahchem_charge_phases_fz E15_charge_fractions_by_phase
+copyif pahchem_dense_cloud_charge_od E16_dense_cloud_charge_V15
+copyif pahchem_pah_h2_formation E17_h2_formation_V11
 if [ -f "$PLOTS/archive_2026-10-08/aliphatic_34um_survey.png" ]; then
     # not regenerable without the Van De Putte+25 templates (fit_34um_profiles.py); kept in its original style
     cp -f "$PLOTS/archive_2026-10-08/aliphatic_34um_survey.png" "$OUT/D08_aliphatic_34um_survey.png"

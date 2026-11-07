@@ -38,6 +38,8 @@ from pycalima.pahchem.network import PAHNetwork
 
 E_PH = np.linspace(5.0, 13.6, 345)
 PARENTS = {"C24": (24, 12), "C54": (54, 18), "C66": (66, 20), "C96": (96, 24)}
+#: their UV cross sections: Malloci+07, C96H24 as C54H18 scaled by N_C (card [absorption])
+MALLOCI_SIGMA = {"C24": "coronene", "C54": "circumcoronene", "C66": "circumovalene", "C96": "circumcoronene"}
 
 
 class Montillaud13:
@@ -69,7 +71,7 @@ class Montillaud13:
         self._states = {}
         self._parent_species = species
         self.ip = self.card["ionisation"]["ip"][parent]
-        self.sigma = {z: photo.sigma_li_draine(self.nc, z, E_PH) for z in (0, 1)}
+        self.sigma = {z: photo.sigma_malloci_molecule(MALLOCI_SIGMA[parent], z, E_PH, nc=self.nc) for z in (0, 1)}
 
     def _state(self, nh):
         """(CascadeModel, k_H on its grid) for a state with nh > 0 hydrogens."""

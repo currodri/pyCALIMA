@@ -154,7 +154,7 @@ def test_lp03_fig4_follows_from_lp03_table2_rates(nt):
         assert np.allclose(got, theirs, atol=0.015), (nc, np.round(got, 3), theirs)
 
 
-def test_pahchem_k_ion_against_lp03_table2():
+def test_pahchem_k_ion_against_lp03_table2(malloci2007):
     """eq. 15 with the um^-1 yield, the Allain IP law and their sigma (Paper I
     Fig. 11): k_ion is 1.06-1.34x LP03 Table 2 (C100 to C16). With the eV form
     of the yield (Montillaud's transcription) it is 0.96-0.99x for C16-C32 but

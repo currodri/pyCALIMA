@@ -5,13 +5,16 @@ Runs pahchem.montillaud13 on a (G0, nH) grid at their Fig. 10 conditions
 (Mathis ISRF, T = 100 K, n(H) = 0.5 nH, n_e = 1.4e-4 nH) and prints, for each
 digitised contour point, log G0(ours) - log G0(theirs) at the same nH.
 
-Measured (2026-10-04), median offset (range):
+Measured (2026-10-24), median offset (range):
 
 | Contour | ``--modes parent`` | ``--modes stripped`` |
 |---|---|---|
-| 10 % | +1.5 | +0.60 (+0.39 to +0.89) |
-| 50 % | +1.2 | +0.35 (-0.26 to +0.56) |
-| 90 % | +1.0 | +0.00 (-0.64 to +0.12) |
+| 10 % | +1.5 | +0.84 (+0.59 to +1.20) |
+| 50 % | +1.2 | +0.59 (-0.05 to +0.95) |
+| 90 % | +1.0 | +0.28 (-0.40 to +0.38) |
+
+Before the 2026-10-20 stripping fix (pahchem-audit, C1) the stripped variant gave +0.46 / +0.25 / -0.08, and
++0.60 / +0.35 / +0.00 before the 2026-10-06 frequency fix.
 
 ``--modes parent`` is their model: Sect. 3.7 implies parent modes for every
 hydrogenation state. ``stripped`` is a pahchem sensitivity variant. With

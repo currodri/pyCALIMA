@@ -15,6 +15,7 @@ from which H2 formation and H-atom balance follow.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -156,7 +157,8 @@ class PAHNetwork:
         (e.g. a fully dehydrogenated fraction of 1e-60). A general linear
         solve resolves populations only down to ~1e-16 of the largest one;
         below that it returns rounding noise. Falls back to the sparse solve
-        if the chain is reducible.
+        if the chain is reducible, and raises if the stationary state is not
+        unique (more than one closed class, e.g. n_e = G0 = 0).
         """
         f = gth_stationary(self.transition_matrix())
         if f is None:
@@ -170,7 +172,11 @@ class PAHNetwork:
         Q[0, :] = np.ones(n)
         b = np.zeros(n)
         b[0] = 1.0
-        f = scipy.sparse.linalg.spsolve(Q.tocsc(), b)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", scipy.sparse.linalg.MatrixRankWarning)
+            f = scipy.sparse.linalg.spsolve(Q.tocsc(), b)
+        if not np.all(np.isfinite(f)):
+            raise ValueError("no unique steady state: the network has more than one closed class of states")
         f = np.clip(f, 0.0, None)
         return (f / f.sum()).reshape(self.shape)
 

@@ -18,7 +18,25 @@ Cross sections [cm^2] on an energy grid in eV:
   legacy PAH_photophysics code used the disc radius 0.9 sqrt(N_C) A, which
   overestimates sigma by 1.7-3.3x for C24-C96.
 - ``sigma_malloci_coronene``: Malloci et al. (2007) TD-DFT for C24H12 at
-  Z = 0, +1 (bundled files; the bundled anion file is a C54H18- spectrum, ``malloci2007.INCONSISTENT``).
+  Z = 0, +1, from the fetched ``malloci2007-spectra`` (the served anion file is a C54H18- spectrum,
+  ``malloci2007.INCONSISTENT``).
+- ``sigma_malloci_average``: Berne+22's strategy, pahchem's default from 2026-10-26 to 2026-10-31 (``Params.uv_cross_section``):
+
+  - sigma / N_C is averaged per charge over the Malloci+07 spectra of nine compact PAHs, N_C 32-66
+    (``MALLOCI_AVERAGE_MOLECULES``), times N_C.
+  - Berne+22 use it at 5-13.6 eV, where their field is. Here it covers 5-30 eV, Malloci's range; Li & Draine is used
+    below 5 eV and above 30 eV.
+  - Below 5 eV, Malloci's spectra carry a floor from their exponential damping window, 60-300x Li & Draine at
+    1-1.5 eV. In the old-star light of the ISRF it would triple the absorption below 5 eV
+    (results/pahchem/uv_sigma_2026-10-26).
+  - At 5-13.6 eV the average absorbs 0.69-0.87x Li & Draine's photons; at 17 eV it is 0.66x.
+  - Z = +3, which Malloci did not compute, takes the dication average.
+
+- ``octopus_library``: our own Octopus TD-DFT library, 0.02 eV to 10 keV (``uvlib``, from its bundled anchor file),
+  pahchem's default since 2026-11-01 (``octopus_library@<hash>`` in cache keys, ``uv_model_key``).
+- ``sigma_uv``: the cross section of a ``Params.uv_cross_section`` name.
+- ``sigma_malloci_molecule``: one Malloci+07 molecule, optionally scaled to another N_C, for the reproductions of
+  papers that used it (Andrews+16, Montillaud+13).
 """
 
 from __future__ import annotations
@@ -27,13 +45,11 @@ from functools import lru_cache
 
 import numpy as np
 
-from pycalima import _paths
 
 HC_EV_UM = 1.23984193
 
-# no anion: the served (and bundled) coronene anion file is a C54H18- spectrum (malloci2007.INCONSISTENT)
-_MALLOCI = {0: "malloci_coronene_neutral_sigma.dat",
-            1: "malloci_coronene_cation_sigma.dat"}
+# no anion: the served coronene anion file is a C54H18- spectrum (malloci2007.INCONSISTENT)
+_MALLOCI_CHARGES = (0, 1)
 
 
 def li_draine_radius_um(nc: int) -> float:
@@ -123,10 +139,11 @@ def rf_levels_from_cross_section(energy_ev, sigma_cm2, e_max_ev=3.1, e_min_ev=0.
     return levels
 
 
-def malloci_rf_levels(path, **kwargs):
-    """``rf_levels_from_cross_section`` of a bundled Malloci+07 cross-section file (Mb)."""
-    data = np.loadtxt(_paths.get_external_data_path(path), comments="#")
-    return rf_levels_from_cross_section(data[:, 0], data[:, 1] * 1e-18, **kwargs)
+def malloci_rf_levels(name, charge, **kwargs):
+    """``rf_levels_from_cross_section`` of a Malloci+07 spectrum (``malloci2007.sigma_of``, e.g. "coronene", 1)."""
+    from pycalima.pahchem import malloci2007
+
+    return rf_levels_from_cross_section(*malloci2007.sigma_of(name, charge), **kwargs)
 
 
 def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
@@ -157,11 +174,91 @@ def sigma_amespahdb(nc, charge, energy_ev) -> np.ndarray:
 
 
 def sigma_malloci_coronene(charge, energy_ev) -> np.ndarray:
-    """Malloci et al. (2007) C24H12 cross section [cm^2]; zero outside 0-30 eV."""
-    if charge not in _MALLOCI:
+    """Malloci et al. (2007) C24H12 cross section [cm^2] (fetched ``malloci2007-spectra``); zero outside 0-30 eV."""
+    from pycalima.pahchem import malloci2007
+
+    if charge not in _MALLOCI_CHARGES:
         raise ValueError(f"Malloci coronene sigma exists for Z = 0, 1, not {charge}")
-    data = np.loadtxt(_paths.get_external_data_path(_MALLOCI[charge]), comments="#")
-    return np.interp(energy_ev, data[:, 0], data[:, 1], left=0.0, right=0.0) * 1e-18
+    E, s = malloci2007.sigma_of("coronene", charge)
+    return np.interp(energy_ev, E, s, left=0.0, right=0.0)
+
+
+#: Berne+22's molecules for Z = 0, +1, +2 (their anion set adds coronene, whose served anion file is C54H18-'s and
+#: is left out: ``malloci2007.INCONSISTENT``), N_C 32-66
+MALLOCI_AVERAGE_MOLECULES = ("ovalene", "tetrabenzocoronene", "circumbiphenyl", "circumanthracene", "circumpyrene",
+                             "hexabenzocoronene", "dicoronylene", "circumcoronene", "circumovalene")
+#: where the Malloci average is used [eV]; Li & Draine outside (module docstring)
+MALLOCI_AVERAGE_RANGE_EV = (5.0, 30.0)
+#: ``octopus_library`` is ``pycalima.pahchem.uvlib``'s rule (docs/physics/pahchem-uv-absorption.md section 4e) with the neutrals' 0.4 eV shift and
+#: the mean over isomers; the suffixes ``_tdlda`` (TD-LDA's positions) and ``_compact`` (the circumcoronene family alone) select the others
+UV_CROSS_SECTIONS = ("malloci_average", "li_draine", "octopus_library", "octopus_library_tdlda", "octopus_library_compact",
+                     "octopus_library_tdlda_compact")
+
+
+@lru_cache(maxsize=None)
+def _malloci_per_carbon(charge):
+    """(E [eV], <sigma / N_C> [cm^2]) over ``MALLOCI_AVERAGE_MOLECULES`` on Malloci's 0-30 eV grid."""
+    from pycalima.pahchem import malloci2007
+
+    z = min(int(charge), 2)
+    spec = malloci2007.spectra()
+    E = None
+    rows = []
+    for name in MALLOCI_AVERAGE_MOLECULES:
+        e, sig = spec[name]["sigma"][z]
+        if E is None:
+            E = e
+        rows.append(np.interp(E, e, sig / spec[name]["nc"]))
+    return E, np.mean(rows, axis=0)
+
+
+def sigma_malloci_average(nc, charge, energy_ev) -> np.ndarray:
+    """Berne+22's cross section [cm^2]: N_C x the Malloci+07 average per C of ``MALLOCI_AVERAGE_MOLECULES`` at the
+    state's charge (Z >= +2: the dication) within ``MALLOCI_AVERAGE_RANGE_EV``, Li & Draine outside."""
+    E = np.asarray(energy_ev, dtype=float)
+    lo, hi = MALLOCI_AVERAGE_RANGE_EV
+    inside = (E >= lo) & (E <= hi)
+    out = sigma_li_draine(nc, charge, E)
+    if inside.any():
+        em, per_c = _malloci_per_carbon(max(-1, min(int(charge), 2)))
+        out[inside] = nc * np.interp(E[inside], em, per_c)
+    return out
+
+
+def sigma_malloci_molecule(name, charge, energy_ev, nc=None) -> np.ndarray:
+    """Malloci+07 cross section [cm^2] of molecule ``name`` at ``charge``, times nc / N_C(name) if ``nc`` is given; zero
+    outside 0-30 eV. A charge Malloci did not compute (or whose served file is ``malloci2007.INCONSISTENT``) takes the
+    nearest computed charge of the same molecule."""
+    from pycalima.pahchem import malloci2007
+
+    spec = malloci2007.spectra()[name]
+    z = min(spec["sigma"], key=lambda q: (abs(q - int(charge)), -q))
+    e, s = spec["sigma"][z]
+    scale = 1.0 if nc is None else nc / spec["nc"]
+    return scale * np.interp(np.asarray(energy_ev, dtype=float), e, s, left=0.0, right=0.0)
+
+
+def sigma_uv(nc, charge, energy_ev, model="octopus_library") -> np.ndarray:
+    """The UV absorption cross section [cm^2] of ``model`` (``UV_CROSS_SECTIONS``; ``Params.uv_cross_section``). A name that carries
+    its anchor file's fingerprint (``uv_model_key``: ``octopus_library@<hash>``, as the basis workers receive it) is accepted."""
+    model = str(model).split("@")[0]
+    if model == "malloci_average":
+        return sigma_malloci_average(nc, charge, energy_ev)
+    if model == "li_draine":
+        return sigma_li_draine(nc, charge, energy_ev)
+    if model in UV_CROSS_SECTIONS:
+        from pycalima.pahchem import uvlib
+        return uvlib.sigma_library(nc, charge, energy_ev, positions="tdlda" if "tdlda" in model else "shifted",
+                                   structure="compact" if "compact" in model else "mixed")
+    raise ValueError(f"uv_cross_section must be one of {UV_CROSS_SECTIONS}, not {model!r}")
+
+
+def uv_model_key(model) -> str:
+    """``model`` as it enters cache keys: the name, and for ``octopus_library*`` the anchor file's fingerprint too."""
+    if str(model).startswith("octopus_library"):
+        from pycalima.pahchem import uvlib
+        return f"{model}@{uvlib.fingerprint()}"
+    return model
 
 
 def yield_jochims1996(energy_ev, ip_ev) -> np.ndarray:
@@ -189,6 +286,64 @@ def yield_wenzel2020(energy_ev, ip_ev, nc, alpha=0.3) -> np.ndarray:
                       alpha + (beta - alpha) * (E - 12.9) / 2.1], beta)
 
 
+#: u_c of ``yield_coulomb_window``: the fractional depth at which a Coulomb-bound photoelectron autoionises as often as
+#: the ion relaxes. The window yield reproduces the lowest measured cation yield, C30H14+ 0.83 at 15 eV (Wenzel+20,
+#: AE2+ 10.2 eV, B from population.LADDER_STEP_FIT), less its 21 % calibration error, 0.66: every shortfall at Z = +1
+#: (fragmentation too) taken as the window's, so the largest u_c the cation data allow, and the bound
+ESCAPE_DEPTH = 0.354
+
+
+def _window_moments(u_c, n=64):
+    """(I1, I2) = int_0^1 (1 - u) p(u) du and int_0^1 u (1 - u) p(u) du, p(u) = 1 / (1 + (u_c / u)^1.5)."""
+    if not u_c >= 0.0:
+        raise ValueError(f"u_c must be >= 0 (inf: WD01's y2), not {u_c}")
+    if np.isinf(u_c):
+        return 0.0, 0.0
+    x, w = np.polynomial.legendre.leggauss(n)
+    u = 0.5 * (x + 1.0)
+    p = 1.0 / (1.0 + (u_c / u) ** 1.5)
+    return 0.5 * float(np.sum(w * (1.0 - u) * p)), 0.5 * float(np.sum(w * u * (1.0 - u) * p))
+
+
+def yield_coulomb_window(energy_ev, ip_ev, depth_ev, u_c=ESCAPE_DEPTH) -> np.ndarray:
+    """Escape fraction of the photoelectrons of a positive ion whose Coulomb field binds the slow ones.
+
+    WD01's parabolic distribution of the electron's energy at infinity, 6 (E' + D)(E_h - E') / (E_h + D)^3 on
+    [-D, E_h] (their eq. 10 with E_low = -(Z+1) e^2/a), E_h = E - IP and D = ``depth_ev``, (Z+1) times the ion's IP
+    step per charge (e^2/C, its capacitance). Electrons above 0 escape: WD01's y2 = E_h^2 (E_h + 3D) / (E_h + D)^3. Those
+    below sit in Coulomb-bound (superexcited) states at fractional depth u = -E'/D, whose orbits reach a/u and return to
+    the molecule at a rate ~ u^1.5 that does not fall with Z at fixed u; each autoionises with p(u) = 1 / (1 + (u_c/u)^1.5)
+    against its relaxation into vibrations, adding (6 D^2 / (E_h + D)^3)(E_h I1 + D I2) (``_window_moments``). u_c = inf
+    is WD01's y2 (no bound electron escapes), u_c = 0 unit yield. The yield is a function of E_h / D alone: 6 I2(u_c) at
+    threshold (0.58 at ``ESCAPE_DEPTH``, every electron bound), a dip of the parabola to 0.55 at E_h = 0.14 D, 0.73 at
+    E_h = D, 1 far above. Zero below IP. docs/physics/pahchem-gas-coupling.md section 2.2c.
+    """
+    E = np.asarray(energy_ev, dtype=float)
+    eh = np.maximum(E - ip_ev, 0.0)
+    d3 = (eh + depth_ev) ** 3
+    i1, i2 = _window_moments(u_c)
+    y = (eh**2 * (eh + 3.0 * depth_ev) + 6.0 * depth_ev**2 * (eh * i1 + depth_ev * i2)) / d3
+    # in [0, 1] by construction (I1 <= 1/2, I2 <= 1/6, the u_c = 0 sum is (E_h + D)^3); round-off strays by <= 4.4e-16
+    if not np.all(np.isfinite(y)) or np.any(y > 1.0 + 1e-12) or np.any(y < -1e-12):
+        raise ValueError(f"Coulomb-window yield outside [0, 1] beyond round-off: {y.min():.17g} .. {y.max():.17g}")
+    return np.where(E > ip_ev, np.clip(y, 0.0, 1.0), 0.0)
+
+
+#: ``double_fraction``: P2 = DOUBLE_MAX x^2 / (x^2 + DOUBLE_HALF_EV^2), x = E - IP(Z) - IP(Z+1) [eV], the knock-out rise
+#: near threshold (exponent ~2, Hartman+13 Table I). One curve through coronene (Hartman+13 Fig. 8, parent ions: a lower
+#: limit, the dications fragment before detection), pentacene (their Fig. 9), C60 (Kafle+08 Fig. 2, every charge-2
+#: product) and C60+ (Baral+16 Tables I-III) within ~40 %: 0.06, 0.10, 0.15, 0.22 at x = 12, 18, 27, 60 eV. Nothing is
+#: measured above +1, and the same curve is taken at every charge. docs/physics/pahchem-gas-coupling.md section 2.2c
+DOUBLE_MAX, DOUBLE_HALF_EV = 0.25, 22.0
+
+
+def double_fraction(energy_ev, dip_ev, p_max=DOUBLE_MAX, x_half_ev=DOUBLE_HALF_EV) -> np.ndarray:
+    """Share of the photoionisations at ``energy_ev`` that remove two electrons, above the double-ionisation threshold
+    ``dip_ev`` (IP(Z) + IP(Z+1)); zero below it."""
+    x = np.clip(np.asarray(energy_ev, dtype=float) - dip_ev, 0.0, None)
+    return p_max * x**2 / (x**2 + x_half_ev**2)
+
+
 #: hc [eV um]: Le Page+01 eq. 14 takes every energy in um^-1
 EV_UM = 1.239842
 
@@ -202,6 +357,10 @@ def yield_lepage2001(energy_ev, ip_ev, ip_coronene_ev=7.02, form="montillaud13")
     b = 0.00128 um^4). Montillaud's transcription kept b while converting d
     to eV, which lowers Y by ~9x at 7.5 eV and ~1.5x at 10 eV (method card
     lepage01.toml, yield_unit_discrepancy).
+
+    Fitted below 13.6 eV only. The quartic is symmetric about d, so above d
+    the expression falls back to zero; ``population._yield`` replaces it
+    there by a ramp to unity.
     """
     E = np.asarray(energy_ev, dtype=float)
     if form == "montillaud13":
@@ -231,7 +390,7 @@ PHOTOELECTRON_PARTITION = 0.46
 PARTITION_NODES = ((13.6, 0.46), (15.0, 0.49), (18.0, 0.56), (20.0, 0.58), (21.9, 0.58))
 
 
-def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION):
+def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTITION, reference_ev=None):
     """(<E_k>, E_int) [eV] of the photoelectron and of the ion after an ionisation at ``energy_ev``.
 
     - E <= 13.6 eV: <E_k> = ``partition`` (E - threshold).
@@ -239,14 +398,22 @@ def photoelectron_energy(energy_ev, threshold_ev, partition=PHOTOELECTRON_PARTIT
     - Above 21.9 eV: the ion keeps the internal energy it has at 21.9 eV (the hole energy, ~6 eV for these
       PAHs), and the electron takes the rest, E - threshold - E_int. No photoelectron spectra of PAHs exist
       above 22 eV; this is the molecular limit (KE = hv - binding energy), not the solid-state WDB06 parabola.
+
     Zero below the threshold. A share above 1 is capped (the electron cannot take more than the excess).
+
+    The shares were measured on neutrals, at photon energies. ``reference_ev`` (the molecule's neutral IP) reads them
+    for a state of another threshold at E - (threshold - reference): every occupied level of a PAH moves alike with its
+    charge (Octopus LDA ladders of C24-C216, -1 to +2: one shift to +-0.05 eV from the HOMO to > 16 eV below it), so its
+    holes at a given excess are its neutral's, the hole above included. None: at E itself.
     """
     E = np.asarray(energy_ev, dtype=float)
     excess = np.clip(E - threshold_ev, 0.0, None)
+    ref = threshold_ev if reference_ev is None else reference_ev
+    E = E - (threshold_ev - ref)                       # the photon energy at which the neutral sees this excess
     e_n, f_n = np.array(PARTITION_NODES).T
     scale = partition / PHOTOELECTRON_PARTITION
     share = np.minimum(np.where(E <= e_n[0], partition, scale * np.interp(E, e_n, f_n)), 1.0)
-    e_int_top = (1.0 - min(scale * f_n[-1], 1.0)) * max(e_n[-1] - threshold_ev, 0.0)
+    e_int_top = (1.0 - min(scale * f_n[-1], 1.0)) * max(e_n[-1] - ref, 0.0)
     e_int = np.where(E <= e_n[-1], (1.0 - share) * excess, np.minimum(e_int_top, excess))
     return excess - e_int, e_int
 

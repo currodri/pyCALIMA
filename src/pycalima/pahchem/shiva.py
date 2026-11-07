@@ -180,7 +180,7 @@ def tielens_temperature(nc):
 
     Not SHIVA's stated relation (M20 cites DL01), but the one that reproduces
     Murga & Wiebe 2022 Fig. 1: with it their Arrh. 1 and Arrh. 2 curves are
-    matched within 0.1-0.6 dex, against 1.2-3.4 dex with the DL01 T(E)
+    matched within 0.1-0.6 dex, against 1.6-3.4 dex with the DL01 T(E)
     (check_shiva.py). DL01 runs ~5-10 % hotter at 10-14 eV, which the
     Arrhenius exponent (E0/kT ~ 40-50) turns into 2-3 dex.
     """

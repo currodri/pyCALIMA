@@ -78,7 +78,7 @@ cation_h_addition_superh = { value = 0.0, unit = "cm^3 s^-1", source = "Table 4 
 neutral_h_addition_standard = { value = 0.0, unit = "cm^3 s^-1", source = "Sect. 3.4, standard model", confidence = "E" }
 fig10_conditions = "Mathis83 ISRF scaled to G0 = 1-1e4 Habing, T = 100 K, n(H) = 0.5 nH, n(e) = 1.4e-4 nH (Sect. 6.2)"
 fig10_quantity = "fraction of species totally dehydrogenated (N_H = 0), all charges"
-deviations = "pahchem uses Li & Draine sigma at the LD01 radius (no Malloci C54 sigma bundled), PAHdb neutral parent modes for every state, and its own microcanonical IR cascade instead of the Joblin+02 Monte Carlo k_IR(E)"
+deviations = "pahchem uses their Malloci+07 sigma (fetched malloci2007-spectra; Li & Draine until 2026-10-26), PAHdb neutral parent modes for every state, and its own microcanonical IR cascade instead of the Joblin+02 Monte Carlo k_IR(E)"
 
 [targets]
 fig3 = "k_IR(E) and k_diss(E) for C24H12 and C66H20 (digitised: dissoc_rate_coronene_Montillaud.csv)"

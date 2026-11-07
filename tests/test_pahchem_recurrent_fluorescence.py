@@ -68,7 +68,7 @@ def test_rf_suppresses_dissociation_and_matches_the_monte_carlo(coronene):
     assert yields[1] < yields[0]
 
 
-def test_rf_in_the_baseline_cools_coronene_cations(model_data):
+def test_rf_in_the_baseline_cools_coronene_cations(model_data, malloci2007):
     """Baseline RF (Malloci+07 coronene+ bands, baseline.RF_SPECTRA) at the NGC 7023 edge:
     - the cation's H-loss rate falls 2.3x (N_H = 12);
     - fully hydrogenated C24H12+ carries 32 % of its absorbed power off as RF photons
@@ -97,7 +97,7 @@ def test_rf_in_the_baseline_cools_coronene_cations(model_data):
     assert out[True][2] < 0.8 * out[False][2]
 
 
-def test_rf_suppresses_circumcoronene_cation_h_loss(model_data):
+def test_rf_suppresses_circumcoronene_cation_h_loss(model_data, malloci2007):
     """C54H18+ (Malloci+07 bands 1.05 eV, f = 0.076; 2.40 eV, f = 1.08) at the NGC 7023 edge: its
     H loss needs multiphoton energies, where RF through the strong 2.4 eV band is fast.
     Measured (de = 200 cm^-1): k_H falls 68x at N_H = 18 (50x at the Orion Bar, where the

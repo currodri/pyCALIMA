@@ -10,7 +10,7 @@ B. Averaging the rates over the bin before the balance: the bin table against th
    solves of A.
 C. Photons below 5 eV (RTZ group 1-5.6 eV): they detach anions (the population's grid reaches them since 2026-10-24). The
    bin table on the RTZ groups against the same table with that group zeroed, for the Kurucz field and the Mathis
-   ISRF, with the default (Jochims) and the statistical detachment.
+   ISRF, with the Jochims (the default before 2026-10-25) and the statistical detachment.
 
 Field: Kurucz 40000 K cut at 13.6 eV (the Orion Bar shape, whose bases are cached by fit_pdrs4all_spectra.py).
 Cells: G0, T and gamma = G0 sqrt(T) / n_e on a grid, n_H = 1e3 n_e, ions C+ with n(C+) = n_e. The bins are N_C

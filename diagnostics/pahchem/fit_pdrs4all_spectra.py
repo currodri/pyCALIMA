@@ -13,12 +13,19 @@ I_nu = sum_s w_s P_s(conditions) + continuum (cubic B-splines in lambda, knots
   lines masked (spectral_fit.MASKED_UM).
 - Model: ``Population`` with the stated inputs of fit_pdrs4all_population
   (library, IP shifts, capture, stretch scale), charges at each cell of the
-  conditions grid, molecules kept where the dehydrogenation chain
-  (``Population.intact_fractions``) leaves them intact at that cell.
+  conditions grid (n(H) for the H chemistry, total n_H for n_e = x_e n_H:
+  ``conditions.atomic_h``). With ``--hydrogenation emit`` (the default) each
+  molecule emits from N_H0 ... N_H0-3 in the proportions of the dehydrogenation
+  chain (``Population.emission_weights``) and is kept where those states hold
+  ``--intact-min`` of it; the deeper share is not modelled and is reported
+  (``deep_share``). ``--hydrogenation intact``: the intact molecule alone, kept
+  where its intact fraction is ``--intact-min`` (as before 2026-10-25).
 - Per cell: sse, rms (residual / mean intensity), the population (N_C by number
   and by carbon; charge shares of the emitted power, dications counted with
-  the cations), the derived band ratios of the PAH component, and the
-  continuum share of the 5-15 um power.
+  the cations; the share emitted by dehydrogenated states, ``e_dehydro``, and
+  the unmodelled one, ``deep_share``: what the deeper states would emit as the
+  intact molecule does, over the total), the derived band ratios of the PAH
+  component, and the continuum share of the 5-15 um power.
 - "Allowed" cells: Delta chi^2 < 9 with chi^2 = sse / s^2, s^2 = sse_min / (n - p),
   p the number of non-zero coefficients. This is an approximate scale; the
   statistics are step 3.
@@ -45,7 +52,7 @@ import numpy as np
 import compare_pdrs4all as C
 import fit_pdrs4all_population as FP
 from pycalima import _paths
-from pycalima.pahchem import conditions, population, spectral_fit
+from pycalima.pahchem import conditions, photo, population, spectral_fit
 from pycalima.pahchem.baseline import Environment, Params
 
 KNOTS = (1.0, 1.5, 2.5)
@@ -57,14 +64,23 @@ BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3
 
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
-RESULT_VERSION = 6
+#: (8: no associative detachment of the parent anions, the Wenzel yield on the cation only; 2026-10-26.
+#: 9: the UV cross section, with the library's fingerprint, is part of the key; the library default of 2026-11-01)
+RESULT_VERSION = 9
 
 
 def _result_key(args):
-    """Cache key of a run: every argument plus the versions of the code that produce the result."""
-    stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot", "workers")}
-    stamp.update(result=RESULT_VERSION, basis=population.BASIS_VERSION, masks=repr(spectral_fit.MASKED_UM),
-                 broad=repr(BROAD_START))
+    """Cache key of a run: every argument, the versions of the code that produce the result and the conditions card.
+
+    An argument at the value every run had before the argument existed is left out, so those runs keep their keys
+    (since 2026-11-02 the capture and attachment defaults are not those values; see Params)."""
+    stamp = {k: str(v) for k, v in sorted(vars(args).items()) if k not in ("plot", "workers")
+             and not (k == "shape_from" and v is None) and not (k == "attachment_fraction" and v == 1.0)
+             and not (k == "attachment_model" and v == "constant") and not (k == "attachment_ea_half" and v == 2.0)
+             and not (k == "attachment_nc_half" and v == 50.0)}
+    stamp.update(result=RESULT_VERSION, basis=population.BASIS_VERSION, uv=photo.uv_model_key(Params().uv_cross_section),
+                 masks=repr(spectral_fit.MASKED_UM),
+                 broad=repr(BROAD_START), card=json.dumps(conditions.load("orion_bar"), sort_keys=True))
     return hashlib.sha1(json.dumps(stamp, sort_keys=True).encode()).hexdigest()[:12]
 
 def observed_on_grid(lam, fnu, grid):
@@ -86,18 +102,19 @@ def run(args):
     if shifts:
         lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
-    params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model, stretch_scale=stretch)
-    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
+    params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model,
+                    capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction,
+                    attachment_model=args.attachment_model, attachment_ea_half=args.attachment_ea_half,
+                    attachment_nc_half=args.attachment_nc_half, stretch_scale=stretch)
+    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params,
+                                dehydrogenated_emission=getattr(args, "hydrogenation", "emit") == "emit")
     grid = spectral_fit.Grid.build()
     lam, tmpl = C.load_templates(args.templates)
     nc = np.array([m.nc for m in lib], dtype=float)
     zs = np.array(pop.zs)
     shape = ("kurucz", 40000)
     pop.prepare(shape)
-    emitted = np.zeros((len(lib), len(zs)))
-    for s, m in enumerate(lib):
-        for z in m.charges:
-            emitted[s, z - pop.zmin] = pop.basis(m, z, shape).emitted.sum()
+    emitted = pop.state_powers(shape)                        # (s, slot, hydrogenation)
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
     bases = {k: spectral_fit.continuum_basis(grid, k) for k in KNOTS}
@@ -109,21 +126,22 @@ def run(args):
         temp = conditions.bounds(e["t_gas"])[0]
         cells = []
         for g0 in FP._grid(*(v / conditions.g0_conversion(e["g0"], teff) for v in conditions.bounds(e["g0"])), 4):
-            for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
+            for n_tot in FP._grid(*conditions.bounds(e["n_h"]), 3):
                 el = e["n_e"] if "n_e" in e else e["x_e"]
+                n_h = conditions.atomic_h(e, n_tot)
                 for v in FP._grid(*conditions.bounds(el), 4):
-                    ne = v if "n_e" in e else v * n_h
+                    ne = v if "n_e" in e else v * n_tot
                     env = Environment(f"{t}", g0, n_h, ne, temp, teff)
-                    keep = pop.intact_fractions(env) >= args.intact_min           # hydrogenation chain, per cell
+                    keep = pop.emitting_fractions(env) >= args.intact_min         # hydrogenation chain, per cell
                     P = pop.spectra(env, grid.nu)[keep].T
                     F, _ = pop.band_fluxes(env)
-                    f = pop.charge_matrix(env)
-                    cell = {"g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne}
+                    W = pop.emission_weights(env)
+                    cell = {"g0": g0, "n_h": n_h, "n_h_total": n_tot, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne}
                     for k in KNOTS:
                         fit = spectral_fit.fit_spectrum(y, P, bases[k])
                         w = np.zeros(len(lib))
                         w[keep] = fit.weights
-                        power = w[:, None] * f * emitted        # emitted power by state (photon + recombination heating)
+                        power = w[:, None, None] * W * emitted  # emitted power by state (photon + recombination heating)
                         band = w @ F
                         tot = power.sum()
                         ok = np.isfinite(y)
@@ -152,11 +170,33 @@ def _cells(card, t):
     out = []
     teff = int(card["region"]["field_teff_k"]["value"])
     for g0 in FP._grid(*(v / conditions.g0_conversion(e["g0"], teff) for v in conditions.bounds(e["g0"])), 4):
-        for n_h in FP._grid(*conditions.bounds(e["n_h"]), 3):
+        for n_tot in FP._grid(*conditions.bounds(e["n_h"]), 3):
             el = e["n_e"] if "n_e" in e else e["x_e"]
             for v in FP._grid(*conditions.bounds(el), 4):
-                out.append((g0, n_h, v if "n_e" in e else v * n_h, temp))
+                # (G0, n(H), n_e, T, n_H): atomic H for the chemistry, the total for n_e
+                out.append((g0, conditions.atomic_h(e, n_tot), v if "n_e" in e else v * n_tot, temp, n_tot))
     return out
+
+
+def _library_and_population(args):
+    """The library and ``Population`` of the band-shape runs for ``args`` (shared by the per-process context and the warm-up)."""
+    if args.aliphatic == "none":
+        lib = FP.library(args.library)
+    elif args.library == "v400":
+        lib = population.library_v400(include_superh=True, cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+    else:
+        raise SystemExit("--aliphatic needs --library v400")
+    shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
+    if shifts:
+        lib = population.shift_thresholds(lib, shifts)
+    stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
+    params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model,
+                    capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction,
+                    attachment_model=args.attachment_model, attachment_ea_half=args.attachment_ea_half,
+                    attachment_nc_half=args.attachment_nc_half, stretch_scale=stretch)
+    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params,
+                                dehydrogenated_emission=getattr(args, "hydrogenation", "emit") == "emit")
+    return lib, pop
 
 
 #: per-process context of run_shape (library, population, grid...), built once per argument set
@@ -169,28 +209,14 @@ def _shape_context(arg_items, knot):
     if key in _SHAPE_CONTEXT:
         return _SHAPE_CONTEXT[key]
     args = argparse.Namespace(**dict(arg_items))
-    if args.aliphatic == "none":
-        lib = FP.library(args.library)
-    elif args.library == "v400":
-        lib = population.library_v400(include_superh=True, cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
-    else:
-        raise SystemExit("--aliphatic needs --library v400")
-    shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
-    if shifts:
-        lib = population.shift_thresholds(lib, shifts)
-    stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
-    params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model, stretch_scale=stretch)
-    pop = population.Population(lib, FP.WINDOWS, cache_dir=FP.BASIS_CACHE, params=params)
+    lib, pop = _library_and_population(args)
     grid = spectral_fit.Grid.build()
     card = conditions.load("orion_bar")
     teff = int(card["region"]["field_teff_k"]["value"])
     fshape = ("kurucz", teff)
     pop.prepare(fshape, workers=1)
     zs = np.array(pop.zs)
-    emitted = np.zeros((len(lib), len(zs)))
-    for s, m in enumerate(lib):
-        for z in m.charges:
-            emitted[s, z - pop.zmin] = pop.basis(m, z, fshape).emitted.sum()
+    emitted = pop.state_powers(fshape)                       # (s, slot, hydrogenation)
     lam, tmpl = C.load_templates(args.templates)
     n_ali = np.array([m.edges.get("aliphatic", 0) for m in lib], dtype=float)       # H off the aromatic edges
     ctx = {"args": args, "lib": lib, "pop": pop, "grid": grid, "card": card, "teff": teff, "fshape": fshape,
@@ -210,7 +236,7 @@ def _template_inputs(ctx, t):
         args, pop, teff = ctx["args"], ctx["pop"], ctx["teff"]
         y = observed_on_grid(ctx["lam"], ctx["tmpl"][t], ctx["grid"])
         cells = _cells(ctx["card"], t)
-        keeps = [pop.intact_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
+        keeps = [pop.emitting_fractions(Environment(t, *c[:3], c[3], teff)) >= args.intact_min for c in cells]
         if args.aliphatic == "free":
             # the chain knows only aromatic H loss; the aliphatic species are let in at every cell, so their
             # weights are what the spectrum asks for, not what the conditions allow
@@ -227,15 +253,20 @@ def _scan(ctx, t, shape):
     ok = np.isfinite(y)
     S = spectral_fit.shaped_state_spectra(pop, ctx["fshape"], grid.nu, shape, table=ctx["state_table"])
     rows = []
-    for (g0, n_h, ne, temp), keep in zip(cells, keeps):
+    for (g0, n_h, ne, temp, n_tot), keep in zip(cells, keeps):
         env = Environment(t, g0, n_h, ne, temp, teff)
-        f = pop.charge_matrix(env)
-        P = (g0 * np.einsum("sz,szi->si", f, S))[keep].T
+        W = pop.emission_weights(env)
+        # the deposits the bases do not hold (captures at their actual rate, the C 1s Auger excitation) in the same shape
+        P = (g0 * S.combine(W) + pop.deposit_spectra(env, grid.nu, band_shape=shape))[keep].T
         fit = spectral_fit.fit_spectrum(y, P, ctx["C_"])
         w = np.zeros(len(lib))
         w[keep] = fit.weights
-        power = w[:, None] * f * ctx["emitted"]     # emitted power by state (photon + recombination heating)
+        power = w[:, None, None] * W * ctx["emitted"]   # emitted power by state (photon + recombination heating)
         tot = power.sum()
+        # the deeper states, were they to emit as the intact molecule: the share the model leaves out
+        deep = (w * pop.hydrogenation_fractions(env)[1]) @ np.einsum("sz,sz->s", pop.charge_matrix(env),
+                                                                       ctx["emitted"][:, :, 0]) \
+            if pop.dehydrogenated_emission else 0.0
         wf = spectral_fit.window_fluxes(grid, fit.pah, FP.WINDOWS)
         pah_ali = P[:, aliphatic[keep]] @ fit.weights[aliphatic[keep]]
         band = y - fit.cont
@@ -245,7 +276,9 @@ def _scan(ctx, t, shape):
                          "r34_obs": r34(band), "r34_pah": r34(fit.pah), "r34_ali": r34(pah_ali),
                          "rms34": float(np.sqrt(np.mean((band - fit.pah)[w34 & ok] ** 2)) / y[w34 & ok].mean()),
                          "pah_ali": pah_ali,
-                         "g0": g0, "n_h": n_h, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne, "sse": fit.sse,
+                         "g0": g0, "n_h": n_h, "n_h_total": n_tot, "n_e": ne, "gamma": g0 * np.sqrt(temp) / ne,
+                         "sse": fit.sse,
+                         "e_dehydro": float(power[:, :, 1:].sum() / tot), "deep_share": float(deep / (tot + deep)),
                          "rms": fit.rms, "n": int(np.isfinite(y).sum()),
                          "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
                          "mean_nc_carbon": float((w * ctx["nc"]) @ ctx["nc"] / (w @ ctx["nc"])) if w.sum() > 0 else np.nan,
@@ -269,7 +302,7 @@ def _shape_run(arg_items, knot, iterations, t, start):
     ref, shape, history = int(np.argmin([r["sse"] for r in _scan(ctx, t, start)])), start, []
     rows = None
     for it in range(iterations):
-        g0, n_h, ne, temp = cells[ref]
+        g0, n_h, ne, temp, _ = cells[ref]
         shape, _, _ = spectral_fit.fit_band_shape(y, ctx["grid"], ctx["pop"],
                                                   Environment(t, g0, n_h, ne, temp, ctx["teff"]),
                                                   keeps[ref], ctx["C_"], start=shape)
@@ -292,6 +325,34 @@ def _template_runs(arg_items, knot, iterations, t, starts, threads=None):
     return [_shape_run(arg_items, knot, iterations, t, start) for start in starts]
 
 
+def _fixed_shape_runs(arg_items, knot, t, shapes, threads=None):
+    """``--shape-from``: template t scanned over the condition cells with each given band shape, no shape fit. A picklable task."""
+    if threads is not None:
+        try:
+            import numba
+        except ModuleNotFoundError:
+            pass
+        else:
+            numba.set_num_threads(threads)
+    ctx = _shape_context(arg_items, knot)
+    out = []
+    for shape in shapes:
+        rows = _scan(ctx, t, shape)
+        ref = int(np.argmin([r["sse"] for r in rows]))
+        out.append({"shape": shape, "history": [(shape, rows[ref]["gamma"], rows[ref]["rms"])], "cells": rows, "start": shape,
+                    "best_sse": rows[ref]["sse"]})
+    return out
+
+
+def _warm_bases(args, workers):
+    """Build the population bases once with ``workers`` processes, so that the per-template workers load them from the cache
+    instead of each building every missing basis serially (a new ``--attachment-fraction``, for one, changes the anions')."""
+    _, pop = _library_and_population(args)
+    teff = int(conditions.load("orion_bar")["region"]["field_teff_k"]["value"])
+    pop.prepare(("kurucz", teff), workers=workers)
+    pop.prepare_responses(("kurucz", teff), workers=workers)     # the captures' H loss (dissociative recombination)
+
+
 def run_shape(args, knot=1.5, iterations=2, executor=None):
     """Band shape fitted per template and profile, then the conditions scan with that shape (see --fit-shape).
 
@@ -306,23 +367,32 @@ def run_shape(args, knot=1.5, iterations=2, executor=None):
         with open(cache, "rb") as fh:
             return pickle.load(fh)
     arg_items = tuple(sorted((k, v) for k, v in vars(args).items() if k not in ("plot", "workers")))
-    tasks = [(t, profile, i, start) for t in C.TEMPLATES for profile in ("lorentzian", "gaussian")
-             for i, start in enumerate((spectral_fit.BandShape(profile=profile),
-                                        dataclasses.replace(BROAD_START, profile=profile)))]
+    base = None
+    if getattr(args, "shape_from", None):
+        with open(args.shape_from, "rb") as fh:
+            base = pickle.load(fh)
+        tasks = [(t, profile, 0, base[t][profile]["shape"]) for t in C.TEMPLATES for profile in ("lorentzian", "gaussian")]
+        task_fn, extra = _fixed_shape_runs, ()
+    else:
+        tasks = [(t, profile, i, start) for t in C.TEMPLATES for profile in ("lorentzian", "gaussian")
+                 for i, start in enumerate((spectral_fit.BandShape(profile=profile),
+                                            dataclasses.replace(BROAD_START, profile=profile)))]
+        task_fn, extra = _template_runs, (iterations,)
     jobs = [(t, [start for tt, _, _, start in tasks if tt == t]) for t in C.TEMPLATES]
     workers = getattr(args, "workers", 1)
     if executor is None and workers > 1:
         from concurrent.futures import ProcessPoolExecutor
 
+        _warm_bases(args, max(workers, os.cpu_count() or 1))
         threads = max(1, (os.cpu_count() or 1) // min(workers, len(jobs)))
         with ProcessPoolExecutor(max_workers=workers) as ex:
-            futures = [ex.submit(_template_runs, arg_items, knot, iterations, t, starts, threads) for t, starts in jobs]
+            futures = [ex.submit(task_fn, arg_items, knot, *extra, t, starts, threads) for t, starts in jobs]
             results = [r for fu in futures for r in fu.result()]
     elif executor is not None:
-        futures = [executor.submit(_template_runs, arg_items, knot, iterations, t, starts) for t, starts in jobs]
+        futures = [executor.submit(task_fn, arg_items, knot, *extra, t, starts) for t, starts in jobs]
         results = [r for fu in futures for r in fu.result()]
     else:
-        results = [r for t, starts in jobs for r in _template_runs(arg_items, knot, iterations, t, starts)]
+        results = [r for t, starts in jobs for r in task_fn(arg_items, knot, *extra, t, starts)]
     ctx_lib = FP.library(args.library) if args.aliphatic == "none" else None
     out = {"knot": knot, "args": vars(args), "grid": spectral_fit.Grid.build()}
     lam, tmpl = C.load_templates(args.templates)
@@ -463,9 +533,21 @@ def main():
     ap.add_argument("--library", choices=("m20", "v400"), default="v400")
     ap.add_argument("--ip-shift", default="")
     ap.add_argument("--capture-scale", type=float, default=1.0)
-    ap.add_argument("--capture-model", choices=("bt94", "lab_trend"), default="bt94")
+    ap.add_argument("--capture-model", choices=population.CAPTURE_MODELS, default=Params().capture_model, help="Params.capture_model")
+    ap.add_argument("--capture-t-power", type=float, default=0.0, help="Params.capture_t_power (cation capture x (T/300 K)^-x)")
+    ap.add_argument("--attachment-fraction", type=float, default=1.0,
+                    help="Params.attachment_fraction (f, neutral attachment), with --attachment-model constant")
+    ap.add_argument("--attachment-model", choices=("constant", "ea", "size"), default=Params().attachment_model, help="Params.attachment_model")
+    ap.add_argument("--attachment-ea-half", type=float, default=2.0, help="Params.attachment_ea_half [eV], with --attachment-model ea")
+    ap.add_argument("--attachment-nc-half", type=float, default=50.0, help="Params.attachment_nc_half, with --attachment-model size")
+    ap.add_argument("--shape-from", default=None,
+                    help="with --fit-shape: a pahchem_spectral_shape_<key>.pkl whose band shape per template and profile is kept "
+                         "fixed (no shape fit; the conditions are rescanned): fast sensitivity runs of the charge inputs")
     ap.add_argument("--stretch-scale", default="1")
-    ap.add_argument("--intact-min", type=float, default=0.5)
+    ap.add_argument("--intact-min", type=float, default=0.5,
+                    help="keep a molecule where this share of it emits (see --hydrogenation)")
+    ap.add_argument("--hydrogenation", choices=("emit", "intact"), default="emit",
+                    help="emit: N_H0 ... N_H0-3 emit in their chain proportions; intact: the intact molecule only")
     ap.add_argument("--aliphatic", choices=("none", "free"), default="none",
                     help="with --fit-shape: add the v4.00 species with H off the aromatic edges; 'free' lets them in "
                          "at every cell (no hydrogenation constraint)")
@@ -476,6 +558,9 @@ def main():
     ap.add_argument("--fit-shape", action="store_true",
                     help="fit the global band shape (shifts per mode class, two widths, Lorentzian or Gaussian) per template")
     args = ap.parse_args()
+    # macOS keeps freed large blocks dirty for reuse (libmalloc's large cache): the anions' Attachment builds left
+    # ~2.4 GB of them in each process, against ~0.4 GB live (2026-11-02). The workers, started after this, go without.
+    os.environ.setdefault("MallocLargeCache", "0")
     if args.fit_shape:
         res = run_shape(args)
         summarise_shape(res)
