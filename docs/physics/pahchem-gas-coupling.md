@@ -1008,11 +1008,28 @@ answer, not the chemistry.
 - The super-H states' own modes are not computed.
 - The ladders' photon-driven losses use the intact thresholds.
 
-**Next.**
-- A literature-based chemistry to about +12: Boschman's alternating barriers, the cation closed-shell barriers,
-  abstraction per CH2 site, and sequential losses per photon. Test caps of 8, 12 and 24 until the top holds < 1 %, and
-  validate against Boschman+15 and Foley+18.
-- The bracket runs: super-H ΔS 12 → 55.6 J K⁻¹ mol⁻¹, σ_ER × 7, cation super-H addition 1e-12, and the anion options.
+**Brackets** (`diagnostics/pahchem/check_joint_hydrogenation.py`, `results/pahchem/joint_hydrogenation/brackets.csv`;
+the compact C24, C54 and C96; Draine field, 100 K, n_e = 1.4 × 10⁻⁴ n_H; G0 10⁻³–10⁴ at n_H 10² and 10⁴):
+- **G0/n_H ≳ 10⁻² cm³ (PDR, diffuse).** The super-H share is a few per cent at most. Four of the five brackets leave
+  it there. The exception is associative detachment on every anion (Andrews+16): at G0 = 10², n_H = 10⁴ it gives the
+  intact anions a barrierless route to N_H0 + 1 and lifts C54's and C96's super-H share to 0.5–0.8.
+- **G0/n_H ≲ 10⁻⁴ (shielded, dense).** Every molecule is at the cap, except where a bracket stops the climb:
+  - super-H dS 55.6 J K⁻¹ mol⁻¹ (faster loss to visible photons) takes C96's super-H share from 1.0 to 0.07–0.13 at
+    n_H = 10²;
+  - no H addition to anions keeps C96 intact at n_H = 10⁴, where it is mostly anionic.
+
+  σ_ER × 7 and cation super-H addition 1e-12 barely move these.
+
+So the PDR and diffuse results stand. The shielded ones hang on the ladder's top, on the super-H transition state, and
+on what H does to an intact anion, none of which is measured.
+
+**Next.** A literature-based chemistry to about +12:
+- Boschman's alternating barriers;
+- the cation closed-shell barriers;
+- abstraction per CH2 site;
+- sequential losses per photon.
+
+Test caps of 8, 12 and 24 until the top holds < 1 %, and validate against Boschman+15 and Foley+18.
 
 ### 2.3 Ion–PAH collisions (new)
 
