@@ -181,3 +181,23 @@ def test_delayed_detachment_is_a_probability_with_slow_electrons():
     steps = np.maximum(np.rint(fa / at.grain).astype(np.int64), 1)
     slow = attachment._cascade_yield_numpy(k_modes, at.k_ir + at.k_detach, steps, at.i_ea, at.k_detach * at.eps_detach)
     assert np.max(np.abs(at.w_detach - slow)) <= 1e-10 * max(np.max(np.abs(slow)), 1e-300)
+
+
+@pytest.mark.parametrize("ea_cm", [8232.4, 8237.6])
+def test_delayed_detachment_conserves_energy_within_a_grain_of_the_ea(ea_cm):
+    """Energy conservation near the threshold, on the population's 10 cm^-1 grid: no detachment at or below the EA,
+    and an electron that never takes more than the excess E - EA. The grid rounds the EA (8232.4 -> 8230, 8237.6 ->
+    8240 cm^-1), so its excess is off by up to half a grain, and the window averaging adds the next bins' energies;
+    within a few grains of the EA both pushed the mean energy past the excess (here by up to 16 cm^-1; C30H14 (7277)-
+    by 3.6 cm^-1 at 3.5 grains, a negative internal energy after detachment), and below a down-rounded EA P_det
+    reached 0.18."""
+    rng = np.random.default_rng(6)
+    fn = np.sort(rng.uniform(150, 1600, 30)).round()
+    fa = (0.97 * fn).round()
+    at = Attachment(PAHSpecies(12, 0, 0, fn, np.ones(30)), PAHSpecies(12, 0, -1, fa, np.ones(30)),
+                    ea_cm / dos.CM_PER_EV, 3e-8, e_excess_cm=3000.0, grain_cm=10.0)
+    E = at.ea_cm + np.linspace(-20.0, 200.0, 2201)
+    p, eps = at.delayed_detachment(E)
+    above = E > at.ea_cm
+    assert np.all(p[~above] == 0.0) and p[above].max() > 0.5                # it does detach above the EA
+    assert np.all(eps[above] <= E[above] - at.ea_cm) and np.all(eps[~above] == 0.0)
