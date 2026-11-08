@@ -93,4 +93,5 @@ pahchem-uv-absorption
 pahchem-data-requests
 carbon-optics
 grain-hydrogen
+pah-hydrogen
 ```
