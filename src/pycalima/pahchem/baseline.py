@@ -32,7 +32,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from pycalima.pahchem import chemistry, dos, energy_me, fields, photo, rates
-from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2, DELTA_IP, IONISATION, PARENTS
+from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2, IONISATION, PARENTS
 from pycalima.pahchem.network import PAHNetwork
 
 E_PH = np.linspace(5.0, 13.6, 345)
@@ -158,6 +158,25 @@ class Params:
     addition_cation: float = 1.4e-10         # cm^3 s^-1
     addition_neutral_scale: float = 1.0
     eley_rideal_a2: float = 0.06
+    # population only: how charge and hydrogenation are solved. "charge_averaged" (the default): the intact molecule's
+    # charge chain, then N_H = 0 ... N_H0 with its rates averaged over that charge (charge and hydrogenation independent, no
+    # super-hydrogenated states). "joint" (opt-in, 2026-11-08): one (Z, N_H) network per molecule from bare to
+    # N_H0 + superh_levels, with this module's super-H chemistry (h_superh_e0, addition barriers, Eley-Rideal) and the
+    # thresholds of each N_H shifted by ip_shift_per_h (population, "Joint hydrogenation")
+    hydrogen_chain: str = "charge_averaged"
+    superh_levels: int = 4
+    # population only: H addition to anions: "as_neutral" (the neutral's rates; Population's convention) or "none" (only
+    # associative detachment, as BaselineModel and Andrews+16). Nothing is measured for H + an intact PAH anion
+    # (2026-11-08); a bracket, not a settled choice
+    anion_h_addition: str = "as_neutral"
+    # population "joint" only: H addition to super-hydrogenated cations [cm^3 s^-1]; None: addition_cation at every step
+    # (Andrews+16). A bracket: Montillaud+13 and Murga+20 take 1e-12
+    addition_cation_superh: float | None = None
+    # the rise of a threshold per missing H [eV], 0.1 after Andrews+16 eq. 1, from Malloci+08 (B3LYP Delta-SCF IP1 of
+    # coronene's even states, 0.103 eV per H). BaselineModel applies it to every threshold, the EA too, and lowers them by
+    # as much per extra H (Andrews' rule as it stands); the population's "joint" chain to the IPs of dehydrogenated states
+    # only (the part the 2026-11-08 literature check supports; population._threshold_factors)
+    ip_shift_per_h: float = 0.1
     # carbon loss of the bare skeleton (a key of CARBON_LOSS)
     carbon_loss: str = "leger89"
     # recurrent fluorescence of the charges in RF_LEVELS (H-bearing states; not the bare skeleton)
@@ -358,7 +377,7 @@ class BaselineModel:
 
     def ionisation_energy(self, z, nh):
         ip = IONISATION[self.parent].get(z)
-        return None if ip is None else ip + DELTA_IP * (self.nh0 - nh)
+        return None if ip is None else ip + self.p.ip_shift_per_h * (self.nh0 - nh)
 
     # -- rates -----------------------------------------------------------------
     def photo_rates(self, env):

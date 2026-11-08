@@ -49,12 +49,26 @@ the molecules' abundances are fitted. In outline:
   ``PAHSpecies.stripped`` modes for N_H0-1 ... N_H0-3, each with its own
   multiphoton cascade (tabulated on ``K_H_G0_GRID``). Deeper even (odd)
   states take the N_H0-2 (N_H0-3) rates, the even-H degeneracy scaled by N_H.
-  Rates are averaged over the intact molecule's charge fractions. Missing:
-  super-hydrogenated states, and the IP shift of dehydrogenated states. The
+  Rates are averaged over the intact molecule's charge fractions (charge and
+  hydrogenation independent, no super-hydrogenated states). The
   single first-step ratio k_add / (k_add + k_H) of earlier versions
   (``intact_fractions(method="single")``) misses the radical runaway near
   threshold (review B: 0.87 against 0.00 for C54H18 at the Atomic
   most-ionising corner).
+- **Joint hydrogenation** (``Params.hydrogen_chain = "joint"``, opt-in,
+  2026-11-08; ``Population._joint_distributions``). One (Z, N_H) network per
+  molecule, N_H = 0 ... N_H0 + ``superh_levels``, solved for its steady state
+  (``network.gth_banded``), as Montillaud+13, Boschman+15 and Andrews+16 do;
+  no published model averages over charge. It adds the super-hydrogenated
+  states with BaselineModel's (Andrews+16) chemistry, the IPs of the
+  dehydrogenated states raised by ``ip_shift_per_h`` per missing H
+  (Malloci+08; the EA and the super-H thresholds unshifted), associative
+  detachment of dehydrogenated anions, and Eley-Rideal H2. Valid for PDR and
+  diffuse gas. In UV-shielded gas H addition outruns the photo-loss of the
+  extra H and the molecules climb to the ladder's top ("at_cap" of
+  ``hydrogenation_summary``), whose chemistry past +4 the literature
+  contradicts (alternating barriers, closed-shell cation barriers, abstraction
+  per CH2 site, skeleton loss from ~+6): not modelled yet.
 - **Emission** (``Population.band_fluxes``). The exact microcanonical cascade
   of each charge state for one absorbed photon (``emission.cascade_photons``),
   folded with that state's heating spectrum. With ``dehydrogenated_emission``
@@ -1949,6 +1963,97 @@ def bare_event_yields(freqs, einstein_a, channels, e_max_ev):
     return _YIELD_MEMO[key]
 
 
+# -- super-hydrogenated states (Params.hydrogen_chain = "joint", 2026-11-08) ---------------------------------------------
+#: bump when ``superh_loss_table`` changes, so stored tables are rebuilt
+SUPERH_VERSION = 1
+
+
+def superh_e0(params, z):
+    """E0 [eV] of the loss of an extra H at charge z: ``Params.h_superh_e0`` (Z <= 0, Z > 0), Andrews+16 as BaselineModel."""
+    return float(params.h_superh_e0[1 if z > 0 else 0])
+
+
+def _superh_rates(freqs, E, counts, pick, beta, levels, e0_ev, ds):
+    """[k_j(E) on the loss grid], j = 1 ... ``levels``: the loss of one of the j extra H of state N_H0 + j. RRKM with E0
+    ``e0_ev`` and dS(1000 K) ``ds``, its transition state built as the aromatic H loss's, path degeneracy j (as
+    BaselineModel), on the parent's modes: the extra H's own (CH2 groups) are not computed."""
+    k1 = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5), e0_ev * dos.CM_PER_EV,
+                    degeneracy=1, beta=beta)[pick]
+    return [j * k1 for j in range(1, levels + 1)]
+
+
+def superh_loss_table(freqs, einstein_a, nc, z, yield_, shape, sigma_scale, threshold_ev, levels, e0_ev, ds,
+                      ionising_heat=False, electron_ev=None, uv_cross_section="li_draine", detach_ea=None):
+    """k[j - 1, K_H_G0_GRID] [s^-1]: the photon-driven loss of an extra H of the super-hydrogenated states N_H0 + j,
+    j = 1 ... ``levels``, of charge z under ``shape`` (``_superh_rates`` in the state's multiphoton cascade, heated as the
+    state: its sigma, yield and deposits); the ceiling rises as ``_loss_tables``' does. Top-level, so it runs in worker
+    processes."""
+    field1 = _unit_field(shape)
+    sigma = absorption_sigma(nc, z, E_PH, uv_cross_section, sigma_scale, detach_ea)
+    e_dep = deposit_grid(field1, sigma, yield_)
+    h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev, e_dep)
+    out = np.zeros((levels, K_H_G0_GRID.size))
+    if levels == 0 or not np.any(h > 0.0):           # no photon deposits (X-rays only): no photon-driven loss
+        return out
+    f_ = np.asarray(freqs, dtype=float)
+    e_max = _loss_ceiling(e_dep, h)
+    while True:
+        cm, E, counts, beta = _loss_grid(f_, einstein_a, e_max)
+        pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+        done = True
+        for j, k in enumerate(_superh_rates(f_, E, counts, pick, beta, levels, e0_ev, ds)):
+            for g, gi in enumerate(K_H_G0_GRID):
+                s = cm.steady_state(e_dep, gi * h, {"H": k})
+                out[j, g] = s.rates["H"]
+            done = done and _loss_converged(s, e_max)
+        if done:
+            return out
+        e_max = min(e_max + LOSS_STEP_EV, LOSS_E_CAP_EV)
+
+
+def _superh_inputs(mol, z, shape, de_cm, e_max_cm, params):
+    """``superh_loss_table``'s inputs for state z of ``mol`` under ``shape``: the state's own (parent) modes."""
+    inp = _basis_inputs(mol, z, shape, de_cm, e_max_cm, params)
+    keep = ("nc", "z", "yield_", "shape", "sigma_scale", "threshold_ev", "ionising_heat", "electron_ev", "uv_cross_section",
+            "detach_ea", "freqs", "einstein_a")
+    return {k: inp[k] for k in keep if k in inp} | dict(levels=int(params.superh_levels), e0_ev=superh_e0(params, z),
+                                                        ds=float(params.h_superh_ds))
+
+
+def _superh_key(inp):
+    h = hashlib.sha1(f"superh{SUPERH_VERSION}".encode())
+    h.update(np.ascontiguousarray(E_PH).tobytes())
+    h.update(np.ascontiguousarray(E_DEP).tobytes())
+    h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
+    h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV, photo.PARTITION_NODES,
+                   photo.PHOTOELECTRON_PARTITION)).encode())
+    for k in sorted(inp):
+        h.update(k.encode())
+        _feed(h, inp[k])
+    return h.hexdigest()[:20]
+
+
+def _build_superh(inp):
+    return superh_loss_table(**inp)
+
+
+def superh_event_yields(freqs, einstein_a, levels, e0_ev, ds, e_max_ev):
+    """(loss-grid energies [cm^-1], [P_j(E)], j = 1 ... levels): the single-event yields of the loss of an extra H after a
+    deposit E (``CascadeModel.photon_yields``), for the deposits the tables do not hold (``Population._deposit_flows``)."""
+    h = hashlib.sha1(b"superh-yields")
+    for v in (np.asarray(freqs, dtype=float), np.asarray(einstein_a, dtype=float), int(levels), float(e0_ev), float(ds),
+              float(e_max_ev), LOSS_DE_CM):
+        _feed(h, v)
+    key = h.hexdigest()
+    if key not in _YIELD_MEMO:
+        f_ = np.asarray(freqs, dtype=float)
+        cl, E, counts, beta = _loss_grid(f_, einstein_a, e_max_ev)
+        pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
+        ks = _superh_rates(f_, E, counts, pick, beta, levels, e0_ev, ds)
+        _YIELD_MEMO[key] = (cl.energy_cm, [cl.photon_yields({"H": k})["H"] for k in ks])
+    return _YIELD_MEMO[key]
+
+
 def _cascade_start(freqs, einstein_a, nc, z, yield_, shape, de_cm, e_max_cm, sigma_scale, recomb_ev, threshold_ev,
                    ionising_heat, electron_ev, uv_cross_section="li_draine", detach_ea=None):
     """(h(e_dep), k_up, recombination power, CascadeModel, start, e_dep) of one state at G0 = 1, e_dep its
@@ -2251,6 +2356,12 @@ class Population:
         given = list(library)
         if params.charge_ladder not in ("cold_limit", "library"):
             raise ValueError(f"charge_ladder must be 'cold_limit' or 'library', not {params.charge_ladder!r}")
+        if params.hydrogen_chain not in ("charge_averaged", "joint"):
+            raise ValueError(f"hydrogen_chain must be 'charge_averaged' or 'joint', not {params.hydrogen_chain!r}")
+        if params.anion_h_addition not in ("as_neutral", "none"):
+            raise ValueError(f"anion_h_addition must be 'as_neutral' or 'none', not {params.anion_h_addition!r}")
+        if not (isinstance(params.superh_levels, int) and params.superh_levels >= 0):
+            raise ValueError(f"superh_levels must be an integer >= 0, not {params.superh_levels!r}")
         if params.ionisation_heating and params.ionising_photons_heat:
             raise ValueError("ionisation_heating (the product's cascade) and ionising_photons_heat (the absorbing state's) "
                              "would count the energy an ionisation leaves twice: choose one")
@@ -2278,6 +2389,7 @@ class Population:
         self._terms = {}                 # environment -> ``_flow_terms``, the last FLOW_MEMO of them
         self._kernels = {}               # environment -> ``_loss_kernel``, the last FLOW_MEMO of them
         self._resp = {}                  # (id(mol), z) -> ``_response``
+        self._joints = {}                # environment -> ``_joint_distributions``, the last CHAIN_MEMO of them
 
     def _own(self, mol):
         """The population's copy of ``mol`` (its ladder extended, ``extend_ladder``), or ``mol`` if not in it."""
@@ -2989,7 +3101,8 @@ class Population:
         dst, src, P = self._loss_kernel(env)
         x = f.ravel()[src]
         size = len(self.library) * len(self.zs) * N_EMITTING
-        out = np.array([np.bincount(dst, weights=P[:, c] * x, minlength=size) for c in range(4)])
+        # float: without any flow (a molecule with one charge state) bincount of the empty weights returns integers
+        out = np.array([np.bincount(dst, weights=P[:, c] * x, minlength=size) for c in range(4)], dtype=float)
         out = out.reshape(4, len(self.library), len(self.zs), N_EMITTING)
         return tuple(out) if by_state else tuple(out.sum(axis=2))
 
@@ -3212,6 +3325,14 @@ class Population:
         on the top, which also couples the two. The last CHAIN_MEMO environments are kept."""
         if env in self._charges:
             return self._charges[env]
+        if self._joint_on():                                 # the marginal of the joint (Z, N_H) chain
+            f = np.zeros((len(self.library), len(self.zs)))
+            for s, (lo, F, _) in enumerate(self._joint_distributions(env)):
+                f[s, lo:lo + F.shape[0]] = F.sum(axis=1)
+            if len(self._charges) >= CHAIN_MEMO:
+                del self._charges[next(iter(self._charges))]
+            self._charges[env] = f
+            return f
         f = self._charge_solve(env, None)
         if self.p.fission:
             routed = self._routed()
@@ -3592,10 +3713,17 @@ class Population:
         f = self.charge_matrix(env)
         p0 = np.array([float(c[0]) for c in self._chain_distributions(env)])
         out = {}
-        for c, tab in self._bare_stack(shape).items():
-            out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
-        flows = [fl for fl in self._deposit_flows(env)
-                 if p0[fl[0]] > 0.0 and (fl[2] != "rec" or self.p.recombination_dissociation)]
+        if self._joint_on():        # the bare skeleton's own charge shares f(Z, N_H = 0), and the deposits landing on them
+            b0 = self._bare_slots(env)
+            for c, tab in self._bare_stack(shape).items():
+                out[c] = np.einsum("sz,sz->s", b0, self._interp_g0(tab, env.g0))
+            flows = [fl for fl in self._deposit_flows(env, b0) if fl[2] != "rec" or self.p.recombination_dissociation]
+            p0 = np.ones(len(self.library))                    # the flows already carry the bare share
+        else:
+            for c, tab in self._bare_stack(shape).items():
+                out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
+            flows = [fl for fl in self._deposit_flows(env)
+                     if p0[fl[0]] > 0.0 and (fl[2] != "rec" or self.p.recombination_dissociation)]
         top = {}       # one loss grid per molecule, to its largest deposit: a yield depends on the bins below it only
         for s, z, which, *_ in flows:
             energies, _ = self._flow_energies(self.library[s], z, which)
@@ -3642,15 +3770,24 @@ class Population:
         the H-bearing rest emitting protons instead. With "library", EUV photons above Y_UNITY_EV out of the library's top
         charge, a truncation that is harmless where it is small against the chain's rates."""
         f = self.charge_matrix(env)
-        rate = (f * self._past_top(env, self._single_up(env))[0]).sum(axis=1)
+        past = self._past_top(env, self._single_up(env))[0]
+        rate = (f * past).sum(axis=1)
         routed = self._routed()
         if routed.any():
-            rate = np.where(routed, self._bare_share(env) * rate, rate)
+            bare = (self._bare_slots(env) * past).sum(axis=1) if self._joint_on() else self._bare_share(env) * rate
+            rate = np.where(routed, bare, rate)
         return rate
 
     def _bare_share(self, env):
         """p0[s]: the bare skeleton's share f(N_H = 0) of each molecule's hydrogenation chain at ``env``."""
         return np.array([float(c[0]) for c in self._chain_distributions(env)])
+
+    def _bare_slots(self, env):
+        """b0[s, slot]: the joint chain's shares f(Z, N_H = 0) of the bare skeleton (``Params.hydrogen_chain = "joint"``)."""
+        b0 = np.zeros((len(self.library), len(self.zs)))
+        for s, (lo, F, _) in enumerate(self._joint_distributions(env)):
+            b0[s, lo:lo + F.shape[0]] = F[:, 0]
+        return b0
 
     def band_fluxes(self, env):
         """(F[s, b] band power per molecule, weighted over charge and hydrogenation (``emission_weights``),
@@ -3748,11 +3885,13 @@ class Population:
         return np.array([p[mol.nh] for p, mol in zip(self._chain_distributions(env), self.library)])
 
     def _addition_rates(self, env):
-        """H addition rate of every state [s^-1], (s, slot): 1.4e-10 n(H) for cations, 0.07 geometric for the rest."""
+        """H addition rate of every state [s^-1], (s, slot): 1.4e-10 n(H) for cations, 0.07 geometric for the rest (anions
+        none with ``Params.anion_h_addition = "none"``)."""
         z = np.array(self.zs)[None, :]
         neutral = 0.07 * self.p.addition_neutral_scale * chemistry.cross_section_rate(
             env.temperature_k, CORONENE_GEOMETRIC_A2 * self.nc[:, None] / 24.0)
-        return np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
+        out = np.where(z > 0, self.p.addition_cation, neutral) * env.n_h
+        return np.where(z < 0, 0.0, out) if self.p.anion_h_addition == "none" else out
 
     def _chain_distributions(self, env, f=None, deposit_losses=None):
         """[f(N_H), N_H = 0 ... N_H0] of every molecule: the chain, its rates averaged over the charge fractions (``f``, by
@@ -3760,6 +3899,10 @@ class Population:
         cell's several times, scan after scan (not those of a given ``f``, ``charge_matrix``'s iterations, which pass their
         ``_deposit_losses`` too)."""
         given = f is not None
+        if self._joint_on():                                 # the N_H marginal of the joint chain, N_H0 + superh_levels long
+            if given or deposit_losses is not None:
+                raise ValueError("the joint chain takes no charge fractions or deposit losses: it solves them itself")
+            return [F.sum(axis=0) for _, F, _ in self._joint_distributions(env)]
         if not given and env in self._chains:
             return self._chains[env]
         f = self.charge_matrix(env) if not given else f
@@ -3789,18 +3932,29 @@ class Population:
     def hydrogenation_fractions(self, env):
         """(h[s, k], deeper[s]): steady-state shares of N_H0 - k for the states that emit (k < ``N_EMITTING``,
         N_H >= 1, as far as the ladder has modes) and of the rest, which is not modelled (deeper states, whose
-        stripped modes are not good enough: ``PAHSpecies.stripped``)."""
+        stripped modes are not good enough: ``PAHSpecies.stripped``). With ``Params.hydrogen_chain = "joint"`` the
+        super-hydrogenated states are in k = 0: they emit as the parent (their CH2 groups' own modes are not computed)."""
         h = np.zeros((len(self.library), N_EMITTING))
         for s, (p, mol) in enumerate(zip(self._chain_distributions(env), self.library)):
             for k in range(min(N_EMITTING, mol.nh)):          # N_H = N_H0 - k >= 1
                 h[s, k] = p[mol.nh - k]
+            h[s, 0] += p[mol.nh + 1:].sum()                   # "joint": the super-hydrogenated states emit as the parent
         return h, np.clip(1.0 - h.sum(axis=1), 0.0, 1.0)
 
     def emission_weights(self, env):
         """W[s, slot, k]: share of molecule s in charge slot and hydrogenation N_H0 - k. With
         ``dehydrogenated_emission`` f(Z) times ``hydrogenation_fractions`` (charge and hydrogenation taken as
-        independent, as in the chain); otherwise f(Z) at k = 0."""
+        independent, as in the chain), or with ``Params.hydrogen_chain = "joint"`` the joint shares, the
+        super-hydrogenated states in k = 0; otherwise f(Z) at k = 0."""
         f = self.charge_matrix(env)
+        if self._joint_on() and self.dehydrogenated_emission:       # the joint shares, not a product
+            W = np.zeros((len(self.library), len(self.zs), N_EMITTING))
+            for s, ((lo, F, _), mol) in enumerate(zip(self._joint_distributions(env), self.library)):
+                rows = slice(lo, lo + F.shape[0])
+                for k in range(min(N_EMITTING, mol.nh)):
+                    W[s, rows, k] = F[:, mol.nh - k]
+                W[s, rows, 0] += F[:, mol.nh + 1:].sum(axis=1)     # the super-hydrogenated states emit as the parent
+            return W
         if not self.dehydrogenated_emission:
             h = np.zeros((len(self.library), N_EMITTING))
             h[:, 0] = 1.0
@@ -3818,6 +3972,324 @@ class Population:
     def intact_fraction(self, mol, env):
         return float(self.intact_fractions(env)[self._index[id(mol)]])
 
+    # -- the joint (Z, N_H) chain (Params.hydrogen_chain = "joint", 2026-11-08) ---------------------------------------------
+    def _joint_on(self):
+        return self.p.hydrogen_chain == "joint"
+
+    def prepare_superh(self, shape, workers=None):
+        """``superh_loss_table`` of every live state under ``shape``: from memory, the disk cache (``cache_dir``/superh) or
+        computed in parallel."""
+        todo = []
+        for mol in self.library:
+            for z in self._live_charges(mol, shape):
+                ck = ("superh", shape, z, self.de_cm, self.e_max_cm, self.p)
+                if ck in mol._cache:
+                    continue
+                inp = _superh_inputs(mol, z, shape, self.de_cm, self.e_max_cm, self.p)
+                f = None if self.cache_dir is None else self.cache_dir / "superh" / f"{_superh_key(inp)}.npz"
+                if f is not None and f.exists():
+                    with np.load(f) as d:
+                        mol._cache[ck] = d["k"]
+                else:
+                    todo.append((mol, ck, f, inp))
+
+        def keep(t, r):
+            mol, ck, f, _ = t
+            mol._cache[ck] = r
+            if f is not None:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                tmp = f.with_suffix(f".{os.getpid()}.tmp.npz")
+                np.savez(tmp, k=r)
+                os.replace(tmp, f)
+        workers = default_workers(workers)
+        if workers > 1 and len(todo) > 2:
+            from concurrent.futures import ProcessPoolExecutor
+
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for t, r in zip(todo, ex.map(_build_superh, [t[3] for t in todo])):
+                    keep(t, r)
+        else:
+            for t in todo:
+                keep(t, superh_loss_table(**t[3]))
+
+    def _superh_stack(self, shape):
+        """S[s, slot, j - 1, K_H_G0_GRID]: the photon-driven loss of an extra H of N_H0 + j, j = 1 ... superh_levels
+        (``superh_loss_table``); 0 where the state is not live."""
+        key = ("superh", shape)
+        if key not in self._arrays:
+            self.prepare_superh(shape)
+            S = np.zeros((len(self.library), len(self.zs), int(self.p.superh_levels), K_H_G0_GRID.size))
+            for s, mol in enumerate(self.library):
+                for z in self._live_charges(mol, shape):
+                    S[s, z - self.zmin] = mol._cache[("superh", shape, z, self.de_cm, self.e_max_cm, self.p)]
+            self._arrays[key] = S
+        return self._arrays[key]
+
+    def _threshold_factors(self, shape):
+        """{s: r[slot, m]}, m = N_H = 0 ... N_H0 + superh_levels: each live state's valence photoionisation rate at N_H = m
+        over the intact state's. The IPs (Z >= 0) of the dehydrogenated states (m < N_H0) rise by ``Params.ip_shift_per_h``
+        per missing H: the part of Andrews+16's rule the literature supports (Malloci+08, B3LYP Delta-SCF of coronene's
+        even states, ~0.1 eV per H; the 2026-11-08 check). The EA, and every threshold of the super-hydrogenated states,
+        keep the intact molecule's: aryl radicals' EAs sit 1.0-1.6 eV above their parents' (a step, not 0.1 eV per H) and
+        1-hydronaphthyl's IP 1.5 eV below naphthalene's, so a smooth shift there would be wrong and no rule is
+        established. The shift moves the intact state's yield on E_PH rigidly (its yield at E - shift), with the same
+        sigma and field (exact for the threshold laws, Jochims and Wenzel). 1 where the intact state has none, or with no
+        shift."""
+        key = ("ip_shift", shape)
+        if key not in self._arrays:
+            field1 = _unit_field(shape)
+            d, K = float(self.p.ip_shift_per_h), int(self.p.superh_levels)
+            out = {}
+            for s, mol in enumerate(self.library):
+                m = np.arange(mol.nh + K + 1)
+                r = np.ones((len(self.zs), m.size))
+                if d != 0.0:
+                    for z in (q for q in self._live_charges(mol, shape) if q >= 0):
+                        sigma = self._valence_sigma(mol, z, shape)
+                        y = _yield(mol, z, self.p)
+                        base = photo.ionisation_rate(field1, sigma, y, E_PH)
+                        if base > 0.0:
+                            r[z - self.zmin] = [photo.ionisation_rate(field1, sigma, np.interp(E_PH - d * max(mol.nh - mm, 0),
+                                                                                               E_PH, y, left=0.0, right=y[-1]),
+                                                                      E_PH) / base for mm in m]
+                out[s] = r
+            self._arrays[key] = out
+        return self._arrays[key]
+
+    def _joint_distributions(self, env):
+        """[(lo, F[slot - lo, N_H], h2)] of every molecule at ``env``: the steady state of one (Z, N_H) network over its live
+        charges (slots lo, lo + 1, ...) and N_H = 0 ... N_H0 + superh_levels, and h2, the H2 it releases per molecule per
+        second (H2 loss and Eley-Rideal abstraction). The last CHAIN_MEMO environments are kept.
+
+        - **Charge steps** (dN_H = 0): those of ``charge_matrix``'s chain (photoionisation and detachment, C 1s,
+          double ionisation, passages and ions' charge transfer as ``_jump_rates``; captures), the same at every N_H except
+          the valence single photoionisation, scaled by ``_threshold_factors``. Steps past the top are dropped, as there,
+          or past a barrier-limited top (``_routed``) land on it with an H less per charge carried past.
+        - **H steps** per charge: the ladders' photon-driven H, H2 loss and protons (dZ = -1, dN_H = -1) of N_H0 ...
+          N_H0-3, deeper states by ``_chain_rates``' mapping; the thermal ions' H knock-outs; H addition as
+          ``_addition_rates`` below N_H0. Above it the super-hydrogenated states (BaselineModel's chemistry): the loss of an
+          extra H (``_superh_stack``), H addition (cations ``Params.addition_cation``, the others the geometric rate
+          with barriers of 0.06 eV at N_H0 and 0.035 eV at N_H0 + 2), Eley-Rideal abstraction (``Params.eley_rideal_a2``,
+          one H2 each); associative detachment of anions below N_H0 (``Params.associative_detachment``: every anion
+          below the top with "all").
+        - **Deposits** (``_flow_terms``: recombination, photoionisation products, C 1s products, passages): each event
+          lands as its charge step does, and with its product's loss probabilities (``_response``; super-H states
+          ``superh_event_yields``) one or two H less, or a proton less: those shares of its charge step are moved, not
+          added.
+        """
+        if env in self._joints:
+            return self._joints[env]
+        from pycalima.pahchem.network import gth_banded
+
+        shape = field_shape(env)
+        live = self._live(shape)
+        p, K = self.p, int(self.p.superh_levels)
+        T, n_h, g0 = env.temperature_k, env.n_h, env.g0
+        k_up = self._k_up(shape)
+        up = g0 * k_up
+        if getattr(env, "ions", ()):
+            up = up + self._ion_up(env)
+        steps = self._jump_rates(env, up)
+        steps = [up] if steps is None else steps
+        ks = self._kshell_stack(shape)
+        vps = np.maximum(g0 * (k_up - (ks["over"] if ks is not None else 0.0) - self._double_stack(shape)), 0.0)
+        down = self._capture_rates(T) * env.n_e
+        tab_h, tab_h2, _, tab_hp = self._ladders(shape)
+        lh, lh2, lhp = (self._interp_g0(t, g0) for t in (tab_h, tab_h2, tab_hp))
+        S = self._interp_g0(self._superh_stack(shape), g0) if K else None
+        k_add = self._addition_rates(env)
+        hot = self._hot_rates(env)
+        per_h = hot["knockout_h"] if hot is not None else np.zeros_like(k_add)
+        routed = self._routed()
+        r_ip = self._threshold_factors(shape)
+        er = chemistry.cross_section_rate(T, p.eley_rideal_a2) * n_h
+        ad_all = anion_associative_detachment(replace(p, associative_detachment="all")) * n_h
+        terms = self._flow_terms(env)
+        use = lambda which: which != "rec" or p.recombination_dissociation      # noqa: E731
+        self._responses(dict.fromkeys([(s, z, w) for s, plain, _ in terms for z, w, *_ in plain if use(w)]
+                                      + [(s, zp, "heat") for s, _, passages in terms for zp, _ in passages]))
+        out = []
+        for s, mol in enumerate(self.library):
+            on = np.nonzero(live[s])[0]
+            lo, nz = int(on[0]), int(on[-1] - on[0] + 1)
+            if on.size != nz:
+                raise ValueError(f"{mol.name}: its live charges are not contiguous")
+            nh0, nn = mol.nh, mol.nh + K + 1
+            sl = slice(lo, lo + nz)
+            zc = np.array(self.zs[sl])
+            n = nz * nn
+            R = np.zeros((n, n))
+            H2 = np.zeros((nz, nn))
+            iz, m = np.meshgrid(np.arange(nz), np.arange(nn), indexing="ij")
+
+            def add(rate, dz, dnh, h2=0):
+                rate = np.broadcast_to(np.asarray(rate, dtype=float), (nz, nn))
+                tz, tm = iz + dz, m + dnh
+                ok = rate > 0.0
+                out_ = ok & ((tz < 0) | (tz >= nz) | (tm < 0) | (tm >= nn))
+                if out_.any():
+                    raise ValueError(f"{mol.name}: a rate of dZ {dz}, dN_H {dnh} leads outside the joint network")
+                np.add.at(R, (m[ok] * nz + iz[ok], tm[ok] * nz + tz[ok]), rate[ok])
+                if h2:
+                    H2[ok] += h2 * rate[ok]
+
+            # charge steps, per dZ, before the deposits move their shares
+            C = {j: np.repeat(k[s, sl][:, None], nn, axis=1) for j, k in enumerate(steps, start=1)}
+            C[1] = np.maximum(C[1] + (r_ip[s][sl] - 1.0) * vps[s, sl][:, None], 0.0)
+            C[-1] = np.repeat(down[s, sl][:, None], nn, axis=1)
+            # H steps of each charge
+            HL, H2L, HP, A = (np.zeros((nz, nn)) for _ in range(4))
+            for a in range(nz):
+                kH, kH2 = _chain_rates(nh0, mol.edges.get("solo", 0), lh[s, lo + a], lh2[s, lo + a])
+                HL[a, :nh0 + 1], H2L[a, :nh0 + 1] = kH, kH2
+                HP[a, :nh0 + 1] = _deep_rates(nh0, lhp[s, lo + a])
+                A[a, :nh0] = k_add[s, lo + a]
+            HL += per_h[s, sl][:, None] * np.arange(nn)[None, :]
+            if K:
+                HL[:, nh0 + 1:] += S[s, sl]
+                sigma_geo = CORONENE_GEOMETRIC_A2 * mol.nc / 24.0
+                for j in range(K):                                 # N_H0 + j -> N_H0 + j + 1
+                    barrier = {0: 0.06, 2: 0.035}.get(j, 0.0)
+                    neutral = p.addition_neutral_scale * chemistry.cross_section_rate(T, sigma_geo, barrier) * n_h
+                    cation = p.addition_cation if p.addition_cation_superh is None else p.addition_cation_superh
+                    A[:, nh0 + j] = np.where(zc > 0, cation * n_h,
+                                             np.where((zc < 0) & (p.anion_h_addition == "none"), 0.0, neutral))
+            ER = np.where(np.arange(nn)[None, :] > nh0, er, 0.0) * np.ones((nz, 1))
+            AD = np.zeros((nz, nn))
+            if zc[0] == -1 and nz > 1:
+                top_m = nh0 if p.associative_detachment == "dehydrogenated" else nn - 1
+                AD[0, :top_m] = ad_all
+            if (HP[0] > 0.0).any():
+                raise ValueError(f"{mol.name}: proton emission out of its lowest live charge")
+            # deposits: a share of each event's charge step lands with H, H2 or a proton less
+            for z_prod, which, idx, i_src, c, pe in self._joint_deposits(s, mol, terms, use, r_ip[s], lo, nz, nn):
+                a, b = i_src - lo, (z_prod - self.zmin) - lo
+                dz = b - a
+                moved = c * (pe["H"] + pe["H2"] + pe["Hp"])
+                if dz != 0:
+                    if dz not in C:
+                        raise ValueError(f"{mol.name}: a deposit of dZ {dz} has no charge step to move")
+                    short = moved - C[dz][a]
+                    if np.any(short > ROUND_OFF * np.maximum(C[dz][a], 1e-300)):
+                        raise ValueError(f"{mol.name}: deposits of dZ {dz} exceed the charge step they ride on")
+                    C[dz][a] = np.maximum(C[dz][a] - moved, 0.0)
+                rate = np.zeros((nz, nn))
+                for key, dnh, dzz, h2 in (("H", -1, 0, 0), ("H2", -2, 0, 1), ("Hp", -1, -1, 0)):
+                    rate[:] = 0.0
+                    rate[a] = c * pe[key]
+                    if rate.any():
+                        add(rate, dz + dzz, dnh, h2)
+            add(HL, 0, -1)
+            add(H2L, 0, -2, h2=1)
+            add(HP, -1, -1)
+            add(ER, 0, -1, h2=1)
+            add(A, 0, +1)
+            add(AD, +1, +1)
+            top_live = lo + nz - 1 == max(mol.charges) - self.zmin
+            for dz, rate in C.items():
+                if dz < 0:
+                    add(np.where(iz + dz >= 0, rate, 0.0), dz, 0)
+                    continue
+                inside = iz + dz < nz
+                add(np.where(inside, rate, 0.0), dz, 0)
+                if routed[s] and top_live:                         # past a barrier-limited top: a proton per charge
+                    past = iz + dz - (nz - 1)
+                    land = ~inside & (m >= past)
+                    if land.any():
+                        np.add.at(R, (m[land] * nz + iz[land], (m[land] - past[land]) * nz + nz - 1), rate[land])
+            F = _joint_steady_state(R, mol.name, gth_banded).reshape(nn, nz).T
+            out.append((lo, F, float(np.sum(F * H2))))
+        if len(self._joints) >= CHAIN_MEMO:
+            del self._joints[next(iter(self._joints))]
+        self._joints[env] = out
+        return out
+
+    def _joint_deposits(self, s, mol, terms, use, r_ip, lo, nz, nn):
+        """[(z_prod, which, index, source slot, c[N_H], {"H", "H2", "Hp": P[N_H]})] of molecule s: each deposit flow of
+        ``_flow_terms`` per molecule in its source state (a valence photoionisation's scaled by the threshold shift,
+        ``_threshold_factors``), and its product's loss probabilities at each N_H: ``_response``'s for N_H0 ... N_H0-3, the
+        deeper by ``_chain_rates``' mapping, the extra H's of super-hydrogenated states from ``superh_event_yields``."""
+        p, K, nh0 = self.p, int(self.p.superh_levels), mol.nh
+        solo = mol.edges.get("solo", 0)
+        _, plain, passages = terms[s]
+        flows = [(z, which, idx, i, a * b) for z, which, idx, i, a, b, *_ in plain if use(which) and a * b != 0.0]
+        flows += [(zp, "heat", int(node), i, float(k[node])) for zp, parents in passages for i, k in parents
+                  for node in np.nonzero((k > 0.0) & (HEAT_NODES_EV > 0.0))[0]]
+        top = max([LOSS_E_MAX_EV] + [float(self._flow_energies(mol, z, w)[0].max()) + 5.0 for z, w, *_ in flows])
+        out = []
+        for z, which, idx, i, c in flows:
+            members = self._response(mol, z, which)[1][idx]
+            P4 = np.zeros((3, 4))
+            for k_, (_, ph, ph2, _pc, php) in enumerate(members[:4]):
+                P4[:, k_] = ph, ph2, php
+            pH, pH2 = _chain_rates(nh0, solo, P4[0], P4[1])
+            pe = {"H": np.zeros(nn), "H2": np.zeros(nn), "Hp": np.zeros(nn)}
+            pe["H"][:nh0 + 1], pe["H2"][:nh0 + 1], pe["Hp"][:nh0 + 1] = pH, pH2, _deep_rates(nh0, P4[2])
+            if K:
+                sp = mol.species[z]
+                e_cl, Y = superh_event_yields(sp.freqs_cm, _einstein_a(sp, p), K, superh_e0(p, z), p.h_superh_ds, top)
+                energies, W = self._flow_energies(mol, z, which)
+                for j in range(1, K + 1):
+                    y = np.interp(energies * dos.CM_PER_EV, e_cl, Y[j - 1])
+                    pe["H"][nh0 + j] = float(W[idx] @ y) if W is not None else float(y[idx])
+            dz = (z - self.zmin) - i
+            photo_single = isinstance(which, tuple) and which[0] == "ion" and dz == 1
+            cm = c * (r_ip[i] if photo_single else np.ones(nn))
+            out.append((z, which, idx, i, cm, pe))
+        return out
+
+    def joint_fractions(self, env):
+        """[(charges, F[Z, N_H])] of every molecule at ``env`` with ``Params.hydrogen_chain = "joint"``: its live charges
+        and the steady-state shares of each (Z, N_H), N_H = 0 ... N_H0 + superh_levels (``_joint_distributions``)."""
+        if not self._joint_on():
+            raise ValueError('joint_fractions needs Params.hydrogen_chain = "joint"')
+        return [(self.zs[lo:lo + F.shape[0]], F) for lo, F, _ in self._joint_distributions(env)]
+
+    def hydrogenation_summary(self, env):
+        """{name: [s]} of the hydrogenation at ``env``: "x" <N_H>/N_H0, the shares "intact" (N_H0), "superh" (> N_H0),
+        "dehydrogenated" (< N_H0), "bare" (0) and "at_cap" (N_H0 + superh_levels, the top of the ladder: where it holds
+        more than a few per cent, the cap, not the chemistry, sets the super-hydrogenation), and "h2", the H2 released per
+        molecule per second (H2 loss and, with super-hydrogenated states, Eley-Rideal abstraction; "joint" only, else NaN)."""
+        out = {k: np.zeros(len(self.library)) for k in ("x", "intact", "superh", "dehydrogenated", "bare", "at_cap", "h2")}
+        joint = self._joint_distributions(env) if self._joint_on() else None
+        for s, (pn, mol) in enumerate(zip(self._chain_distributions(env), self.library)):
+            nh = np.arange(pn.size)
+            out["x"][s] = float(pn @ nh) / mol.nh
+            out["intact"][s], out["bare"][s] = pn[mol.nh], pn[0]
+            out["superh"][s], out["dehydrogenated"][s] = pn[mol.nh + 1:].sum(), pn[:mol.nh].sum()
+            out["at_cap"][s] = pn[-1] if self._joint_on() and self.p.superh_levels > 0 else 0.0
+            out["h2"][s] = joint[s][2] if joint is not None else np.nan
+        return out
+
+
+
+def _joint_steady_state(R, name, gth_banded):
+    """p[state] of the joint network with rates R[i, j] (i -> j): on its closed class of states (the others, transient,
+    hold none), by ``network.gth_banded`` within the band its rates span. Raises if there is more than one closed class
+    (no unique steady state)."""
+    import scipy.sparse
+    import scipy.sparse.csgraph
+
+    n = R.shape[0]
+    A = scipy.sparse.csr_matrix(R)
+    ncomp, lab = scipy.sparse.csgraph.connected_components(A, directed=True, connection="strong")
+    keep = np.arange(n)
+    if ncomp > 1:
+        rows, cols = A.nonzero()
+        leaky = np.zeros(ncomp, dtype=bool)
+        leaky[np.unique(lab[rows][lab[rows] != lab[cols]])] = True
+        closed = np.nonzero(~leaky)[0]
+        if closed.size != 1:
+            raise ValueError(f"{name}: the joint network has {closed.size} closed classes, no unique steady state")
+        keep = np.nonzero(lab == closed[0])[0]
+    sub = R[np.ix_(keep, keep)]
+    i, j = np.nonzero(sub)
+    p_ = gth_banded(sub, int(np.abs(i - j).max()) if i.size else 0)
+    if p_ is None:
+        raise ValueError(f"{name}: the closed class of the joint network is not irreducible")
+    out = np.zeros(n)
+    out[keep] = p_
+    return out
 
 
 def _chain_rates(nh0, n_solo, lh, lh2, per_mol=0.0, per_h=0.0):

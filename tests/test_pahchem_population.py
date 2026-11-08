@@ -1671,3 +1671,130 @@ def test_anion_valence_threshold_is_one_coulomb_step_down_the_ladder():
         population.anion_valence_threshold(mol))
     computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + 2.0}, _cache={})
     assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - 2.0, th[-1]))
+
+
+# -- the joint (Z, N_H) chain (Params.hydrogen_chain = "joint") -------------------------------------------------------------
+def _v400_parents(names=("C24H12 (18)", "C54H18 (37)")):
+    from pycalima import _paths
+    from pycalima._datasets import DatasetUnavailable
+
+    if "v400_parents" not in _CACHE:
+        try:
+            lib = population.library_v400(cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+        except DatasetUnavailable:
+            pytest.skip("PAHdb v4.00 not installed")
+        _CACHE["v400_parents"] = {m.name: m for m in lib}
+    return [_CACHE["v400_parents"][n] for n in names]
+
+
+def _joint(lib, **over):
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    return population.Population(lib, WINDOWS, params=replace(Params(), hydrogen_chain="joint", **over))
+
+
+def test_joint_chain_of_a_single_charge_is_the_charge_averaged_chain():
+    """A molecule with one charge state (no charge dynamics, ``charge_ladder = "library"``): with no super-hydrogenated
+    states and no threshold shift the joint network is the N_H chain itself, so its steady state is the charge-averaged
+    chain's to round-off, over every N_H (the GTH solve against the chain's exact recursion)."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol, = _v400_parents(("C54H18 (37)",))
+    one = replace(mol, species={0: mol.species[0]}, uids={0: mol.uids[0]}, ionisation_ev={0: mol.ionisation_ev[0]},
+                  ea_ev=None, _cache={})
+    base = Params(charge_ladder="library")
+    avg = population.Population([one], WINDOWS, params=base)
+    joint = population.Population([one], WINDOWS, params=replace(base, hydrogen_chain="joint", superh_levels=0,
+                                                                  ip_shift_per_h=0.0))
+    for env in (Environment("edge", 1e4, 1e3, 10.0, 100.0, None), Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)):
+        pa, = avg._chain_distributions(env)
+        pj, = joint._chain_distributions(env)
+        assert np.allclose(pj, pa, rtol=1e-9, atol=1e-300)
+
+
+def test_joint_chain_is_the_charge_averaged_one_where_charge_is_fast():
+    """With no super-hydrogenated states and no threshold shift, the joint chain's marginals are the charge-averaged
+    chain's where charge exchange is much faster than the hydrogen chemistry (G0 = n_H = 1e3, coronene stripped,
+    circumcoronene intact): f(Z | N_H) is then the intact molecule's. The one process the averaged chain cannot hold,
+    associative detachment of the dehydrogenated anions (Demarais+12), is the measured difference: it raises the
+    effective H addition, by 15 % at circumcoronene's transition (G0 1e4, n_H 1e3), which moves its intact share there
+    from 0.41 to 0.56."""
+    lib = _v400_parents()
+    env = Environment("lit", 1e3, 1e3, 3.0, 100.0, None)
+    avg = population.Population(lib, WINDOWS)
+    joint = _joint(lib, superh_levels=0, ip_shift_per_h=0.0)
+    assert np.allclose(joint.charge_matrix(env), avg.charge_matrix(env), atol=1e-3)
+    for pa, pj in zip(avg._chain_distributions(env), joint._chain_distributions(env)):
+        assert pj.size == pa.size and np.allclose(pj, pa, atol=1e-3)
+
+
+def test_joint_chain_is_a_normalised_steady_state_with_consistent_marginals():
+    """The shares of every molecule sum to 1 and are >= 0; charge_matrix and the hydrogenation marginal are its sums;
+    the emission weights hold every share that emits, the super-hydrogenated states in k = 0."""
+    lib = _v400_parents()
+    pop = _joint(lib)
+    env = Environment("shielded", 1e-2, 1e2, 1.4e-2, 100.0, None)
+    f, W = pop.charge_matrix(env), pop.emission_weights(env)
+    for s, ((zs, F), mol) in enumerate(zip(pop.joint_fractions(env), pop.library)):
+        assert F.shape == (len(zs), mol.nh + pop.p.superh_levels + 1)
+        assert np.all(F >= 0.0) and F.sum() == pytest.approx(1.0, abs=1e-12)
+        lo = zs[0] - pop.zmin
+        assert np.allclose(f[s, lo:lo + len(zs)], F.sum(axis=1), atol=1e-14)
+        emit = F[:, mol.nh - min(population.N_EMITTING, mol.nh) + 1:].sum()
+        assert W[s].sum() == pytest.approx(emit, abs=1e-12)
+    sm = pop.hydrogenation_summary(env)
+    assert np.allclose(sm["intact"] + sm["superh"] + sm["dehydrogenated"], 1.0, atol=1e-12)
+
+
+def test_super_hydrogenated_states_fill_in_shielded_gas_and_empty_under_uv():
+    """Coronene and circumcoronene: in shielded gas H addition outruns the photo-loss of the extra H and the
+    Eley-Rideal abstraction releases H2; under a strong field the extra H go and <N_H>/N_H0 <= 1."""
+    lib = _v400_parents()
+    pop = _joint(lib)
+    shielded = pop.hydrogenation_summary(Environment("shielded", 1e-3, 1e4, 1.4, 100.0, None))
+    lit = pop.hydrogenation_summary(Environment("pdr", 1e4, 1e4, 1.4, 100.0, None))
+    assert np.all(shielded["superh"] > 10.0 * lit["superh"]) and np.all(shielded["x"] > 1.0)
+    assert np.all(lit["x"] <= 1.0 + 1e-3) and np.all(lit["superh"] < 1e-2)
+    assert np.all(shielded["h2"] > 0.0)
+    assert np.all(np.isnan(population.Population(lib, WINDOWS).hydrogenation_summary(
+        Environment("pdr", 1e4, 1e4, 1.4, 100.0, None))["h2"]))
+
+
+def test_ip_shift_lowers_the_cation_share_of_the_dehydrogenated_states_only():
+    """``ip_shift_per_h`` raises the IPs of the dehydrogenated states: where coronene is stripped and charge is fast, its
+    bare states are less ionised than without the shift, while the EA (the anion share) and the super-H states keep the
+    intact thresholds (``_threshold_factors`` = 1 there)."""
+    lib = _v400_parents(("C24H12 (18)",))
+    env = Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)
+    shifted, flat = _joint(lib), _joint(lib, ip_shift_per_h=0.0)
+    (zs, Fs), = shifted.joint_fractions(env)
+    (_, Ff), = flat.joint_fractions(env)
+    z = np.array(zs)
+    cat = lambda F, j: F[z > 0, j].sum() / F[:, j].sum()                    # noqa: E731
+    assert Fs[:, 0].sum() > 0.5 and cat(Fs, 0) < 0.8 * cat(Ff, 0)
+    r = shifted._threshold_factors(population.field_shape(env))[0]
+    nh0 = lib[0].nh
+    assert np.all(r[-1 - shifted.zmin] == 1.0)                              # the anion (EA): unshifted
+    assert np.all(r[:, nh0:] == 1.0) and np.all(r[-shifted.zmin:, :nh0] <= 1.0)
+
+
+def test_super_h_loss_rises_with_the_extra_h_and_stays_below_absorption():
+    """``superh_loss_table``: the loss of an extra H of N_H0 + j grows with j (path degeneracy j) and never exceeds the
+    state's absorption rate (one loss per absorbed photon at most)."""
+    from pycalima.pahchem import photo
+    from pycalima.pahchem.baseline import Params
+
+    mol, = _v400_parents(("C24H12 (18)",))
+    p = Params(hydrogen_chain="joint")
+    shape = population.field_shape(Environment("ism", 1.0, 30.0, 0.0042, 100.0, None))
+    inp = population._superh_inputs(mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV, p)
+    k = population.superh_loss_table(**inp)
+    assert k.shape == (p.superh_levels, population.K_H_G0_GRID.size)
+    assert np.all(np.diff(k, axis=0) >= 0.0)
+    field1 = population._unit_field(shape)
+    r_abs = np.trapezoid(population.state_sigma(mol, 0, p) * field1.flux_at(population.E_PH), population.E_PH)
+    assert np.all(k <= population.K_H_G0_GRID[None, :] * r_abs * (1.0 + 1e-6))

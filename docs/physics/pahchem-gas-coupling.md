@@ -947,6 +947,73 @@ higher charges, as before). In the population every molecule runs from its lowes
   - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
   - thermal ions' impact ionisation (keV protons at 10⁷–10⁸ K) and doubly charged ions (He²⁺).
 
+### 2.2h The joint charge–hydrogenation chain (2026-11-08)
+
+`Params.hydrogen_chain = "joint"` (opt-in; `Population._joint_distributions`) replaces the charge-averaged chain with one
+(Z, N_H) network per molecule. N_H runs from 0 to N_H0 + `superh_levels` (4 by default). The network is solved for its
+steady state by `network.gth_banded`. The default (`"charge_averaged"`) is unchanged.
+
+- *Why.* The GSD/RAMSES tables need super-hydrogenated states and a charge that depends on N_H. In the charge-averaged chain
+  both were missing. In shielded gas, averaging the hydrogen rates over charge also fails: there H addition to neutrals and
+  Eley–Rideal abstraction outrun charge exchange (the GSD session's check against BaselineModel's full network).
+- *What it holds.*
+  - **Charge steps.** Those of `charge_matrix`, the same at every N_H. The one exception is the valence single
+    photoionisation, whose threshold shifts (below).
+  - **Hydrogen steps.** Taken per charge, not averaged.
+  - **Protons.** dZ = −1, dN_H = −1.
+  - **The barrier-limited top.** Steps past it land on the top with an H less per charge.
+  - **Deposit-driven losses.** Each moves a share of the charge step it rides on to N_H − 1 or N_H − 2.
+  - **Above N_H0.** BaselineModel's chemistry: the photo-loss of an extra H (`superh_loss_table`, its own disk cache),
+    H addition (barriers 0.06 / 0.035 eV on the first and third extra H), and Eley–Rideal abstraction releasing H2 (counted
+    in `hydrogenation_summary`).
+  - **Emission.** The super-hydrogenated states emit as the parent.
+
+**Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
+before quoting):
+
+| Choice | Verdict |
+|---|---|
+| Joint (Z, N_H) network | The norm: {cite:t}`Montillaud2013` and {cite:t}`Boschman2015` track charge and hydrogenation together, and so does {cite:t}`Andrews2016`. No model found averages hydrogen rates over an N_H-independent charge. |
+| IP +0.1 eV per missing H | Andrews+16's rule comes from Malloci et al. (2008, A&A 489, 1183): B3LYP ΔSCF IP1 of coronene's even states, 7.02 → 8.25 eV from C24H12 to C24 (0.103 eV per H). One molecule, even N_H, IPs only. PAHdb v4.00's four C96 pairs give −0.03 to −0.05 eV per H. |
+| EA shifted as the IP | Contradicted for odd N_H: aryl σ radicals have EAs 1.0–1.6 eV above their parents' (phenyl 1.10, 1-naphthyl 1.40 eV against ~−0.2 for naphthalene; anthracenyl 1.5–1.7 against 0.53). That is a step, not 0.1 eV per H. |
+| Super-H thresholds −0.1 eV per H | Unsupported: 1-hydronaphthyl's IP is 6.57 eV, 1.5 eV below naphthalene's. |
+| H + PAH anions | Measured only for dehydrogenated anions (C6H5−, C10H7−, C14H9−; Demarais et al. 2012, ApJ 746, 32): associative detachment, (8–10) × 10⁻¹⁰ cm³ s⁻¹, as `associative_detachment` does. Nothing for intact PAH anions. |
+| Super-H up to +4 | Consistent: E0 1.40 / 1.55 eV after Bauschlicher & Ricca (2014); barriers within Rauls & Hornekær (2008) and Boschman+15's 28–64 meV alternation. |
+| Super-H beyond +4 | Contradicted (not modelled): barriers keep alternating (Boschman+15); cations have barriers at the closed-shell +5/+11/+17 (Cazaux+16, Foley+18); binding energies are 1.2–3.6 eV by step and site; abstraction grows with the CH2 sites (gas-phase coronene⁺ needs ≥ 0.45 Å², Foley+18, against our 0.06 from films, {cite:t}`Mennella2012`); C2H2 / CH3 loss sets in from ~+6 (Wolf+16, Cazaux+19). |
+
+What the joint chain does with these:
+- **IP shift.** `ip_shift_per_h` raises only the IPs of the dehydrogenated states (`_threshold_factors`). The EA and the
+  super-H thresholds stay the intact molecule's: no smooth rule is supported there. BaselineModel keeps Andrews' rule as
+  it stands.
+- **Anion H addition.** Anions add H as neutrals (`anion_h_addition = "as_neutral"`, Population's convention). `"none"`
+  (BaselineModel) and `associative_detachment = "all"` (Andrews+16) are the brackets.
+- **The deeper ΔSCF ladders.** These are prepared for C24, C54 and C96 (`diagnostics/pahchem/dft_ladders/`) to replace the
+  0.1 eV.
+
+**Validity.** It holds in PDR and diffuse gas. There the super-H share is ≤ 1 % at caps of 4, 8 and 12, and none of the
+choices above moves the results. In UV-shielded gas (G0 ≲ 10⁻², n ≳ 100) H addition outruns the photo-loss, and the
+molecules climb to the ladder's top:
+
+| Molecule, condition | K = 4 | K = 8 | K = 12 |
+|---|---|---|---|
+| C24, G0 = 10⁻³, n = 10⁴: ⟨N_H⟩/N_H0 | 1.33 | 1.67 | 2.0 |
+| C24, G0 = 10⁻², n = 100: super-H share | 0.04 | 0.87 | 1.0 |
+
+`hydrogenation_summary(env)["at_cap"]` reports the top's share. Where it is more than a few per cent, the cap sets the
+answer, not the chemistry.
+
+**Limitations.**
+- An absorbed photon removes at most one extra H. With E0 = 1.4 eV a 7 eV photon could remove three or four, so the
+  super-H loss of highly hydrogenated states is underestimated by up to that factor.
+- The super-H states' own modes are not computed.
+- The ladders' photon-driven losses use the intact thresholds.
+
+**Next.**
+- A literature-based chemistry to about +12: Boschman's alternating barriers, the cation closed-shell barriers,
+  abstraction per CH2 site, and sequential losses per photon. Test caps of 8, 12 and 24 until the top holds < 1 %, and
+  validate against Boschman+15 and Foley+18.
+- The bracket runs: super-H ΔS 12 → 55.6 J K⁻¹ mol⁻¹, σ_ER × 7, cation super-H addition 1e-12, and the anion options.
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.
