@@ -6,7 +6,7 @@ THREADS = the node's cores). The parents are kept apart, their sizes differing ~
 8 x 16 threads per node, C96 4 x 32 (with ~1/4 of the node's memory each, its density-fitting tensors fit in core).
 
 Usage: make_slurm.py ROOT [--account dp016] [--partition P] [--time HH:MM:SS] [--per-node C24=44 C54=22 C96=4]
-       [--layout C24=8x16 C54=8x16 C96=4x32] [--memory-mb C24=12000 C54=24000 C96=110000]
+       [--layout C24=8x16 C54=8x16 C96=4x32] [--memory-mb C24=12000 C54=40000 C96=110000]
        [--maxsteps C24=150 C54=100 C96=60] [--no-diffuse C96] [--python PATH] [--setup CMD]
 Writes ROOT/slurm/<parent>_<k>.jobs and .sbatch, and ROOT/slurm/submit.sh (sbatch of each).
 """
@@ -26,7 +26,7 @@ def main():
     ap.add_argument("--time", default="36:00:00")
     ap.add_argument("--per-node", nargs="+", default=["C24=44", "C54=22", "C96=4"])
     ap.add_argument("--layout", nargs="+", default=["C24=8x16", "C54=8x16", "C96=4x32"])
-    ap.add_argument("--memory-mb", nargs="+", default=["C24=12000", "C54=24000", "C96=110000"])
+    ap.add_argument("--memory-mb", nargs="+", default=["C24=12000", "C54=40000", "C96=110000"])
     ap.add_argument("--python", default="$HOME/opt/qc-venv/bin/python")
     ap.add_argument("--setup", default="", help="shell lines run first in each job (module loads)")
     ap.add_argument("--parents", nargs="+", default=None, help="only these parents")
