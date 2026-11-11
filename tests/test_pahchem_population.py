@@ -1709,7 +1709,7 @@ def test_joint_chain_of_a_single_charge_is_the_charge_averaged_chain():
     base = Params(charge_ladder="library")
     avg = population.Population([one], WINDOWS, params=base)
     joint = population.Population([one], WINDOWS, params=replace(base, hydrogen_chain="joint", superh_levels=0,
-                                                                  ip_shift_per_h=0.0))
+                                                                  threshold_shifts="none"))
     for env in (Environment("edge", 1e4, 1e3, 10.0, 100.0, None), Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)):
         pa, = avg._chain_distributions(env)
         pj, = joint._chain_distributions(env)
@@ -1726,7 +1726,7 @@ def test_joint_chain_is_the_charge_averaged_one_where_charge_is_fast():
     lib = _v400_parents()
     env = Environment("lit", 1e3, 1e3, 3.0, 100.0, None)
     avg = population.Population(lib, WINDOWS)
-    joint = _joint(lib, superh_levels=0, ip_shift_per_h=0.0)
+    joint = _joint(lib, superh_levels=0, threshold_shifts="none")
     assert np.allclose(joint.charge_matrix(env), avg.charge_matrix(env), atol=1e-3)
     for pa, pj in zip(avg._chain_distributions(env), joint._chain_distributions(env)):
         assert pj.size == pa.size and np.allclose(pj, pa, atol=1e-3)
@@ -1764,13 +1764,13 @@ def test_super_hydrogenated_states_fill_in_shielded_gas_and_empty_under_uv():
         Environment("pdr", 1e4, 1e4, 1.4, 100.0, None))["h2"]))
 
 
-def test_ip_shift_lowers_the_cation_share_of_the_dehydrogenated_states_only():
-    """``ip_shift_per_h`` raises the IPs of the dehydrogenated states: where coronene is stripped and charge is fast, its
-    bare states are less ionised than without the shift, while the EA (the anion share) and the super-H states keep the
-    intact thresholds (``_threshold_factors`` = 1 there)."""
+def test_andrews_ip_shift_lowers_the_cation_share_of_the_dehydrogenated_states_only():
+    """``threshold_shifts = "andrews16"`` (the joint chain's rule from 2026-11-08): ``ip_shift_per_h`` raises the IPs of
+    the dehydrogenated states. Where coronene is stripped and charge is fast, its bare states are less ionised than
+    without the shift, while the EA (the anion share) and the super-H states keep the intact thresholds."""
     lib = _v400_parents(("C24H12 (18)",))
     env = Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)
-    shifted, flat = _joint(lib), _joint(lib, ip_shift_per_h=0.0)
+    shifted, flat = _joint(lib, threshold_shifts="andrews16"), _joint(lib, threshold_shifts="none")
     (zs, Fs), = shifted.joint_fractions(env)
     (_, Ff), = flat.joint_fractions(env)
     z = np.array(zs)
@@ -1780,6 +1780,76 @@ def test_ip_shift_lowers_the_cation_share_of_the_dehydrogenated_states_only():
     nh0 = lib[0].nh
     assert np.all(r[-1 - shifted.zmin] == 1.0)                              # the anion (EA): unshifted
     assert np.all(r[:, nh0:] == 1.0) and np.all(r[-shifted.zmin:, :nh0] <= 1.0)
+    assert shifted._attachment_factors(env.temperature_k) == {}
+
+
+def test_dft_thresholds_of_the_joint_chain():
+    """``threshold_shifts = "dft_ladder"`` (the default): every threshold of each N_H follows the Delta-SCF size laws.
+    Coronene, stripped where charge is fast: its dehydrogenated anions bind (EA +1.06-1.19 eV), so they detach less and
+    the neutrals attach more, and the anion share of the bare states rises; the CH2 radical (N_H0 + 1) ionises more
+    (IP0 1.3 eV lower), the super-H anion detaches less. The steady state stays normalised. With the calibrated EA
+    (0.48 eV, the default) the unshifted chain already holds a bare anion share ~1e-4, near its sticking ceiling f, so
+    the rise is modest (x1.7; x2e7 on PAHdb's 0.11 eV)."""
+    lib = _v400_parents(("C24H12 (18)",))
+    env = Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)
+    dft, flat = _joint(lib), _joint(lib, threshold_shifts="none")
+    nh0, a, n = lib[0].nh, -1 - dft.zmin, -dft.zmin
+    r = dft._threshold_factors(population.field_shape(env))[0]
+    att = dft._attachment_factors(env.temperature_k)[0]
+    assert np.all(r[a, :nh0] < 1.0) and r[a, nh0] == 1.0 and r[a, nh0 + 1] < 1.0
+    assert np.all(att[:nh0] > 1.0) and att[nh0] == 1.0 and att[nh0 + 1] > 1.0
+    assert r[n, nh0 + 1] > 1.0 and np.all(r[n, :nh0] < 1.0)
+    (zs, Fd), = dft.joint_fractions(env)
+    (_, Ff), = flat.joint_fractions(env)
+    z = np.array(zs)
+    assert Fd.sum() == pytest.approx(1.0, abs=1e-12) and np.all(Fd >= 0.0)
+    anion = lambda F: F[z < 0, 0].sum() / F[:, 0].sum()                     # noqa: E731
+    assert Fd[:, 0].sum() > 0.5 and anion(Fd) > anion(Ff)
+
+
+def test_dft_threshold_shifts_ignore_a_calibration_of_the_library():
+    """The ladder laws compare the DFT thresholds: a library shifted by ``shift_thresholds`` (CALIBRATED_SHIFTS, by the
+    caller or by the population's default calibration) gets the same shift at every N_H, so its calibration is not
+    counted twice, and the offsets add up over successive shifts."""
+    mol, = _v400_parents(("C24H12 (18)",))
+    cal = population.shift_thresholds([mol], population.CALIBRATED_SHIFTS)[0]
+    twice = population.shift_thresholds(population.shift_thresholds([mol], {-1: 0.2})[0:1], {-1: 0.17, 0: 0.6})[0]
+    assert cal.threshold_offsets[-1] == pytest.approx(0.37) and twice.threshold_offsets[-1] == pytest.approx(0.37)
+    pop, pop_cal = _joint([mol]), _joint([cal])
+    for m in range(mol.nh + pop.p.superh_levels + 1):
+        for z in (-1, 0, 1):
+            ref = pop._threshold_shift(mol, m, z)
+            assert pop_cal._threshold_shift(cal, m, z) == pytest.approx(ref, abs=1e-12)
+            assert pop._threshold_shift(pop._own(mol), m, z) == pytest.approx(ref, abs=1e-12)
+
+
+def test_population_calibrates_the_pahdb_v400_thresholds_by_default():
+    """``Params.threshold_calibration``: "measured" (the default) adds CALIBRATED_SHIFTS to the PAHdb v4.00 molecules
+    the caller has not shifted, on copies; "none" keeps the DFT thresholds. A molecule the caller shifted (a scan) and
+    one of another source are kept as they are under both, so no threshold is shifted twice."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    mol, = _v400_parents(("C24H12 (18)",))
+    scan = population.shift_thresholds([mol], {0: 0.3})[0]
+    dft = population.shift_thresholds([mol], {})[0]                       # the scripts' empty --ip-shift
+    other = replace(mol, source="pahdb-v3.20", _cache={})
+    lib = [mol, scan, dft, other]
+    cal = population.Population(lib, WINDOWS)
+    raw = population.Population(lib, WINDOWS, params=replace(Params(), threshold_calibration="none"))
+    assert mol.threshold_offsets == {}                                    # the caller's molecule is not modified
+    for z, v in mol.ionisation_ev.items():
+        dz = population.CALIBRATED_SHIFTS.get(z, 0.0)
+        assert cal._own(mol).ionisation_ev[z] == pytest.approx(v + dz)
+        assert cal._own(mol).threshold_offsets[z] == pytest.approx(dz)
+        assert raw._own(mol).ionisation_ev[z] == v
+        for p in (cal, raw):
+            assert p._own(scan).ionisation_ev[z] == scan.ionisation_ev[z]
+            assert p._own(other).ionisation_ev[z] == v
+            assert p._own(dft).ionisation_ev[z] == v
+    with pytest.raises(ValueError, match="threshold_calibration"):
+        population.Population(lib, WINDOWS, params=replace(Params(), threshold_calibration="nope"))
 
 
 def test_super_h_loss_rises_with_the_extra_h_and_stays_below_absorption():

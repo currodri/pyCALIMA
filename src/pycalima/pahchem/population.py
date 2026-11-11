@@ -14,7 +14,9 @@ the molecules' abundances are fitted. In outline:
   of a fit a + b / sqrt(N_C) to the consistent pairs (``ip_source = "fit"``)
   and drop the anion. Its edge-H counts (solo, duo, trio, quartet) are PAHdb's.
 - **Charge** (``charge_fractions``). A chain over the molecule's charge states
-  (``Molecule.ionisation_ev`` holds the threshold of each step z -> z+1). The
+  (``Molecule.ionisation_ev`` holds the threshold of each step z -> z+1).
+  PAHdb v4.00's thresholds are raised to the measured ones by CALIBRATED_SHIFTS
+  (``Params.threshold_calibration``, the default since 2026-11-11). The
   ingredients are the baseline's:
 
   - Li & Draine sigma;
@@ -60,9 +62,10 @@ the molecules' abundances are fitted. In outline:
   molecule, N_H = 0 ... N_H0 + ``superh_levels``, solved for its steady state
   (``network.gth_banded``), as Montillaud+13, Boschman+15 and Andrews+16 do;
   no published model averages over charge. It adds the super-hydrogenated
-  states with BaselineModel's (Andrews+16) chemistry, the IPs of the
-  dehydrogenated states raised by ``ip_shift_per_h`` per missing H
-  (Malloci+08; the EA and the super-H thresholds unshifted), associative
+  states with BaselineModel's (Andrews+16) chemistry, every threshold of
+  each N_H shifted by the Delta-SCF ladders' size laws
+  (``threshold_shifts.law_shift``; the EA in detachment and attachment
+  alike; ``Params.threshold_shifts``), associative
   detachment of dehydrogenated anions, and Eley-Rideal H2. Valid for PDR and
   diffuse gas. In UV-shielded gas H addition outruns the photo-loss of the
   extra H and the molecules climb to the ladder's top ("at_cap" of
@@ -124,7 +127,7 @@ from pathlib import Path
 
 import numpy as np
 
-from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, impact, photo, rates
+from pycalima.pahchem import chemistry, dos, emission, energy_me, fields, impact, photo, rates, threshold_shifts
 from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2
 from pycalima.pahchem.baseline import E_PH as E_PH_FUV
 from pycalima.pahchem.baseline import CH_STRETCH_CM, LAB_STRETCH_SCALE, Params, scaled_einstein_a  # noqa: F401
@@ -228,6 +231,7 @@ class Molecule:
     source: str = "pahdb-v3.20"
     stand_in_from: int | None = None    # the highest computed charge, where ``extend_ladder`` added stand-ins above it
     bare: dict | None = None            # {Z: PAHSpecies} of the bare skeleton (N_H = 0) where PAHdb computed it (``library_v400``)
+    threshold_offsets: dict = field(default_factory=dict)   # {z: eV} ``shift_thresholds`` added to the DFT thresholds
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self):
@@ -1195,18 +1199,59 @@ def statistical_detachment(mol, params=Params(), grain_cm=10.0, energy_ev=E_PH, 
     return mol._cache[key]
 
 
-def shift_thresholds(library, shifts_ev):
-    """Copies of the molecules with each step z -> z+1 raised by ``shifts_ev[z]`` [eV] (fresh caches).
+def _with_ea(mol, shift_ev):
+    """A copy of ``mol`` with its EA raised by ``shift_ev`` [eV] (a fresh cache): the joint chain's dehydrogenated and
+    super-hydrogenated anions (``Population._threshold_factors``, ``_attachment_factors``)."""
+    th = dict(mol.ionisation_ev)
+    th[-1] = th[-1] + shift_ev
+    return replace(mol, ionisation_ev=th, ea_ev=th[-1], _cache={})
 
-    For calibrating DFT thresholds (diagnostics/pahchem/calibrate_charge_inputs.py).
+
+#: The calibration of PAHdb v4.00's thresholds, {z: eV} added to step z -> z+1 (``Params.threshold_calibration``
+#: "measured", the default since 2026-11-11, ``calibrate_thresholds``; before, the validation scripts and group tables
+#: applied it themselves). v4.00's thresholds are adiabatic B3LYP/6-31G* (``library_v400``); the comparison with the
+#: Cagliari compilation (Malloci+07, measured values where known) is diagnostics/pahchem/calibrate_charge_inputs.py:
+#:
+#: - EA (z = -1) +0.37: v4.00 - measured -0.39 eV, v4.00 - Malloci's 6-31+G* -0.35. It is the diffuse functions 6-31G*
+#:   lacks: 6-31+G* raises the EA by a median 0.34 eV (Malloci+07, 24 molecules; our Delta-SCF runs, 7: 0.28-0.42),
+#:   from 0.44 at N_C 16 to 0.26 at 96, and matches the measured EAs (5 of 6 within 0.1 eV). A constant is within
+#:   ~0.1 eV to N_C ~ 100 and 0.1-0.15 eV high beyond, where the EA exceeds ~2 eV and s_e has reached f.
+#: - IP1 (z = 0) +0.60: v4.00 - measured -0.62 eV (-0.48 to -0.70, 16 molecules), B3LYP's known underestimate.
+#: - IP2 (z = 1) +0.64: v4.00 - Malloci -0.14 eV, Malloci - measured ~ -0.5 (wide scatter). IP3 (z = 2) takes the same,
+#:   assumed: nothing is measured.
+CALIBRATED_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+
+
+def shift_thresholds(library, shifts_ev):
+    """Copies of the molecules with each step z -> z+1 raised by ``shifts_ev[z]`` [eV] (fresh caches), the shifts
+    added to their ``threshold_offsets``: the joint chain's ladder laws compare the DFT thresholds
+    (``Population._threshold_shift``), and ``calibrate_thresholds`` leaves shifted molecules alone.
+
+    For calibrating DFT thresholds (CALIBRATED_SHIFTS, the default; other shifts for scans).
     """
     from dataclasses import replace
 
     out = []
     for m in library:
         th = {z: v + shifts_ev.get(z, 0.0) for z, v in m.ionisation_ev.items()}
-        out.append(replace(m, ionisation_ev=th, ip_ev=th[0], ea_ev=th.get(-1), _cache={}))
+        off = {z: m.threshold_offsets.get(z, 0.0) + shifts_ev.get(z, 0.0) for z in th}
+        out.append(replace(m, ionisation_ev=th, ip_ev=th[0], ea_ev=th.get(-1), threshold_offsets=off, _cache={}))
     return out
+
+
+def calibrate_thresholds(library, params=Params()):
+    """``library`` under ``Params.threshold_calibration``: "measured" gives the PAHdb v4.00 molecules that carry no
+    shift yet (``threshold_offsets`` empty) CALIBRATED_SHIFTS (``shift_thresholds``); "none" leaves them. Molecules the
+    caller shifted (an explicit calibration, a scan of other shifts; ``shift_thresholds(lib, {})`` too, which keeps
+    the DFT thresholds) and other sources (``library_m20``'s PAHdb v3.20, mostly 4-31G; hand-built molecules) are kept
+    as they are. ``Population`` and ``group_tables.build_bin_table`` call it."""
+    mode = params.threshold_calibration
+    if mode not in ("measured", "none"):
+        raise ValueError(f"threshold_calibration must be 'measured' or 'none', not {mode!r}")
+    if mode == "none":
+        return list(library)
+    return [shift_thresholds([m], CALIBRATED_SHIFTS)[0] if m.source == "pahdb-v4.00" and not m.threshold_offsets else m
+            for m in library]
 
 
 #: the ``attachment.Attachment`` of each neutral-anion pair of this process, by its modes, EA, size and grid (populations
@@ -2365,8 +2410,10 @@ class Population:
         if params.ionisation_heating and params.ionising_photons_heat:
             raise ValueError("ionisation_heating (the product's cascade) and ionising_photons_heat (the absorbing state's) "
                              "would count the energy an ionisation leaves twice: choose one")
-        # the ladder to the cold limit on copies (``extend_ladder``); the caller's molecules map to them (``_own``)
-        self.library = [extend_ladder(m) for m in given] if params.charge_ladder == "cold_limit" else given
+        # the calibrated thresholds and the ladder to the cold limit, on copies (``calibrate_thresholds``,
+        # ``extend_ladder``); the caller's molecules map to them (``_own``)
+        own = calibrate_thresholds(given, params)
+        self.library = [extend_ladder(m) for m in own] if params.charge_ladder == "cold_limit" else own
         self.windows, self.p = dict(windows_um), params
         # True: N_H0 ... N_H0-3 emit in proportion to the hydrogenation chain (``emission_weights``); False: the
         # intact molecule alone, as before 2026-10-25 (its callers then filter on ``intact_fractions``)
@@ -4025,33 +4072,90 @@ class Population:
             self._arrays[key] = S
         return self._arrays[key]
 
+    def _threshold_shift(self, mol, m, z):
+        """The shift [eV] of threshold z (z = -1 the EA) of ``mol`` at N_H = m, per ``Params.threshold_shifts``:
+        "dft_ladder", ``threshold_shifts.law_shift`` (every threshold, the super-hydrogenated states' too); "andrews16",
+        ``Params.ip_shift_per_h`` per missing H on the IPs only (the joint chain from 2026-11-08); "none", 0."""
+        mode = self.p.threshold_shifts
+        if mode == "dft_ladder":                         # the laws take the DFT thresholds, less any calibration
+            off = mol.threshold_offsets
+            ip0 = float(state_threshold(mol, 0)) - off.get(0, 0.0) if 0 in mol.charges else None
+            ea = mol.ionisation_ev[-1] - off.get(-1, 0.0) if -1 in mol.ionisation_ev else None
+            return threshold_shifts.law_shift(mol.nc, m - mol.nh, z, ip0, ea)
+        if mode == "andrews16":
+            return float(self.p.ip_shift_per_h) * max(mol.nh - m, 0) if z >= 0 else 0.0
+        if mode == "none":
+            return 0.0
+        raise ValueError(f"threshold_shifts must be 'dft_ladder', 'andrews16' or 'none', not {mode!r}")
+
     def _threshold_factors(self, shape):
-        """{s: r[slot, m]}, m = N_H = 0 ... N_H0 + superh_levels: each live state's valence photoionisation rate at N_H = m
-        over the intact state's. The IPs (Z >= 0) of the dehydrogenated states (m < N_H0) rise by ``Params.ip_shift_per_h``
-        per missing H: the part of Andrews+16's rule the literature supports (Malloci+08, B3LYP Delta-SCF of coronene's
-        even states, ~0.1 eV per H; the 2026-11-08 check). The EA, and every threshold of the super-hydrogenated states,
-        keep the intact molecule's: aryl radicals' EAs sit 1.0-1.6 eV above their parents' (a step, not 0.1 eV per H) and
-        1-hydronaphthyl's IP 1.5 eV below naphthalene's, so a smooth shift there would be wrong and no rule is
-        established. The shift moves the intact state's yield on E_PH rigidly (its yield at E - shift), with the same
-        sigma and field (exact for the threshold laws, Jochims and Wenzel). 1 where the intact state has none, or with no
-        shift."""
+        """{s: r[slot, m]}, m = N_H = 0 ... N_H0 + superh_levels: each live state's valence photoionisation rate (the
+        anion's detachment) at N_H = m over the intact state's, with the thresholds of ``_threshold_shift``. 1 where the
+        intact state has none, or with no shift.
+
+        - Z >= 0: the intact state's yield on E_PH moved rigidly (its yield at E - shift), with the same sigma and field
+          (exact for the threshold laws, Jochims and Wenzel).
+        - The anion: ``_yield`` (the statistical detachment) and sigma (WD01's photodetachment part) of the molecule with
+          that EA (``_with_ea``). Its valence-detachment threshold follows the shifted EA only where the EA is the higher
+          (``anion_valence_threshold``); the IPs it is otherwise drawn from keep the intact molecule's."""
         key = ("ip_shift", shape)
         if key not in self._arrays:
             field1 = _unit_field(shape)
-            d, K = float(self.p.ip_shift_per_h), int(self.p.superh_levels)
+            K = int(self.p.superh_levels)
             out = {}
             for s, mol in enumerate(self.library):
                 m = np.arange(mol.nh + K + 1)
                 r = np.ones((len(self.zs), m.size))
-                if d != 0.0:
-                    for z in (q for q in self._live_charges(mol, shape) if q >= 0):
-                        sigma = self._valence_sigma(mol, z, shape)
-                        y = _yield(mol, z, self.p)
-                        base = photo.ionisation_rate(field1, sigma, y, E_PH)
-                        if base > 0.0:
-                            r[z - self.zmin] = [photo.ionisation_rate(field1, sigma, np.interp(E_PH - d * max(mol.nh - mm, 0),
-                                                                                               E_PH, y, left=0.0, right=y[-1]),
-                                                                      E_PH) / base for mm in m]
+                for z in self._live_charges(mol, shape):
+                    d = [self._threshold_shift(mol, mm, z) for mm in m]
+                    if not any(d):
+                        continue
+                    sigma = self._valence_sigma(mol, z, shape)
+                    y = _yield(mol, z, self.p)
+                    base = photo.ionisation_rate(field1, sigma, y, E_PH)
+                    if base <= 0.0:
+                        continue
+                    if z >= 0:
+                        r[z - self.zmin] = [photo.ionisation_rate(field1, sigma, np.interp(E_PH - dd, E_PH, y, left=0.0,
+                                                                                           right=y[-1]), E_PH) / base
+                                            for dd in d]
+                        continue
+                    memo = {}
+                    for j, dd in enumerate(d):
+                        if dd != 0.0:
+                            if dd not in memo:
+                                c = _with_ea(mol, dd)
+                                memo[dd] = photo.ionisation_rate(field1, self._valence_sigma(c, z, shape),
+                                                                 _yield(c, z, self.p), E_PH) / base
+                            r[z - self.zmin, j] = memo[dd]
+                out[s] = r
+            self._arrays[key] = out
+        return self._arrays[key]
+
+    def _attachment_factors(self, temperature_k):
+        """{s: r[m]}, m = N_H = 0 ... N_H0 + superh_levels: the neutral's electron attachment at N_H = m over the intact
+        one's, for the molecules with an anion whose EA shifts (``_threshold_shift``): ``capture_coefficient`` of the
+        molecule with that EA (``_with_ea``). The statistical s_e rises with the EA, as its detachment falls: the
+        same ``attachment.Attachment`` sets both (detailed balance). f, the share of captures that form the anion, is a
+        function of N_C (``attachment_fraction``), the same at every N_H."""
+        key = ("att_shift", round(float(temperature_k), 6))
+        if key not in self._arrays:
+            K = int(self.p.superh_levels)
+            out = {}
+            for s, mol in enumerate(self.library):
+                if -1 not in mol.charges or 0 not in mol.charges:
+                    continue
+                d = [self._threshold_shift(mol, mm, -1) for mm in range(mol.nh + K + 1)]
+                base = capture_coefficient(mol, 0, temperature_k, self.p) if any(d) else 0.0
+                if base <= 0.0:
+                    continue
+                memo = {}
+                r = np.ones(len(d))
+                for j, dd in enumerate(d):
+                    if dd != 0.0:
+                        if dd not in memo:
+                            memo[dd] = capture_coefficient(_with_ea(mol, dd), 0, temperature_k, self.p) / base
+                        r[j] = memo[dd]
                 out[s] = r
             self._arrays[key] = out
         return self._arrays[key]
@@ -4063,7 +4167,8 @@ class Population:
 
         - **Charge steps** (dN_H = 0): those of ``charge_matrix``'s chain (photoionisation and detachment, C 1s,
           double ionisation, passages and ions' charge transfer as ``_jump_rates``; captures), the same at every N_H except
-          the valence single photoionisation, scaled by ``_threshold_factors``. Steps past the top are dropped, as there,
+          the valence single photoionisation and detachment, scaled by ``_threshold_factors``, and the neutral's
+          attachment, by ``_attachment_factors`` (each with its deposits). Steps past the top are dropped, as there,
           or past a barrier-limited top (``_routed``) land on it with an H less per charge carried past.
         - **H steps** per charge: the ladders' photon-driven H, H2 loss and protons (dZ = -1, dN_H = -1) of N_H0 ...
           N_H0-3, deeper states by ``_chain_rates``' mapping; the thermal ions' H knock-outs; H addition as
@@ -4102,6 +4207,7 @@ class Population:
         per_h = hot["knockout_h"] if hot is not None else np.zeros_like(k_add)
         routed = self._routed()
         r_ip = self._threshold_factors(shape)
+        r_att = self._attachment_factors(T)
         er = chemistry.cross_section_rate(T, p.eley_rideal_a2) * n_h
         ad_all = anion_associative_detachment(replace(p, associative_detachment="all")) * n_h
         terms = self._flow_terms(env)
@@ -4137,6 +4243,10 @@ class Population:
             C = {j: np.repeat(k[s, sl][:, None], nn, axis=1) for j, k in enumerate(steps, start=1)}
             C[1] = np.maximum(C[1] + (r_ip[s][sl] - 1.0) * vps[s, sl][:, None], 0.0)
             C[-1] = np.repeat(down[s, sl][:, None], nn, axis=1)
+            a0 = -self.zmin - lo                                 # the neutral's slot: its attachment shifts with the EA
+            r_cap = r_att.get(s) if 1 <= a0 < nz else None
+            if r_cap is not None:
+                C[-1][a0] *= r_cap
             # H steps of each charge
             HL, H2L, HP, A = (np.zeros((nz, nn)) for _ in range(4))
             for a in range(nz):
@@ -4162,7 +4272,8 @@ class Population:
             if (HP[0] > 0.0).any():
                 raise ValueError(f"{mol.name}: proton emission out of its lowest live charge")
             # deposits: a share of each event's charge step lands with H, H2 or a proton less
-            for z_prod, which, idx, i_src, c, pe in self._joint_deposits(s, mol, terms, use, r_ip[s], lo, nz, nn):
+            deposits = self._joint_deposits(s, mol, terms, use, r_ip[s], lo, nz, nn, r_cap)
+            for z_prod, which, idx, i_src, c, pe in deposits:
                 a, b = i_src - lo, (z_prod - self.zmin) - lo
                 dz = b - a
                 moved = c * (pe["H"] + pe["H2"] + pe["Hp"])
@@ -4204,10 +4315,10 @@ class Population:
         self._joints[env] = out
         return out
 
-    def _joint_deposits(self, s, mol, terms, use, r_ip, lo, nz, nn):
+    def _joint_deposits(self, s, mol, terms, use, r_ip, lo, nz, nn, r_cap=None):
         """[(z_prod, which, index, source slot, c[N_H], {"H", "H2", "Hp": P[N_H]})] of molecule s: each deposit flow of
         ``_flow_terms`` per molecule in its source state (a valence photoionisation's scaled by the threshold shift,
-        ``_threshold_factors``), and its product's loss probabilities at each N_H: ``_response``'s for N_H0 ... N_H0-3, the
+        ``_threshold_factors``, an attachment's by ``r_cap``, ``_attachment_factors``), and its product's loss probabilities at each N_H: ``_response``'s for N_H0 ... N_H0-3, the
         deeper by ``_chain_rates``' mapping, the extra H's of super-hydrogenated states from ``superh_event_yields``."""
         p, K, nh0 = self.p, int(self.p.superh_levels), mol.nh
         solo = mol.edges.get("solo", 0)
@@ -4234,7 +4345,12 @@ class Population:
                     pe["H"][nh0 + j] = float(W[idx] @ y) if W is not None else float(y[idx])
             dz = (z - self.zmin) - i
             photo_single = isinstance(which, tuple) and which[0] == "ion" and dz == 1
-            cm = c * (r_ip[i] if photo_single else np.ones(nn))
+            if photo_single:
+                cm = c * r_ip[i]
+            elif dz == -1 and r_cap is not None and self.zs[i] == 0:      # an attachment's deposit: as the attachment
+                cm = c * r_cap
+            else:
+                cm = c * np.ones(nn)
             out.append((z, which, idx, i, cm, pe))
         return out
 

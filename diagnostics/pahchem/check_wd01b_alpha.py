@@ -61,7 +61,7 @@ IONS = ("H+", "He+", "C+", "Mg+", "Si+", "S+", "Fe+")
 T_GRID = (100.0, 1000.0, 6000.0)
 PSI_GRID = np.logspace(2.0, 6.0, 9)
 NC_EDGES = (20, 40, 70, 120, 270)                    # 20: WD01's a_min = 3.5 A
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 
 
 def radius_cm(nc):

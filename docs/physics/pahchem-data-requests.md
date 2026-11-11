@@ -82,8 +82,10 @@ dehydrogenated species, report the two lowest multiplicities.
    the reaction energies along the ladder.
 3. **Ionisation and attachment energies.** Adiabatic and vertical IP$_1$–IP$_3$
    and EAs (ΔSCF) over the same ladder, calibrated against experimental IP$_1$
-   for pyrene and coronene. The benchmark models extrapolate these with a
-   constant 0.1 eV per missing H.
+   for pyrene and coronene. The benchmark models extrapolated these with a
+   constant 0.1 eV per missing H. Since 2026-11-10 the baseline takes our own
+   B3LYP ΔSCF ladders (N_H0 − 4 … N_H0 + 2; `pahchem.threshold_shifts`).
+   Higher-level values, and the deeper and bare states, are still wanted.
 4. **Optional.** If the ML-MD route is available, temperature-dependent band
    shifts and widths for the three parents.
 
