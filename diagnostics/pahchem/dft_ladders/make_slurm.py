@@ -56,7 +56,8 @@ def main():
                      f"#SBATCH --time={args.time}", f"#SBATCH --output={out}/{name}_%j.out"]
             if args.partition:
                 lines.append(f"#SBATCH --partition={args.partition}")
-            lines += [args.setup, f"export PY={args.python}", f"export LADDER_MAX_MEMORY={mem[parent]}",
+            lines += [args.setup, f"export PY={args.python}", f"export PYSCF_TMPDIR={args.root}/tmp_pyscf",
+                      f"mkdir -p {args.root}/tmp_pyscf", f"export LADDER_MAX_MEMORY={mem[parent]}",
                       f"export LADDER_MAXSTEPS={steps[parent]}",
                       f"bash {args.root}/scripts/run_queue.sh {args.root} {out}/{name}.jobs {npar} {threads}"]
             (out / f"{name}.sbatch").write_text("\n".join(l for l in lines if l) + "\n")

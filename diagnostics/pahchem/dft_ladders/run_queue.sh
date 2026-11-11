@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the ladder jobs of JOBS (lines "rel z two_s diffuse", from make_ladder.py) NPAR at a time, THREADS threads each, at
-# nice 19 (megatron, or inside a DIaL3 node job: make_slurm.py). LADDER_MAX_MEMORY [MB] caps each job, LADDER_MAXSTEPS its optimisation steps. Usage: run_queue.sh ROOT JOBS [NPAR] [THREADS]. Launch detached:
+# nice 19 (megatron, or inside a DIaL3 node job: make_slurm.py). LADDER_MAX_MEMORY [MB] caps each job, LADDER_MAXSTEPS its optimisation steps;
+# LADDER_EXTRA is added to each run_state.py call (e.g. --sp-only), LADDER_SUFFIX to its .out name. Usage: run_queue.sh ROOT JOBS [NPAR] [THREADS]. Launch detached:
 #   setsid nohup bash run_queue.sh ROOT JOBS 6 16 > ROOT/queue.log 2>&1 < /dev/null &
 set -u
 ROOT=$1; JOBS=$2; NPAR=${3:-6}; THREADS=${4:-16}
@@ -12,8 +13,8 @@ grep -v '^\s*$' "$JOBS" | xargs -P "$NPAR" -L 1 bash -c '
   tag=q$(printf "%+d" "$z")_s$s
   echo "$(date +%F_%T) start $rel $tag"
   nice -n 19 "'"$PY"'" "'"$HERE"'/run_state.py" "'"$ROOT"'" "$rel" "$z" "$s" "$dif" --threads "'"$THREADS"'" \
-      --max-memory "'"${LADDER_MAX_MEMORY:-12000}"'" --maxsteps "'"${LADDER_MAXSTEPS:-150}"'" \
-      > "'"$ROOT"'/$rel/$tag.out" 2>&1
+      --max-memory "'"${LADDER_MAX_MEMORY:-12000}"'" --maxsteps "'"${LADDER_MAXSTEPS:-150}"'" '"${LADDER_EXTRA:-}"' \
+      > "'"$ROOT"'/$rel/$tag${LADDER_SUFFIX:-}.out" 2>&1
   echo "$(date +%F_%T) end   $rel $tag exit $?"
 '
 echo "$(date +%F_%T) queue done"

@@ -96,9 +96,10 @@ def states(types, xyz):
 
 
 def spins(n_elec, nh, nh0, z):
-    """2S of the jobs of one (state, charge): doublet if odd; singlet, plus triplet for dehydrogenated, bare or z = +2."""
+    """2S of the jobs of one (state, charge): doublet if odd, plus quartet for a dehydrogenated z = +2 (a sigma radical
+    with two pi holes: the doublets came out with <S^2> ~ 1.8); singlet, plus triplet for dehydrogenated, bare or z = +2."""
     if n_elec % 2:
-        return (1,)
+        return (1, 3) if (nh < nh0 and z == 2) else (1,)
     return (0, 2) if (nh < nh0 or z == 2) else (0,)
 
 
