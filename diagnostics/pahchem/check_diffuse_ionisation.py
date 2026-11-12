@@ -93,7 +93,7 @@ chemistry.IONS.setdefault("Ca+", (40.078, 6.113))        # not in pahchem's list
 
 DETACHMENTS = ("jochims", "statistical", "valence")
 STYLE = {"jochims": ("#eb6834", ":"), "statistical": ("#1baf7a", "--"), "valence": ("#2a78d6", "-")}   # as the other V figures
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 BASIS_CACHE = _paths.get_model_data_dir() / "pahchem_population_basis"
 OLD_STARS_PER_G0 = 1.0 / 1.7          # old-star light per unit G0: solar circle at the Draine field
 G_DRAINE = 1.7                        # Draine (1978) field in Habing units (W08)

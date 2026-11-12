@@ -170,8 +170,8 @@ def scan(n_g0=4, n_nh=3, n_e=4, intact_min=0.5, cache=None, lib_name="m20", para
     from pycalima.pahchem.baseline import Params
 
     lib = library(lib_name)
-    if shifts:
-        lib = population.shift_thresholds(lib, shifts)
+    # --ip-shift replaces the default calibration (population.calibrate_thresholds): empty, the DFT thresholds
+    lib = population.shift_thresholds(lib, shifts)
     params = Params() if params is None else params
     pops = {c: population.Population(lib, WINDOWS, local=OOP if c == "local" else (), cache_dir=BASIS_CACHE,
                                      params=params) for c in CONTINUA}

@@ -23,6 +23,12 @@ import scipy.linalg
 import scipy.sparse
 import scipy.sparse.linalg
 
+try:  # optional accelerator (the ``accel`` extra); the NumPy path gives the same numbers
+    from numba import njit
+    HAVE_NUMBA = True
+except ImportError:  # pragma: no cover
+    HAVE_NUMBA = False
+
 
 def gth_stationary(R):
     """Stationary distribution of a continuous-time Markov chain by GTH.
@@ -58,6 +64,80 @@ def gth_stationary(R):
             # The final normalisation makes this exact.
             p[:k + 1] /= p[k]
     return p / p.sum()
+
+
+def _gth_banded_numpy(A, band):
+    """``gth_banded`` in NumPy, on a copy ``A`` it overwrites: (p, ok)."""
+    n = A.shape[0]
+    s = np.zeros(n)
+    for k in range(n - 1, 0, -1):
+        lo = max(0, k - band)
+        s[k] = A[k, lo:k].sum()
+        if not s[k] > 0.0:
+            return np.zeros(n), False
+        A[lo:k, lo:k] += np.outer(A[lo:k, k], A[k, lo:k] / s[k])
+    p = np.zeros(n)
+    p[0] = 1.0
+    for k in range(1, n):
+        lo = max(0, k - band)
+        p[k] = p[lo:k] @ A[lo:k, k] / s[k]
+        if p[k] > 1e250:
+            p[:k + 1] /= p[k]
+    return p / p.sum(), True
+
+
+if HAVE_NUMBA:
+    @njit(cache=True)
+    def _gth_banded_numba(A, band):
+        n = A.shape[0]
+        s = np.zeros(n)
+        for k in range(n - 1, 0, -1):
+            lo = max(0, k - band)
+            t = 0.0
+            for j in range(lo, k):
+                t += A[k, j]
+            s[k] = t
+            if not t > 0.0:
+                return np.zeros(n), False
+            for i in range(lo, k):
+                a = A[i, k]
+                if a != 0.0:
+                    a /= t
+                    for j in range(lo, k):
+                        A[i, j] += a * A[k, j]
+        p = np.zeros(n)
+        p[0] = 1.0
+        for k in range(1, n):
+            lo = max(0, k - band)
+            t = 0.0
+            for i in range(lo, k):
+                t += p[i] * A[i, k]
+            p[k] = t / s[k]
+            if p[k] > 1e250:
+                pk = p[k]
+                for i in range(k + 1):
+                    p[i] /= pk
+        return p / p.sum(), True
+else:  # pragma: no cover
+    _gth_banded_numba = None
+
+
+def gth_banded(R, band):
+    """``gth_stationary`` of a chain whose rates join only states at most ``band`` apart (R[i, j] = 0 for |i - j| > band).
+
+    The elimination never leaves that band (state k is censored into the states k - band ... k - 1, the only ones it
+    reaches), so it costs O(n band^2) instead of O(n^3) and gives the same populations to round-off, with the same high
+    relative accuracy. Rates outside the band raise. Returns None if the chain is not irreducible."""
+    A = np.array(R, dtype=float)
+    np.fill_diagonal(A, 0.0)
+    n = A.shape[0]
+    i, j = np.nonzero(A)
+    if i.size and np.abs(i - j).max() > band:
+        raise ValueError(f"rates join states {np.abs(i - j).max()} apart, beyond the band {band}")
+    if n == 1:
+        return np.ones(1)
+    p, ok = (_gth_banded_numba if HAVE_NUMBA else _gth_banded_numpy)(A, int(band))
+    return p if ok else None
 
 
 @dataclass

@@ -44,7 +44,7 @@ from pycalima.pahchem import population
 from pycalima.pahchem.baseline import NGC7023_EDGE, ORION_BAR_ATOMIC, Environment, Params
 from pycalima.plotting_style import use_calima_style
 
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 #: label -> (Environment, source); n_h is the atomic H of the paper's balance (0 where it has none)
 PHASES = {
     "WD01 CNM": (Environment("WD01 CNM", 1.13, 0.0, 0.03, 100.0, None), "WD01 Sect. 4"),

@@ -50,7 +50,7 @@ from pycalima.pahchem import population
 from pycalima.pahchem.baseline import Environment, Params
 from pycalima.plotting_style import use_calima_style
 
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 X_E = 1.6e-4
 #: name -> (G0, n [cm^-3], T [K])
 ENVIRONMENTS = {"diffuse": (2.0, 50.0, 80.0), "NGC 7023 PDR": (2600.0, 2e4, 500.0),

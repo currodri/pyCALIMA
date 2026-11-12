@@ -54,7 +54,7 @@ from pycalima import _paths
 from pycalima.pahchem import conditions, dos, emission, energy_me, photo, population, spectral_fit
 from pycalima.pahchem.baseline import Environment, Params
 
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 PARAMS = Params(stretch_scale=population.LAB_STRETCH_SCALE)
 DE_CM, E_MAX_CM = 100.0, 16.0 * dos.CM_PER_EV
 K_CM = 0.6950348                                     # k_B [cm^-1 / K]

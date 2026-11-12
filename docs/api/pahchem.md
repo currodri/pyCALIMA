@@ -47,6 +47,7 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.montillaud13
    pycalima.pahchem.andrews16
    pycalima.pahchem.baseline
+   pycalima.pahchem.threshold_shifts
    pycalima.pahchem.allain96
    pycalima.pahchem.lepage01
    pycalima.pahchem.murga_data

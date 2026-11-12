@@ -42,9 +42,10 @@ VARIANTS = {
     "H eta = 0.46, f = 0.2": ({"capture_scale": 0.46, "attachment_fraction": 0.2}, W.IP_SHIFTS),
     "I capture_model lab_trend": ({"capture_model": "lab_trend"}, W.IP_SHIFTS),
     "J statistical detachment": ({"detachment": "statistical"}, W.IP_SHIFTS),
-    "K no IP shifts": ({}, {}),
-    "L eta = 0.46, no IP shifts": ({"capture_scale": 0.46}, {}),
-    "M eta = 0.46, f = 0.2, no IP shifts": ({"capture_scale": 0.46, "attachment_fraction": 0.2}, {}),
+    "K no IP shifts": ({"threshold_calibration": "none"}, {}),
+    "L eta = 0.46, no IP shifts": ({"capture_scale": 0.46, "threshold_calibration": "none"}, {}),
+    "M eta = 0.46, f = 0.2, no IP shifts": ({"capture_scale": 0.46, "attachment_fraction": 0.2,
+                                           "threshold_calibration": "none"}, {}),
 }
 T_USE = (1000.0, 6000.0)
 RANGES = (("psi <= 1e3", 0.0, 1e3), ("1e3 < psi <= 1e4", 1e3, 1e4), ("psi >= 1e5", 1e5, 1e9))

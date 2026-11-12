@@ -947,6 +947,178 @@ higher charges, as before). In the population every molecule runs from its lowes
   - the electron-impact ionisation's 1.3–2.3× excess over BEB (gate G2), inherited here;
   - thermal ions' impact ionisation (keV protons at 10⁷–10⁸ K) and doubly charged ions (He²⁺).
 
+### 2.2h The joint charge–hydrogenation chain (2026-11-08)
+
+`Params.hydrogen_chain = "joint"` (opt-in; `Population._joint_distributions`) replaces the charge-averaged chain with one
+(Z, N_H) network per molecule. N_H runs from 0 to N_H0 + `superh_levels` (4 by default). The network is solved for its
+steady state by `network.gth_banded`. The default (`"charge_averaged"`) is unchanged.
+
+- *Why.* The GSD/RAMSES tables need super-hydrogenated states and a charge that depends on N_H. In the charge-averaged chain
+  both were missing. In shielded gas, averaging the hydrogen rates over charge also fails: there H addition to neutrals and
+  Eley–Rideal abstraction outrun charge exchange (the GSD session's check against BaselineModel's full network).
+- *What it holds.*
+  - **Charge steps.** Those of `charge_matrix`, the same at every N_H. The one exception is the valence single
+    photoionisation, whose threshold shifts (below).
+  - **Hydrogen steps.** Taken per charge, not averaged.
+  - **Protons.** dZ = −1, dN_H = −1.
+  - **The barrier-limited top.** Steps past it land on the top with an H less per charge.
+  - **Deposit-driven losses.** Each moves a share of the charge step it rides on to N_H − 1 or N_H − 2.
+  - **Above N_H0.** BaselineModel's chemistry: the photo-loss of an extra H (`superh_loss_table`, its own disk cache),
+    H addition (barriers 0.06 / 0.035 eV on the first and third extra H), and Eley–Rideal abstraction releasing H2 (counted
+    in `hydrogenation_summary`).
+  - **Emission.** The super-hydrogenated states emit as the parent.
+
+**Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
+before quoting):
+
+| Choice | Verdict |
+|---|---|
+| Joint (Z, N_H) network | The norm: {cite:t}`Montillaud2013` and {cite:t}`Boschman2015` track charge and hydrogenation together, and so does {cite:t}`Andrews2016`. No model found averages hydrogen rates over an N_H-independent charge. |
+| IP +0.1 eV per missing H | Andrews+16's rule comes from Malloci et al. (2008, A&A 489, 1183): B3LYP ΔSCF IP1 of coronene's even states, 7.02 → 8.25 eV from C24H12 to C24 (0.103 eV per H). One molecule, even N_H, IPs only. PAHdb v4.00's four C96 pairs give −0.03 to −0.05 eV per H. |
+| EA shifted as the IP | Contradicted for odd N_H: aryl σ radicals have EAs 1.0–1.6 eV above their parents' (phenyl 1.10, 1-naphthyl 1.40 eV against ~−0.2 for naphthalene; anthracenyl 1.5–1.7 against 0.53). That is a step, not 0.1 eV per H. |
+| Super-H thresholds −0.1 eV per H | Unsupported: 1-hydronaphthyl's IP is 6.57 eV, 1.5 eV below naphthalene's. |
+| H + PAH anions | Measured only for dehydrogenated anions (C6H5−, C10H7−, C14H9−; Demarais et al. 2012, ApJ 746, 32): associative detachment, (8–10) × 10⁻¹⁰ cm³ s⁻¹, as `associative_detachment` does. Nothing for intact PAH anions. |
+| Super-H up to +4 | Consistent: E0 1.40 / 1.55 eV after Bauschlicher & Ricca (2014); barriers within Rauls & Hornekær (2008) and Boschman+15's 28–64 meV alternation. |
+| Super-H beyond +4 | Contradicted (not modelled): barriers keep alternating (Boschman+15); cations have barriers at the closed-shell +5/+11/+17 (Cazaux+16, Foley+18); binding energies are 1.2–3.6 eV by step and site; abstraction grows with the CH2 sites (gas-phase coronene⁺ needs ≥ 0.45 Å², Foley+18, against our 0.06 from films, {cite:t}`Mennella2012`); C2H2 / CH3 loss sets in from ~+6 (Wolf+16, Cazaux+19). |
+
+What the joint chain does with these:
+- **Threshold shifts.** Since 2026-11-10 they come from the ΔSCF ladders below (`Params.threshold_shifts =
+  "dft_ladder"`), in the joint chain and in BaselineModel. From 2026-11-08 the joint chain had raised only the IPs of
+  the dehydrogenated states, by `ip_shift_per_h`, leaving the EA and the super-H thresholds at the intact molecule's;
+  that is now `"andrews16"`, and `"none"` shifts nothing.
+- **Anion H addition.** Anions add H as neutrals (`anion_h_addition = "as_neutral"`, Population's convention). `"none"`
+  (BaselineModel) and `associative_detachment = "all"` (Andrews+16) are the brackets.
+- **The ΔSCF ladders (2026-11-10).** These ran for C24, C54 and C96 (`diagnostics/pahchem/dft_ladders/`). They used
+  B3LYP adiabatic ΔSCF, with 6-31G* IPs and 6-31+G* EAs, over N_H0 − 4 … N_H0 + 2. The shifts over the parent (eV), for
+  C24 / C54 / C96:
+
+  | State | ΔIP0 | ΔEA | Andrews' rule |
+  |---|---|---|---|
+  | −1 H | +0.02 / +0.02 / +0.02 | +1.19 / +0.51 / +0.06 | +0.1 / +0.1 |
+  | −4 H | +0.30 / +0.18 / +0.13 | +1.06 / +0.27 / (+0.06) | +0.4 / +0.4 |
+  | +1 H | −1.29 / −0.68 / −0.27 | +0.95 / +0.48 / +0.13 | −0.1 / −0.1 |
+  | +2 H | −0.44 / −0.16 / −0.07 | +0.11 / −0.01 / −0.04 | −0.2 / −0.2 |
+
+  - **What the numbers show.** A missing H gives a σ radical, whose anion binds at ~1.7–2.1 eV. So the EA steps up to
+    max(parent EA, σ-anion EA), rather than rising smoothly. An odd extra H gives a CH2 π radical, whose IP is low and
+    whose EA is high.
+  - **The transfer test.** These "lower configuration" forms carried over to four PAHdb molecules of other shapes and
+    edges (UIDs 1969, 2226, 4 and 105): 0.15 eV rms and at most 0.34 eV, against 0.53 / 1.14 for a shift that depends
+    on size only. Edge sites scatter by about ±0.2 eV.
+  - **BaselineModel.** It adds these shifts (`threshold_shifts.LADDER`) to Table A.1. The module docstring lists what
+    was estimated or extended: C96's EA at −2 … −4; beyond −4 (the bare skeletons are polyradicals, DFT fails); beyond
+    +2.
+  - **The joint chain.** It carries the ladder to any molecule with `threshold_shifts.law_shift`, using the molecule's
+    own PAHdb thresholds as the parent:
+    - **Lower-configuration forms** (max or min of the parent's threshold and A + B/√N_C) for the dehydrogenated EAs
+      and for the odd super-H IP0 and EA;
+    - **shift laws** a + b/√N_C for the rest;
+    - the parent EA is compared at 6-31+G*, as PAHdb's + 0.33 eV. A calibrated library (the +0.37 / +0.6 / +0.64 eV
+      of §2.2i, the default) has its offsets removed first, so the calibration is not counted twice
+      (`Molecule.threshold_offsets`);
+    - below N_C 24 C24's shifts are used, and above 96 the shift laws hold C96's values.
+
+    The laws reproduce the ladder to 0.06 eV. The EA enters both directions: the anion's detachment (statistical,
+    `_threshold_factors`) and the neutral's attachment (its s_e, `_attachment_factors`), from the same
+    `attachment.Attachment`. f stays the size logistic of §2.2b at every N_H. The anion's valence-detachment threshold
+    and the deposits' energies keep the intact IPs.
+
+**Validity.** It holds in PDR and diffuse gas. There the super-H share is ≤ 1 % at caps of 4, 8 and 12, and none of the
+choices above moves the results. In UV-shielded gas (G0 ≲ 10⁻², n ≳ 100) H addition outruns the photo-loss, and the
+molecules climb to the ladder's top:
+
+| Molecule, condition | K = 4 | K = 8 | K = 12 |
+|---|---|---|---|
+| C24, G0 = 10⁻³, n = 10⁴: ⟨N_H⟩/N_H0 | 1.33 | 1.67 | 2.0 |
+| C24, G0 = 10⁻², n = 100: super-H share | 0.04 | 0.87 | 1.0 |
+
+`hydrogenation_summary(env)["at_cap"]` reports the top's share. Where it is more than a few per cent, the cap sets the
+answer, not the chemistry.
+
+**Limitations.**
+- An absorbed photon removes at most one extra H. With E0 = 1.4 eV a 7 eV photon could remove three or four, so the
+  super-H loss of highly hydrogenated states is underestimated by up to that factor.
+- The super-H states' own modes are not computed.
+- The ladders' photon-driven losses use the intact thresholds.
+
+**Brackets** (`diagnostics/pahchem/check_joint_hydrogenation.py`, `results/pahchem/joint_hydrogenation/brackets.csv`;
+the compact C24, C54 and C96; Draine field, 100 K, n_e = 1.4 × 10⁻⁴ n_H; G0 10⁻³–10⁴ at n_H 10² and 10⁴; rerun
+2026-11-11 with the ladder's threshold shifts and the calibrated thresholds of §2.2i):
+- **G0/n_H ≳ 10⁻² cm³ (PDR, diffuse).** The super-H share is a few per cent at most. Four of the five brackets leave
+  it there. The exception is associative detachment on every anion (Andrews+16): at G0 = 10², n_H = 10⁴ it gives the
+  intact anions a barrierless route to N_H0 + 1 and lifts C54's and C96's super-H share to 0.5–0.8.
+- **G0/n_H ≲ 10⁻⁴ (shielded, dense).** At n_H = 10⁴ every molecule is at the cap, and so is C96 at n_H = 10². C24 and
+  C54 hold ≤ 4 % super-H at n_H = 10². The brackets move this:
+  - associative detachment on every anion lifts C54 at n_H = 10² to 0.62–0.65;
+  - super-H dS 55.6 J K⁻¹ mol⁻¹ (faster loss to visible photons) takes C96's super-H share from 1.0 to 0.06–0.11 at
+    n_H = 10²;
+  - no H addition to anions keeps C54 and C96 intact at n_H = 10⁴ (super-H share ≤ 0.02), where both are ≥ 97 %
+    anionic.
+
+  σ_ER × 7 and cation super-H addition 1e-12 barely move these.
+
+**Against the first run** (2026-11-08: Andrews' IP-only rule on the DFT thresholds; `brackets_2026-11-08.csv`), the
+same configuration reproduces it exactly. The changes come almost entirely from the calibration:
+- **C54 with no H addition to anions.** The super-H share at n_H = 10⁴, G0 ≤ 1 falls from 0.30–0.70 to ≤ 0.02. This is
+  the EA's +0.37 eV: the anion share rises from 0.92–0.95 to 0.97–0.99, so the neutrals, the only route to H addition
+  here, drop ×2.4–8. The ladder's shifts alone had already taken it to 0.28–0.32, since the super-H anions bind more.
+- **C24 at G0/n_H = 10⁻² strips further.** ⟨N_H⟩/N_H0 goes from 0.25 to 0.16 and the bare share from 0.28 to 0.39. This
+  comes from the IPs' +0.6 eV alone (the EA's and the ladder's shifts leave it within 0.01). The cation share drops
+  from 0.014 to 0.011.
+- **Cation shares in strong fields** (G0/n_H = 1) fall by 0.04–0.06, from the IPs' +0.6 eV: C24 0.55 → 0.51, C54
+  0.76 → 0.71, C96 0.81 → 0.77.
+- **C54 with associative detachment on every anion, n_H = 10².** The super-H share rises from 0.44–0.46 to 0.62–0.65
+  (G0 ≤ 10⁻²), and from 0.14 to 0.20 at G0 = 1. This is the EA: the anion share doubles (0.10 → 0.20 at G0 = 10⁻³),
+  and the anions are what detach into N_H0 + 1.
+- **C96 with no H addition to anions, n_H = 10², G0 = 10⁻².** The super-H share falls from 0.89 to 0.57. Most of this is
+  the IPs (0.69 alone): fewer ionisations push the charge balance negative, so the anion share rises from 0.69 to 0.80.
+  At G0 = 10⁻³ its share at the cap drops from 0.94 to 0.86.
+- The rest moves by < 0.03.
+
+So the PDR and diffuse results stand. The shielded ones hang on the ladder's top, on the super-H transition state, and
+on what H does to an intact anion, none of which is measured.
+
+**Next.** A literature-based chemistry to about +12:
+- Boschman's alternating barriers;
+- the cation closed-shell barriers;
+- abstraction per CH2 site;
+- sequential losses per photon.
+
+Test caps of 8, 12 and 24 until the top holds < 1 %, and validate against Boschman+15 and Foley+18.
+
+### 2.2i The calibrated thresholds, the default (2026-11-11)
+
+PAHdb v4.00's thresholds are adiabatic B3LYP/6-31G* (our ΔSCF runs of §2.2h reproduce them to 0.01 eV).
+`population.CALIBRATED_SHIFTS` raises them against the measured values (Cagliari compilation, Malloci+07;
+`diagnostics/pahchem/calibrate_charge_inputs.py`, 2026-10-07):
+- **EA +0.37 eV.** v4.00 − measured is −0.39 eV, and v4.00 − Malloci's 6-31+G* is −0.35. This is the diffuse functions
+  that 6-31G* lacks:
+  - 6-31+G* raises the EA by a median 0.34 eV (Malloci+07, 24 molecules; our ΔSCF runs, 7, 0.28–0.42 eV);
+  - the rise falls with size, from 0.44 eV at N_C 16 to 0.26 at 96 (0.14 + 1.19/√N_C, rms 0.042 eV against 0.062 for a
+    constant);
+  - 6-31+G* matches the measured EAs, 5 of 6 within 0.1 eV (coronene 0.47 against 0.47).
+
+  The constant is within ~0.1 eV up to N_C ~ 100. Beyond, it is 0.1–0.15 eV high, but there the EA exceeds ~2 eV and
+  s_e has reached f.
+- **IP1 +0.60 eV.** v4.00 − measured is −0.62 eV (−0.48 to −0.70, 16 molecules), B3LYP's known underestimate.
+- **IP2 +0.64 eV.** v4.00 − Malloci is −0.14 eV, and Malloci − measured ≈ −0.5 (wide scatter). IP3 takes the same
+  shift, an assumption: nothing is measured.
+
+**The default since 2026-11-11** is `Params.threshold_calibration = "measured"`; `"none"` keeps the DFT values.
+- **Where it applies.** `Population` and `group_tables.build_bin_table` apply it (`population.calibrate_thresholds`) to
+  the v4.00 molecules the caller has not shifted.
+- **Validated results do not change.** The validation scripts, the PDRs4All and 3.4 µm fits and the RAMSES group
+  tables applied the calibration themselves, with `shift_thresholds`. Molecules shifted that way carry
+  `threshold_offsets` and are left alone.
+- **What changes.** A bare `Population(library_v400(), …)` or `build_bin_table` now gets the calibrated thresholds. Bare
+  coronene at G0 10³, n_H 10⁴ illustrates it: its anion share in the joint chain rises from 5 × 10⁻¹² to 7 × 10⁻⁵ with
+  the intact EA, and is 1.2 × 10⁻⁴ with the ladder shifts either way.
+- **Exceptions.** An explicit `--ip-shift` replaces the default (`fit_pdrs4all_*.py`, `plot_briefing_fits.py`), and an
+  empty one keeps the DFT thresholds, as before. Other libraries (`library_m20`, PAHdb v3.20 at mostly 4-31G) are not
+  calibrated.
+- **Joint chain.** Its ladder laws take the thresholds less these offsets (§2.2h), so the calibration is not counted
+  twice.
+
 ### 2.3 Ion–PAH collisions (new)
 
 **Starting point: Wolfire+08** (ApJ 680, 384), Table 2.

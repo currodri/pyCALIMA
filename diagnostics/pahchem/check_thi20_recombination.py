@@ -45,7 +45,7 @@ from pycalima.pahchem import population as P
 from pycalima.pahchem.baseline import Params
 from pycalima.plotting_style import use_calima_style
 
-SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+SHIFTS = P.CALIBRATED_SHIFTS
 T_TAB = (10.0, 30.0, 100.0, 300.0, 1000.0, 3000.0, 1e4)
 T_PLOT = np.geomspace(10.0, 1e4, 40)
 W_K = {1: 0.0, 2: 36438.8, 3: 72877.6}                    # Table B.3: W / k [K]

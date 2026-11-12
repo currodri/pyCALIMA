@@ -45,7 +45,7 @@ from pycalima.pahchem import conditions, cooling, cosmicpah, demyk2026 as D, dos
 from pycalima.pahchem.baseline import Environment, Params
 from pycalima.pahchem.molecule import _EINSTEIN_A_PER_KM_MOL
 
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 PARAMS = Params(stretch_scale=population.LAB_STRETCH_SCALE)
 FSHAPE = ("kurucz", 40000)
 DE_CM, E_MAX_CM, WINDOW_CM, GRAIN_CM = 100.0, 16.0 * dos.CM_PER_EV, 100.0, 2.0

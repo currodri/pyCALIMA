@@ -69,8 +69,8 @@ def load(cache):
     a = res["args"]
     lib = FP.library(a["library"])
     shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in a["ip_shift"].split(",") if kv)}
-    if shifts:
-        lib = population.shift_thresholds(lib, shifts)
+    # --ip-shift replaces the default calibration (population.calibrate_thresholds): empty, the DFT thresholds
+    lib = population.shift_thresholds(lib, shifts)
     if [m.name for m in lib] != [r[0] for r in res["library"]]:
         raise SystemExit("the library differs from the cached run's; refit with fit_pdrs4all_spectra.py")
     stretch = population.LAB_STRETCH_SCALE if a["stretch_scale"] == "lab" else float(a["stretch_scale"])

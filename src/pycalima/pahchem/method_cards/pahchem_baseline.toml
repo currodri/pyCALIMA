@@ -41,7 +41,7 @@ recurrent_fluorescence_gaps = "equilibrium-geometry f, a lower bound (Subramani+
 sigma = "Berne+22: N_C x the Malloci+07 average per C of nine compact PAHs (N_C 32-66, per charge; +3 takes +2) at 5-30 eV; Li & Draine 2001 at the LD01 radius (neutral tables for Z <= 0, ionised for Z > 0) below 5 eV, where Malloci carries its damping-window floor, and above 30 eV (Params.uv_cross_section = malloci_average, 2026-10-26 to 2026-10-31; li_draine everywhere before). NOW the default is octopus_library (2026-11-01): the 92-state Octopus TD-DFT library through pycalima.pahchem.uvlib, neutrals shifted up 0.4 eV (ad hoc, labelled), isomer mean below C54"
 yield = "Jochims+96 linear ramp; cation -> dication: Wenzel+20 eqs. 4-5 where stated (N_C >= 32, IP2 < 11.3 eV), gated against their measured sigma_I to 0.09 dex rms (test_pahchem_wenzel2020.py); anion photodetachment (default since 2026-10-25, Params.detachment = valence): WD01 prompt plus detailed-balance delayed detachment at the EA, plus valence photodetachment with the Jochims ramp above 2 IP(0) - IP(+1) (population.anion_valence_threshold); before, Jochims at IP = EA with every electron taking E - EA, which overheats the gas at gamma <~ 1e4 (pahchem-gas-coupling.md V9)"
 ionising_photons_heat = "no (sensitivity: yes)"
-ip_ladder = "Andrews+16 Table A.1 + 0.1 eV per missing H"
+ip_ladder = "Andrews+16 Table A.1 at N_H0; at other N_H, the B3LYP Delta-SCF shifts of threshold_shifts.LADDER (since 2026-11-10; 6-31G* IPs, 6-31+G* EAs; N_H0-4 ... N_H0+2 computed, beyond extended; C96 EA at -2..-4 estimated). Before: + 0.1 eV per missing H on every threshold (Params.threshold_shifts = andrews16)"
 
 [electrons]
 capture = "BT94 with DS87 J~, a = 0.9 sqrt(N_C) A, x0.82"

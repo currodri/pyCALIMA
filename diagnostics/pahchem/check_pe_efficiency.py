@@ -57,7 +57,7 @@ from pycalima.pahchem import population
 from pycalima.pahchem.baseline import Environment, Params
 from pycalima.plotting_style import use_calima_style
 
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 G0 = 1.7
 GAMMAS = np.logspace(2.0, 6.0, 17)
 DETACHMENT = ("jochims", "statistical", "valence")

@@ -99,8 +99,8 @@ def run(args):
             return pickle.load(fh)
     lib = FP.library(args.library)
     shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
-    if shifts:
-        lib = population.shift_thresholds(lib, shifts)
+    # --ip-shift replaces the default calibration (population.calibrate_thresholds): empty, the DFT thresholds
+    lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model,
                     capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction,
@@ -187,8 +187,8 @@ def _library_and_population(args):
     else:
         raise SystemExit("--aliphatic needs --library v400")
     shifts = {int(k): float(v) for k, v in (kv.split(":") for kv in args.ip_shift.split(",") if kv)}
-    if shifts:
-        lib = population.shift_thresholds(lib, shifts)
+    # --ip-shift replaces the default calibration (population.calibrate_thresholds): empty, the DFT thresholds
+    lib = population.shift_thresholds(lib, shifts)
     stretch = population.LAB_STRETCH_SCALE if args.stretch_scale == "lab" else float(args.stretch_scale)
     params = Params(capture_scale=args.capture_scale, capture_model=args.capture_model,
                     capture_t_power=args.capture_t_power, attachment_fraction=args.attachment_fraction,

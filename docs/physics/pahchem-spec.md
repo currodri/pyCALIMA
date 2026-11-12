@@ -1355,8 +1355,9 @@ with `--ip-shift/--yield-model/--detachment/--capture-scale`).**
   - IP2 (cation → dication): v4.00 − Malloci = −0.14 eV, and Malloci −
     measured ≈ −0.5 eV (wide scatter).
   - Calibrated shifts: +0.37 (EA), +0.60 (IP1), +0.64 (IP2, IP3)
-    (``population.shift_thresholds``). 6-31G* without diffuse functions
-    underbinds the electron, as expected.
+    (``population.shift_thresholds``; ``population.CALIBRATED_SHIFTS``, the
+    default since 2026-11-11, pahchem-gas-coupling §2.2i). 6-31G* without
+    diffuse functions underbinds the electron, as expected.
 - **Recombination.** Measured PAH⁺ + e⁻ coefficients at 300 K are 0.03–0.37
   of BT94 (median 0.15; N_C ≤ 16). The ratio rises as N_C^1.15 and would
   reach ~2 at N_C ≈ 100 if extrapolated; no measurement exists there.

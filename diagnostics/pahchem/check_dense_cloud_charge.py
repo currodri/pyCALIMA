@@ -72,7 +72,7 @@ from pycalima.pahchem import chemistry, population
 from pycalima.pahchem.baseline import Environment, Params
 from pycalima.plotting_style import use_calima_style
 
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}
+IP_SHIFTS = population.CALIBRATED_SHIFTS
 DETACHMENT = ("jochims", "statistical", "valence")
 #: molecular ion M+: (mass [amu], IP of the neutral [eV]); chemistry.IONS has only atomic ions (2026-10-24)
 MOLECULAR_ION = ("HCO+", (29.018, 8.14))
