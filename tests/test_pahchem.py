@@ -867,6 +867,37 @@ def test_gth_survives_a_chain_rising_beyond_the_float_range():
     assert p[-2] / p[-1] == pytest.approx(1e-12, rel=1e-12)
 
 
+@pytest.mark.parametrize("use_numba", [True, False])
+def test_banded_gth_equals_the_dense_one(use_numba, monkeypatch):
+    """``gth_banded`` on random banded chains whose rates span 30 decades, and on the 150-decade birth-death chain: the
+    same populations as the dense ``gth_stationary`` to relative round-off, through the numba kernel and the NumPy one;
+    rates outside the band raise, a reducible chain returns None."""
+    from pycalima.pahchem import network
+    from pycalima.pahchem.network import gth_banded, gth_stationary
+
+    if use_numba and not network.HAVE_NUMBA:
+        pytest.skip("numba not installed")
+    monkeypatch.setattr(network, "HAVE_NUMBA", use_numba)
+    rng = np.random.default_rng(7)
+    for n, band in ((40, 3), (120, 9), (300, 25)):
+        i, j = np.indices((n, n))
+        R = np.where((np.abs(i - j) <= band) & (rng.random((n, n)) < 0.6), 10.0 ** rng.uniform(-15, 15, (n, n)), 0.0)
+        R[np.arange(n - 1), np.arange(1, n)] += 1e-3                   # keep it irreducible
+        R[np.arange(1, n), np.arange(n - 1)] += 1e-3
+        dense, banded = gth_stationary(R), gth_banded(R, band)
+        assert np.allclose(banded, dense, rtol=1e-11, atol=0.0)
+    n = 60
+    R = np.zeros((n, n))
+    R[np.arange(n - 1), np.arange(1, n)] = 1e-3
+    R[np.arange(1, n), np.arange(n - 1)] = 3.4e-1
+    exact = np.concatenate([[1.0], np.cumprod(np.full(n - 1, 1e-3 / 3.4e-1))])
+    assert np.allclose(gth_banded(R, 1), exact / exact.sum(), rtol=1e-12, atol=0.0)
+    with pytest.raises(ValueError, match="beyond the band"):
+        gth_banded(R, 0)
+    R[5, 4] = 0.0                                                        # state 5 can no longer reach 0 ... 4
+    assert gth_banded(R, 1) is None
+
+
 def test_every_state_of_a_baseline_network_is_balanced(pah_states):
     """C54H18 at G0 = 0.1, nH = 100: the fully dehydrogenated fraction is ~1e-92,
     far below the ~1e-16 a general linear solve resolves (it returned 2e-16 noise).

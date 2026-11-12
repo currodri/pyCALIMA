@@ -15,8 +15,9 @@ and their sources are in ``method_cards/pahchem_baseline.toml``.
 - **Absorption.** Li & Draine sigma per charge; Jochims+96 yields, except
   cation -> dication with Wenzel+20 where it applies (N_C >= 32); ionising
   photons deposit nothing.
-- **Charge and H chemistry.** Table A.1 IP/EA of Andrews+16 with 0.1 eV per
-  missing H; BT94 electron capture with the population's sticking
+- **Charge and H chemistry.** Table A.1 IP/EA of Andrews+16, shifted at
+  N_H != N_H0 by the Delta-SCF ladders of ``threshold_shifts`` (Andrews' 0.1 eV
+  per missing H before 2026-11-10); BT94 electron capture with the population's sticking
   (``BaselineModel.capture_coefficients``: the cation factor of
   ``Params.capture_model``, and on neutrals the attachment fraction times the
   statistical s_e of ``attachment``); the Andrews+16 H addition,
@@ -31,8 +32,8 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from pycalima.pahchem import chemistry, dos, energy_me, fields, photo, rates
-from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2, DELTA_IP, IONISATION, PARENTS
+from pycalima.pahchem import chemistry, dos, energy_me, fields, photo, rates, threshold_shifts
+from pycalima.pahchem.andrews16 import CORONENE_GEOMETRIC_A2, IONISATION, PARENTS
 from pycalima.pahchem.network import PAHNetwork
 
 E_PH = np.linspace(5.0, 13.6, 345)
@@ -158,6 +159,39 @@ class Params:
     addition_cation: float = 1.4e-10         # cm^3 s^-1
     addition_neutral_scale: float = 1.0
     eley_rideal_a2: float = 0.06
+    # population only: how charge and hydrogenation are solved. "charge_averaged" (the default): the intact molecule's
+    # charge chain, then N_H = 0 ... N_H0 with its rates averaged over that charge (charge and hydrogenation independent, no
+    # super-hydrogenated states). "joint" (opt-in, 2026-11-08): one (Z, N_H) network per molecule from bare to
+    # N_H0 + superh_levels, with this module's super-H chemistry (h_superh_e0, addition barriers, Eley-Rideal) and the
+    # thresholds of each N_H shifted by ip_shift_per_h (population, "Joint hydrogenation")
+    hydrogen_chain: str = "charge_averaged"
+    superh_levels: int = 4
+    # population only: H addition to anions: "as_neutral" (the neutral's rates; Population's convention) or "none" (only
+    # associative detachment, as BaselineModel and Andrews+16). Nothing is measured for H + an intact PAH anion
+    # (2026-11-08); a bracket, not a settled choice
+    anion_h_addition: str = "as_neutral"
+    # population "joint" only: H addition to super-hydrogenated cations [cm^3 s^-1]; None: addition_cation at every step
+    # (Andrews+16). A bracket: Montillaud+13 and Murga+20 take 1e-12
+    addition_cation_superh: float | None = None
+    # the thresholds at N_H != N_H0 (since 2026-11-10; pahchem.threshold_shifts):
+    # - "dft_ladder": the Delta-SCF shifts. BaselineModel adds LADDER, its three parents' own; the population's "joint"
+    #   chain adds law_shift, the ladder's size laws, to every threshold, the EA in detachment and attachment too
+    #   (population._threshold_factors, _attachment_factors).
+    # - "andrews16": ip_shift_per_h per missing H. BaselineModel applies it to every threshold, the EA too, and as much
+    #   lower per extra H (Andrews' rule). The joint chain applies it to the IPs of dehydrogenated states only (its
+    #   behaviour from 2026-11-08). Both were the defaults before.
+    # - "none": the intact thresholds at every N_H.
+    # Andrews' rule is too high for the IPs, and wrong for the EA (a step of +1.2 eV at C24's first missing H) and for
+    # super-H states (C24H13's IP 1.29 eV lower, its EA 0.95 higher)
+    threshold_shifts: str = "dft_ladder"
+    # the rise of a threshold per missing H [eV], 0.1 after Andrews+16 eq. 1, from Malloci+08 (B3LYP Delta-SCF IP1 of
+    # coronene's even states, 0.103 eV per H), with threshold_shifts "andrews16"
+    ip_shift_per_h: float = 0.1
+    # population and group_tables only: PAHdb v4.00's B3LYP/6-31G* thresholds against the measured ones
+    # (population.calibrate_thresholds). "measured" (the default since 2026-11-11) adds population.CALIBRATED_SHIFTS to
+    # the v4.00 molecules not already shifted by the caller; "none" keeps the DFT values. BaselineModel's thresholds
+    # are Andrews' Table A.1 and take neither
+    threshold_calibration: str = "measured"
     # carbon loss of the bare skeleton (a key of CARBON_LOSS)
     carbon_loss: str = "leger89"
     # recurrent fluorescence of the charges in RF_LEVELS (H-bearing states; not the bare skeleton)
@@ -357,8 +391,17 @@ class BaselineModel:
         return ch
 
     def ionisation_energy(self, z, nh):
+        """Threshold z (Z -> Z+1; z = -1 the EA) of state N_H: Table A.1's at N_H0, shifted per ``Params.threshold_shifts``."""
         ip = IONISATION[self.parent].get(z)
-        return None if ip is None else ip + DELTA_IP * (self.nh0 - nh)
+        if ip is None:
+            return None
+        if self.p.threshold_shifts == "dft_ladder":
+            return ip + threshold_shifts.ladder_shift(self.parent, nh - self.nh0, z)
+        if self.p.threshold_shifts == "andrews16":
+            return ip + self.p.ip_shift_per_h * (self.nh0 - nh)
+        if self.p.threshold_shifts == "none":
+            return ip
+        raise ValueError(f"threshold_shifts must be 'dft_ladder', 'andrews16' or 'none', not {self.p.threshold_shifts!r}")
 
     # -- rates -----------------------------------------------------------------
     def photo_rates(self, env):
@@ -484,6 +527,7 @@ PERTURBATIONS = {
     "ionisation yield: Le Page": ({"yield_model": "lepage"}, None),
     "cation ionisation yield: Jochims": ({"yield_cation": "jochims"}, None),
     "ionising photons heat": ({"ionising_photons_heat": True}, None),
+    "thresholds: Andrews' 0.1 eV per H": ({"threshold_shifts": "andrews16"}, None),
     "electron capture x/6.5 (range)": ({"capture_scale": 1 / 6.5}, {"capture_scale": 1.0}),
     "neutral sticking 1e-2": ({"sticking_neutral": 1e-2}, None),
     "cation H addition x0.5 / x2": ({"addition_cation": 0.7e-10}, {"addition_cation": 2.8e-10}),

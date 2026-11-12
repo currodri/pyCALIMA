@@ -182,9 +182,10 @@ def combine(kernels, weights, L0, L1, n_E=N_E_PER_GROUP, Ts=rg.TS_GRID, lT=LT, l
 def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELECTRON_PARTITION,
                     group_L0=rg.DEFAULT_GROUP_L0, group_L1=rg.DEFAULT_GROUP_L1, n_E=N_E_PER_GROUP,
                     Ts=rg.TS_GRID, lT=LT, workers=1, label=""):
-    """The table of one bin: the molecules of ``library`` with weight > 0 (each must be ``complete``)."""
+    """The table of one bin: the molecules of ``library`` with weight > 0 (each must be ``complete``), their thresholds
+    calibrated per ``Params.threshold_calibration`` (``population.calibrate_thresholds``)."""
     w = np.asarray(weights, dtype=float)
-    mols = [m for m, x in zip(library, w) if x > 0]
+    mols = pop.calibrate_thresholds([m for m, x in zip(library, w) if x > 0], params)
     if not mols:
         raise ValueError("no molecule in the bin")
     if not all(complete(m) for m in mols):
@@ -205,7 +206,7 @@ def build_bin_table(library, weights, params=Params(), partition=photo.PHOTOELEC
             f"attachment_fraction={params.attachment_fraction} attachment_model={params.attachment_model} "
             f"attachment_ea_half={params.attachment_ea_half} attachment_ea_width={params.attachment_ea_width} "
             f"attachment_nc_half={params.attachment_nc_half} attachment_nc_power={params.attachment_nc_power} attachment_f_low={params.attachment_f_low} uv_cross_section={photo.uv_model_key(params.uv_cross_section)} "
-            f"partition={partition}")
+            f"threshold_calibration={params.threshold_calibration} partition={partition}")
     return combine(kernels, w[w > 0], group_L0, group_L1, n_E, Ts, lT, label, meta)
 
 
@@ -371,7 +372,7 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--out", type=Path, default=None, help="output directory (default model_data/pahchem_group_tables)")
     a = ap.parse_args(argv)
-    lib = pop.shift_thresholds(pop.library_v400(), {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64})
+    lib = pop.library_v400()                 # build_bin_table calibrates the thresholds (population.CALIBRATED_SHIFTS)
     w = nc_range_weights(lib, *a.nc)
     tab = build_bin_table(lib, w, params=Params(detachment=a.detachment), workers=a.workers, label=a.label)
     out = a.out or Path(get_model_data_dir()) / "pahchem_group_tables"
