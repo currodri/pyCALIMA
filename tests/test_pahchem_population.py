@@ -250,6 +250,32 @@ def test_statistical_detachment_gives_slow_electrons_and_bounded_efficiency():
     assert jochims.photoelectric_heating(env)[2][0] > 0.15                     # full-excess electrons
 
 
+@pytest.mark.parametrize("name, shifts", [("C30H14 (7277)", {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}),
+                                          ("C32H14 (591)", {})])
+def test_detachment_near_the_ea_leaves_no_negative_internal_energy(name, shifts):
+    """Anions whose EA lies a few meV below a node of E_PH: C30H14 (7277)- with the calibrated threshold shifts (EA
+    1.0207 eV, 4.3 meV below 1.025 eV) and C32H14 (591)- with the DFT ones (EA 0.9974 eV, 2.6 meV below 1.0 eV). There
+    the delayed electron's mean energy on the attachment grid exceeded the excess, and ``ionisation_deposits`` raised
+    (E_int -2.8e-10 and -4.2e-10 eV; three DFT-threshold anions of v4.00 did). The detached electron takes at most
+    E - EA, so E_int >= 0."""
+    from pycalima import _paths
+    from pycalima._datasets import DatasetUnavailable
+    from pycalima.pahchem.baseline import Params
+
+    try:
+        lib = population.library_v400(min_nc=21, cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
+    except DatasetUnavailable:
+        pytest.skip("PAHdb v4.00 not installed")
+    mol = next(m for m in population.shift_thresholds(lib, shifts) if m.name.startswith(name))
+    params, ea, e = Params(), mol.ionisation_ev[-1], population.E_PH
+    above = e > ea
+    assert 0.0 < e[above].min() - ea < 0.005
+    assert np.all(population.electron_energy(mol, -1, params)[above] <= e[above] - ea + 1e-12)
+    shape = population.field_shape(Environment("cell", 15.35, 816.3, 7.99, 61.35, 15000, optical_isrf=0.0))
+    (dz, k, e_int, _), = population.ionisation_deposits(mol, -1, params, shape)
+    assert dz == 1 and k > 0.0 and np.all(e_int >= 0.0)
+
+
 @pytest.mark.parametrize("detachment", ["jochims", "statistical"])
 def test_ionising_photons_heat_conserves_the_absorbed_energy(detachment):
     """With ``ionising_photons_heat``, internal energy + electron energy + binding work = absorbed energy, for

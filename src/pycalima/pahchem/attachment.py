@@ -208,13 +208,21 @@ class Attachment:
         the detailed-balance autodetachment spectrum averaged over where along the cascade it leaves. These
         are the thermionic electrons of internally converted UV absorptions (Bull+15); direct detachment is
         separate. Energies above the grid raise.
+
+        Both are held to energy conservation, which the grid alone does not keep within a few grains of the EA (it
+        rounds the EA to a grain, the window averages in the next bins, and P_det and its energy are interpolated
+        apart): P_det = 0 at and below the EA, and the electron takes at most E - EA. These bounds change the result
+        only there (by up to ~1.5 grains in the energy), where the excess is shorter than the neutral's lowest mode
+        and the electron takes all of it.
         """
         e = np.asarray(energy_cm, dtype=float)
         if (e > self.energy_cm[-1]).any():
             raise ValueError("energy above the attachment grid; raise e_excess_cm")
-        p = 1.0 - np.interp(e, self.energy_cm, self.p_stab)
+        excess = e - self.ea_cm
+        p = np.where(excess > 0.0, 1.0 - np.interp(e, self.energy_cm, self.p_stab), 0.0)
         w = np.interp(e, self.energy_cm, self.w_detach)
-        return p, np.divide(w, p, out=np.zeros_like(p), where=p > 1e-300)
+        eps = np.divide(w, p, out=np.zeros_like(p), where=p > 1e-300)
+        return p, np.minimum(eps, np.maximum(excess, 0.0))
 
     def sticking(self, temperature_k, neutral_energy_cm=None, neutral_weights=None, t_vib_k=None):
         """s_e = <P_stab(EA + E_n + eps)> over the capture flux and the neutral's E_n (per anion formed: the
