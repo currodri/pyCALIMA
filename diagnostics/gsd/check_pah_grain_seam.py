@@ -15,7 +15,9 @@ For each bin this builds both, at the bin's mean N_C, and compares:
    cells (fixed inputs, not predictions; ``CELLS``).
 
 The molecules of a bin are all the complete ones (charges -1..+2) of PAHdb v4.00
-(``population.library_v400``), or a random ``--max-mol`` of them. Needs the PAHdb
+(``population.library_v400``), or a random ``--max-mol`` of them, with pahchem's default calibration of their DFT
+thresholds (``population.calibrate_thresholds``, as ``group_tables.build_bin_table`` applies it; runs before
+2026-11-12 used the raw PAHdb thresholds). Needs the PAHdb
 v4.00 library ($CALIMA_PAHDB_DIR), the DustEM data ($CALIMA_DUSTEM_DIR) and the Jones
 (2012) tables. Prints the comparison; writes a figure.
 
@@ -118,6 +120,8 @@ def main(argv=None):
     ap.add_argument("--max-mol", type=int, default=60, help="molecules per bin (0: all)")
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--out", default=None, help="figure path")
+    ap.add_argument("--raw-thresholds", action="store_true",
+                    help="PAHdb's DFT thresholds, uncalibrated (shift_thresholds(lib, {}))")
     args = ap.parse_args(argv)
 
     from pycalima.pahchem import population as pop
@@ -125,6 +129,8 @@ def main(argv=None):
     layout = CarbonLayout()
     edges = bins(layout)
     lib = pop.library_v400()
+    # the thresholds the tables use, printed and plotted
+    lib = pop.shift_thresholds(lib, {}) if args.raw_thresholds else pop.calibrate_thresholds(lib)
     pahs = pah_tables(lib, edges, args.max_mol, args.workers)
     rows = []
     for (lo, hi), pah in zip(edges, pahs):
@@ -164,10 +170,10 @@ def main(argv=None):
             print(f"         ac  f = [{fg[-1]:.3f} {fg[0]:.3f} {fg[1]:.3f} {fg[2]:.3f}] (<-1 {fg['<-1']:.3f}, >2 {fg['>2']:.3f}) "
                   f"<Z> {r['gr_Z']:+.2f}  G/C {r['gr_gamma'] / nc:.2e}  L/C {r['gr_lam'] / nc:.2e}")
         rows.append(dict(lo=lo, hi=hi, nc=nc, a=a, pah=pah, cells=cells, gt=gt, tab=tab))
-    plot(rows, lib, args.out)
+    plot(rows, lib, args.out, raw=args.raw_thresholds)
 
 
-def plot(rows, lib, out):
+def plot(rows, lib, out, raw=False):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -192,7 +198,7 @@ def plot(rows, lib, out):
         ax.plot(ncg, g20, ":", color=c)
     ax.set_xscale("log")
     ax.set_xlabel(r"$N_{\rm C}$")
-    ax.set_ylabel("threshold [eV] (dots: PAHdb; lines: ac; dotted: DustEM)")
+    ax.set_ylabel(f"threshold [eV] (dots: PAHdb, {'raw' if raw else 'calibrated'}; lines: ac; dotted: DustEM)")
     ax.legend(frameon=False, fontsize=8)
     for j, (cell, ax) in enumerate(zip(("WNM", "PDR"), axs[1:])):
         nc = [r["nc"] for r in rows]

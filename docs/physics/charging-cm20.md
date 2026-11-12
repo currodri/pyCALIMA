@@ -317,13 +317,48 @@ nodes keep every quantity within 1%.
 In the PAH-size bins (N_C 20–400) the aromatic carbon is charged with pahchem's
 PAH tables (`pahchem.group_tables`); above N_C,max the same carbon is charged as
 `ac`. `diagnostics/gsd/check_pah_grain_seam.py` builds both at each bin's mean N_C
-(PAHdb v4.00 molecules) and compares them in fixed test cells. In every bin and cell
-the PAH tables heat the gas 4.5–7.5 times more per C atom than `ac`, and charge it
-less positively. In dense gas the PAHs stay neutral (0.1–0.5% anions), where `ac`
-grains carry 25–37% anions.
+(60 PAHdb v4.00 molecules per bin, with pahchem's default threshold calibration) and
+compares them in fixed test cells. The 2026-11-12 run
+(`results/carbon_plan/check_pah_grain_seam.txt`) gives:
+
+- **Heating per C atom.** The PAH tables heat the gas 0.9–2.7 times as much as `ac` in
+  bin 1 (N_C 20–42), and 1.9–3.6 times in bins 2–4, most in the WNM and PDR cells.
+- **Charge in lit gas.** In the WNM and PDR cells the PAHs are less positive than `ac`
+  in every bin (PDR ⟨Z⟩ +0.32 to +0.63, against +0.63 to +1.47).
+- **Anions in CNM and dense gas.** Bins 2–4 carry 40–75% anions, against 22–37% for
+  `ac`. Bin 1 stays mostly neutral: 2–6% anions, against 17–25%.
+
+**What moved since the 2026-10-30 run.** That run gave 4.5–7.5 times the heating in the
+WNM, CNM and PDR cells, and 0.1–0.5% anions in dense gas. It used pahchem as of
+2026-10-24, the last main this branch had merged. Rerunning that code reproduces it.
+The `ac` side has not changed since; the PAH side has. Bisecting pahchem on bin 2
+(`results/carbon_plan/seam_attribution/`) gives:
+
+| pahchem change | WNM heating | dense-gas anions |
+|---|---|---|
+| 2026-10-24 review fixes (`54fabe7`) | −7% | 0.2% |
+| valence photodetachment of anions, the default from 2026-10-25 (`87c4b7b`) | −51% (PDR −13%) | 0.2% |
+| associative detachment by H on dehydrogenated anions only, 2026-10-26 (`1985d5d`) | – | 0.2% → 58% |
+| UV cross section Li & Draine → Malloci average → Octopus library (2026-10-28, 11-01) | −10 to −19% (all cells) | 53% → 49% |
+| the measured threshold calibration (`population.CALIBRATED_SHIFTS`), 2026-11-11 | −2 to −20% | up, to 62% |
+
+The 2026-11-02 capture defaults (lab-fitted cation sticking, size-logistic attachment)
+and the charge ladder do not enter the group tables' cell solve (±0.05 in the anion
+share). With PAHdb's raw thresholds (`--raw-thresholds`,
+`check_pah_grain_seam_raw.txt`) the heating ratio is 1.1–4.0 and the dense-gas anion
+share 4–72%.
+
+The dense-gas anions rest on one choice. Associative detachment
+(7.8×10$^{-10}$ cm$^3$ s$^{-1}$, Demarais et al. 2012) is measured on dehydrogenated
+anions only, so pahchem no longer applies it to intact ones. With it on every anion
+(`Params.associative_detachment = "all"`) dense-gas PAHs are neutral again: 0.2% anions
+in bin 2, and the other cells' heating unchanged.
 
 Swapping one ingredient at a time from the PAH side into `ac`, in a four-state chain
-that reproduces both models (N_C ≈ 63), multiplies the `ac` heating by:
+that reproduces both models (N_C ≈ 63), multiplies the `ac` heating by the factors
+below. This decomposition was made with the 2026-10-24 pahchem (before valence
+detachment and the restricted associative detachment) and raw thresholds, and has not
+been redone:
 
 | ingredient | WNM | CNM | PDR |
 |---|---|---|---|
@@ -335,17 +370,21 @@ that reproduces both models (N_C ≈ 63), multiplies the `ac` heating by:
 
 What the measurements say about each:
 
-- **Thresholds.** PAHdb's DFT ionisation energies, which the PAH tables use, run
-  0.4–0.6 eV below measured values for the same molecules: coronene 6.79 against
-  7.29, ovalene 6.13–6.28 against 6.71, benzo[ghi]perylene 6.24–6.57 against 7.15,
-  hexabenzocoronene 6.31 against 6.86. `ac`'s formula is within 0.1–0.3 eV for most.
+- **Thresholds.** PAHdb's DFT ionisation energies run 0.4–0.6 eV below measured
+  values for the same molecules: coronene 6.79 against 7.29, ovalene 6.13–6.28
+  against 6.71, benzo[ghi]perylene 6.24–6.57 against 7.15, hexabenzocoronene 6.31
+  against 6.86. `ac`'s formula is within 0.1–0.3 eV for most. Since 2026-11-11 the
+  PAH tables calibrate them by default (EA +0.37 eV, IP1 +0.60, IP2 and IP3 +0.64).
+  The calibrated medians lie within 0.1 eV of `ac`'s first IP in bins 1–3; in bin 4
+  (5 molecules) they lie 0.7 eV below it.
   The PAH thresholds also feed the energy of their photoelectrons (0.46 of
   $h\nu - {\rm IP}$).
 - **Cation recombination.** The measured rates at 300 K for N_C 6–16 (pahchem's
   `pah_electron_recombination.csv`) are 0.3–4.1×10$^{-6}$ cm$^3$ s$^{-1}$. `ac`, with
-  WD01's sticking, gives 1.1–2.1×10$^{-6}$, within a factor of 2. The PAH default
-  (BT94 with sticking 1) gives 0.7–1.1×10$^{-5}$, 3–30 times too high. pahchem's
-  optional `lab_trend` follows the data. The measured/`ac` ratio rises with N_C
+  WD01's sticking, gives 1.1–2.1×10$^{-6}$, within a factor of 2. BT94 with
+  sticking 1 (pahchem's default until 2026-11-02) gives 0.7–1.1×10$^{-5}$, 3–30 times
+  too high. The default since is the lab-fitted sticking `lab_cold`; `lab_trend` also
+  follows the data. The measured/`ac` ratio rises with N_C
   (≈0.5 at N_C ≤ 12, 1.2–2 at 14–16).
 - **Neutral attachment.** C$_{60}$ (Viggiano et al. 2010) gives $s_e\approx0.8$,
   close to pahchem's statistical value (≈1 above N_C ≈ 50) and 4 times WD01's 0.19.

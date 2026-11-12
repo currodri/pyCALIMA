@@ -20,7 +20,8 @@ full $(Z, N_{\rm H})$ network:
 - RRKM H and H₂ loss from West et al. (2018), in a multiphoton cascade;
 - states from bare to $N_{\rm H,0}+4$, with Andrews et al. (2016) H addition and Eley–Rideal
   abstraction;
-- an IP that rises by 0.1 eV per missing H;
+- thresholds away from $N_{\rm H,0}$ from B3LYP ΔSCF ladders (`Params.threshold_shifts = "dft_ladder"`,
+  the default since 2026-11-11; see Caveats for the earlier +0.1 eV per missing H);
 - charges from the anion up.
 
 Three parents stand for three of the four molecular bins of the default `CarbonLayout`:
@@ -87,15 +88,16 @@ at G0/$n$(H) ≈ 10⁻⁵–10⁻³ (the third row of `_T1.png`). There, H addit
 abstraction on the super-hydrogenated states run faster than charge exchange:
 
 - the charge and the hydrogen state are then correlated;
-- the steady state of the fast-charge chain misses the full network's by up to 0.86 for C₂₄ and ~0.5
-  for C₅₄ and C₉₆, mostly in the super-hydrogenated share.
+- the steady state of the fast-charge chain misses the full network's by up to 0.86 for C₂₄, 0.34 for
+  C₅₄ and 0.46 for C₉₆, mostly in the super-hydrogenated share.
 
 The equilibrium of the full network is not affected. Two conclusions follow:
 
 - An equilibrium table must come from the full network offline. It cannot be rebuilt in RAMSES from
   charge-averaged rates.
 - On the charge tables' $N_{\rm H}$ axis: the intact-state charge (FC0) adds a cation-fraction error of
-  0.09 for C₂₄ where it is bare (the NGC 7023 edge), and ≤ 0.03 for C₅₄ and C₉₆.
+  0.07 for C₂₄ at the NGC 7023 edge (0.08 over the T1 grid where it is bare), and ≤ 0.03 for C₅₄
+  and C₉₆.
 
 ## T3–T6: parcels
 
@@ -111,9 +113,9 @@ step (exp). The worst absolute error over $x=\langle N_{\rm H}\rangle/N_{\rm H,0
 
 | parent | where | E | C, exp |
 |---|---|---|---|
-| C₅₄, C₉₆ | every path | ≤ 0.003 | ≤ 0.002 |
+| C₅₄, C₉₆ | every path | ≤ 0.002 | ≤ 0.002 |
 | C₂₄ | NGC 7023, Horsehead, CNM ↔ WNM | ≤ 0.02 | ≤ 0.005 |
-| C₂₄ | deep Orion Bar (G0 1–100 at $n_{\rm H}\sim10^6$) | 0.21–0.50 | 0.21–0.31 (the super-H share) |
+| C₂₄ | deep Orion Bar (G0 1–100 at $n_{\rm H}\sim10^6$) | 0.23–0.51 | 0.23–0.34 (the super-H share) |
 
 - **The step** adds ≤ 0.03 to the closure's error, for steps of 10²–10⁴ yr.
 - **C₅₄ and C₉₆** stay intact through all three PDRs under this physics. Their transitions lie at
@@ -160,7 +162,7 @@ compared with the true mixture:
 
 | bins | where | treatment |
 |---|---|---|
-| 2–3 (C₅₄, C₉₆) | PDR fronts and shielded layers (NGC 7023, Orion Bar, Horsehead), diffuse phases | **E** (errors ≤ 0.003) |
+| 2–3 (C₅₄, C₉₆) | PDR fronts and shielded layers (NGC 7023, Orion Bar, Horsehead), diffuse phases | **E** (errors ≤ 0.002) |
 | 2–3 | within ×10 of their transitions (G0/$n$(H) ≈ 30–100 for C₅₄, 10³–10⁴ for C₉₆) when conditions change on ≲ 10⁵ yr | **F** (E and one scalar off by 0.2–0.9) |
 | 1 (C₂₄) | lit PDR layers, the Horsehead, CNM ↔ WNM | **E** (≤ 0.02) |
 | 1 | dense transition layers (deep Orion Bar) | **F** for the super-H share; E and C off by 0.2–0.5 |
@@ -189,7 +191,9 @@ intact molecule's charge for every $N_{\rm H}$ and has no super-hydrogenated sta
 of its molecules.
 
 The run (2026-11-08, megatron, 20 workers, 22 min) covered all 711 molecules. C₃₀H₁₄ (UID 7277) was dropped
-because its anion trips `population._round_off` (−2.8×10⁻¹⁰ eV, against a 10⁻¹² eV tolerance). Results:
+because its anion tripped `population._round_off` (−2.8×10⁻¹⁰ eV, against a 10⁻¹² eV tolerance): its delayed
+detachment gave the electron more than the excess above the EA. pahchem fixed that on 2026-11-12 (#13), so a
+rerun includes it. Results:
 `results/carbon_plan/pah_bins_full.txt` and `_T1.png`.
 
 | bin (N_C) | molecules | E: worst | C, exp: worst | where they fail |
@@ -248,3 +252,10 @@ carbon-weighted across the bins, with equal carbon per bin or DL07-like (a logno
 - **Bin 4** (189–400 C) has no parent. The bins' in-bin size spread is not sampled: one parent per bin.
 - **The super-hydrogenated ladder** is Andrews et al.'s, to $N_{\rm H,0}+4$. The P1 hydrocarbon network
   would extend it.
+- **Thresholds of the parents' other N_H states.** The 2026-11-07 run used Andrews et al.'s IP rise of
+  0.1 eV per missing H. The 2026-11-12 rerun (`check_pah_hydrogen_tracking.txt`; the earlier one kept as
+  `_2026-11-07`) uses pahchem's B3LYP ΔSCF ladders (`pahchem.threshold_shifts.LADDER`). Their first IP rises by
+  about 0.075 / 0.045 / 0.03 eV per missing H for C₂₄ / C₅₄ / C₉₆, and the EA of the dehydrogenated states by
+  up to 1.3 / 0.6 / 0.06 eV.
+  The gates are unchanged, and the paths move by ≤ 0.03: the intact-state charge error of C₂₄ falls from
+  0.09 to 0.07, and its deep Orion Bar errors rise by 0.01–0.03.

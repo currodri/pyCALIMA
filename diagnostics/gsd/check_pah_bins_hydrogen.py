@@ -2,7 +2,7 @@
 
 Each molecular bin of the default ``CarbonLayout`` (N_C 20-42, 42-89, 89-189, 189-400) is the set of PAHdb v4.00
 molecules in its range, built as pahchem builds them: ``population.library_v400`` (pure aromatic CH, from 21 C)
-with the calibrated threshold shifts (``IP_SHIFTS``, as in every pahchem validation), the molecules with charges
+with the calibrated threshold shifts (``population.CALIBRATED_SHIFTS``, pahchem's default), the molecules with charges
 -1..+2 (``group_tables.complete``), equal weights (``group_tables.nc_range_weights``), default ``Params``. Their
 hydrogenation is ``Population``'s chain, N_H0 ... 0 with the intact molecule's charge
 (``hydrogen_tracking.population_chains``; no super-hydrogenated states).
@@ -43,7 +43,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_pah_hydrogen_tracking as P2   # noqa: E402  (paths, profiles, scoring)
 
 YR = P2.YR
-IP_SHIFTS = {-1: 0.37, 0: 0.6, 1: 0.64, 2: 0.64}          # pahchem's calibrated threshold shifts
 LOG_LAM = np.linspace(-30.0, 30.0, 61)
 OBS = ("x", "f_intact", "f_emit", "f_bare")
 N_EMITTING = 4
@@ -59,7 +58,7 @@ def library():
     from pycalima.pahchem import population
 
     lib = population.library_v400(min_nc=21, cache_dir=_paths.get_model_data_dir() / "pahchem_pahdb_index")
-    return [m for m in population.shift_thresholds(lib, IP_SHIFTS) if G.complete(m)]
+    return [m for m in population.shift_thresholds(lib, population.CALIBRATED_SHIFTS) if G.complete(m)]
 
 
 def bins_of(lib, per_bin=None):
