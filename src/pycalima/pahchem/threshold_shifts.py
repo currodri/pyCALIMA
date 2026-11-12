@@ -4,11 +4,13 @@
 N_H0 + dN_H hydrogens over the parent's, for dN_H = -4 ... +2: (EA, IP0, IP1) in eV.
 
 How they were computed (``diagnostics/pahchem/dft_ladders``; results/pahchem/dft_ladders_2026-11-08):
+
 - adiabatic Delta-SCF, with each charge at its own optimised geometry, and the lowest spin kept;
 - B3LYP/6-31G* for the IPs; the EAs at 6-31+G*, as single points at the 6-31G* geometries;
 - the H removed from, or added to, the end of a duo edge.
 
 What they show:
+
 - **Dehydrogenation.** The IPs rise by 0.03-0.08 eV per missing H, less than Andrews+16's 0.1. The EA jumps instead of
   rising smoothly: it goes up to max(parent EA, sigma-anion EA ~1.7-2.1 eV), by +1.2 / +0.5 / +0.06 eV at -1 H. It
   alternates with the parity of N_H.
@@ -16,6 +18,7 @@ What they show:
   EA by 0.95 / 0.48 / 0.13 eV. An even count is close to the parent.
 
 Not computed, and filled in (all labelled assumptions):
+
 - **C96's EA at -2 ... -4 (estimated).** The anion SCFs did not converge in time. The value is max(EA_parent,
   EA_sigma) - EA_parent, with EA_sigma = 2.56 - 4.38/sqrt(N_C), the -1 H anions' law (C24/C54/C96).
 - **C96's IP1 at -3 (interpolated).** Midway between its -2 and -4 values.
@@ -26,6 +29,7 @@ Not computed, and filled in (all labelled assumptions):
 - **Z >= 2 thresholds** (C54's and C96's higher IPs) take IP1's shift.
 
 ``law_shift`` carries the ladder to any molecule (the population's "joint" chain), in two forms (``LAWS``):
+
 - **Lower configuration.** The state's threshold is A + B/sqrt(N_C), the conducting-disc form, unless the parent's own
   is beyond it: EA = max(EA_parent, ...) for the dehydrogenated and odd super-H anions, IP0 = min(IP_parent, ...) for
   the odd super-H neutral.
@@ -39,6 +43,7 @@ reproduced the DFT shifts to 0.15 eV rms, within 0.34 eV; a shift depending on N
 of one molecule scatter by about +-0.2 eV. The other forms are the ladder's only.
 
 Outside the ladder's sizes (assumptions):
+
 - **N_C < 24.** C24's shifts. Against the literature's small radicals, this gives 1-naphthyl's EA step +1.19 eV (measured
   +1.6) and 1-hydronaphthyl's IP -1.29 eV (measured -1.57). The lower-configuration forms extrapolated there would put
   the latter at -2.3 eV.

@@ -123,7 +123,7 @@ else:  # pragma: no cover
 
 
 def gth_banded(R, band):
-    """``gth_stationary`` of a chain whose rates join only states at most ``band`` apart (R[i, j] = 0 for |i - j| > band).
+    """``gth_stationary`` of a chain whose rates join only states at most ``band`` apart (``R[i, j] = 0`` for ``|i - j| > band``).
 
     The elimination never leaves that band (state k is censored into the states k - band ... k - 1, the only ones it
     reaches), so it costs O(n band^2) instead of O(n^3) and gives the same populations to round-off, with the same high
