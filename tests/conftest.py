@@ -40,8 +40,30 @@ def _headless_matplotlib(monkeypatch):
     monkeypatch.setenv("MPLBACKEND", "Agg")
 
 
+def _dataset_override_vars() -> set[str]:
+    """Every variable a registered dataset takes its location from (``env_override`` in data/registry.toml).
+
+    Read from the registry, so that a dataset added with a new variable is covered without editing this file.
+    """
+    from pycalima._datasets import iter_datasets
+
+    return {d.env_override for d in iter_datasets() if d.env_override}
+
+
 @pytest.fixture
-def isolated_env(tmp_path, monkeypatch):
+def no_dataset_overrides(monkeypatch):
+    """None of the developer's dataset locations ($CALIMA_PAHDB_DIR, $CALIMA_DUSTEM_DIR, ...).
+
+    A test that a dataset is missing must not find the copy the developer points the suite at for the tests
+    that need it: three tests in test_datasets.py failed whenever $CALIMA_PAHDB_DIR was set. A test of an
+    override sets it itself.
+    """
+    for var in _dataset_override_vars():
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture
+def isolated_env(tmp_path, monkeypatch, no_dataset_overrides):
     """A clean $CALIMA_DATA root in a temp directory, with the CWD moved there.
 
     Yields the root. Anything the code writes lands under it, so tests cannot
@@ -57,7 +79,7 @@ def isolated_env(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def pristine_env(tmp_path, monkeypatch):
+def pristine_env(tmp_path, monkeypatch, no_dataset_overrides):
     """No CALIMA_* set at all, CWD in a temp directory.
 
     For testing the fallback chain itself.
