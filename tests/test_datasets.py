@@ -24,6 +24,11 @@ VALID_KINDS = {"bundled", "fetch", "manual"}
 VALID_URL_STATUS = {"confirmed", "unconfirmed", "none"}
 
 
+@pytest.fixture(autouse=True)
+def _no_dataset_overrides(no_dataset_overrides):
+    """Every test here runs without the developer's dataset locations (conftest ``no_dataset_overrides``)."""
+
+
 # ---------------------------------------------------------------------------
 # registry shape
 # ---------------------------------------------------------------------------
@@ -226,7 +231,6 @@ def test_verify_passes_without_optional_manual_datasets(tmp_path, monkeypatch, c
     from pycalima._datasets import main
 
     monkeypatch.setenv("CALIMA_DATASETS", str(tmp_path / "empty"))
-    monkeypatch.delenv("CALIMA_PAHDB_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
     assert main(["verify"]) == 0
     out = capsys.readouterr().out
@@ -238,7 +242,6 @@ def test_verify_named_manual_dataset_fails_when_missing(tmp_path, monkeypatch):
     from pycalima._datasets import main
 
     monkeypatch.setenv("CALIMA_DATASETS", str(tmp_path / "empty"))
-    monkeypatch.delenv("CALIMA_PAHDB_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
     manual = next(d for d in iter_datasets() if d.kind == "manual")
     assert main(["verify", manual.name]) == 1
