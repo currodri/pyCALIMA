@@ -898,6 +898,37 @@ def test_banded_gth_equals_the_dense_one(use_numba, monkeypatch):
     assert gth_banded(R, 1) is None
 
 
+def test_closed_class_steady_state_of_a_network():
+    """``PAHNetwork.steady_state_closed``: on an irreducible network it is ``steady_state`` (GTH in another order); with
+    transient states (here N_H = 3 and the anion, left and never re-entered) they hold 0 and the closed class keeps GTH's
+    relative accuracy over 150 decades, where ``steady_state``'s sparse fallback floors at ~1e-16 of the peak; two closed
+    classes raise."""
+    net = _toy_network(g0=1e2, nH=1e3)
+    assert np.allclose(net.steady_state_closed(), net.steady_state(), rtol=1e-11, atol=0.0)
+
+    n = 60
+    up, down = np.full(n - 1, 1e-3), np.full(n - 1, 3.4e-1)
+    net = PAHNetwork(charges=(-1, 0), nh_values=range(n + 1))
+    up_ = np.zeros((2, n + 1))
+    up_[1, :n - 1] = up
+    down_ = np.zeros((2, n + 1))
+    down_[1, 1:n] = down
+    down_[1, n] = 5.0                                        # N_H = n: left for n - 1, never entered
+    net.add("up", up_, dnh=+1).add("down", down_, dnh=-1)
+    net.add("detachment", np.r_[[np.full(n + 1, 2.0)], [np.zeros(n + 1)]], dz=+1)   # the anion only empties
+    exact = np.concatenate([[1.0], np.cumprod(up / down)])
+    exact /= exact.sum()
+    f = net.steady_state_closed()
+    assert np.all(f[0] == 0.0) and f[1, n] == 0.0
+    assert np.allclose(f[1, :n], exact, rtol=1e-12, atol=0.0) and exact[-1] < 1e-140
+
+    two = PAHNetwork(charges=(0,), nh_values=range(4))
+    two.add("pair a", np.array([[1.0, 0.0, 0.0, 0.0]]), dnh=+1).add("pair a back", np.array([[0.0, 1.0, 0.0, 0.0]]), dnh=-1)
+    two.add("pair b", np.array([[0.0, 0.0, 1.0, 0.0]]), dnh=+1).add("pair b back", np.array([[0.0, 0.0, 0.0, 1.0]]), dnh=-1)
+    with pytest.raises(ValueError, match="2 closed classes"):
+        two.steady_state_closed()
+
+
 def test_every_state_of_a_baseline_network_is_balanced(pah_states):
     """C54H18 at G0 = 0.1, nH = 100: the fully dehydrogenated fraction is ~1e-92,
     far below the ~1e-16 a general linear solve resolves (it returned 2e-16 noise).

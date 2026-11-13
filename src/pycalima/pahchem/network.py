@@ -140,6 +140,34 @@ def gth_banded(R, band):
     return p if ok else None
 
 
+def closed_class_stationary(R):
+    """p[state] of a chain with rates R[i, j] (i -> j) on its closed class of states (the others, transient, hold none),
+    by ``gth_banded`` within the band its rates span. Raises if there is more than one closed class (no unique steady
+    state) or if that class is not irreducible."""
+    import scipy.sparse.csgraph
+
+    n = R.shape[0]
+    A = scipy.sparse.csr_matrix(R)
+    ncomp, lab = scipy.sparse.csgraph.connected_components(A, directed=True, connection="strong")
+    keep = np.arange(n)
+    if ncomp > 1:
+        rows, cols = A.nonzero()
+        leaky = np.zeros(ncomp, dtype=bool)
+        leaky[np.unique(lab[rows][lab[rows] != lab[cols]])] = True
+        closed = np.nonzero(~leaky)[0]
+        if closed.size != 1:
+            raise ValueError(f"the network has {closed.size} closed classes, no unique steady state")
+        keep = np.nonzero(lab == closed[0])[0]
+    sub = R[np.ix_(keep, keep)]
+    i, j = np.nonzero(sub)
+    p_ = gth_banded(sub, int(np.abs(i - j).max()) if i.size else 0)
+    if p_ is None:
+        raise ValueError("the closed class of the network is not irreducible")
+    out = np.zeros(n)
+    out[keep] = p_
+    return out
+
+
 @dataclass
 class Process:
     name: str
@@ -244,6 +272,19 @@ class PAHNetwork:
         if f is None:
             return self._steady_state_sparse()
         return f.reshape(self.shape)
+
+    def steady_state_closed(self) -> np.ndarray:
+        """Stationary populations f[Z, N_H] on the network's one closed class of states, summing to 1; the transient
+        states (left, never re-entered) hold 0. ``closed_class_stationary`` of the rates with the states in N_H-major
+        order, where a charge step joins neighbours and an H step states n_Z apart, so the banded GTH costs
+        O(n (n_Z |dN_H|)^2). Raises if there is more than one closed class (no unique steady state).
+
+        Unlike ``steady_state``, the transient states keep GTH's high relative accuracy instead of the sparse solve's
+        ~1e-16 of the peak. ``population.Population``'s joint chain solves its networks this way."""
+        nz, nn = self.shape
+        order = np.arange(nz * nn).reshape(self.shape).T.ravel()          # N_H-major: state (iz, m) at m * nz + iz
+        R = self.transition_matrix()[np.ix_(order, order)]
+        return closed_class_stationary(R).reshape(nn, nz).T
 
     def _steady_state_sparse(self) -> np.ndarray:
         """Stationary populations by a general sparse solve (accurate to ~1e-16 of the peak)."""

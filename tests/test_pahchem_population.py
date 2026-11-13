@@ -1750,6 +1750,32 @@ def test_joint_chain_is_a_normalised_steady_state_with_consistent_marginals():
     assert np.allclose(sm["intact"] + sm["superh"] + sm["dehydrogenated"], 1.0, atol=1e-12)
 
 
+def test_joint_networks_are_the_joint_chains_own():
+    """``joint_networks`` (for the GSD hydrogen tracking): each molecule's network has its live charges and N_H = 0 ...
+    N_H0 + superh_levels, its closed-class steady state is ``joint_fractions`` exactly and its H2 formation
+    ``hydrogenation_summary``'s "h2" (one source of rates and solve), and the only processes that add H are H addition
+    and associative detachment. Scaling those by lambda > 1 raises <N_H> (the closure's direction)."""
+    lib = _v400_parents()
+    pop = _joint(lib, associative_detachment="all")
+    for env in (Environment("shielded", 1e-2, 1e2, 1.4e-2, 100.0, None), Environment("pdr", 1e4, 1e4, 1.4, 100.0, None)):
+        nets, jf, h2 = pop.joint_networks(env), pop.joint_fractions(env), pop.hydrogenation_summary(env)["h2"]
+        assert len(nets) == len(jf) == len(lib)
+        for s, (net, (zs, F)) in enumerate(zip(nets, jf)):
+            assert net.charges == tuple(zs) and net.nh_values == tuple(range(F.shape[1]))
+            G = net.steady_state_closed()
+            assert np.array_equal(G, F)
+            assert net.h2_formation_rate(G) == pytest.approx(h2[s], rel=1e-13)
+            adds = {p.name for p in net.processes if p.dnh > 0}
+            assert adds == {"H addition", "associative detachment"}
+            for p in net.processes:
+                if p.dnh > 0:
+                    p.rate = 3.0 * p.rate
+            nh = np.arange(F.shape[1])
+            assert net.steady_state_closed().sum(axis=0) @ nh > F.sum(axis=0) @ nh
+    with pytest.raises(ValueError, match="joint"):
+        population.Population(lib, WINDOWS).joint_networks(env)
+
+
 def test_super_hydrogenated_states_fill_in_shielded_gas_and_empty_under_uv():
     """Coronene and circumcoronene: in shielded gas H addition outruns the photo-loss of the extra H and the
     Eley-Rideal abstraction releases H2; under a strong field the extra H go and <N_H>/N_H0 <= 1."""
