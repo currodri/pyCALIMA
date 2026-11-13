@@ -1733,6 +1733,8 @@ N_EMITTING = 4
 #: environments whose hydrogenation chains a Population keeps (``_chain_distributions``): the 48 cells of a PDRs4All
 #: template, ~0.5 MB each for v4.00
 CHAIN_MEMO = 64
+#: what a deposit of the joint chain loses with its charge step, in its process name (``Population.joint_networks``)
+JOINT_DEPOSIT_LOSS = {"H": "an H", "H2": "H2", "Hp": "a proton"}
 #: environments whose flow coefficients and loss kernel a Population keeps (``_flow_terms``, ``_loss_kernel``): tens of
 #: MB each for v4.00, and the charge fixed point and the flows' consumers ask for one environment at a time
 FLOW_MEMO = 2
@@ -4160,10 +4162,10 @@ class Population:
             self._arrays[key] = out
         return self._arrays[key]
 
-    def _joint_distributions(self, env):
-        """[(lo, F[slot - lo, N_H], h2)] of every molecule at ``env``: the steady state of one (Z, N_H) network over its live
-        charges (slots lo, lo + 1, ...) and N_H = 0 ... N_H0 + superh_levels, and h2, the H2 it releases per molecule per
-        second (H2 loss and Eley-Rideal abstraction). The last CHAIN_MEMO environments are kept.
+    def _joint_build(self, env):
+        """[(lo, network.PAHNetwork)] of every molecule at ``env``: its (Z, N_H) network over its live charges (slots lo,
+        lo + 1, ...) and N_H = 0 ... N_H0 + superh_levels, the one source of the joint chain's rates (``joint_networks``,
+        ``_joint_distributions``). What the processes hold (``joint_networks`` lists them by name):
 
         - **Charge steps** (dN_H = 0): those of ``charge_matrix``'s chain (photoionisation and detachment, C 1s,
           double ionisation, passages and ions' charge transfer as ``_jump_rates``; captures), the same at every N_H except
@@ -4182,9 +4184,7 @@ class Population:
           ``superh_event_yields``) one or two H less, or a proton less: those shares of its charge step are moved, not
           added.
         """
-        if env in self._joints:
-            return self._joints[env]
-        from pycalima.pahchem.network import gth_banded
+        from pycalima.pahchem.network import PAHNetwork
 
         shape = field_shape(env)
         live = self._live(shape)
@@ -4223,21 +4223,14 @@ class Population:
             nh0, nn = mol.nh, mol.nh + K + 1
             sl = slice(lo, lo + nz)
             zc = np.array(self.zs[sl])
-            n = nz * nn
-            R = np.zeros((n, n))
-            H2 = np.zeros((nz, nn))
-            iz, m = np.meshgrid(np.arange(nz), np.arange(nn), indexing="ij")
+            iz = np.arange(nz)[:, None] * np.ones((1, nn), dtype=int)
+            net = PAHNetwork(tuple(int(z) for z in zc), tuple(range(nn)))
 
-            def add(rate, dz, dnh, h2=0):
-                rate = np.broadcast_to(np.asarray(rate, dtype=float), (nz, nn))
-                tz, tm = iz + dz, m + dnh
-                ok = rate > 0.0
-                out_ = ok & ((tz < 0) | (tz >= nz) | (tm < 0) | (tm >= nn))
-                if out_.any():
-                    raise ValueError(f"{mol.name}: a rate of dZ {dz}, dN_H {dnh} leads outside the joint network")
-                np.add.at(R, (m[ok] * nz + iz[ok], tm[ok] * nz + tz[ok]), rate[ok])
-                if h2:
-                    H2[ok] += h2 * rate[ok]
+            def add(name, rate, dz, dnh, h2=0):
+                try:
+                    net.add(name, rate, dz, dnh, h2)
+                except ValueError as e:
+                    raise ValueError(f"{mol.name}: {e}") from None
 
             # charge steps, per dZ, before the deposits move their shares
             C = {j: np.repeat(k[s, sl][:, None], nn, axis=1) for j, k in enumerate(steps, start=1)}
@@ -4273,6 +4266,7 @@ class Population:
                 raise ValueError(f"{mol.name}: proton emission out of its lowest live charge")
             # deposits: a share of each event's charge step lands with H, H2 or a proton less
             deposits = self._joint_deposits(s, mol, terms, use, r_ip[s], lo, nz, nn, r_cap)
+            dep = {}                                       # (dZ of the charge step, what is lost) -> (rate, dZ, dN_H, H2)
             for z_prod, which, idx, i_src, c, pe in deposits:
                 a, b = i_src - lo, (z_prod - self.zmin) - lo
                 dz = b - a
@@ -4284,32 +4278,52 @@ class Population:
                     if np.any(short > ROUND_OFF * np.maximum(C[dz][a], 1e-300)):
                         raise ValueError(f"{mol.name}: deposits of dZ {dz} exceed the charge step they ride on")
                     C[dz][a] = np.maximum(C[dz][a] - moved, 0.0)
-                rate = np.zeros((nz, nn))
                 for key, dnh, dzz, h2 in (("H", -1, 0, 0), ("H2", -2, 0, 1), ("Hp", -1, -1, 0)):
-                    rate[:] = 0.0
-                    rate[a] = c * pe[key]
-                    if rate.any():
-                        add(rate, dz + dzz, dnh, h2)
-            add(HL, 0, -1)
-            add(H2L, 0, -2, h2=1)
-            add(HP, -1, -1)
-            add(ER, 0, -1, h2=1)
-            add(A, 0, +1)
-            add(AD, +1, +1)
+                    r = c * pe[key]
+                    if r.any():
+                        rate = dep.setdefault((dz, key), (np.zeros((nz, nn)), dz + dzz, dnh, h2))[0]
+                        rate[a] += r
+            for (dz, key), (rate, dz_, dnh, h2) in dep.items():
+                add(f"deposit dZ {dz:+d}, {JOINT_DEPOSIT_LOSS[key]} lost", rate, dz_, dnh, h2)
+            add("H loss", HL, 0, -1)
+            add("H2 loss", H2L, 0, -2, h2=1)
+            add("proton loss", HP, -1, -1)
+            add("Eley-Rideal abstraction", ER, 0, -1, h2=1)
+            add("H addition", A, 0, +1)
+            add("associative detachment", AD, +1, +1)
             top_live = lo + nz - 1 == max(mol.charges) - self.zmin
             for dz, rate in C.items():
                 if dz < 0:
-                    add(np.where(iz + dz >= 0, rate, 0.0), dz, 0)
+                    add(f"electron capture (dZ {dz:+d})", np.where(iz + dz >= 0, rate, 0.0), dz, 0)
                     continue
                 inside = iz + dz < nz
-                add(np.where(inside, rate, 0.0), dz, 0)
+                add(f"ionisation (dZ {dz:+d})", np.where(inside, rate, 0.0), dz, 0)
                 if routed[s] and top_live:                         # past a barrier-limited top: a proton per charge
-                    past = iz + dz - (nz - 1)
-                    land = ~inside & (m >= past)
-                    if land.any():
-                        np.add.at(R, (m[land] * nz + iz[land], (m[land] - past[land]) * nz + nz - 1), rate[land])
-            F = _joint_steady_state(R, mol.name, gth_banded).reshape(nn, nz).T
-            out.append((lo, F, float(np.sum(F * H2))))
+                    for past in range(1, dz + 1):                  # from slot nz - 1 + past - dz, to the top
+                        a = nz - 1 + past - dz
+                        if a < 0:
+                            continue
+                        land = np.zeros((nz, nn))
+                        land[a, past:] = rate[a, past:]
+                        if land.any():
+                            add(f"ionisation (dZ {dz:+d}) past the top, {past} proton{'s' * (past > 1)} emitted", land,
+                                dz - past, -past)
+            out.append((lo, net))
+        return out
+
+    def _joint_distributions(self, env):
+        """[(lo, F[slot - lo, N_H], h2)] of every molecule at ``env``: the steady state of its network of ``_joint_build``
+        (``PAHNetwork.steady_state_closed``) and h2, the H2 it releases per molecule per second (H2 loss and Eley-Rideal
+        abstraction, ``PAHNetwork.h2_formation_rate``). The last CHAIN_MEMO environments are kept."""
+        if env in self._joints:
+            return self._joints[env]
+        out = []
+        for (lo, net), mol in zip(self._joint_build(env), self.library):
+            try:
+                F = net.steady_state_closed()
+            except ValueError as e:
+                raise ValueError(f"{mol.name}: {e}") from None
+            out.append((lo, F, net.h2_formation_rate(F)))
         if len(self._joints) >= CHAIN_MEMO:
             del self._joints[next(iter(self._joints))]
         self._joints[env] = out
@@ -4361,6 +4375,32 @@ class Population:
             raise ValueError('joint_fractions needs Params.hydrogen_chain = "joint"')
         return [(self.zs[lo:lo + F.shape[0]], F) for lo, F, _ in self._joint_distributions(env)]
 
+    def joint_networks(self, env):
+        """[network.PAHNetwork] of every molecule at ``env`` with ``Params.hydrogen_chain = "joint"``: the joint chain's own
+        networks (``_joint_build``), built afresh on each call. ``joint_fractions`` is ``steady_state_closed()`` of each,
+        and ``hydrogenation_summary``'s "h2" its ``h2_formation_rate`` of that state. Charges: the molecule's live ones (as
+        ``joint_fractions``); nh_values: 0 ... N_H0 + superh_levels.
+
+        The processes, by name (dZ, dN_H; H2 released):
+
+        - "ionisation (dZ +j)" (+j, 0), j = 1 ... (single, double, C 1s and passage steps, ions' charge transfer), and
+          "electron capture (dZ -1)" (-1, 0): each less the shares its deposits move;
+        - "ionisation (dZ +j) past the top, k proton(s) emitted" (j - k, -k): past a barrier-limited top (``_routed``),
+          the landing on the top with k H less;
+        - "H loss" (0, -1: photo-loss, the extra H of super-H states, hot ions' knock-outs), "H2 loss" (0, -2; 1),
+          "proton loss" (-1, -1);
+        - "Eley-Rideal abstraction" (0, -1; 1), "H addition" (0, +1), "associative detachment" (+1, +1);
+        - "deposit dZ d, an H lost" (d, -1), "..., H2 lost" (d, -2; 1), "..., a proton lost" (d - 1, -1): the share of
+          charge step d (-1: recombination; 0: a cosmic-ray passage that only heats; > 0: ionisation) whose product loses
+          H, summed over its flows.
+
+        The only processes with dN_H > 0 are "H addition" and "associative detachment". States that are left but never
+        re-entered are transient and hold 0 in the steady state; ``steady_state_closed`` handles them, ``steady_state``
+        falls back to a sparse solve."""
+        if not self._joint_on():
+            raise ValueError('joint_networks needs Params.hydrogen_chain = "joint"')
+        return [net for _, net in self._joint_build(env)]
+
     def hydrogenation_summary(self, env):
         """{name: [s]} of the hydrogenation at ``env``: "x" <N_H>/N_H0, the shares "intact" (N_H0), "superh" (> N_H0),
         "dehydrogenated" (< N_H0), "bare" (0) and "at_cap" (N_H0 + superh_levels, the top of the ladder: where it holds
@@ -4377,35 +4417,6 @@ class Population:
             out["h2"][s] = joint[s][2] if joint is not None else np.nan
         return out
 
-
-
-def _joint_steady_state(R, name, gth_banded):
-    """p[state] of the joint network with rates R[i, j] (i -> j): on its closed class of states (the others, transient,
-    hold none), by ``network.gth_banded`` within the band its rates span. Raises if there is more than one closed class
-    (no unique steady state)."""
-    import scipy.sparse
-    import scipy.sparse.csgraph
-
-    n = R.shape[0]
-    A = scipy.sparse.csr_matrix(R)
-    ncomp, lab = scipy.sparse.csgraph.connected_components(A, directed=True, connection="strong")
-    keep = np.arange(n)
-    if ncomp > 1:
-        rows, cols = A.nonzero()
-        leaky = np.zeros(ncomp, dtype=bool)
-        leaky[np.unique(lab[rows][lab[rows] != lab[cols]])] = True
-        closed = np.nonzero(~leaky)[0]
-        if closed.size != 1:
-            raise ValueError(f"{name}: the joint network has {closed.size} closed classes, no unique steady state")
-        keep = np.nonzero(lab == closed[0])[0]
-    sub = R[np.ix_(keep, keep)]
-    i, j = np.nonzero(sub)
-    p_ = gth_banded(sub, int(np.abs(i - j).max()) if i.size else 0)
-    if p_ is None:
-        raise ValueError(f"{name}: the closed class of the joint network is not irreducible")
-    out = np.zeros(n)
-    out[keep] = p_
-    return out
 
 
 def _chain_rates(nh0, n_solo, lh, lh2, per_mol=0.0, per_h=0.0):
