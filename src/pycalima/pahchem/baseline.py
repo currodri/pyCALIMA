@@ -173,6 +173,19 @@ class Params:
     # population "joint" only: H addition to super-hydrogenated cations [cm^3 s^-1]; None: addition_cation at every step
     # (Andrews+16). A bracket: Montillaud+13 and Murga+20 take 1e-12
     addition_cation_superh: float | None = None
+    # population "joint" only: the chemistry of the super-hydrogenated states (2026-11-15, pahchem-gas-coupling §2.2h):
+    # - "andrews16": this module's (barriers 0.06 / 0.035 eV on the neutral's first and third extra H, Eley-Rideal once
+    #   per molecule, one extra H per photon or deposit);
+    # - "deep" (opt-in): those first four steps kept, above them Boschman+15's alternating barriers (cations' on odd
+    #   steps) with the magic-number steps of superh_magic_barriers, Eley-Rideal per extra H, and each photon or deposit
+    #   removing as many extra H as its energy allows (population._superh_outcomes; at most SUPERH_DEEP_MAX levels).
+    superh_chemistry: str = "andrews16"
+    # "deep" only: the cation's closed-shell steps +5 -> +6, +11 -> +12, +17 -> +18: "cazaux16" (DFT, 0.11 / 0.17 / 0.32 eV,
+    # the user's choice of 2026-11-15) or "boschman15" (Table A.1, 0.064 / 0.052 / 0.039 eV), a bracket
+    superh_magic_barriers: str = "cazaux16"
+    # population "joint" only: carbon loss of the super-hydrogenated states, "none" (the default: no RRKM parameters
+    # exist for large PAHs) or "murga22" (opt-in, a labelled bracket: Murga+22's fitted C2H2 E0(N_H / N_H0), dS 10 cal)
+    superh_carbon_loss: str = "none"
     # the thresholds at N_H != N_H0 (since 2026-11-10; pahchem.threshold_shifts):
     # - "dft_ladder": the Delta-SCF shifts. BaselineModel adds LADDER, its three parents' own; the population's "joint"
     #   chain adds law_shift, the ladder's size laws, to every threshold, the EA in detachment and attachment too
