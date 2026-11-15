@@ -1093,13 +1093,64 @@ changed what the joint chain reports in three places; the charge-averaged chain 
 - **Not yet linear: band powers.** Their deposit part (`_deposit_bands`, shared with `spectra`) is still the product of
   the marginals.
 
-**Next.** A literature-based chemistry to about +12:
-- Boschman's alternating barriers;
-- the cation closed-shell barriers;
-- abstraction per CH2 site;
-- sequential losses per photon.
+**The deep chain (2026-11-15).** `Params.superh_chemistry = "deep"` is opt-in; the default `"andrews16"` is the chemistry
+above. It follows the user's choices of 2026-11-08 and 2026-11-15. The literature numbers are in
+`results/pahchem/deep_superh_literature_2026-11-15/REPORT.md`.
+- **Addition barriers** (`superh_addition_barrier`):
+  - The first four extra-H steps keep today's values.
+  - Above them comes Boschman+15's Table A.1: 28–64 meV, alternating. The neutral's barriers sit on its closed-shell
+    states (even j) and the cation's one H later (odd j).
+  - The cation's magic-number steps +5 → +6, +11 → +12 and +17 → +18 take Cazaux+16's DFT, 0.11 / 0.17 / 0.32 eV
+    (`superh_magic_barriers = "cazaux16"`). Boschman's 64 / 52 / 39 meV there are the bracket (`"boschman15"`).
+  - These are coronene's barriers, used for every molecule, up to +24, where the table ends (`SUPERH_DEEP_MAX`).
+  - The cation rate is `addition_cation` × exp(−E_a/kT). The neutral's is the geometric rate over the barrier. Anions
+    take the neutral's rate.
+- **Abstraction per CH₂ site.** Eley–Rideal runs once per extra H, j × σ_ER v n(H). Boschman+15 and Mennella+12 normalise
+  σ_ER per reactive C. Counting both H of each CH₂ (2j) is the same as doubling `eley_rideal_a2`, which with Foley+18's
+  ≥ 0.45 Å² is the ER : addition bracket.
+- **Sequential losses** (`_superh_outcomes`).
+  - Each lost extra H leaves its product at E − E0, and the product may lose again. A photon or a deposit therefore
+    removes n = 1 … j of the j extra H.
+  - The outcomes come exactly from `CascadeModel.photon_yields`, with the product's outcomes as channels.
+  - The events' rates sum to the first loss's, which is today's one-H table.
+  - The kinetic energy release (~0.1–0.2 eV) is neglected, a slight overestimate. The chain stops at N_H0: an aromatic H
+    is not lost in the same event.
+- **E0 and dS** stay as above at every level (1.40 / 1.55 eV, dS 12; brackets: Boschman's 1.2 / 2.9 eV, dS 55.6).
+- **Carbon loss of super-H states.** None by default: no RRKM parameters exist for large PAHs. The only data are pyrene⁺
+  DFT energies (Gatchell+15) and Murga+22's fitted "yield parameter". Tang+22 find the edge structure (CH₂ trios)
+  decides, not the H count.
+  - `superh_carbon_loss = "murga22"` is a labelled bracket. It uses Murga+22's E0(N_H/N_H0) for C₂H₂ loss (Table 3,
+    dS 10 cal K⁻¹ mol⁻¹, the C–C stretch as reaction coordinate), with x held at their top bin's 1.74.
+  - It enters `destruction_rates` and `joint_state_observables`, but not the network: like the end-ring C₂H₂, it is a
+    leak out of the library.
 
-Test caps of 8, 12 and 24 until the top holds < 1 %, and validate against Boschman+15 and Foley+18.
+**Caps** (`diagnostics/pahchem/check_deep_superh.py`, `results/pahchem/deep_superh/caps.csv`; C24, C54, C96, C150;
+Draine field, 100 K, n_e = 1.4 × 10⁻⁴ n_H). The table shows the share at the top of the ladder:
+
+| Environment (G0, n_H) | molecule | "andrews16", K = 4 | deep K = 4 | 8 | 12 | 24 |
+|---|---|---|---|---|---|---|
+| diffuse (1, 30) | C150 | 0.05 | 4 × 10⁻³ | 7 × 10⁻⁶ | 3 × 10⁻⁸ | 10⁻¹⁵ |
+| Orion Bar shielded (5, 5 × 10³) | C24 / C54 | 0.4 / 0.7 | 5 × 10⁻³ / 0.02 | 10⁻⁵ / 2 × 10⁻⁴ | < 10⁻⁴ | < 10⁻⁷ |
+| | C96 | 0.9 | 0.2 | 0.02 | 9 × 10⁻³ | 2 × 10⁻³ |
+| | C150 | 1.0 | 0.8 | 0.5 | 0.5 | 0.4 |
+| shielded (10⁻², 10²) | C96 / C150 | 1.0 / 1.0 | 0.8 / 1.0 | 0.6 / 0.9 | 0.5 / 0.9 | 0.2 / 0.9 |
+| dense (10⁻³, 10⁴) | C24 / C96 | 1.0 / 1.0 | 0.7 / 1.0 | 0.6 / 1.0 | 0.5 / 1.0 | 0.3 / 1.0 |
+
+What the caps show:
+- **PDR and diffuse gas.** The deep chain converges by K = 8. Sequential losses remove the extra H that the +4 chain kept
+  for C150 in diffuse gas: super-H share 0.18 → 0.04.
+- **Orion Bar shielded layers.**
+  - C24 and C54 converge at K = 8, with super-H shares of 0.02 and 0.06.
+  - C96 converges at K = 12–24 (0.37 super-H). ⟨N_H⟩/N_H0 still moves 1.06 → 1.11 between them.
+  - C150 does not converge at +24: ⟨N_H⟩/N_H0 is 1.73, with 0.4 at the top.
+- **Shielded and dense gas.** The molecules climb to +24.
+  - For C24, +24 is full saturation (perhydrocoronene, one H per C), so its ladder has reached the physical end
+    (⟨N_H⟩/N_H0 = 2.8).
+  - Larger molecules could take up to N_C extra H, but there is no barrier set beyond +24.
+- **Other observables.**
+  - H₂ from ER rises ×20 in dense gas, from the per-site abstraction and the deeper states.
+  - Heating moves by < 2 %.
+  - Murga+22's C₂H₂ loss stays ≲ 10⁻¹⁵ s⁻¹ per molecule, negligible beside the bare skeletons' carbon loss in lit gas.
 
 ### 2.2i The calibrated thresholds, the default (2026-11-11)
 
