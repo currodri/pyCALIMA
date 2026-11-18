@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_pah_bins_hydrogen as B    # noqa: E402
 import check_pah_hydrogen_tracking as P2   # noqa: E402
 
-OBS = ("x", "f_intact", "f_emit", "f_bare")
+OBS = ("x", "f_intact", "f_emit", "f_bare", "f_superh")   # f_superh: runs with the joint chain (2026-11-13 on)
 
 
 def nc_of(name):
@@ -69,7 +69,7 @@ class Bin:
         x0 = float(B.bin_obs(pick(lambda r, k: r["eq"][cs[0]][k]), nh0)["x"])
         self.m = {}
         for tag, dt_yr in (("C", None), ("exp 1e+03", 1e3)):
-            x, o = x0, {k: [] for k in OBS}
+            x, o = x0, {}
             for c, dt in zip(cs, ds):
                 if dt_yr is None:
                     x = cl[c].step(x, dt)
@@ -78,13 +78,13 @@ class Bin:
                     for _ in range(n):
                         x = cl[c].exp_step(x, dt / n)
                 for k, v in cl[c].observables(x).items():
-                    o[k].append(v)
+                    o.setdefault(k, []).append(v)
             self.m[tag] = {k: np.array(v) for k, v in o.items()}
 
 
 def combine(parts):
     """Carbon-weighted population observables from [(weight, obs dict)]."""
-    return {k: sum(w * o[k] for w, o in parts) for k in OBS}
+    return {k: sum(w * o[k] for w, o in parts) for k in OBS if all(k in o for _, o in parts)}
 
 
 def main(argv=None):

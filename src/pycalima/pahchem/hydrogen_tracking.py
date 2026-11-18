@@ -156,7 +156,9 @@ def population_chains(pop, env):
     The chain is the population's own (``Population._chain_distributions``): N_H = 0 ... N_H0 at Z = 0 only, its
     H and H2 loss and H addition averaged over the intact molecule's charge fractions, with the deposits, the
     protons past a barrier-limited ladder top and the hot ions' knock-outs. Its steady state is the population's
-    (tests/test_pahchem_hydrogen_tracking.py). It has no super-hydrogenated states."""
+    (tests/test_pahchem_hydrogen_tracking.py). It has no super-hydrogenated states, and its charge is the intact
+    molecule's at every N_H. ``Population.joint_networks`` (``Params.hydrogen_chain = "joint"``) gives the joint
+    (Z, N_H) networks instead, with super-hydrogenated states and a charge per N_H."""
     from pycalima.pahchem import population as P
 
     f = pop.charge_matrix(env)
@@ -195,6 +197,9 @@ def _scaled(net, lam):
 class Closure:
     """The one-scalar closure of ``net`` (module docstring), tabulated on ``log_lam`` (ln lambda).
 
+    Each rebuilt distribution is ``steady_state_closed`` of the scaled network: the states it never re-enters hold 0,
+    as in ``population``'s joint chain, whose networks (``Population.joint_networks``) carry them.
+
     ``x`` [n_lam] is <N_H> / N_H0 of each rebuilt distribution ``f`` [n_lam, Z, N_H], ``rate`` [n_lam] its
     d x / dt [s^-1] under the true rates. The rebuilt distributions span x from the hydrogen-poorest to the
     hydrogen-richest that the grid of lambda reaches; outside it they are clipped."""
@@ -209,7 +214,7 @@ class Closure:
         x, f = [], []
         for ll in self.log_lam:
             try:
-                g = _scaled(self.net, np.exp(ll)).steady_state()
+                g = _scaled(self.net, np.exp(ll)).steady_state_closed()
             except ValueError:              # no unique steady state (e.g. no H loss at all): not in the family
                 continue
             xx = float(g.sum(axis=0) @ nh / self.nh0)
@@ -224,7 +229,7 @@ class Closure:
             if p.dnh != 0:
                 flux += p.dnh * (self.f * p.rate).sum(axis=(1, 2))
         self.rate = flux / self.nh0
-        self.x_eq = float(observables(self.net, self.net.steady_state(), self.nh0)["x"])
+        self.x_eq = float(observables(self.net, self.net.steady_state_closed(), self.nh0)["x"])
 
     def distribution(self, x):
         """The rebuilt f[Z, N_H] at x (linear in x between the tabulated distributions)."""

@@ -28,6 +28,8 @@ package `__init__.py` re-exports nothing; import the leaf modules.
    pycalima.pahchem.cr_uv
    pycalima.pahchem.micelotta2011
    pycalima.pahchem.network
+   pycalima.pahchem.hydrogen_observables
+   pycalima.pahchem.hydrogen_tables
    pycalima.pahchem.hydrogen_tracking
    pycalima.pahchem.emission
    pycalima.pahchem.band_conventions

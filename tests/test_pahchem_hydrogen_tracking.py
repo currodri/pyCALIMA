@@ -145,3 +145,28 @@ def test_population_chains_reproduce_the_population_steady_state():
         pop.prepare(population.field_shape(env), workers=1)
         (chain,) = ht.population_chains(pop, env)
         assert np.allclose(chain.steady_state()[0], pop._chain_distributions(env)[0], rtol=1e-6, atol=1e-12)
+
+
+def test_closure_on_the_joint_chain_reproduces_its_steady_state():
+    """Population.joint_networks through the closure: its equilibrium is the joint chain's, within the super-H cap."""
+    from pycalima._datasets import DatasetUnavailable
+    from pycalima.pahchem import ames_suite, population
+    from pycalima.pahchem.baseline import Environment
+
+    try:
+        lib = population.library_m20(ames_suite.ascii_path())
+    except DatasetUnavailable:
+        pytest.skip("PAHdb v3.20 not installed")
+    mol = min((m for m in lib if m.ea_ev is not None), key=lambda m: m.nc)
+    params = population.Params(hydrogen_chain="joint")
+    pop = population.Population([mol], {"all": (1.0, 1e4)}, params=params)
+    cap = (mol.nh + params.superh_levels) / mol.nh
+    for env in (Environment("lit", 1e4, 1e4, 10.0, 500.0, 40000), Environment("dense", 0.1, 1e5, 1e-2, 30.0, 40000)):
+        pop.prepare(population.field_shape(env), workers=1)
+        (net,) = pop.joint_networks(env)
+        summary = pop.hydrogenation_summary(env)
+        cl = ht.Closure(net, mol.nh)
+        assert cl.x_eq == pytest.approx(summary["x"][0], rel=1e-12)
+        assert ht.observables(net, net.steady_state_closed(), mol.nh)["f_superh"] == pytest.approx(
+            summary["superh"][0], rel=1e-12, abs=1e-15)
+        assert np.allclose(cl.f.sum(axis=(1, 2)), 1.0) and cl.x[-1] <= cap + 1e-12

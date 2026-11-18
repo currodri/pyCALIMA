@@ -4,14 +4,19 @@ Each molecular bin of the default ``CarbonLayout`` (N_C 20-42, 42-89, 89-189, 18
 molecules in its range, built as pahchem builds them: ``population.library_v400`` (pure aromatic CH, from 21 C)
 with the calibrated threshold shifts (``population.CALIBRATED_SHIFTS``, pahchem's default), the molecules with charges
 -1..+2 (``group_tables.complete``), equal weights (``group_tables.nc_range_weights``), default ``Params``. Their
-hydrogenation is ``Population``'s chain, N_H0 ... 0 with the intact molecule's charge
-(``hydrogen_tracking.population_chains``; no super-hydrogenated states).
+hydrogenation is ``Population``'s joint (Z, N_H) chain (``--chain joint``, the default: ``Population.joint_networks``
+with ``Params.hydrogen_chain = "joint"``, super-hydrogenated states to N_H0 + ``superh_levels``, 4 unless
+``--superh-levels``, their chemistry ``--superh-chemistry``, and a charge per N_H), or its
+charge-averaged chain (``--chain averaged``: N_H0 ... 0 with the intact molecule's charge,
+``hydrogen_tracking.population_chains``; the 2026-11-08 run). Steady states are ``steady_state_closed``.
 
 The molecules are sharded over ``--workers`` processes. Each prepares its molecules' bases for the four field shapes
 and returns, per molecule and condition: the steady state, the one-scalar closure family (H addition scaled by a
 common lambda), the evolution after the T1 steps and along every path. The bins are then assembled from those:
-x = sum <N_H> / sum N_H0, and the number shares intact (N_H0), emitting (N_H0 ... N_H0-3, what ``Population``
-emits) and bare (N_H = 0, where carbon is lost). It prints:
+x = sum <N_H> / sum N_H0, and the number shares intact (N_H0), emitting (N_H0 ... N_H0-3 and the super-hydrogenated
+states, which emit as the parent: what ``Population`` emits), bare (N_H = 0, where carbon is lost) and
+super-hydrogenated (> N_H0); and, reported but not scored, the share at the cap N_H0 + K (where it holds more than a
+few per cent the cap, not the chemistry, sets the super-hydrogenation). It prints:
 
 - T1 per bin: the steady state and the settling time (90 %) of the bin after a x10 step in G0, up and down, on a
   (G0, n(H)) grid (Draine shape without the old-star light, 100 K, n_e = 1.4e-4 n(H)), with a figure;
@@ -20,7 +25,7 @@ emits) and bare (N_H = 0, where carbon is lost). It prints:
   transition), periods 1e3, 1e4, 1e5 yr. The bin's mixture (each molecule's chain, conditions held per cell) is the
   reference for: E, the equilibrium; C, the bin's one-scalar closure (R = sum of the molecules' rates on the common
   lambda family); exp, its RAMSES-like step (rate frozen at each step of 1e2-1e4 yr). Worst absolute error over x
-  and the three shares, by the G0 class of the cell;
+  and the four shares, by the G0 class of the cell;
 - the treatment map per bin.
 
 Run on megatron (``--workers`` 16-24 at nice 19: each worker holds up to ~3 GB while it builds a deposit
@@ -44,12 +49,18 @@ import check_pah_hydrogen_tracking as P2   # noqa: E402  (paths, profiles, scori
 
 YR = P2.YR
 LOG_LAM = np.linspace(-30.0, 30.0, 61)
-OBS = ("x", "f_intact", "f_emit", "f_bare")
+OBS = ("x", "f_intact", "f_emit", "f_bare", "f_superh")                     # scored
+COLS = ("n_h", "f_intact", "f_emit", "f_bare", "f_superh", "at_cap")         # per molecule (_chain_obs)
 N_EMITTING = 4
 G0_T1 = 10.0 ** np.arange(-3.0, 5.01, 0.5)
 NH_T1 = 10.0 ** np.arange(-1.0, 6.01, 0.5)
 CYCLE_G0 = (0.1, 1.0, 10.0, 1e2, 1e3, 1e4)                 # lower G0 of each x10 cycle, at n(H) = 10
 CYCLE_PERIODS = (1e3, 1e4, 1e5)
+# per molecule, joint chain only (pahchem.hydrogen_observables): what the hydrogenation changes, scored for E
+OBS_RATES = ("carbon", "heating", "cooling", "h2", "h_uptake", "absorbed", "uv_aro", "uv_ali")
+OBS_SHOW = ("carbon", "heating", "cooling", "h2", "h_uptake", "r_ali")      # r_ali = sum uv_ali / sum uv_aro
+OBS_SIGNIFICANT = 1e-3            # cells scored: above this share of the path maximum (score_obs)
+CARBON_FLOOR_S = 1.0 / (1e9 * YR)  # carbon scored only where the bin loses its carbon within 1 Gyr (a reporting threshold)
 
 
 def library():
@@ -111,28 +122,45 @@ def conditions(murga_root):
 
 
 # -- per molecule (workers) ------------------------------------------------------------------------
-def _chain_obs(p, nh0):
-    nh = np.arange(nh0 + 1)
-    return np.array([p @ nh, p[nh0], p[max(nh0 - N_EMITTING + 1, 0):].sum(), p[0]])     # <N_H>, intact, emit, bare
+def _chain_obs(f, nh0):
+    """COLS of f[Z, N_H] (or f[N_H]): <N_H>, intact, emitting (N_H0 ... N_H0-3 and the super-hydrogenated states, which
+    emit as the parent, as in ``Population.hydrogenation_fractions``), bare, super-hydrogenated, at the cap."""
+    p = f.sum(axis=0) if f.ndim == 2 else f
+    nh = np.arange(p.size)
+    return np.array([p @ nh, p[nh0], p[max(nh0 - N_EMITTING + 1, 0):].sum(), p[0], p[nh0 + 1:].sum(),
+                     p[-1] if p.size > nh0 + 1 else 0.0])
 
 
 def _family(chain, nh0):
-    """[n_lam, 1 + len(OBS)]: rate d<N_H>/dt [s^-1] and the observables of the lambda-scaled steady states."""
+    """[n_lam, 1 + len(COLS)]: rate d<N_H>/dt [s^-1] and the observables of the lambda-scaled steady states."""
     out = []
     for ll in LOG_LAM:
         net = P2.ht._scaled(chain, np.exp(ll))
         try:
-            p = net.steady_state()[0]
+            g = net.steady_state_closed()
         except ValueError:
-            out.append(np.full(1 + len(OBS), np.nan))
+            out.append(np.full(1 + len(COLS), np.nan))
             continue
-        r = sum(q.dnh * (p * q.rate[0]).sum() for q in chain.processes)
-        out.append(np.r_[r, _chain_obs(p, nh0)])
+        r = sum(q.dnh * (g * q.rate).sum() for q in chain.processes)
+        out.append(np.r_[r, _chain_obs(g, nh0)])
     return np.array(out)
 
 
+def _flat(f, net):
+    """f[Z, N_H] as the state vector of ``net.generator`` (Z-major); the conditions of one path share the field shape,
+    and so the live charges."""
+    if f.shape != net.shape:
+        raise ValueError(f"a distribution of shape {f.shape} carried into a network of shape {net.shape}")
+    return f.ravel()
+
+
+def _obs_row(w, f):
+    """OBS_RATES of one molecule's weights (``hydrogen_observables.state_weights``) and state f[Z, N_H]."""
+    return [float((w[k] * f).sum()) for k in OBS_RATES]
+
+
 def work(job):
-    names, t1, paths, cache_dir = job
+    names, t1, paths, cache_dir, chain, superh = job
     import os
 
     os.environ.setdefault("CALIMA_WORKERS", "1")
@@ -141,7 +169,8 @@ def work(job):
 
     lib = {m.name: m for m in library()}
     mols = [lib[n] for n in names]
-    pop = population.Population(mols, {"all": (1.0, 1e4)}, cache_dir=cache_dir)
+    params = population.Params(hydrogen_chain="joint", **superh) if chain == "joint" else population.Params()
+    pop = population.Population(mols, {"all": (1.0, 1e4)}, cache_dir=cache_dir, params=params)
     conds = sorted({c for v in t1.values() for c in v} | {c for _, cs, _ in paths for c in cs},
                    key=lambda c: (str(c[4]), c))
     chains, prepared, dropped = {}, set(), []
@@ -154,7 +183,7 @@ def work(job):
             if shape not in prepared:
                 pop.prepare(shape, workers=1)
                 prepared.add(shape)
-            chains[c] = ht.population_chains(pop, env)
+            chains[c] = pop.joint_networks(env) if chain == "joint" else ht.population_chains(pop, env)
         except ValueError as exc:
             # a molecule whose own physics raises (e.g. population._round_off): drop it from this shard, record it
             bad = next((i for i, m in enumerate(mols) if str(exc).startswith(m.name + " ")), None)
@@ -165,18 +194,25 @@ def work(job):
             for v in chains.values():
                 del v[bad]
             if not mols:
-                return {"names": [], "nh0": np.zeros(0, int), "eq": {}, "family": {}, "t1": {}, "paths": [],
-                        "dropped": dropped}
-            pop = population.Population(mols, {"all": (1.0, 1e4)}, cache_dir=cache_dir)
+                return {"names": [], "nh0": np.zeros(0, int), "nc": np.zeros(0, int), "eq": {}, "family": {}, "t1": {},
+                        "paths": [], "dropped": dropped, "obs_eq": {}, "path_obs": []}
+            pop = population.Population(mols, {"all": (1.0, 1e4)}, cache_dir=cache_dir, params=params)
             prepared = set()
             continue
         k += 1
     names = [m.name for m in mols]
     nh0 = np.array([m.nh for m in mols])
-    steady = {c: [ch.steady_state()[0] for ch in chains[c]] for c in conds}
+    steady = {c: [ch.steady_state_closed() for ch in chains[c]] for c in conds}
     path_conds = {c for _, cs, _ in paths for c in cs}
     family = {c: np.array([_family(ch, n) for ch, n in zip(chains[c], nh0)]) for c in path_conds}
     eq = {c: np.array([_chain_obs(p, n) for p, n in zip(steady[c], nh0)]) for c in conds}
+    W, obs_eq = {}, {}
+    if chain == "joint":                       # the observables' weights on each path condition, with the final library
+        from pycalima.pahchem import hydrogen_observables as ho
+
+        for c in sorted(path_conds, key=lambda c: (str(c[4]), c)):
+            W[c] = ho.state_weights(pop, environment(c), chains[c])
+            obs_eq[c] = np.array([_obs_row(w, p) for w, p in zip(W[c], steady[c])])
     ts = P2.T_EVOLVE_YR * YR
     t1_out = {}
     for key, (c, below, above) in t1.items():
@@ -184,34 +220,41 @@ def work(job):
         series = []
         for start in (below, above):
             s = []
-            for q, p0, n in zip(Q, steady[start], nh0):
-                f, prev, row = p0, 0.0, []
+            for q, p0, n, ch in zip(Q, steady[start], nh0, chains[c]):
+                f, prev, row = _flat(p0, ch), 0.0, []
                 for t in ts:
                     f = np.clip(scipy.linalg.expm(q * (t - prev)) @ f, 0.0, None)
                     prev = t
-                    row.append(_chain_obs(f / f.sum(), n))
+                    row.append(_chain_obs((f / f.sum()).reshape(ch.shape), n))
                 s.append(row)
             series.append(np.array(s))                   # [mol, t, obs]
         t1_out[key] = series
-    path_out = []
+    path_out, path_obs = [], []
     for _, cs, ds in paths:
         f = [p.copy() for p in steady[cs[0]]]
-        rows = []
+        rows, orows = [], []
         for c, dt in zip(cs, ds):
             for k, ch in enumerate(chains[c]):
-                g = np.clip(scipy.linalg.expm(ch.generator().toarray() * dt) @ f[k], 0.0, None)
-                f[k] = g / g.sum()
+                g = np.clip(scipy.linalg.expm(ch.generator().toarray() * dt) @ _flat(f[k], ch), 0.0, None)
+                f[k] = (g / g.sum()).reshape(ch.shape)
             rows.append([_chain_obs(p, n) for p, n in zip(f, nh0)])
+            if W:
+                orows.append([_obs_row(w, p) for w, p in zip(W[c], f)])
         path_out.append(np.array(rows))                  # [segment, mol, obs]
-    return {"names": names, "nh0": nh0, "eq": eq, "family": family, "t1": t1_out, "paths": path_out, "dropped": dropped}
+        path_obs.append(np.array(orows))                 # [segment, mol, OBS_RATES] (empty: averaged chain)
+    return {"names": names, "nh0": nh0, "nc": np.array([m.nc for m in mols]), "eq": eq, "family": family, "t1": t1_out,
+            "paths": path_out, "dropped": dropped, "obs_eq": obs_eq, "path_obs": path_obs}
 
 
 # -- bins (master) ---------------------------------------------------------------------------------
 def bin_obs(per_mol, nh0):
     """Bin observables from per-molecule [..., mol, (<N_H>, intact, emit, bare)]."""
     a = np.asarray(per_mol)
-    return {"x": a[..., 0].sum(axis=-1) / nh0.sum(), "f_intact": a[..., 1].mean(axis=-1),
-            "f_emit": a[..., 2].mean(axis=-1), "f_bare": a[..., 3].mean(axis=-1)}
+    out = {"x": a[..., 0].sum(axis=-1) / nh0.sum(), "f_intact": a[..., 1].mean(axis=-1),
+           "f_emit": a[..., 2].mean(axis=-1), "f_bare": a[..., 3].mean(axis=-1)}
+    if a.shape[-1] > 4:                              # runs before 2026-11-13 kept the first four
+        out["f_superh"], out["at_cap"] = a[..., 4].mean(axis=-1), a[..., 5].mean(axis=-1)
+    return out
 
 
 class BinClosure:
@@ -225,6 +268,8 @@ class BinClosure:
         rate = f[:, :, 0].sum(axis=0) / nh0.sum()
         obs = {"x": x, "f_intact": f[:, :, 2].mean(axis=0), "f_emit": f[:, :, 3].mean(axis=0),
                "f_bare": f[:, :, 4].mean(axis=0)}
+        if f.shape[-1] > 5:
+            obs["f_superh"], obs["at_cap"] = f[:, :, 5].mean(axis=0), f[:, :, 6].mean(axis=0)
         keep = [0]
         for i in range(1, x.size):
             if x[i] > x[keep[-1]] + 1e-9:
@@ -261,9 +306,60 @@ def score(a, b, masks):
         if not m.any():
             out[name] = (np.nan, "")
             continue
-        errs = {k: float(np.max(np.abs(np.asarray(a[k])[m] - np.asarray(b[k])[m]))) for k in OBS}
+        errs = {k: float(np.max(np.abs(np.asarray(a[k])[m] - np.asarray(b[k])[m]))) for k in OBS if k in a and k in b}
         k = max(errs, key=errs.get)
         out[name] = (errs[k], k)
+    return out
+
+
+def _bin_rates(a):
+    """{OBS_SHOW name: [segment]} of the bin from per-molecule OBS_RATES [segment, mol, rate] (equal weights: sums)."""
+    tot = np.asarray(a).sum(axis=-2)
+    out = {k: tot[..., OBS_RATES.index(k)] for k in OBS_SHOW if k in OBS_RATES}
+    out["r_ali"] = tot[..., OBS_RATES.index("uv_ali")] / np.maximum(tot[..., OBS_RATES.index("uv_aro")], 1e-300)
+    out["uv_ali"], out["uv_aro"] = tot[..., OBS_RATES.index("uv_ali")], tot[..., OBS_RATES.index("uv_aro")]
+    return out
+
+
+def _factor(a, b):
+    """max(a/b, b/a) - 1, element-wise (0 where both are 0, inf where one is)."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    hi, lo = np.maximum(a, b), np.minimum(a, b)
+    return np.where(hi == 0.0, 0.0, np.divide(hi, lo, out=np.full_like(hi, np.inf), where=lo > 0) - 1.0)
+
+
+def score_obs(e, ref, ds, n_c=None):
+    """{name: (cell, budget)} of E against the truth on a path's observables (``_bin_rates``, durations ``ds``), each the
+    factor error max(E/truth, truth/E) - 1:
+
+    - cell: the worst over the cells where E or the truth holds more than OBS_SIGNIFICANT of the path maximum; carbon
+      only where it is also lost within 1 Gyr (CARBON_FLOOR_S per C atom, ``n_c`` the bin's carbon atoms); r_ali where
+      the truth's uv_aro (the emission) holds more than OBS_SIGNIFICANT of its path maximum and r_ali exceeds
+      OBS_SIGNIFICANT;
+    - budget: of the path integrals (r_ali: the integrated uv_ali over uv_aro, the time-averaged emission ratio, scored
+      where it exceeds OBS_SIGNIFICANT; carbon where the path-averaged loss passes the floor).
+
+    NaN where nothing qualifies."""
+    ds = np.asarray(ds, float)
+    out = {}
+    for k in OBS_SHOW:
+        a, b = np.asarray(e[k], float), np.asarray(ref[k], float)
+        top = np.maximum(a, b)
+        if k == "r_ali":
+            aro = np.asarray(ref["uv_aro"], float)
+            sig = (aro > OBS_SIGNIFICANT * aro.max()) & (top > OBS_SIGNIFICANT)
+            ratio = lambda d: (d["uv_ali"] * ds).sum() / max((d["uv_aro"] * ds).sum(), 1e-300)      # noqa: E731
+            bi, bt = ratio(e), ratio(ref)
+            keep_budget = max(bi, bt) > OBS_SIGNIFICANT
+        else:
+            sig = top > OBS_SIGNIFICANT * top.max()
+            bi, bt = (a * ds).sum(), (b * ds).sum()
+            keep_budget = max(bi, bt) > 0.0
+            if k == "carbon" and n_c:
+                sig &= top / n_c > CARBON_FLOOR_S
+                keep_budget &= max(bi, bt) / ds.sum() / n_c > CARBON_FLOOR_S
+        cell = float(np.max(_factor(a[sig], b[sig]))) if sig.any() else np.nan
+        out[k] = (cell, float(_factor(bi, bt)) if keep_budget else np.nan)
     return out
 
 
@@ -279,16 +375,17 @@ def assemble(results, bins, t1, paths):
             continue
         nh0 = np.array([by_name[n][0]["nh0"][by_name[n][1]] for n in names])
         pick = lambda get: np.stack([get(*by_name[n]) for n in names], axis=-2)        # noqa: E731
-        maps = {k: np.zeros((G0_T1.size, NH_T1.size)) for k in ("x", "f_intact", "f_bare", "t_up", "t_down")}
+        maps = {k: np.zeros((G0_T1.size, NH_T1.size))
+                for k in ("x", "f_intact", "f_bare", "f_superh", "at_cap", "t_up", "t_down")}
         for (i, j), (c, _, _) in t1.items():
             e = bin_obs(pick(lambda r, k: r["eq"][c][k]), nh0)
-            for k in ("x", "f_intact", "f_bare"):
-                maps[k][i, j] = e[k]
+            for k in ("x", "f_intact", "f_bare", "f_superh", "at_cap"):
+                maps[k][i, j] = e.get(k, 0.0)
             for tag, s in zip(("t_up", "t_down"), range(2)):
                 o = bin_obs(pick(lambda r, k: r["t1"][(i, j)][s][k]), nh0)        # [t, mol, obs] -> per t
-                tt = [P2.ht.settling_time(ts, o[q], y_inf=e[q]) for q in OBS if abs(o[q][0] - e[q]) > 0.01]
+                tt = [P2.ht.settling_time(ts, o[q], y_inf=e[q]) for q in OBS if q in o and abs(o[q][0] - e[q]) > 0.01]
                 maps[tag][i, j] = max(tt) / YR if tt else 0.0
-        res_paths = []
+        res_paths, res_obs = [], []
         for p_i, (name, cs, ds) in enumerate(paths):
             ref = bin_obs(pick(lambda r, k: r["paths"][p_i][:, k]), nh0)
             eq = bin_obs(np.array([pick(lambda r, k: r["eq"][c][k]) for c in cs]), nh0)
@@ -298,7 +395,7 @@ def assemble(results, bins, t1, paths):
                   for c in set(cs)}
             x0 = float(bin_obs(pick(lambda r, k: r["eq"][cs[0]][k]), nh0)["x"])
             for tag, dt_yr in (("C", None), ("exp 1e+02", 1e2), ("exp 1e+03", 1e3), ("exp 1e+04", 1e4)):
-                x, o = x0, {k: [] for k in OBS}
+                x, o = x0, {}
                 for c, dt in zip(cs, ds):
                     if dt_yr is None:
                         x = cl[c].step(x, dt)
@@ -307,10 +404,16 @@ def assemble(results, bins, t1, paths):
                         for _ in range(n):
                             x = cl[c].exp_step(x, dt / n)
                     for k, v in cl[c].observables(x).items():
-                        o[k].append(v)
+                        o.setdefault(k, []).append(v)
                 res[tag] = score({k: np.array(v) for k, v in o.items()}, ref, masks)
-            res_paths.append((name, res, (float(ref["x"].min()), float(ref["x"].max()))))
-        report[(lo, hi)] = {"n": len(names), "maps": maps, "paths": res_paths}
+            res_paths.append((name, res, (float(ref["x"].min()), float(ref["x"].max()),
+                                          float(np.max(ref.get("at_cap", 0.0))))))
+            if all(len(by_name[n][0].get("path_obs", [])) for n in names):      # joint chain: the observables
+                ref_o = _bin_rates(pick(lambda r, k: r["path_obs"][p_i][:, k]))
+                eq_o = _bin_rates(np.array([pick(lambda r, k: r["obs_eq"][c][k]) for c in cs]))
+                n_c = sum(by_name[n][0]["nc"][by_name[n][1]] for n in names) if "nc" in results[0] else None
+                res_obs.append((name, score_obs(eq_o, ref_o, ds, n_c)))
+        report[(lo, hi)] = {"n": len(names), "maps": maps, "paths": res_paths, "obs": res_obs}
     return report
 
 
@@ -349,21 +452,24 @@ def print_report(report, out_txt):
     for (lo, hi), r in report.items():
         mp = r["maps"]
         lines.append(f"\n=== bin N_C {lo:.0f}-{hi:.0f}: {r['n']} molecules ===")
-        lines.append("T1 (rows G0; at n(H) = 1e1 / 1e3 / 1e5): x, f_intact, f_bare | settling up, down [yr]")
+        lines.append("T1 (rows G0; at n(H) = 1e1 / 1e3 / 1e5): x, f_intact, f_bare, f_superh, at_cap | settling up, "
+                     "down [yr]")
         for i, g0 in enumerate(G0_T1):
             cells = []
             for nh in (1e1, 1e3, 1e5):
                 j = int(np.argmin(np.abs(np.log(NH_T1 / nh))))
-                cells.append(f"{mp['x'][i, j]:4.2f} {mp['f_intact'][i, j]:4.2f} {mp['f_bare'][i, j]:4.2f} | "
+                cells.append(f"{mp['x'][i, j]:4.2f} {mp['f_intact'][i, j]:4.2f} {mp['f_bare'][i, j]:4.2f} "
+                             f"{mp['f_superh'][i, j]:4.2f} {mp['at_cap'][i, j]:4.2f} | "
                              f"{mp['t_up'][i, j]:8.2g} {mp['t_down'][i, j]:8.2g}")
             lines.append(f"  G0 {g0:8.2g}: " + "  ||  ".join(cells))
-        lines.append("paths: worst |error| over x, f_intact, f_emit, f_bare by G0 class (>=100 / 1-100 / <1)")
+        lines.append("paths: worst |error| over " + ", ".join(OBS) + " by G0 class (>=100 / 1-100 / <1); the most at "
+                     "the cap along the path")
         lines.append(f"{'':52s} " + " ".join(f"{s:>17s}" for s in show))
         worst = {(s, c[0]): (0.0, "") for s in show for c in P2.G0_CLASSES}
-        for name, res, (xlo, xhi) in r["paths"]:
+        for name, res, (xlo, xhi, cap) in r["paths"]:
             cells = ["/".join(f"{res[s][c[0]][0]:.2f}" if np.isfinite(res[s][c[0]][0]) else "  - "
                               for c in P2.G0_CLASSES) for s in show]
-            lines.append(f"{name:52s} " + " ".join(f"{c:>17s}" for c in cells) + f"  x {xlo:.2f}-{xhi:.2f}")
+            lines.append(f"{name:52s} " + " ".join(f"{c:>17s}" for c in cells) + f"  x {xlo:.2f}-{xhi:.2f}  at cap {cap:.2f}")
             for s in show:
                 for c in P2.G0_CLASSES:
                     v = res[s][c[0]]
@@ -373,9 +479,48 @@ def print_report(report, out_txt):
         for s in show:
             lines.append(f"   {s:10s} " + " | ".join(f"{c[0]}: {worst[(s, c[0])][0]:.3f} ({worst[(s, c[0])][1]})"
                                                  for c in P2.G0_CLASSES))
+        if r.get("obs"):
+            lines.append("observables, E against the truth: factor error max(E/T, T/E) - 1, worst cell / path integral "
+                         f"(cells above {OBS_SIGNIFICANT:g} of the path maximum; carbon lost within 1 Gyr; r_ali = "
+                         "uv_ali/uv_aro where it and the emission are significant; score_obs)")
+            lines.append(f"{'':52s} " + " ".join(f"{k:>13s}" for k in OBS_SHOW))
+            worst_o = {k: (0.0, "", 0.0, "") for k in OBS_SHOW}
+            fmt = lambda v: f"{v:5.2f}" if np.isfinite(v) and v < 99.5 else ("  -  " if not np.isfinite(v) else " >99 ")  # noqa: E731
+            for name, so in r["obs"]:
+                lines.append(f"{name:52s} " + " ".join(f"{fmt(so[k][0])}/{fmt(so[k][1])}".rjust(13) for k in OBS_SHOW))
+                for k in OBS_SHOW:
+                    c, b = so[k]
+                    w = list(worst_o[k])
+                    if np.isfinite(c) and c > w[0]:
+                        w[0], w[1] = c, name
+                    if np.isfinite(b) and b > w[2]:
+                        w[2], w[3] = b, name
+                    worst_o[k] = tuple(w)
+            lines.append("worst over the paths (cell; budget):")
+            for k in OBS_SHOW:
+                c, cn, b, bn = worst_o[k]
+                lines.append(f"   {k:9s} cell {c:.3f} ({cn}); budget {b:.3f} ({bn})")
     text = "\n".join(lines)
     print(text)
     Path(out_txt).write_text(text + "\n")
+
+
+def rescore(pkl, murga_root, out):
+    """``assemble`` and the report of a stored run (``main``'s .pkl), e.g. after a change to the scoring."""
+    with open(pkl, "rb") as fh:
+        d = pickle.load(fh)
+    t1, paths = conditions(murga_root)
+    if [(n, len(c)) for n, c, _ in paths] != d["paths"]:
+        raise ValueError(f"{pkl}: its paths differ from conditions()'s")
+    nc = {m.name: m.nc for m in library()}
+    for r in d["results"]:
+        r.setdefault("nc", np.array([nc[n] for n in r["names"]]))          # runs before 2026-11-15 did not store it
+    kept = {n for r in d["results"] for n in r["names"]}
+    bins = [(edges, [n for n in names if n in kept]) for edges, names in d["bins"]]
+    out = Path(out)
+    report = assemble(d["results"], bins, t1, paths)
+    print_report(report, out.with_suffix(".txt"))
+    plot_t1(report, out.with_name(out.name + "_T1.png"))
 
 
 def main(argv=None):
@@ -384,7 +529,18 @@ def main(argv=None):
     ap.add_argument("--per-bin", type=int, default=None, help="molecules per bin, spread in N_C (default: all)")
     ap.add_argument("--murga2020", default=str(Path.home() / "Library/Caches/calima/datasets/pahchem/murga2020"))
     ap.add_argument("--out", default="results/carbon_plan/check_pah_bins_hydrogen")
+    ap.add_argument("--chain", choices=("joint", "averaged"), default="joint",
+                    help="Population's joint (Z, N_H) chain, or its charge-averaged one (the 2026-11-08 run)")
+    ap.add_argument("--superh-chemistry", default=None, choices=("andrews16", "deep"),
+                    help="joint chain: Params.superh_chemistry (default: pahchem's)")
+    ap.add_argument("--superh-levels", type=int, default=None, help="joint chain: Params.superh_levels (the cap)")
+    ap.add_argument("--superh-magic", default=None, choices=("cazaux16", "boschman15"),
+                    help='"deep": Params.superh_magic_barriers (default: pahchem\'s)')
+    ap.add_argument("--rescore", default=None, metavar="PKL",
+                    help="score the stored results of an earlier run (its .pkl) again, without solving; writes --out")
     args = ap.parse_args(argv)
+    if args.rescore:
+        return rescore(args.rescore, args.murga2020, args.out)
     from concurrent.futures import ProcessPoolExecutor
 
     from pycalima import _paths
@@ -402,12 +558,15 @@ def main(argv=None):
     shards = [every[k::args.workers] for k in range(args.workers)]
     shards = [s for s in shards if s]
     cache = _paths.get_model_data_dir() / "pahchem_population_basis"
-    print(f"{len(every)} molecules on {len(shards)} workers; {len(t1)} T1 cells, {len(paths)} paths", flush=True)
+    superh = {k: v for k, v in (("superh_chemistry", args.superh_chemistry), ("superh_levels", args.superh_levels),
+                                ("superh_magic_barriers", args.superh_magic)) if v is not None}
+    print(f"{len(every)} molecules on {len(shards)} workers; {len(t1)} T1 cells, {len(paths)} paths; "
+          f"{args.chain} chain {superh}", flush=True)
     from concurrent.futures import as_completed
 
     results = []
     with ProcessPoolExecutor(len(shards)) as ex:
-        futures = [ex.submit(work, (s, t1, paths, cache)) for s in shards]
+        futures = [ex.submit(work, (s, t1, paths, cache, args.chain, superh)) for s in shards]
         for fut in as_completed(futures):
             r = fut.result()
             results.append(r)
@@ -415,7 +574,8 @@ def main(argv=None):
                 print(f"  dropped {name}: {why}", flush=True)
             print(f"  shard {len(results)}/{len(shards)} done ({time.time() - t0:.0f} s)", flush=True)
             with open(out.with_suffix(".pkl"), "wb") as fh:      # every shard as it comes: a failure keeps the rest
-                pickle.dump({"bins": bins, "results": results, "paths": [(n, len(c)) for n, c, _ in paths]}, fh)
+                pickle.dump({"bins": bins, "results": results, "paths": [(n, len(c)) for n, c, _ in paths],
+                             "chain": args.chain, "superh": superh}, fh)
     kept = {n for r in results for n in r["names"]}
     bins = [(edges, [n for n in names if n in kept]) for edges, names in bins]
     report = assemble(results, bins, t1, paths)
