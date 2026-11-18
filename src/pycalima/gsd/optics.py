@@ -1,4 +1,4 @@
-"""Per-gram optics of PL2M bins as functions of their in-bin state.
+"""Per-gram optics of the GSD bins as functions of their in-bin state.
 
 A bin's (N, M) fix its power-law profile (``pl2m``), so a grain-averaged
 quantity per gram of the bin's dust depends on the cell only through the
@@ -25,6 +25,19 @@ density. A uniform s grid does not work everywhere: in the smallest THEMIS
 bin the near-IR kappa grows 300-fold between s = 0 and s = 1/16, because the
 sub-nm a-C grains at the bin's lower edge have band gaps above 0.8 eV. The grids
 are therefore refined by bisection (``refine_s``).
+
+The closure eaf (``closures``) blends four components per bin, each a
+function of s alone: the PL2M profile above (base), the two fronts and a spike.
+``component_kappa_tables`` tabulates them and ``combine_components`` weights them
+with the fractions that a bin's neighbours fix (``closures.component_fractions``);
+``kappa_direct`` integrates any method's pieces directly.
+
+Node tables (``node_table``, ``node_average``) are the closure-independent alternative, and the way the default
+closure, ea, is served: per bin, a per-gram quantity is stored at a few radii (uniform or geometric in u, the cheapest
+layout per bin whose bin averages meet a tolerance over power-law profiles and truncated fronts of every slope), and
+a cell's per-gram value is the exact integral of that piecewise-linear k(u) over the cell's own reconstruction. For
+the A2 carbon grid this costs about as many stored values as the PL2M s tables, and it serves pl2m, ea, eaf, affine
+and exp alike (``diagnostics/gsd/check_node_tables.py``).
 """
 
 from __future__ import annotations
@@ -58,9 +71,19 @@ def _hat(u, ud):
     return w
 
 
-def profile_weights(eta, s, u):
+def profile_weights(eta, s, u, method=None):
     """W[len(s), len(u)] with kappa(s) = W @ k(u), for k linear in u between
-    the nodes ``u`` (from ``node_u``); rows sum to 1."""
+    the nodes ``u`` (from ``node_u``); rows sum to 1.
+
+    For pl2m, ea and eaf (``closures``) this is the PL2M profile, the base
+    component of ea/eaf (their front components: ``component_weights``); for
+    the local closures affine and exp, their own profile."""
+    from .closures import local_pieces, resolve, state_weights
+
+    meth = resolve(method)
+    if meth.closure in ("affine", "exp"):
+        s = np.atleast_1d(np.asarray(s, float))
+        return state_weights(eta, s, u, *local_pieces(eta, s, meth))
     s = np.atleast_1d(np.asarray(s, float))
     r = 1.0 + s * (eta - 1.0)
     bm = beta_max(eta)
@@ -82,20 +105,98 @@ def profile_weights(eta, s, u):
     return W
 
 
-def kappa_tables(grid, s, n_nodes, per_gram):
+def kappa_tables(grid, s, n_nodes, per_gram, method=None):
     """Per-gram bin tables kappa[bin, s, ...] on the s grid ``s``.
 
     ``per_gram(a_cm)`` returns k at radii ``a_cm`` (shape (len(a), ...)), per
     gram of grains of that radius; it is called once per bin, on that bin's
-    nodes.
+    nodes. The profile is ``profile_weights``'s for ``method`` (the base
+    component for ea/eaf; the front components: ``component_kappa_tables``).
     """
     a_lo = grid.a_edges[:-1]
     out = []
     for i, eta in enumerate(grid.etas):
         u = node_u(eta, n_nodes)
-        out.append(np.tensordot(profile_weights(eta, s, u), np.asarray(per_gram(a_lo[i] * u)),
+        out.append(np.tensordot(profile_weights(eta, s, u, method), np.asarray(per_gram(a_lo[i] * u)),
                                 axes=(1, 0)))
     return np.stack(out)
+
+
+def component_weights(eta, s, u, component, method=None):
+    """W[len(s), len(u)] of one component of the eaf closure ('base' = PL2M, 'right' = u^front_exponent on
+    [1, u_c], 'left' = on [u_c, u_R], 'spike' = all grains at the mean mass) at in-bin states s: every component is
+    a function of s alone, so RAMSES can tabulate it like the PL2M profile. A front that cannot reach s is the base
+    profile there, as in the closure."""
+    from .closures import component_pieces, resolve, state_weights
+
+    meth = resolve(method)
+    if component == "base":
+        return profile_weights(eta, s, u, meth)
+    s = np.atleast_1d(np.asarray(s, float))
+    return state_weights(eta, s, u, *component_pieces(eta, s, component, meth))
+
+
+def component_kappa_tables(grid, s, n_nodes, per_gram, method=None):
+    """Per-gram tables of every eaf component: {component: kappa[bin, s, ...]} on the s grid ``s``
+    (``component_weights``). A bin's value is ``combine_components`` of these with the bin's component
+    fractions (``closures.component_fractions``, from its neighbours' N)."""
+    from .closures import COMPONENTS
+
+    a_lo = grid.a_edges[:-1]
+    out = {c: [] for c in COMPONENTS}
+    for i, eta in enumerate(grid.etas):
+        u = node_u(eta, n_nodes)
+        K = np.asarray(per_gram(a_lo[i] * u))
+        for c in COMPONENTS:
+            out[c].append(np.tensordot(component_weights(eta, s, u, c, method), K, axes=(1, 0)))
+    return {c: np.stack(v) for c, v in out.items()}
+
+
+def combine_components(tables, s_tab, s, fractions):
+    """kappa per bin for in-bin states s[nb] and component fractions[nb, 4] (``closures.component_fractions``):
+    sum_c f_c kappa_c(s), each component looked up with ``lookup`` (every component carries the bin's mean mass,
+    so number and mass fractions coincide)."""
+    from .closures import COMPONENTS
+
+    s = np.atleast_1d(np.asarray(s, float))
+    out = None
+    for ci, c in enumerate(COMPONENTS):
+        vals = np.stack([lookup(s_tab, tables[c][i], s[i:i + 1])[0] for i in range(s.size)])
+        term = np.asarray(fractions)[:, ci].reshape((-1,) + (1,) * (vals.ndim - 1)) * vals
+        out = term if out is None else out + term
+    return out
+
+
+def kappa_direct(grid, N, M, n_nodes, per_gram, method=None):
+    """Per-gram kappa[bin, ...] of the state (N, M) by direct integration over each bin's pieces under any method
+    (``closures.pieces``; ea needs this, its front exponents vary per cell). Empty bins get the base profile at
+    s = 1/2 (they carry no mass)."""
+    from .closures import bin_weights, pieces
+
+    N = np.asarray(N, float)
+    M = np.asarray(M, float)
+    P = pieces(grid, N, M, method)                 # the true state: empty bins stay empty for their neighbours
+    a_lo = grid.a_edges[:-1]
+    rows = []
+    for i, eta in enumerate(grid.etas):
+        u = node_u(eta, n_nodes)
+        if N[i] > 0:
+            sub = _one_bin(P, i)
+            W = bin_weights(sub.grid, sub, u[None, :], "mass")[0]
+        else:
+            W = profile_weights(eta, [0.5], u, "pl2m")[0]
+        rows.append(np.tensordot(W, np.asarray(per_gram(a_lo[i] * u)), axes=(0, 0)))
+    return np.stack(rows)
+
+
+def _one_bin(P, i):
+    """Bin i's pieces as a one-bin Pieces (for per-bin weights on that bin's own nodes)."""
+    from .closures import Pieces
+    from .grid import MassGrid
+
+    g1 = MassGrid(P.grid.m_edges[i:i + 2].copy(), P.grid.rho)
+    return Pieces(g1, P.n[i:i + 1], P.A[i:i + 1], P.lam[i:i + 1], P.u1[i:i + 1], P.u2[i:i + 1],
+                  P.spike[i:i + 1])
 
 
 def lookup(s_tab, tab, s):
@@ -240,3 +341,113 @@ def lookup_x(s_tab, x_tab, tab, s, x):
     tx = (x - x_tab[jx]) / (x_tab[jx + 1] - x_tab[jx])
     lt = np.log(np.maximum(tab[js:js + 2, jx:jx + 2], 1e-300))
     return np.exp((1 - ts) * ((1 - tx) * lt[0, 0] + tx * lt[0, 1]) + ts * ((1 - tx) * lt[1, 0] + tx * lt[1, 1]))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# per-radius node tables: one table per bin for any closure
+# ---------------------------------------------------------------------------------------------------------------------
+
+NODE_COUNTS = (8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256)
+FRONT_EXPONENTS = (-6.0, -4.5, -3.5, -2.5, -1.5, 0.0, 1.0, 2.0, 3.0)
+
+
+class NodeTable:
+    """A per-gram quantity at a few radii per bin: ``u[i]`` (u = a / a_L,i, from 1 to u_R) and ``K[i]``
+    [len(u[i]), ...]. ``node_average`` integrates it over any closure's reconstruction."""
+
+    def __init__(self, grid, u, K, layout):
+        self.grid = grid
+        self.u = [np.asarray(x, float) for x in u]
+        self.K = [np.asarray(x, float) for x in K]
+        self.layout = list(layout)
+
+    @property
+    def sizes(self):
+        return [x.size for x in self.u]
+
+
+def probe_profiles(eta, n_s=33, exponents=FRONT_EXPONENTS, n_cut=9):
+    """One-bin profiles any closure builds, as pieces (n, lam, u1, u2, spike) of shape [n_profiles, 1]: the PL2M
+    power law at ``n_s`` in-bin states (spikes at the extremes), and truncated power laws u^lam (``exponents``) on
+    [1, u_c] and [u_c, u_R] with u_c at ``n_cut`` positions (the fronts of ea/eaf)."""
+    from .closures import component_pieces
+
+    s = np.linspace(0.0, 1.0, n_s)
+    n0, l0, a0, b0, sp0 = component_pieces(eta, s, "base", "pl2m")
+    uR = eta ** (1.0 / 3.0)
+    cuts = uR ** np.linspace(0.1, 0.9, n_cut)
+    rows = []
+    for lam in exponents:
+        for uc in cuts:
+            rows.append((lam, 1.0, uc))
+            rows.append((lam, uc, uR))
+    lam = np.array([r[0] for r in rows])[:, None]
+    u1 = np.array([r[1] for r in rows])[:, None]
+    u2 = np.array([r[2] for r in rows])[:, None]
+    n = np.ones_like(lam)
+    sp = np.zeros(lam.shape, bool)
+    cat = lambda x, y: np.concatenate([np.asarray(x).reshape(-1, 1), np.asarray(y).reshape(-1, 1)])   # noqa: E731
+    return (cat(n0, n), cat(l0, lam), cat(a0, u1), cat(b0, u2), cat(sp0, sp))
+
+
+def _profile_weights_over(u, prof):
+    """W[n_profiles, len(u)] of the one-bin test profiles ``prof`` (``probe_profiles``) over nodes u (mass measure)."""
+    from .closures import _piece_weights
+
+    n, lam, u1, u2, sp = prof
+    U = np.ascontiguousarray(np.repeat(np.asarray(u, float)[None, :], n.shape[0], axis=0))
+    out = np.zeros(U.shape)
+    _piece_weights(U, np.ascontiguousarray(lam, float), np.ascontiguousarray(u1, float),
+                   np.ascontiguousarray(u2, float), np.ascontiguousarray(sp, np.bool_),
+                   np.ascontiguousarray(n, float), 3.0, out)
+    return out
+
+
+def node_table(grid, per_gram, tol=3e-3, counts=NODE_COUNTS, n_ref=512, layouts=("geometric", "uniform")):
+    """The cheapest per-radius node table per bin: for each bin, the first node count of ``counts`` (and the first
+    of ``layouts``: nodes geometric or uniform in u) whose averages over ``probe_profiles`` match those of ``n_ref``
+    uniform nodes within ``tol`` (relative, over every trailing entry of ``per_gram``). ``per_gram(a_cm)`` returns k
+    at radii a_cm, shape (len(a), ...). Bins that never meet tol get the reference nodes."""
+    a_lo = grid.a_edges[:-1]
+    U, K, lay = [], [], []
+    for i, eta in enumerate(grid.etas):
+        prof = probe_profiles(eta)
+        u_ref = node_u(eta, n_ref)
+        ref = np.tensordot(_profile_weights_over(u_ref, prof), np.asarray(per_gram(a_lo[i] * u_ref)), axes=(1, 0))
+        uR = eta ** (1.0 / 3.0)
+        chosen = None
+        for n in counts:
+            for name in layouts:
+                u = np.geomspace(1.0, uR, n + 1) if name == "geometric" else node_u(eta, n)
+                k = np.asarray(per_gram(a_lo[i] * u))
+                got = np.tensordot(_profile_weights_over(u, prof), k, axes=(1, 0))
+                if np.max(np.abs(got / ref - 1.0)) <= tol:
+                    chosen = (u, k, f"{name} {n}")
+                    break
+            if chosen is not None:
+                break
+        if chosen is None:
+            chosen = (u_ref, np.asarray(per_gram(a_lo[i] * u_ref)), f"uniform {n_ref}")
+        U.append(chosen[0])
+        K.append(chosen[1])
+        lay.append(chosen[2])
+    return NodeTable(grid, U, K, lay)
+
+
+def node_average(grid, N, M, table, method=None):
+    """Per-gram bin values [nb, ...] of the state (N, M) under ``method``'s closure, from a ``NodeTable``: the exact
+    integral of k (linear in u between the table's nodes) over each bin's pieces. Empty bins get the PL2M profile at
+    s = 1/2 (they carry no mass)."""
+    from .closures import bin_weights, pieces
+
+    N = np.asarray(N, float)
+    P = pieces(grid, N, np.asarray(M, float), method)
+    rows = []
+    for i, eta in enumerate(grid.etas):
+        u = table.u[i]
+        if N[i] > 0:
+            W = bin_weights(_one_bin(P, i).grid, _one_bin(P, i), u[None, :], "mass")[0]
+        else:
+            W = profile_weights(eta, [0.5], u, "pl2m")[0]
+        rows.append(np.tensordot(W, table.K[i], axes=(0, 0)))
+    return np.stack(rows)

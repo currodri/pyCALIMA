@@ -28,7 +28,13 @@ to extinction budget; Zubko+04), the reference runs to 5 um at 30 bins per
 mass decade.
 
 Schemes, all through the same ``pycalima.gsd`` operators:
+  ea          two moments (N, M) per bin, the default GSD method
+              (``gsd.closures``: edge-aware closure, the neighbour's exponent)
   pl2m        two moments (N, M) per bin, power law inside (2 scalars/bin)
+  eaf, affine, exp
+              the other two-moment closures of ``gsd.closures``; any
+              two-moment scheme takes the suffixes +gauss (Gauss collision
+              nodes) and +ka<n> (kernel averaging), e.g. ea+gauss
   1m-mrn      one moment M; inside each bin dn/da ~ a^-3.5 (1 scalar/bin)
   1m-limiter  one moment M; in-bin slope from the neighbours, harmonic-mean
               limiter of Marchand et al. (2021, Ishinisan; collapse.grid)
@@ -83,7 +89,35 @@ T_DUST = 20.0
 F_DEP0 = 0.5                 # initial fraction of the key element in dust
 SOLAR = {"C": 2.69e-4, "Si": 3.24e-5}   # Asplund et al. 2009, per H
 N_BINS = (2, 3, 4, 6, 8, 12, 16, 24, 32)
-SCHEMES = ("pl2m", "1m-mrn", "1m-limiter")
+SCHEMES = ("ea", "eaf", "pl2m", "1m-mrn", "1m-limiter")
+TWO_MOMENT = ("pl2m", "eaf", "ea", "affine", "exp")
+
+
+def two_moment(scheme):
+    """True for the schemes that store (N, M): a closure of ``gsd.closures`` with optional suffixes."""
+    return scheme.split("+")[0] in TWO_MOMENT
+
+
+def method_of(scheme):
+    """The ``gsd.closures`` method of a scheme. 'pl2m' and the one-moment schemes run the operators with the PL2M
+    method, as before the edge-aware default; the other two-moment schemes with their closure (default parameters),
+    '+gauss' switching the collision nodes and '+ka<n>' adding kernel averaging."""
+    from dataclasses import replace as _replace
+
+    from pycalima.gsd.closures import METHODS
+
+    parts = scheme.split("+")
+    if parts[0] not in TWO_MOMENT or scheme == "pl2m":
+        return METHODS["pl2m"]
+    meth = METHODS[parts[0]]
+    for sfx in parts[1:]:
+        if sfx == "gauss":
+            meth = _replace(meth, nodes="gauss")
+        elif sfx.startswith("ka"):
+            meth = _replace(meth, kernel_average=int(sfx[2:]))
+        else:
+            raise ValueError(f"unknown scheme suffix {sfx!r} in {scheme!r}")
+    return meth
 LAMBDAS_UM = (0.1, 0.12, 0.15, 0.18, 0.2175, 0.25, 0.3, 0.36, 0.44, 0.55, 0.7, 0.9, 1.25,
               1.65, 2.2)
 SLOPE_RANGE = (3e-7, 2.5e-5)  # [cm] range of the power-law fit of dn/da
@@ -214,7 +248,7 @@ class Composition:
     adots: dict = field(default_factory=dict)
 
     def number(self):
-        return self.N if self.scheme == "pl2m" else closure_N(self.grid, self.M, self.scheme)
+        return self.N if two_moment(self.scheme) else closure_N(self.grid, self.M, self.scheme)
 
 
 def collision_model(c, phase_name, processes, threads):
@@ -249,10 +283,11 @@ def step(comps, gas, phase_name, dt, processes, threads, stats):
     nH = p["n_H"]
     for c in comps:
         N, M = c.number() * nH, c.M * nH
+        meth = method_of(c.scheme)
         t0 = time.perf_counter()
         if processes & {"shattering", "coagulation"}:
             r = collide(c.grid, N, M, collision_model(c, phase_name, processes, threads), dt,
-                        errmax=ERRMAX)
+                        errmax=ERRMAX, method=meth)
             N, M = r["N"], r["M"]
             c.over_M += r["overflow_M"] / nH
             gas[c.mat.key] += r["sink_M"] / nH * c.mat.per_gram
@@ -260,7 +295,7 @@ def step(comps, gas, phase_name, dt, processes, threads, stats):
         t1 = time.perf_counter()
         if "accretion" in processes and gas[c.mat.key] > 0.0:
             pop = Population(c.mat.sublimation, c.grid, N, M, np.full(c.grid.n_bins, T_DUST),
-                             nucleation=False)
+                             nucleation=False, method=meth)
             g = {c.mat.key: gas[c.mat.key] * nH}
             exchange_step([pop], g, p["T"], dt)
             N, M = pop.N, pop.M
@@ -270,11 +305,11 @@ def step(comps, gas, phase_name, dt, processes, threads, stats):
         if "sputtering" in processes:
             if phase_name not in c.adots:
                 c.adots[phase_name] = erosion(c.mat, phase_name, c.grid.rho)
-            N, M, dM = sputter(c.grid, N, M, c.adots[phase_name], dt)
+            N, M, dM = sputter(c.grid, N, M, c.adots[phase_name], dt, method=meth)
             gas[c.mat.key] += dM / nH * c.mat.per_gram
         t3 = time.perf_counter()
         c.M = M / nH
-        if c.scheme == "pl2m":
+        if two_moment(c.scheme):
             c.N = N / nH
         stats["t_coll"] += t1 - t0
         stats["t_acc"] += t2 - t1
@@ -308,9 +343,14 @@ def mie_table():
     return tab
 
 
-def bin_samples(grid, N, M):
-    """Quadrature nodes (a, dN) of the in-bin profiles (1% steps in a)."""
+def bin_samples(grid, N, M, method=None):
+    """Quadrature nodes (a, dN) of the in-bin profiles (1% steps in a): the
+    PL2M profiles, or those of a ``gsd.closures`` method other than pl2m."""
     from pycalima.gsd.pl2m import BinProfile
+
+    if method is not None and method.closure != "pl2m":
+        from pycalima.gsd.closures import samples
+        return samples(grid, N, M, method, step=0.01)
 
     prof = BinProfile(grid, N, M)
     a_out, w_out = [], []
@@ -433,13 +473,13 @@ def run_one(case, scheme, n_bins, a_min_c, a_min_si, dt_hydro_yr, threads,
     for mat in materials(a_min_c, a_min_si):
         g = make_grid(mat, n_bins)
         N, M = initial_bins(g, mat, cs["ic"])
-        comps.append(Composition(mat, g, scheme, M, N if scheme == "pl2m" else None))
+        comps.append(Composition(mat, g, scheme, M, N if two_moment(scheme) else None))
         gas[mat.key] = SOLAR[mat.key] * (1.0 - F_DEP0)
     totals0 = {c.mat.key: gas[c.mat.key] + c.M.sum() * c.mat.per_gram for c in comps}
     mie = mie_table()
 
     def state():
-        return {c.mat.name: (c.mat, *bin_samples(c.grid, c.number(), c.M), c.over_M)
+        return {c.mat.name: (c.mat, *bin_samples(c.grid, c.number(), c.M, method_of(c.scheme)), c.over_M)
                 for c in comps}
 
     stats = dict(coll_substeps=0, t_coll=0.0, t_acc=0.0, t_sput=0.0, hydro_steps=0)
@@ -571,7 +611,7 @@ def _load(path):
 def ramses_cost(scheme, bins):
     """Dust memory per 1e6 cells in 3-D RAMSES [MB] and collision node pairs."""
     n = sum(bins.values())
-    scalars = 2 * n if scheme == "pl2m" else n
+    scalars = 2 * n if two_moment(scheme) else n
     pairs = sum(2 * k * (2 * k + 1) // 2 for k in bins.values())
     # bytes per cell equal MB per 1e6 cells
     return dict(mb_tva=16 * scalars + 24 * n, mb_no_drift=16 * scalars, node_pairs=pairs)
@@ -601,7 +641,7 @@ def cmd_report(args):
         worst = err.max(axis=0)
         label = m["scheme"] if not is_ref else ("ref, half dt" if m["ref_dt_factor"] != 1.0
                                                  else f"ref ({REF_BPD}/dec)")
-        scal = (sum(m["bins"].values()) * (2 if m["scheme"] == "pl2m" else 1)) if not is_ref else None
+        scal = (sum(m["bins"].values()) * (2 if two_moment(m["scheme"]) else 1)) if not is_ref else None
         cost = ramses_cost(m["scheme"], m["bins"]) if not is_ref else {}
         rows.append(dict(case=m["case"], scheme=label, n_bins=m["n_bins"], a_min_c=k[1],
                          against="exact" if k in exact else "high-res",
@@ -665,14 +705,14 @@ def plot(rows):
     a_min = min(r["a_min_c"] for r in rows)
     fig, axes = plt.subplots(2, len(cases), figsize=(3.6 * len(cases), 6.4), squeeze=False)
     for j, cs in enumerate(cases):
-        for scheme, mk in zip(SCHEMES, ("o", "s", "^")):
+        for scheme, mk, col in zip(SCHEMES, ("D", "v", "o", "s", "^"), ("C0", "C4", "C1", "C2", "C3")):
             rs = sorted([r for r in rows if r["case"] == cs and r["scheme"] == scheme
                          and r["n_bins"] and r["a_min_c"] == a_min], key=lambda r: r["n_bins"])
             if not rs:
                 continue
-            lab = scheme.replace("-", " ")
-            axes[0, j].loglog([r["n_bins"] for r in rs], [r["err"] for r in rs], marker=mk, label=lab)
-            axes[1, j].loglog([r["scalars"] for r in rs], [r["err"] for r in rs], marker=mk, label=lab)
+            lab = scheme.replace("-", " ") + (" (default)" if scheme == "ea" else "")
+            axes[0, j].loglog([r["n_bins"] for r in rs], [r["err"] for r in rs], marker=mk, c=col, label=lab)
+            axes[1, j].loglog([r["scalars"] for r in rs], [r["err"] for r in rs], marker=mk, c=col, label=lab)
         for ax in axes[:, j]:
             ax.axhline(0.05, color="0.5", lw=0.8, ls="--")
             ax.minorticks_on()
@@ -699,7 +739,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="evolve the references and the coarse grids")
     r.add_argument("--case", default="all", help=f"one of {', '.join(CASES)}, comma list, or all")
-    r.add_argument("--schemes", default="all", help=f"comma list of {', '.join(SCHEMES)}, or all")
+    r.add_argument("--schemes", default="all",
+                   help=f"comma list of {', '.join(SCHEMES)} (or affine, exp; suffixes +gauss, +ka<n>), or all")
     r.add_argument("--n-bins", default="", help="comma list of bins per composition (default: the full set)")
     r.add_argument("--a-min-c", type=float, default=3.5e-8, help="carbon a_min [cm]")
     r.add_argument("--a-min-si", type=float, default=4.5e-8, help="silicate a_min [cm]")

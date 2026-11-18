@@ -14,9 +14,10 @@ from .collisions import CoagulationModel, bin_nodes, collide
 __all__ = ["bin_nodes", "coagulate"]
 
 
-def coagulate(grid, N, M, kernel, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=100000):
+def coagulate(grid, N, M, kernel, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=100000, method=None):
     """Coagulate (N, M) over dt with kernel(m1, m2) [cm^3 s^-1] (vectorised
-    in grain masses). Returns (N, M, overflow_N, overflow_M, n_steps)."""
+    in grain masses), with the closure, nodes and kernel averaging of
+    ``method`` (``closures``). Returns (N, M, overflow_N, overflow_M, n_steps)."""
     r = collide(grid, N, M, CoagulationModel(kernel), dt, errmax=errmax, atol=atol, h0=h0,
-                max_steps=max_steps)
+                max_steps=max_steps, method=method)
     return r["N"], r["M"], r["overflow_N"], r["overflow_M"], r["n_steps"]

@@ -51,6 +51,7 @@ from scipy.optimize import brentq
 from pycalima.models.dust_radiation import dust_sublimation as ds
 
 from .grid import MassGrid
+from .closures import pieces, resolve
 from .pl2m import BinProfile
 from .remap import advance, inject, remap, trajectory, velocity_table
 
@@ -69,7 +70,8 @@ class Population:
     species is neutral: only it nucleates, and if ``ion_focusing(a)`` (the
     ion Coulomb factor, ``charging.ChargeState.ion_focusing_of``) is given
     the ionised rest accretes with that factor (else all of it at the
-    geometric rate, as before).
+    geometric rate, as before). ``method`` selects the in-bin closure of the
+    remap (``closures``; None: ``closures.DEFAULT_METHOD``).
     """
 
     model: object
@@ -86,6 +88,7 @@ class Population:
     table_points: int = 2000
     microcanonical: bool = False
     kelvin: bool = True
+    method: object = None
     _fcorr: tuple = field(default=None, repr=False)
     _profile: tuple = field(default=None, repr=False)
 
@@ -153,11 +156,16 @@ class Population:
         rate = self.adot(n_key, T_gas)
         table = velocity_table(rate, self.grid.a_edges[0] * 0.3, self.grid.a_edges[-1] * 3.0,
                                self.table_points)
-        if self._profile is None or self._profile[0] is not self.N or self._profile[1] is not self.M:
-            self._profile = (self.N, self.M, BinProfile(self.grid, self.N, self.M))
+        meth = resolve(self.method)
+        # the reconstruction of (N, M) is the same for every gas density the root finder tries
+        if (self._profile is None or self._profile[0] is not self.N or self._profile[1] is not self.M
+                or self._profile[3] != meth):
+            prof = (BinProfile(self.grid, self.N, self.M) if meth.closure == "pl2m"
+                    else pieces(self.grid, self.N, self.M, meth))
+            self._profile = (self.N, self.M, prof, meth)
         N1, M1, _lost, oN, oM = remap(self.grid, self.N, self.M,
                                       lambda a: advance(table, a, dt),
-                                      profile=self._profile[2])
+                                      profile=self._profile[2], method=meth)
         born = 0.0
         if nucleate and self.nucleation and n_key > 0.0:
             T_c = self.T_cluster if self.T_cluster is not None else float(self.T_d[0])
