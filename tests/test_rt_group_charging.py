@@ -266,6 +266,28 @@ def test_the_mean_of_a_wide_distribution_follows_the_exact_one(tables, lattice):
     assert g["Zmean"] == pytest.approx(g["Zstar"] + 0.5, abs=1e-12)
 
 
+@pytest.mark.parametrize("lattice", [False, True])
+@pytest.mark.parametrize("key, T", [(("silicate", 5e-7), 3.0), (("silicate", 5e-7), 5.0), (("graphite", 1e-6), 3.0)])
+def test_small_grains_in_very_cold_gas_have_their_exact_charge(tables, key, T, lattice):
+    """RAMSES calima/charge-lg5 commit 1: small grains below ~10 K, where electron capture on Z < 0 is ~1e-100 to
+    1e-300 or floored, got <Z> = sigma = Gamma = Lambda = 0 from an overflowing running product. pyCALIMA builds
+    P(Z) as exp of the cumulative g and was never affected; this keeps it so: both closures give the exact P(Z)'s
+    moments."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables[key]
+    N, egy, _ = _bb_cell(4e4, 1.0, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    ne = 1e-3
+    r = gt.solve(N * 1e-6, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", coulomb=True, lattice=lattice)
+    assert gt._rates(-2.0)[1] < 1e-250
+    assert r["discrete"] and r["Zsigma"] > 0 and r["Gamma"] > 0 and r["Lambda"] > 0 and np.all(r["D"] > 1)
+    Z, P = gt.exact_distribution(r["Zstar"], 1.0)
+    zm = P @ Z
+    assert abs(r["Zmean"] - zm) < 1e-7
+    assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=1e-6)
+
+
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
     """_recombination over a discrete P(Z)'s window, and on charges across the ion thresholds
     read from the table file, is the case-A sum written from its definition (WD01b):
