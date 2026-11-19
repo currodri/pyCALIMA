@@ -718,14 +718,15 @@ def test_agn_ionising_photon_density_matches_published_seds():
 
 
 def test_charge_state_reproduces_the_group_solver(silicate_charging):
-    """Per radius the state is RAMSES-CALIMA's solve; the charge points keep
+    """Per radius the state is RAMSES-CALIMA's solve (LG5 by default); the charge points keep
     <Z> and sigma, and the ion factor is <J~> over the exact P(Z)."""
     from pycalima.models.dust_charge.shared_physics import DS87_J_function_vec
 
     ph = _agn_photons(1e46, 3.0)
     st = silicate_charging.solve(ph, T=1e4, n_e=1e2)
     for k, gt in enumerate(silicate_charging.tables):
-        r = gt.solve(ph.N, 2.99792458e10, 1e4, 1e2, [(1e2, 1.0, 1.67262192e-24)], recomb=None)
+        r = gt.solve(ph.N, 2.99792458e10, 1e4, 1e2, [(1e2, 1.0, 1.67262192e-24)], recomb=None,
+                     lattice=silicate_charging.lattice)
         assert st.Zmean[k] == pytest.approx(r["Zmean"], rel=1e-6, abs=1e-6)
     Z, w = st.charge_points(st.a)
     np.testing.assert_allclose(Z @ w, st.Zmean, rtol=1e-12)
@@ -736,6 +737,20 @@ def test_charge_state_reproduces_the_group_solver(silicate_charging):
     ref = P_ref = Pk @ DS87_J_function_vec(Zk, 1.0 + 0 * Zk, st.a[k] + 0 * Zk, 1e4 + 0 * Zk)
     assert J[k] == pytest.approx(ref, rel=1e-12)
     assert np.all(J[st.Zmean > 5] < 1e-3)       # positive grains repel ions
+
+
+def test_the_full_solver_is_an_option_and_lg5_stays_close_to_it(silicate_charging):
+    """ChargingModel(lattice=False) runs the full WDB06rt solve; LG5 (the default) agrees with it within the
+    documented charging uncertainties (<Z> to 0.2 charges, sigma and Gamma to 5 %) in an AGN-lit cell."""
+    from pycalima.gsd.charging import ChargingModel
+
+    full = ChargingModel("silicate", silicate_charging.a, lattice=False)
+    assert silicate_charging.lattice and not full.lattice
+    ph = _agn_photons(1e46, 3.0)
+    lg, fs = silicate_charging.solve(ph, T=1e4, n_e=1e2), full.solve(ph, T=1e4, n_e=1e2)
+    np.testing.assert_allclose(lg.Zmean, fs.Zmean, atol=0.2)
+    np.testing.assert_allclose(lg.Zsigma, fs.Zsigma, rtol=0.05)
+    np.testing.assert_allclose(lg.Gamma, fs.Gamma, rtol=0.05)
 
 
 def test_coulomb_explosion_follows_tazaki_ichikawa_kokubo_2020(silicate_charging):

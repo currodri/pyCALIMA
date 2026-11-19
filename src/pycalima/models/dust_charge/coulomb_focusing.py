@@ -32,7 +32,7 @@ both change the result only by rounding (the two agree to ~1e-13).
 import math
 
 import numpy as np
-from scipy.special import erfc, erfcx, ndtr
+from scipy.special import erfc, erfcx
 
 KB = 1.3806490e-16                  # RAMSES amr/constants.f90 [erg K^-1]
 E2 = 2.3070775e-19                  # e^2 [statC^2]
@@ -41,6 +41,7 @@ PI_RAMSES = 6.2831853 / 2.0         # RAMSES pi (twopi/2), in the neutral-grain 
 SIG_LO, SIG_HI = 3.5, 4.5           # discrete sum below SIG_LO, Gaussian integrals above SIG_HI
 K_WIN = 6.0                         # half-width of the summed window [max(sigma, 1/2)]
 D_FLOOR = 1e-10
+SQRT2, SQRT2PI = 1.4142135623730951, 2.5066282746310002   # as RAMSES
 
 
 def focusing_factor(Z, j, T, a_cm):
@@ -91,24 +92,46 @@ def _discrete(mu, sig, C1, js):
 
 
 def _gaussian(mu, sig, C1, js):
+    """The continuous Gaussian's factors, as RAMSES: the normal integrals are 0 or 1 beyond 8.5 sigma (to double
+    precision), and the repulsive part, at most exp(arg), is left out where it is below 1e-17 of the rest."""
     out = []
+    q1 = math.exp(-C1)                  # exp(-c) = q1**|j|, by recurrence as RAMSES
+    qj = 1.0
     for j in js:
         if j == 0:
             out.append(1.0)
             continue
+        qj = q1 if abs(j) == 1 else qj * q1
         m = mu if j > 0 else -mu        # a negative impactor on Z is a positive one on -Z
         c = abs(j) * C1
         B0 = 1.0 + abs(j) * math.sqrt(PI_RAMSES * C1 / 2.0)
         tA, tR = (-0.5 - m) / sig, (0.5 - m) / sig
-        PA = ndtr(tA)
-        att = PA - c * (m * PA - sig * math.exp(-0.5 * tA * tA) / math.sqrt(2.0 * math.pi))
-        neu = (ndtr(tR) - PA) * B0
-        x = tR + c * sig
-        if x > 0.0:                     # exp(-c m + c^2 sig^2/2) Q(x), Q(x) = erfc(x/sqrt 2)/2
-            rep = 0.5 * math.exp(-0.5 * c - 0.5 * tR * tR) * erfcx(x / math.sqrt(2.0))
+        if tA < -8.5:
+            PA, M1A = 0.0, 0.0
+        elif tA > 8.5:
+            PA, M1A = 1.0, m
         else:
-            rep = math.exp(-c * m + 0.5 * c * c * sig * sig) * 0.5 * erfc(x / math.sqrt(2.0))
-        kappa = 1.0 if c < 1e-4 else (c * math.exp(-0.5 * c) if c > 1e2 else (0.5 * c) / math.sinh(0.5 * c))
+            PA = 0.5 * erfc(-tA / SQRT2)
+            M1A = m * PA - sig * math.exp(-0.5 * tA * tA) / SQRT2PI
+        if tR < -8.5:
+            PN = -PA
+        elif tR > 8.5:
+            PN = 1.0 - PA
+        else:
+            PN = 0.5 * erfc(-tR / SQRT2) - PA
+        att = PA - c * M1A
+        neu = max(PN, 0.0) * B0
+        x = tR + c * sig
+        arg = -0.5 * c - 0.5 * tR * tR if x > 0.0 else -c * m + 0.5 * (c * sig) ** 2
+        rep, kappa = 0.0, 1.0
+        if arg > -708.0 and not (att + neu >= 1e-3 and arg < -46.0):
+            if x > 0.0:                 # exp(-c m + c^2 sig^2/2) Q(x), Q(x) = erfc(x/sqrt 2)/2
+                rep = 0.5 * math.exp(arg) * erfcx(x / SQRT2)
+            elif x > -8.5:
+                rep = math.exp(arg) * 0.5 * erfc(x / SQRT2)
+            else:
+                rep = math.exp(arg)     # erfc = 2 to double precision
+            kappa = 1.0 - c * c / 24.0 if c < 1e-3 else c * math.sqrt(qj) / (1.0 - qj)   # (c/2)/sinh(c/2)
         out.append(att + neu + kappa * rep)
     return np.array(out)
 

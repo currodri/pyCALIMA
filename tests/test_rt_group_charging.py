@@ -167,24 +167,125 @@ def test_uniform_lookup_reproduces_solves_at_the_nodes(tables):
 
 
 @pytest.mark.parametrize("a", [1e-6, 1e-5])
-def test_warm_start_finds_the_same_root_from_any_guess(tables, a):
-    """The bracket grown from Z_guess (RAMSES: the bin's previous Z*) reaches
-    the cold-start root, wherever the guess lies, including pinned edges."""
+def test_the_result_does_not_depend_on_the_start(tables, a):
+    """As RAMSES since PR #86: any guess, and a warm start from another cell's result, give the cold result to
+    the bit. The root's bracket is found on the integer lattice and a warm discrete window is re-formed as a
+    cold one; the one exception, the chord of a wide P(Z) whose root is at an end of the charge range, does not
+    occur in these cells."""
     from pycalima.models.dust_charge import rt_group_charging as rg
 
     tab, path = tables["graphite", a]
     N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
     gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
     Zlo, Zhi = tab["Zmin"], tab["Zmax"] - 1.0
-    for scale, ne, T in ((1.0, 30.0, 8e3), (1e4, 1e-2, 1e4), (0.0, 1.0, 1e4), (1e8, 1e-8, 1e2)):
-        cold = gt.solve(N * scale, C, T, ne, [(ne, 1.0, M_P)])
-        for Zg in (Zlo + 0.5, cold["Zstar"] - 7.3, cold["Zstar"], cold["Zstar"] + 0.4, Zhi - 0.5):
-            if not Zlo < Zg < Zhi:
-                continue
-            warm = gt.solve(N * scale, C, T, ne, [(ne, 1.0, M_P)], Z_guess=Zg)
-            assert warm["Zstar"] == pytest.approx(cold["Zstar"], abs=1e-5 * max(1.0, abs(cold["Zstar"])))
-            for key in ("Zmean", "Zsigma", "Gamma", "Lambda", "Lambda_auto"):
-                assert warm[key] == pytest.approx(cold[key], rel=1e-5, abs=1e-40)
+    cells = ((1.0, 30.0, 8e3), (1e4, 1e-2, 1e4), (0.0, 1.0, 1e4), (1e8, 1e-8, 1e2), (30.0, 0.3, 300.0),
+             (1e-3, 3.0, 50.0))
+    kw = dict(recomb="gauss", dlnT=1e-5, coulomb=True)
+    colds = [gt.solve(N * f, C, T, ne, [(ne, 1.0, M_P)], **kw) for f, ne, T in cells]
+    assert {r["discrete"] for r in colds} == {True, False}
+    for (f, ne, T), cold in zip(cells, colds):
+        starts = [dict(Z_guess=Zg) for Zg in (Zlo + 0.5, cold["Zstar"] - 7.3, cold["Zstar"], cold["Zstar"] + 0.4,
+                                              Zhi - 0.5) if Zlo < Zg < Zhi]
+        starts += [dict(warm=w) for w in colds]
+        for st in starts:
+            r = gt.solve(N * f, C, T, ne, [(ne, 1.0, M_P)], **kw, **st)
+            for key in ("discrete", "Zstar", "Zmean", "Zsigma", "Gamma", "Lambda", "Lambda_auto", "dZmean_dlnT",
+                        "dZsigma_dlnT", "dGamma_dlnT", "dLambda_dlnT"):
+                assert r[key] == cold[key], (key, st)
+            for key in ("alpha_rec", "D", "nodes", "weights"):
+                np.testing.assert_array_equal(r[key], cold[key])
+
+
+def test_a_wide_positive_grains_tail_carries_its_coulomb_factors_and_recombination():
+    """A 38 nm graphite grain in diffuse gas (G0 0.3, T 300 K, n_e 0.03): its P(Z) is wide and positive, and
+    alpha and D(+j) come from its tail toward Z = 0 (_tail_sums, RAMSES calima/charge-lg5). There the Gaussian of
+    <Z>, sigma puts D(+1) 20 times too high and its recombination estimate 300 times too low; the tail's are
+    within a few per cent of the exact P(Z)'s (D within 5 %: the tail is normalised by _wide_moments' P(m))."""
+    from pycalima.models.dust_charge import coulomb_focusing as cf
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab = rg.build_bin_table("graphite", 3.8e-6, U=rg.u_grid(n=241), Ts=np.geomspace(3e3, 3e6, 13),
+                             T_hot=np.geomspace(1e3, 1e9, 13), label="graphite_38nm")
+    N, egy, _ = _bb_cell(3e4, 0.3, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(tab, egy=egy)
+    T, ne = 300.0, 0.03
+    ions = [(ne, 1.0, M_P)]
+    r = gt.solve(N, C, T, ne, ions, recomb="gauss", coulomb=True)
+    assert not r["discrete"] and r["Zmean"] > 5 and r["D_abs"] and r["alpha_tail"]
+    Z, P = gt.exact_distribution(r["Zstar"], r["Zsigma"])
+    D_exact = cf.coulomb_factors_exact(Z, P, T, gt.a, 3)[[0, 2, 3, 4]]
+    D_gauss = cf.coulomb_factors(r["Zmean"], r["Zsigma"], T, gt.a, 3)[[0, 2, 3, 4]]
+    np.testing.assert_allclose(r["D"][1:], D_exact[1:], rtol=0.05)
+    assert D_gauss[1] > 10 * D_exact[1]
+    a_exact = gt.solve(N, C, T, ne, ions, recomb="exact")["alpha_rec"]
+    np.testing.assert_allclose(r["alpha_rec"], a_exact, rtol=0.02)
+    assert np.all(np.exp(gt._recombination_gauss(r["Zstar"], r["Zsigma"])) < 0.01 * a_exact)
+
+
+@pytest.mark.parametrize("scale, ne, T, window, discrete, tol_Z, tol", [
+    (1e-3, 3.0, 50.0, 5, True, 1e-3, 1e-3),        # narrow: 5 charges
+    (1.0, 30.0, 8e3, 7, True, 1e-2, 1e-2),         # central width in [0.6, 3): 7 charges
+    (1.0, 0.03, 8e3, 5, False, 0.1, 0.02),         # wide: _wide_moments
+])
+def test_lattice_closure_lg5_follows_the_exact_distribution(tables, scale, ne, T, window, discrete, tol_Z, tol):
+    """LG5 (solve(lattice=True), RAMSES rtg_lattice) against the exact P(Z) of the cell, 10 nm graphite."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["graphite", 1e-6]
+    N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    r = gt.solve(N * scale, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", lattice=True)
+    assert r["lg_window"] == window and r["discrete"] == discrete
+    Z, P = gt.exact_distribution(r["Zstar"], max(r["Zsigma"], 1.0))
+    zm = P @ Z
+    gam, lam, auto = gt._averages(Z, P, True)
+    assert abs(r["Zmean"] - zm) < tol_Z
+    assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=tol)
+    assert r["Gamma"] == pytest.approx(gam, rel=max(tol, 1e-3))
+    assert r["Lambda"] + r["Lambda_auto"] == pytest.approx(lam + auto, rel=max(tol, 1e-3))
+
+
+@pytest.mark.parametrize("lattice", [False, True])
+def test_the_mean_of_a_wide_distribution_follows_the_exact_one(tables, lattice):
+    """A wide P(Z) in diffuse gas (10 nm graphite, 3000 K): its <Z> and sigma from _wide_moments (RAMSES
+    rtg_wide_moments, the default) are within 0.1 charges and 2 % of the exact P(Z)'s, both closures, where the
+    Gaussian of the central pair is ~0.36 charges off; wide_moments=False is that Gaussian of Z* + 1/2."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["graphite", 1e-6]
+    N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    args = (N, C, 3e3, 1.0, [(1.0, 1.0, M_P)])
+    r = gt.solve(*args, recomb=None, lattice=lattice)
+    g = gt.solve(*args, recomb=None, lattice=lattice, wide_moments=False)
+    assert not r["discrete"] and not g["discrete"]
+    Z, P = gt.exact_distribution(r["Zstar"], r["Zsigma"])
+    zm = P @ Z
+    assert abs(r["Zmean"] - zm) < 0.1 < abs(g["Zmean"] - zm)
+    assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=0.02)
+    assert g["Zmean"] == pytest.approx(g["Zstar"] + 0.5, abs=1e-12)
+
+
+@pytest.mark.parametrize("lattice", [False, True])
+@pytest.mark.parametrize("key, T", [(("silicate", 5e-7), 3.0), (("silicate", 5e-7), 5.0), (("graphite", 1e-6), 3.0)])
+def test_small_grains_in_very_cold_gas_have_their_exact_charge(tables, key, T, lattice):
+    """RAMSES calima/charge-lg5 commit 1: small grains below ~10 K, where electron capture on Z < 0 is ~1e-100 to
+    1e-300 or floored, got <Z> = sigma = Gamma = Lambda = 0 from an overflowing running product. pyCALIMA builds
+    P(Z) as exp of the cumulative g and was never affected; this keeps it so: both closures give the exact P(Z)'s
+    moments."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables[key]
+    N, egy, _ = _bb_cell(4e4, 1.0, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    ne = 1e-3
+    r = gt.solve(N * 1e-6, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", coulomb=True, lattice=lattice)
+    assert gt._rates(-2.0)[1] < 1e-250
+    assert r["discrete"] and r["Zsigma"] > 0 and r["Gamma"] > 0 and r["Lambda"] > 0 and np.all(r["D"] > 1)
+    Z, P = gt.exact_distribution(r["Zstar"], 1.0)
+    zm = P @ Z
+    assert abs(r["Zmean"] - zm) < 1e-7
+    assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=1e-6)
 
 
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
