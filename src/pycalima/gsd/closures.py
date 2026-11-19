@@ -51,7 +51,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from pycalima.collapse._jit import njit
+from pycalima.gsd._jit import njit
 
 from ._kernels import _bin_of
 from .pl2m import BinProfile

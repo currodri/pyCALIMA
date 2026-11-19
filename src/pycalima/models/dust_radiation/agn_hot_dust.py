@@ -113,13 +113,13 @@ class HotGrain:
     def from_optical_constants(cls, name, a_um, nk_file, T_table=None, lam_um=None):
         """A grain of radius a_um [um] from tabulated optical constants
         (a ``stx3141_supp`` file of Kitzmann & Heng 2018, e.g. "Fe.dat"):
-        Mie absorption (``collapse.optics``: log-log n, k, power-law far-IR
+        Mie absorption (``material_optics``: log-log n, k, power-law far-IR
         tail, small-particle expansion where ``|m| x`` < 0.1) on a wavelength grid
         (default 300 points, 0.01 um - 1 mm)."""
         import miepython
 
         from pycalima import _paths
-        from pycalima.collapse.optics import _read_columns, qabs_small, refractive_index
+        from pycalima.models.dust_radiation.material_optics import _read_columns, qabs_small, refractive_index
 
         lam = np.geomspace(0.01, 1000.0, 300) if lam_um is None else np.asarray(lam_um, float)
         m = refractive_index(lam, *_read_columns(_paths.get_optical_props_path("stx3141_supp", nk_file)))

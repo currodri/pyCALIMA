@@ -37,7 +37,7 @@ Schemes, all through the same ``pycalima.gsd`` operators:
               nodes) and +ka<n> (kernel averaging), e.g. ea+gauss
   1m-mrn      one moment M; inside each bin dn/da ~ a^-3.5 (1 scalar/bin)
   1m-limiter  one moment M; in-bin slope from the neighbours, harmonic-mean
-              limiter of Marchand et al. (2021, Ishinisan; collapse.grid)
+              limiter of Marchand et al. (2021, Ishinisan; ``slopes`` below)
 A one-moment scheme stores only M: before every operator its N is rebuilt
 from the closure and afterwards discarded, as a RAMSES passive scalar would.
 Coarse runs step at a fixed hydro dt (``--dt-hydro``), the cadence at which
@@ -64,6 +64,7 @@ import contextlib
 import io
 import itertools
 import json
+import math
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
@@ -223,9 +224,41 @@ def make_grid(mat, n_bins):
     return MassGrid(np.geomspace(m[0], m[1], n_bins + 1), mat.shatter.rho)
 
 
+ONE_MOMENT_BETA_MAX = 15.0     # |beta| clamp of the one-moment limiter
+ONE_MOMENT_BETA_EMPTY = -2.0   # slope of a bin with no filled neighbour: flat in mass per ln m
+
+
+def slopes(rho, log_eta):
+    """In-bin slopes beta of dn/dm ∝ m**beta of the one-moment scheme of Marchand et al.
+    (2021, A&A 649, A50, app. B, Eqs. 68-74), from the mass per bin alone: the
+    one-sided slopes rho[i+1] / rho[i] = eta**(beta + 2), combined by their harmonic
+    mean (a monotonicity-preserving limiter), with the "- 1" the arXiv version's
+    one-sided Eqs. 72-74 omit (without it a pure power law is not recovered at the
+    grid ends). The comparison scheme "1m-limiter" of this study."""
+    rho = np.asarray(rho, float)
+    nb = rho.size
+    beta = np.full(nb, ONE_MOMENT_BETA_EMPTY)
+    for i in range(nb):
+        if rho[i] <= 0.0:
+            continue
+        has_m = i > 0 and rho[i - 1] > 0.0
+        has_p = i < nb - 1 and rho[i + 1] > 0.0
+        dm = math.log(rho[i] / rho[i - 1]) - log_eta if has_m else 0.0
+        dp = math.log(rho[i + 1] / rho[i]) - log_eta if has_p else 0.0
+        if has_m and has_p:
+            d = 2.0 * dm * dp / (dm + dp) if dm * dp > 0.0 else dp
+        elif has_p:
+            d = dp
+        elif has_m:
+            d = dm
+        else:
+            continue
+        beta[i] = min(max(d / log_eta - 1.0, -ONE_MOMENT_BETA_MAX), ONE_MOMENT_BETA_MAX)
+    return beta
+
+
 def closure_N(grid, M, scheme):
     """Number per bin of a one-moment scheme, from its in-bin slope."""
-    from pycalima.collapse.grid import slopes
     from pycalima.gsd.pl2m import mean_mass_ratio
 
     if scheme == "1m-mrn":

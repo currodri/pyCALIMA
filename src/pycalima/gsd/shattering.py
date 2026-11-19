@@ -56,7 +56,7 @@ import math
 
 import numpy as np
 
-from pycalima.collapse._jit import njit
+from pycalima.gsd._jit import njit
 
 from .collisions import (Channel, _bounded_hw, _deposit_segment, _fragments, _node_lo, run_rows,
                          threads_for)
@@ -258,7 +258,7 @@ class GrainCollisions:
                     f_shat += wi * wj * coulomb_rate_factor(alpha, s, vC2, self.v_shat)
                     if self.coagulation:
                         # sticking on the relative speed at infinity, v < v_coag (as
-                        # collapse.velocities / Guillet+20), with the Coulomb factor:
+                        # grain_motion / Guillet+20), with the Coulomb factor:
                         # the impact-speed window of v in [0, v_coag]
                         lo_i = np.sqrt(np.maximum(-vC2, 0.0))
                         hi_i = np.sqrt(np.maximum(v_c ** 2 - vC2, 0.0))

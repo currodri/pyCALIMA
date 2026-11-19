@@ -786,10 +786,12 @@ def _wim_velocity(**kw):
     return RelativeVelocity(T=8000.0, n_H=1.0, mu=1.4, v_turb=1e6, L=100 * 3.086e18, **kw)
 
 
-def test_relative_velocity_reproduces_the_collapse_coagulation_kernel():
+def test_relative_velocity_reproduces_the_turbulent_coagulation_kernel():
     """Without thresholds the summed collision rate is sigma <v> with the rms
-    speed of collapse.integrator.turbulent_kernel (Brownian + full OC07)."""
-    from pycalima.collapse import velocities as cvel
+    speed of a Brownian + full OC07 kernel built from ``grain_motion`` directly
+    (the turbulent coagulation kernel of the one-zone collapse model, now in its
+    own project)."""
+    from pycalima.gsd import grain_motion as cvel
 
     rv = _wim_velocity()
     a = np.geomspace(1e-7, 1e-4, 30)
@@ -1084,7 +1086,7 @@ def test_ion_accretion_is_slowed_by_positive_grains():
 
 def test_terminal_drift_velocity_limits():
     """Subsonic: v = F / A (Epstein); supersonic: v -> (F / (pi a^2 rho))^1/2."""
-    from pycalima.collapse import velocities as cvel
+    from pycalima.gsd import grain_motion as cvel
     from pycalima.gsd.velocities import terminal_drift_velocity
 
     a, T, rho, mu = 1e-5, 1e4, 1e-14, 1.4

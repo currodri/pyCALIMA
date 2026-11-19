@@ -60,7 +60,7 @@ import math
 
 import numpy as np
 
-from pycalima.collapse._jit import njit
+from pycalima.gsd._jit import njit
 
 from .pl2m import BinProfile, int_pow
 from .remap import realisable

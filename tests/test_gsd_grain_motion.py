@@ -1,5 +1,6 @@
-"""Grain relative velocities: the collapse matrices, the solver's scalar
-function they must agree with, and benchmark M4 (Marchand+21 Fig. 4).
+"""Grain relative velocities (``gsd.grain_motion``): the pair matrices, the
+solver's scalar function they must agree with (``solvers.grain_dynamics``),
+and the skewed-Maxwellian collision speeds of Guillet et al. (2020).
 """
 
 from __future__ import annotations
@@ -9,8 +10,7 @@ import math
 import numpy as np
 import pytest
 
-from pycalima.collapse import velocities as vel
-from pycalima.collapse.coagulation import intermediate_turbulence_kernel
+from pycalima.gsd import grain_motion as vel
 from pycalima.solvers.grain_dynamics import SIGMA_NEUTRAL, grain_relative_velocity
 
 KB, MH = 1.380649e-16, 1.6735575e-24
@@ -116,27 +116,6 @@ def test_coulomb_factor_limits():
     assert fast[0, 1] == pytest.approx(1.0, abs=1e-3)
     assert slow[0, 1] == 0.0
     assert attract[0, 1] > 1.0
-
-
-def test_fig4_fragmentation_boundary_scales_as_their_map():
-    """Marchand+21 Fig. 4: E_kin = 5 E_roll along a ∝ n_H^(1/8) (from dv ∝ n^-1/4 a^1/2,
-    E_kin ∝ a^4 n^-1/2). Their white (ratio = 1) band, read off the figure, sits at
-    0.45, 0.8, 1.4, 2.4, 4.3 um for n_H = 1e4 ... 1e12: the same slope, at a 1.25x
-    higher a than equal-mass partners give. Their partner mass is not stated; a
-    partner ~4x lighter than the larger grain gives their 2.4x smaller E_kin."""
-    E5 = 5.0 * vel.rolling_energy(370.0, 0.05e-4)
-    a = np.geomspace(1e-5, 1e-3, 4001)
-    m = 4.0 / 3.0 * math.pi * 2.3 * a ** 3
-    bounds = []
-    for nH in 10.0 ** np.arange(4, 13, 2):
-        K = intermediate_turbulence_kernel(nH, 10.0, 2.3, mu=2.3, T_power=-0.25)(None, a)
-        dv = np.diag(K) / (math.sqrt(8 / (3 * math.pi)) * math.pi * (2 * a) ** 2)
-        bounds.append(a[np.argmin(np.abs(np.log(0.5 * (m / 2) * dv ** 2 / E5)))])
-    bounds = np.array(bounds) * 1e4
-    theirs = np.array([0.45, 0.8, 1.4, 2.4, 4.3])
-    slope = np.polyfit(np.arange(4, 13, 2), np.log10(bounds), 1)[0]
-    assert slope == pytest.approx(1.0 / 8.0, rel=0.02)
-    np.testing.assert_allclose(theirs / bounds, 1.25, rtol=0.1)
 
 
 # ---------------------------------------------------------------------------
