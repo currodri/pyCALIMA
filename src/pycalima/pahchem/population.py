@@ -1508,12 +1508,19 @@ def _unit_field(shape):
     - ("draine", r[, e_min_ev]): the same plus r x the solar-circle old-star light below 5 eV (``fields.old_stars_flux``),
       r = ``Environment.optical_isrf`` / G0, so that G0 times this field leaves the old stars unscaled;
     - ("cr_uv", source, x_h2, signature): the cosmic-ray-induced field at zeta(H2) = ``cr_uv.ZETA_REF`` (``cr_uv.field``
-      on E_PH), so that "G0" is zeta(H2) / 1e-16, RTZ's scale factor; ``cr_uv.signature`` keys the cached bases.
+      on E_PH), so that "G0" is zeta(H2) / 1e-16, RTZ's scale factor; ``cr_uv.signature`` keys the cached bases;
+    - ("sum", ((shape, w), ...)): sum_i w_i x the unit field of shape i (``Environment.field_sum``), zero between the
+      parts (an AGN's far UV, cut at 13.6 eV, and its X-rays above a column's cut leave the EUV out).
     """
     if shape[0] == "cr_uv":
         from pycalima.pahchem import cr_uv
 
         return cr_uv.field(cr_uv.ZETA_REF, shape[2], shape[1], energy_ev=E_PH)
+    if shape[0] == "sum":                      # ("sum", ((shape, w), ...)): zero nodes just outside each part's edges
+        parts = [(_unit_field(s), w) for s, w in shape[1]]
+        E = np.unique(np.concatenate([np.concatenate([f.energy_ev, f.energy_ev[[0, -1]] * (1.0 + np.array([-1e-9, 1e-9]))])
+                                      for f, _ in parts]))
+        return fields.RadiationField(E, sum(w * f.flux_at(E) for f, w in parts), "sum")
     if shape[0] == "kurucz":
         e_max = shape[2] if len(shape) > 2 else fields.LYMAN_EV
         e_min = shape[3] if len(shape) > 3 else E_PH_MIN_EV
@@ -1537,6 +1544,8 @@ def field_shape(env):
         from pycalima.pahchem import cr_uv
 
         return ("cr_uv", str(env.field_cr_uv), float(getattr(env, "cr_uv_x_h2", 0.5)), cr_uv.signature(env.field_cr_uv))
+    if getattr(env, "field_sum", ()):
+        return ("sum", tuple((tuple(sh), float(w)) for sh, w in env.field_sum))
     e_min = float(getattr(env, "field_e_min_ev", E_PH_MIN_EV))
     if getattr(env, "field_powerlaw", None) is not None:
         return ("powerlaw", float(env.field_powerlaw), float(env.field_e_max_ev), e_min)
@@ -2450,10 +2459,12 @@ class Population:
         charge (ions and associative detachment act on -1 and 0), so a state is live if the one below is and ionises in
         this field shape (k_up > 0); the others have f = 0 at every G0 and get no basis. A ladder to the cold limit then
         costs only the states the field reaches (in a field cut at 13.6 eV, those whose threshold from below is under
-        13.6 eV, as WD01 eq. 22)."""
+        13.6 eV, as WD01 eq. 22). Where C 1s absorption has its own branching (``_kshell_on``), every state is live: its
+        +2 and +3 steps reach past the states the valence photons reach, and were counted as Coulomb explosions before
+        2026-11-19 (an X-ray field's whole K-shell rate out of the live top)."""
         key = ("live", shape)
-        if key not in self._arrays and (self.p.cosmic_rays or self.p.hot_gas):
-            self._arrays[key] = self.present.copy()        # passages reach every charge (+1 ... +CR_DZ_MAX steps)
+        if key not in self._arrays and (self.p.cosmic_rays or self.p.hot_gas or self._kshell_on(shape)):
+            self._arrays[key] = self.present.copy()        # passages and C 1s Auger steps (+1 ... +3) reach every charge
         if key not in self._arrays:
             field1 = _unit_field(shape)
             live = self.present.copy()
