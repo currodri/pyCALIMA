@@ -508,8 +508,9 @@ database, as anion, neutral, cation and dication where computed. No licence is s
 so they are fetched, never bundled. Read with pycalima.pahchem.malloci2007."""
 
 # Optical constants of three Pop III supernova dust species that the bundled
-# Kitzmann & Heng (2018) compilation lacks; used by pycalima.collapse.optics
-# (data/external_data/collapse_materials.toml). One entry per file, so that
+# Kitzmann & Heng (2018) compilation lacks; used by
+# pycalima.models.dust_radiation.material_optics
+# (data/external_data/material_optics.toml). One entry per file, so that
 # each is checksummed. Fetched rather than bundled: none carries a
 # redistribution licence except the CC0 refractiveindex.info file.
 

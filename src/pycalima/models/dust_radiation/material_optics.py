@@ -1,9 +1,10 @@
-"""Absorption efficiencies and Planck means of the collapse grain materials.
+"""Absorption efficiencies and Planck means of grains from tabulated optical constants.
 
-For each material: the complex refractive index from its optical constants
-(``materials.Material.optics``), absorption efficiencies Q_abs(a, lambda)
-(``miepython``, or the small-particle expansion where ``|m| x`` < 0.1; see
-``qabs_grid``), and the Planck mean
+For each material of ``data/external_data/material_optics.toml`` (keyed by
+formula: Si, Fe, Mg2SiO4, ...): the complex refractive index from its optical
+constants, absorption efficiencies Q_abs(a, lambda) (``miepython``, or the
+small-particle expansion where ``|m| x`` < 0.1; see ``qabs_grid``), and the
+Planck mean
 
     <Q>(a, T) = int Q_abs(a, lambda) B_lambda(T) dlambda / int B_lambda(T) dlambda,
 
@@ -20,17 +21,23 @@ laws. Below the shortest wavelength they are
 held constant, which matters only above ~3000 K. The existing
 ``models.tools.mie_theory`` loader extrapolates linearly in lambda instead,
 which can turn k negative, so it is not used here.
+
+Planck-mean tables are cached in ``model_data/material_optics/``; write them
+all with::
+
+    python -m pycalima.models.dust_radiation.material_optics [--materials Fe MgO ...] [--force]
 """
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
+from functools import lru_cache
 
 import miepython
 import numpy as np
 
 from pycalima import _paths
-from pycalima.collapse.materials import get_material
 
 H_CGS = 6.62607015e-27
 C_CGS = 2.99792458e10
@@ -40,6 +47,29 @@ LAMBDA_UM = np.geomspace(0.05, 2.0e4, 400)        # 50 nm - 2 cm
 RADII_CM = np.geomspace(1e-7, 1e-2, 61)           # 1 nm - 100 um
 T_GRID = np.geomspace(2.0, 3000.0, 121)           # K
 EXTRAP_DEX = 0.5
+
+
+def _load_toml(path):
+    try:
+        import tomllib
+    except ModuleNotFoundError:     # Python 3.10
+        import tomli as tomllib     # type: ignore[no-redef]
+    with open(path, "rb") as fh:
+        return tomllib.load(fh)
+
+
+@lru_cache(maxsize=None)
+def materials():
+    """{material: {"optics": source, "optics_ref": reference}} from ``material_optics.toml``."""
+    return dict(_load_toml(_paths.get_external_data_path("material_optics.toml"))["materials"])
+
+
+def optics_source(material):
+    """The ``optics`` source string of a material ("bundled:<file>" or "dataset:<name>/<file>")."""
+    try:
+        return materials()[material]["optics"]
+    except KeyError:
+        raise KeyError(f"no optical constants for {material!r}; have {sorted(materials())}") from None
 
 
 def _read_columns(path):
@@ -58,7 +88,7 @@ def _read_columns(path):
 
 def load_nk(material):
     """Tabulated (lambda [um], n, k) of a material, from its ``optics`` source."""
-    src = get_material(material).optics
+    src = optics_source(material)
     kind, _, name = src.partition(":")
     if kind == "bundled":
         return _read_columns(_paths.get_optical_props_path("stx3141_supp", name))
@@ -168,7 +198,7 @@ class PlanckTable:
 
 
 def planck_table_path(material):
-    return _paths.get_model_data_dir("collapse") / f"planck_qabs_{material}.npz"
+    return _paths.get_model_data_dir("material_optics") / f"planck_qabs_{material}.npz"
 
 
 def planck_table(material):
@@ -180,3 +210,30 @@ def planck_table(material):
     path.parent.mkdir(parents=True, exist_ok=True)
     tab.save(path)
     return tab
+
+
+def main(argv=None):
+    """Write the Planck-mean tables of the materials (default: all). Materials
+    whose optical constants are a registered dataset that has not been fetched
+    are skipped with the reason."""
+    p = argparse.ArgumentParser(description="Write the Planck-mean absorption tables of the grain materials.")
+    p.add_argument("--materials", nargs="*", default=None, help="default: all")
+    p.add_argument("--force", action="store_true", help="recompute existing tables")
+    args = p.parse_args(argv)
+    for name in args.materials or sorted(materials()):
+        path = planck_table_path(name)
+        if path.exists() and not args.force:
+            print(f"{name:8s} exists: {path}")
+            continue
+        try:
+            tab = PlanckTable.compute(name)
+        except (FileNotFoundError, KeyError) as exc:   # DatasetUnavailable, or not registered
+            print(f"{name:8s} skipped: {exc}")
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tab.save(path)
+        print(f"{name:8s} wrote {path}")
+
+
+if __name__ == "__main__":
+    main()

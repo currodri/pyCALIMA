@@ -1,0 +1,50 @@
+# Optical constants of grain materials for pycalima.models.dust_radiation.material_optics:
+# one tabulated n, k source per material, keyed by chemical formula.
+#
+# optics: "bundled:<file>" in data/optical_props/stx3141_supp (the compilation of
+#   Kitzmann & Heng 2018, MNRAS 475, 94), or "dataset:<name>/<file>", a file of a
+#   dataset registered in data/registry.toml (fetched with calima-fetch-data).
+# optics_ref: the measurement and where the file comes from.
+#
+# The ten materials are those of Pop III supernova dust (Nozawa et al. 2003;
+# Chiaki et al. 2015); add others as needed.
+
+[materials.Si]
+optics = "dataset:optical-franta-2017-si/Franta-300K.yml"
+optics_ref = "Franta et al. (2017), crystalline Si, 300 K, via refractiveindex.info"
+
+[materials.Fe]
+optics = "bundled:Fe.dat"
+optics_ref = "Lynch & Hunter (1991), in Palik, via Kitzmann & Heng (2018)"
+
+[materials.Mg2SiO4]
+optics = "bundled:Mg2SiO4_amorph_sol-gel.dat"
+optics_ref = "Jaeger et al. (2003, A&A 408, 193), amorphous sol-gel, via Kitzmann & Heng (2018)"
+
+[materials.MgSiO3]
+optics = "bundled:MgSiO3_amorph_sol-gel.dat"
+optics_ref = "Jaeger et al. (2003, A&A 408, 193), amorphous sol-gel, via Kitzmann & Heng (2018)"
+
+[materials.Fe3O4]
+optics = "dataset:optical-triaud-magnetite/mag_interp.dat"
+optics_ref = "Triaud (unpublished), Jena Database of Optical Constants for Cosmic Dust"
+
+[materials.C]
+optics = "dataset:optical-zubko-1996-acar/nk.acar"
+optics_ref = "Zubko et al. (1996, MNRAS 282, 1321), amorphous carbon ACAR"
+
+[materials.SiO2]
+optics = "bundled:SiO2_amorph.dat"
+optics_ref = "Henning & Mutschke (1997, A&A 327, 743); Philipp (1985) in Palik; via Kitzmann & Heng (2018)"
+
+[materials.MgO]
+optics = "bundled:MgO.dat"
+optics_ref = "Roessler & Huffman (1981), in Palik, via Kitzmann & Heng (2018)"
+
+[materials.FeS]
+optics = "bundled:FeS.dat"
+optics_ref = "Pollack et al. (1994, ApJ 421, 615); Henning & Mutschke (1997); via Kitzmann & Heng (2018)"
+
+[materials.Al2O3]
+optics = "bundled:Al2O3.dat"
+optics_ref = "Begemann et al. (1997, ApJ 476, 199), amorphous; Koike et al. (1995); via Kitzmann & Heng (2018)"

@@ -1,4 +1,4 @@
-"""Grain-grain relative velocities and collision energetics, as matrices over bins.
+"""Grain-grain relative velocities and collision energetics, as matrices over grain pairs.
 
 Components, added in quadrature (Guillet et al. 2020, A&A 643, A17, Sect. 3):
 
@@ -15,7 +15,8 @@ Stopping times are Epstein, t_s = rho_s a / (rho_g v_th), v_th = (8 k T / pi mu 
 
 With ``y_star="approx"`` the result matches ``solvers.grain_dynamics._ormel2007``
 (the RAMSES mirror) for the same driving (v_g, tau_L, tau_eta);
-``tests/test_collapse_velocities.py`` holds the two together.
+``tests/test_gsd_grain_motion.py`` holds the two together. ``gsd.velocities``
+builds the collision operator's ``RelativeVelocity`` on these functions.
 """
 
 from __future__ import annotations

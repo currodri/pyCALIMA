@@ -39,7 +39,7 @@ import math
 
 import numpy as np
 
-from pycalima.collapse._jit import njit
+from pycalima.gsd._jit import njit
 from pycalima.gsd import _kernels as K
 from pycalima.gsd.collisions import _bounded_hw, _deposit_segment, _fragments, _node_lo
 from pycalima.gsd.pl2m import BinProfile

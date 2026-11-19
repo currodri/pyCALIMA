@@ -133,21 +133,6 @@ def model_data(monkeypatch):
     return MODEL_DATA
 
 
-# Optical constants of the collapse materials that are registered downloads
-# (data/registry.toml), not bundled: absent on a fresh clone and in CI.
-COLLAPSE_OPTICS = ("optical-franta-2017-si", "optical-triaud-magnetite", "optical-zubko-1996-acar")
-
-
-@pytest.fixture
-def collapse_optics():
-    """Skip unless the collapse materials' optical constants have been fetched."""
-    from pycalima._datasets import get_dataset
-
-    missing = [d for d in COLLAPSE_OPTICS if get_dataset(d).locate() is None]
-    if missing:
-        pytest.skip(f"optical constants not fetched: {', '.join(missing)}")
-
-
 @pytest.fixture
 def themis_cm20():
     """The DustEM THEMIS CM20 directory (data/registry.toml), or skip."""

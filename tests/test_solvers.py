@@ -1230,3 +1230,13 @@ def test_solver_reads_the_condensation_alpha_of_each_table(tmp_path):
                                   rel=1e-5)
     assert alpha > 0.5
     assert _table_condensation_alpha("DustBin_99", tmp_path) is None
+
+
+def test_solver_fragment_slope_is_jones96():
+    """slope_frag_func s is the exponent of the cumulative fragment mass, M(<m) ∝ m^s,
+    so n(a) ∝ a^(3 s - 4); the default must give Jones et al. (1996), a^-3.3."""
+    import dataclasses
+
+    from pycalima.solvers.chemistry_state import DustChemistryState
+    s = {f.name: f.default for f in dataclasses.fields(DustChemistryState)}["slope_frag_func"]
+    assert 3 * s - 4 == pytest.approx(-3.3, abs=1e-12)

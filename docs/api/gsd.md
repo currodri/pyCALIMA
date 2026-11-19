@@ -64,13 +64,19 @@ run on up to 4 threads.
 
 `velocities` gives continuous relative velocities for collisions: for
 every node pair the rms random speed from Brownian motion and the full
-Ormel & Cuzzi (2007) turbulence (`collapse.velocities.ormel_cuzzi_dv`),
+Ormel & Cuzzi (2007) turbulence (`grain_motion.ormel_cuzzi_dv`),
 plus an optional systematic drift between sizes (e.g. radiation pressure),
 with the skewed-Maxwellian speed distribution of Guillet et al. (2020).
 Shattering is split into equal-flux channels above $v_{\rm shat}$ at their
 flux-quantile speeds and sticking takes the flux below $v_{\rm coag}$, so
 both thresholds are smooth in grain size and gas state (the HK13 step and
 the HY09 four directions remain available for their benchmarks).
+Its building blocks are in `grain_motion`, as matrices over grain pairs:
+thermal and sound speeds, the Jeans length, Epstein stopping times, the
+Brownian mean and rms relative speeds, Ormel & Cuzzi (2007), ambipolar drift,
+the Coulomb factor of point charges, the rolling energy of aggregates, and the
+mean speed of the collisions below a sticking limit (Guillet et al. 2020,
+Eq. 18 and App. C).
 
 `shattering` provides the physics: HY09 Table 2 materials, the KT10 and
 JTH96 ejecta laws in the form of Hirashita & Kobayashi (2013), fragments up
@@ -236,7 +242,9 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.coagulation
    pycalima.gsd.shattering
    pycalima.gsd.velocities
+   pycalima.gsd.grain_motion
    pycalima.gsd.charging
    pycalima.gsd.optics
    pycalima.gsd._kernels
+   pycalima.gsd._jit
 ```
