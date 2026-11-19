@@ -183,7 +183,9 @@ class ChargingModel:
     def solve(self, photons: PhotonGroups, T, n_e, ions: Sequence = None, G0_bg=0.0,
               c_red=C_CGS) -> "ChargeState":
         """Equilibrium P(Z) at every radius. ``ions``: (n [cm^-3], charge,
-        mass [g]) of the ions captured by grains; default H+ with n = n_e."""
+        mass [g]) of the ions captured by grains; default H+ with n = n_e. Each radius starts from its last
+        solve, or else from the previous radius's Z* scaled by the size ratio, as RAMSES's dust_interface (the
+        result does not depend on the start; it saves the search over the whole charge range)."""
         if not (np.allclose(photons.L0, self.L0) and np.allclose(photons.L1, self.L1)):
             raise ValueError("photon groups differ from the tables' groups")
         if self._egy is None or not np.allclose(self._egy, photons.egy):
@@ -193,7 +195,8 @@ class ChargingModel:
         ions = [(n_e, 1.0, M_H)] if ions is None else list(ions)
         res = []
         for k, gt in enumerate(self.tables):
-            r = gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None,
+            zg = res[-1]["Zstar"] * self.a[k] / self.a[k - 1] if res else None
+            r = gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None, Z_guess=zg,
                          warm=self._warm[k], lattice=self.lattice)
             self._warm[k] = r
             res.append(r)

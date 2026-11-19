@@ -522,7 +522,7 @@ class GroupChargingTable:
     def _heating_cooling(self, Z):
         c = self.cell
         a = self.a
-        up, down, (i, w) = self._rates(Z)
+        i, w = self._u_index(Z * E2_EV_CM / a)
         if self.kernels == "linear":
             hsum = float(c["cN"] @ self._kern(self.Hg, None, i, w)) + c["G0_bg"] * self._kern(self.t["H_bg"], None, i, w)
         else:
@@ -977,6 +977,12 @@ class GroupChargingTable:
         P = np.exp(lnf[k])
         return Z[k], P / P.sum()
 
+    def _electron_affinity(self, Z):
+        """The grain's electron affinity at charge Z [eV], for the autoionisation cooling at Zmin (the one place
+        both closures take it from)."""
+        ea = electron_affinity_graphite_vec if self.material == "graphite" else electron_affinity_silicate_vec
+        return float(ea(Z, self.a))
+
     def _averages(self, nodes, weights, discrete):
         """Gamma, Lambda (+ autoionisation at Zmin) averaged over the charge nodes."""
         gam = lam = 0.0
@@ -986,18 +992,28 @@ class GroupChargingTable:
             lam += wgt * l_
         auto = 0.0
         if discrete and nodes[0] == self.t["Zmin"]:
-            EA = float((electron_affinity_graphite_vec if self.material == "graphite"
-                        else electron_affinity_silicate_vec)(self.t["Zmin"], self.a))
+            EA = self._electron_affinity(self.t["Zmin"])
             arrive = np.pi * self.a ** 2 * self.cell["ne"] * self.cell["v_e"]
             auto = weights[0] * arrive * float(DS87_J_function_vec(self.t["Zmin"], -1.0, self.a, self.cell["T"])) * EA * EV2ERG
         return float(gam), float(lam), float(auto)
 
     # -- the charge distribution (RAMSES rtgroups_solve_bin's distribution(), PR #86)
+    def _ud(self, k):
+        """Up and Down at the integer charge k, once per cell."""
+        key = ("ud", k)
+        v = self._gcache.get(key)
+        if v is None:
+            z = float(k)
+            i, w = self._u_index(z * E2_EV_CM / self.a)
+            v = self._gcache[key] = (self._up(z, i, w), self._down(z, i, w))
+        return v
+
     def _gi(self, k):
-        """g at the integer charge k, ln Up(k) - ln Down(k + 1) (RAMSES gwin), evaluated once per cell."""
+        """g at the integer charge k, ln Up(k) - ln Down(k + 1) (RAMSES gwin), once per cell; the same operations as
+        _g, so the same values."""
         g = self._gcache.get(k)
         if g is None:
-            g = self._gcache[k] = self._g(float(k))
+            g = self._gcache[k] = np.log(max(self._ud(k)[0], 1e-300)) - np.log(max(self._ud(k + 1)[1], 1e-300))
         return g
 
     def _window(self, z0, z1, keep_base=False):
@@ -1671,20 +1687,17 @@ class GroupChargingTable:
 
     # -- LG5: the lattice closure (RAMSES rtgroups_solve_lg, calima/charge-lg5 commits 3, 5)
     def _irates(self, k):
-        """The rates of the integer charge k, once per cell (RAMSES eval_int_k): up, dup, down, ddown (d/d ln T),
-        gam, lam, dlam (Gamma, Lambda and its d/d ln T), and the capture coefficient A of a z = 1 ion."""
+        """The rates of the integer charge k (RAMSES eval_int_k), each evaluated on first use and kept for the cell:
+        up, down; gam, lam (Gamma, Lambda); dup, ddown, dlam (d/d ln T); A, the capture coefficient of a z = 1 ion."""
         key = ("r", k)
         v = self._gcache.get(key)
         if v is None:
-            up, dup, down, ddown, _, dlam = self._rates_dlnT(float(k))
-            gam, lam = self._heating_cooling(float(k))
-            v = self._gcache[key] = dict(up=up, dup=dup, down=down, ddown=ddown, gam=gam, lam=lam, dlam=dlam,
-                                         A=float(self._capture_z1(float(k))[0]))
+            v = self._gcache[key] = _ChargeRates(self, k)
         return v
 
     def _lg_pos(self, k):
         """g(k) > 0, i.e. Up(k) > Down(k + 1), both floored as in g (no logarithm)."""
-        return max(self._irates(k)["up"], 1e-300) > max(self._irates(k + 1)["down"], 1e-300)
+        return max(self._ud(k)[0], 1e-300) > max(self._ud(k + 1)[1], 1e-300)
 
     def _lg_dg(self, k):
         """d g(k) / d ln T."""
@@ -1900,8 +1913,7 @@ class GroupChargingTable:
                    Zstar=float(k0 + tm) + gg[tm - 1] / (gg[tm - 1] - gg[tm]) - 1.0)
         dje = 0.0
         if k0 + jlo == klo:
-            EA = float((electron_affinity_graphite_vec if self.material == "graphite"
-                        else electron_affinity_silicate_vec)(t["Zmin"], self.a))
+            EA = self._electron_affinity(t["Zmin"])
             arrive = np.pi * self.a ** 2 * self.cell["ne"] * self.cell["v_e"]
             je, dje = _ds87_J_dlnT(t["Zmin"], -1.0, self.a * KB_CGS * self.cell["T"] / E_STATC ** 2)
             out["Lambda_auto"] = pr[jlo] * arrive * je * EA * EV2ERG
@@ -2088,6 +2100,32 @@ class GroupChargingTable:
         if dlnT is not None:
             out.update(self._dlnT_response(out, d["pair"], dlnT, d["chord"], d["sigma"], shift))
         return out
+
+
+class _ChargeRates:
+    """The rates of one integer charge of a GroupChargingTable's cell, each evaluated on first use (LG5 reads only
+    what its call needs: Up and Down for the bracket, Gamma and Lambda on its window, d/d ln T and A when asked)."""
+
+    __slots__ = ("gt", "k", "v")
+
+    def __init__(self, gt, k):
+        self.gt, self.k, self.v = gt, k, {}
+
+    def __getitem__(self, key):
+        v = self.v
+        if key not in v:
+            gt, z = self.gt, float(self.k)
+            if key in ("up", "down"):
+                v["up"], v["down"] = gt._ud(self.k)
+            elif key in ("gam", "lam"):
+                v["gam"], v["lam"] = gt._heating_cooling(z)
+            elif key in ("dup", "ddown", "dlam"):
+                _, v["dup"], _, v["ddown"], _, v["dlam"] = gt._rates_dlnT(z)
+            elif key == "A":
+                v["A"] = float(gt._capture_z1(z)[0])
+            else:
+                raise KeyError(key)
+        return v[key]
 
 
 def _nint(x):
