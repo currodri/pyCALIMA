@@ -116,6 +116,11 @@ TAIL_CUT, TAIL_STOP = 25.0, 20.0
 # LG5 (solve(lattice=True), RAMSES rtg_lattice): its window is 5 charges, 7 where the central width is in
 # [LG_SIGMA7, SIGMA_DISCRETE); the tails of a narrow P(Z) run down to LG_EPS of the peak, at most LG_TAIL charges
 LG_SIGMA7, LG_EPS, LG_TAIL = 0.6, 1e-11, 96
+# _wide_moments: 8-point Gauss-Hermite nodes and weights (as RAMSES)
+GH_X = np.array([-2.930637420257244, -1.981656756695843, -1.157193712446780, -0.381186990207322,
+                 0.381186990207322, 1.157193712446780, 1.981656756695843, 2.930637420257244])
+GH_W = np.array([1.996040722113676e-4, 1.707798300741348e-2, 2.078023258148919e-1, 6.611470125582413e-1,
+                 6.611470125582413e-1, 2.078023258148919e-1, 1.707798300741348e-2, 1.996040722113676e-4])
 # Grain-assisted recombination of a wide P(Z) (sigma >= SIGMA_DISCRETE), recomb="fit":
 # see GroupChargingTable._recombination_fit. Settings validated per bin against
 # the exact sum over the integer charges (PCHIP kernels): <= 5% typically, < 10% worst,
@@ -1268,12 +1273,14 @@ class GroupChargingTable:
         Dg = cf.coulomb_factors(out["Zmean"], out["Zsigma"], self.cell["T"], self.a, COULOMB_JMAX)
         return (Dx / s) / Dg[[j + 1 for j in COULOMB_DCHARGE]]
 
-    def _dlnT_response(self, out, pair, dlnT, chord=None):
+    def _dlnT_response(self, out, pair, dlnT, chord=None, sigma=None, shift=0.0):
         """d/d ln T of Zmean, Zsigma, Gamma, Lambda (+ auto). Discrete P(Z):
         analytic (_dlnT_discrete). Wide: one more set of rates at T (1 + dlnT),
         the pair g(z+-) re-evaluated, so the shifted root is consistent with the
         T call by construction, and the width from the same chord (or pair), then
-        Gamma and Lambda re-averaged on the shifted Gaussian nodes."""
+        Gamma and Lambda re-averaged on the shifted Gaussian nodes. sigma: the Gaussian's width (the result's,
+        unless _wide_moments set it); shift: _wide_moments' shift of <Z>, which the rates at T (1 + dlnT) carry; the
+        d/d ln T of <Z> and sigma stay the Gaussian's."""
         if out["discrete"]:
             return self._dlnT_discrete(out)
         T0 = self.cell["T"]
@@ -1283,16 +1290,17 @@ class GroupChargingTable:
         gm1, gp1 = self._g(zm), self._g(zp)
         s0, s1 = (gpl - gm) / (zp - zm), (gp1 - gm1) / (zp - zm)
         Zs1 = out["Zstar"] + (zm - gm1 / s1) - (zm - gm / s0)
-        sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else out["Zsigma"]
+        sg = out["Zsigma"] if sigma is None else sigma
+        sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else sg
         if chord is not None:
             lo, hi = chord[:2]
             c1 = (self._g(hi) - self._g(lo)) / (hi - lo)
-            sig1 = np.sqrt(-1.0 / c1) if c1 < 0 else out["Zsigma"]
-        nodes1, weights1 = _wide_nodes(Zs1)
+            sig1 = np.sqrt(-1.0 / c1) if c1 < 0 else sg
+        nodes1, weights1 = _wide_nodes(Zs1 + shift)
         gam1, lam1, _ = self._averages(nodes1, weights1, False)
         self._set_cell(N_g, c_red, T0, ne, ions, G0_bg)
         h = np.log1p(dlnT)
-        return dict(dZmean_dlnT=(Zs1 - out["Zstar"]) / h, dZsigma_dlnT=(sig1 - out["Zsigma"]) / h,
+        return dict(dZmean_dlnT=(Zs1 - out["Zstar"]) / h, dZsigma_dlnT=(sig1 - sg) / h,
                     dGamma_dlnT=(gam1 - out["Gamma"]) / h, dLambda_dlnT=(lam1 - out["Lambda"]) / h)
 
     def _hot_dlnT(self, key, i, w):
@@ -1547,17 +1555,97 @@ class GroupChargingTable:
             D = np.maximum(dd, 1e-10)
         return True, alpha, D
 
-    def _wide_tail(self, Zs, sigma, want_a, want_d):
-        """_tail_sums of a wide P(Z) (the Gaussian of mean Z* + 1/2 and width sigma): g on m-2 .. m+1 around
-        the lattice mode m = ceil(Z*), a positive one only. Returns (used, alpha or None, D or None)."""
+    def _wide_moments(self, m, gm1, g0, sl):
+        """<Z>, sigma and ln P(m) of a wide P(Z) from a model of g (RAMSES wide_moments, calima/charge-lg5 commit
+        6). The Gaussian of the central pair g(m-1), g(m) puts <Z> ~0.5 charges low in diffuse gas and is off in
+        sigma by up to 4 %: g bends over the width. g is also taken at m -+ h, h = max(2, round(1.5 sl)), PCHIP
+        through the four nodes (a single cubic is thrown off by the kinks of g), linear beyond; ln P is its lattice
+        sum, ln P(m + z) - ln P(m) ~ int_{-1/2}^{z-1/2} g (Euler-Maclaurin); the moments by 8-point Gauss-Hermite
+        quadrature around its peak (the root of g(z - 1/2), by Newton), with importance weights. Returns (used,
+        <Z>, sigma, ln P(m)); not used where m -+ h does not fit the bin's charges or there is no peak."""
         t = self.t
-        mq = min(max(int(np.ceil(Zs)), _nint(t["Zmin"]) + 2), _nint(t["Zmax"]) - 3)
-        if mq < 1:
-            return False, None, None
-        kw = [mq - 2, mq - 1, mq, mq + 1]
-        gw = [self._gi(k) for k in kw]
-        lnpm = -0.5 * ((float(mq) - Zs - 0.5) / sigma) ** 2 - np.log(np.sqrt(2.0 * np.pi) * sigma)
-        return self._tail_sums(mq, sigma, kw, gw, lnpm, Zs + 0.5, want_a, want_d)
+        klo, khi = _nint(t["Zmin"]), _nint(t["Zmax"])
+        h = max(2, _nint(1.5 * sl))
+        if m - h < klo or m + h + 1 > khi:
+            return False, None, None, None
+        xn = np.array([-float(h), -1.0, 0.0, float(h)])
+        yn = np.array([self._gi(m - h), gm1, g0, self._gi(m + h)])
+        dk = np.zeros(4)
+        dk[0] = (yn[1] - yn[0]) / (xn[1] - xn[0])
+        dk[3] = (yn[3] - yn[2]) / (xn[3] - xn[2])
+        for i in (1, 2):
+            s0 = (yn[i] - yn[i - 1]) / (xn[i] - xn[i - 1])
+            s1 = (yn[i + 1] - yn[i]) / (xn[i + 1] - xn[i])
+            if s0 * s1 > 0.0:
+                w1 = 2.0 * (xn[i + 1] - xn[i]) + (xn[i] - xn[i - 1])
+                w2 = (xn[i + 1] - xn[i]) + 2.0 * (xn[i] - xn[i - 1])
+                dk[i] = (w1 + w2) / (w1 / s0 + w2 / s1)
+
+        def coef(i):
+            hh = xn[i + 1] - xn[i]
+            c2 = (-3.0 * yn[i] - 2.0 * hh * dk[i] + 3.0 * yn[i + 1] - hh * dk[i + 1]) / hh ** 2
+            c3 = (2.0 * yn[i] + hh * dk[i] - 2.0 * yn[i + 1] + hh * dk[i + 1]) / hh ** 3
+            return c2, c3
+
+        def pint(i, x):
+            c2, c3 = coef(i)
+            return yn[i] * x + dk[i] * x * x / 2.0 + c2 * x ** 3 / 3.0 + c3 * x ** 4 / 4.0
+
+        ci = [0.0]
+        for i in range(3):
+            ci.append(ci[i] + pint(i, xn[i + 1] - xn[i]))
+
+        def piece(x):
+            return 0 if x <= xn[1] else (1 if x <= xn[2] else 2)
+
+        def Gint(x):
+            if x <= xn[0]:
+                return yn[0] * (x - xn[0]) + 0.5 * dk[0] * (x - xn[0]) ** 2
+            if x >= xn[3]:
+                return ci[3] + yn[3] * (x - xn[3]) + 0.5 * dk[3] * (x - xn[3]) ** 2
+            j = piece(x)
+            return ci[j] + pint(j, x - xn[j])
+
+        def gval(x):
+            if x <= xn[0]:
+                return yn[0] + dk[0] * (x - xn[0]), dk[0]
+            if x >= xn[3]:
+                return yn[3] + dk[3] * (x - xn[3]), dk[3]
+            j = piece(x)
+            c2, c3 = coef(j)
+            tt = x - xn[j]
+            return yn[j] + dk[j] * tt + c2 * tt * tt + c3 * tt ** 3, dk[j] + 2.0 * c2 * tt + 3.0 * c3 * tt * tt
+
+        z = 0.5 - g0 / (g0 - gm1)
+        for _ in range(30):
+            gz, dgz = gval(z - 0.5)
+            if not dgz < 0.0:
+                break
+            dz = min(max(-gz / dgz, -sl), sl)
+            z = min(max(z + dz, xn[0] + 0.5), xn[3] + 0.5)
+            if abs(dz) < 1e-10:
+                break
+        gz, dgz = gval(z - 0.5)
+        if not dgz < 0.0 or abs(gz) > 1e-6:
+            return False, None, None, None
+        swd = np.sqrt(-1.0 / dgz)
+        Lz = Gint(z - 0.5)
+        zi = z + np.sqrt(2.0) * swd * GH_X
+        lr = np.array([Gint(zz - 0.5) for zz in zi]) - Lz + GH_X ** 2
+        lmax = lr.max()
+        rs = mu = 0.0
+        rw = np.zeros(GH_X.size)
+        for i in range(GH_X.size):
+            rw[i] = GH_W[i] * np.exp(lr[i] - lmax)
+            rs += rw[i]
+            mu += rw[i] * zi[i]
+        mu /= rs
+        var = 0.0
+        for i in range(GH_X.size):
+            var += rw[i] * (zi[i] - mu) ** 2
+        var /= rs
+        lnpm = Gint(-0.5) - (Lz + lmax + np.log(np.sqrt(2.0) * swd * rs))
+        return True, float(m + mu), float(np.sqrt(max(var, 0.0))), float(lnpm)
 
     # -- LG5: the lattice closure (RAMSES rtgroups_solve_lg, calima/charge-lg5 commits 3, 5)
     def _irates(self, k):
@@ -1651,7 +1739,7 @@ class GroupChargingTable:
             return hi
         return m
 
-    def _solve_lattice(self, Z_guess, want_a, want_tail_a, wD, want_d):
+    def _solve_lattice(self, Z_guess, want_a, want_tail_a, wD, want_d, wide_moments=True):
         """LG5 (RAMSES rtgroups_solve_lg): the full rates at the 5 integer charges around the mode m of P(Z), 7 when
         the central width sigma_l = (-1/(g(m) - g(m-1)))^1/2 is in [LG_SIGMA7, SIGMA_DISCRETE), instead of a root,
         a chord width and a window grown to its tails.
@@ -1691,6 +1779,14 @@ class GroupChargingTable:
             out["Zmean"] = mz + mu
             out["Zsigma"] = float(np.sqrt(var))
             out["Zstar"] = out["Zmean"] - 0.5
+            # the closure's P at the mode: the lattice distribution j g(m) + s j (j - 1)/2, summed as its Gaussian
+            jst = 0.5 - gb / sc
+            lmx = jst * gb + 0.5 * sc * jst * (jst - 1.0)
+            lnpm = -lmx - 0.5 * np.log(2.0 * np.pi / (-sc))
+            if wide_moments:          # <Z>, sigma and P(m) of a model of g over the width; Z* stays the Gaussian's
+                used, zm, zs, lnpm_w = self._wide_moments(k0 + tm, gg[tm - 1], gb, sl)
+                if used:
+                    out["Zmean"], out["Zsigma"], lnpm = zm, zs, lnpm_w
             jt = min(max(int(np.floor(out["Zmean"])) - k0, 0), nw - 2)
             fr = out["Zmean"] - float(k0 + jt)
             r0, r1 = R(k0 + jt), R(k0 + jt + 1)
@@ -1702,9 +1798,6 @@ class GroupChargingTable:
                 out.update(dZmean_dlnT=dmu, dZsigma_dlnT=0.5 * (dsc / (sc * sc)) / out["Zsigma"],
                            dGamma_dlnT=(r1["gam"] - r0["gam"]) * dmu,
                            dLambda_dlnT=(r1["lam"] - r0["lam"]) * dmu + (1.0 - fr) * r0["dlam"] + fr * r1["dlam"])
-            jst = 0.5 - gb / sc
-            lmx = jst * gb + 0.5 * sc * jst * (jst - 1.0)
-            lnpm = -lmx - 0.5 * np.log(2.0 * np.pi / (-sc))
             used, at, Dt = self._tail_sums(m, sl, kw, gg, lnpm, out["Zmean"], want_tail_a, wD)
             out["D_abs"] = bool(used and wD)
             if out["D_abs"]:
@@ -1858,7 +1951,7 @@ class GroupChargingTable:
         out["weights"] = np.array([pr[j] for j in range(jlo, jhi + 1)])
         return out
 
-    def _solve_lg(self, Z_guess, warm, recomb, dlnT, coulomb):
+    def _solve_lg(self, Z_guess, warm, recomb, dlnT, coulomb, wide_moments=True):
         """solve(lattice=True): LG5 (_solve_lattice), started from the warm Z* if given (as dust_interface), else
         Z_guess. Its alpha: over the narrow P(Z) (and its tail); for a wide one, recomb "gauss" the tail's or the
         Gaussian estimate, "fit" / "exact" as solve does. Its D: its own (D_abs), or for a wide P(Z) whose tail
@@ -1867,7 +1960,7 @@ class GroupChargingTable:
 
         zg = warm["Zstar"] if warm is not None else Z_guess
         out = self._solve_lattice(zg, want_a=recomb is not None, want_tail_a=recomb == "gauss", wD=bool(coulomb),
-                                  want_d=dlnT is not None)
+                                  want_d=dlnT is not None, wide_moments=wide_moments)
         if recomb is None:
             out["alpha_rec"] = None
         elif not out["discrete"] and recomb == "exact":
@@ -1886,7 +1979,7 @@ class GroupChargingTable:
         return out
 
     def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None,
-              coulomb=False, lattice=False):
+              coulomb=False, lattice=False, wide_moments=True):
         """Equilibrium charge and rates for one cell.
 
         N_g : photon densities per group [cm^-3]; c_red : RT speed of light
@@ -1922,27 +2015,40 @@ class GroupChargingTable:
         self._set_cell(N_g, c_red, T, ne, ions, G0_bg)
         self._b_base = None
         if lattice:
-            return self._solve_lg(Z_guess, warm, recomb, dlnT, coulomb)
+            return self._solve_lg(Z_guess, warm, recomb, dlnT, coulomb, wide_moments)
         d = self._distribution(Z_guess, warm)
         Zs, discrete, nodes, weights = d["Zstar"], d["discrete"], d["nodes"], d["weights"]
+        shift, tail = 0.0, (False, None, None)
         if discrete:
             zmean, zsig = _window_moments(nodes, weights)
         else:
-            zmean, zsig = Zs + 0.5, float(d["sigma"])
+            # a wide P(Z): its mean and width from a model of g over the width (_wide_moments; else the Gaussian of
+            # Z* + 1/2 and the chord's sigma), the rates there; alpha and D from its tail where it carries them
+            sigma = float(d["sigma"])
+            zmean, zsig = Zs + 0.5, sigma
+            if wide_moments or recomb == "gauss" or coulomb:
+                mq = min(max(int(np.ceil(Zs)), _nint(self.t["Zmin"]) + 2), _nint(self.t["Zmax"]) - 3)
+                kw = [mq - 2, mq - 1, mq, mq + 1]
+                gw = [self._gi(k) for k in kw]
+                lnpm = -0.5 * ((float(mq) - Zs - 0.5) / sigma) ** 2 - np.log(np.sqrt(2.0 * np.pi) * sigma)
+                if wide_moments:
+                    used, zm, zs, lnpm_w = self._wide_moments(mq, gw[1], gw[2], sigma)
+                    if used:
+                        shift, zmean, zsig, lnpm = zm - zmean, zm, zs, lnpm_w
+                if (recomb == "gauss" or coulomb) and mq >= 1:
+                    tail = self._tail_sums(mq, sigma, kw, gw, lnpm, zmean, recomb == "gauss", coulomb)
+            nodes, weights = np.array([zmean]), np.array([1.0])
         gam, lam, auto = self._averages(nodes, weights, discrete)
         out = dict(Zstar=Zs, discrete=discrete, Zmean=zmean, Zsigma=zsig, Gamma=gam, Lambda=lam,
                    Lambda_auto=auto, nodes=np.asarray(nodes, float), weights=np.asarray(weights, float))
-        tail = (False, None, None)
-        if not discrete and (recomb == "gauss" or coulomb):
-            tail = self._wide_tail(Zs, zsig, recomb == "gauss", coulomb)
         if recomb is None:
             out["alpha_rec"] = None
         elif discrete:
             out["alpha_rec"] = self._recombination_discrete(nodes, weights, z_floor=self._b_base + 1)
         elif recomb == "exact":
-            out["alpha_rec"] = self._recombination_exact(Zs, zsig)
+            out["alpha_rec"] = self._recombination_exact(Zs, float(d["sigma"]))
         elif recomb == "gauss":
-            out["alpha_rec"] = tail[1] if tail[0] else np.exp(self._recombination_gauss(Zs, zsig))
+            out["alpha_rec"] = tail[1] if tail[0] else np.exp(self._recombination_gauss(Zs, float(d["sigma"])))
             if warm is not None and "recomb_ref" in warm:
                 out["recomb_ref"] = warm["recomb_ref"]       # kept for a later refine_recombination
         else:
@@ -1958,7 +2064,7 @@ class GroupChargingTable:
                                         COULOMB_JMAX)[[j + 1 for j in COULOMB_DCHARGE]]
                 out.update(cratio=cr, D=np.maximum(Dg * cr, cf.D_FLOOR), D_abs=False)
         if dlnT is not None:
-            out.update(self._dlnT_response(out, d["pair"], dlnT, d["chord"]))
+            out.update(self._dlnT_response(out, d["pair"], dlnT, d["chord"], d["sigma"], shift))
         return out
 
 

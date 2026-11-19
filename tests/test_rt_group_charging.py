@@ -200,7 +200,7 @@ def test_a_wide_positive_grains_tail_carries_its_coulomb_factors_and_recombinati
     """A 38 nm graphite grain in diffuse gas (G0 0.3, T 300 K, n_e 0.03): its P(Z) is wide and positive, and
     alpha and D(+j) come from its tail toward Z = 0 (_tail_sums, RAMSES calima/charge-lg5). There the Gaussian of
     <Z>, sigma puts D(+1) 20 times too high and its recombination estimate 300 times too low; the tail's are
-    within a few per cent of the exact P(Z)'s."""
+    within a few per cent of the exact P(Z)'s (D within 5 %: the tail is normalised by _wide_moments' P(m))."""
     from pycalima.models.dust_charge import coulomb_focusing as cf
     from pycalima.models.dust_charge import rt_group_charging as rg
 
@@ -215,7 +215,7 @@ def test_a_wide_positive_grains_tail_carries_its_coulomb_factors_and_recombinati
     Z, P = gt.exact_distribution(r["Zstar"], r["Zsigma"])
     D_exact = cf.coulomb_factors_exact(Z, P, T, gt.a, 3)[[0, 2, 3, 4]]
     D_gauss = cf.coulomb_factors(r["Zmean"], r["Zsigma"], T, gt.a, 3)[[0, 2, 3, 4]]
-    np.testing.assert_allclose(r["D"][1:], D_exact[1:], rtol=0.03)
+    np.testing.assert_allclose(r["D"][1:], D_exact[1:], rtol=0.05)
     assert D_gauss[1] > 10 * D_exact[1]
     a_exact = gt.solve(N, C, T, ne, ions, recomb="exact")["alpha_rec"]
     np.testing.assert_allclose(r["alpha_rec"], a_exact, rtol=0.02)
@@ -225,7 +225,7 @@ def test_a_wide_positive_grains_tail_carries_its_coulomb_factors_and_recombinati
 @pytest.mark.parametrize("scale, ne, T, window, discrete, tol_Z, tol", [
     (1e-3, 3.0, 50.0, 5, True, 1e-3, 1e-3),        # narrow: 5 charges
     (1.0, 30.0, 8e3, 7, True, 1e-2, 1e-2),         # central width in [0.6, 3): 7 charges
-    (1.0, 0.03, 8e3, 5, False, 0.3, 0.02),         # wide: the central pair's Gaussian
+    (1.0, 0.03, 8e3, 5, False, 0.1, 0.02),         # wide: _wide_moments
 ])
 def test_lattice_closure_lg5_follows_the_exact_distribution(tables, scale, ne, T, window, discrete, tol_Z, tol):
     """LG5 (solve(lattice=True), RAMSES rtg_lattice) against the exact P(Z) of the cell, 10 nm graphite."""
@@ -243,6 +243,27 @@ def test_lattice_closure_lg5_follows_the_exact_distribution(tables, scale, ne, T
     assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=tol)
     assert r["Gamma"] == pytest.approx(gam, rel=max(tol, 1e-3))
     assert r["Lambda"] + r["Lambda_auto"] == pytest.approx(lam + auto, rel=max(tol, 1e-3))
+
+
+@pytest.mark.parametrize("lattice", [False, True])
+def test_the_mean_of_a_wide_distribution_follows_the_exact_one(tables, lattice):
+    """A wide P(Z) in diffuse gas (10 nm graphite, 3000 K): its <Z> and sigma from _wide_moments (RAMSES
+    rtg_wide_moments, the default) are within 0.1 charges and 2 % of the exact P(Z)'s, both closures, where the
+    Gaussian of the central pair is ~0.36 charges off; wide_moments=False is that Gaussian of Z* + 1/2."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["graphite", 1e-6]
+    N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    args = (N, C, 3e3, 1.0, [(1.0, 1.0, M_P)])
+    r = gt.solve(*args, recomb=None, lattice=lattice)
+    g = gt.solve(*args, recomb=None, lattice=lattice, wide_moments=False)
+    assert not r["discrete"] and not g["discrete"]
+    Z, P = gt.exact_distribution(r["Zstar"], r["Zsigma"])
+    zm = P @ Z
+    assert abs(r["Zmean"] - zm) < 0.1 < abs(g["Zmean"] - zm)
+    assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=0.02)
+    assert g["Zmean"] == pytest.approx(g["Zstar"] + 0.5, abs=1e-12)
 
 
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
