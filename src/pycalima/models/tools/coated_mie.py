@@ -6,7 +6,7 @@ n - ik or n + ik: the absorbing sign is taken (the convention here is n + ik, as
 in Bohren & Huffman 1983).
 
 Bohren & Huffman's BHCOAT recurs the Riccati-Neumann functions chi_n(m2 x)
-upwards, which breaks down once |Im(m)| x exceeds a few tens (it returns NaN or
+upwards, which breaks down once abs(Im m) x exceeds a few tens (it returns NaN or
 Q_sca of several times the geometric limit for 1 um carbon grains in the far
 UV). Here the coefficients use only logarithmic derivatives and ratios of
 Riccati-Bessel functions (Yang 2003, Appl. Opt. 42, 1710):

@@ -4,7 +4,7 @@ The PAH half of test P2 of the carbon-carrier plan (the a-C(:H) half is ``gsd.hy
 ``network.PAHNetwork`` (``baseline.BaselineModel.network``, ``montillaud13.Montillaud13.network``, ...); these tools
 ask of it what a RAMSES bin that stores only M_C and M_H needs to know:
 
-- ``relaxation_rates``: the decay rates of the network's modes (|Re| of the non-zero eigenvalues of its generator),
+- ``relaxation_rates``: the decay rates of the network's modes (the moduli of the real parts of the non-zero eigenvalues of its generator),
   and ``charge_rates``: those of its charge steps alone, at each N_H.
 - ``settling_time``: when an observable has made a share ``frac`` of its change after a step in the conditions.
 - ``eliminate_charge`` (test T2, fast charge): the N_H chain whose rates out of each N_H are averaged over the
@@ -35,7 +35,7 @@ OBSERVABLES = ("x", "f_intact", "f_superh", "f_bare", "f_cation", "z_mean", "r_a
 
 
 def relaxation_rates(net, n=3):
-    """The ``n`` slowest decay rates [s^-1] of ``net``, slowest first: |Re lambda| of the eigenvalues of its
+    """The ``n`` slowest decay rates [s^-1] of ``net``, slowest first: abs(Re lambda) of the eigenvalues of its
     generator, without the stationary one (the eigenvalue nearest 0)."""
     ev = np.abs(np.linalg.eigvals(net.generator().toarray()).real)
     ev = np.delete(ev, np.argmin(ev))

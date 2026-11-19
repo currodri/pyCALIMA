@@ -11,7 +11,7 @@ Mie theory using n, k from the Henke atomic scattering factors. Each layer has
 the THEMIS composition: X_H = E_g / 4.3 eV (Jones 2012) and the CM20 bulk
 density of 1.6 g/cm^3 (DustEM ``GRAIN_J13.DAT``). The core and mantle are
 combined into one sphere by volume-weighting (m - 1); this is exact only when
-|m - 1| << 1.
+abs(m - 1) << 1.
 
 The Henke extension is not rescaled to meet the tables at the splice. At
 0.04 um it gives Q_abs 0.88-1.58 times the tabulated value, most for 3-30 nm

@@ -68,13 +68,13 @@ COMPONENTS = ("base", "right", "left", "spike")
 class GSDMethod:
     """How the GSD operators rebuild and sample the in-bin distribution.
 
-    closure : 'ea' (default), 'eaf', 'pl2m', 'affine' or 'exp'
-    eps : front threshold of ea/eaf: a neighbour whose mean dn/da is below eps times the bin's counts as empty
-        (default 1e-6; larger values flag steep smooth slopes on wide bins as fronts)
-    front_exponent : radius exponent of eaf's front profiles, dN/da ~ a^front_exponent (default -3.5, MRN)
-    nodes : collision nodes, 'median' (default) or 'gauss'
-    rate_nodes : nodes for rates evaluated at nodes (``charging.destroy``), 'gauss' (default) or 'median'
-    kernel_average : n >= 1; n > 1 averages collision kernels and products over n x n node sub-slices
+    - ``closure``: 'ea' (default), 'eaf', 'pl2m', 'affine' or 'exp'
+    - ``eps``: front threshold of ea/eaf: a neighbour whose mean dn/da is below eps times the bin's counts as
+      empty (default 1e-6; larger values flag steep smooth slopes on wide bins as fronts)
+    - ``front_exponent``: radius exponent of eaf's front profiles, dN/da ~ a^front_exponent (default -3.5, MRN)
+    - ``nodes``: collision nodes, 'median' (default) or 'gauss'
+    - ``rate_nodes``: nodes for rates evaluated at nodes (``charging.destroy``), 'gauss' (default) or 'median'
+    - ``kernel_average``: n >= 1; n > 1 averages collision kernels and products over n x n node sub-slices
     """
 
     closure: str = "ea"
