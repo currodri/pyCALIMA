@@ -196,6 +196,32 @@ def test_the_result_does_not_depend_on_the_start(tables, a):
                 np.testing.assert_array_equal(r[key], cold[key])
 
 
+def test_a_wide_positive_grains_tail_carries_its_coulomb_factors_and_recombination():
+    """A 38 nm graphite grain in diffuse gas (G0 0.3, T 300 K, n_e 0.03): its P(Z) is wide and positive, and
+    alpha and D(+j) come from its tail toward Z = 0 (_tail_sums, RAMSES calima/charge-lg5). There the Gaussian of
+    <Z>, sigma puts D(+1) 20 times too high and its recombination estimate 300 times too low; the tail's are
+    within a few per cent of the exact P(Z)'s."""
+    from pycalima.models.dust_charge import coulomb_focusing as cf
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab = rg.build_bin_table("graphite", 3.8e-6, U=rg.u_grid(n=241), Ts=np.geomspace(3e3, 3e6, 13),
+                             T_hot=np.geomspace(1e3, 1e9, 13), label="graphite_38nm")
+    N, egy, _ = _bb_cell(3e4, 0.3, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(tab, egy=egy)
+    T, ne = 300.0, 0.03
+    ions = [(ne, 1.0, M_P)]
+    r = gt.solve(N, C, T, ne, ions, recomb="gauss", coulomb=True)
+    assert not r["discrete"] and r["Zmean"] > 5 and r["D_abs"] and r["alpha_tail"]
+    Z, P = gt.exact_distribution(r["Zstar"], r["Zsigma"])
+    D_exact = cf.coulomb_factors_exact(Z, P, T, gt.a, 3)[[0, 2, 3, 4]]
+    D_gauss = cf.coulomb_factors(r["Zmean"], r["Zsigma"], T, gt.a, 3)[[0, 2, 3, 4]]
+    np.testing.assert_allclose(r["D"][1:], D_exact[1:], rtol=0.03)
+    assert D_gauss[1] > 10 * D_exact[1]
+    a_exact = gt.solve(N, C, T, ne, ions, recomb="exact")["alpha_rec"]
+    np.testing.assert_allclose(r["alpha_rec"], a_exact, rtol=0.02)
+    assert np.all(np.exp(gt._recombination_gauss(r["Zstar"], r["Zsigma"])) < 0.01 * a_exact)
+
+
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
     """_recombination over a discrete P(Z)'s window, and on charges across the ion thresholds
     read from the table file, is the case-A sum written from its definition (WD01b):

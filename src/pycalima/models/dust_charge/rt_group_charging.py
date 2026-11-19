@@ -110,6 +110,9 @@ RATIO_EPS, RATIO_CLAMP = 1e-6, 0.5e-10
 COULOMB_DCHARGE = (-1, 1, 2, 3)       # impactor charges j of the Coulomb factors D (RAMSES ISRF_DCHARGE)
 COULOMB_JMAX = 3
 HUGE = np.finfo(float).max
+# The tail of a positive P(Z) toward Z = 0 (_tail_sums): used where its alpha or D(+1) integrand at Z = 1, 0, -2 comes
+# within e^-TAIL_CUT of its value on the window; its sums stop past their peak at e^-TAIL_STOP of their totals
+TAIL_CUT, TAIL_STOP = 25.0, 20.0
 # Grain-assisted recombination of a wide P(Z) (sigma >= SIGMA_DISCRETE), recomb="fit":
 # see GroupChargingTable._recombination_fit. Settings validated per bin against
 # the exact sum over the integer charges (PCHIP kernels): <= 5% typically, < 10% worst,
@@ -1348,6 +1351,211 @@ class GroupChargingTable:
         return dict(dZmean_dlnT=dmean, dZsigma_dlnT=0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0,
                     dGamma_dlnT=P @ (c * gam), dLambda_dlnT=dlam)
 
+    # -- alpha and D of a positive grain from its P(Z) toward Z = 0 (RAMSES tail_sums, calima/charge-lg5 commits 2, 4)
+    def _tail_sums(self, m, sl, kw, gw, lnPm, zmean, want_a, want_d):
+        """The grain-assisted recombination alpha_i and the Coulomb factors D_j of a positive grain's P(Z) whose
+        tail toward Z = 0 carries them. alpha and D(+j) come from P(Z) near and below Z = 0, where g bends at the
+        kink of the Coulomb factors, and a closure that continues g from the window puts far too much P there
+        (D(+1) too large by up to e^6, alpha too small by up to e^80).
+          m: the mode of P(Z); sl: its central width; kw, gw: g on the window charges (consecutive);
+          lnPm, zmean: ln P(m) (normalised) and <Z> of the closure.
+        The tail is used if, with g continued linearly from the window's lower edge, the alpha or D(+1)
+        integrand at Z = 1, 0, -2 comes within e^-TAIL_CUT of its value on the window (at its lowest charges and
+        the mode). Then g is also taken at the kink charges -2 .. 1 and at two charges between them and the
+        window, PCHIP between the nodes, linear beyond them; ln P(lo) - ln P(m) is minus the sum of that g over
+        lo .. m-1, in closed form on each piece, and P(Z) = P(m) exp(...) is carried up from lo = -6 only as far
+        as the sums go: alpha_i (case-A thresholds) and D(+j) until their terms are past their peak and below
+        e^-TAIL_STOP of their sums; D(-1) = 1 + C1 <Z> plus its exact difference from that on Z <= 0. D floored
+        at 1e-10. Returns (used, alpha or None, D or None)."""
+        n = len(kw)
+        if not (want_a or want_d) or n < 2:
+            return False, None, None
+        t = self.t
+        klo, khi = _nint(t["Zmin"]), _nint(t["Zmax"])
+        if not (m >= 1 and kw[0] >= -1):
+            return False, None, None
+        T = self.cell["T"]
+        C1 = E_STATC ** 2 / (KB_CGS * T * self.a)
+        sq = np.sqrt(np.pi * C1 / 2.0)
+        geoA = np.pi * self.a ** 2 * np.sqrt(8.0 * KB_CGS * T / (np.pi * M_U))
+
+        def capture(z):
+            return geoA * float(DS87_J_function_vec(float(z), 1.0, self.a, T))
+
+        def lnw(kz):
+            # the steepest wanted integrand weight at charge kz (ln): alpha's capture rate, D(+1)
+            v = -HUGE
+            if want_a:
+                v = np.log(max(capture(kz), 1e-300))
+            if want_d:
+                v = max(v, -kz * C1 if kz > 0 else (np.log(1.0 + sq) if kz == 0 else np.log(1.0 - kz * C1)))
+            return v
+
+        lpw = np.concatenate([[0.0], np.cumsum(gw)])
+        peak = max(lpw[0] + lnw(kw[0]), lpw[1] + lnw(kw[0] + 1), lpw[m - kw[0]] + lnw(m))
+        sl_e = gw[1] - gw[0]
+        if not sl_e < 0.0:
+            sl_e = -1.0 / max(sl * sl, 1e-12)
+        used = False
+        for zt in (1, 0, -2):
+            if zt >= kw[0] or zt < klo:
+                continue
+            dz = kw[0] - zt
+            lpt = -(dz * gw[0] - sl_e * float(dz) * float(dz + 1) / 2.0)
+            if lpt + lnw(zt) > peak - TAIL_CUT:
+                used = True
+                break
+        if not used:
+            return False, None, None
+        # the nodes of g: the window, the kink charges -2 .. 1, two between them and the window
+        nodes = {int(k): float(g) for k, g in zip(kw, gw)}
+        for kq in range(-2, 2):
+            if kw[0] <= kq <= kw[-1] or kq < klo or kq + 1 > khi:
+                continue
+            nodes[kq] = self._gi(kq)
+        a0, b0 = 1, int(kw[0])
+        for q in (1, 2):
+            kq = _nint(a0 + (b0 - a0) * q / 3.0)
+            if kq <= a0 or kq >= b0 or kq in nodes:
+                continue
+            nodes[kq] = self._gi(kq)
+        xn = np.array(sorted(nodes), dtype=float)
+        yn = np.array([nodes[int(x)] for x in xn])
+        nn = xn.size
+        dk = np.zeros(nn)
+        dk[0] = (yn[1] - yn[0]) / (xn[1] - xn[0])
+        dk[-1] = (yn[-1] - yn[-2]) / (xn[-1] - xn[-2])
+        for i in range(1, nn - 1):
+            s0 = (yn[i] - yn[i - 1]) / (xn[i] - xn[i - 1])
+            s1 = (yn[i + 1] - yn[i]) / (xn[i + 1] - xn[i])
+            if s0 * s1 > 0.0:
+                w1 = 2.0 * (xn[i + 1] - xn[i]) + (xn[i] - xn[i - 1])
+                w2 = (xn[i + 1] - xn[i]) + 2.0 * (xn[i] - xn[i - 1])
+                dk[i] = (w1 + w2) / (w1 / s0 + w2 / s1)
+
+        def gmod(kz):
+            xx = float(kz)
+            if xx <= xn[0]:
+                return yn[0] + dk[0] * (xx - xn[0])
+            if xx >= xn[-1]:
+                return yn[-1] + dk[-1] * (xx - xn[-1])
+            i = int(np.searchsorted(xn, xx, side="right")) - 1
+            hh = xn[i + 1] - xn[i]
+            ww = (xx - xn[i]) / hh
+            return ((2.0 * ww ** 3 - 3.0 * ww ** 2 + 1.0) * yn[i] + (ww ** 3 - 2.0 * ww ** 2 + ww) * hh * dk[i]
+                    + (-2.0 * ww ** 3 + 3.0 * ww ** 2) * yn[i + 1] + (ww ** 3 - ww ** 2) * hh * dk[i + 1])
+
+        def sp(pw, nt):
+            r = float(nt)
+            if nt < 0:
+                return 0.0
+            if pw == 0:
+                return r + 1.0
+            if pw == 1:
+                return 0.5 * r * (r + 1.0)
+            if pw == 2:
+                return r * (r + 1.0) * (2.0 * r + 1.0) / 6.0
+            return (0.5 * r * (r + 1.0)) ** 2
+
+        def gsum(ka, kb):
+            # sum of gmod over ka .. kb in closed form: the linear continuations and each Hermite cubic
+            tot = 0.0
+            if kb < ka:
+                return tot
+            k2 = min(kb, _nint(xn[0]) - 1)
+            if k2 >= ka:
+                tot += float(k2 - ka + 1) * (yn[0] + dk[0] * (0.5 * float(ka + k2) - xn[0]))
+            k1 = max(ka, _nint(xn[-1]))
+            if kb >= k1:
+                tot += float(kb - k1 + 1) * (yn[-1] + dk[-1] * (0.5 * float(k1 + kb) - xn[-1]))
+            for i0 in range(nn - 1):
+                k1 = max(ka, _nint(xn[i0]))
+                k2 = min(kb, _nint(xn[i0 + 1]) - 1)
+                if k2 < k1:
+                    continue
+                hh = xn[i0 + 1] - xn[i0]
+                c0, c1_ = yn[i0], dk[i0]
+                c2 = (-3.0 * yn[i0] - 2.0 * hh * dk[i0] + 3.0 * yn[i0 + 1] - hh * dk[i0 + 1]) / hh ** 2
+                c3 = (2.0 * yn[i0] + hh * dk[i0] - 2.0 * yn[i0 + 1] + hh * dk[i0 + 1]) / hh ** 3
+                ta_, tb_ = k1 - _nint(xn[i0]), k2 - _nint(xn[i0])
+                tot += (c0 * (sp(0, tb_) - sp(0, ta_ - 1)) + c1_ * (sp(1, tb_) - sp(1, ta_ - 1))
+                        + c2 * (sp(2, tb_) - sp(2, ta_ - 1)) + c3 * (sp(3, tb_) - sp(3, ta_ - 1)))
+            return tot
+
+        lo = min(max(klo, -6), int(kw[0]))
+        hi = max(min(khi, m + int(np.ceil(8.0 * sl + 5.0))), int(kw[-1]) + 1)
+        lp = -gsum(lo, m - 1)
+        zth = t["recomb_Zth"]
+        order = sorted(range(len(zth)), key=lambda j: zth[j])     # stable, as the insertion sort
+        jp, adone = 0, not want_a
+        al = np.zeros(len(zth))
+        sa, cr, tap, tdp = 0.0, 0.0, 0.0, 0.0
+        dd = np.zeros(len(COULOMB_DCHARGE))
+        q1 = np.exp(-C1) if C1 < 745.0 else 0.0
+        stop = np.exp(-TAIL_STOP)
+        for k in range(lo, hi + 1):
+            if k > lo:
+                lp += gmod(k - 1)
+            ef = lp + lnPm
+            if not adone:
+                while jp < len(zth) and not k <= zth[order[jp]]:
+                    al[order[jp]] = sa
+                    jp += 1
+                if jp >= len(zth):
+                    adone = True
+            if ef < -745.0:
+                continue
+            p = np.exp(ef)
+            ta = 0.0
+            if not adone:
+                ta = p * capture(k)
+                sa += ta
+            td = 0.0
+            if want_d:
+                if k > 0:
+                    qk = q1 ** k
+                    td = p * qk
+                    dd[1] += td
+                    dd[2] += td * qk
+                    dd[3] += td * qk * qk
+                elif k == 0:
+                    dd[1] += p * (1.0 + sq)
+                    dd[2] += p * (1.0 + 2.0 * sq)
+                    dd[3] += p * (1.0 + 3.0 * sq)
+                    cr += p * sq                                 # D(-1): 1 + sq against 1 + 0 C1
+                else:
+                    dd[1] += p * (1.0 - k * C1)
+                    dd[2] += p * (1.0 - 2.0 * k * C1)
+                    dd[3] += p * (1.0 - 3.0 * k * C1)
+                    f = np.exp(k * C1) if k * C1 > -745.0 else 0.0   # electrons repelled
+                    cr += p * (f - (1.0 + k * C1))
+            if k > 0 and ((adone or (ta < tap and ta <= stop * sa))
+                          and (not want_d or (td < tdp and td <= stop * dd[1]))):
+                break
+            tap, tdp = ta, td
+        alpha = D = None
+        if want_a:
+            while jp < len(zth):
+                al[order[jp]] = sa
+                jp += 1
+            alpha = al / np.sqrt(np.array([mm for _, mm, _ in RECOMB_IONS]))
+        if want_d:
+            dd[0] = 1.0 + C1 * zmean + cr
+            D = np.maximum(dd, 1e-10)
+        return True, alpha, D
+
+    def _wide_tail(self, Zs, sigma, want_a, want_d):
+        """_tail_sums of a wide P(Z) (the Gaussian of mean Z* + 1/2 and width sigma): g on m-2 .. m+1 around
+        the lattice mode m = ceil(Z*), a positive one only. Returns (used, alpha or None, D or None)."""
+        t = self.t
+        mq = min(max(int(np.ceil(Zs)), _nint(t["Zmin"]) + 2), _nint(t["Zmax"]) - 3)
+        if mq < 1:
+            return False, None, None
+        kw = [mq - 2, mq - 1, mq, mq + 1]
+        gw = [self._gi(k) for k in kw]
+        lnpm = -0.5 * ((float(mq) - Zs - 0.5) / sigma) ** 2 - np.log(np.sqrt(2.0 * np.pi) * sigma)
+        return self._tail_sums(mq, sigma, kw, gw, lnpm, Zs + 0.5, want_a, want_d)
+
     def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None,
               coulomb=False):
         """Equilibrium charge and rates for one cell.
@@ -1393,6 +1601,9 @@ class GroupChargingTable:
         gam, lam, auto = self._averages(nodes, weights, discrete)
         out = dict(Zstar=Zs, discrete=discrete, Zmean=zmean, Zsigma=zsig, Gamma=gam, Lambda=lam,
                    Lambda_auto=auto, nodes=np.asarray(nodes, float), weights=np.asarray(weights, float))
+        tail = (False, None, None)
+        if not discrete and (recomb == "gauss" or coulomb):
+            tail = self._wide_tail(Zs, zsig, recomb == "gauss", coulomb)
         if recomb is None:
             out["alpha_rec"] = None
         elif discrete:
@@ -1400,16 +1611,21 @@ class GroupChargingTable:
         elif recomb == "exact":
             out["alpha_rec"] = self._recombination_exact(Zs, zsig)
         elif recomb == "gauss":
-            out["alpha_rec"] = np.exp(self._recombination_gauss(Zs, zsig))
+            out["alpha_rec"] = tail[1] if tail[0] else np.exp(self._recombination_gauss(Zs, zsig))
             if warm is not None and "recomb_ref" in warm:
                 out["recomb_ref"] = warm["recomb_ref"]       # kept for a later refine_recombination
         else:
             self.refine_recombination(out, warm)
+        out["alpha_tail"] = bool(tail[0] and recomb == "gauss")
         if coulomb:
             from pycalima.models.dust_charge import coulomb_focusing as cf
-            cr = self._coulomb_ratio(out)
-            Dg = cf.coulomb_factors(zmean, zsig, self.cell["T"], self.a, COULOMB_JMAX)[[j + 1 for j in COULOMB_DCHARGE]]
-            out.update(cratio=cr, D=np.maximum(Dg * cr, cf.D_FLOOR), D_abs=False)
+            if tail[0]:
+                out.update(cratio=None, D=tail[2], D_abs=True)
+            else:
+                cr = self._coulomb_ratio(out)
+                Dg = cf.coulomb_factors(zmean, zsig, self.cell["T"], self.a,
+                                        COULOMB_JMAX)[[j + 1 for j in COULOMB_DCHARGE]]
+                out.update(cratio=cr, D=np.maximum(Dg * cr, cf.D_FLOOR), D_abs=False)
         if dlnT is not None:
             out.update(self._dlnT_response(out, d["pair"], dlnT, d["chord"]))
         return out
