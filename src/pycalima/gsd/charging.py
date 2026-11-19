@@ -160,10 +160,17 @@ def bin_table(material, a, L0=AGN_GROUP_L0, L1=AGN_GROUP_L1, cache=True):
 
 
 class ChargingModel:
-    """Charge solves for one material on a grid of radii [cm]."""
+    """Charge solves for one material on a grid of radii [cm].
 
-    def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True):
+    lattice: the solver of ``rt_group_charging.GroupChargingTable.solve``. True (default): LG5 (RAMSES
+    rtg_lattice), the rates at the 5 (7) integer charges around the mode of P(Z), 2-4x cheaper than the full solve
+    and within the documented charging-parameter uncertainties of the exact P(Z) (95th percentile of |d<Z>| 0.11
+    charges in diffuse gas against the full solve's 0.03). False: the full WDB06rt solve (root, width, a window grown
+    to its tails), RAMSES's default."""
+
+    def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True, lattice=True):
         self.material = material
+        self.lattice = bool(lattice)
         self.wdb06_material = charging_material(material)
         self.a = np.asarray(a_grid, float)
         self.L0, self.L1 = (np.asarray(g, float) for g in groups)
@@ -187,7 +194,7 @@ class ChargingModel:
         res = []
         for k, gt in enumerate(self.tables):
             r = gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None,
-                         warm=self._warm[k])
+                         warm=self._warm[k], lattice=self.lattice)
             self._warm[k] = r
             res.append(r)
         return ChargeState(self, res, dict(T=float(T), n_e=float(n_e), ions=ions,
@@ -232,10 +239,11 @@ class ChargeState:
         return mu[..., None] + sg[..., None] * off, np.array([1.0, 4.0, 1.0]) / 6.0
 
     def exact_distribution(self, k):
-        """Integer charges and exact P(Z) at grid radius k."""
+        """Integer charges and exact P(Z) at grid radius k: the window of a discrete P(Z) from the full solve, else
+        P(Z) on every integer charge within 8 sigma + 10 of Z* (LG5's tails are a model of g)."""
         r = self.results[k]
         gt = self.model.tables[k]
-        if r["discrete"]:
+        if r["discrete"] and not self.model.lattice:
             return np.asarray(r["nodes"], float), np.asarray(r["weights"], float)
         self._set(k)
         return gt.exact_distribution(r["Zstar"], r["Zsigma"])
