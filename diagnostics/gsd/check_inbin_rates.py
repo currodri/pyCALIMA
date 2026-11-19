@@ -15,7 +15,11 @@ Four ways to get the bin's rate per gram at state s:
 * exact: the mass-weighted mean over the power-law profile, ``optics.profile_weights`` on n_nodes intervals per bin
   (the optics tables' method; it is what an s axis on the tables gives);
 * centre: the single-grain value at the bin centre (today);
-* mean mass: the single-grain value at the bin's current mean mass M/N;
+* mean mass: the single-grain value at the bin's current mean mass M/N (one charge solve; exact if the rate per gram
+  is the same at every size);
+* area node: one charge solve at a* = <a^3>/<a^2>, weighted to the bin's exact area (the 1-point Gauss rule of the
+  measure a^2 dN; exact if the rate per grain over a^2 is linear in a). Per gram it is the single-grain value at a*;
+  both moments come from the closure at no cost. Adopted 2026-11-18 for RAMSES's charge-dependent rates;
 * median nodes: the two nodes of ``collisions.bin_nodes`` (number halves at their mean masses; exact N and M), the
   collision operator's quadrature;
 * Gauss nodes: the 2-point Gauss quadrature of the bin in radius (``closures.nodes(..., rule='gauss')``; exact for
@@ -48,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_pah_grain_seam import AMU, CELLS, ION_MASS   # noqa: E402
 
 S = np.linspace(0.0, 1.0, 101)
+WAYS = ("centre", "mean", "area", "two", "gauss")
 A_MAX_CM = 1e-4
 SIL_A_MIN_CM = 4.5e-8                 # the silicate grid of check_optics_tables
 N_SIL_BINS = 8
@@ -92,6 +97,8 @@ def bin_values(grid, i, a, k, n_nodes):
     at = lambda m: np.exp(np.interp(np.log(grid.radius(m)), np.log(a), np.log(k)))   # noqa: E731
     centre = np.full(S.size, at(grid.m_centres[i]))
     mean = at(M / N)
+    k_at_a = lambda r: np.exp(np.interp(np.log(r), np.log(a), np.log(k)))   # noqa: E731
+    area = np.empty(S.size)
     two = np.empty(S.size)
     gauss = np.empty(S.size)
     for n in range(S.size):
@@ -102,7 +109,9 @@ def bin_values(grid, i, a, k, n_nodes):
         two[n] = np.sum(ww[i] * mm[i] * at(mm[i])) / M[n]
         mg, wg = gc.nodes(grid, Nb, Mb, "pl2m", rule="gauss")[:2]
         gauss[n] = np.sum(wg[i] * mg[i] * at(mg[i])) / M[n]
-    return dict(exact=exact, centre=centre, mean=mean, two=two, gauss=gauss)
+        P = gc.pieces(grid, Nb, Mb, "pl2m")
+        area[n] = k_at_a(gc.radius_moments(P, 3)[i] / gc.radius_moments(P, 2)[i])
+    return dict(exact=exact, centre=centre, mean=mean, area=area, two=two, gauss=gauss)
 
 
 def s_of_slope(eta, q):
@@ -121,7 +130,7 @@ def run(n_nodes):
             for cell, qs in rates.items():
                 for q, k in qs.items():
                     v = bin_values(grid, i, a, k, n_nodes)
-                    err = {m: np.abs(v[m] / v["exact"] - 1.0) for m in ("centre", "mean", "two", "gauss")}
+                    err = {m: np.abs(v[m] / v["exact"] - 1.0) for m in WAYS}
                     s_mrn = s_of_slope(grid.etas[i], 3.5)
                     j = int(np.argmin(np.abs(S - s_mrn)))
                     rows.append(dict(pop=label, bin=int(i), a_lo=grid.a_edges[i], a_hi=grid.a_edges[i + 1],
@@ -137,11 +146,11 @@ def report(rows, path):
     lines = ["In-bin state and grain rates: |method/exact - 1|, worst over s in [0, 1] (and at the MRN slope, "
              "dN/da ~ a^-3.5); span = max/min of the exact per-gram rate over s.",
              f"{'population':14s} {'bin':>3s} {'a [nm]':>13s} {'cell':8s} {'q':7s} {'span':>6s} "
-             f"{'centre':>13s} {'mean mass':>13s} {'median nodes':>13s} {'Gauss nodes':>13s}"]
+             f"{'centre':>13s} {'mean mass':>13s} {'area node':>13s} {'median nodes':>13s} {'Gauss nodes':>13s}"]
     for r in rows:
         lines.append(f"{r['pop']:14s} {r['bin']:3d} {r['a_lo'] * 1e7:6.2f}-{r['a_hi'] * 1e7:6.1f} {r['cell']:8s} "
                      f"{r['q']:7s} {r['span']:6.2f} "
-                     + " ".join(f"{r['max_' + m]:6.3f}/{r['mrn_' + m]:6.3f}" for m in ("centre", "mean", "two", "gauss")))
+                     + " ".join(f"{r['max_' + m]:6.3f}/{r['mrn_' + m]:6.3f}" for m in WAYS))
     Path(path).write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 
@@ -164,20 +173,24 @@ def plot(rows, curves, out):
         lab = rf"{r['a_lo'] * 1e7:.3g}--{r['a_hi'] * 1e7:.4g} nm"
         ax.plot(S, v["centre"] / v["exact"], c=c, ls="-", label=lab + ", centre")
         ax.plot(S, v["mean"] / v["exact"], c=c, ls=":")
+        ax.plot(S, v["area"] / v["exact"], c=c, ls=(0, (6, 1.5, 1, 1.5, 1, 1.5)), lw=1.8)
         ax.plot(S, v["two"] / v["exact"], c=c, ls="--")
         ax.plot(S, v["gauss"] / v["exact"], c=c, ls="-.")
     ax.axhline(1.0, c="k", lw=0.6)
     ax.set_xlabel(r"in-bin state $s$")
     ax.set_ylabel(r"$\Gamma_{\rm pe}$ per gram / exact")
-    ax.set_title(r"(a) a-C, CNM: centre (solid), mean mass (dotted), median (dashed), Gauss (dash-dot)", fontsize=8)
+    ax.set_title(r"(a) a-C, CNM: centre (solid), mean mass (dotted), area node (thick dash-dot-dot), "
+                 r"median (dashed), Gauss (dash-dot)", fontsize=7)
     ax.legend(fontsize=7, loc="upper right")
     ax.set_yscale("log")
     ax.set_yticks([0.3, 0.5, 1.0, 2.0, 3.0])
     ax.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter("%g"))
     ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
     marks = {"WNM": "o", "CNM": "s", "PDR": "^", "dense": "v", "surface": "D"}
-    styles = {"centre": ("C3", "-"), "mean": ("C0", ":"), "two": ("C2", "--"), "gauss": ("C4", "-.")}
-    names = {"centre": "bin centre", "mean": "mean mass", "two": "median nodes", "gauss": "Gauss nodes (default)"}
+    styles = {"centre": ("C3", "-"), "mean": ("C0", ":"), "area": ("C1", (0, (6, 1.5, 1, 1.5, 1, 1.5))),
+              "two": ("C2", "--"), "gauss": ("C4", "-.")}
+    names = {"centre": "bin centre (today)", "mean": "mean mass (1 solve)", "area": "area node (adopted, 1 solve)",
+             "two": "median nodes (2 solves)", "gauss": "Gauss nodes (2 solves)"}
     for ax, q, title in ((axs[0, 1], "Gamma", r"(b) photoelectric heating per gram"),
                          (axs[1, 0], "Lambda", r"(c) recombination cooling per gram"),
                          (axs[1, 1], "S", r"(d) surface per gram (H$_2$ formation, accretion, sputtering)")):
@@ -189,8 +202,8 @@ def plot(rows, curves, out):
                 ac = np.sqrt([x["a_lo"] * x["a_hi"] for x in sel]) * 1e7
                 for m, (c, ls) in styles.items():
                     y = np.maximum([x["max_" + m] for x in sel], 1e-4)
-                    ax.plot(ac, y, c=c, ls=ls, lw=0.8, marker=marks[cell], ms=4,
-                            mfc=c if filled else "none")
+                    ax.plot(ac, y, c=c, ls=ls, lw=1.6 if m == "area" else 0.8, marker=marks[cell], ms=4,
+                            mfc=c if filled else "none", zorder=3 if m == "area" else 2)
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel(r"bin centre radius [nm]")
@@ -199,10 +212,10 @@ def plot(rows, curves, out):
         ax.axhline(0.05, c="0.5", lw=0.6, ls="--")
         ax.set_ylim(1e-3, 3.0)
     from matplotlib.lines import Line2D
-    h = [Line2D([], [], c=c, ls=ls, label=names[m]) for m, (c, ls) in styles.items()]
+    h = [Line2D([], [], c=c, ls=ls, lw=1.6 if m == "area" else 0.8, label=names[m]) for m, (c, ls) in styles.items()]
     h += [Line2D([], [], c="k", ls="none", marker=mk, label=cl) for cl, mk in marks.items()]
     h += [Line2D([], [], c="k", ls="none", marker="o", mfc="none", label="silicate (open)")]
-    fig.legend(handles=h, loc="lower center", ncol=6, fontsize=7.5, frameon=False)
+    fig.legend(handles=h, loc="lower center", ncol=6, fontsize=7.5, frameon=False)  # 5 ways + 5 cells + silicate
     for a in axs.flat:
         a.tick_params(which="both", axis="both", direction="in", top=True, right=True, bottom=True, left=True)
     fig.tight_layout(rect=(0, 0.07, 1, 1))

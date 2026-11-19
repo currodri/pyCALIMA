@@ -17,7 +17,10 @@ Each rate is a sum over grains, computed from a run's (N, M) with that run's own
 
 * exact: the integral over the reconstruction (``closures.bin_weights``), what front-aware s tables give;
 * median / Gauss nodes: the collision nodes (number halves) or the 2-point Gauss rule in radius (the default rate
-  nodes since 2026-11-18);
+  nodes since 2026-11-18): two charge solves per bin;
+* mean mass / area node: one charge solve per bin, at the mean mass (weight N) or at a* = <a^3>/<a^2> weighted to
+  the bin's exact area (the 1-point Gauss rule of the measure a^2 dN); area+slope: the area node with the rate's
+  local size slope from the neighbouring bins' area nodes (``area_slope``; no extra solves);
 * centre: every grain of a bin at the bin centre (today's RAMSES tables).
 
 Errors are against the reference run integrated exactly, at the end of each run (the A0 files keep no history), in
@@ -49,8 +52,9 @@ CASES = ("sn_diffuse", "mrn_accretion", "mrn_coagulation", "mrn_shattering", "mr
 POPS = {"graphite": "graphite", "silicate": "silicate"}     # population -> charging material
 N_NODES = 8                                                 # intervals per bin of the exact profile integral
 PER_DECADE = 16                                             # radii per decade of the single-grain rates
-# (method, way): the curves of the figure
-WAYS = (("ea", "exact"), ("ea", "gauss"), ("pl2m", "exact"), ("pl2m", "median"), ("pl2m", "centre"))
+# (method, way): the rows of the table, and the curves of the figure (but area+slope)
+WAYS = (("ea", "exact"), ("ea", "gauss"), ("ea", "area"), ("ea", "area+slope"), ("ea", "mean"), ("pl2m", "exact"),
+        ("pl2m", "median"), ("pl2m", "centre"))   # area+slope: in the table only (gains < 1 point over area)
 
 
 def load(path):
@@ -78,6 +82,25 @@ def single_grain(material, a_lo, a_hi):
     return a, out
 
 
+def area_slope(P, idx, ast, ga):
+    """One solve per bin at its area node a*, with the rate's local size slope p = d ln g / d ln a from the
+    neighbouring bins' area-node values (a quadratic in ln a through the three; one-sided at a gap or the grid end;
+    p = 2 with no filled neighbour): bin total g(a*) int a^p dN / a*^p, exact where g ~ a^p across the bin."""
+    la, lg = np.log(ast), np.log(ga)
+    tot = 0.0
+    for j, i in enumerate(idx):
+        nb = [k for k in (j - 1, j + 1) if 0 <= k < idx.size and abs(idx[k] - i) == 1]
+        if len(nb) == 2:
+            c = np.polyfit(la[j - 1:j + 2], lg[j - 1:j + 2], 2)
+            p = 2.0 * c[0] * la[j] + c[1]
+        elif nb:
+            p = (lg[nb[0]] - lg[j]) / (la[nb[0]] - la[j])
+        else:
+            p = 2.0
+        tot += ga[j] * gc.radius_moments(P, p)[i] / ast[j] ** p
+    return float(tot)
+
+
 def totals(grid, N, M, a, g, method):
     """Sum of the per-grain quantity g(a) over the population under ``method``'s closure, every way."""
     at = lambda r: np.exp(np.interp(np.log(r), np.log(a), np.log(g)))   # noqa: E731
@@ -89,6 +112,11 @@ def totals(grid, N, M, a, g, method):
     exact = float(np.sum(M[filled] * np.einsum("ij,ij->i", W, at(r) / grid.mass(r))[filled]))
     centre = float(np.sum(N[filled] * at(grid.a_centres[filled])))
     out = dict(exact=exact, centre=centre)
+    out["mean"] = float(np.sum(N[filled] * at(grid.radius(M[filled] / N[filled]))))
+    a2, a3 = gc.radius_moments(P, 2)[filled], gc.radius_moments(P, 3)[filled]
+    ast = a3 / a2
+    out["area"] = float(np.sum(a2 / ast ** 2 * at(ast)))
+    out["area+slope"] = area_slope(P, np.flatnonzero(filled), ast, at(ast))
     for rule in ("median", "gauss"):
         m, w = gc.nodes(grid, N, M, method, rule=rule)[:2]
         out[rule] = float(np.sum(w[filled] * at(grid.radius(m[filled]))))
@@ -175,7 +203,9 @@ def plot(err, out):
     use_calima_style()
     fig, axs = plt.subplots(1, 3, figsize=(11, 3.8), sharey=True)
     styles = {("ea", "exact"): ("C0", "-", "EA (default), exact in-bin integral"),
-              ("ea", "gauss"): ("C0", "--", "EA, Gauss rate nodes (default)"),
+              ("ea", "gauss"): ("C0", "--", "EA, 2 Gauss nodes (2 solves per bin)"),
+              ("ea", "area"): ("C2", "-", "EA, area node (adopted, 1 solve per bin)"),
+              ("ea", "mean"): ("C4", ":", "EA, mean-mass grain (1 solve per bin)"),
               ("pl2m", "exact"): ("C1", "-", "PL2M, exact in-bin integral"),
               ("pl2m", "median"): ("C1", "--", "PL2M, median nodes"),
               ("pl2m", "centre"): ("C3", ":", "PL2M, bin centre (today's tables)")}
@@ -185,7 +215,8 @@ def plot(err, out):
         for key, (c, ls, lab) in styles.items():
             ns, w = worst(err, q, *key)
             if ns is not None:
-                ax.plot(ns, np.maximum(w, 1e-4), c=c, ls=ls, marker="o", ms=3, lw=1.1, label=lab)
+                ax.plot(ns, np.maximum(w, 1e-4), c=c, ls=ls, marker="o", ms=3, lw=2.0 if key == ("ea", "area") else 1.1,
+                        label=lab, zorder=3 if key == ("ea", "area") else 2)
         ax.set_title(titles[q], fontsize=9)
         ax.set_xscale("log")
         ax.set_yscale("log")
