@@ -21,42 +21,64 @@ electron pass-through, Draine & Salpeter 1979) are tabulated in (T, U).
 ``build_bin_table`` computes a bin's table, ``write_bin_table`` /
 ``read_bin_table`` store it in the text format RAMSES reads, and
 ``GroupChargingTable.solve`` is the per-cell algorithm RAMSES implements:
-the same file, formulas and iteration, so the two agree to round-off.
+the same file, formulas and iteration, so the two agree to round-off. It
+mirrors calima/dust_charging.f90 at RAMSES staging + PR #86 + calima/charge-lg5
+7f842bb4 (rtgroups_solve_bin, rtgroups_solve_lg), except RAMSES's predictions
+across cooling substeps (rtgroups_predict), a cost shortcut pyCALIMA does not
+replay. On the 22-bin bench (858,000 cell-bin states, studies
+pycalima_port_20261118) every output agrees with the Fortran's to 1e-10 or
+better and every branch flag state by state.
 
 Per-cell algorithm (``GroupChargingTable.solve``)
 -------------------------------------------------
 With Up(Z) = photoemission + ion capture + gas-electron secondaries and
-Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1).
+Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1);
+g(Z) = ln Up(Z) - ln Down(Z+1) decreases with Z. Kernels in U by PCHIP (default).
 
-1. Root Z* of g(Z) = ln Up(Z) - ln Down(Z+1), decreasing in Z, on
-   [Zmin, Zmax] by the Illinois method; with a starting guess (RAMSES: the
-   bin's previous Z*), on a bracket grown from it in steps 1, 2, 4, ...
-   Warm start (``warm``: the previous result, e.g. the last cooling sub-step):
-   g at Z*_prev +- 1/2 gives Z* (root of the line through them, checked) and
-   g' in ~3 evaluations; a discrete result's charge window is reused instead
-   (step 3, no root search).
-2. sigma^2 = -1 / g'(Z*) (Gaussian limit), g' by central difference; where that
-   reads >= ``SIGMA_DISCRETE``, g' is taken instead from the chord of g over the
-   integers within ~ +-sigma of Z* (``_chord``), which a kink of g near Z* (at Z ~ 0,
-   or where a photoemission threshold crosses a group edge) does not throw off.
-3. If sigma < ``SIGMA_DISCRETE`` the distribution is built exactly over integer
-   charges around Z*, the window grown or trimmed at each end to one charge
-   past where P < ``DISCRETE_TAIL`` of its maximum (warm: while its exact
-   width is < ``SIGMA_DISCRETE``, see ``_warm_window``); otherwise it is Gaussian with mean Z* + 1/2, and charge
-   averages are taken at its mean.
+1. The root's bracket on the integer lattice, g(k*) > 0 >= g(k*+1), walked at most
+   ``LAT_NWALK`` charges from the guess (the warm result's Z*, else ``Z_guess``),
+   else from the continuous root (Illinois on a bracket grown from the guess in
+   steps 1, 2, 4, ...; ``_root``).
+2. One rule on the warm and the cold path (``_distribution``): P(Z) is discrete iff
+   the width of the integer slope at the root (or else of the integer chord,
+   ``_chord``) is below ``SIGMA_DISCRETE`` and the window it starts, grown or
+   trimmed at each end to one charge past where P < ``DISCRETE_TAIL`` of its
+   maximum (``_window``) and not capped at ``MAX_DISCRETE_STATES``, has a width
+   below ``SIGMA_DISCRETE``; Z* is then the root of g interpolated between the
+   integers. A warm discrete window is re-formed as a cold one, so the result does
+   not depend on the start (except the chord of a wide P(Z) rooted at an end of the
+   charge range). Otherwise P(Z) is wide: Z* by Illinois within the lattice bracket,
+   its width from the pair Z* -+ 1/2 or the chord.
+3. A wide P(Z) (``wide_moments``, default): <Z> and sigma from a model of g over its
+   width (``_wide_moments``: g at m-1, m, m -+ 1.5 sigma, PCHIP, the lattice sum
+   integrated, 8-point Gauss-Hermite moments), else the Gaussian of mean Z* + 1/2;
+   Gamma and Lambda taken at that <Z>.
 4. Heating Gamma = sum_g c N_g H_g(U); recombination cooling from DS87
    Lambda-tilde, scaled for electron pass-through, less the energy the
    gas-excited secondaries return; autoionisation cooling at Zmin.
-5. Optionally (``dlnT``) the d/d ln T of <Z>, sigma_Z, Gamma and Lambda from one
-   more set of rates at T (1 + dlnT) on the same charges, to serve the cooling
-   solver's T (1 +- dlnT) calls without further solves.
+5. Optionally (``dlnT``) the d/d ln T of <Z>, sigma_Z, Gamma and Lambda: analytic
+   on a discrete window; for a wide P(Z) from one more set of rates at T (1 + dlnT)
+   on the same pair (and chord), to serve the cooling solver's T (1 +- dlnT) calls.
 6. Grain-assisted recombination alpha_i = sum_Z P(Z) pi a^2 v_i J~ Theta_i
-   (``recomb``): exact for a discrete P(Z), over its window and the charges below it while
-   their terms can matter (``_recombination_discrete``: on a positive grain P A can peak
-   far below the window); for a wide one, the segmented
-   Chebyshev reconstruction of ln P in ``_recombination_fit``, reused by warm
-   solves as the fit times the change of a Gaussian estimate
-   (``_recombination_gauss``) while the cell drifts little.
+   (``recomb``): exact for a discrete P(Z), over its window and the charges below it
+   while their terms can matter (``_recombination_discrete``); for a wide one the
+   Gaussian estimate (``_recombination_gauss``, recomb="gauss"), or the segmented
+   Chebyshev reconstruction of ln P (``_recombination_fit``, recomb="fit"), reused by
+   warm solves while the cell drifts little; ``solve_cell`` fits only the wide bins
+   that carry the cell's recombination, as RAMSES's importance gate.
+7. Optionally (``coulomb``) the Coulomb factors D (impactor charges -1, 1, 2, 3):
+   the Gaussian factors of <Z>, sigma (``coulomb_focusing``) times, for a discrete
+   P(Z), their exact-P(Z) correction from the window (``_coulomb_ratio``).
+8. A wide positive P(Z) whose tail toward Z = 0 carries alpha or D (where the
+   kink of the Coulomb factors bends g): both from that tail (``_tail_sums``: g
+   modelled at the kink charges, summed from Z = -6 up), reported by
+   ``alpha_tail`` and ``D_abs``.
+``lattice=True`` (RAMSES rtg_lattice) replaces 1-3 and 7 by the lattice closure LG5
+(``_solve_lattice``): the rates at the 5 integer charges around the mode (7 where
+the central width is 0.6-3), P(Z) exact on that window with geometric tails, or the
+central pair's Gaussian (with ``_wide_moments``) for a wide P(Z); D over that P(Z);
+the tail as in 8. 2-4x cheaper than the default solve, within the documented
+charging uncertainties of the exact P(Z).
 
 The UV background (RAMSES rtz_UV_background_G0, carried outside the RT
 groups) enters through two more per-bin kernels, the photoemission and heating
