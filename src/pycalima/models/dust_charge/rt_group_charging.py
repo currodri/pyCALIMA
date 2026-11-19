@@ -366,10 +366,11 @@ def read_bin_table(path):
 class GroupChargingTable:
     """One bin's table with the per-cell charge solve that RAMSES performs."""
 
-    def __init__(self, tab, egy=None, kernels="linear"):
+    def __init__(self, tab, egy=None, kernels="pchip"):
         """kernels: interpolation of the photoemission and heating kernels in U,
-        "linear" (as RAMSES now) or "pchip" (monotone cubic; no kinks at the U
-        nodes, needed for an accurate recombination fit of wide P(Z))."""
+        "pchip" (monotone cubic, Fritsch-Carlson slopes on the U-node index; the default, as RAMSES: no kinks at
+        the U nodes, needed for an accurate recombination fit of wide P(Z)) or "linear" (RAMSES before its PCHIP
+        kernels)."""
         if kernels not in ("linear", "pchip"):
             raise ValueError("kernels must be 'linear' or 'pchip'")
         self.t = tab
