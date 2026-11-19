@@ -222,6 +222,29 @@ def test_a_wide_positive_grains_tail_carries_its_coulomb_factors_and_recombinati
     assert np.all(np.exp(gt._recombination_gauss(r["Zstar"], r["Zsigma"])) < 0.01 * a_exact)
 
 
+@pytest.mark.parametrize("scale, ne, T, window, discrete, tol_Z, tol", [
+    (1e-3, 3.0, 50.0, 5, True, 1e-3, 1e-3),        # narrow: 5 charges
+    (1.0, 30.0, 8e3, 7, True, 1e-2, 1e-2),         # central width in [0.6, 3): 7 charges
+    (1.0, 0.03, 8e3, 5, False, 0.3, 0.02),         # wide: the central pair's Gaussian
+])
+def test_lattice_closure_lg5_follows_the_exact_distribution(tables, scale, ne, T, window, discrete, tol_Z, tol):
+    """LG5 (solve(lattice=True), RAMSES rtg_lattice) against the exact P(Z) of the cell, 10 nm graphite."""
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    tab, path = tables["graphite", 1e-6]
+    N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
+    gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
+    r = gt.solve(N * scale, C, T, ne, [(ne, 1.0, M_P)], recomb="gauss", lattice=True)
+    assert r["lg_window"] == window and r["discrete"] == discrete
+    Z, P = gt.exact_distribution(r["Zstar"], max(r["Zsigma"], 1.0))
+    zm = P @ Z
+    gam, lam, auto = gt._averages(Z, P, True)
+    assert abs(r["Zmean"] - zm) < tol_Z
+    assert r["Zsigma"] == pytest.approx(np.sqrt(P @ Z ** 2 - zm ** 2), rel=tol)
+    assert r["Gamma"] == pytest.approx(gam, rel=max(tol, 1e-3))
+    assert r["Lambda"] + r["Lambda_auto"] == pytest.approx(lam + auto, rel=max(tol, 1e-3))
+
+
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
     """_recombination over a discrete P(Z)'s window, and on charges across the ion thresholds
     read from the table file, is the case-A sum written from its definition (WD01b):
