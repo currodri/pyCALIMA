@@ -86,7 +86,9 @@ def grain_capture(gt, a, z, T):
 
 def grain_bg(gt, a, z):
     i, w = gt._u_index(z * rg.E2_EV_CM / a)
-    return float(gt._kern(gt.t["K_bg"], None, i, w)), float(gt._kern(gt.t["H_bg"], None, i, w))
+    pc = gt.kernels == "pchip"
+    return (float(gt._kern(gt.t["K_bg"], gt._mKb if pc else None, i, w)),
+            float(gt._kern(gt.t["H_bg"], gt._mHb if pc else None, i, w)))
 
 
 def grain_absorption(material, a):

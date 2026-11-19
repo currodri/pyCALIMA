@@ -114,7 +114,7 @@ def charge_rates(gt, Z, P):
     jpe = jgas = hpe = 0.0
     for z, p in zip(Z, P):
         i, w = gt._u_index(z * rg.E2_EV_CM / gt.a)
-        photo = c["G0_bg"] * gt._kern(gt.t["K_bg"], None, i, w)
+        photo = c["G0_bg"] * gt._kern(gt.t["K_bg"], gt._mKb if gt.kernels == "pchip" else None, i, w)
         up, down, _ = gt._rates(z)
         jpe += p * photo
         jgas += p * (up - photo + down)

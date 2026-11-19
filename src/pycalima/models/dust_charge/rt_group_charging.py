@@ -21,42 +21,65 @@ electron pass-through, Draine & Salpeter 1979) are tabulated in (T, U).
 ``build_bin_table`` computes a bin's table, ``write_bin_table`` /
 ``read_bin_table`` store it in the text format RAMSES reads, and
 ``GroupChargingTable.solve`` is the per-cell algorithm RAMSES implements:
-the same file, formulas and iteration, so the two agree to round-off.
+the same file, formulas and iteration, so the two agree to round-off. It
+mirrors calima/dust_charging.f90 at RAMSES staging + PR #86 + calima/charge-lg5
+7f842bb4 (rtgroups_solve_bin, rtgroups_solve_lg), except RAMSES's predictions
+across cooling substeps (rtgroups_predict), a cost shortcut pyCALIMA does not
+replay. On the 22-bin bench (858,000 cell-bin states, studies
+pycalima_port_20261118) every output agrees with the Fortran's to 1e-10 or
+better and every branch flag state by state.
 
 Per-cell algorithm (``GroupChargingTable.solve``)
 -------------------------------------------------
 With Up(Z) = photoemission + ion capture + gas-electron secondaries and
-Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1).
+Down(Z) = electron capture, detailed balance gives f(Z+1)/f(Z) = Up(Z)/Down(Z+1);
+g(Z) = ln Up(Z) - ln Down(Z+1) decreases with Z. Kernels in U by PCHIP (default).
 
-1. Root Z* of g(Z) = ln Up(Z) - ln Down(Z+1), decreasing in Z, on
-   [Zmin, Zmax] by the Illinois method; with a starting guess (RAMSES: the
-   bin's previous Z*), on a bracket grown from it in steps 1, 2, 4, ...
-   Warm start (``warm``: the previous result, e.g. the last cooling sub-step):
-   g at Z*_prev +- 1/2 gives Z* (root of the line through them, checked) and
-   g' in ~3 evaluations; a discrete result's charge window is reused instead
-   (step 3, no root search).
-2. sigma^2 = -1 / g'(Z*) (Gaussian limit), g' by central difference; where that
-   reads >= ``SIGMA_DISCRETE``, g' is taken instead from the chord of g over the
-   integers within ~ +-sigma of Z* (``_chord``), which a kink of g near Z* (at Z ~ 0,
-   or where a photoemission threshold crosses a group edge) does not throw off.
-3. If sigma < ``SIGMA_DISCRETE`` the distribution is built exactly over integer
-   charges around Z*, the window grown or trimmed at each end to one charge
-   past where P < ``DISCRETE_TAIL`` of its maximum (warm: while its exact
-   width is < ``SIGMA_DISCRETE``, see ``_warm_window``); otherwise it is Gaussian with mean Z* + 1/2, and charge
-   averages are taken at its mean.
+1. The root's bracket on the integer lattice, g(k*) > 0 >= g(k*+1), walked at most
+   ``LAT_NWALK`` charges from the guess (the warm result's Z*, else ``Z_guess``),
+   else from the continuous root (Illinois on a bracket grown from the guess in
+   steps 1, 2, 4, ...; ``_root``).
+2. One rule on the warm and the cold path (``_distribution``): P(Z) is discrete iff
+   the width of the integer slope at the root (or else of the integer chord,
+   ``_chord``) is below ``SIGMA_DISCRETE`` and the window it starts, grown or
+   trimmed at each end to one charge past where P < ``DISCRETE_TAIL`` of its
+   maximum (``_window``) and not capped at ``MAX_DISCRETE_STATES``, has a width
+   below ``SIGMA_DISCRETE``; Z* is then the root of g interpolated between the
+   integers. A warm discrete window is re-formed as a cold one, so the result does
+   not depend on the start (except the chord of a wide P(Z) rooted at an end of the
+   charge range). Otherwise P(Z) is wide: Z* by Illinois within the lattice bracket,
+   its width from the pair Z* -+ 1/2 or the chord.
+3. A wide P(Z) (``wide_moments``, default): <Z> and sigma from a model of g over its
+   width (``_wide_moments``: g at m-1, m, m -+ 1.5 sigma, PCHIP, the lattice sum
+   integrated, 8-point Gauss-Hermite moments), else the Gaussian of mean Z* + 1/2;
+   Gamma and Lambda taken at that <Z>.
 4. Heating Gamma = sum_g c N_g H_g(U); recombination cooling from DS87
    Lambda-tilde, scaled for electron pass-through, less the energy the
    gas-excited secondaries return; autoionisation cooling at Zmin.
-5. Optionally (``dlnT``) the d/d ln T of <Z>, sigma_Z, Gamma and Lambda from one
-   more set of rates at T (1 + dlnT) on the same charges, to serve the cooling
-   solver's T (1 +- dlnT) calls without further solves.
+5. Optionally (``dlnT``) the d/d ln T of <Z>, sigma_Z, Gamma and Lambda: analytic
+   on a discrete window; for a wide P(Z) from one more set of rates at T (1 + dlnT)
+   on the same pair (and chord), to serve the cooling solver's T (1 +- dlnT) calls.
 6. Grain-assisted recombination alpha_i = sum_Z P(Z) pi a^2 v_i J~ Theta_i
-   (``recomb``): exact for a discrete P(Z), over its window and the charges below it while
-   their terms can matter (``_recombination_discrete``: on a positive grain P A can peak
-   far below the window); for a wide one, the segmented
-   Chebyshev reconstruction of ln P in ``_recombination_fit``, reused by warm
-   solves as the fit times the change of a Gaussian estimate
-   (``_recombination_gauss``) while the cell drifts little.
+   (``recomb``): exact for a discrete P(Z), over its window and the charges below it
+   while their terms can matter (``_recombination_discrete``); for a wide one the
+   Gaussian estimate (``_recombination_gauss``, recomb="gauss"), or the segmented
+   Chebyshev reconstruction of ln P (``_recombination_fit``, recomb="fit"), reused by
+   warm solves while the cell drifts little; ``solve_cell`` fits only the wide bins
+   that carry the cell's recombination, as RAMSES's importance gate.
+7. Optionally (``coulomb``) the Coulomb factors D (impactor charges -1, 1, 2, 3):
+   the Gaussian factors of <Z>, sigma (``coulomb_focusing``) times, for a discrete
+   P(Z), their exact-P(Z) correction from the window (``_coulomb_ratio``).
+8. A wide positive P(Z) whose tail toward Z = 0 carries alpha or D (where the
+   kink of the Coulomb factors bends g): both from that tail (``_tail_sums``: g
+   modelled at the kink charges, summed from Z = -6 up), reported by
+   ``alpha_tail`` and ``D_abs``.
+
+``lattice=True`` (RAMSES rtg_lattice) replaces 1-3 and 7 by the lattice closure LG5
+(``_solve_lattice``): the rates at the 5 integer charges around the mode (7 where
+the central width is 0.6-3), P(Z) exact on that window with geometric tails, or the
+central pair's Gaussian (with ``_wide_moments``) for a wide P(Z); D over that P(Z);
+the tail as in 8. 2-4x cheaper than the default solve, within the documented
+charging uncertainties of the exact P(Z).
 
 The UV background (RAMSES rtz_UV_background_G0, carried outside the RT
 groups) enters through two more per-bin kernels, the photoemission and heating
@@ -102,6 +125,26 @@ SIGMA_DISCRETE = 3.0                  # below this, P(Z) is built exactly
 MAX_DISCRETE_STATES = 121
 DISCRETE_TAIL = 1e-5                  # a discrete P(Z) ends one charge past where P < this x max
 SIGMA_CHORD_ITER = 3                  # at most this many chords for the width of a wide P(Z)
+LAT_NWALK = 4                         # the integer bracket of the root is walked at most this far from the guess
+NBUF = 3 * MAX_DISCRETE_STATES + 4    # RAMSES's window buffers: the charges b_base + 1 .. b_base + NBUF
+# The exact-P(Z) correction of the Gaussian Coulomb factors of a discrete P(Z) (_window_ratio): P continued outward
+# from the window to RATIO_LN_CUT below its maximum, or until the geometric bound on the rest is below RATIO_EPS
+RATIO_LN_CUT = -690.7755278982137     # ln 1e-300
+RATIO_EPS, RATIO_CLAMP = 1e-6, 0.5e-10
+COULOMB_DCHARGE = (-1, 1, 2, 3)       # impactor charges j of the Coulomb factors D (RAMSES ISRF_DCHARGE)
+COULOMB_JMAX = 3
+HUGE = np.finfo(float).max
+# The tail of a positive P(Z) toward Z = 0 (_tail_sums): used where its alpha or D(+1) integrand at Z = 1, 0, -2 comes
+# within e^-TAIL_CUT of its value on the window; its sums stop past their peak at e^-TAIL_STOP of their totals
+TAIL_CUT, TAIL_STOP = 25.0, 20.0
+# LG5 (solve(lattice=True), RAMSES rtg_lattice): its window is 5 charges, 7 where the central width is in
+# [LG_SIGMA7, SIGMA_DISCRETE); the tails of a narrow P(Z) run down to LG_EPS of the peak, at most LG_TAIL charges
+LG_SIGMA7, LG_EPS, LG_TAIL = 0.6, 1e-11, 96
+# _wide_moments: 8-point Gauss-Hermite nodes and weights (as RAMSES)
+GH_X = np.array([-2.930637420257244, -1.981656756695843, -1.157193712446780, -0.381186990207322,
+                 0.381186990207322, 1.157193712446780, 1.981656756695843, 2.930637420257244])
+GH_W = np.array([1.996040722113676e-4, 1.707798300741348e-2, 2.078023258148919e-1, 6.611470125582413e-1,
+                 6.611470125582413e-1, 2.078023258148919e-1, 1.707798300741348e-2, 1.996040722113676e-4])
 # Grain-assisted recombination of a wide P(Z) (sigma >= SIGMA_DISCRETE), recomb="fit":
 # see GroupChargingTable._recombination_fit. Settings validated per bin against
 # the exact sum over the integer charges (PCHIP kernels): <= 5% typically, < 10% worst,
@@ -410,10 +453,11 @@ def read_bin_table(path):
 class GroupChargingTable:
     """One bin's table with the per-cell charge solve that RAMSES performs."""
 
-    def __init__(self, tab, egy=None, kernels="linear"):
+    def __init__(self, tab, egy=None, kernels="pchip"):
         """kernels: interpolation of the photoemission and heating kernels in U,
-        "linear" (as RAMSES now) or "pchip" (monotone cubic; no kinks at the U
-        nodes, needed for an accurate recombination fit of wide P(Z))."""
+        "pchip" (monotone cubic, Fritsch-Carlson slopes on the U-node index; the default, as RAMSES: no kinks at
+        the U nodes, needed for an accurate recombination fit of wide P(Z)) or "linear" (RAMSES before its PCHIP
+        kernels)."""
         if kernels not in ("linear", "pchip"):
             raise ValueError("kernels must be 'linear' or 'pchip'")
         self.t = tab
@@ -527,7 +571,7 @@ class GroupChargingTable:
     def _heating_cooling(self, Z):
         c = self.cell
         a = self.a
-        up, down, (i, w) = self._rates(Z)
+        i, w = self._u_index(Z * E2_EV_CM / a)
         if self.kernels == "linear":
             hsum = float(c["cN"] @ self._kern(self.Hg, None, i, w)) + c["G0_bg"] * self._kern(self.t["H_bg"], None, i, w)
         else:
@@ -615,7 +659,7 @@ class GroupChargingTable:
         frac = lambda z: np.clip((z + 0.5 - (Z - 0.5 * h)) / h, 0.0, 1.0)  # noqa: E731
         return np.array([np.sum(P * A * frac(z)) for z in self.t["recomb_Zth"]]) / np.sqrt(mass)
 
-    def _recombination_discrete(self, nodes, weights):
+    def _recombination_discrete(self, nodes, weights, z_floor=None):
         """Grain-assisted recombination of a discrete P(Z) (charges ``nodes``, ascending, with
         ``weights`` summing to one): the sum over its window and over the charges below it,
         with P continued from the window by g, one charge at a time, while those terms can
@@ -627,7 +671,8 @@ class GroupChargingTable:
         the geometric rate, unlike _recombination_fit: below such a floor a stopped sum misses
         the charges that set it, and jumps by ~exp(e^2/akT) wherever the stop moves by one
         charge. The weights keep the window's normalisation; the tail adds less than
-        DISCRETE_TAIL to it."""
+        DISCRETE_TAIL to it. z_floor: the lowest charge the walk may reach (RAMSES: its window buffers' lowest,
+        b_base + 1)."""
         t = self.t
         Zlo, zth = t["Zmin"], t["recomb_Zth"]
         Z = np.asarray(nodes, float)
@@ -636,7 +681,7 @@ class GroupChargingTable:
         lnA_lo = self._ln_capture_z1(Zlo)
         z, lnP = Z[0], np.log(W[0])
         for _ in range(MAX_DISCRETE_STATES):
-            if z <= Zlo:
+            if z <= Zlo or (z_floor is not None and z - 1.0 < z_floor):
                 break
             z -= 1.0
             lnP -= self._g(z)
@@ -846,6 +891,7 @@ class GroupChargingTable:
 
     def _set_cell(self, N_g, c_red, T, ne, ions, G0_bg):
         self._inputs = (N_g, c_red, ne, ions, G0_bg)
+        self._gcache = {}               # g at the integer charges of this cell (_gi)
         self.cell = dict(cN=c_red * np.asarray(N_g, dtype=float), T=float(T), ne=float(ne), G0_bg=float(G0_bg),
                          v_e=np.sqrt(8 * KB_CGS * T / (np.pi * ME_CGS)),
                          ions=[(float(n), float(z), np.sqrt(8 * KB_CGS * T / (np.pi * m))) for n, z, m in ions])
@@ -958,7 +1004,7 @@ class GroupChargingTable:
         Zlo, Zhi = self.t["Zmin"], self.t["Zmax"] - 1.0
         k, chord = None, None
         for _ in range(SIGMA_CHORD_ITER):
-            kn = max(1, int(round(sigma)))
+            kn = max(1, _nint(sigma))
             if kn == k:
                 break
             k = kn
@@ -984,6 +1030,11 @@ class GroupChargingTable:
         P = np.exp(lnf[k])
         return Z[k], P / P.sum()
 
+    def _electron_affinity(self, Z):
+        """The grain's electron affinity at charge Z [eV], for the autoionisation cooling at Zmin (the one place
+        both closures take it from)."""
+        return float(wy.electron_affinity(Z, self.a, self.material))
+
     def _averages(self, nodes, weights, discrete):
         """Gamma, Lambda (+ autoionisation at Zmin) averaged over the charge nodes."""
         gam = lam = 0.0
@@ -994,78 +1045,333 @@ class GroupChargingTable:
         auto = 0.0
         # cm20: none, as in DustEM, whose electron sticking at Zmin is zero (its EA(Zmin) can be < 0)
         if discrete and nodes[0] == self.t["Zmin"] and self.material != "cm20":
-            EA = float(wy.electron_affinity(self.t["Zmin"], self.a, self.material))
+            EA = self._electron_affinity(self.t["Zmin"])
             arrive = np.pi * self.a ** 2 * self.cell["ne"] * self.cell["v_e"]
             auto = weights[0] * arrive * float(DS87_J_function_vec(self.t["Zmin"], -1.0, self.a, self.cell["T"])) * EA * EV2ERG
         return float(gam), float(lam), float(auto)
 
-    def _distribution(self, Zs, sigma):
-        """P(Z): exact over the integers around Z* (_window) if sigma < SIGMA_DISCRETE,
-        else a Gaussian of mean Z* + 1/2, averaged at that mean (_wide_nodes). Returns
-        nodes, weights, discrete, and the g increments of the discrete window."""
-        if sigma < SIGMA_DISCRETE:
-            half = int(np.ceil(3 * max(sigma, 0.5)))
-            Zc = int(np.floor(Zs + 0.5))
-            Zint, P, ginc = self._window(max(self.t["Zmin"], Zc - half), min(self.t["Zmax"], Zc + half))
-            return Zint, P, True, ginc
-        return _wide_nodes(Zs) + (False, None)
+    # -- the charge distribution (RAMSES rtgroups_solve_bin's distribution(), PR #86)
+    def _ud(self, k):
+        """Up and Down at the integer charge k, once per cell."""
+        key = ("ud", k)
+        v = self._gcache.get(key)
+        if v is None:
+            z = float(k)
+            i, w = self._u_index(z * E2_EV_CM / self.a)
+            v = self._gcache[key] = (self._up(z, i, w), self._down(z, i, w))
+        return v
 
-    def _window(self, z0, z1):
-        """Exact P(Z) on the integers z0..z1, grown or trimmed at each end to one
-        charge past where P < DISCRETE_TAIL of its maximum. Returns the charges,
-        P, and the g increments between them."""
-        Zlo, Zhi, ln_tail = self.t["Zmin"], self.t["Zmax"], np.log(DISCRETE_TAIL)
-        Z = np.arange(float(z0), float(z1) + 1.0)
-        ginc = [self._g(z) for z in Z[:-1]]
+    def _gi(self, k):
+        """g at the integer charge k, ln Up(k) - ln Down(k + 1) (RAMSES gwin), once per cell; the same operations as
+        _g, so the same values."""
+        g = self._gcache.get(k)
+        if g is None:
+            g = self._gcache[k] = np.log(max(self._ud(k)[0], 1e-300)) - np.log(max(self._ud(k + 1)[1], 1e-300))
+        return g
+
+    def _window(self, z0, z1, keep_base=False):
+        """Exact P(Z) on the integers z0..z1, grown or trimmed at each end to one charge past where
+        P < DISCRETE_TAIL of its maximum. Returns the charges, P, the g increments between them, and
+        whether the growth stopped at MAX_DISCRETE_STATES with P still above the tail at an end that could
+        grow (capped: the window need not hold the peak). Unless keep_base, the window's charges set RAMSES's
+        buffer base (b_base), as a window built afresh does there."""
+        Zlo, Zhi, ln_tail = _nint(self.t["Zmin"]), _nint(self.t["Zmax"]), np.log(DISCRETE_TAIL)
+        lo, hi = _nint(z0), _nint(z1)
+        if not keep_base:
+            self._b_base = lo - MAX_DISCRETE_STATES - 2
         while True:
+            ginc = [self._gi(k) for k in range(lo, hi)]
             lnf = np.concatenate([[0.0], np.cumsum(ginc)])
             lnf -= lnf.max()
-            room = Z.size < MAX_DISCRETE_STATES
-            lo = room and lnf[0] > ln_tail and Z[0] > Zlo
-            hi = room and lnf[-1] > ln_tail and Z[-1] < Zhi
-            if not (lo or hi):
+            room = hi - lo + 1 < MAX_DISCRETE_STATES
+            up_lo = lnf[0] > ln_tail and lo > Zlo
+            up_hi = lnf[-1] > ln_tail and hi < Zhi
+            if not (room and (up_lo or up_hi)):
+                capped = (not room) and (up_lo or up_hi)
                 break
-            if lo:
-                ginc.insert(0, self._g(Z[0] - 1.0))
-                Z = np.r_[Z[0] - 1.0, Z]
-            if hi:
-                ginc.append(self._g(Z[-1]))
-                Z = np.r_[Z, Z[-1] + 1.0]
+            lo -= 1 if up_lo else 0
+            hi += 1 if up_hi else 0
         k = np.nonzero(lnf > ln_tail)[0]
-        i0, i1 = max(k[0] - 1, 0), min(k[-1] + 1, Z.size - 1)
+        i0, i1 = max(k[0] - 1, 0), min(k[-1] + 1, hi - lo)
         P = np.exp(lnf[i0:i1 + 1])
-        return Z[i0:i1 + 1], P / P.sum(), np.array(ginc[i0:i1])
-
-    def _warm_window(self, warm):
-        """A discrete result's window, regrown in this cell (no root search):
-        (Z*, charges, P, g increments), or None once P(Z) is as wide as
-        SIGMA_DISCRETE. Z* is the root of g interpolated between the integers.
-        The width tested is the exact one, not (-1/g')^1/2 as in _distribution:
-        next to the kink of g at Z ~ 0 the latter can read above SIGMA_DISCRETE
-        for a narrower P(Z), where the Gaussian is off by ~1/2 in <Z>. So a
-        discrete P(Z) stays discrete there, rather than flipping each sub-step."""
-        Z, P, ginc = self._window(warm["nodes"][0], warm["nodes"][-1])
-        if _width(Z, P) >= SIGMA_DISCRETE:
-            return None
-        j = np.nonzero((ginc[:-1] > 0) & (ginc[1:] <= 0))[0]
-        if j.size:
-            Zs = Z[j[0]] + ginc[j[0]] / (ginc[j[0]] - ginc[j[0] + 1])
-        else:
-            Zs = Z[0] if ginc.size == 0 or ginc[0] <= 0 else Z[-1]
-        return float(Zs), Z, P, ginc
+        return np.arange(lo + i0, lo + i1 + 1, dtype=float), P / P.sum(), np.array(ginc[i0:i1]), capped
 
     @staticmethod
-    def _moments(nodes, weights, discrete, Zs, sigma):
-        if discrete:
-            return float(np.sum(weights * nodes)), float(_width(nodes, weights))
-        return float(Zs + 0.5), float(sigma)
+    def _root_on_window(Z, ginc):
+        """Z*: the root of g interpolated between the integers of a window; sig_l, the width of g's integer slope
+        g(k*+1) - g(k*) there, and k* (sig_l = 0 and k* = lo - 1 if the window does not bracket the root)."""
+        lo, hi = int(Z[0]), int(Z[-1])
+        Zs, sig_l, kb = float(hi), 0.0, lo - 1
+        if hi == lo or ginc[0] <= 0:
+            Zs = float(lo)
+        for i in range(hi - lo - 1):
+            if ginc[i] > 0 and ginc[i + 1] <= 0:
+                Zs = (lo + i) + ginc[i] / (ginc[i] - ginc[i + 1])
+                sig_l = np.sqrt(-1.0 / (ginc[i + 1] - ginc[i]))
+                kb = lo + i
+                break
+        return Zs, sig_l, kb
 
-    def _dlnT_response(self, out, pair, dlnT, chord=None):
+    def _lattice(self, kg):
+        """The integer bracket ks of the root, g(ks) > 0 >= g(ks + 1), walked from kg one charge at a time, at
+        most LAT_NWALK steps: (ks, found). Not found if the root is farther, or at an end of the charge range."""
+        zl, zh = _nint(self.t["Zmin"]), _nint(self.t["Zmax"])
+        ks = kg
+        if kg < zl + 1 or kg + 2 > zh:
+            return ks, False
+        self._b_base = kg - MAX_DISCRETE_STATES - LAT_NWALK - 4
+        if self._gi(kg) > 0:
+            for _ in range(LAT_NWALK):
+                if ks + 2 > zh:
+                    return ks, False
+                if self._gi(ks + 1) <= 0:
+                    return ks, True
+                ks += 1
+        else:
+            for _ in range(LAT_NWALK):
+                if ks - 1 < zl:
+                    return ks, False
+                ks -= 1
+                if self._gi(ks) > 0:
+                    return ks, True
+        return ks, False
+
+    def _lattice_narrow(self, Zs, sig_l):
+        """Whether the root's width on the lattice is narrow: its integer slope (sig_l) below SIGMA_DISCRETE,
+        or else the integer chord from Zs and sig_l (_chord); and the width used, to start the window."""
+        if sig_l < SIGMA_DISCRETE:
+            return True, sig_l
+        sig_n = sig_l
+        if sig_l < HUGE:
+            sig_n = self._chord(Zs, sig_l)[0]
+        return sig_n < SIGMA_DISCRETE, sig_n
+
+    def _distribution(self, Z_guess, warm):
+        """P(Z) of the cell (RAMSES PR #86, CH1): one rule on the warm and the cold path, so that the result does
+        not depend on the start. P(Z) is discrete (exact on a window of integers, _window) iff the root's width
+        on the lattice is narrow (_lattice_narrow) and the converged window, not capped, has a width below
+        SIGMA_DISCRETE; Z* is then the root of g interpolated between the integers. The bracket is walked on
+        the lattice from the guess (the warm Z*, else Z_guess), or from the continuous root (_root) if it is
+        farther. A warm discrete window is re-formed as a cold one. Otherwise P(Z) is wide: the continuous root
+        within the lattice bracket, its width from the pair and the chord (from the pair's width), averaged at
+        its mean Z* + 1/2 (_wide_nodes). At an end of the charge range the continuous root decides, as before
+        PR #86 (a warm wide P(Z) then starts the chord from its last width).
+        Returns dict(Zstar, sigma, pair, chord, discrete, nodes, weights)."""
+        t = self.t
+        Zmin, Zmax = t["Zmin"], t["Zmax"]
+        got = okl = False
+        Zs = sigma = pair = chord = Z = P = None
+        ks = None
+        if warm is not None and warm["discrete"]:
+            Z, P, ginc, capped = self._window(warm["nodes"][0], warm["nodes"][-1])
+            if _window_moments(Z, P)[1] < SIGMA_DISCRETE and not capped:
+                Zs, sig_l, ks = self._root_on_window(Z, ginc)
+                got, sig_n = self._lattice_narrow(Zs, sig_l)
+                if got and ks >= Z[0]:
+                    # the window a cold solve grows from k* and its width: the same P(Z) whatever the start
+                    half = int(np.ceil(3.0 * max(sig_n, 0.5)))
+                    Z, P, ginc, capped = self._window(max(Zmin, ks - half + 1.0), min(Zmax, ks + half + 0.0),
+                                                      keep_base=True)
+                    Zs, sig_l, ks = self._root_on_window(Z, ginc)
+                    got = _window_moments(Z, P)[1] < SIGMA_DISCRETE and not capped
+        if not got:
+            zg = -HUGE if Z_guess is None else float(Z_guess)
+            if warm is not None:
+                zg = warm["Zstar"]
+            if Zmin < zg < Zmax - 1.0:
+                ks, okl = self._lattice(int(np.floor(zg)))
+            if not okl:
+                Zs, sigma, pair = self._root(Z_guess, warm)
+                kg = int(np.floor(Zs))
+                if Zmin < kg < Zmax - 1.0:
+                    ks, okl = self._lattice(kg)
+            if okl:
+                g0, g1 = self._gi(ks), self._gi(ks + 1)
+                sig_l = np.sqrt(-1.0 / (g1 - g0)) if g1 < g0 else HUGE
+                Zs = ks + g0 / (g0 - g1)
+                narrow, sig_n = self._lattice_narrow(Zs, sig_l)
+                if narrow:
+                    half = int(np.ceil(3.0 * max(sig_n, 0.5)))
+                    Z, P, ginc, capped = self._window(max(Zmin, ks - half + 1.0), min(Zmax, ks + half + 0.0),
+                                                      keep_base=True)
+                    if _window_moments(Z, P)[1] < SIGMA_DISCRETE and not capped:
+                        Zs = self._root_on_window(Z, ginc)[0]
+                        got = True
+        if got:
+            discrete = True
+        elif okl:
+            Zs = self._illinois(float(ks), float(ks + 1), self._gi(ks), self._gi(ks + 1))
+            sigma, pair = self._slope(Zs)
+            chord = None
+            if sigma >= SIGMA_DISCRETE:
+                sigma, chord = self._chord(Zs, sigma)
+            discrete = False
+        else:
+            # the root at an end of the charge range (_root already ran above, with the same result)
+            chord = None
+            if sigma >= SIGMA_DISCRETE:
+                start = warm["Zsigma"] if warm is not None and not warm["discrete"] else sigma
+                sigma, chord = self._chord(Zs, start)
+            discrete = sigma < SIGMA_DISCRETE
+            if discrete:
+                half = int(np.ceil(3.0 * max(sigma, 0.5)))
+                Zc = int(np.floor(Zs + 0.5))
+                Z, P, _, _ = self._window(max(Zmin, Zc - half + 0.0), min(Zmax, Zc + half + 0.0))
+        if not discrete:
+            Z, P = _wide_nodes(Zs)
+        return dict(Zstar=float(Zs), sigma=sigma, pair=pair, chord=chord, discrete=discrete, nodes=Z, weights=P)
+
+    # -- the exact-P(Z) correction of the Gaussian Coulomb factors (RAMSES window_ratio, rtgroups_coulomb_ratio)
+    @staticmethod
+    def _coulomb_term(k, j, C1):
+        """The Weingartner & Draine (1999) focusing factor of charge k for an impactor of charge j (the neutral
+        grain's with RAMSES's pi, coulomb_focusing.PI_RAMSES, as RAMSES's sums)."""
+        from pycalima.models.dust_charge.coulomb_focusing import PI_RAMSES
+        if k == 0:
+            return 1.0 + abs(j) * np.sqrt(PI_RAMSES * C1 / 2.0)
+        if k * j > 0:
+            x = -float(k * j) * C1
+            return np.exp(-745.0) if x <= -745.0 else np.exp(x)
+        return 1.0 - float(k * j) * C1
+
+    def _coulomb_range(self, out):
+        Zs, sg = out["Zstar"], max(out["Zsigma"], 0.5)
+        rlo = max(_nint(self.t["Zmin"]), min(int(np.floor(Zs - 8.0 * sg - 10.0)), -3))
+        rhi = min(_nint(self.t["Zmax"]), max(int(np.ceil(Zs + 8.0 * sg + 10.0)), 3))
+        return rlo, rhi
+
+    def _coulomb_ratio(self, out):
+        """D_j over the cell's exact P(Z) over D_j of the Gaussian of <Z>, sigma (coulomb_focusing), for the
+        impactor charges COULOMB_DCHARGE, of a discrete P(Z) (1 for a wide one): RAMSES window_ratio. P is
+        continued outward from the window one charge at a time until it falls below RATIO_LN_CUT of its maximum
+        or, while P is unimodal, the geometric bound on everything beyond (log-concave P) is below RATIO_EPS of
+        the sums, within the charges of Z* -+ (8 sigma + 10) and -3..+3. Where that range does not fit RAMSES's
+        window buffers, the sum over the whole range (_coulomb_ratio_range); where it does not fit them at all, 1."""
+        from pycalima.models.dust_charge import coulomb_focusing as cf
+
+        ratio = np.ones(len(COULOMB_DCHARGE))
+        if not out["discrete"]:
+            return ratio
+        lo, hi = int(out["nodes"][0]), int(out["nodes"][-1])
+        rlo, rhi = self._coulomb_range(out)
+        if rhi - rlo + 3 > NBUF:
+            return ratio
+        k0, k1 = max(lo, rlo), min(hi, rhi)
+        bb = self._b_base
+        if k0 > k1 or rlo - bb < 1 or rhi - bb > NBUF:
+            return self._coulomb_ratio_range(out)
+        C1 = cf.E2 / (cf.KB * self.cell["T"] * self.a)
+        sq = np.sqrt(cf.PI_RAMSES * C1 / 2.0)
+        lp = {k0: 0.0}
+        for k in range(k0, k1):
+            lp[k + 1] = lp[k] + self._gi(k)
+        pm = max(lp[k] for k in range(k0, k1 + 1))
+        gk, fk = {}, {}
+        acc = dict(ps=0.0, px=np.zeros(len(COULOMB_DCHARGE)))
+
+        def term(k):
+            gk[k], fk[k] = 0.0, np.zeros(len(COULOMB_DCHARGE))
+            g1 = lp[k] - pm
+            if g1 <= RATIO_LN_CUT:
+                return
+            g1 = np.exp(g1)
+            gk[k] = g1
+            acc["ps"] += g1
+            for m, j in enumerate(COULOMB_DCHARGE):
+                f = self._coulomb_term(k, j, C1)
+                fk[k][m] = f
+                acc["px"][m] += g1 * f
+
+        def tail_done(k, lnr, down):
+            # everything beyond the last charge k of a direction is negligible: P(k +- n) <= P(k) r^n, r < 1
+            if not lnr < 0.0:
+                return False
+            r = np.exp(lnr)
+            g1 = r / (1.0 - r)
+            g2 = g1 / (1.0 - r)
+            if gk[k] * g1 > RATIO_EPS * acc["ps"]:
+                return False
+            for m, j in enumerate(COULOMB_DCHARGE):
+                if j > COULOMB_JMAX:
+                    continue
+                a_ = 1.0 + abs(j) * sq + float(abs(k) * abs(j)) * C1
+                b_ = abs(j) * C1
+                tm = gk[k] * (a_ * g1 + b_ * g2)
+                if tm <= RATIO_EPS * acc["px"][m]:
+                    continue
+                if down and (acc["px"][m] + tm) * (1.0 + 4.0 * RATIO_EPS) < RATIO_CLAMP * acc["ps"]:
+                    continue
+                return False
+            return True
+
+        mono = True
+        for k in range(k0, k1 + 1):
+            term(k)
+        while k1 < rhi and lp[k1] - pm > RATIO_LN_CUT:
+            if mono and k1 > k0 and tail_done(k1, self._gi(k1 - 1), False):
+                break
+            lp[k1 + 1] = lp[k1] + self._gi(k1)
+            k1 += 1
+            if lp[k1] > pm:
+                mono = False
+            pm = max(pm, lp[k1])
+            if mono:
+                term(k1)
+        while k0 > rlo and lp[k0] - pm > RATIO_LN_CUT:
+            if mono and tail_done(k0, -self._gi(k0), True):
+                break
+            lp[k0 - 1] = lp[k0] - self._gi(k0 - 1)
+            k0 -= 1
+            if lp[k0] > pm:
+                mono = False
+            pm = max(pm, lp[k0])
+            if mono:
+                term(k0)
+        ss, Dx = 0.0, np.zeros(len(COULOMB_DCHARGE))
+        for k in range(k0, k1 + 1):
+            gg = lp[k] - pm
+            if gg <= RATIO_LN_CUT:
+                continue
+            if mono:
+                ss += gk[k]
+                Dx += gk[k] * fk[k]
+            else:
+                gg = np.exp(gg)
+                ss += gg
+                Dx += gg * np.array([self._coulomb_term(k, j, C1) for j in COULOMB_DCHARGE])
+        Dg = cf.coulomb_factors(out["Zmean"], out["Zsigma"], self.cell["T"], self.a, COULOMB_JMAX)
+        return (Dx / ss) / Dg[[j + 1 for j in COULOMB_DCHARGE]]
+
+    def _coulomb_ratio_range(self, out):
+        """_coulomb_ratio summed over every charge of its range down to 1e-300 of the maximum (RAMSES
+        rtgroups_coulomb_ratio); 1 where the range exceeds the buffers."""
+        from pycalima.models.dust_charge import coulomb_focusing as cf
+
+        lo, hi = self._coulomb_range(out)
+        if hi - lo + 3 > NBUF:
+            return np.ones(len(COULOMB_DCHARGE))
+        lnP = np.concatenate([[0.0], np.cumsum([self._gi(k) for k in range(lo, hi)])])
+        pmax = lnP.max()
+        C1 = cf.E2 / (cf.KB * self.cell["T"] * self.a)
+        s, Dx = 0.0, np.zeros(len(COULOMB_DCHARGE))
+        for k, lp in zip(range(lo, hi + 1), lnP):
+            g = lp - pmax
+            if g <= RATIO_LN_CUT:
+                continue
+            g = np.exp(g)
+            s += g
+            Dx += g * np.array([self._coulomb_term(k, j, C1) for j in COULOMB_DCHARGE])
+        Dg = cf.coulomb_factors(out["Zmean"], out["Zsigma"], self.cell["T"], self.a, COULOMB_JMAX)
+        return (Dx / s) / Dg[[j + 1 for j in COULOMB_DCHARGE]]
+
+    def _dlnT_response(self, out, pair, dlnT, chord=None, sigma=None, shift=0.0):
         """d/d ln T of Zmean, Zsigma, Gamma, Lambda (+ auto). Discrete P(Z):
         analytic (_dlnT_discrete). Wide: one more set of rates at T (1 + dlnT),
         the pair g(z+-) re-evaluated, so the shifted root is consistent with the
         T call by construction, and the width from the same chord (or pair), then
-        Gamma and Lambda re-averaged on the shifted Gaussian nodes."""
+        Gamma and Lambda re-averaged on the shifted Gaussian nodes. sigma: the Gaussian's width (the result's,
+        unless _wide_moments set it); shift: _wide_moments' shift of <Z>, which the rates at T (1 + dlnT) carry; the
+        d/d ln T of <Z> and sigma stay the Gaussian's."""
         if out["discrete"]:
             return self._dlnT_discrete(out)
         T0 = self.cell["T"]
@@ -1075,16 +1381,17 @@ class GroupChargingTable:
         gm1, gp1 = self._g(zm), self._g(zp)
         s0, s1 = (gpl - gm) / (zp - zm), (gp1 - gm1) / (zp - zm)
         Zs1 = out["Zstar"] + (zm - gm1 / s1) - (zm - gm / s0)
-        sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else out["Zsigma"]
+        sg = out["Zsigma"] if sigma is None else sigma
+        sig1 = np.sqrt(-1.0 / s1) if s1 < 0 else sg
         if chord is not None:
             lo, hi = chord[:2]
             c1 = (self._g(hi) - self._g(lo)) / (hi - lo)
-            sig1 = np.sqrt(-1.0 / c1) if c1 < 0 else out["Zsigma"]
-        nodes1, weights1 = _wide_nodes(Zs1)
+            sig1 = np.sqrt(-1.0 / c1) if c1 < 0 else sg
+        nodes1, weights1 = _wide_nodes(Zs1 + shift)
         gam1, lam1, _ = self._averages(nodes1, weights1, False)
         self._set_cell(N_g, c_red, T0, ne, ions, G0_bg)
         h = np.log1p(dlnT)
-        return dict(dZmean_dlnT=(Zs1 - out["Zstar"]) / h, dZsigma_dlnT=(sig1 - out["Zsigma"]) / h,
+        return dict(dZmean_dlnT=(Zs1 - out["Zstar"]) / h, dZsigma_dlnT=(sig1 - sg) / h,
                     dGamma_dlnT=(gam1 - out["Gamma"]) / h, dLambda_dlnT=(lam1 - out["Lambda"]) / h)
 
     def _hot_dlnT(self, key, i, w):
@@ -1146,16 +1453,630 @@ class GroupChargingTable:
         return dict(dZmean_dlnT=dmean, dZsigma_dlnT=0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0,
                     dGamma_dlnT=P @ (c * gam), dLambda_dlnT=dlam)
 
-    def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None):
+    # -- alpha and D of a positive grain from its P(Z) toward Z = 0 (RAMSES tail_sums, calima/charge-lg5 commits 2, 4)
+    def _tail_sums(self, m, sl, kw, gw, lnPm, zmean, want_a, want_d):
+        """The grain-assisted recombination alpha_i and the Coulomb factors D_j of a positive grain's P(Z) whose
+        tail toward Z = 0 carries them. alpha and D(+j) come from P(Z) near and below Z = 0, where g bends at the
+        kink of the Coulomb factors, and a closure that continues g from the window puts far too much P there
+        (D(+1) too large by up to e^6, alpha too small by up to e^80).
+          m: the mode of P(Z); sl: its central width; kw, gw: g on the window charges (consecutive);
+          lnPm, zmean: ln P(m) (normalised) and <Z> of the closure.
+        The tail is used if, with g continued linearly from the window's lower edge, the alpha or D(+1)
+        integrand at Z = 1, 0, -2 comes within e^-TAIL_CUT of its value on the window (at its lowest charges and
+        the mode). Then g is also taken at the kink charges -2 .. 1 and at two charges between them and the
+        window, PCHIP between the nodes, linear beyond them; ln P(lo) - ln P(m) is minus the sum of that g over
+        lo .. m-1, in closed form on each piece, and P(Z) = P(m) exp(...) is carried up from lo = -6 only as far
+        as the sums go: alpha_i (case-A thresholds) and D(+j) until their terms are past their peak and below
+        e^-TAIL_STOP of their sums; D(-1) = 1 + C1 <Z> plus its exact difference from that on Z <= 0. D floored
+        at 1e-10. Returns (used, alpha or None, D or None)."""
+        n = len(kw)
+        if not (want_a or want_d) or n < 2:
+            return False, None, None
+        t = self.t
+        klo, khi = _nint(t["Zmin"]), _nint(t["Zmax"])
+        if not (m >= 1 and kw[0] >= -1):
+            return False, None, None
+        T = self.cell["T"]
+        C1 = E_STATC ** 2 / (KB_CGS * T * self.a)
+        sq = np.sqrt(np.pi * C1 / 2.0)
+        geoA = np.pi * self.a ** 2 * np.sqrt(8.0 * KB_CGS * T / (np.pi * M_U))
+
+        def capture(z):
+            return geoA * float(DS87_J_function_vec(float(z), 1.0, self.a, T))
+
+        def lnw(kz):
+            # the steepest wanted integrand weight at charge kz (ln): alpha's capture rate, D(+1)
+            v = -HUGE
+            if want_a:
+                v = np.log(max(capture(kz), 1e-300))
+            if want_d:
+                v = max(v, -kz * C1 if kz > 0 else (np.log(1.0 + sq) if kz == 0 else np.log(1.0 - kz * C1)))
+            return v
+
+        lpw = np.concatenate([[0.0], np.cumsum(gw)])
+        peak = max(lpw[0] + lnw(kw[0]), lpw[1] + lnw(kw[0] + 1), lpw[m - kw[0]] + lnw(m))
+        sl_e = gw[1] - gw[0]
+        if not sl_e < 0.0:
+            sl_e = -1.0 / max(sl * sl, 1e-12)
+        used = False
+        for zt in (1, 0, -2):
+            if zt >= kw[0] or zt < klo:
+                continue
+            dz = kw[0] - zt
+            lpt = -(dz * gw[0] - sl_e * float(dz) * float(dz + 1) / 2.0)
+            if lpt + lnw(zt) > peak - TAIL_CUT:
+                used = True
+                break
+        if not used:
+            return False, None, None
+        # the nodes of g: the window, the kink charges -2 .. 1, two between them and the window
+        nodes = {int(k): float(g) for k, g in zip(kw, gw)}
+        for kq in range(-2, 2):
+            if kw[0] <= kq <= kw[-1] or kq < klo or kq + 1 > khi:
+                continue
+            nodes[kq] = self._gi(kq)
+        a0, b0 = 1, int(kw[0])
+        for q in (1, 2):
+            kq = _nint(a0 + (b0 - a0) * q / 3.0)
+            if kq <= a0 or kq >= b0 or kq in nodes:
+                continue
+            nodes[kq] = self._gi(kq)
+        xn = np.array(sorted(nodes), dtype=float)
+        yn = np.array([nodes[int(x)] for x in xn])
+        nn = xn.size
+        dk = np.zeros(nn)
+        dk[0] = (yn[1] - yn[0]) / (xn[1] - xn[0])
+        dk[-1] = (yn[-1] - yn[-2]) / (xn[-1] - xn[-2])
+        for i in range(1, nn - 1):
+            s0 = (yn[i] - yn[i - 1]) / (xn[i] - xn[i - 1])
+            s1 = (yn[i + 1] - yn[i]) / (xn[i + 1] - xn[i])
+            if s0 * s1 > 0.0:
+                w1 = 2.0 * (xn[i + 1] - xn[i]) + (xn[i] - xn[i - 1])
+                w2 = (xn[i + 1] - xn[i]) + 2.0 * (xn[i] - xn[i - 1])
+                dk[i] = (w1 + w2) / (w1 / s0 + w2 / s1)
+
+        def gmod(kz):
+            xx = float(kz)
+            if xx <= xn[0]:
+                return yn[0] + dk[0] * (xx - xn[0])
+            if xx >= xn[-1]:
+                return yn[-1] + dk[-1] * (xx - xn[-1])
+            i = int(np.searchsorted(xn, xx, side="right")) - 1
+            hh = xn[i + 1] - xn[i]
+            ww = (xx - xn[i]) / hh
+            return ((2.0 * ww ** 3 - 3.0 * ww ** 2 + 1.0) * yn[i] + (ww ** 3 - 2.0 * ww ** 2 + ww) * hh * dk[i]
+                    + (-2.0 * ww ** 3 + 3.0 * ww ** 2) * yn[i + 1] + (ww ** 3 - ww ** 2) * hh * dk[i + 1])
+
+        def sp(pw, nt):
+            r = float(nt)
+            if nt < 0:
+                return 0.0
+            if pw == 0:
+                return r + 1.0
+            if pw == 1:
+                return 0.5 * r * (r + 1.0)
+            if pw == 2:
+                return r * (r + 1.0) * (2.0 * r + 1.0) / 6.0
+            return (0.5 * r * (r + 1.0)) ** 2
+
+        def gsum(ka, kb):
+            # sum of gmod over ka .. kb in closed form: the linear continuations and each Hermite cubic
+            tot = 0.0
+            if kb < ka:
+                return tot
+            k2 = min(kb, _nint(xn[0]) - 1)
+            if k2 >= ka:
+                tot += float(k2 - ka + 1) * (yn[0] + dk[0] * (0.5 * float(ka + k2) - xn[0]))
+            k1 = max(ka, _nint(xn[-1]))
+            if kb >= k1:
+                tot += float(kb - k1 + 1) * (yn[-1] + dk[-1] * (0.5 * float(k1 + kb) - xn[-1]))
+            for i0 in range(nn - 1):
+                k1 = max(ka, _nint(xn[i0]))
+                k2 = min(kb, _nint(xn[i0 + 1]) - 1)
+                if k2 < k1:
+                    continue
+                hh = xn[i0 + 1] - xn[i0]
+                c0, c1_ = yn[i0], dk[i0]
+                c2 = (-3.0 * yn[i0] - 2.0 * hh * dk[i0] + 3.0 * yn[i0 + 1] - hh * dk[i0 + 1]) / hh ** 2
+                c3 = (2.0 * yn[i0] + hh * dk[i0] - 2.0 * yn[i0 + 1] + hh * dk[i0 + 1]) / hh ** 3
+                ta_, tb_ = k1 - _nint(xn[i0]), k2 - _nint(xn[i0])
+                tot += (c0 * (sp(0, tb_) - sp(0, ta_ - 1)) + c1_ * (sp(1, tb_) - sp(1, ta_ - 1))
+                        + c2 * (sp(2, tb_) - sp(2, ta_ - 1)) + c3 * (sp(3, tb_) - sp(3, ta_ - 1)))
+            return tot
+
+        lo = min(max(klo, -6), int(kw[0]))
+        hi = max(min(khi, m + int(np.ceil(8.0 * sl + 5.0))), int(kw[-1]) + 1)
+        lp = -gsum(lo, m - 1)
+        zth = t["recomb_Zth"]
+        order = sorted(range(len(zth)), key=lambda j: zth[j])     # stable, as the insertion sort
+        jp, adone = 0, not want_a
+        al = np.zeros(len(zth))
+        sa, cr, tap, tdp = 0.0, 0.0, 0.0, 0.0
+        dd = np.zeros(len(COULOMB_DCHARGE))
+        q1 = np.exp(-C1) if C1 < 745.0 else 0.0
+        stop = np.exp(-TAIL_STOP)
+        for k in range(lo, hi + 1):
+            if k > lo:
+                lp += gmod(k - 1)
+            ef = lp + lnPm
+            if not adone:
+                while jp < len(zth) and not k <= zth[order[jp]]:
+                    al[order[jp]] = sa
+                    jp += 1
+                if jp >= len(zth):
+                    adone = True
+            if ef < -745.0:
+                continue
+            p = np.exp(ef)
+            ta = 0.0
+            if not adone:
+                ta = p * capture(k)
+                sa += ta
+            td = 0.0
+            if want_d:
+                if k > 0:
+                    qk = q1 ** k
+                    td = p * qk
+                    dd[1] += td
+                    dd[2] += td * qk
+                    dd[3] += td * qk * qk
+                elif k == 0:
+                    dd[1] += p * (1.0 + sq)
+                    dd[2] += p * (1.0 + 2.0 * sq)
+                    dd[3] += p * (1.0 + 3.0 * sq)
+                    cr += p * sq                                 # D(-1): 1 + sq against 1 + 0 C1
+                else:
+                    dd[1] += p * (1.0 - k * C1)
+                    dd[2] += p * (1.0 - 2.0 * k * C1)
+                    dd[3] += p * (1.0 - 3.0 * k * C1)
+                    f = np.exp(k * C1) if k * C1 > -745.0 else 0.0   # electrons repelled
+                    cr += p * (f - (1.0 + k * C1))
+            if k > 0 and ((adone or (ta < tap and ta <= stop * sa))
+                          and (not want_d or (td < tdp and td <= stop * dd[1]))):
+                break
+            tap, tdp = ta, td
+        alpha = D = None
+        if want_a:
+            while jp < len(zth):
+                al[order[jp]] = sa
+                jp += 1
+            alpha = al / np.sqrt(np.array([mm for _, mm, _ in RECOMB_IONS]))
+        if want_d:
+            dd[0] = 1.0 + C1 * zmean + cr
+            D = np.maximum(dd, 1e-10)
+        return True, alpha, D
+
+    def _wide_moments(self, m, gm1, g0, sl):
+        """<Z>, sigma and ln P(m) of a wide P(Z) from a model of g (RAMSES wide_moments, calima/charge-lg5 commit
+        6). The Gaussian of the central pair g(m-1), g(m) puts <Z> ~0.5 charges low in diffuse gas and is off in
+        sigma by up to 4 %: g bends over the width. g is also taken at m -+ h, h = max(2, round(1.5 sl)), PCHIP
+        through the four nodes (a single cubic is thrown off by the kinks of g), linear beyond; ln P is its lattice
+        sum, ln P(m + z) - ln P(m) ~ int_{-1/2}^{z-1/2} g (Euler-Maclaurin); the moments by 8-point Gauss-Hermite
+        quadrature around its peak (the root of g(z - 1/2), by Newton), with importance weights. Returns (used,
+        <Z>, sigma, ln P(m)); not used where m -+ h does not fit the bin's charges or there is no peak."""
+        t = self.t
+        klo, khi = _nint(t["Zmin"]), _nint(t["Zmax"])
+        h = max(2, _nint(1.5 * sl))
+        if m - h < klo or m + h + 1 > khi:
+            return False, None, None, None
+        xn = np.array([-float(h), -1.0, 0.0, float(h)])
+        yn = np.array([self._gi(m - h), gm1, g0, self._gi(m + h)])
+        dk = np.zeros(4)
+        dk[0] = (yn[1] - yn[0]) / (xn[1] - xn[0])
+        dk[3] = (yn[3] - yn[2]) / (xn[3] - xn[2])
+        for i in (1, 2):
+            s0 = (yn[i] - yn[i - 1]) / (xn[i] - xn[i - 1])
+            s1 = (yn[i + 1] - yn[i]) / (xn[i + 1] - xn[i])
+            if s0 * s1 > 0.0:
+                w1 = 2.0 * (xn[i + 1] - xn[i]) + (xn[i] - xn[i - 1])
+                w2 = (xn[i + 1] - xn[i]) + 2.0 * (xn[i] - xn[i - 1])
+                dk[i] = (w1 + w2) / (w1 / s0 + w2 / s1)
+
+        def coef(i):
+            hh = xn[i + 1] - xn[i]
+            c2 = (-3.0 * yn[i] - 2.0 * hh * dk[i] + 3.0 * yn[i + 1] - hh * dk[i + 1]) / hh ** 2
+            c3 = (2.0 * yn[i] + hh * dk[i] - 2.0 * yn[i + 1] + hh * dk[i + 1]) / hh ** 3
+            return c2, c3
+
+        def pint(i, x):
+            c2, c3 = coef(i)
+            return yn[i] * x + dk[i] * x * x / 2.0 + c2 * x ** 3 / 3.0 + c3 * x ** 4 / 4.0
+
+        ci = [0.0]
+        for i in range(3):
+            ci.append(ci[i] + pint(i, xn[i + 1] - xn[i]))
+
+        def piece(x):
+            return 0 if x <= xn[1] else (1 if x <= xn[2] else 2)
+
+        def Gint(x):
+            if x <= xn[0]:
+                return yn[0] * (x - xn[0]) + 0.5 * dk[0] * (x - xn[0]) ** 2
+            if x >= xn[3]:
+                return ci[3] + yn[3] * (x - xn[3]) + 0.5 * dk[3] * (x - xn[3]) ** 2
+            j = piece(x)
+            return ci[j] + pint(j, x - xn[j])
+
+        def gval(x):
+            if x <= xn[0]:
+                return yn[0] + dk[0] * (x - xn[0]), dk[0]
+            if x >= xn[3]:
+                return yn[3] + dk[3] * (x - xn[3]), dk[3]
+            j = piece(x)
+            c2, c3 = coef(j)
+            tt = x - xn[j]
+            return yn[j] + dk[j] * tt + c2 * tt * tt + c3 * tt ** 3, dk[j] + 2.0 * c2 * tt + 3.0 * c3 * tt * tt
+
+        z = 0.5 - g0 / (g0 - gm1)
+        for _ in range(30):
+            gz, dgz = gval(z - 0.5)
+            if not dgz < 0.0:
+                break
+            dz = min(max(-gz / dgz, -sl), sl)
+            z = min(max(z + dz, xn[0] + 0.5), xn[3] + 0.5)
+            if abs(dz) < 1e-10:
+                break
+        gz, dgz = gval(z - 0.5)
+        if not dgz < 0.0 or abs(gz) > 1e-6:
+            return False, None, None, None
+        swd = np.sqrt(-1.0 / dgz)
+        Lz = Gint(z - 0.5)
+        zi = z + np.sqrt(2.0) * swd * GH_X
+        lr = np.array([Gint(zz - 0.5) for zz in zi]) - Lz + GH_X ** 2
+        lmax = lr.max()
+        rs = mu = 0.0
+        rw = np.zeros(GH_X.size)
+        for i in range(GH_X.size):
+            rw[i] = GH_W[i] * np.exp(lr[i] - lmax)
+            rs += rw[i]
+            mu += rw[i] * zi[i]
+        mu /= rs
+        var = 0.0
+        for i in range(GH_X.size):
+            var += rw[i] * (zi[i] - mu) ** 2
+        var /= rs
+        lnpm = Gint(-0.5) - (Lz + lmax + np.log(np.sqrt(2.0) * swd * rs))
+        return True, float(m + mu), float(np.sqrt(max(var, 0.0))), float(lnpm)
+
+    # -- LG5: the lattice closure (RAMSES rtgroups_solve_lg, calima/charge-lg5 commits 3, 5)
+    def _irates(self, k):
+        """The rates of the integer charge k (RAMSES eval_int_k), each evaluated on first use and kept for the cell:
+        up, down; gam, lam (Gamma, Lambda); dup, ddown, dlam (d/d ln T); A, the capture coefficient of a z = 1 ion."""
+        key = ("r", k)
+        v = self._gcache.get(key)
+        if v is None:
+            v = self._gcache[key] = _ChargeRates(self, k)
+        return v
+
+    def _lg_pos(self, k):
+        """g(k) > 0, i.e. Up(k) > Down(k + 1), both floored as in g (no logarithm)."""
+        return max(self._ud(k)[0], 1e-300) > max(self._ud(k + 1)[1], 1e-300)
+
+    def _lg_dg(self, k):
+        """d g(k) / d ln T."""
+        a, b = self._irates(k), self._irates(k + 1)
+        return a["dup"] / max(a["up"], 1e-300) - b["ddown"] / max(b["down"], 1e-300)
+
+    def _lg_mode(self, Z_guess):
+        """The mode m of P(Z), the smallest charge with g(m) <= 0, bracketed on the integers from the guess (by
+        steps 1, 2, 4, ... and bisection, after a secant jump; from the continuous root if the guess is outside
+        (Zmin, Zmax - 1) or the bracket leaves RAMSES's buffers)."""
+        t = self.t
+        klo, khi = _nint(t["Zmin"]), _nint(t["Zmax"])
+        nw, half = 7, NBUF // 2
+        zg = -HUGE if Z_guess is None else float(Z_guess)
+        m = None
+        for att in (1, 2):
+            if not t["Zmin"] < zg < t["Zmax"] - 1.0:
+                zg = self._root(None if zg == -HUGE else zg, None)[0]
+            kg = min(max(int(np.floor(zg)), klo), khi - 1)
+            base = kg - half
+            m = kg
+            if self._lg_pos(kg) and not self._lg_pos(kg + 1):
+                return kg + 1
+            if kg + 1 < khi:
+                g0, g1 = self._gi(kg), self._gi(kg + 1)
+                if g1 < g0:
+                    zr = kg - g0 / (g1 - g0)
+                    zr = min(max(zr, float(kg - half + nw + 4)), float(kg + half - nw - 4))
+                    kg = min(max(int(np.floor(zr)), klo), khi - 1)
+            okb, found, step = True, False, 1
+            if self._lg_pos(kg):
+                lo, hi = kg, khi
+                while True:
+                    kk = min(kg + step, khi - 1)
+                    if kk + 1 - base > NBUF - nw - 1:
+                        okb = False
+                        break
+                    if not self._lg_pos(kk):
+                        hi, found = kk, True
+                        break
+                    lo = kk
+                    if kk == khi - 1:
+                        break
+                    step *= 2
+                default = khi
+            else:
+                lo, hi = klo, kg
+                while True:
+                    kk = max(kg - step, klo)
+                    if kk - base < nw + 1:
+                        okb = False
+                        break
+                    if self._lg_pos(kk):
+                        lo, found = kk, True
+                        break
+                    hi = kk
+                    if kk == klo:
+                        break
+                    step *= 2
+                default = klo
+            if not okb:
+                zg = -HUGE
+                if att == 1:
+                    continue
+                return m
+            if not found:
+                return default
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                if self._lg_pos(mid):
+                    lo = mid
+                else:
+                    hi = mid
+            return hi
+        return m
+
+    def _solve_lattice(self, Z_guess, want_a, want_tail_a, wD, want_d, wide_moments=True):
+        """LG5 (RAMSES rtgroups_solve_lg): the full rates at the 5 integer charges around the mode m of P(Z), 7 when
+        the central width sigma_l = (-1/(g(m) - g(m-1)))^1/2 is in [LG_SIGMA7, SIGMA_DISCRETE), instead of a root,
+        a chord width and a window grown to its tails.
+          - sigma_l < SIGMA_DISCRETE: P(Z) exact on the window, its tails from g continued linearly from the two
+            increments at each edge (down to LG_EPS of the peak); Gamma, Lambda over it (continued linearly in Z
+            on the tails); the Coulomb factors D and alpha over it; d/d ln T analytic;
+          - else (wide): the Gaussian of the central pair (mean Z* + 1/2, Z* = m - g(m)/s, sigma^2 = -1/s), Gamma
+            and Lambda linear between the integers around the mean; alpha the Gaussian estimate; D the Gaussian
+            ones (D_abs False);
+          - either: where the tail toward Z = 0 carries alpha (want_tail_a for a wide P(Z)) or D, those from it
+            (_tail_sums).
+        Returns the result dict of solve (D, D_abs, alpha_rec only where asked)."""
+        t = self.t
+        klo, khi = _nint(t["Zmin"]), _nint(t["Zmax"])
+        m = self._lg_mode(Z_guess)
+        hw = 2
+        while True:
+            nw = 2 * hw + 1
+            k0 = min(max(m - hw, klo), khi - nw + 1)
+            gg = [self._gi(k0 + j) for j in range(nw - 1)]
+            dg = [self._lg_dg(k0 + j) for j in range(nw - 1)] if want_d else None
+            tm = min(max(m - k0, 1), nw - 2)
+            sc = gg[tm] - gg[tm - 1]
+            if not sc < 0.0:
+                sc = -1e-6
+            sl = np.sqrt(-1.0 / sc)
+            if hw == 2 and LG_SIGMA7 <= sl < SIGMA_DISCRETE:
+                hw = 3
+                continue
+            break
+        R = lambda k: self._irates(k)    # noqa: E731
+        out = dict(discrete=bool(sl < SIGMA_DISCRETE), Lambda_auto=0.0, lg_window=nw)
+        kw = [k0 + j for j in range(nw - 1)]
+        if not out["discrete"]:
+            gb, mz = gg[tm], float(k0 + tm)
+            mu, var = 0.5 - gb / sc, -1.0 / sc
+            out["Zmean"] = mz + mu
+            out["Zsigma"] = float(np.sqrt(var))
+            out["Zstar"] = out["Zmean"] - 0.5
+            # the closure's P at the mode: the lattice distribution j g(m) + s j (j - 1)/2, summed as its Gaussian
+            jst = 0.5 - gb / sc
+            lmx = jst * gb + 0.5 * sc * jst * (jst - 1.0)
+            lnpm = -lmx - 0.5 * np.log(2.0 * np.pi / (-sc))
+            if wide_moments:          # <Z>, sigma and P(m) of a model of g over the width; Z* stays the Gaussian's
+                used, zm, zs, lnpm_w = self._wide_moments(k0 + tm, gg[tm - 1], gb, sl)
+                if used:
+                    out["Zmean"], out["Zsigma"], lnpm = zm, zs, lnpm_w
+            jt = min(max(int(np.floor(out["Zmean"])) - k0, 0), nw - 2)
+            fr = out["Zmean"] - float(k0 + jt)
+            r0, r1 = R(k0 + jt), R(k0 + jt + 1)
+            out["Gamma"] = max((1.0 - fr) * r0["gam"] + fr * r1["gam"], 0.0)
+            out["Lambda"] = (1.0 - fr) * r0["lam"] + fr * r1["lam"]
+            if want_d:
+                dgb, dsc = dg[tm], dg[tm] - dg[tm - 1]
+                dmu = -dgb / sc + gb * dsc / (sc * sc)
+                out.update(dZmean_dlnT=dmu, dZsigma_dlnT=0.5 * (dsc / (sc * sc)) / out["Zsigma"],
+                           dGamma_dlnT=(r1["gam"] - r0["gam"]) * dmu,
+                           dLambda_dlnT=(r1["lam"] - r0["lam"]) * dmu + (1.0 - fr) * r0["dlam"] + fr * r1["dlam"])
+            used, at, Dt = self._tail_sums(m, sl, kw, gg, lnpm, out["Zmean"], want_tail_a, wD)
+            out["D_abs"] = bool(used and wD)
+            if out["D_abs"]:
+                out["D"] = Dt
+            if want_tail_a:
+                out["alpha_rec"] = at if used else np.exp(self._recombination_gauss(out["Zstar"], out["Zsigma"]))
+            out["alpha_tail"] = bool(used and want_tail_a)
+            out["nodes"], out["weights"] = np.array([out["Zmean"]]), np.array([1.0])
+            return out
+        # narrow: P exact on the window, tails from the edge increments
+        slo = shi = sc
+        if nw >= 4:
+            slo, shi = gg[1] - gg[0], gg[nw - 2] - gg[nw - 3]
+            slo = slo if slo < 0.0 else sc
+            shi = shi if shi < 0.0 else sc
+        dslo = dshi = 0.0
+        if want_d:
+            dslo = dg[1] - dg[0]
+            dshi = dg[nw - 2] - dg[nw - 3] if nw >= 4 else dslo
+        lp, cc = {0: 0.0}, {0: 0.0}
+        for j in range(nw - 1):
+            lp[j + 1] = lp[j] + gg[j]
+            if want_d:
+                cc[j + 1] = cc[j] + dg[j]
+        pm = max(lp[j] for j in range(nw))
+        pr = {j: np.exp(lp[j] - pm) for j in range(nw)}
+        jhi = nw - 1
+        if k0 + jhi < khi:
+            rr, er = np.exp(gg[nw - 2] + shi), np.exp(shi)
+            for n in range(1, LG_TAIL + 1):
+                if k0 + jhi + 1 > khi or (pr[jhi] < LG_EPS and rr < 1.0):
+                    break
+                pr[jhi + 1] = pr[jhi] * rr
+                if want_d:
+                    cc[jhi + 1] = cc[jhi] + dg[nw - 2] + dshi * n
+                jhi += 1
+                rr *= er
+        jlo = 0
+        if k0 > klo:
+            rr, er = np.exp(-gg[0] + slo), np.exp(slo)
+            for n in range(1, LG_TAIL + 1):
+                if k0 + jlo - 1 < klo or (pr[jlo] < LG_EPS and rr < 1.0):
+                    break
+                pr[jlo - 1] = pr[jlo] * rr
+                if want_d:
+                    cc[jlo - 1] = cc[jlo] - (dg[0] - dslo * n)
+                jlo -= 1
+                rr *= er
+        ssum = 0.0
+        for j in range(jlo, jhi + 1):
+            ssum += pr[j]
+        for j in range(jlo, jhi + 1):
+            pr[j] = pr[j] / ssum
+
+        def rates_at(j):
+            # Gamma, Lambda (and dLambda / d ln T) of window index j, continued linearly beyond the window
+            if j < 0:
+                a, b, x = R(k0), R(k0 + 1), float(j)
+                return (max(a["gam"] + (b["gam"] - a["gam"]) * x, 0.0), a["lam"] + (b["lam"] - a["lam"]) * x,
+                        a["dlam"] + (b["dlam"] - a["dlam"]) * x)
+            if j > nw - 1:
+                a, b, x = R(k0 + nw - 1), R(k0 + nw - 2), float(j - (nw - 1))
+                return (max(a["gam"] + (a["gam"] - b["gam"]) * x, 0.0), a["lam"] + (a["lam"] - b["lam"]) * x,
+                        a["dlam"] + (a["dlam"] - b["dlam"]) * x)
+            a = R(k0 + j)
+            return a["gam"], a["lam"], a["dlam"]
+
+        mu = m2 = gam = lam = 0.0
+        rat = {}
+        for j in range(jlo, jhi + 1):
+            x = float(k0 + j)
+            mu += pr[j] * x
+            m2 += pr[j] * x * x
+            rat[j] = rates_at(j)
+            gam += pr[j] * rat[j][0]
+            lam += pr[j] * rat[j][1]
+        out.update(Zmean=mu, Zsigma=float(np.sqrt(max(m2 - mu * mu, 0.0))), Gamma=gam, Lambda=lam,
+                   Zstar=float(k0 + tm) + gg[tm - 1] / (gg[tm - 1] - gg[tm]) - 1.0)
+        dje = 0.0
+        if k0 + jlo == klo and self.material != "cm20":      # cm20: no autoionisation, as _averages
+            EA = self._electron_affinity(t["Zmin"])
+            arrive = np.pi * self.a ** 2 * self.cell["ne"] * self.cell["v_e"]
+            je, dje = _ds87_J_dlnT(t["Zmin"], -1.0, self.a * KB_CGS * self.cell["T"] / E_STATC ** 2)
+            out["Lambda_auto"] = pr[jlo] * arrive * je * EA * EV2ERG
+        C1 = E_STATC ** 2 / (KB_CGS * self.cell["T"] * self.a)
+        sq = np.sqrt(np.pi * C1 / 2.0)
+        if wD:
+            # impactor charges -1, 1, 2, 3: attractive 1 + |k j| C1, neutral 1 + |j| sq, repulsive exp(-|k j| C1)
+            q1 = np.exp(-C1) if C1 < 745.0 else 0.0
+            D = np.zeros(len(COULOMB_DCHARGE))
+            j0 = max(jlo, -k0 + 1)
+            qk = 1.0
+            for j in range(j0, jhi + 1):                   # k > 0
+                k = k0 + j
+                qk = q1 ** k if j == j0 else qk * q1
+                D[0] += pr[j] * (1.0 + k * C1)
+                D[1] += pr[j] * qk
+                D[2] += pr[j] * qk * qk
+                D[3] += pr[j] * qk * qk * qk
+            j1 = min(jhi, -k0 - 1)
+            for j in range(j1, jlo - 1, -1):               # k < 0
+                k = k0 + j
+                qk = q1 ** (-k) if j == j1 else qk * q1
+                D[0] += pr[j] * qk
+                D[1] += pr[j] * (1.0 - k * C1)
+                D[2] += pr[j] * (1.0 - 2.0 * k * C1)
+                D[3] += pr[j] * (1.0 - 3.0 * k * C1)
+            if jlo <= -k0 <= jhi:                          # k = 0
+                p0 = pr[-k0]
+                D[0] += p0 * (1.0 + sq)
+                D[1] += p0 * (1.0 + sq)
+                D[2] += p0 * (1.0 + 2.0 * sq)
+                D[3] += p0 * (1.0 + 3.0 * sq)
+            out.update(D=D, D_abs=True)
+        if want_a:
+            al = np.zeros(len(t["recomb_Zth"]))
+            for j in range(jlo, jhi + 1):
+                x = float(k0 + j)
+                qa = R(k0 + j)["A"] if 0 <= j <= nw - 1 else float(self._capture_z1(x)[0])
+                for jj, zth in enumerate(t["recomb_Zth"]):
+                    if x <= zth:
+                        al[jj] += pr[j] * qa
+            out["alpha_rec"] = al / np.sqrt(np.array([mm for _, mm, _ in RECOMB_IONS]))
+        used, at, Dt = self._tail_sums(m, sl, kw, gg, np.log(max(pr[m - k0], 1e-300)), out["Zmean"], want_a, wD)
+        if used:
+            if want_a:
+                out["alpha_rec"] = at
+            if wD:
+                out["D"] = Dt
+        out["alpha_tail"] = bool(used and want_a)
+        if want_d:
+            s0 = 0.0
+            for j in range(jlo, jhi + 1):
+                s0 += pr[j] * cc[j]
+            for j in range(jlo, jhi + 1):
+                cc[j] -= s0
+            dmu = dvar = dgam = dlam = 0.0
+            for j in range(jlo, jhi + 1):
+                x = float(k0 + j)
+                dmu += pr[j] * cc[j] * x
+                dvar += pr[j] * cc[j] * x * x
+                dgam += pr[j] * cc[j] * rat[j][0]
+                dlam += pr[j] * (cc[j] * rat[j][1] + rat[j][2])
+            if out["Lambda_auto"] != 0.0:
+                dlam += out["Lambda_auto"] * (cc[jlo] + 0.5 + dje)
+            dvar -= 2.0 * out["Zmean"] * dmu
+            out.update(dZmean_dlnT=dmu, dZsigma_dlnT=0.5 * dvar / out["Zsigma"] if out["Zsigma"] > 0 else 0.0,
+                       dGamma_dlnT=dgam, dLambda_dlnT=dlam)
+        out["nodes"] = np.arange(k0 + jlo, k0 + jhi + 1, dtype=float)
+        out["weights"] = np.array([pr[j] for j in range(jlo, jhi + 1)])
+        return out
+
+    def _solve_lg(self, Z_guess, warm, recomb, dlnT, coulomb, wide_moments=True):
+        """solve(lattice=True): LG5 (_solve_lattice), started from the warm Z* if given (as dust_interface), else
+        Z_guess. Its alpha: over the narrow P(Z) (and its tail); for a wide one, recomb "gauss" the tail's or the
+        Gaussian estimate, "fit" / "exact" as solve does. Its D: its own (D_abs), or for a wide P(Z) whose tail
+        does not carry them the Gaussian factors of <Z>, sigma."""
+        from pycalima.models.dust_charge import coulomb_focusing as cf
+
+        zg = warm["Zstar"] if warm is not None else Z_guess
+        out = self._solve_lattice(zg, want_a=recomb is not None, want_tail_a=recomb == "gauss", wD=bool(coulomb),
+                                  want_d=dlnT is not None, wide_moments=wide_moments)
+        if recomb is None:
+            out["alpha_rec"] = None
+        elif not out["discrete"] and recomb == "exact":
+            out["alpha_rec"] = self._recombination_exact(out["Zstar"], out["Zsigma"])
+        elif not out["discrete"] and recomb != "gauss":
+            self.refine_recombination(out, warm)
+        if coulomb:
+            out["cratio"] = None
+            if not out.get("D_abs", False):
+                Dg = cf.coulomb_factors(out["Zmean"], out["Zsigma"], self.cell["T"], self.a,
+                                        COULOMB_JMAX)[[j + 1 for j in COULOMB_DCHARGE]]
+                out.update(D=np.maximum(Dg, cf.D_FLOOR), D_abs=False)
+        else:
+            out.pop("D", None)
+            out.pop("D_abs", None)
+        return out
+
+    def solve(self, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=None, recomb="fit", warm=None, dlnT=None,
+              coulomb=False, lattice=False, wide_moments=True):
         """Equilibrium charge and rates for one cell.
 
         N_g : photon densities per group [cm^-3]; c_red : RT speed of light
         [cm/s]; T [K]; ne [cm^-3]; ions : iterable of (n_i [cm^-3], z_i,
         m_i [g]); G0_bg : UV background in Habing units. Z_guess : start of
-        the root search (RAMSES passes the bin's previous Z*); None, or a value
+        the search (RAMSES passes the bin's previous Z*, or the uniform-ISRF table's <Z>); None, or a value
         outside (Zmin, Zmax - 1), searches the whole range. warm : the previous
-        result for this bin (e.g. the last cooling sub-step): the root then costs
-        two g evaluations (_root), or none if P(Z) was discrete (_warm_window). recomb: how the
+        result for this bin (e.g. the last cooling sub-step), the start of the search instead. The result does not
+        depend on the start (_distribution), except for the chord of a wide P(Z) whose root is at an end of the
+        charge range. recomb: how the
         recombination of a wide P(Z) is summed, "fit" (_recombination_fit) or
         "exact" (every integer charge, the reference), "gauss" (the Gaussian
         estimate, _recombination_gauss), or None to skip it.
@@ -1168,43 +2089,110 @@ class GroupChargingTable:
 
         dlnT : if given (e.g. 1e-5), also return the d/d ln T of Zmean, Zsigma,
         Gamma and Lambda + Lambda_auto (_dlnT_response), which serve the cooling
-        solver's T (1 +- dlnT) calls without solving again. Returns a dict with
+        solver's T (1 +- dlnT) calls without solving again. coulomb : also return the Coulomb factors
+        ``D`` for the impactor charges COULOMB_DCHARGE (-1, 1, 2, 3), as RAMSES dust_interface takes them: the
+        Gaussian factors of <Z>, sigma (coulomb_focusing) times ``cratio``, the exact-P(Z) correction of a
+        discrete P(Z) (_coulomb_ratio; 1 for a wide one), floored at 1e-10; ``D_abs`` is whether D is the
+        solve's own (not yet: False). Returns a dict with
         Zmean, Zsigma, Gamma, Lambda and Lambda_auto [erg/s per grain], Zstar,
         whether P(Z) was discrete, alpha_rec: the grain-assisted recombination
         coefficients of RECOMB_IONS [cm^3 s^-1 per grain], and the charge nodes
         and weights over which Gamma and Lambda were averaged.
         """
         self._set_cell(N_g, c_red, T, ne, ions, G0_bg)
-        dist = self._warm_window(warm) if warm is not None and warm["discrete"] else None
-        chord = None
-        if dist is None:
-            Zs, sigma, pair = self._root(Z_guess, warm)
-            if sigma >= SIGMA_DISCRETE:
-                # warm and wide: start the chord from the last width, usually one chord
-                start = warm["Zsigma"] if warm is not None and not warm["discrete"] else sigma
-                sigma, chord = self._chord(Zs, start)
-            nodes, weights, discrete, _ = self._distribution(Zs, sigma)
+        self._b_base = None
+        if lattice:
+            return self._solve_lg(Z_guess, warm, recomb, dlnT, coulomb, wide_moments)
+        d = self._distribution(Z_guess, warm)
+        Zs, discrete, nodes, weights = d["Zstar"], d["discrete"], d["nodes"], d["weights"]
+        shift, tail = 0.0, (False, None, None)
+        if discrete:
+            zmean, zsig = _window_moments(nodes, weights)
         else:
-            (Zs, nodes, weights, _), sigma, discrete, pair = dist, None, True, None
-        zmean, zsig = self._moments(nodes, weights, discrete, Zs, sigma)
+            # a wide P(Z): its mean and width from a model of g over the width (_wide_moments; else the Gaussian of
+            # Z* + 1/2 and the chord's sigma), the rates there; alpha and D from its tail where it carries them
+            sigma = float(d["sigma"])
+            zmean, zsig = Zs + 0.5, sigma
+            if wide_moments or recomb == "gauss" or coulomb:
+                mq = min(max(int(np.ceil(Zs)), _nint(self.t["Zmin"]) + 2), _nint(self.t["Zmax"]) - 3)
+                kw = [mq - 2, mq - 1, mq, mq + 1]
+                gw = [self._gi(k) for k in kw]
+                lnpm = -0.5 * ((float(mq) - Zs - 0.5) / sigma) ** 2 - np.log(np.sqrt(2.0 * np.pi) * sigma)
+                if wide_moments:
+                    used, zm, zs, lnpm_w = self._wide_moments(mq, gw[1], gw[2], sigma)
+                    if used:
+                        shift, zmean, zsig, lnpm = zm - zmean, zm, zs, lnpm_w
+                if (recomb == "gauss" or coulomb) and mq >= 1:
+                    tail = self._tail_sums(mq, sigma, kw, gw, lnpm, zmean, recomb == "gauss", coulomb)
+            nodes, weights = np.array([zmean]), np.array([1.0])
         gam, lam, auto = self._averages(nodes, weights, discrete)
         out = dict(Zstar=Zs, discrete=discrete, Zmean=zmean, Zsigma=zsig, Gamma=gam, Lambda=lam,
                    Lambda_auto=auto, nodes=np.asarray(nodes, float), weights=np.asarray(weights, float))
         if recomb is None:
             out["alpha_rec"] = None
         elif discrete:
-            out["alpha_rec"] = self._recombination_discrete(nodes, weights)
+            out["alpha_rec"] = self._recombination_discrete(nodes, weights, z_floor=self._b_base + 1)
         elif recomb == "exact":
-            out["alpha_rec"] = self._recombination_exact(Zs, sigma)
+            out["alpha_rec"] = self._recombination_exact(Zs, float(d["sigma"]))
         elif recomb == "gauss":
-            out["alpha_rec"] = np.exp(self._recombination_gauss(Zs, sigma))
+            out["alpha_rec"] = tail[1] if tail[0] else np.exp(self._recombination_gauss(Zs, float(d["sigma"])))
             if warm is not None and "recomb_ref" in warm:
                 out["recomb_ref"] = warm["recomb_ref"]       # kept for a later refine_recombination
         else:
             self.refine_recombination(out, warm)
+        out["alpha_tail"] = bool(tail[0] and recomb == "gauss")
+        if coulomb:
+            from pycalima.models.dust_charge import coulomb_focusing as cf
+            if tail[0]:
+                out.update(cratio=None, D=tail[2], D_abs=True)
+            else:
+                cr = self._coulomb_ratio(out)
+                Dg = cf.coulomb_factors(zmean, zsig, self.cell["T"], self.a,
+                                        COULOMB_JMAX)[[j + 1 for j in COULOMB_DCHARGE]]
+                out.update(cratio=cr, D=np.maximum(Dg * cr, cf.D_FLOOR), D_abs=False)
         if dlnT is not None:
-            out.update(self._dlnT_response(out, pair, dlnT, chord))
+            out.update(self._dlnT_response(out, d["pair"], dlnT, d["chord"], d["sigma"], shift))
         return out
+
+
+class _ChargeRates:
+    """The rates of one integer charge of a GroupChargingTable's cell, each evaluated on first use (LG5 reads only
+    what its call needs: Up and Down for the bracket, Gamma and Lambda on its window, d/d ln T and A when asked)."""
+
+    __slots__ = ("gt", "k", "v")
+
+    def __init__(self, gt, k):
+        self.gt, self.k, self.v = gt, k, {}
+
+    def __getitem__(self, key):
+        v = self.v
+        if key not in v:
+            gt, z = self.gt, float(self.k)
+            if key in ("up", "down"):
+                v["up"], v["down"] = gt._ud(self.k)
+            elif key in ("gam", "lam"):
+                v["gam"], v["lam"] = gt._heating_cooling(z)
+            elif key in ("dup", "ddown", "dlam"):
+                _, v["dup"], _, v["ddown"], _, v["dlam"] = gt._rates_dlnT(z)
+            elif key == "A":
+                v["A"] = float(gt._capture_z1(z)[0])
+            else:
+                raise KeyError(key)
+        return v[key]
+
+
+def _nint(x):
+    """Fortran nint: the nearest integer, halves away from zero."""
+    return int(np.floor(x + 0.5)) if x >= 0 else -int(np.floor(-x + 0.5))
+
+
+def _window_moments(Z, P):
+    """<Z> and sigma of a discrete P(Z), summed in charge order as RAMSES window_moments."""
+    zmean = s2 = 0.0
+    for z, p in zip(Z, P):
+        zmean += p * z
+        s2 += p * z * z
+    return float(zmean), float(np.sqrt(max(s2 - zmean * zmean, 0.0)))
 
 
 def _log_ndtr(x):
@@ -1269,12 +2257,6 @@ def solve_cell(gts, n_grains, N_g, c_red, T, ne, ions=(), G0_bg=0.0, Z_guess=Non
         if r["refined"]:
             r["fitted"] = gt.refine_recombination(r, w)
     return res
-
-
-def _width(Z, P):
-    """Standard deviation of the charge distribution P on the charges Z."""
-    mean = P @ Z
-    return np.sqrt(max(P @ Z ** 2 - mean ** 2, 0.0))
 
 
 def _pchip_slopes(y):
