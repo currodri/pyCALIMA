@@ -167,24 +167,33 @@ def test_uniform_lookup_reproduces_solves_at_the_nodes(tables):
 
 
 @pytest.mark.parametrize("a", [1e-6, 1e-5])
-def test_warm_start_finds_the_same_root_from_any_guess(tables, a):
-    """The bracket grown from Z_guess (RAMSES: the bin's previous Z*) reaches
-    the cold-start root, wherever the guess lies, including pinned edges."""
+def test_the_result_does_not_depend_on_the_start(tables, a):
+    """As RAMSES since PR #86: any guess, and a warm start from another cell's result, give the cold result to
+    the bit. The root's bracket is found on the integer lattice and a warm discrete window is re-formed as a
+    cold one; the one exception, the chord of a wide P(Z) whose root is at an end of the charge range, does not
+    occur in these cells."""
     from pycalima.models.dust_charge import rt_group_charging as rg
 
     tab, path = tables["graphite", a]
     N, egy, _ = _bb_cell(4e4, 3.0, tab["L0"], tab["L1"])
     gt = rg.GroupChargingTable(rg.read_bin_table(path), egy=egy)
     Zlo, Zhi = tab["Zmin"], tab["Zmax"] - 1.0
-    for scale, ne, T in ((1.0, 30.0, 8e3), (1e4, 1e-2, 1e4), (0.0, 1.0, 1e4), (1e8, 1e-8, 1e2)):
-        cold = gt.solve(N * scale, C, T, ne, [(ne, 1.0, M_P)])
-        for Zg in (Zlo + 0.5, cold["Zstar"] - 7.3, cold["Zstar"], cold["Zstar"] + 0.4, Zhi - 0.5):
-            if not Zlo < Zg < Zhi:
-                continue
-            warm = gt.solve(N * scale, C, T, ne, [(ne, 1.0, M_P)], Z_guess=Zg)
-            assert warm["Zstar"] == pytest.approx(cold["Zstar"], abs=1e-5 * max(1.0, abs(cold["Zstar"])))
-            for key in ("Zmean", "Zsigma", "Gamma", "Lambda", "Lambda_auto"):
-                assert warm[key] == pytest.approx(cold[key], rel=1e-5, abs=1e-40)
+    cells = ((1.0, 30.0, 8e3), (1e4, 1e-2, 1e4), (0.0, 1.0, 1e4), (1e8, 1e-8, 1e2), (30.0, 0.3, 300.0),
+             (1e-3, 3.0, 50.0))
+    kw = dict(recomb="gauss", dlnT=1e-5, coulomb=True)
+    colds = [gt.solve(N * f, C, T, ne, [(ne, 1.0, M_P)], **kw) for f, ne, T in cells]
+    assert {r["discrete"] for r in colds} == {True, False}
+    for (f, ne, T), cold in zip(cells, colds):
+        starts = [dict(Z_guess=Zg) for Zg in (Zlo + 0.5, cold["Zstar"] - 7.3, cold["Zstar"], cold["Zstar"] + 0.4,
+                                              Zhi - 0.5) if Zlo < Zg < Zhi]
+        starts += [dict(warm=w) for w in colds]
+        for st in starts:
+            r = gt.solve(N * f, C, T, ne, [(ne, 1.0, M_P)], **kw, **st)
+            for key in ("discrete", "Zstar", "Zmean", "Zsigma", "Gamma", "Lambda", "Lambda_auto", "dZmean_dlnT",
+                        "dZsigma_dlnT", "dGamma_dlnT", "dLambda_dlnT"):
+                assert r[key] == cold[key], (key, st)
+            for key in ("alpha_rec", "D", "nodes", "weights"):
+                np.testing.assert_array_equal(r[key], cold[key])
 
 
 def test_recombination_is_the_case_a_sum_over_the_charge_distribution(tables):
