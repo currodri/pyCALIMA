@@ -73,6 +73,7 @@ g(Z) = ln Up(Z) - ln Down(Z+1) decreases with Z. Kernels in U by PCHIP (default)
    kink of the Coulomb factors bends g): both from that tail (``_tail_sums``: g
    modelled at the kink charges, summed from Z = -6 up), reported by
    ``alpha_tail`` and ``D_abs``.
+
 ``lattice=True`` (RAMSES rtg_lattice) replaces 1-3 and 7 by the lattice closure LG5
 (``_solve_lattice``): the rates at the 5 integer charges around the mode (7 where
 the central width is 0.6-3), P(Z) exact on that window with geometric tails, or the

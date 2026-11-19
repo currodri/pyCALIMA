@@ -164,8 +164,8 @@ class ChargingModel:
 
     lattice: the solver of ``rt_group_charging.GroupChargingTable.solve``. True (default): LG5 (RAMSES
     rtg_lattice), the rates at the 5 (7) integer charges around the mode of P(Z), 2-4x cheaper than the full solve
-    and within the documented charging-parameter uncertainties of the exact P(Z) (95th percentile of |d<Z>| 0.11
-    charges in diffuse gas against the full solve's 0.03). False: the full WDB06rt solve (root, width, a window grown
+    and within the documented charging-parameter uncertainties of the exact P(Z) (95th percentile of the error in <Z>:
+    0.11 charges in diffuse gas, against the full solve's 0.03). False: the full WDB06rt solve (root, width, a window grown
     to its tails), RAMSES's default."""
 
     def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True, lattice=True):
