@@ -96,8 +96,10 @@ def test_remap_round_trip_and_conservation(name):
     a, g = grid_of(12)
     N, M = random_state(g, rng)
     N1, M1, lost, oN, oM = remap(g, N, M, lambda x: x, method=name)          # the identity map
-    np.testing.assert_allclose(N1, N, rtol=1e-12, atol=1e-300)
-    np.testing.assert_allclose(M1, M, rtol=1e-11, atol=1e-300)
+    # to round-off of the population: the sub-pieces of the affine and exp closures meet the bin edges only to
+    # round-off, so an empty neighbour can receive ~1e-16 of a filled bin's N (Linux CI)
+    np.testing.assert_allclose(N1, N, rtol=1e-12, atol=1e-13 * N.max())
+    np.testing.assert_allclose(M1, M, rtol=1e-11, atol=1e-13 * M.max())
     N2, M2, lost, oN, oM = remap(g, N, M, lambda x: 1.3 * x + 3e-7, method=name)
     assert abs(N2.sum() + oN + lost - N.sum()) < 1e-12 * N.sum()
     filled = N2 > 0
