@@ -263,8 +263,20 @@ class TestGasSecondaries:
         assert np.all(d[:2] == 0.0) and np.all(d[2:] > 0.0)
 
     @pytest.mark.parametrize("material", MATERIALS)
+    def test_no_secondaries_escape_a_barrier_above_the_impact_energy(self, material):
+        """Energy conservation: a secondary cannot clear a barrier E_s higher than the
+        primary's impact energy E0, even where E0 > W."""
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        W = wy.MATERIALS[material]["W"]
+        E_s = 2.0 * W
+        E = np.array([1.5 * W, 1.999 * W, 2.001 * W, 10 * W])
+        d = wy.gas_secondary_yield_at(E, E_s, 1e-6, material)
+        assert np.all(d[:2] == 0.0) and np.all(d[2:] > 0.0)
+
+    @pytest.mark.parametrize("material", MATERIALS)
     def test_thermal_weights_integrate_the_flux_above_threshold(self, material):
-        """sum(w) = int_max(L,W) E e^{-E/kT} / int_L E e^{-E/kT} in closed form."""
+        """sum(w) = int_max(L,W,E_s) E e^{-E/kT} / int_L E e^{-E/kT} in closed form."""
         from pycalima.models.dust_charge import wdb06_yields as wy
         from pycalima.models.dust_charge.shared_physics import EV2ERG, KB_CGS
 
@@ -274,13 +286,15 @@ class TestGasSecondaries:
         Zs = np.array([-10.0, 0.0, 5.0, 50.0])
         _, w = wy._thermal_nodes(Zs, a, T, material)
         L = np.maximum(Zs * wy._e2_over_a(a), 0.0)
-        Lw = np.maximum(L, W)
+        Lw = np.maximum(np.maximum(L, W), (Zs + 1.0) * wy._e2_over_a(a))
         expect = np.exp(-(Lw - L) / kT) * (Lw + kT) / (L + kT)
         np.testing.assert_allclose(w.sum(axis=1), expect, rtol=1e-10)
 
     def test_thermal_mean_impact_energy_is_ds79_eq16(self):
-        """Above threshold, the flux-weighted mean impact energy on an
-        attracting grain is kT [2 + phi^2 / (1 + phi)], phi = eU/kT."""
+        """On an attracting grain (eU > W) the nodes start at the escape barrier
+        E_s = eU + e^2/a; above it the flux-weighted mean impact energy is
+        (E_s^2 + 2 kT E_s + 2 kT^2) / (E_s + kT), which tends to DS79 eq. 16,
+        kT [2 + phi^2 / (1 + phi)] with phi = eU/kT, as e^2/a << kT."""
         from pycalima.models.dust_charge import wdb06_yields as wy
         from pycalima.models.dust_charge.shared_physics import EV2ERG, KB_CGS
 
@@ -288,9 +302,11 @@ class TestGasSecondaries:
         kT = KB_CGS * T / EV2ERG
         Z = np.array([200.0, 1000.0])  # eU = 29, 144 eV > W
         E, w = wy._thermal_nodes(Z, a, T, "graphite")
+        Es = (Z + 1.0) * wy._e2_over_a(a)
+        mean = (w * E).sum(axis=1) / w.sum(axis=1)
+        np.testing.assert_allclose(mean, (Es ** 2 + 2 * kT * Es + 2 * kT ** 2) / (Es + kT), rtol=1e-8)
         phi = Z * wy._e2_over_a(a) / kT
-        np.testing.assert_allclose((w * E).sum(axis=1) / w.sum(axis=1),
-                                   kT * (2.0 + phi ** 2 / (1.0 + phi)), rtol=1e-8)
+        np.testing.assert_allclose(mean, kT * (2.0 + phi ** 2 / (1.0 + phi)), rtol=0.01)
 
     @pytest.mark.parametrize("material", MATERIALS)
     def test_cold_gas_excites_almost_no_secondaries(self, material):

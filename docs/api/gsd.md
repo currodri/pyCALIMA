@@ -8,15 +8,16 @@ design and the literature behind it are in
 {doc}`/development/gsd_solver_review`.
 
 The state is the number $N_i$ and mass $M_i$ per bin of a fixed grid
-geometric in grain mass. Inside a bin $dN/dm \propto m^\beta$ with $\beta$
-fixed by $M_i/N_i$ (`pl2m`), a positive and local reconstruction; bins whose
-mean mass lies at an edge are held as spikes. Growth and sublimation move
-grains along characteristics and remap the profiles analytically onto the
-grid (`remap`): number is exact, there is no CFL limit, and a narrow
-population stays within a few bins (a spike inside a bin is reconstructed
-as a power law of the same $N$ and $M$, which costs ~0.5% in mass over a
-factor of 10 of growth). Nucleation is injected along the characteristic
-from the critical size.
+geometric in grain mass, or graded: geometric within each segment, with a
+mass ratio per bin (`MassGrid.graded`, `MassGrid.etas`). Inside a bin the
+distribution is rebuilt from $(N_i, M_i)$ by a closure (see
+{ref}`Methods <gsd-methods>`); by default the edge-aware EA, which is the power law
+$dN/dm \propto m^\beta$ with $\beta$ fixed by $M_i/N_i$ (`pl2m`) except in front
+bins (which continue their neighbour's exponent up to a cut-off inside the bin)
+and isolated bins. Growth and sublimation move grains along characteristics and
+remap the profiles analytically onto the grid (`remap`): number is exact and
+there is no CFL limit. Nucleation is injected along the characteristic from the
+critical size.
 
 The size-space velocity is tabulated and the characteristics are integrated
 exactly for a velocity linear between table points (`_kernels.advance`), so
@@ -36,6 +37,11 @@ injected past the nucleation barrier (the Zeldovich width above n*).
 Verified against Wagner's (LSW) self-similar ripening and against Nozawa &
 Kozasa (2013) dust formation in expanding gas (within ~1-4% in
 $a_{\rm ave}$; see the review, s. 7.6).
+
+`sputtering` erodes grains in hot gas along $\dot a(a) < 0$ through the same
+remap: the yield of `dust_sputtering` (the CALIMA tables) averaged over each
+ion's Maxwellian, with the Bocchio et al. (2016) size correction that spares
+nm grains, and all mass lost from the grains returned to the gas.
 
 `coagulation` collides grains of one population: each bin's profile is
 represented by two nodes (its number halves) that reproduce $N$ and $M$
@@ -95,10 +101,77 @@ cached on disk). `PhotonGroups` converts any spectrum, and
   Tazaki, Ichikawa & Kokubo 2020), zero where ion field emission caps the
   charge first; `destroy` applies such a rate to a population.
 
+`materials` holds one record per grain material (bulk density, optics set,
+shattering constants, sputtering, sublimation and charging inputs, with
+sources), so every operator reads the same density; constants borrowed from
+another material are listed as proxies, and unknown names raise. `carbon`
+lays out the carbon carriers on one graded grid in carbon mass: a few bins
+for the PAH range (N_C 20-400 by default), the grains above, and the bins
+that also carry the a-C:H population. Its `CARRIERS` give the optics of the
+aromatic (THEMIS CM20) and aliphatic (Jones 2012 a-C:H) populations per gram
+of carbon, each grain carrying its band gap's H at its own density; see
+{doc}`/physics/carbon-optics`. With a tracked hydrogen mass (rung M1),
+`HydrogenatedCarbon` gives the optics of the covalent bins at any band gap,
+`bin_h_per_c` and `bin_h_limits` map a bin's M_H/M_C to it, and `hydrogen`
+evolves that H/C under the laboratory UV-loss and H-addition laws with the exact
+step RAMSES would take; see {doc}`/physics/grain-hydrogen`.
+
 `GrainCollisions(table_ppd=...)` tabulates the collision rates per
 environment on a log-radius grid (linear on triangles split along the
 diagonal, where Ormel & Cuzzi's velocity has a cusp) and interpolates
 them, which matters once the rates are averaged over charge points.
+
+(gsd-methods)=
+## Methods
+
+Every operator (`remap`, `exchange.Population`, `sputtering.sputter`,
+`collisions.bin_nodes`/`collide`, `coagulation.coagulate`, `charging.destroy`,
+`optics`) takes `method=`: a name of `closures.METHODS` or a
+`closures.GSDMethod(closure, eps, front_exponent, nodes, rate_nodes,
+kernel_average)`; `None` means `closures.DEFAULT_METHOD`. Unknown names raise.
+All methods store the same two scalars per bin and keep $N$, $M$, positivity
+and $m_L \le M/N \le m_R$ exactly.
+
+| `closure` | in-bin profile |
+|---|---|
+| `ea` (default) | edge-aware: a bin whose neighbour is empty (mean $dn/da$ below `eps` = 1e-6 of its own) is a front, continuing its other neighbour's exponent on a truncated support (exact for power-law segments with sharp cut-offs); a bin with both neighbours empty is a spike at its mean mass; elsewhere PL2M |
+| `eaf` | as `ea` with a fixed front exponent, $dN/da \propto a^{-3.5}$ (`front_exponent`), so that its shapes depend on $s$ alone |
+| `pl2m` | one power law per bin (the method before 2026-11-18) |
+| `affine` | $dn/da$ linear in $a$, a triangle with partial support beyond (local) |
+| `exp` | $dN/dm \propto e^{-\kappa m}$, the maximum-entropy profile (local) |
+
+`nodes` (collisions) and `rate_nodes` (rates at nodes, `charging.destroy`) are
+`median` (number halves at their mean masses) or `gauss` (2-point Gauss rule
+in radius: $N$, surface and $M$ exact). `DEFAULT_METHOD` is `ea` with
+`median` collision nodes and `gauss` rate nodes; `method="pl2m"` reproduces
+the earlier results bit for bit. `kernel_average = n > 1` averages each node
+pair's kernel and products over $n \times n$ sub-slices (sharp kernel
+thresholds; costs $n^2$ kernel evaluations per pair, channel models only).
+Per-moment drift velocities (`closures.moment_velocities`) always use the
+local base closure, never the isolated-bin spike.
+
+**Tables for any closure: node tables.** EA's fronts depend on the
+neighbour's exponent as well as on $s$, so it cannot use $s$ tables.
+`optics.node_table` stores a per-gram quantity at a few radii per bin
+(uniform or geometric in $u = a/a_L$, the cheapest layout per bin whose bin
+averages meet a tolerance over power laws at every in-bin state and truncated
+fronts of every slope, `optics.probe_profiles`), and `optics.node_average`
+integrates that piecewise-linear $k(u)$ exactly over a cell's own
+reconstruction. The same table serves `ea`, `eaf`, `pl2m`, `affine` and
+`exp`; for the A2 carbon grid it is about the size of the PL2M $s$ tables
+(`diagnostics/gsd/check_node_tables.py`).
+
+**EAF tables.** Each EAF component is a function of the in-bin state $s$
+alone: the PL2M profile (base; `optics.profile_weights` as before), the right
+front ($a^{-3.5}$ on $[a_L, a_c]$), the left front (on $[a_c, a_R]$) and the
+spike. `optics.component_kappa_tables` tabulates the four per bin, and a
+bin's value is $\sum_c f_c\,\kappa_c(s)$ with the fractions $f_c$ from its
+neighbours' $N$ (`closures.component_fractions`, `optics.combine_components`).
+
+Benchmarks (8 bins): growth-test mass error 14 % (PL2M) to 1.6 % (EA; 2.2 %
+EAF, whose fixed front slope also puts peaks at the edges of flat profiles);
+worst A0 observable 12 % to 4.4 %, at +22 % compiled cost of the growth step;
+`results/gsd_overview/variants/` and `diagnostics/gsd/bench_pl2m_variants.py`.
 
 ## Performance
 
@@ -151,13 +224,19 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    :template: autosummary/module.rst
 
    pycalima.gsd.grid
+   pycalima.gsd.materials
+   pycalima.gsd.carbon
+   pycalima.gsd.hydrogen
+   pycalima.gsd.closures
    pycalima.gsd.pl2m
    pycalima.gsd.remap
    pycalima.gsd.exchange
+   pycalima.gsd.sputtering
    pycalima.gsd.collisions
    pycalima.gsd.coagulation
    pycalima.gsd.shattering
    pycalima.gsd.velocities
    pycalima.gsd.charging
+   pycalima.gsd.optics
    pycalima.gsd._kernels
 ```

@@ -1,10 +1,13 @@
 """Grain-grain collisions of one population: coagulation, cratering and
 shattering as two-moment pair transfers, MPRK22 in time.
 
-Each bin's power-law profile (``pl2m``) is represented by two nodes, the
-lower and upper halves of its number split at the median, each carrying
-N/2 at the mean mass of its half; the two nodes reproduce the bin's N and M
-exactly (``bin_nodes``). A collision model gives, for every node pair
+Each bin's profile (the closure of the ``method``, ``closures``) is
+represented by two nodes, by default the lower and upper halves of its
+number split at the median, each carrying N/2 at the mean mass of its half,
+or the 2-point Gauss rule in radius; the two nodes reproduce the bin's N
+and M exactly (``bin_nodes``). With ``method.kernel_average`` = n > 1 the
+rates and products of each node pair are averaged over n x n sub-slices of
+the two nodes. A collision model gives, for every node pair
 (p, q) and every outcome channel c (a ``Channel``), a rate coefficient
 K_c(p, q) [cm^3 s^-1] and the products of one collision, for each of the
 two grains:
@@ -65,11 +68,23 @@ from .remap import realisable
 COLLECTORS = ("smallest", "remove")
 
 
-def bin_nodes(grid, N, M, widths=False):
-    """Two nodes per bin: masses m[nb, 2] and weights w[nb, 2] (N/2 each)
-    reproducing N and M of every bin. Empty bins get zero weight. With
-    ``widths``, also the nodes' mass intervals (``node_widths``) from the
-    same profile."""
+def bin_nodes(grid, N, M, widths=False, method=None, rule=None):
+    """Two nodes per bin: masses m[nb, 2] and weights w[nb, 2] reproducing N
+    and M of every bin. Empty bins get zero weight. With ``widths``, also the
+    nodes' mass intervals (``node_widths``) from the same profile.
+
+    ``method`` (``closures.GSDMethod`` or a name; default
+    ``closures.DEFAULT_METHOD``) gives the in-bin closure and, unless ``rule``
+    is given, the node rule: 'median' (N/2 each at the mean masses of the
+    number halves) or 'gauss' (the 2-point Gauss rule in radius)."""
+    from .closures import nodes as _closure_nodes
+    from .closures import resolve
+
+    meth = resolve(method)
+    rule = meth.nodes if rule is None else rule
+    if meth.closure != "pl2m" or rule != "median":
+        m, w, wid, _ = _closure_nodes(grid, N, M, meth, rule, 1)
+        return (m, w, wid) if widths else (m, w)
     N = np.asarray(N, float)
     M = np.asarray(M, float)
     prof = BinProfile(grid, N, M)
@@ -152,10 +167,25 @@ def _bin(edges, x):
 
 
 @njit(cache=True, nogil=True)
+def _node_lo(m_edges, wid, i, ia):
+    """Lower mass edge of node ia's interval in bin i ([m_L, m_med] or [m_med, m_R])."""
+    return m_edges[i] if ia == 0 else m_edges[i + 1] - wid[i, 1]
+
+
+@njit(cache=True, nogil=True)
+def _bounded_hw(hw, mr, lo, hi):
+    """Half-width of a product's deposit, kept inside [lo, hi], the image of
+    its parents' node intervals (in wide bins a node is far from the centre
+    of its interval, and a symmetric segment would leak out of the bin)."""
+    return max(0.0, min(hw, mr - lo, hi - mr))
+
+
+@njit(cache=True, nogil=True)
 def _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m):
     """One grain per collision (rate r) with mass spread uniformly over
     [mr - hw, mr + hw]: number and mass split across the bins it overlaps
-    (mean exactly mr), so the deposit is continuous in the node masses."""
+    (mean exactly mr), so the deposit is continuous in the node masses.
+    Callers bound hw with ``_bounded_hw``."""
     nb = m_edges.size - 1
     lo = mr - hw
     hi = mr + hw
@@ -482,10 +512,15 @@ def _pair_rows(t, T, P, m, w, wid, K, rem, frag, a_hi, a_lo, m_edges, a_edges, G
                     if mr > 0.0:
                         # spread like the parent node(s): a cratered remnant of
                         # p keeps p's width scaled by mr/mp, a merger both widths
-                        m_own, w_own, m_oth, w_oth = ((mp, wid[i, ia], mq, wid[j, jb]) if st == 0
-                                                      else (mq, wid[j, jb], mp, wid[i, ia]))
-                        hw = 0.5 * (w_own * min(mr / m_own, 1.0)
-                                    + w_oth * max(0.0, min((mr - m_own) / m_oth, 1.0)))
+                        lop, loq = _node_lo(m_edges, wid, i, ia), _node_lo(m_edges, wid, j, jb)
+                        m_own, w_own, l_own, m_oth, w_oth, l_oth = (
+                            (mp, wid[i, ia], lop, mq, wid[j, jb], loq) if st == 0
+                            else (mq, wid[j, jb], loq, mp, wid[i, ia], lop))
+                        s_own = min(mr / m_own, 1.0)
+                        s_oth = max(0.0, min((mr - m_own) / m_oth, 1.0))
+                        hw = _bounded_hw(0.5 * (w_own * s_own + w_oth * s_oth), mr,
+                                         l_own * s_own + l_oth * s_oth,
+                                         (l_own + w_own) * s_own + (l_oth + w_oth) * s_oth)
                         _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small,
                                          geo_m)
                     mf = frag[st, c, p, q]
@@ -539,8 +574,13 @@ class Channel:
                       o if a_hi2 is None else a_hi2, o if a_lo2 is None else a_lo2))
 
 
-def _terms(grid, N, M, model):
-    m, w, wid = bin_nodes(grid, N, M, widths=True)
+def _terms(grid, N, M, model, method=None):
+    from .closures import resolve
+
+    meth = resolve(method)
+    if meth.kernel_average > 1:
+        return _kernel_averaged_terms(grid, N, M, model, meth)
+    m, w, wid = bin_nodes(grid, N, M, widths=True, method=meth)
     mf = m.reshape(-1)
     a = grid.radius(mf)
     fused = getattr(model, "pair_terms", None)
@@ -562,6 +602,101 @@ def _terms(grid, N, M, model):
         raise ValueError("alpha_f = 1 or 4 is not supported (log integrals)")
     return _pair_terms(m, w, wid, *stack, grid.m_edges, grid.a_edges, float(grid.rho),
                        float(model.alpha_f), model.collector == "smallest")
+
+
+@njit(cache=True, nogil=True)
+def _pair_rows_eff(t, T, P, m, w, wid, K, rem, frag, a_hi, a_lo, mpe, mqe, m_edges, a_edges, GM, GN, eM, eN, mfac,
+                   keep_small, F, L, H, D):
+    """``_pair_rows`` with the donor split of each pair's products taken from per-pair effective masses (mpe,
+    mqe: the rate-weighted mean masses of the colliding sub-populations of nodes p and q) instead of the node
+    masses (kernel averaging)."""
+    geo_m = np.array([math.log(m_edges[0]), 1.0 / math.log(m_edges[1] / m_edges[0])])
+    geo_a = np.array([math.log(a_edges[0]), 1.0 / math.log(a_edges[1] / a_edges[0])])
+    for c in range(K.shape[0]):
+        for p in range(t, P, T):
+            i, ia = p // 2, p % 2
+            wp = w[i, ia]
+            if wp <= 0.0:
+                continue
+            for q in range(p, P):
+                j, jb = q // 2, q % 2
+                wq = w[j, jb]
+                if wq <= 0.0:
+                    continue
+                r = (0.5 if q == p else 1.0) * K[c, p, q] * wp * wq
+                if r <= 0.0:
+                    continue
+                mp = mpe[c, p, q]
+                mq = mqe[c, p, q]
+                fp = mp / (mp + mq)
+                fq = 1.0 - fp
+                L[i] += r
+                L[j] += r
+                for st in range(2):
+                    mr = rem[st, c, p, q]
+                    if mr > 0.0:
+                        lop, loq = _node_lo(m_edges, wid, i, ia), _node_lo(m_edges, wid, j, jb)
+                        if st == 0:
+                            m_own, w_own, l_own, m_oth, w_oth, l_oth = mp, wid[i, ia], lop, mq, wid[j, jb], loq
+                        else:
+                            m_own, w_own, l_own, m_oth, w_oth, l_oth = mq, wid[j, jb], loq, mp, wid[i, ia], lop
+                        s_own = min(mr / m_own, 1.0)
+                        s_oth = max(0.0, min((mr - m_own) / m_oth, 1.0))
+                        hw = _bounded_hw(0.5 * (w_own * s_own + w_oth * s_oth), mr,
+                                         l_own * s_own + l_oth * s_oth,
+                                         (l_own + w_own) * s_own + (l_oth + w_oth) * s_oth)
+                        _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m)
+                    mf = frag[st, c, p, q]
+                    if mf > 0.0:
+                        _fragments(F, H, D, i, j, fp, fq, r, mf, a_lo[st, c, p, q], a_hi[st, c, p, q], m_edges,
+                                   a_edges, GM, GN, eM, eN, mfac, keep_small, geo_a)
+
+
+def _kernel_averaged_terms(grid, N, M, model, method):
+    """(F, L, H) with each node pair's rate coefficients averaged over the n x n equal-number sub-slices of its two
+    nodes (n = method.kernel_average), and its products and donor split the rate-weighted means over the same
+    sub-pairs, so the colliding sub-population's own masses move. Needs the model's ``channels``; the fused pair
+    sums of ``GrainCollisions`` are bypassed."""
+    from .closures import nodes as _closure_nodes
+
+    n_sub = int(method.kernel_average)
+    m, w, wid, ms = _closure_nodes(grid, N, M, method, method.nodes, n_sub)
+    mf = m.reshape(-1)
+    msub = ms.reshape(-1)                       # node p's slices at p * n_sub + k
+    chans = model.channels(grid.radius(mf), mf)
+    sub = model.channels(grid.radius(msub), msub)
+    P = mf.size
+    Ks, mpe, mqe = [], [], []
+    sets = [[[], [], [], []], [[], [], [], []]]
+    mp_s = msub.reshape(P, n_sub)
+    for ch, cs in zip(chans, sub):
+        Kf = np.broadcast_to(np.asarray(cs.K, float), (P * n_sub, P * n_sub)).reshape(P, n_sub, P, n_sub)
+        Kb = Kf.mean(axis=(1, 3))
+        Ks.append(Kb)
+        pos = Kb > 0
+        den = np.where(pos, Kb, 1.0)
+        for st in (0, 1):
+            for k in range(4):
+                x = np.broadcast_to(np.asarray(cs.sets[st][k], float), (P * n_sub, P * n_sub))
+                x = x.reshape(P, n_sub, P, n_sub)
+                node = np.broadcast_to(np.asarray(ch.sets[st][k], float), (P, P))
+                sets[st][k].append(np.where(pos, (Kf * x).mean(axis=(1, 3)) / den, node))
+        Ksum = Kf.sum(axis=(1, 3))
+        dens = np.where(Ksum > 0, Ksum, 1.0)
+        mpe.append(np.where(Ksum > 0, np.einsum("ikjl,ik->ij", Kf, mp_s) / dens, mf[:, None] + 0 * mf[None, :]))
+        mqe.append(np.where(Ksum > 0, np.einsum("ikjl,jl->ij", Kf, mp_s) / dens, mf[None, :] + 0 * mf[:, None]))
+    Kst = np.ascontiguousarray(np.array(Ks, float))
+    stack = [np.ascontiguousarray(np.array([sets[st][k] for st in (0, 1)], float)) for k in range(4)]
+    if model.collector not in COLLECTORS:
+        raise ValueError(f"collector must be one of {COLLECTORS}")
+    alpha = float(model.alpha_f)
+    eM, eN = 4.0 - alpha, 1.0 - alpha
+    ae = grid.a_edges
+    args = (P, m, w, wid, Kst, *stack, np.ascontiguousarray(np.array(mpe, float)),
+            np.ascontiguousarray(np.array(mqe, float)), grid.m_edges, ae, ae ** eM, ae ** eN, eM, eN,
+            4.0 / 3.0 * math.pi * float(grid.rho), model.collector == "smallest")
+    work = Kst.shape[0] * P * (P + 1) // 2
+    return run_rows(_pair_rows_eff, args, grid.n_bins, ae, float(grid.rho), alpha, threads_for(work))
 
 
 def _patankar(z_old, z_den, F, h):
@@ -589,14 +724,19 @@ def _number(N_old, N_den, theta, L, H, h, nb):
 
 
 def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=100000,
-            source=None, norm="max"):
+            source=None, norm="max", method=None):
     """Advance (N, M) over dt under the collision ``model``. The local error
     of every bin, relative to its value or to ``atol`` times the total
     (number or mass), is held below ``errmax``. ``source`` = (S_N, S_M),
     constant production rates per bin [cm^-3 s^-1, g cm^-3 s^-1], is added
     inside the step (an external supply, e.g. grains fed into a cascade).
-    Returns a dict with N, M, overflow_N, overflow_M, sink_M (fragments
-    removed below the grid) and n_steps."""
+    ``method`` (``closures.GSDMethod`` or a name; default
+    ``closures.DEFAULT_METHOD``) selects the in-bin closure, the node rule and
+    the kernel averaging. Returns a dict with N, M, overflow_N, overflow_M,
+    sink_M (fragments removed below the grid) and n_steps."""
+    from .closures import resolve
+
+    method = resolve(method)
     nb = grid.n_bins
     S_N = np.zeros(nb) if source is None else np.asarray(source[0], float)
     S_M = np.zeros(nb + 2)
@@ -610,7 +750,7 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
     steps = 0
     while t < dt * (1.0 - 1e-12) and steps < max_steps:
         h = min(h, dt - t)
-        F0, L0, H0 = _terms(grid, N, z[:nb], model)
+        F0, L0, H0 = _terms(grid, N, z[:nb], model, method)
         if not F0.any() and not L0.any() and source is None:
             break
         # stage 1 (first order): rates at the old state
@@ -620,7 +760,7 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
         N1, _ = _number(N + h * S_N, N, th1, L0, H0, h, nb)
         N1, M1 = realisable(grid, N1, z1[:nb])
         # stage 2: mean of the rates, denominators at stage 1
-        F1, L1, H1 = _terms(grid, N1, M1, model)
+        F1, L1, H1 = _terms(grid, N1, M1, model, method)
         z1[:nb] = M1
         Fm, Lm, Hm = 0.5 * (F0 + F1), 0.5 * (L0 + L1), 0.5 * (H0 + H1)
         z2 = _patankar(z + h * S_M, z1, Fm, h)

@@ -26,8 +26,10 @@ functions of radius:
 * the Coulomb explosion rate of grains whose charge reaches the
   electrostatic disruption limit (``coulomb_explosion_rate``).
 
-WDB06 yields exist for graphite and silicate only: carbonaceous materials
-are charged as graphite and all others as silicate (``charging_material``),
+WDB06 yields exist for graphite and silicate, and for amorphous carbon
+(``wdb06_yields``): THEMIS carbon ('themis_ac') is charged as 'ac', pyCALIMA's
+a-C, and 'cm20' as DustEM charges it (the benchmark); other carbonaceous
+materials as graphite and all others as silicate (``charging_material``),
 which should be revisited for metallic iron or SiC.
 """
 
@@ -58,7 +60,11 @@ _CARBON = ("graphite", "amorphous_carbon", "carbon", "diamond", "PAH", "SiC")
 
 
 def charging_material(material: str) -> str:
-    """WDB06 material used to charge ``material``: graphite or silicate."""
+    """WDB06 material used to charge ``material``: cm20, graphite or silicate."""
+    if material in ("themis_ac", "ac"):
+        return "ac"
+    if material == "cm20":                     # the DustEM benchmark
+        return "cm20"
     return "graphite" if any(material.startswith(c) for c in _CARBON[:5]) else "silicate"
 
 
@@ -310,12 +316,16 @@ class ChargeState:
         return out
 
 
-def destroy(grid, N, M, rate, dt):
+def destroy(grid, N, M, rate, dt, method=None):
     """Remove grains at rate(a) [s^-1] over dt, exactly per bin node
-    (``collisions.bin_nodes``): returns (N, M, removed mass)."""
+    (``collisions.bin_nodes`` with the rate nodes of ``method``,
+    ``closures``; default Gauss in radius, 'pl2m' the median split): returns
+    (N, M, removed mass)."""
+    from .closures import resolve
     from .collisions import bin_nodes
 
-    m, w = bin_nodes(grid, N, M)
+    meth = resolve(method)
+    m, w = bin_nodes(grid, N, M, method=meth, rule=meth.rate_nodes)
     lam = np.asarray(rate(grid.radius(m)), float)
     keep = np.exp(-np.maximum(lam, 0.0) * dt)
     N1 = (w * keep).sum(axis=1)
