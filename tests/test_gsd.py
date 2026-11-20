@@ -678,7 +678,9 @@ def test_collisional_cascade_reaches_the_dohnanyi_slope(alpha_f):
     model = _SelfSimilarCascade(alpha_f)
     t, dt = 0.0, 1e6
     while t < 3e11:
-        r = collide(g, N, M, model, dt, errmax=1e-2, source=(sN, sM))
+        # the cascade is stiff (net loss ~100 per call's dt): errmax 0.1 is within
+        # 3 % of a tight reference (LSODA, 2026-11) in ~1600 steps
+        r = collide(g, N, M, model, dt, errmax=1e-1, source=(sN, sM))
         N, M = r["N"], r["M"]
         t += dt
         dt *= 1.1

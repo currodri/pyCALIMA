@@ -444,6 +444,19 @@ Rejected:
   * In cold gas the vapour pressures underflow, so S, the condensation α and the nucleation cap are evaluated in log space (`SublimationModel.log_flux`, `dust_sublimation.ln_supersaturation`).
   * The characteristic must be written x + f t·expm1(gt)/(gt). The form a₀ + (f e^{gt} − f₀)/g cancels when the velocity is nearly constant, and its 1e-8 relative noise in the dust mass became spurious gas, and so spurious nucleation, once the gas was depleted to ~1e-8 of the element.
 
+**Collision time stepping, 2026-11-19.** Found with the collapse model's Marchand et al. (2021) Fig. 1 benchmark (pop2_transition project):
+* **The number update was first order in practice.** A grain that stays in its bin (a large grain sweeping up a small one, a cratered target) was booked as a loss of its bin and a gain from it. The mass flows already dropped it (`_finish` zeroes their diagonal), but the number kept both terms. They cancel in the ODE but carry different weights in the step, Patankar N_new/N_den for the loss and the donor's mass ratio for the gain. They are 1e3–1e4 times the net rate in the Marchand case (H_ii/L_i = 0.996–0.99998) and 1e7–1e9 times in the steady cascade. The step was accurate only for h below the gross time scale.
+  * Marchand Fig. 1: ⟨log a⟩ was 0.18 dex low at errmax 1e-3, 0.017 dex low at 1e-5 (44,643 steps) and 0.001 dex low at 1e-6 (283,608 steps). With fixed steps it moved ~0.035 dex per doubling up to 12,800 steps.
+  * `_number` now nets them out. Results against an RK4 reference built from the same `_terms` (−3.593693): 4e-6 dex with 800 fixed steps, and 1e-5 dex at errmax 1e-2 (510 steps).
+* **Steady cascade.** The old update converged to a wrong state that its error estimate could not see: 38% off an LSODA reference (rtol 1e-9) in the worst bin at errmax 1e-3, 1.6% median. The new one is within 1.4e-4 of it at errmax 1e-3, and within 2.6% at errmax 0.1 in ~1600 steps. That is why the Dohnanyi test now runs at errmax 0.1. Stiff cascades need more steps than before (5,317 at errmax 3e-2), because the old speed came from the bias.
+* **WIM shattering + sticking (HK13 type, 10 Myr): unchanged.** Same steps (210 at errmax 1e-3) and the same small-grain mass. Only the two largest-grain bins move, by −5% and +2%; mass-weighted the change is 0.17%.
+* **Robustness.**
+  * `collide` keeps the mass and moves the number to hold each bin's mean mass inside the bin. A step that needs a large correction is rejected.
+  * Bins below 1e-30 of the number, or with no mass, are emptied, as `remap` does; drained bins no longer underflow to N > 0, M = 0.
+  * Running out of `max_steps` raises instead of returning part way through dt.
+  * Steps forced at the 1e-12 dt floor are counted (`n_forced`) and warned about when their error exceeds 10 errmax.
+  * Tests: `tests/test_gsd_collide_steps.py`.
+
 ---
 
 ## 8. Reference list with verification status
