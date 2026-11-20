@@ -47,8 +47,12 @@ nm grains, and all mass lost from the grains returned to the gas.
 represented by two nodes (its number halves) that reproduce $N$ and $M$
 exactly, node pairs deposit their products in the bin containing
 $m_1 + m_2$, and the mass transfers are integrated with MPRK22 (mass
-conserved to round-off and positive for any step; number Patankar-implicit),
-with adaptive sub-steps from the first/second-order stage difference.
+conserved to round-off and positive for any step; number Patankar-implicit,
+with grains that stay in their bin left out of its gains and losses, as for
+the mass), with adaptive sub-steps from the first/second-order stage
+difference. Second order: on Marchand et al. (2021) Fig. 1 the default
+`errmax` = 1e-3 matches an explicit RK4 reference to 1e-5 dex in the
+mass-weighted $\langle\log a\rangle$.
 Verified against the constant, additive (Golovin) and multiplicative
 Smoluchowski solutions; ~2 ms per sub-step on 150 bins. Different
 materials do not coagulate with each other.

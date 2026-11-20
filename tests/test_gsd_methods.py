@@ -208,6 +208,7 @@ def test_kernel_averaging_changes_nothing_for_a_constant_kernel():
 
 
 @pytest.mark.parametrize("method", ["eaf", "ea", C.GSDMethod(nodes="gauss"), C.GSDMethod(kernel_average=2)])
+@pytest.mark.filterwarnings("ignore:collide.*smallest step")   # dt is ~1e12 collision times on purpose
 def test_collisions_conserve_mass_with_every_method(method):
     a, g = grid_of(8)
     N, M = segment(a, 1e-7, 2e-5, -3.5)

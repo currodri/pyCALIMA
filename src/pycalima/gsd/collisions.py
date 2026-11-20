@@ -43,7 +43,12 @@ production-destruction system integrated with MPRK22 (Kopecz & Meister
 2018): flows out of a bin are weighted by its new-to-old ratio, so mass is
 conserved to round-off and stays positive for any step. Number losses are
 Patankar-implicit in each bin (positive), number gains follow the delivered
-mass. The first/second-order stage difference sizes the sub-steps.
+mass. Grains that stay in their bin (sweep-up of small grains, cratering)
+are left out of both, as mass staying in its bin is: they cancel in the ODE,
+and kept in they dominate the gross rates (1e3-1e9 times the net rate) and
+cut the scheme to first order. The first/second-order stage difference,
+together with how far the number must be moved to keep each bin's mean mass
+inside it, sizes the sub-steps.
 
 The pair sums run in compiled code without the GIL on Python threads
 (``run_rows``): ``default_threads()`` = the performance cores (or
@@ -57,6 +62,7 @@ with each other here.
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 
@@ -715,12 +721,37 @@ def _patankar(z_old, z_den, F, h):
 
 def _number(N_old, N_den, theta, L, H, h, nb):
     """Number after a Patankar step: losses implicit in N, gains carried by
-    the delivered mass (donor ratios theta). Returns (N[nb], N_overflow)."""
+    the delivered mass (donor ratios theta). Returns (N[nb], N_overflow).
+
+    A grain that stays in its bin (a large grain sweeping up a small one) is
+    counted both as a loss of that bin and as a gain from it. Those two terms
+    are equal in the ODE but weighted differently here (N_new/N_den against
+    theta), and they can be 1e3-1e4 times the net rate (Marchand+21 Fig. 1).
+    Left in, they cut the step's accuracy to first order until h is below
+    their time scale. They are netted out first, as the mass flows' diagonal
+    is (``_finish``)."""
+    idx = np.arange(nb)
+    same = np.minimum(L, H[idx, idx])
+    H = H.copy()
+    H[idx, idx] -= same
+    L = L - same
     gain = H @ theta[:nb]
     with np.errstate(divide="ignore", invalid="ignore"):
         loss = np.where(N_den > 0, L / N_den, 0.0)
     N = (N_old + h * gain[:nb]) / (1.0 + h * loss)
     return N, h * gain[nb]
+
+
+def _hold_mean_mass(grid, N, M, tiny):
+    """The realisable state nearest (N, M) with the mass kept: mass is exact
+    in ``collide`` (conservative MPRK) and the number is the less accurate
+    moment, so N is moved to hold each bin's mean mass inside the bin. Bins
+    with N <= tiny or M <= 0 are emptied, as ``remap`` does (a drained bin
+    would otherwise underflow to N > 0, M = 0: a node of zero mass)."""
+    keep = (N > tiny) & (M > 0.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Nh = np.clip(N, M / grid.m_edges[1:], M / grid.m_edges[:-1])
+    return np.where(keep, Nh, 0.0), np.where(keep, M, 0.0)
 
 
 def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=100000,
@@ -733,7 +764,16 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
     ``method`` (``closures.GSDMethod`` or a name; default
     ``closures.DEFAULT_METHOD``) selects the in-bin closure, the node rule and
     the kernel averaging. Returns a dict with N, M, overflow_N, overflow_M,
-    sink_M (fragments removed below the grid) and n_steps."""
+    sink_M (fragments removed below the grid), n_steps and n_forced (steps
+    taken at the smallest step, 1e-12 dt, with the error above errmax: dt is
+    far longer than the collision time; a RuntimeWarning is issued if one of
+    them was above 10 errmax). Raises RuntimeError if ``max_steps`` steps do
+    not reach dt.
+
+    Each step's error includes how far its number had to be moved to hold the
+    mean masses inside their bins (``_hold_mean_mass``): in a step much longer
+    than the collision time the two moments' Patankar weights drift apart, and
+    such a step is rejected rather than clipped."""
     from .closures import resolve
 
     method = resolve(method)
@@ -743,13 +783,20 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
     if source is not None:
         S_M[:nb] = source[1]
     N = np.asarray(N, float).copy()
-    z = np.concatenate([np.asarray(M, float), [0.0, 0.0]])   # bins, overflow, sink
+    M = np.asarray(M, float)
+    N, M = _hold_mean_mass(grid, N, M, 1e-30 * max(N.sum(), 1e-300))
+    z = np.concatenate([M, [0.0, 0.0]])   # bins, overflow, sink
     oN = 0.0
     t = 0.0
     h = dt if h0 is None else min(h0, dt)
-    steps = 0
-    while t < dt * (1.0 - 1e-12) and steps < max_steps:
+    steps = forced = 0
+    worst = 0.0
+    while t < dt * (1.0 - 1e-12):
+        if steps >= max_steps:
+            raise RuntimeError(f"collide: max_steps = {max_steps} steps reached at t = {t:.4g} of dt = {dt:.4g} "
+                               f"(errmax = {errmax:g}); raise max_steps or errmax")
         h = min(h, dt - t)
+        tiny = 1e-30 * max(N.sum(), 1e-300)
         F0, L0, H0 = _terms(grid, N, z[:nb], model, method)
         if not F0.any() and not L0.any() and source is None:
             break
@@ -758,7 +805,7 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
         with np.errstate(divide="ignore", invalid="ignore"):
             th1 = np.where(z > 0, z1 / z, 0.0)
         N1, _ = _number(N + h * S_N, N, th1, L0, H0, h, nb)
-        N1, M1 = realisable(grid, N1, z1[:nb])
+        N1, M1 = _hold_mean_mass(grid, N1, z1[:nb], tiny)
         # stage 2: mean of the rates, denominators at stage 1
         F1, L1, H1 = _terms(grid, N1, M1, model, method)
         z1[:nb] = M1
@@ -767,21 +814,30 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
         with np.errstate(divide="ignore", invalid="ignore"):
             th2 = np.where(z1 > 0, z2 / z1, 0.0)
         N2, oN2 = _number(N + h * S_N, N1, th2, Lm, Hm, h, nb)
+        N2h, M2h = _hold_mean_mass(grid, N2, z2[:nb], tiny)
         scale_z = np.maximum(np.maximum(z, z2), atol * max(z.sum(), 1e-300))
         scale_N = np.maximum(np.maximum(N, N2), atol * max(N.sum(), 1e-300))
         ez = np.abs(z2 - z1) / scale_z
         eN = np.abs(N2 - N1) / scale_N
+        eR = np.where(M2h > 0.0, np.abs(N2h - N2), 0.0) / scale_N
         if norm == "rms":
-            err = max(math.sqrt(np.mean(ez ** 2)), math.sqrt(np.mean(eN ** 2)))
+            err = max(math.sqrt(np.mean(ez ** 2)), math.sqrt(np.mean(eN ** 2)), math.sqrt(np.mean(eR ** 2)))
         else:
-            err = max(ez.max(), eN.max())
+            err = max(ez.max(), eN.max(), eR.max())
         if err <= errmax or h <= 1e-12 * dt:
+            if err > errmax:
+                forced += 1
+                worst = max(worst, err)
             t += h
             steps += 1
-            N, Mb = realisable(grid, N2, z2[:nb])
-            z = np.concatenate([Mb, z2[nb:]])
+            N = N2h
+            z = np.concatenate([M2h, z2[nb:]])
             oN += oN2
         fac = 0.9 * math.sqrt(errmax / max(err, 1e-300))
         h *= min(5.0, max(0.2, fac))
+    if worst > 10.0 * errmax:
+        warnings.warn(f"collide: {forced} step(s) taken at the smallest step (1e-12 dt) with the error above "
+                      f"errmax = {errmax:g}, up to {worst:.3g}: dt is far longer than the collision time",
+                      RuntimeWarning, stacklevel=2)
     return {"N": N, "M": z[:nb], "overflow_N": oN, "overflow_M": z[nb],
-            "sink_M": z[nb + 1], "n_steps": steps}
+            "sink_M": z[nb + 1], "n_steps": steps, "n_forced": int(forced)}
