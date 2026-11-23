@@ -1,10 +1,13 @@
-# GSD modelling: status and what is left to do (as of 2026-11-22)
+# GSD modelling: status and what is left to do (as of 2026-11-23)
 
 The canonical to-do list of the grain-size-distribution (GSD) work: what to do next, the decisions taken and still
 open, and the build (the plan's work packages A and B). Keep it in step with the work.
 
 **State.** PR #19 (the WDB06rt/LG5 charge solve ported from RAMSES), PR #20 (the GSD work) and PR #22 (the collide fix)
-are merged into pyCALIMA main (89ee18a); the GSD checks were rerun on it on 2026-11-22 (section 1).
+are merged into pyCALIMA main (89ee18a); the GSD checks were rerun on it on 2026-11-22 (section 1). On 2026-11-23 the
+carbon mass transfer was settled before A3c (report section "How carbon moves ..."; notes `overview/lit/carbon_transfer_*.md`,
+outputs `overview/tables/carbon_transfer/`, scripts `check_carbon_heating_share.py`, `check_carbon_transfer_timescales.py`,
+`check_carbon_transfer_options.py`, `check_seam_decomposition.py`). A3c planning resumes with those decisions.
 
 **Where the detail lives:**
 - the status report: `overview/gsd_overview.tex` (its figures and the PDF are built in the git-ignored
@@ -58,6 +61,15 @@ work packages).
   two `test_solvers` sputtering tests then fail instead of skipping (their skip only checks that model_data
   exists).
 
+- [ ] **Open from the carbon-transfer study (2026-11-23):**
+  - hot-gas erosion of N_C < ~1000: pahchem's impact rates (thermal electron/ion passages, C/H knock-outs) exist, but
+    the production tables stop at 1e4 K: extend the T axis, join to classical sputtering at N_C ~ 1000 (Bocchio+12);
+  - Coulomb explosion: fragments (a^-3.3, labelled) or ion loss, set by the assumed tensile strength (crossover S_max
+    ~ 8e10 erg cm^-3 against ion field emission at ~3e8 V/cm);
+  - P1's a-C:H end and the bare end (pahchem bare states or a-C physics);
+  - redo the band test (3-4 bins over N_C 20-400; no script survived) with the extended N_C,max test;
+  - implement the pair rule (sticking mask by pair class) and the release term in `gsd.collisions` (A3c).
+
 ## 2. Decisions waiting for the user
 
 1. **Bottom-up PAH channel** for the molecular bins.
@@ -76,8 +88,10 @@ work packages).
 4. **Super-H physical stop for large PAHs** (a pahchem question): barriers past +24, the Eley-Rideal bracket, a check
    against the 3.4 um band. Until then the H2 and r_ali tables of PAH bins 3-4 are provisional, and the production
    tables need the user's choice of super-H chemistry and cap (decision of 2026-11-15).
-5. **The PAH/grain seam**: which side moves, the PAH thresholds and recombination (pahchem) or the grain material
-   `ac`.
+5. ~~**The PAH/grain seam**~~ **Decided 2026-11-23:** the gap is the electron sticking on cations (x1.3-2.7 of
+   the x1.4-2.5 heating difference), unmeasured beyond N_C 16 (range 0.3-1). One labelled law: molecules on pahchem's
+   lab_cold, `ac` taking the same value at N_C 400 and tapering to WD01 by ~3 nm; A5 runs the brackets (WD01
+   everywhere; molecular everywhere).
 6. **Associative detachment on intact PAH anions**: it decides the dense-gas PAH charge.
 7. **A finer G0 axis above 1e4** for the carbon-loss tables of PAH bins 2-3, if runs reach fields near massive stars.
 8. **Default N_C,max** (400) after the extended band test; whether to use a xi(a) transition band for the DL07
@@ -96,6 +110,11 @@ work packages).
     would be its own RAMSES PR and change D by ~5e-10.
 
 Decided (for reference):
+- carbon mass transfer (2026-11-23): no PAH clusters (rung M2's cluster part and P4 removed); legacy CALIMA
+  PAH-PAH / PAH-grain methods not reused; molecule + molecule no outcome, molecules never shatter or crater;
+  molecule + grain >= 20 nm unit sticking; molecule + nano-grain S_eff = 1/(1 + R_abs (P_th + Y_pd) t_bury), Y_pd a
+  labelled calibrated photodesorption yield (default 0, calibrated in A5 on molecular-cloud parity and dense-core
+  depletion); the hydrocarbon-family identity below N_C,max (2026-10-30) stands;
 - two moments, EA closure, 8 bins (re-confirmed 2026-11-22 after the collide fix);
 - grain hydrogen: equilibrium band gap, nothing tracked by default; M_H block compile-time 0-4 bins (2026-11-22);
 - carbon material: THEMIS a-C(:H) default, graphite control (2026-11-22);
@@ -170,7 +189,7 @@ Conservation tests first: carbon and hydrogen to round-off, H/C within bounds. T
 **pahchem (new modules only):**
 - [ ] P1: the hydrocarbon family (states up to N_H ~ 1.4 N_C).
 - [ ] P3: the H-coordinate tables.
-- [ ] P4: the cluster population (rung M2).
+- ~~P4: the cluster population~~ (dropped 2026-11-23).
 - [ ] P5: a-C(:H) photo-fragmentation (Jones & Ysard 2025).
 - [ ] The production PAH hydrogen tables wait on decision 4.
 

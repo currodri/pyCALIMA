@@ -216,7 +216,9 @@ Figure~\ref{fig:network} shows the carriers and what they exchange. The rules be
 \centering
 \includegraphics[width=\textwidth]{figs/carbon_network.png}
 \caption{The carbon carriers of the plan and their exchanges with each other, the radiation and the gas. The badges
-mark the rung that adds each process (M0 is the baseline); dashed boxes are optional rungs.}
+mark the rung that adds each process (M0 is the baseline); dashed boxes are optional rungs. \emph{Out of date since
+23 November:} the PAH-cluster box (M2) was dropped from the model and photo-fragmentation is an opt-in process
+(Sect.~\ref{sec:transfer}); the figure's source is updated, the image is to be re-rendered.}
 \label{fig:network}
 \end{figure}
 
@@ -232,7 +234,7 @@ rung & adds & carbon scalars & memory per $10^6$ cells \\
 M0 & the GSD with THEMIS-like carbon; molecular tables below $\NC = 400$; equilibrium H everywhere & 22 & 620 / 350 MB \\
 M1 & tracked $\MH$ in the covalent bins below 53\,nm: UV H loss, re-hydrogenation, H$_2$ release, $\Eg$ follows H/C &
   +4 (was +8) & $\approx$ 680 / 420 MB \\
-M2 & a-C(:H) photo-fragmentation; optionally PAH clusters with photo-evaporation & +0 or +4 & \\
+M2 & \emph{removed 23 November} (no PAH clusters); a-C(:H) photo-fragmentation is now an opt-in process & -- & \\
 M3 & a hydrogenated skin on large grains (dense-gas mantles) & +3 & \\
 \bottomrule
 \end{tabularx}
@@ -1777,6 +1779,123 @@ D & source (Form A) + growth ($\epsilon$) & TMC-1 for $\kappa$; Zhang+25 for $\e
 form.
 
 %======================================================================================================================
+\section{How carbon moves between molecules, nano-grains, grains and the gas (23 November)}\label{sec:transfer}
+
+Before A3c the shattering and coagulation modelling of carbon was reopened: what shattered fragments become, how
+PAH-sized carbon moves up in size, and how erosion routes carbon between the species. The study has three
+literature reviews (collisions; erosion; growth and identity) plus two on survival and release, a check of the
+original design against them, and four quantitative checks (scripts \texttt{diagnostics/gsd/check\_carbon\_*.py} and
+\texttt{check\_seam\_decomposition.py}; notes and outputs in \texttt{overview/lit/} and \texttt{overview/tables/}).
+
+\paragraph{The original design stands where it was decided.} The 30 October design already routed nearly every
+process, and the literature confirms it: fragments keep their parent's H/C (Murga et al.\ 2016's choice, the only
+published one); molecules and nano-grains freeze out onto large grains (K\"ohler et al.\ 2015); growth of molecules is
+reaction-limited; PAH carbon loss is a downward shift; sublimation uses graphite as the a-C proxy. The identity of carbon
+below $\NC^{\max}$ is the hydrocarbon family along the hydrogen coordinate: a PAH unless bare (a-C-like) or fully
+hydrogenated (a-C:H-like), the structure at equal H/C a labelled assumption. The literature cannot settle that
+structure: size diagnostics fix the emitters' size (about 40--100\,C), not their planarity, and THEMIS and PAH-database
+fits both reproduce the bands. Two records were found wanting: the October test behind ``3--4 bins over $\NC$
+20--400 keep the 3.3\,\textmu m ratios within 2--7\,\%'' left no script or output (to redo with the extended
+$\NC^{\max}$ test), and $\NC^{\max} = 400$ loses its main anchor (evaporating VSGs as clusters of $\ge400$\,C) with the
+clusters; the band physics still supports 150--400\,C.
+
+\paragraph{What the checks show.}
+\begin{itemize}
+\item \textbf{The seam is first-order for the gas.} For THEMIS J13 carbon (43\,\% of it below 400\,C) that carbon carries
+  70--80\,\% of the grain photoelectric heating and recombination cooling; charging it with the PAH tables instead of
+  \texttt{ac} multiplies the total heating by 1.4 (CNM, dense) to 2.5 (WNM, PDR), and still by 1.2--2.0 if only
+  10--20\,\% of the carbon is below 400\,C (\texttt{check\_carbon\_heating\_share.py}).
+\item \textbf{Timescales} (\texttt{check\_carbon\_transfer\_timescales.py}): shattering refills the small bins in about
+  $10^7$\,yr in warm gas; bin 1 (20--42\,C) photolyses in $2\times10^6$\,yr (diffuse) and 300\,yr (PDR), bins 3--4 never;
+  a-C hydrogen relaxes in $3\times10^3$\,yr (diffuse) and 3\,yr (PDR) with the laboratory laws, so the equilibrium band
+  gap is consistent where there is UV; freeze-out onto grains takes $3\times10^7$\,yr (CNM) and $3$--$5\times10^5$\,yr
+  (dense cloud; Seok et al.\ 2014: 0.3--0.5\,Myr).
+\item \textbf{Molecules must not collide with molecules under grain physics.} In the code as it was, PAH--PAH sticking
+  (cold gas) and even PAH--PAH ``shattering'' (warm gas: thermal speeds of $\sim$3\,km\,s$^{-1}$ above graphite's
+  1.2\,km\,s$^{-1}$) dominate the molecular bins 10--25 times over freeze-out.
+\item \textbf{One-zone runs} (\texttt{check\_carbon\_transfer\_options.py}, Table~\ref{tab:transfer}): whether molecules
+  stick to nano-grains decides how much PAH-sized carbon survives in cold gas.
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{One-zone runs of the carbon grid from THEMIS J13 (collisions with graphite strength and HY09 sticking, neutral
+grains; molecular carbon loss from the pahchem tables): carbon shares at the end. O0: the code as it was; O1: no
+molecule--molecule outcome, molecules only stick to larger particles; O2: as O1, molecules stick only to grains
+$\ge20$\,nm. Last column: total photoelectric heating with the molecular bins on PAH tables over \texttt{ac}.}\label{tab:transfer}
+\begin{tabular}{@{}l l r r r r r@{}}
+\toprule
+cell & rule & molecular & nano 1--20\,nm & grains $\ge20$\,nm & gas & heating PAH/ac \\
+\midrule
+start & & 0.463 & 0.272 & 0.266 & 0 & \\
+WNM, 30\,Myr & O0 & 0.283 & 0.165 & 0.002 & 0.550 & 2.77 \\
+ & O1 / O2 & 0.348 & 0.309 & 0.014 & 0.329 & 2.62 \\
+CNM, 30\,Myr & O0 & 0.038 & 0.542 & 0.256 & 0.164 & 1.10 \\
+ & O1 & 0.087 & 0.444 & 0.259 & 0.210 & 1.25 \\
+ & O2 & 0.246 & 0.273 & 0.261 & 0.220 & 1.57 \\
+dense, 1\,Myr & O0 & 0.004 & 0.670 & 0.326 & 0 & 1.01 \\
+ & O1 & 0.028 & 0.649 & 0.323 & 0 & 1.07 \\
+ & O2 & 0.398 & 0.251 & 0.351 & 0 & 1.43 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Observations of PAH survival.} PAHs survive at molecular-cloud scale: $q_{\rm PAH}$ in molecular gas equals
+the diffuse value to $\pm30$\,\% in the LMC and SMC (Chastenet et al.\ 2019), JWST finds the PAH abundance insensitive to
+the molecular fraction (Chastenet et al.\ 2023), and translucent clouds show no drop from $A_V$ 1 to 3 (Zhang et al.\
+2025). Dense, dark filaments and cores ($n_{\rm H}\gtrsim$ a few $10^3$, $A_V\gtrsim2$--3) lose small-grain emission by a
+factor of a few (Stepnik et al.\ 2003; Flagey et al.\ 2009; Ysard et al.\ 2013), partly from the weaker heating field.
+Sticking to everything conflicts with the first (PAH bins 2--4 lose 72\,\% in 30\,Myr of CNM); sticking only to big
+grains (21\,\%) passes it but may lose too little in cores.
+
+\paragraph{Release from nano-grains.} A PAH binds to a carbon surface at about 0.05\,eV per C (Zacharia et al.\ 2004).
+One UV photon heats a 1\,nm host to 400--640\,K but a 3\,nm host only to 100--140\,K, so thermal release is a
+single-photon effect for small PAHs on the smallest hosts (Montillaud \& Joblin 2014; Lange et al.\ 2023). No other
+channel was found that releases a PAH from a host of 3\,nm or more (cosmic-ray heating, reactive desorption, collisions,
+host photo-fragmentation, shocks: all negligible or $\gtrsim10^8$\,yr) except non-thermal photodesorption, unmeasured for
+PAHs on carbon or ice: a yield of only $\sim10^{-7}$ per absorbed photon balances freeze-out in the CNM, while a dense
+cloud would need $\sim10^{-3}$. Such a yield alone gives the observed pattern.
+
+\paragraph{The seam is electron sticking.} Redone with today's pahchem (four-state chains reproducing both full solves),
+the heating gap decomposes as: photoemission rate $\times$0.95--1.4, energy per photoelectron $\times$0.7--1.3, ion
+channels $\times$1.0--1.2, and electron capture $\times$1.3--2.7 in bins 2--4. Both sides use the same Coulomb focusing;
+the difference is the sticking on cations: pahchem's laboratory fit reaches 1 by $\sim$35\,C, WD01's grain law gives
+0.2--0.3. No recombination rate has been measured beyond 16\,C; WD01's 0.5 ceiling and 1\,nm escape length are
+assumptions; C$_{60}$'s neutral attachment ($\sim$1, Viggiano et al.\ 2010) is the only point above. The plausible range
+is 0.3--1 for 35--400\,C, and the gap lies inside it.
+
+\paragraph{Decided (23 November).}
+\begin{itemize}
+\item No PAH clusters (rung M2's cluster part and P4 removed); the legacy CALIMA PAH--PAH and PAH--grain methods are not
+  reused (they stay untouched for runs without the GSD).
+\item Molecule + molecule: no outcome. Molecules never shatter or crater; they only stick to larger particles.
+\item Molecule + grain $\ge20$\,nm: unit sticking (freeze-out). Molecule + nano-grain: $S_{\rm eff} = 1/[1 + R_{\rm abs}
+  (P_{\rm th} + Y_{\rm pd})\,t_{\rm bury}]$, with $R_{\rm abs}$ the adsorbed molecule's photon absorption rate, $P_{\rm th}$
+  the single-photon thermal release (derived), $Y_{\rm pd}$ the non-thermal photodesorption yield (an input labelled
+  ``calibrated'', default 0, calibrated in A5 against the parity and dense-core gates, expected $10^{-7}$--$10^{-6}$) and
+  $t_{\rm bury}$ the host's burial time.
+\item The seam's electron sticking: one labelled law, pahchem's laboratory fit for the molecules, \texttt{ac} taking the
+  same value at $\NC = 400$ and tapering to WD01 by $\sim$3\,nm; A5 runs the brackets (WD01 everywhere; the molecular
+  value everywhere).
+\end{itemize}
+
+\paragraph{Open.}
+\begin{itemize}
+\item \textbf{Hot-gas erosion of the smallest carbon.} Classical sputtering fails below $\NC\approx1000$ (Bocchio et al.\
+  2012). pahchem has modern molecular rates (thermal electron and ion passages, C and H knock-outs; \texttt{population.hot\_passages},
+  \texttt{hot\_ion\_passages}), but the production tables stop at $10^4$\,K. Proposal: extend the tables' temperature axis
+  and join pahchem's rates to the classical yields at $\NC\approx1000$, where Bocchio et al.\ find the two agree.
+\item \textbf{Coulomb explosion: fragments or ion loss.} Two limits compete (Waxman \& Draine 2000; the code's
+  \texttt{explosion\_rate}): mechanical failure when $(U/a)^2/4\pi$ reaches the tensile strength $S_{\max}$ tears the grain
+  into fragments, while ion field emission at $\sim3\times10^8$\,V\,cm$^{-1}$ sheds ions one by one. The crossover is at
+  $S_{\max}\approx8\times10^{10}$\,erg\,cm$^{-3}$: flawed or porous grains ($10^9$--$10^{10}$) explode, defect-free grains
+  near the ideal strength ($\sim10^{11}$) shed ions, as the other dissociation channels do. The routing follows from the
+  assumed strength, known only for bulk material; the fragments' size law ($a^{-3.3}$) is an assumption.
+\item The a-C:H end of the hydrocarbon family (P1) and the bare end (pahchem's bare states or a-C physics).
+\item Labelled omissions: vaporisation above $\sim$19\,km\,s$^{-1}$, fullerenes, cosmic-ray processing.
+\end{itemize}
+
+%======================================================================================================================
 \section{What RAMSES will need}
 
 \paragraph{Memory.} Measured on today's RAMSES-CALIMA: every table is real*8 and read in full by every MPI rank, at
@@ -1853,7 +1972,14 @@ the GSD scheme would need about 190\,MiB per rank: 8 carbon and 8 silicate grain
   own power-law velocities and rates, as RAMSES-MCR does for cosmic rays.
 \item \textbf{Kernel averaging} in the collisions (Sect.~\ref{sec:variants}): available as an option; to be tested in
   the full collision model before deciding on a default.
-\item \textbf{The PAH/grain seam:} which side moves, PAH thresholds and recombination (pahchem) or \texttt{ac}?
+\item \emph{Decided 23 November} (Sect.~\ref{sec:transfer}): the carbon mass transfer. No PAH clusters; molecules
+  do not interact with molecules; they freeze out onto grains $\ge20$\,nm everywhere and onto nano-grains with a
+  photo-release term whose non-thermal yield is a labelled, calibrated input (default 0); the seam's electron
+  sticking is one labelled law (molecular below $\NC = 400$, tapering to WD01 by $\sim$3\,nm), bracketed in A5.
+\item \textbf{Still open from the transfer study:} PAH erosion in hot gas with pahchem's impact rates (the tables stop
+  at $10^4$\,K) joined to classical sputtering at $\NC\approx1000$; the routing of Coulomb explosion (fragments or ion
+  loss, set by the assumed tensile strength); the a-C:H end of the hydrocarbon family (P1) and the bare end; redoing
+  the band test.
 \item \textbf{The super-H physical stop} for large PAHs, a pahchem question: barriers past +24, the Eley--Rideal bracket,
   a check against the 3.4\,\textmu m band. Until then, the H$_2$ and $r_{\rm ali}$ tables of bins 3--4 stay provisional.
 \item \textbf{A finer $G_0$ axis above $10^4$} for the carbon-loss tables of bins 2--3, if the runs reach fields near

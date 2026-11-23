@@ -188,16 +188,7 @@ def build():
     s.append(t(1152, 252, "IR emission", "sm"))
     s.append(t(1152, 267, "radiation pressure → drift", "sm"))
 
-    # PAH clusters (M2)
-    s.append('<g class="proc"><title>M2 only: PAH clusters (van der Waals bonded), ~300–1000 C, around N_C,max. '
-             'Photo-evaporation into free PAHs from PAHdb cluster modes and binding energies (Rapacioli+05/06, '
-             'Montillaud &amp; Joblin 2014); gate: Pilleri+12 eVSG fraction against G0.</title>')
-    s.append('<rect x="230" y="246" width="330" height="44" rx="8" class="opt"/>')
-    s.append(t(244, 265, "PAH clusters (M2 only)", "ink"))
-    s.append(t(244, 282, "~300–1000 C, van der Waals; own N, M", "sm"))
-    s.append(line(270, 291, 270, 318, "C", "C", dash=True))
-    s.append(t(280, 310, "photo-evaporation → free PAHs", "sm"))
-    s.append("</g>")
+    # (PAH clusters were drawn here until 2026-11-23, when they were dropped from the model)
 
     y0, hb = 320, 232
     s.append(box(40, y0, 300, hb, "Molecular carbon",
@@ -211,7 +202,7 @@ def build():
     s.append(box(360, y0, 300, hb, "Covalent a-C nano-grains",
                  ["aromatic a-C ↔ hydrogenated a-C:H", "400 C – 20 nm · 3 bins",
                   "optics: Jones 2012 n,k on an E" + sub("g") + " axis", "charging: ac ↔ ach end members",
-                  "fragmentation: Jones &amp; Ysard 2025 (M2)"],
+                  "fragmentation: Jones &amp; Ysard 2025 (opt-in)"],
                  [("N", "", 30), (MC, "", 40), (MH, "H", 40)],
                  ("H/C sets the band gap E" + sub("g"),
                   [(0.0, "0.1 eV (aromatic)", "start"), (1.0, "2.5 eV (a-C:H)", "end")])))
@@ -250,7 +241,7 @@ def build():
              '(x_min for CM20 large grains). Photo-fragmentation: Jones &amp; Ysard 2025, opt-in until gated.</title>')
     s.append(t(44, 582, "coagulation · freeze-out · accretion growth"))
     s.append(line(345, 578, 1190, 578, "C", "C"))
-    s.append(t(44, 608, "shattering · photo-fragmentation (M2)"))
+    s.append(t(44, 608, "shattering · photo-fragmentation (opt-in)"))
     s.append(line(1190, 604, 345, 604, "C", "C"))
     s.append("</g>")
     s.append('<line x1="40" y1="632" x2="1200" y2="632" class="axis"/>')
