@@ -111,8 +111,9 @@ work packages).
 
 Decided (for reference):
 - carbon mass transfer (2026-11-23): no PAH clusters (rung M2's cluster part and P4 removed); legacy CALIMA
-  PAH-PAH / PAH-grain methods not reused; molecule + molecule no outcome, molecules never shatter or crater;
-  molecule + grain >= 20 nm unit sticking; molecule + nano-grain S_eff = 1/(1 + R_abs (P_th + Y_pd) t_bury), Y_pd a
+  PAH-PAH / PAH-grain methods not reused; molecule + molecule no outcome; molecule + larger particle by impact speed
+  (labelled, C60/cluster surface-impact data): stick < ~4 km/s, rebound between, molecule destroyed > ~7 km/s
+  (carbon to the gas; destroyed in warm turbulent gas, frozen out in cold gas); molecule + nano-grain S_eff = 1/(1 + R_abs (P_th + Y_pd) t_bury), Y_pd a
   labelled calibrated photodesorption yield (default 0, calibrated in A5 on molecular-cloud parity and dense-core
   depletion); the hydrocarbon-family identity below N_C,max (2026-10-30) stands;
 - two moments, EA closure, 8 bins (re-confirmed 2026-11-22 after the collide fix);

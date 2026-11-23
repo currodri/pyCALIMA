@@ -36,8 +36,9 @@ YR = 3.15576e7
 RUNS = {"WNM": dict(myr=30.0, steps=300, cell="WNM"),
         "CNM": dict(myr=30.0, steps=300, cell="CNM"),
         "DC": dict(myr=1.0, steps=100, cell="dense")}
-RULES = ("O0", "O1", "O2")
+RULES = ("O0", "O1", "O2", "O3")
 STEPS_SCALE = 1.0
+BROWNIAN = True
 
 
 class MaskedCollisions:
@@ -57,6 +58,8 @@ class MaskedCollisions:
         mol = a < self.a_mol
         nano = (a >= self.a_mol) & (a < self.a_nano)
         mm = mol[:, None] & mol[None, :]
+        if self.rule == "O3":
+            return self._o3(chans, a, m, mol, mm)
         any_mol = mol[:, None] | mol[None, :]
         mol_nano = (mol[:, None] & nano[None, :]) | (nano[:, None] & mol[None, :])
         out = []
@@ -71,6 +74,38 @@ class MaskedCollisions:
             (r1, f1, h1, l1), (r2, f2, h2, l2) = ch.sets
             out.append(Channel(K, rem1=r1, frag1=f1, a_hi1=h1, a_lo1=l1, rem2=r2, frag2=f2, a_hi2=h2, a_lo2=l2))
         return out
+
+
+def _o3_channels(self, chans, a, m, mol, mm):
+    """O3: grain-grain pairs as the base model; molecule + molecule nothing; molecule + non-molecule by impact speed
+    (molecule-surface impacts, carbon_transfer_impacts notes): stick below V_STICK, rebound intact between, molecule
+    destroyed above V_DESTROY (its carbon to the collector, i.e. the gas; the partner intact)."""
+    from pycalima.gsd.collisions import Channel
+
+    mixed = mol[:, None] ^ mol[None, :]
+    out = []
+    for ch in chans:
+        (r1, f1, h1, l1), (r2, f2, h2, l2) = ch.sets
+        out.append(Channel(np.where(mixed | mm, 0.0, ch.K), rem1=r1, frag1=f1, a_hi1=h1, a_lo1=l1, rem2=r2, frag2=f2,
+                           a_hi2=h2, a_lo2=l2))
+    rv = self.base.velocity
+    dV, mu = rv.pair_statistics(a, m, self.rho)
+    mu = np.maximum(mu, 1e-10)
+    vmean, f_st, _ = rv.collision_speeds(dV, mu, V_STICK, 1)
+    _, f_de, _ = rv.collision_speeds(dV, mu, V_DESTROY, 1)
+    sig = np.pi * (a[:, None] + a[None, :]) ** 2
+    K = sig * vmean
+    M1, M2 = np.broadcast_to(m[:, None], K.shape), np.broadcast_to(m[None, :], K.shape)
+    out.append(Channel(np.where(mixed, K * (1.0 - f_st), 0.0), rem1=M1 + M2))
+    tiny = np.full(K.shape, 0.5 * self.a_min)
+    out.append(Channel(np.where(mixed, K * f_de, 0.0),
+                       rem1=np.where(mol[:, None], 0.0, M1), frag1=np.where(mol[:, None], M1, 0.0), a_hi1=tiny, a_lo1=tiny,
+                       rem2=np.where(mol[None, :], 0.0, M2), frag2=np.where(mol[None, :], M2, 0.0), a_hi2=tiny, a_lo2=tiny))
+    return out
+
+
+MaskedCollisions._o3 = _o3_channels
+V_STICK, V_DESTROY = 4.0e5, 7.0e5      # cm/s: ~1 and ~3 eV per atom (C60 and cluster surface impacts)
 
 
 def carbon_loss_adot(grid, env, n_mol=4):
@@ -102,11 +137,12 @@ def run(grid, N0, M0, env, rule):
     from pycalima.gsd.velocities import RelativeVelocity
 
     e = cts.ENVS[env]
-    rv = RelativeVelocity(T=e["T"], n_H=e["n_H"], mu=1.4, v_turb=e["V"] * 1e5, L=e["L"] * cts.PC)
+    rv = RelativeVelocity(T=e["T"], n_H=e["n_H"], mu=1.4, v_turb=e["V"] * 1e5, L=e["L"] * cts.PC, brownian=BROWNIAN)
     base = GrainCollisions(get_material("themis_ac").shatter, rv, law="KT10", coagulation=cts.COAG[env],
                            a_frag_min=float(grid.a_edges[0]), collector="remove", n_speed=8, table_ppd=None,
                            threads=1)
     model = MaskedCollisions(base, float(grid.a_edges[4]), 20e-7, rule)
+    model.rho, model.a_min = grid.rho, float(grid.a_edges[0])
     adot = carbon_loss_adot(grid, env)
     n = e["n_H"]
     N, M = N0 * n, M0 * n
@@ -147,15 +183,17 @@ def main(argv=None):
     ap.add_argument("--envs", default=",".join(RUNS))
     ap.add_argument("--rules", default=",".join(RULES))
     ap.add_argument("--steps-scale", type=float, default=1.0, help="scale the number of steps (timing tests)")
+    ap.add_argument("--no-brownian", action="store_true", help="turbulent (and drift) velocities only, as most galaxy-scale models")
     args = ap.parse_args(argv)
-    global STEPS_SCALE
+    global STEPS_SCALE, BROWNIAN
     STEPS_SCALE = args.steps_scale
+    BROWNIAN = not args.no_brownian
     from pycalima.gsd.carbon import CarbonLayout
 
     grid = CarbonLayout().grid()
     N0, M0 = cts.bin_state(grid)
     tot = M0.sum()
-    lines = ["One-zone carbon-grid runs from THEMIS J13; carbon shares of the initial carbon mass at the end",
+    lines = [f"One-zone carbon-grid runs from THEMIS J13 (Brownian velocities {'on' if BROWNIAN else 'off'}); carbon shares of the initial carbon mass at the end",
              "env   rule  t[Myr]  molecular  nano(1-20nm)  grains  gas   PE heating PAH/ac   substeps"]
     s0 = (M0[:4].sum() / tot, M0[4:7].sum() / tot, M0[7:].sum() / tot)
     lines.append(f"start             {s0[0]:8.3f}  {s0[1]:10.3f}  {s0[2]:7.3f}  0.000")

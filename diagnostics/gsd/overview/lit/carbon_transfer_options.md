@@ -298,3 +298,41 @@ energy argues for high sticking in molecules, WD01's electron escape (l_e = 1 nm
 - P1's a-C:H end of the hydrocarbon family and the bare-end physics (pahchem bare states or a-C).
 - Redo the band test (3-4 bins over N_C 20-400, evidence missing) with the extended N_C,max test (400 vs ~1000).
 - Labelled omissions: vaporisation above ~19 km/s, fullerenes, cosmic-ray processing.
+
+## Against galaxy-model practice (2026-11-23, user's question)
+- One-zone WNM, 30 Myr, turbulence-only velocities (Brownian off, as most galaxy models): all pairs colliding
+  (O0) leaves molecular 0.298 / nano 0.167 / gas 0.533, against 0.283 / 0.165 / 0.550 with Brownian; our rule (O1)
+  0.348 / 0.309 / 0.329 either way (options_runs_nobrownian.log). So in warm gas the extra loss of O0 is not PAH-PAH
+  collisions: it is molecules shattered as targets (and cratering) in collisions with fast grains, under graphite's
+  bulk strength (Q*_D ~ 0.1 eV per C, far below molecular bond energies).
+- CNM and dense runs without Brownian fail: pairs with zero relative velocity make velocities.py divide by zero
+  (u = v/sigma with sigma = 0; overflow at line 77). Side finding, not fixed.
+- Implication: "molecules never shatter" is too strong for fast impacts. A molecule hit by a large grain at several
+  km/s receives hundreds of eV; fullerene/PAH surface-impact experiments suggest molecules survive up to ~100-200 eV
+  and fragment above (to verify). A molecular destruction threshold (stick below, destroyed above) would sit between
+  O1 and O0 (closer to O1, since molecules are far harder than graphite's bulk strength implies).
+
+## Molecule-grain impacts (molecule_grain_speeds.txt, options_runs_O3.*; literature: C60 and cluster surface impacts)
+- Data (abstract level; no PAH-specific measurements): C60 rebounds intact from graphite and diamond up to ~100-250 eV
+  (MD onsets ~100-200 eV; Busmann+91/93 intact scattering 140-450 eV with metastable fragmentation; Kolodney: sharp onset
+  ~150 eV on gold), i.e. ~2-4 eV per atom; cluster deposition: soft landing < ~0.1 eV/atom, break-up from ~1 eV/atom.
+  Products: C2 loss, then statistical multifragmentation away from the surface. A flat PAH physisorbs at ~0.07 eV per C.
+- Rule (inference, labelled): stick below ~1 eV per atom (~4 km/s, size-independent), rebound intact between, destroyed
+  above ~3 eV per atom (~7 km/s; 5-10 km/s for a factor 2), carbon to the gas. ~30x the bulk Q*_D of the shattering law.
+- Speeds: molecules against grains >= 20 nm, rms 9-30 km/s in WIM/WNM (80-100 % of the flux above 7 km/s); 0.05-1.7
+  km/s in CNM and dense gas (no flux above 4 km/s). Destroyed in warm turbulent gas, frozen out in cold gas.
+- One-zone with this rule (O3, no release term): WNM 30 Myr molecular 0.259 / nano 0.381 / grains 0.010 / gas 0.349
+  (O1: 0.348 / 0.309 / 0.014 / 0.329); CNM as O1. The destruction itself adds only ~0.02 of the carbon to the gas in 30
+  Myr (molecule-large grain collisions are rare: ~1e8 yr), a minor sink next to photolysis (bin 1: 2 Myr) and shattering
+  supply (~1e7 yr). The larger change is more sticking onto nano-grains in warm gas (the 4 km/s trapping limit is more
+  permissive than the grain-grain Chokshi threshold), which the decided photo-release term would largely undo in UV-lit
+  gas.
+- Answer to the user's question: PAH abundances are set by the large grains' shattering (supply), photolysis, freeze-out
+  (cold gas) and hot-gas destruction; molecule-molecule collisions (excluded) and molecule destruction by fast grains
+  (minor) do not control them. The galaxy-model channel worth keeping is the velocity-dependent molecule-grain rule.
+
+## Decided (user, 2026-11-23): velocity-dependent molecule + grain rule (labelled)
+Molecule + non-molecule collisions: stick below ~4 km/s (~1 eV per atom; onto nano-grains still subject to the
+photo-release term), rebound intact between, molecule destroyed above ~7 km/s (~3 eV per atom; carbon to the gas);
+thresholds labelled inputs with per-atom (size-independent) scaling, destruction bracketed 5-10 km/s in A5. Molecule +
+molecule: no outcome. Replaces "molecules never shatter" and the unconditional freeze-out onto grains >= 20 nm.

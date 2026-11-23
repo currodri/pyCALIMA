@@ -1,0 +1,16 @@
+WNM   O0     30.0     0.298       0.167    0.002  0.533     2.78          1753
+WNM   O1     30.0     0.348       0.309    0.014  0.329     2.61          1129
+/Users/currodri/Documents/GitHub/pyCALIMA-gsd-binconv/src/pycalima/gsd/velocities.py:77: RuntimeWarning: overflow encountered in square
+  out[small] = np.log1p(u[small] ** 2) - u[small] ** 2
+/Users/currodri/Documents/GitHub/pyCALIMA-gsd-binconv/src/pycalima/gsd/velocities.py:77: RuntimeWarning: invalid value encountered in subtract
+  out[small] = np.log1p(u[small] ** 2) - u[small] ** 2
+Traceback (most recent call last):
+  File "/Users/currodri/Documents/GitHub/pyCALIMA-gsd-binconv/diagnostics/gsd/check_carbon_transfer_options.py", line 180, in <module>
+    main()
+  File "/Users/currodri/Documents/GitHub/pyCALIMA-gsd-binconv/diagnostics/gsd/check_carbon_transfer_options.py", line 168, in main
+    hr = heating_ratio(grid, M, RUNS[env]["cell"])
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/currodri/Documents/GitHub/pyCALIMA-gsd-binconv/diagnostics/gsd/check_carbon_transfer_options.py", line 142, in heating_ratio
+    return g_p / g_ac
+           ~~~~^~~~~~
+ZeroDivisionError: float division by zero

@@ -1868,8 +1868,15 @@ is 0.3--1 for 35--400\,C, and the gap lies inside it.
 \begin{itemize}
 \item No PAH clusters (rung M2's cluster part and P4 removed); the legacy CALIMA PAH--PAH and PAH--grain methods are not
   reused (they stay untouched for runs without the GSD).
-\item Molecule + molecule: no outcome. Molecules never shatter or crater; they only stick to larger particles.
-\item Molecule + grain $\ge20$\,nm: unit sticking (freeze-out). Molecule + nano-grain: $S_{\rm eff} = 1/[1 + R_{\rm abs}
+\item Molecule + molecule: no outcome.
+\item Molecule + larger particle, by impact speed (C$_{60}$ and cluster surface-impact data; no PAH-specific measurements;
+  labelled): stick below $\sim$4\,km\,s$^{-1}$ ($\sim$1\,eV per atom), rebound intact between, molecule destroyed above
+  $\sim$7\,km\,s$^{-1}$ ($\sim$3\,eV per atom, a factor 2 uncertain; its carbon to the gas). Molecules meet grains
+  $\ge20$\,nm at 9--30\,km\,s$^{-1}$ (rms) in warm turbulent gas and 0.05--1.7\,km\,s$^{-1}$ in cold gas: destroyed in the
+  first, frozen out in the second. The destruction is a minor sink ($\sim$5\,\% of the PAH carbon in 30\,Myr of WNM;
+  molecule--grain collisions take $\sim10^8$\,yr there). This keeps the one channel of the galaxy models' small-grain
+  shattering that acts on molecules, with a molecular threshold $\sim$30 times the bulk strength they use.
+\item Sticking onto grains $\ge20$\,nm is then complete below 4\,km\,s$^{-1}$. Molecule + nano-grain: $S_{\rm eff} = 1/[1 + R_{\rm abs}
   (P_{\rm th} + Y_{\rm pd})\,t_{\rm bury}]$, with $R_{\rm abs}$ the adsorbed molecule's photon absorption rate, $P_{\rm th}$
   the single-photon thermal release (derived), $Y_{\rm pd}$ the non-thermal photodesorption yield (an input labelled
   ``calibrated'', default 0, calibrated in A5 against the parity and dense-core gates, expected $10^{-7}$--$10^{-6}$) and

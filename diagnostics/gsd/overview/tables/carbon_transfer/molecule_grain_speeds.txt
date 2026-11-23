@@ -1,0 +1,10 @@
+Molecule + grain collisions: rms relative speed dV [km/s] and the flux fraction above 4 km/s (sticking ends) and
+7 km/s (molecular destruction, ~3 eV per atom), for molecular bins 1 and 4 against grain bins 5-11 (centres)
+WIM  mol bin 1:   32.6nm dV 14.61 f>4 9.9e-01 f>7 9.5e-01 |   86.6nm dV 22.36 f>4 1.0e+00 f>7 9.9e-01 |  230.4nm dV 29.99 f>4 1.0e+00 f>7 1.0e+00 |  613.1nm dV 27.78 f>4 1.0e+00 f>7 1.0e+00
+WIM  mol bin 4:   32.6nm dV 14.54 f>4 9.9e-01 f>7 9.5e-01 |   86.6nm dV 22.31 f>4 1.0e+00 f>7 9.9e-01 |  230.4nm dV 29.97 f>4 1.0e+00 f>7 1.0e+00 |  613.1nm dV 27.75 f>4 1.0e+00 f>7 1.0e+00
+WNM  mol bin 1:   32.6nm dV  9.31 f>4 9.7e-01 f>7 7.9e-01 |   86.6nm dV 14.81 f>4 9.9e-01 f>7 9.5e-01 |  230.4nm dV 22.59 f>4 1.0e+00 f>7 9.9e-01 |  613.1nm dV 30.03 f>4 1.0e+00 f>7 1.0e+00
+WNM  mol bin 4:   32.6nm dV  9.25 f>4 9.7e-01 f>7 7.9e-01 |   86.6nm dV 14.77 f>4 9.9e-01 f>7 9.5e-01 |  230.4nm dV 22.57 f>4 1.0e+00 f>7 9.9e-01 |  613.1nm dV 30.02 f>4 1.0e+00 f>7 1.0e+00
+CNM  mol bin 1:   32.6nm dV  0.40 f>4 3.3e-65 f>7 3.1e-202 |   86.6nm dV  0.64 f>4 1.7e-24 f>7 1.1e-76 |  230.4nm dV  1.03 f>4 3.8e-09 f>7 7.0e-29 |  613.1nm dV  1.65 f>4 1.4e-03 f>7 5.0e-11
+CNM  mol bin 4:   32.6nm dV  0.39 f>4 1.8e-68 f>7 3.1e-212 |   86.6nm dV  0.63 f>4 6.0e-25 f>7 4.2e-78 |  230.4nm dV  1.03 f>4 3.2e-09 f>7 4.4e-29 |  613.1nm dV  1.65 f>4 1.4e-03 f>7 4.7e-11
+DC   mol bin 1:   32.6nm dV  0.06 f>4 0.0e+00 f>7 0.0e+00 |   86.6nm dV  0.09 f>4 0.0e+00 f>7 0.0e+00 |  230.4nm dV  0.14 f>4 0.0e+00 f>7 0.0e+00 |  613.1nm dV  0.23 f>4 1.5e-194 f>7 0.0e+00
+DC   mol bin 4:   32.6nm dV  0.05 f>4 0.0e+00 f>7 0.0e+00 |   86.6nm dV  0.09 f>4 0.0e+00 f>7 0.0e+00 |  230.4nm dV  0.14 f>4 0.0e+00 f>7 0.0e+00 |  613.1nm dV  0.23 f>4 5.4e-197 f>7 0.0e+00
