@@ -1,0 +1,10 @@
+Per-cell cost, 8 carbon + 8 silicate bins, 27 values per bin, numba, one thread, 2000 cells (MRN-like segments, half with internal fronts):
+  per cell-call (once per cool step):
+    copy (today)                                   0.11 us
+    5 pseudo-bins (adopted)                        0.19 us
+    9 pseudo-bins                                  0.21 us
+    PL2M s tables                                  0.30 us
+    EA exact (s tables + front node integrals)     4.03 us
+  IR group, per substep (Planck csa and Rosseland csr per bin):
+    IR today                                       0.03 us
+    IR 5 pseudo-bins                               0.03 us

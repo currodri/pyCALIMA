@@ -1,0 +1,146 @@
+Population rates against the high-resolution reference: |run/ref - 1| at the end of each A0 run, worst over the cells (WNM, CNM, PDR, dense). EA runs (default) and PL2M runs, each evaluated with its own closure: exact in-bin integral, median or Gauss nodes, bin centre.
+case             rate    method              2      3      4      6      8     12     16     24     32
+sn_diffuse       Gamma   ea exact        1.187  0.546  0.045  0.020  0.011  0.006  0.003  0.002  0.001
+sn_diffuse       Gamma   ea gauss        0.544  0.582  0.040  0.018  0.010  0.005  0.004  0.002  0.002
+sn_diffuse       Gamma   ea area         0.676  0.805  0.089  0.032  0.020  0.008  0.006  0.004  0.002
+sn_diffuse       Gamma   ea area+slope   0.684  0.820  0.076  0.023  0.016  0.007  0.005  0.004  0.002
+sn_diffuse       Gamma   ea mean         0.859  1.297  0.280  0.121  0.072  0.032  0.019  0.010  0.005
+sn_diffuse       Gamma   pl2m exact      0.118  0.566  0.043  0.020  0.011  0.007  0.004  0.002  0.001
+sn_diffuse       Gamma   pl2m median     0.611  1.103  0.177  0.056  0.028  0.007  0.003  0.000  0.000
+sn_diffuse       Gamma   pl2m centre    26.470  8.570  1.743  0.599  0.310  0.131  0.073  0.034  0.018
+sn_diffuse       Lambda  ea exact        1.387  0.564  0.043  0.016  0.007  0.005  0.003  0.001  0.001
+sn_diffuse       Lambda  ea gauss        0.391  0.549  0.035  0.012  0.008  0.005  0.003  0.003  0.002
+sn_diffuse       Lambda  ea area         0.478  0.702  0.042  0.014  0.009  0.003  0.005  0.006  0.004
+sn_diffuse       Lambda  ea area+slope   0.470  0.678  0.043  0.013  0.007  0.003  0.006  0.006  0.004
+sn_diffuse       Lambda  ea mean         0.684  1.419  0.260  0.120  0.075  0.036  0.025  0.015  0.008
+sn_diffuse       Lambda  pl2m exact      0.166  0.569  0.042  0.017  0.009  0.005  0.003  0.001  0.001
+sn_diffuse       Lambda  pl2m median     0.450  1.166  0.131  0.049  0.025  0.007  0.002  0.001  0.000
+sn_diffuse       Lambda  pl2m centre    24.637  7.657  1.522  0.545  0.286  0.120  0.066  0.032  0.017
+sn_diffuse       S       ea exact        1.716  0.727  0.036  0.005  0.003  0.001  0.001  0.001  0.001
+sn_diffuse       S       ea gauss        0.519  0.564  0.007  0.002  0.000  0.002  0.001  0.001  0.001
+sn_diffuse       S       ea area         0.519  0.564  0.007  0.002  0.000  0.002  0.001  0.001  0.001
+sn_diffuse       S       ea area+slope   0.519  0.564  0.007  0.002  0.000  0.002  0.001  0.001  0.001
+sn_diffuse       S       ea mean         0.895  1.273  0.294  0.127  0.075  0.032  0.018  0.008  0.004
+sn_diffuse       S       pl2m exact      0.538  0.745  0.038  0.004  0.001  0.002  0.001  0.001  0.001
+sn_diffuse       S       pl2m median     0.580  1.073  0.175  0.060  0.030  0.009  0.004  0.001  0.001
+sn_diffuse       S       pl2m centre    16.266  6.247  1.330  0.514  0.265  0.111  0.061  0.026  0.014
+mrn_accretion    Gamma   ea exact        0.449  0.371  0.018  0.009  0.008  0.003  0.002  0.000  0.000
+mrn_accretion    Gamma   ea gauss        0.135  0.428  0.011  0.013  0.010  0.003  0.002  0.000  0.000
+mrn_accretion    Gamma   ea area         0.131  0.348  0.014  0.015  0.012  0.007  0.006  0.002  0.002
+mrn_accretion    Gamma   ea area+slope   0.123  0.344  0.010  0.012  0.010  0.009  0.007  0.003  0.002
+mrn_accretion    Gamma   ea mean         0.033  0.174  0.108  0.062  0.045  0.033  0.023  0.009  0.006
+mrn_accretion    Gamma   pl2m exact      0.113  0.383  0.144  0.099  0.061  0.029  0.016  0.007  0.004
+mrn_accretion    Gamma   pl2m median     0.092  0.063  0.085  0.058  0.033  0.015  0.008  0.004  0.003
+mrn_accretion    Gamma   pl2m centre    11.699  0.961  0.930  0.270  0.146  0.077  0.052  0.023  0.012
+mrn_accretion    Lambda  ea exact        0.437  0.336  0.012  0.008  0.007  0.001  0.001  0.000  0.000
+mrn_accretion    Lambda  ea gauss        0.141  0.395  0.009  0.012  0.009  0.003  0.002  0.000  0.000
+mrn_accretion    Lambda  ea area         0.141  0.351  0.016  0.015  0.009  0.008  0.006  0.003  0.001
+mrn_accretion    Lambda  ea area+slope   0.134  0.318  0.007  0.009  0.005  0.009  0.006  0.003  0.001
+mrn_accretion    Lambda  ea mean         0.014  0.180  0.111  0.062  0.046  0.034  0.021  0.010  0.005
+mrn_accretion    Lambda  pl2m exact      0.101  0.348  0.136  0.089  0.053  0.024  0.014  0.006  0.004
+mrn_accretion    Lambda  pl2m median     0.095  0.059  0.082  0.053  0.029  0.013  0.008  0.004  0.002
+mrn_accretion    Lambda  pl2m centre     8.914  0.990  0.777  0.225  0.126  0.088  0.057  0.025  0.013
+mrn_accretion    S       ea exact        0.322  0.230  0.012  0.004  0.004  0.000  0.001  0.000  0.000
+mrn_accretion    S       ea gauss        0.093  0.289  0.005  0.010  0.007  0.002  0.001  0.000  0.000
+mrn_accretion    S       ea area         0.093  0.289  0.005  0.010  0.007  0.002  0.001  0.000  0.000
+mrn_accretion    S       ea area+slope   0.093  0.289  0.005  0.010  0.007  0.002  0.001  0.000  0.000
+mrn_accretion    S       ea mean         0.033  0.115  0.096  0.053  0.036  0.025  0.015  0.007  0.004
+mrn_accretion    S       pl2m exact      0.039  0.249  0.115  0.072  0.042  0.019  0.011  0.005  0.003
+mrn_accretion    S       pl2m median     0.057  0.034  0.057  0.037  0.020  0.009  0.006  0.003  0.002
+mrn_accretion    S       pl2m centre    11.184  1.083  0.948  0.276  0.153  0.087  0.054  0.024  0.013
+mrn_coagulation  Gamma   ea exact        1.225  0.127  0.056  0.033  0.003  0.004  0.001  0.000  0.000
+mrn_coagulation  Gamma   ea gauss        0.168  0.213  0.033  0.026  0.007  0.003  0.000  0.000  0.000
+mrn_coagulation  Gamma   ea area         0.174  0.181  0.018  0.029  0.016  0.007  0.004  0.002  0.001
+mrn_coagulation  Gamma   ea area+slope   0.189  0.175  0.050  0.043  0.015  0.009  0.006  0.002  0.001
+mrn_coagulation  Gamma   ea mean         0.315  0.562  0.234  0.151  0.089  0.043  0.025  0.011  0.006
+mrn_coagulation  Gamma   pl2m exact      0.292  0.159  0.043  0.006  0.004  0.001  0.001  0.000  0.000
+mrn_coagulation  Gamma   pl2m median     0.135  0.294  0.085  0.056  0.030  0.012  0.007  0.003  0.002
+mrn_coagulation  Gamma   pl2m centre     7.146  1.530  0.552  0.215  0.137  0.054  0.029  0.011  0.005
+mrn_coagulation  Lambda  ea exact        1.137  0.093  0.050  0.023  0.001  0.002  0.001  0.000  0.000
+mrn_coagulation  Lambda  ea gauss        0.157  0.176  0.028  0.017  0.005  0.001  0.000  0.000  0.000
+mrn_coagulation  Lambda  ea area         0.161  0.159  0.021  0.015  0.007  0.006  0.003  0.002  0.001
+mrn_coagulation  Lambda  ea area+slope   0.172  0.126  0.034  0.024  0.010  0.008  0.005  0.002  0.002
+mrn_coagulation  Lambda  ea mean         0.304  0.549  0.225  0.139  0.081  0.040  0.023  0.011  0.006
+mrn_coagulation  Lambda  pl2m exact      0.250  0.121  0.040  0.007  0.005  0.000  0.001  0.000  0.000
+mrn_coagulation  Lambda  pl2m median     0.127  0.332  0.082  0.054  0.029  0.012  0.007  0.003  0.002
+mrn_coagulation  Lambda  pl2m centre     5.577  1.790  0.444  0.204  0.135  0.051  0.029  0.010  0.006
+mrn_coagulation  S       ea exact        0.778  0.026  0.041  0.014  0.000  0.002  0.001  0.000  0.000
+mrn_coagulation  S       ea gauss        0.124  0.103  0.021  0.007  0.003  0.000  0.000  0.000  0.000
+mrn_coagulation  S       ea area         0.124  0.103  0.021  0.007  0.003  0.000  0.000  0.000  0.000
+mrn_coagulation  S       ea area+slope   0.124  0.103  0.021  0.007  0.003  0.000  0.000  0.000  0.000
+mrn_coagulation  S       ea mean         0.261  0.363  0.206  0.127  0.068  0.034  0.020  0.009  0.005
+mrn_coagulation  S       pl2m exact      0.090  0.064  0.037  0.006  0.004  0.000  0.001  0.000  0.000
+mrn_coagulation  S       pl2m median     0.112  0.184  0.058  0.046  0.022  0.010  0.006  0.002  0.001
+mrn_coagulation  S       pl2m centre     6.733  1.755  0.552  0.233  0.154  0.056  0.032  0.011  0.006
+mrn_shattering   Gamma   ea exact        1.009  0.115  0.041  0.113  0.044  0.021  0.011  0.005  0.002
+mrn_shattering   Gamma   ea gauss        1.554  0.208  0.077  0.129  0.054  0.024  0.010  0.005  0.002
+mrn_shattering   Gamma   ea area         1.606  0.385  0.189  0.192  0.088  0.046  0.026  0.016  0.007
+mrn_shattering   Gamma   ea area+slope   1.606  0.385  0.174  0.178  0.081  0.043  0.025  0.016  0.007
+mrn_shattering   Gamma   ea mean         1.651  0.592  0.337  0.267  0.127  0.064  0.036  0.021  0.009
+mrn_shattering   Gamma   pl2m exact      0.348  0.110  0.024  0.112  0.032  0.017  0.010  0.004  0.002
+mrn_shattering   Gamma   pl2m median     1.447  0.471  0.224  0.195  0.070  0.030  0.016  0.006  0.004
+mrn_shattering   Gamma   pl2m centre    50.356  9.237  2.888  1.128  0.499  0.219  0.122  0.058  0.032
+mrn_shattering   Lambda  ea exact        1.872  0.148  0.041  0.103  0.046  0.022  0.011  0.005  0.002
+mrn_shattering   Lambda  ea gauss        1.427  0.242  0.109  0.149  0.071  0.029  0.009  0.004  0.002
+mrn_shattering   Lambda  ea area         1.430  0.314  0.137  0.155  0.073  0.045  0.032  0.026  0.011
+mrn_shattering   Lambda  ea area+slope   1.412  0.275  0.108  0.145  0.068  0.043  0.031  0.026  0.011
+mrn_shattering   Lambda  ea mean         1.535  0.678  0.356  0.278  0.141  0.076  0.050  0.034  0.013
+mrn_shattering   Lambda  pl2m exact      0.765  0.141  0.027  0.102  0.034  0.018  0.011  0.005  0.002
+mrn_shattering   Lambda  pl2m median     1.318  0.518  0.226  0.195  0.073  0.031  0.016  0.007  0.005
+mrn_shattering   Lambda  pl2m centre    50.989  8.699  2.666  1.053  0.459  0.203  0.121  0.065  0.036
+mrn_shattering   S       ea exact        3.555  0.423  0.150  0.156  0.062  0.028  0.013  0.006  0.003
+mrn_shattering   S       ea gauss        1.682  0.274  0.110  0.146  0.058  0.026  0.012  0.006  0.003
+mrn_shattering   S       ea area         1.682  0.274  0.110  0.146  0.058  0.026  0.012  0.006  0.003
+mrn_shattering   S       ea area+slope   1.682  0.274  0.110  0.146  0.058  0.026  0.012  0.006  0.003
+mrn_shattering   S       ea mean         1.823  0.706  0.389  0.292  0.136  0.062  0.033  0.015  0.008
+mrn_shattering   S       pl2m exact      1.553  0.414  0.133  0.154  0.049  0.023  0.013  0.005  0.003
+mrn_shattering   S       pl2m median     1.438  0.558  0.265  0.221  0.081  0.035  0.019  0.008  0.004
+mrn_shattering   S       pl2m centre    30.430  6.285  2.187  0.949  0.417  0.181  0.100  0.044  0.024
+mrn_sputtering   Gamma   ea exact        2.517  0.073  0.006  0.014  0.002  0.001  0.001  0.000  0.000
+mrn_sputtering   Gamma   ea gauss        0.765  0.090  0.028  0.007  0.003  0.001  0.000  0.000  0.000
+mrn_sputtering   Gamma   ea area         0.758  0.066  0.076  0.009  0.010  0.003  0.002  0.001  0.000
+mrn_sputtering   Gamma   ea area+slope   0.771  0.050  0.041  0.015  0.008  0.004  0.003  0.001  0.001
+mrn_sputtering   Gamma   ea mean         0.940  0.502  0.301  0.154  0.088  0.042  0.024  0.010  0.006
+mrn_sputtering   Gamma   pl2m exact      0.240  0.050  0.054  0.006  0.004  0.001  0.001  0.000  0.000
+mrn_sputtering   Gamma   pl2m median     0.288  0.213  0.193  0.057  0.028  0.011  0.006  0.003  0.001
+mrn_sputtering   Gamma   pl2m centre     4.342  1.454  0.750  0.216  0.157  0.061  0.033  0.017  0.009
+mrn_sputtering   Lambda  ea exact        2.215  0.082  0.003  0.014  0.002  0.001  0.001  0.000  0.000
+mrn_sputtering   Lambda  ea gauss        0.725  0.075  0.032  0.006  0.003  0.001  0.001  0.000  0.000
+mrn_sputtering   Lambda  ea area         0.721  0.073  0.088  0.013  0.011  0.004  0.002  0.002  0.001
+mrn_sputtering   Lambda  ea area+slope   0.729  0.058  0.038  0.013  0.003  0.004  0.003  0.001  0.001
+mrn_sputtering   Lambda  ea mean         0.889  0.480  0.298  0.150  0.085  0.041  0.024  0.011  0.006
+mrn_sputtering   Lambda  pl2m exact      0.151  0.047  0.036  0.006  0.004  0.001  0.000  0.000  0.000
+mrn_sputtering   Lambda  pl2m median     0.276  0.205  0.172  0.052  0.027  0.010  0.006  0.002  0.001
+mrn_sputtering   Lambda  pl2m centre     3.451  1.288  0.664  0.191  0.147  0.058  0.030  0.015  0.008
+mrn_sputtering   S       ea exact        1.206  0.092  0.003  0.015  0.002  0.001  0.001  0.000  0.000
+mrn_sputtering   S       ea gauss        0.355  0.008  0.022  0.009  0.002  0.000  0.000  0.000  0.000
+mrn_sputtering   S       ea area         0.355  0.008  0.022  0.009  0.002  0.000  0.000  0.000  0.000
+mrn_sputtering   S       ea area+slope   0.355  0.008  0.022  0.009  0.002  0.000  0.000  0.000  0.000
+mrn_sputtering   S       ea mean         0.482  0.294  0.241  0.127  0.069  0.033  0.020  0.009  0.005
+mrn_sputtering   S       pl2m exact      0.047  0.047  0.024  0.008  0.004  0.001  0.000  0.000  0.000
+mrn_sputtering   S       pl2m median     0.281  0.130  0.147  0.046  0.022  0.009  0.005  0.002  0.001
+mrn_sputtering   S       pl2m centre     3.798  1.350  0.707  0.205  0.151  0.059  0.032  0.016  0.009
+worst of all     Gamma   ea exact        2.517  0.546  0.056  0.113  0.044  0.021  0.011  0.005  0.002
+worst of all     Gamma   ea gauss        1.554  0.582  0.077  0.129  0.054  0.024  0.010  0.005  0.002
+worst of all     Gamma   ea area         1.606  0.805  0.189  0.192  0.088  0.046  0.026  0.016  0.007
+worst of all     Gamma   ea area+slope   1.606  0.820  0.174  0.178  0.081  0.043  0.025  0.016  0.007
+worst of all     Gamma   ea mean         1.651  1.297  0.337  0.267  0.127  0.064  0.036  0.021  0.009
+worst of all     Gamma   pl2m exact      0.348  0.566  0.144  0.112  0.061  0.029  0.016  0.007  0.004
+worst of all     Gamma   pl2m median     1.447  1.103  0.224  0.195  0.070  0.030  0.016  0.006  0.004
+worst of all     Gamma   pl2m centre    50.356  9.237  2.888  1.128  0.499  0.219  0.122  0.058  0.032
+worst of all     Lambda  ea exact        2.215  0.564  0.050  0.103  0.046  0.022  0.011  0.005  0.002
+worst of all     Lambda  ea gauss        1.427  0.549  0.109  0.149  0.071  0.029  0.009  0.004  0.002
+worst of all     Lambda  ea area         1.430  0.702  0.137  0.155  0.073  0.045  0.032  0.026  0.011
+worst of all     Lambda  ea area+slope   1.412  0.678  0.108  0.145  0.068  0.043  0.031  0.026  0.011
+worst of all     Lambda  ea mean         1.535  1.419  0.356  0.278  0.141  0.076  0.050  0.034  0.013
+worst of all     Lambda  pl2m exact      0.765  0.569  0.136  0.102  0.053  0.024  0.014  0.006  0.004
+worst of all     Lambda  pl2m median     1.318  1.166  0.226  0.195  0.073  0.031  0.016  0.007  0.005
+worst of all     Lambda  pl2m centre    50.989  8.699  2.666  1.053  0.459  0.203  0.121  0.065  0.036
+worst of all     S       ea exact        3.555  0.727  0.150  0.156  0.062  0.028  0.013  0.006  0.003
+worst of all     S       ea gauss        1.682  0.564  0.110  0.146  0.058  0.026  0.012  0.006  0.003
+worst of all     S       ea area         1.682  0.564  0.110  0.146  0.058  0.026  0.012  0.006  0.003
+worst of all     S       ea area+slope   1.682  0.564  0.110  0.146  0.058  0.026  0.012  0.006  0.003
+worst of all     S       ea mean         1.823  1.273  0.389  0.292  0.136  0.062  0.033  0.015  0.008
+worst of all     S       pl2m exact      1.553  0.745  0.133  0.154  0.049  0.023  0.013  0.005  0.003
+worst of all     S       pl2m median     1.438  1.073  0.265  0.221  0.081  0.035  0.019  0.008  0.004
+worst of all     S       pl2m centre    30.430  6.285  2.187  0.949  0.417  0.181  0.100  0.044  0.024

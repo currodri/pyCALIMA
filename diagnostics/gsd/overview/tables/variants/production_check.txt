@@ -1,0 +1,50 @@
+Production path (pycalima.gsd, method=...) versus the variants study (diagnostics/gsd/pl2m_variants.py). Differences between the two come from the ea/eaf base: production uses PL2M's BinProfile (spikes beyond PL2M's slope cap), the study a truncated power law beyond that cap; elsewhere the formulas are the same.
+1. McKinnon+18 growth convergence (boxcar 1-5.6 nm, 25 nm in 100 steps): |M/M_exact - 1|, production remap(method=...) / variants module
+   method                     8                    16                    32                    64
+   pl2m   1.422e-01 / 1.422e-01 4.611e-02 / 4.611e-02 1.232e-02 / 1.232e-02 2.544e-03 / 2.544e-03
+   ea     1.620e-02 / 1.620e-02 5.199e-03 / 5.199e-03 1.503e-03 / 1.503e-03 1.201e-13 / 1.137e-13
+   eaf    2.182e-02 / 2.182e-02 5.109e-03 / 5.109e-03 1.077e-03 / 1.077e-03 1.267e-04 / 1.267e-04
+
+2. A0 worst observable (10/30/100 % snapshots, against the stored references), production check_bin_convergence --schemes / variants module (pl2m: the stored binconv_v4 runs)
+   sn_diffuse
+     pl2m  N= 4 0.2461 / 0.2461  N= 6 0.1274 / 0.1274  N= 8 0.0338 / 0.0338  N=12 0.0114 / 0.0114
+     eaf   N= 4 0.2411 / 0.2411  N= 6 0.1281 / 0.1281  N= 8 0.0339 / 0.0339  N=12 0.0114 / 0.0114
+     ea    N= 4 0.2399 / 0.2399  N= 6 0.1280 / 0.1280  N= 8 0.0339 / 0.0339  N=12 0.0114 / 0.0114
+   mrn_accretion
+     pl2m  N= 4 0.2319 / 0.2319  N= 6 0.1424 / 0.1424  N= 8 0.0809 / 0.0809  N=12 0.0321 / 0.0321
+     eaf   N= 4 0.1146 / 0.1146  N= 6 0.0596 / 0.0596  N= 8 0.0413 / 0.0413  N=12 0.0111 / 0.0111
+     ea    N= 4 0.0895 / 0.0895  N= 6 0.0369 / 0.0369  N= 8 0.0277 / 0.0277  N=12 0.0045 / 0.0045
+   mrn_coagulation
+     pl2m  N= 4 0.0794 / 0.0794  N= 6 0.0418 / 0.0418  N= 8 0.0585 / 0.0585  N=12 0.0146 / 0.0146
+     eaf   N= 4 0.0299 / 0.0299  N= 6 0.0181 / 0.0181  N= 8 0.0029 / 0.0029  N=12 0.0017 / 0.0017
+     ea    N= 4 0.0296 / 0.0296  N= 6 0.0183 / 0.0183  N= 8 0.0031 / 0.0031  N=12 0.0025 / 0.0025
+   mrn_shattering
+     pl2m  N= 4 0.0807 / 0.0807  N= 6 0.1640 / 0.1640  N= 8 0.0782 / 0.0782  N=12 0.0546 / 0.0546
+     eaf   N= 4 0.0481 / 0.0481  N= 6 0.1719 / 0.1719  N= 8 0.0444 / 0.0444  N=12 0.0468 / 0.0468
+     ea    N= 4 0.0480 / 0.0480  N= 6 0.1655 / 0.1655  N= 8 0.0439 / 0.0439  N=12 0.0465 / 0.0465
+   mrn_sputtering
+     pl2m  N= 4 0.2117 / 0.2117  N= 6 0.1199 / 0.1199  N= 8 0.1209 / 0.1209  N=12 0.0488 / 0.0488
+     eaf   N= 4 0.0558 / 0.0558  N= 6 0.1163 / 0.1163  N= 8 0.0057 / 0.0057  N=12 0.0067 / 0.0067
+     ea    N= 4 0.0619 / 0.0619  N= 6 0.1169 / 0.1169  N= 8 0.0062 / 0.0062  N=12 0.0029 / 0.0029
+   worst over the cases (production): pl2m 0.246/0.164/0.121/0.055; eaf 0.241/0.172/0.044/0.047; ea 0.240/0.166/0.044/0.046  (N = 4/6/8/12)
+   pl2m production reruns identical to the stored runs: 8 of 20; the others differ by round-off (max rel. difference of any observable): sn_diffuse/4: 1.1e-12, sn_diffuse/6: 6.2e-12, sn_diffuse/8: 1.3e-13, sn_diffuse/12: 9.6e-14, mrn_coagulation/4: 3.0e-14, mrn_coagulation/6: 4.0e-14, mrn_coagulation/8: 2.9e-14, mrn_coagulation/12: 1.4e-14, mrn_shattering/4: 3.4e-14, mrn_shattering/6: 1.8e-14, mrn_shattering/8: 3.6e-14, mrn_shattering/12: 2.4e-14
+   (the HEAD code before the port gives the same round-off difference on sn_diffuse/8: the stored binconv_v4 files predate the last collision commits; production pl2m == HEAD code bit for bit)
+
+3. A0 with the default (eaf) at the full bin list: worst observable [metric]; second row: the stored PL2M runs (binconv_v4)
+   sn_diffuse       eaf  2: 4.5710 [curve(2.2)]  3: 0.3462 [curve(0.1)]  4: 0.2411 [R_V]  6: 0.1281 [curve(2.2)]  8: 0.0339 [curve(2.2)]  12: 0.0114 [curve(2.2)]  16: 0.0049 [curve(2.2)]  24: 0.0046 [slope]  32: 0.0018 [slope]
+                    pl2m 2: 4.5710  3: 0.4598  4: 0.2461  6: 0.1274  8: 0.0338  12: 0.0114  16: 0.0049  24: 0.0046  32: 0.0018
+   mrn_accretion    eaf  2: 0.4181 [R_V]  3: 0.3090 [curve(0.1)]  4: 0.1146 [curve(0.15)]  6: 0.0596 [UV_slope]  8: 0.0413 [UV_slope]  12: 0.0111 [UV_slope]  16: 0.0128 [slope]  24: 0.0048 [slope]  32: 0.0029 [slope]
+                    pl2m 2: 0.8405  3: 0.4653  4: 0.2319  6: 0.1424  8: 0.0809  12: 0.0321  16: 0.0322  24: 0.0187  32: 0.0220
+   mrn_coagulation  eaf  2: 0.0278 [curve(0.12)]  3: 0.0549 [UV_slope]  4: 0.0299 [curve(0.12)]  6: 0.0181 [width]  8: 0.0029 [curve(0.12)]  12: 0.0017 [curve(0.1)]  16: 0.0016 [slope]  24: 0.0016 [slope]  32: 0.0007 [slope]
+                    pl2m 2: 1.3192  3: 0.4413  4: 0.0794  6: 0.0418  8: 0.0585  12: 0.0146  16: 0.0019  24: 0.0043  32: 0.0004
+   mrn_shattering   eaf  2: 0.8188 [a_m]  3: 0.2087 [a_m]  4: 0.0481 [width]  6: 0.1719 [a_m]  8: 0.0444 [curve(1.65)]  12: 0.0468 [curve(1.65)]  16: 0.0304 [curve(1.65)]  24: 0.0257 [curve(1.65)]  32: 0.0168 [curve(1.65)]
+                    pl2m 2: 1.3108  3: 0.4061  4: 0.0807  6: 0.1640  8: 0.0782  12: 0.0546  16: 0.0310  24: 0.0232  32: 0.0169
+   mrn_sputtering   eaf  2: 2.8564 [curve(2.2)]  3: 0.1152 [slope]  4: 0.0558 [R_V]  6: 0.1163 [width]  8: 0.0057 [slope]  12: 0.0067 [slope]  16: 0.0035 [width]  24: 0.0040 [slope]  32: 0.0024 [slope]
+                    pl2m 2: 3.0923  3: 0.7815  4: 0.2117  6: 0.1199  8: 0.1209  12: 0.0488  16: 0.0140  24: 0.0090  32: 0.0045
+   worst over the cases, eaf / pl2m: 2: 4.571/4.571  3: 0.346/0.781  4: 0.241/0.246  6: 0.172/0.164  8: 0.044/0.121  12: 0.047/0.055  16: 0.030/0.032  24: 0.026/0.023  32: 0.017/0.022
+
+4. Rates on the production eaf A0 end states (PE heating, recombination cooling, surface; worst over the cells, rates and cases): |run/ref - 1| with the eaf exact in-bin integral / Gauss rate nodes (the default rate_nodes); variants module: eaf exact / its median nodes, and EA + Gauss nodes
+   N= 4: production eaf 0.1020 / gauss 0.1020;  variants eaf 0.1020 / median 0.2741;  variants EA+Gauss 0.0453 / 0.0430
+   N= 6: production eaf 0.1431 / gauss 0.1469;  variants eaf 0.1431 / median 0.2201;  variants EA+Gauss 0.0209 / 0.0232
+   N= 8: production eaf 0.0476 / gauss 0.0624;  variants eaf 0.0476 / median 0.0835;  variants EA+Gauss 0.0099 / 0.0206
+   N=12: production eaf 0.0190 / gauss 0.0222;  variants eaf 0.0190 / median 0.0321;  variants EA+Gauss 0.0065 / 0.0082
