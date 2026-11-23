@@ -8,7 +8,7 @@ git-ignored build directory `results/gsd_overview/`, which holds symlinks to the
 |---|---|
 | `gsd_overview.tex` | the report |
 | `make_figures.py` | the figures it draws itself (PAH paths, scores, caps, tables, the PL2M scheme); writes `results/gsd_overview/figs/` |
-| `make_infographic.py` | the carrier-network figure (`figs/carbon_network.html`, then a PNG) |
+| `make_infographic.py` | the model diagram, Fig. 1 (`figs/gsd_model.html`, rendered to PDF and PNG with headless Chrome) |
 | `extract_paths.py` | `results/gsd_overview/data/paths.npz` from the PAH-bin cap runs (run where the run pickles are) |
 | `lit/` | the literature notes behind the report's claims (each with what its sources actually support) |
 | `variants/REPORT.md`, `variants/production_check.py` | the closure-variant study of 17-18 November (a dated study: its bench, `../bench_pl2m_variants.py`, predates the `GSDMethod` API) |

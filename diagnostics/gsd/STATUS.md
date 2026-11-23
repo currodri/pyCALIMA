@@ -122,7 +122,8 @@ Decided (for reference):
 - per-moment TVA drift and sinks;
 - RT optics: 5 PL2M pseudo-bins per bin;
 - grain rates: one charge solve per bin at the area node;
-- an overflow bin above 1 um, computed only above 1e-6 of the cell's dust mass, warning at 1 %;
+- the overflow bin: one wide bin per composition over 1-10 um (23 November; was open-ended above 1 um), computed only
+  above 1e-6 of the cell's dust mass, warning at 1 %;
 - PAH hydrogen tabulated in equilibrium;
 - the predictor RAMSES-only;
 - gsd.charging on LG5, with lattice=False for the full solve.
@@ -134,8 +135,8 @@ Decided (for reference):
   Measure how many radii are needed, and the kernel memory against the planned coarsening (real*4, a cut potential
   range).
 - [ ] Optics with a band-gap (E_g) axis for the M_H bins, with Planck/Rosseland tables to match.
-- [ ] For RAMSES, the E_g axis multiplies the RT pseudo-bins: 5 s x ~6 E_g on 8 bins is ~60 MB of SED_table per
-  node. Measure fewer E_g nodes, or a coarser age axis, before B6/B7.
+- [ ] For RAMSES, the E_g axis multiplies the RT pseudo-bins: 5 s x ~6 E_g on the 4 covalent bins is ~30 MB of
+  SED_table per node (needed with or without M_H, since the equilibrium band gap reads the same axis). Measure fewer E_g nodes, or a coarser age axis, before B6/B7.
 - [ ] Molecular-bin charge and photoelectric heating per GSD bin through `pahchem.group_tables`, conditional on the
   H state.
 - [ ] Molecular-bin band emission per bin, for post-processing (SKIRT), not for RAMSES.
@@ -209,8 +210,9 @@ Conservation tests first: carbon and hydrogen to round-off, H/C within bounds. T
 - [ ] **B6/B7, the tables per GSD bin:**
   - the RT optics as 5 pseudo-bins (ordinary dust bins for SED_table, star polling and the IR means; linear blend
     in s once per cell-call; css dropped);
-  - band emission and charging, molecular or grain type from each table's header;
-  - an E_g axis where M_H is carried.
+  - charging, molecular or grain type from each table's header (band emission goes to the post-processing
+    exporter, not to RAMSES);
+  - an E_g axis for the 4 covalent bins (equilibrium band gap by default, the tracked H/C where M_H is carried).
 - [ ] **Transport:**
   - the ratio pass at the CMA hook, with N outside the CMA groups;
   - M_H as a CMA child (slopes on H/C), and donor-ratio TVA fluxes;
