@@ -22,7 +22,13 @@ Reported per cell: the carbon shares (molecular bins, nano-grains, grains, gas) 
 photoelectric heating and recombination cooling at the end, element conservation, the overflow share, the charge
 solves per cell (= bins) and the Python time per precool and per update.
 
+With ``--molecular DIR`` the molecular bins take their tables (``gsd.molecular.MolecularTables``): the carbon loss
+of pahchem's hydrogen tables in DIR (``--hot DIR``: the hot-gas set above 1e4 K) and, with ``--groups DIR``, their
+charge, heating and cooling from the group tables (``build_molecular_group_tables.py``) and the photo-release S_eff of
+molecules on nano-grains (``--y-pd``: the photodesorption yield, 'calibrated', default 0).
+
     python diagnostics/gsd/run_cell.py demo [--steps 40] [--out results/gsd_a3c/run_cell_demo.txt]
+        [--molecular DIR [--hot DIR] [--groups DIR] [--y-pd Y]]
 """
 from __future__ import annotations
 
@@ -97,7 +103,7 @@ def j13_like(grid, parts, mass_per_h, n_H):
     return N * scale, M * scale
 
 
-def demo_compositions(n_H):
+def demo_compositions(n_H, molecular=None, hot=None, groups=None):
     from dataclasses import replace
 
     from pycalima.gsd import cell
@@ -128,6 +134,10 @@ def demo_compositions(n_H):
                               charging=AreaNodeCharging("themis_ac", cg, radii_per_bin=5, sticking="seam"))
     silicate = cell.Composition(sg, Ns, Ms, "Si", per_si, get_material("silicate").shatter, sputtering="silicate",
                                 sublimation=sub_s, charging=AreaNodeCharging("silicate", sg, radii_per_bin=5))
+    if molecular is not None:
+        from pycalima.gsd.molecular import MolecularTables
+
+        carbon.molecular_tables = MolecularTables.from_directories(molecular, hot, group_dir=groups)
     return carbon, silicate, lay
 
 
@@ -140,15 +150,15 @@ def carbon_shares(c, lay, gas_C):
                      (c.M[nb_mol:].sum() - c.M[nano].sum() + c.overflow_M) * c.per_gram, gas_C]) / tot
 
 
-def demo_cell(name, steps):
+def demo_cell(name, steps, molecular=None, hot=None, groups=None, y_pd=0.0):
     import time
 
     from pycalima.gsd import cell
 
     T, n_H, n_e, G0, V, L, myr, x_n = CELLS[name]
-    carbon, silicate, lay = demo_compositions(n_H)
+    carbon, silicate, lay = demo_compositions(n_H, molecular, hot, groups)
     gas = {"C": 0.5 * SOLAR["C"] * n_H, "Si": 0.5 * SOLAR["Si"] * n_H}
-    opt = cell.Options(table_ppd=None)
+    opt = cell.Options(table_ppd=None, y_pd=y_pd)
     dt = myr * 1e6 * 3.15576e7 / steps
     start = carbon_shares(carbon, lay, gas["C"])
     t_pre = t_up = 0.0
@@ -175,8 +185,11 @@ def cmd_demo(args):
              "(molecular N_C < 400, nano-grains to 20 nm, grains, gas) at the start and the end.",
              "cell   t[Myr]  start: mol   nano  grains  gas    end: mol   nano  grains  gas    Gamma/n_H   Lambda/n_H"
              "  [erg s^-1]  conservation  overflow  solves  ms/precool  ms/update"]
+    if args.molecular:
+        lines.insert(2, f"molecular tables: {args.molecular} (hot: {args.hot}), group tables: {args.groups}, "
+                        f"Y_pd = {args.y_pd:g}")
     for name in CELLS:
-        r = demo_cell(name, args.steps)
+        r = demo_cell(name, args.steps, args.molecular, args.hot, args.groups, args.y_pd)
         lines.append(f"{name:6s} {r['myr']:5.1f}   " + " ".join(f"{x:6.3f}" for x in r["start"]) + "    "
                      + " ".join(f"{x:6.3f}" for x in r["end"])
                      + f"   {r['heating'] / r['n_H']:.2e}   {r['cooling'] / r['n_H']:.2e}            {r['cons']:.1e}"
@@ -212,6 +225,10 @@ def main(argv=None):
     d = sub.add_parser("demo")
     d.add_argument("--steps", type=int, default=40)
     d.add_argument("--out", default="results/gsd_a3c/run_cell_demo.txt")
+    d.add_argument("--molecular", default=None, help="hydrogen-table directory of the molecular bins (carbon loss)")
+    d.add_argument("--hot", default=None, help="hot-gas hydrogen tables (above 1e4 K)")
+    d.add_argument("--groups", default=None, help="group-table directory (charge, heating, photo-release)")
+    d.add_argument("--y-pd", type=float, default=0.0)
     args = ap.parse_args(argv)
     {"oracle": cmd_oracle, "demo": cmd_demo}[args.cmd](args)
 
