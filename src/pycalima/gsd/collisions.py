@@ -705,9 +705,11 @@ def _kernel_averaged_terms(grid, N, M, model, method):
     return run_rows(_pair_rows_eff, args, grid.n_bins, ae, float(grid.rho), alpha, threads_for(work))
 
 
-def _patankar(z_old, z_den, F, h):
+def _patankar(z_old, z_den, F, h, extra=None):
     """Solve z = z_old + h [F z/z_den - diag(colsum F) z/z_den] (columns of
-    the system matrix sum to one: conservative and positive)."""
+    the system matrix sum to one: conservative and positive). With ``extra``
+    (another quantity's old values, e.g. the hydrogen) also its solution with
+    the same matrix: it then moves with the mass at each donor's ratio."""
     n = z_old.size
     # nodes below 1e-30 of the total do not donate (and 1/z would overflow)
     tiny = 1e-30 * max(z_den.sum(), 1e-300)
@@ -716,7 +718,9 @@ def _patankar(z_old, z_den, F, h):
     inv[big] = 1.0 / z_den[big]
     A = -h * F * inv[None, :]
     A[np.diag_indices(n)] = 1.0 + h * F.sum(axis=0) * inv
-    return np.maximum(np.linalg.solve(A, z_old), 0.0)
+    if extra is None:
+        return np.maximum(np.linalg.solve(A, z_old), 0.0)
+    return np.maximum(np.linalg.solve(A, z_old), 0.0), np.maximum(np.linalg.solve(A, extra), 0.0)
 
 
 def _number(N_old, N_den, theta, L, H, h, nb):
@@ -755,7 +759,7 @@ def _hold_mean_mass(grid, N, M, tiny):
 
 
 def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=100000,
-            source=None, norm="max", method=None):
+            source=None, norm="max", method=None, H=None):
     """Advance (N, M) over dt under the collision ``model``. The local error
     of every bin, relative to its value or to ``atol`` times the total
     (number or mass), is held below ``errmax``. ``source`` = (S_N, S_M),
@@ -773,7 +777,12 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
     Each step's error includes how far its number had to be moved to hold the
     mean masses inside their bins (``_hold_mean_mass``): in a step much longer
     than the collision time the two moments' Patankar weights drift apart, and
-    such a step is rejected rather than clipped."""
+    such a step is rejected rather than clipped.
+
+    ``H``: the bins' hydrogen mass (tracer, None: not tracked). It moves with the
+    mass at each donor's H/C, solved with the stage-2 Patankar matrix of the mass
+    (the source, if any, brings none); the result then also has H, overflow_H and
+    sink_H (with the H of bins emptied by round-off)."""
     from .closures import resolve
 
     method = resolve(method)
@@ -786,6 +795,8 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
     M = np.asarray(M, float)
     N, M = _hold_mean_mass(grid, N, M, 1e-30 * max(N.sum(), 1e-300))
     z = np.concatenate([M, [0.0, 0.0]])   # bins, overflow, sink
+    zh = None if H is None else np.concatenate([np.where(M > 0.0, np.asarray(H, float), 0.0),
+                                                [0.0, float(np.sum(np.where(M > 0.0, 0.0, H)))]])
     oN = 0.0
     t = 0.0
     h = dt if h0 is None else min(h0, dt)
@@ -810,7 +821,10 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
         F1, L1, H1 = _terms(grid, N1, M1, model, method)
         z1[:nb] = M1
         Fm, Lm, Hm = 0.5 * (F0 + F1), 0.5 * (L0 + L1), 0.5 * (H0 + H1)
-        z2 = _patankar(z + h * S_M, z1, Fm, h)
+        if zh is None:
+            z2 = _patankar(z + h * S_M, z1, Fm, h)
+        else:
+            z2, zh2 = _patankar(z + h * S_M, z1, Fm, h, zh)
         with np.errstate(divide="ignore", invalid="ignore"):
             th2 = np.where(z1 > 0, z2 / z1, 0.0)
         N2, oN2 = _number(N + h * S_N, N1, th2, Lm, Hm, h, nb)
@@ -833,11 +847,18 @@ def collide(grid, N, M, model, dt, errmax=1e-3, atol=1e-8, h0=None, max_steps=10
             N = N2h
             z = np.concatenate([M2h, z2[nb:]])
             oN += oN2
+            if zh is not None:
+                gone = M2h <= 0.0
+                zh = np.concatenate([np.where(gone, 0.0, zh2[:nb]), zh2[nb:]])
+                zh[nb + 1] += float(zh2[:nb][gone].sum())
         fac = 0.9 * math.sqrt(errmax / max(err, 1e-300))
         h *= min(5.0, max(0.2, fac))
     if worst > 10.0 * errmax:
         warnings.warn(f"collide: {forced} step(s) taken at the smallest step (1e-12 dt) with the error above "
                       f"errmax = {errmax:g}, up to {worst:.3g}: dt is far longer than the collision time",
                       RuntimeWarning, stacklevel=2)
-    return {"N": N, "M": z[:nb], "overflow_N": oN, "overflow_M": z[nb],
-            "sink_M": z[nb + 1], "n_steps": steps, "n_forced": int(forced)}
+    out = {"N": N, "M": z[:nb], "overflow_N": oN, "overflow_M": z[nb],
+           "sink_M": z[nb + 1], "n_steps": steps, "n_forced": int(forced)}
+    if zh is not None:
+        out.update(H=zh[:nb], overflow_H=zh[nb], sink_H=zh[nb + 1])
+    return out

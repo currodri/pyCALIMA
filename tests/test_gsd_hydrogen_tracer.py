@@ -110,3 +110,44 @@ def test_accretion_dilutes_the_hydrogen_and_conserves_it():
     assert gas["C"] == gas_ref["C"] and pop.M.sum() > M.sum()
     assert pop.H.sum() + pop.overflow_H + pop.h_to_gas == pytest.approx(0.3 * M.sum(), rel=1e-12)
     assert pop.H.sum() / pop.M.sum() < 0.3
+
+
+def collision_case():
+    from test_gsd_cell import PC, carbon
+
+    from pycalima.gsd.shattering import GrainCollisions
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    c = carbon(n_H=30.0)
+    g = c.grid
+    rv = RelativeVelocity(T=100.0, n_H=30.0, mu=1.4, v_turb=1e6, L=10 * PC)
+    model = GrainCollisions(c.material, rv, law="KT10", coagulation=True, a_frag_min=float(g.a_edges[0]),
+                            collector="remove", n_speed=4, table_ppd=None, threads=1)
+    return g, c.N, c.M, model
+
+
+def test_collisions_carry_a_uniform_h_per_c_exactly():
+    from pycalima.gsd.collisions import collide
+
+    g, N, M, model = collision_case()
+    dt = 3e6 * 3.15576e7
+    ref = collide(g, N, M, model, dt)
+    r = collide(g, N, M, model, dt, H=0.3 * M)
+    np.testing.assert_array_equal(r["M"], ref["M"])
+    np.testing.assert_array_equal(r["N"], ref["N"])
+    assert ref["sink_M"] > 0.0
+    np.testing.assert_allclose(r["H"], 0.3 * r["M"], rtol=1e-9, atol=1e-14 * M.sum())
+    assert r["sink_H"] == pytest.approx(0.3 * r["sink_M"], rel=1e-9)
+    assert r["overflow_H"] == pytest.approx(0.3 * r["overflow_M"], rel=1e-9, abs=1e-14 * M.sum())
+
+
+def test_collisions_conserve_a_mixed_h_per_c_within_its_bounds():
+    from pycalima.gsd.collisions import collide
+
+    g, N, M, model = collision_case()
+    x = np.linspace(0.05, 0.6, g.n_bins)
+    r = collide(g, N, M, model, 3e6 * 3.15576e7, H=x * M)
+    assert r["H"].sum() + r["overflow_H"] + r["sink_H"] == pytest.approx((x * M).sum(), rel=1e-10)
+    filled = r["M"] > 1e-12 * M.sum()
+    ratio = r["H"][filled] / r["M"][filled]
+    assert np.all((ratio >= x.min() * (1 - 1e-9)) & (ratio <= x.max() * (1 + 1e-9)))
