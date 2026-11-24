@@ -7,8 +7,9 @@ import pytest
 from pycalima.gsd import closures as C
 from pycalima.gsd.collisions import CoagulationModel, _terms, bin_nodes, collide
 from pycalima.gsd.grid import MassGrid
-from pycalima.gsd.optics import (combine_components, component_kappa_tables, kappa_direct, node_u,
-                                 profile_weights, state_s)
+from pycalima.gsd.optics import (combine_components, component_kappa_tables, kappa_direct, kappa_tables, node_u,
+                                 profile_weights, pseudo_bin_tables, pseudo_blend, pseudo_lookup, pseudo_states,
+                                 state_s)
 from pycalima.gsd.remap import remap
 
 pytestmark = pytest.mark.gsd_quick
@@ -296,6 +297,38 @@ def test_destroy_takes_the_rate_nodes():
 def _smooth_per_gram(r):
     lam = np.array([0.1, 0.55, 2.2])
     return np.exp(-np.outer(np.log(r / 1e-5) ** 2, lam)) * (1e-5 / r)[:, None]
+
+
+def test_pseudo_bins_are_the_pl2m_profile_at_fixed_states_and_blend_linearly():
+    """RAMSES's RT optics: 5 pseudo-bins per bin at the Chebyshev states; s = 0 and 1 are single grains at the bin's
+    edges; the cell's value is linear in s between them (and in the band gap between its nodes)."""
+    a, g = grid_of(6)
+
+    def per_gram(r):
+        r = np.asarray(r, float)
+        return np.stack([np.sqrt(r), 1.0 / r], axis=-1)
+
+    sk = pseudo_states()
+    np.testing.assert_allclose(sk, [0.0, (1 - np.sqrt(0.5)) / 2, 0.5, (1 + np.sqrt(0.5)) / 2, 1.0], atol=1e-15)
+    T = pseudo_bin_tables(g, per_gram)
+    assert T.shape == (6, 5, 2)
+    np.testing.assert_allclose(T, kappa_tables(g, sk, 64, per_gram, "pl2m"), rtol=1e-14)
+    np.testing.assert_allclose(T[:, 0], per_gram(a[:-1]), rtol=1e-12)
+    np.testing.assert_allclose(T[:, -1], per_gram(a[1:]), rtol=1e-12)
+    for k, s in enumerate(sk):
+        np.testing.assert_allclose(pseudo_lookup(T, np.full(6, s)), T[:, k], rtol=1e-14)
+    s = np.array([0.0, 0.07, 0.3, 0.5, 0.91, 1.0])
+    k, t = pseudo_blend(s)
+    want = (1 - t)[:, None] * T[np.arange(6), k] + t[:, None] * T[np.arange(6), k + 1]
+    np.testing.assert_allclose(pseudo_lookup(T, s), want, rtol=1e-14)
+    assert np.all((t >= 0) & (t <= 1)) and np.all(sk[k] <= s) and np.all(s <= sk[k + 1])
+    gaps = np.array([0.1, 1.0, 2.5])
+    Tg = pseudo_bin_tables(g, lambda r, e: per_gram(r) * (1.0 + e), gap_nodes=gaps)
+    assert Tg.shape == (6, 5, 3, 2)
+    np.testing.assert_allclose(pseudo_lookup(Tg, s, gap=np.full(6, 1.0), gap_nodes=gaps), pseudo_lookup(T, s) * 2.0,
+                               rtol=1e-13)
+    np.testing.assert_allclose(pseudo_lookup(Tg, s, gap=np.full(6, 1.75), gap_nodes=gaps), pseudo_lookup(T, s) * 2.75,
+                               rtol=1e-13)
 
 
 def test_node_average_equals_direct_integration_on_the_same_nodes():

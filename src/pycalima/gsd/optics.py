@@ -344,6 +344,59 @@ def lookup_x(s_tab, x_tab, tab, s, x):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# RAMSES's RT optics: pseudo-bins (decided 2026-11-18)
+# ---------------------------------------------------------------------------------------------------------------------
+# The RT cross-sections of the cool step ignore EA's fronts: every GSD bin is exported as n pseudo-bins, the PL2M
+# per-gram values at fixed in-bin states, which RAMSES treats as ordinary dust bins (SED table, star polling, IR
+# means). A cell blends its bin's two bracketing pseudo-bins linearly in s. That is exact bookkeeping because the
+# group average, the star weighting and the blend are all linear in the cross-section. With 5 pseudo-bins the A0 group
+# totals are within 4-6 % of the exact EA average (diagnostics/gsd/check_rt_group_optics.py).
+
+def pseudo_states(n=5):
+    """The in-bin states of the n pseudo-bins, s_k = (1 - cos(pi k / (n - 1))) / 2: 0, 0.15, 0.5, 0.85, 1 for n = 5."""
+    return (1.0 - np.cos(np.pi * np.arange(n) / (n - 1))) / 2.0
+
+
+def pseudo_bin_tables(grid, per_gram, n=5, n_nodes=64, gap_nodes=None):
+    """Per-gram values of every bin's pseudo-bins, [bin, n, ...]: the PL2M profile at ``pseudo_states(n)``
+    (``kappa_tables``; ``per_gram(a_cm)`` as there). With ``gap_nodes`` (band gaps [eV] of the covalent bins),
+    ``per_gram(a_cm, e_gap)`` and [bin, n, n_gap, ...]."""
+    s = pseudo_states(n)
+    if gap_nodes is None:
+        return kappa_tables(grid, s, n_nodes, per_gram, "pl2m")
+    return np.stack([kappa_tables(grid, s, n_nodes, lambda a, e=e: per_gram(a, e), "pl2m") for e in gap_nodes],
+                    axis=2)
+
+
+def pseudo_blend(s, n=5):
+    """Bracket k and weight t of in-bin states s between n pseudo-bins: value = (1 - t) P[k] + t P[k + 1]."""
+    sk = pseudo_states(n)
+    s = np.clip(np.asarray(s, float), 0.0, 1.0)
+    k = np.clip(np.searchsorted(sk, s, side="right") - 1, 0, n - 2)
+    return k, (s - sk[k]) / (sk[k + 1] - sk[k])
+
+
+def pseudo_lookup(tables, s, gap=None, gap_nodes=None):
+    """Per-gram value of every bin at its in-bin state s[bin], from ``pseudo_bin_tables``: linear in s between the
+    pseudo-bins, as the RAMSES cool step blends them. With ``gap`` (the bins' band gaps [eV]) and ``gap_nodes``,
+    tables [bin, n, n_gap, ...] and also linear in the band gap. Returns [bin, ...]."""
+    nb, n = tables.shape[:2]
+    i = np.arange(nb)
+    k, t = pseudo_blend(np.broadcast_to(s, (nb,)), n)
+    if gap is None:
+        sh = (nb,) + (1,) * (tables.ndim - 2)
+        return (1.0 - t).reshape(sh) * tables[i, k] + t.reshape(sh) * tables[i, k + 1]
+    g = np.asarray(gap_nodes, float)
+    x = np.clip(np.broadcast_to(np.asarray(gap, float), (nb,)), g[0], g[-1])
+    j = np.clip(np.searchsorted(g, x, side="right") - 1, 0, g.size - 2)
+    v = (x - g[j]) / (g[j + 1] - g[j])
+    sh = (nb,) + (1,) * (tables.ndim - 3)
+    t, v = t.reshape(sh), v.reshape(sh)
+    return ((1.0 - t) * ((1.0 - v) * tables[i, k, j] + v * tables[i, k, j + 1])
+            + t * ((1.0 - v) * tables[i, k + 1, j] + v * tables[i, k + 1, j + 1]))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # per-radius node tables: one table per bin for any closure
 # ---------------------------------------------------------------------------------------------------------------------
 
