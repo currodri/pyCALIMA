@@ -2439,6 +2439,7 @@ class Population:
         self._kernels = {}               # environment -> ``_loss_kernel``, the last FLOW_MEMO of them
         self._resp = {}                  # (id(mol), z) -> ``_response``
         self._joints = {}                # environment -> ``_joint_distributions``, the last CHAIN_MEMO of them
+        self._joint_wts = {}             # (environment, bare) -> ``_joint_weights``, the last FLOW_MEMO of them
 
     def _own(self, mol):
         """The population's copy of ``mol`` (its ladder extended, ``extend_ladder``), or ``mol`` if not in it."""
@@ -3376,7 +3377,7 @@ class Population:
             return self._charges[env]
         if self._joint_on():                                 # the marginal of the joint (Z, N_H) chain
             f = np.zeros((len(self.library), len(self.zs)))
-            for s, (lo, F, _) in enumerate(self._joint_distributions(env)):
+            for s, (lo, F, *_) in enumerate(self._joint_distributions(env)):
                 f[s, lo:lo + F.shape[0]] = F.sum(axis=1)
             if len(self._charges) >= CHAIN_MEMO:
                 del self._charges[next(iter(self._charges))]
@@ -3532,28 +3533,75 @@ class Population:
         """
         key = ("pe", shape, float(partition))
         if key not in self._arrays:
-            field1 = _unit_field(shape)
             n, m = len(self.library), len(self.zs)
             G, A = np.zeros((n, m)), np.zeros((n, m))
             for s, mol in enumerate(self.library):
                 for z in self._live_charges(mol, shape):
-                    sigma = state_sigma(mol, z, self.p)
-                    i = z - self.zmin
-                    A[s, i] = field1.photon_rate(sigma * E_PH, E_PH)
-                    sigma = self._valence_sigma(mol, z, shape)     # the C 1s electrons are added below (kshell_rates)
-                    ek = electron_energy(mol, z, self.p, partition)
-                    if self.p.double_ionisation != "none" and 0 <= z < max(mol.charges):
-                        # a double ionisation's two electrons share the excess over IP(z) + IP(z+1) as one would
-                        dip = double_threshold(mol, z)
-                        p2 = photo.double_fraction(E_PH, dip)
-                        ek = (1.0 - p2) * ek + p2 * photo.photoelectron_energy(
-                            E_PH, dip, partition, reference_ev=photoelectron_reference(mol, self.p))[0]
-                    G[s, i] = photo.photoelectron_power(field1, sigma, _yield(mol, z, self.p), E_PH,
-                                                        state_threshold(mol, z), electron_energy_ev=ek)
+                    G[s, z - self.zmin], A[s, z - self.zmin] = self._pe_state(mol, z, shape, partition)
             ks = self._kshell_stack(shape)
             if ks is not None:                      # the C 1s photo- and Auger electrons, and the absorption above E_PH
                 G, A = G + ks["power"], A + ks["absorbed_hi"]
             self._arrays[key] = (G, A)
+        return self._arrays[key]
+
+    def _pe_state(self, mol, z, shape, partition, shift=0.0, ref_shift=0.0):
+        """(G, A) [eV s^-1 at G0 = 1] of charge z of ``mol``: ``_pe_stack``'s photoelectron power of the valence electrons
+        and absorbed power on E_PH (the C 1s part is ``_kshell_stack``'s), its threshold z raised by ``shift`` [eV] (the
+        joint chain's N_H, ``_threshold_shift``). Z >= 0: the yield moved rigidly, as ``_threshold_factors`` moves it,
+        and the electron the excess over the shifted threshold, the measured shares read against the neutral's IP
+        raised by ``ref_shift`` (``Params.photoelectron_reference`` "neutral"); the double ionisation keeps the intact
+        thresholds, as the joint chain keeps its rate. The anion: the molecule with that EA (``_with_ea``)."""
+        field1 = _unit_field(shape)
+        c = _with_ea(mol, shift) if z == -1 and shift != 0.0 else mol
+        A = field1.photon_rate(state_sigma(c, z, self.p) * E_PH, E_PH)
+        sigma = self._valence_sigma(c, z, shape)                 # the C 1s electrons are added by _pe_stack
+        y = _yield(c, z, self.p)
+        if z >= 0 and (shift != 0.0 or ref_shift != 0.0):
+            y = np.interp(E_PH - shift, E_PH, y, left=0.0, right=y[-1])
+            ref = photoelectron_reference(mol, self.p)
+            ek = photo.photoelectron_energy(E_PH, state_threshold(mol, z) + shift, partition,
+                                            reference_ev=None if ref is None else ref + ref_shift)[0]
+        else:
+            ek = electron_energy(c, z, self.p, partition)
+        if self.p.double_ionisation != "none" and 0 <= z < max(mol.charges):
+            # a double ionisation's two electrons share the excess over IP(z) + IP(z+1) as one would
+            dip = double_threshold(mol, z)
+            p2 = photo.double_fraction(E_PH, dip)
+            ek = (1.0 - p2) * ek + p2 * photo.photoelectron_energy(
+                E_PH, dip, partition, reference_ev=photoelectron_reference(mol, self.p))[0]
+        G = photo.photoelectron_power(field1, sigma, y, E_PH, state_threshold(c, z), electron_energy_ev=ek)
+        return G, A
+
+    def _joint_pe(self, shape, partition):
+        """{s: (G[slot, m], A[slot, m])} [eV s^-1 at G0 = 1], m = N_H = 0 ... N_H0 + superh_levels: ``_pe_stack`` per
+        N_H, each live state's valence threshold shifted as ``_threshold_factors`` shifts its rate (``_pe_state``; the
+        neutral's shift at that N_H is the reference's), the C 1s part the intact state's. The joint chain's heating and
+        absorbed power (``joint_state_observables``)."""
+        key = ("joint_pe", shape, float(partition))
+        if key not in self._arrays:
+            G0, A0 = self._pe_stack(shape, partition)
+            ks = self._kshell_stack(shape)
+            K = int(self.p.superh_levels)
+            out = {}
+            for s, mol in enumerate(self.library):
+                nn = mol.nh + K + 1
+                G, A = np.repeat(G0[s][:, None], nn, axis=1), np.repeat(A0[s][:, None], nn, axis=1)
+                for z in self._live_charges(mol, shape):
+                    i = z - self.zmin
+                    d = [self._threshold_shift(mol, m, z) for m in range(nn)]
+                    d0 = [self._threshold_shift(mol, m, 0) if z > 0 else 0.0 for m in range(nn)]
+                    memo = {}
+                    for m in range(nn):
+                        if d[m] == 0.0 and d0[m] == 0.0:
+                            continue
+                        if (d[m], d0[m]) not in memo:
+                            g, a = self._pe_state(mol, z, shape, partition, d[m], d0[m] if z > 0 else d[m])
+                            if ks is not None:
+                                g, a = g + ks["power"][s, i], a + ks["absorbed_hi"][s, i]
+                            memo[(d[m], d0[m])] = (g, a)
+                        G[i, m], A[i, m] = memo[(d[m], d0[m])]
+                out[s] = (G, A)
+            self._arrays[key] = out
         return self._arrays[key]
 
     def photoelectric_heating(self, env, partition=photo.PHOTOELECTRON_PARTITION):
@@ -3568,8 +3616,16 @@ class Population:
         the power the molecule absorbs on E_PH: all of it, 1-500 eV (1-13.6 eV for fields cut at the Lyman limit), as
         Berné+22 and WD01 define it and as the observed I_gas / (I_PAH + I_gas) measures it (5-13.6 eV before
         2026-10-24; BT94's 6-13.6 eV convention differs).
-        Recombination cooling is not subtracted here.
+        Recombination cooling is not subtracted here. With ``Params.hydrogen_chain = "joint"`` the sums of
+        ``joint_state_observables``' weights over the joint steady state: each N_H with its own threshold (``_joint_pe``).
         """
+        if self._joint_on():
+            gz, absorbed = np.zeros((len(self.library), len(self.zs))), np.zeros(len(self.library))
+            for s, ((lo, F, *_), w) in enumerate(zip(self._joint_distributions(env), self._joint_charge_weights(env, partition))):
+                gz[s, lo:lo + F.shape[0]] = (w["heating"] * F).sum(axis=1)
+                absorbed[s] = float((w["absorbed"] * F).sum())
+            gamma = gz.sum(axis=1)
+            return gamma, gz, np.divide(gamma, absorbed, out=np.zeros_like(gamma), where=absorbed > 0)
         G, A = self._pe_stack(field_shape(env), partition)
         f = self.charge_matrix(env)
         gz = env.g0 * f * G * chemistry.EV_ERG
@@ -3603,8 +3659,15 @@ class Population:
         Lambda_z = n_e f(z) alpha(z) <E>(z): the capture rate of ``charge_matrix`` (BT94/DS87 capture, the
         statistical sticking on neutrals, ``Params.capture_model``) times the kinetic energy each captured electron
         takes, ``_capture_energy`` (~kT on cations, 1.5-2 kT on neutrals). For neutrals the DS87 flux-weighted
-        energy is used for the stuck electrons as well (their energy-dependent sticking is not followed).
+        energy is used for the stuck electrons as well (their energy-dependent sticking is not followed). With
+        ``Params.hydrogen_chain = "joint"`` the sums of ``joint_state_observables``' weights over the joint steady state
+        (the neutral's attachment per N_H).
         """
+        if self._joint_on():
+            lz = np.zeros((len(self.library), len(self.zs)))
+            for s, ((lo, F, *_), w) in enumerate(zip(self._joint_distributions(env), self._joint_charge_weights(env))):
+                lz[s, lo:lo + F.shape[0]] = (w["cooling"] * F).sum(axis=1)
+            return lz.sum(axis=1), lz
         f = self.charge_matrix(env)
         lz = env.n_e * f * self._capture_rates(env.temperature_k) * self._capture_energy(env.temperature_k) * chemistry.EV_ERG
         return lz.sum(axis=1), lz
@@ -3757,22 +3820,19 @@ class Population:
         "hot_beyond" (``hot_beyond``), "knockout" (thermal ions' C knock-outs, ``_hot_rates``; one C each),
         "events": their sum, the rate at which the molecule leaves the library, and "carbon": the C atoms lost per second
         (a whole molecule for an explosion or a passage beyond)}. The chain is quasi-static: these are slow leaks from its
-        steady state."""
+        steady state. With ``Params.hydrogen_chain = "joint"``: the sums of ``joint_state_observables``' weights over the
+        joint steady state (the bare skeleton's own charge shares f(Z, N_H = 0), each deposit in its source state's share)."""
+        if self._joint_on():
+            W = self._joint_weights(env, bare=True)
+            return self._joint_sums(W, env, [k for k in W[0] if k not in ("Hp", "h2")])
         shape = field_shape(env)
         f = self.charge_matrix(env)
         p0 = np.array([float(c[0]) for c in self._chain_distributions(env)])
         out = {}
-        if self._joint_on():        # the bare skeleton's own charge shares f(Z, N_H = 0), and the deposits landing on them
-            b0 = self._bare_slots(env)
-            for c, tab in self._bare_stack(shape).items():
-                out[c] = np.einsum("sz,sz->s", b0, self._interp_g0(tab, env.g0))
-            flows = [fl for fl in self._deposit_flows(env, b0) if fl[2] != "rec" or self.p.recombination_dissociation]
-            p0 = np.ones(len(self.library))                    # the flows already carry the bare share
-        else:
-            for c, tab in self._bare_stack(shape).items():
-                out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
-            flows = [fl for fl in self._deposit_flows(env)
-                     if p0[fl[0]] > 0.0 and (fl[2] != "rec" or self.p.recombination_dissociation)]
+        for c, tab in self._bare_stack(shape).items():
+            out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
+        flows = [fl for fl in self._deposit_flows(env)
+                 if p0[fl[0]] > 0.0 and (fl[2] != "rec" or self.p.recombination_dissociation)]
         top = {}       # one loss grid per molecule, to its largest deposit: a yield depends on the bins below it only
         for s, z, which, *_ in flows:
             energies, _ = self._flow_energies(self.library[s], z, which)
@@ -3803,7 +3863,11 @@ class Population:
         """{"C2H2": C2H2 losses, "Hp": proton emissions} [s^-1 per molecule] at ``env``: the loss tables at its G0 and the
         deposits (``_deposit_losses``), weighted over charge and the emitting hydrogenation states N_H0 ... N_H0-3
         (``emission_weights``; the deeper states and the bare skeleton are not in them). A C2H2 loss destroys the molecule
-        as the library holds it (C_{N-2}H_{N_H-2} is another)."""
+        as the library holds it (C_{N-2}H_{N_H-2} is another). With ``Params.hydrogen_chain = "joint"`` each deposit's losses
+        are taken in its source state's own share (``_joint_weights``), not in the product of the charge and hydrogenation
+        marginals."""
+        if self._joint_on():
+            return self._joint_sums(self._joint_weights(env, bare=False), env, ("C2H2", "Hp"))
         W = self.emission_weights(env)
         _, _, tab_c, tab_hp = self._ladders(field_shape(env))
         _, _, dlc, dlhp = self._deposit_losses(env)
@@ -3818,25 +3882,19 @@ class Population:
         destruction rate: all of them, or past a barrier-limited top (``_routed``) the bare skeleton's share f(N_H = 0),
         the H-bearing rest emitting protons instead. With "library", EUV photons above Y_UNITY_EV out of the library's top
         charge, a truncation that is harmless where it is small against the chain's rates."""
+        if self._joint_on():                     # the steps the joint network drops, over its states (_joint_build)
+            return np.array([float((dropped * F).sum()) for _, F, _, dropped in self._joint_distributions(env)])
         f = self.charge_matrix(env)
         past = self._past_top(env, self._single_up(env))[0]
         rate = (f * past).sum(axis=1)
         routed = self._routed()
         if routed.any():
-            bare = (self._bare_slots(env) * past).sum(axis=1) if self._joint_on() else self._bare_share(env) * rate
-            rate = np.where(routed, bare, rate)
+            rate = np.where(routed, self._bare_share(env) * rate, rate)
         return rate
 
     def _bare_share(self, env):
         """p0[s]: the bare skeleton's share f(N_H = 0) of each molecule's hydrogenation chain at ``env``."""
         return np.array([float(c[0]) for c in self._chain_distributions(env)])
-
-    def _bare_slots(self, env):
-        """b0[s, slot]: the joint chain's shares f(Z, N_H = 0) of the bare skeleton (``Params.hydrogen_chain = "joint"``)."""
-        b0 = np.zeros((len(self.library), len(self.zs)))
-        for s, (lo, F, _) in enumerate(self._joint_distributions(env)):
-            b0[s, lo:lo + F.shape[0]] = F[:, 0]
-        return b0
 
     def band_fluxes(self, env):
         """(F[s, b] band power per molecule, weighted over charge and hydrogenation (``emission_weights``),
@@ -3951,7 +4009,7 @@ class Population:
         if self._joint_on():                                 # the N_H marginal of the joint chain, N_H0 + superh_levels long
             if given or deposit_losses is not None:
                 raise ValueError("the joint chain takes no charge fractions or deposit losses: it solves them itself")
-            return [F.sum(axis=0) for _, F, _ in self._joint_distributions(env)]
+            return [F.sum(axis=0) for _, F, *_ in self._joint_distributions(env)]
         if not given and env in self._chains:
             return self._chains[env]
         f = self.charge_matrix(env) if not given else f
@@ -3998,7 +4056,7 @@ class Population:
         f = self.charge_matrix(env)
         if self._joint_on() and self.dehydrogenated_emission:       # the joint shares, not a product
             W = np.zeros((len(self.library), len(self.zs), N_EMITTING))
-            for s, ((lo, F, _), mol) in enumerate(zip(self._joint_distributions(env), self.library)):
+            for s, ((lo, F, *_), mol) in enumerate(zip(self._joint_distributions(env), self.library)):
                 rows = slice(lo, lo + F.shape[0])
                 for k in range(min(N_EMITTING, mol.nh)):
                     W[s, rows, k] = F[:, mol.nh - k]
@@ -4163,9 +4221,11 @@ class Population:
         return self._arrays[key]
 
     def _joint_build(self, env):
-        """[(lo, network.PAHNetwork)] of every molecule at ``env``: its (Z, N_H) network over its live charges (slots lo,
-        lo + 1, ...) and N_H = 0 ... N_H0 + superh_levels, the one source of the joint chain's rates (``joint_networks``,
-        ``_joint_distributions``). What the processes hold (``joint_networks`` lists them by name):
+        """[(lo, network.PAHNetwork, dropped[slot - lo, N_H], deposits)] of every molecule at ``env``: its (Z, N_H) network
+        over its live charges (slots lo, lo + 1, ...) and N_H = 0 ... N_H0 + superh_levels, the one source of the joint
+        chain's rates (``joint_networks``, ``_joint_distributions``, ``_joint_weights``); dropped, the rate of the steps it
+        leaves out (past the top, and not landed on it), per molecule in each state; deposits, ``_joint_deposits``'.
+        What the processes hold (``joint_networks`` lists them by name):
 
         - **Charge steps** (dN_H = 0): those of ``charge_matrix``'s chain (photoionisation and detachment, C 1s,
           double ionisation, passages and ions' charge transfer as ``_jump_rates``; captures), the same at every N_H except
@@ -4267,7 +4327,7 @@ class Population:
             # deposits: a share of each event's charge step lands with H, H2 or a proton less
             deposits = self._joint_deposits(s, mol, terms, use, r_ip[s], lo, nz, nn, r_cap)
             dep = {}                                       # (dZ of the charge step, what is lost) -> (rate, dZ, dN_H, H2)
-            for z_prod, which, idx, i_src, c, pe in deposits:
+            for z_prod, which, idx, i_src, c, pe, _ in deposits:
                 a, b = i_src - lo, (z_prod - self.zmin) - lo
                 dz = b - a
                 moved = c * (pe["H"] + pe["H2"] + pe["Hp"])
@@ -4292,12 +4352,14 @@ class Population:
             add("H addition", A, 0, +1)
             add("associative detachment", AD, +1, +1)
             top_live = lo + nz - 1 == max(mol.charges) - self.zmin
+            dropped = np.zeros((nz, nn))                   # the steps out of the library: its explosions
             for dz, rate in C.items():
                 if dz < 0:
                     add(f"electron capture (dZ {dz:+d})", np.where(iz + dz >= 0, rate, 0.0), dz, 0)
                     continue
                 inside = iz + dz < nz
                 add(f"ionisation (dZ {dz:+d})", np.where(inside, rate, 0.0), dz, 0)
+                dropped += np.where(inside, 0.0, rate)
                 if routed[s] and top_live:                         # past a barrier-limited top: a proton per charge
                     for past in range(1, dz + 1):                  # from slot nz - 1 + past - dz, to the top
                         a = nz - 1 + past - dz
@@ -4308,32 +4370,35 @@ class Population:
                         if land.any():
                             add(f"ionisation (dZ {dz:+d}) past the top, {past} proton{'s' * (past > 1)} emitted", land,
                                 dz - past, -past)
-            out.append((lo, net))
+                            dropped -= land
+            out.append((lo, net, np.maximum(dropped, 0.0), deposits))
         return out
 
     def _joint_distributions(self, env):
-        """[(lo, F[slot - lo, N_H], h2)] of every molecule at ``env``: the steady state of its network of ``_joint_build``
-        (``PAHNetwork.steady_state_closed``) and h2, the H2 it releases per molecule per second (H2 loss and Eley-Rideal
-        abstraction, ``PAHNetwork.h2_formation_rate``). The last CHAIN_MEMO environments are kept."""
+        """[(lo, F[slot - lo, N_H], h2, dropped)] of every molecule at ``env``: the steady state of its network of
+        ``_joint_build`` (``PAHNetwork.steady_state_closed``), h2, the H2 it releases per molecule per second (H2 loss and
+        Eley-Rideal abstraction, ``PAHNetwork.h2_formation_rate``), and the network's dropped steps (``_joint_build``). The
+        last CHAIN_MEMO environments are kept."""
         if env in self._joints:
             return self._joints[env]
         out = []
-        for (lo, net), mol in zip(self._joint_build(env), self.library):
+        for (lo, net, dropped, _), mol in zip(self._joint_build(env), self.library):
             try:
                 F = net.steady_state_closed()
             except ValueError as e:
                 raise ValueError(f"{mol.name}: {e}") from None
-            out.append((lo, F, net.h2_formation_rate(F)))
+            out.append((lo, F, net.h2_formation_rate(F), dropped))
         if len(self._joints) >= CHAIN_MEMO:
             del self._joints[next(iter(self._joints))]
         self._joints[env] = out
         return out
 
     def _joint_deposits(self, s, mol, terms, use, r_ip, lo, nz, nn, r_cap=None):
-        """[(z_prod, which, index, source slot, c[N_H], {"H", "H2", "Hp": P[N_H]})] of molecule s: each deposit flow of
+        """[(z_prod, which, index, source slot, c[N_H], {"H", "H2", "Hp": P[N_H]}, P[4, member])] of molecule s: each deposit flow of
         ``_flow_terms`` per molecule in its source state (a valence photoionisation's scaled by the threshold shift,
         ``_threshold_factors``, an attachment's by ``r_cap``, ``_attachment_factors``), and its product's loss probabilities at each N_H: ``_response``'s for N_H0 ... N_H0-3, the
-        deeper by ``_chain_rates``' mapping, the extra H's of super-hydrogenated states from ``superh_event_yields``."""
+        deeper by ``_chain_rates``' mapping, the extra H's of super-hydrogenated states from ``superh_event_yields``; and the
+        product's own loss probabilities (H, H2, C2H2, proton) of its members N_H0 ... N_H0-3 (``_response``)."""
         p, K, nh0 = self.p, int(self.p.superh_levels), mol.nh
         solo = mol.edges.get("solo", 0)
         _, plain, passages = terms[s]
@@ -4345,8 +4410,8 @@ class Population:
         for z, which, idx, i, c in flows:
             members = self._response(mol, z, which)[1][idx]
             P4 = np.zeros((3, 4))
-            for k_, (_, ph, ph2, _pc, php) in enumerate(members[:4]):
-                P4[:, k_] = ph, ph2, php
+            P = np.array([m_[1:] for m_ in members[:N_EMITTING]], dtype=float).reshape(-1, 4).T   # H, H2, C2H2, Hp
+            P4[:, :P.shape[1]] = P[[0, 1, 3]]
             pH, pH2 = _chain_rates(nh0, solo, P4[0], P4[1])
             pe = {"H": np.zeros(nn), "H2": np.zeros(nn), "Hp": np.zeros(nn)}
             pe["H"][:nh0 + 1], pe["H2"][:nh0 + 1], pe["Hp"][:nh0 + 1] = pH, pH2, _deep_rates(nh0, P4[2])
@@ -4365,7 +4430,7 @@ class Population:
                 cm = c * r_cap
             else:
                 cm = c * np.ones(nn)
-            out.append((z, which, idx, i, cm, pe))
+            out.append((z, which, idx, i, cm, pe, P))
         return out
 
     def joint_fractions(self, env):
@@ -4373,7 +4438,7 @@ class Population:
         and the steady-state shares of each (Z, N_H), N_H = 0 ... N_H0 + superh_levels (``_joint_distributions``)."""
         if not self._joint_on():
             raise ValueError('joint_fractions needs Params.hydrogen_chain = "joint"')
-        return [(self.zs[lo:lo + F.shape[0]], F) for lo, F, _ in self._joint_distributions(env)]
+        return [(self.zs[lo:lo + F.shape[0]], F) for lo, F, *_ in self._joint_distributions(env)]
 
     def joint_networks(self, env):
         """[network.PAHNetwork] of every molecule at ``env`` with ``Params.hydrogen_chain = "joint"``: the joint chain's own
@@ -4399,7 +4464,137 @@ class Population:
         falls back to a sparse solve."""
         if not self._joint_on():
             raise ValueError('joint_networks needs Params.hydrogen_chain = "joint"')
-        return [net for _, net in self._joint_build(env)]
+        return [net for _, net, *_ in self._joint_build(env)]
+
+    def joint_state_observables(self, env, partition=photo.PHOTOELECTRON_PARTITION):
+        """[{name: W[Z, N_H]}] of every molecule at ``env`` with ``Params.hydrogen_chain = "joint"``, on ``joint_networks``'
+        charges and nh_values: each observable as a weight of the joint chain's states, O = sum(W * F) per molecule. At
+        F = ``joint_fractions`` the sum is the steady-state function's (the joint chain computes those from these
+        weights); at a state F(t) of a network's ``evolve``, it is that state's.
+
+        - "heating" [erg s^-1]: ``photoelectric_heating(env, partition)``, and "absorbed" [erg s^-1], the absorbed power
+          its eps is over. Each N_H's valence threshold is shifted as the network shifts its photoionisation (detachment)
+          rate (``_joint_pe``), so the electrons are the network's and take the excess over their own threshold.
+        - "cooling" [erg s^-1]: ``recombination_cooling(env)``, with the neutral's attachment per N_H of the network.
+        - "h2" [s^-1]: ``hydrogenation_summary(env)["h2"]``, the H2 the network's processes release.
+        - Every key of ``destruction_rates(env)`` [s^-1; "carbon" in C atoms s^-1]: the bare skeleton's channels (at
+          N_H = 0: its photon-driven tables and the deposits landing on it), "C2H2" (``loss_rates``), "explosions" (the
+          network's dropped steps, ``_joint_build``), "cr_beyond", "hot_beyond", "knockout", "events" and "carbon".
+
+        A deposit's losses (C2H2, and the bare skeleton's events) are taken in its source state's own share, F[Z_src, N_H]:
+        the rate per molecule there, times its product's loss probability at that N_H. The charge-averaged chain multiplies
+        the charge marginal by the hydrogenation marginal instead (``_deposit_losses``). Not here: band powers, whose
+        deposit part (``_deposit_bands``, shared with ``spectra``) is still that product."""
+        if not self._joint_on():
+            raise ValueError('joint_state_observables needs Params.hydrogen_chain = "joint"')
+        out = []
+        for w, c, (_, F, *_) in zip(self._joint_weights(env, bare=True), self._joint_charge_weights(env, partition),
+                                    self._joint_distributions(env)):
+            out.append({**c, **{k: v for k, v in w.items() if k != "Hp"}})
+        return out
+
+    def _joint_charge_weights(self, env, partition=photo.PHOTOELECTRON_PARTITION):
+        """[{"heating", "absorbed", "cooling": W[slot - lo, N_H]}] [erg s^-1 per molecule in the state] of every molecule at
+        ``env`` (``joint_state_observables``): the photoelectron and absorbed powers of ``_joint_pe``, and n_e alpha <E> of
+        each capture (``recombination_cooling``), the neutral's attachment scaled per N_H (``_attachment_factors``)."""
+        pe = self._joint_pe(field_shape(env), partition)
+        cool = env.n_e * self._capture_rates(env.temperature_k) * self._capture_energy(env.temperature_k) * chemistry.EV_ERG
+        r_att = self._attachment_factors(env.temperature_k)
+        out = []
+        for s, (lo, F, *_) in enumerate(self._joint_distributions(env)):
+            nz, nn = F.shape
+            sl = slice(lo, lo + nz)
+            G, A = pe[s]
+            c = np.repeat(cool[s, sl][:, None], nn, axis=1)
+            a0 = -self.zmin - lo                              # the neutral's slot, as in _joint_build
+            if s in r_att and 1 <= a0 < nz:
+                c[a0] *= r_att[s]
+            out.append({"heating": env.g0 * G[sl] * chemistry.EV_ERG, "absorbed": env.g0 * A[sl] * chemistry.EV_ERG,
+                        "cooling": c})
+        return out
+
+    def _joint_weights(self, env, bare=True):
+        """[{name: W[slot - lo, N_H]}] [s^-1 per molecule in the state] of every molecule at ``env``, from one
+        ``_joint_build``: "C2H2" and "Hp" of ``loss_rates`` (the ladders' tables of the emitting states N_H0 ... N_H0-3,
+        the super-hydrogenated states taking the parent's, or every state the parent's without
+        ``dehydrogenated_emission``, as ``emission_weights``; their deposits in the source state's own share), "explosions"
+        (the network's dropped steps), "cr_beyond", "hot_beyond", "knockout" (as ``destruction_rates``) and "h2" (the H2 of
+        the network's processes); with ``bare``, also the bare skeleton's channels, "events" and "carbon"
+        (``destruction_rates``). The last FLOW_MEMO are kept."""
+        key = (env, bool(bare))
+        if key in self._joint_wts:
+            return self._joint_wts[key]
+        shape = field_shape(env)
+        _, _, tab_c, tab_hp = self._ladders(shape)
+        lc, lhp = self._interp_g0(tab_c, env.g0), self._interp_g0(tab_hp, env.g0)
+        cr, hot = self._cr_rates(env), self._hot_rates(env)
+        tabs = {c: self._interp_g0(t, env.g0) for c, t in self._bare_stack(shape).items()} if bare else {}
+        nc_lost = {name: n for m in self.library for name, n, *_ in bare_channels(m, self.p)}
+        out = []
+        for s, ((lo, net, dropped, deposits), mol) in enumerate(zip(self._joint_build(env), self.library)):
+            nz, nn = net.shape
+            nh0, sl = mol.nh, slice(lo, lo + nz)
+            per_slot = lambda r: np.repeat(r[s, sl][:, None], nn, axis=1)            # noqa: E731
+            kmap = np.zeros(nn, dtype=int)            # the loss tables' member of each N_H; -1: none (the deeper states)
+            if self.dehydrogenated_emission:
+                kmax = min(N_EMITTING, nh0)
+                kmap[:nh0 + 1] = -1
+                kmap[nh0 - kmax + 1:nh0 + 1] = np.arange(kmax)[::-1]
+            on = kmap >= 0
+            W = {}
+            for name, tab, row in (("C2H2", lc, 2), ("Hp", lhp, 3)):
+                w = np.zeros((nz, nn))
+                w[:, on] = tab[s, sl][:, kmap[on]]
+                for _, _, _, i_src, cm, _, P in deposits:
+                    ok = on & (kmap < P.shape[1])
+                    w[i_src - lo, ok] += cm[ok] * P[row, kmap[ok]]
+                W[name] = w
+            W["explosions"] = dropped
+            zero = np.zeros((nz, nn))
+            W["cr_beyond"] = per_slot(cr["beyond"]) if cr is not None else zero
+            W["hot_beyond"] = per_slot(hot["beyond"]) if hot is not None else zero
+            W["knockout"] = per_slot(hot["knockout_c"]) if hot is not None else zero
+            W["h2"] = sum((p.h2_released * p.rate for p in net.processes if p.h2_released), zero)
+            if bare:                       # at N_H = 0: the tables, and the deposits landing on the bare skeleton
+                for c, t in tabs.items():
+                    W[c] = zero.copy()
+                    W[c][:, 0] = t[s, sl]
+                top = max([LOSS_E_MAX_EV] + [float(self._flow_energies(mol, z, w)[0].max()) + 5.0
+                                             for z, w, *_ in deposits])
+                yields = {}
+                for z, which, idx, i_src, cm, *_ in deposits:
+                    if cm[0] <= 0.0:
+                        continue
+                    if z not in yields:
+                        sp = bare_species(mol, z)
+                        yields[z] = bare_event_yields(sp.freqs_cm, sp.einstein_a, bare_channels(mol, self.p), top)
+                    e_cl, Y = yields[z]
+                    energies, Wf = self._flow_energies(mol, z, which)
+                    for c, y in Y.items():
+                        pp = np.interp(energies * dos.CM_PER_EV, e_cl, y)
+                        W.setdefault(c, zero.copy())[i_src - lo, 0] += cm[0] * (float(Wf[idx] @ pp) if Wf is not None
+                                                                                 else float(pp[idx]))
+            out.append(W)
+        if bare:
+            channels = list(dict.fromkeys(c for W in out for c in W if c not in
+                                          ("C2H2", "Hp", "explosions", "cr_beyond", "hot_beyond", "knockout", "h2")))
+            for s, W in enumerate(out):
+                zero = np.zeros_like(W["C2H2"])
+                for c in channels:
+                    W.setdefault(c, zero.copy())
+                W["events"] = sum((W[c] for c in channels + ["C2H2", "explosions", "cr_beyond", "hot_beyond", "knockout"]),
+                                  zero)
+                W["carbon"] = sum((nc_lost.get(c, 0) * W[c] for c in channels), zero) + 2.0 * W["C2H2"] + W["knockout"] \
+                    + self.nc[s] * (W["explosions"] + W["cr_beyond"] + W["hot_beyond"])
+        if len(self._joint_wts) >= FLOW_MEMO:
+            del self._joint_wts[next(iter(self._joint_wts))]
+        self._joint_wts[key] = out
+        return out
+
+    def _joint_sums(self, weights, env, names):
+        """{name: [s]} of sum(W * F) over each molecule's joint steady state (``_joint_distributions``)."""
+        J = self._joint_distributions(env)
+        return {k: np.array([float((w[k] * F).sum()) for w, (_, F, *_) in zip(weights, J)]) for k in names}
 
     def hydrogenation_summary(self, env):
         """{name: [s]} of the hydrogenation at ``env``: "x" <N_H>/N_H0, the shares "intact" (N_H0), "superh" (> N_H0),

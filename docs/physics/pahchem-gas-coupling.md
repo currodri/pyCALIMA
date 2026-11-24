@@ -1078,6 +1078,21 @@ same configuration reproduces it exactly. The changes come almost entirely from 
 So the PDR and diffuse results stand. The shielded ones hang on the ladder's top, on the super-H transition state, and
 on what H does to an intact anion, none of which is measured.
 
+**Observables per state (2026-11-15).** For the GSD scoring, `Population.joint_state_observables(env)` gives each
+observable as a weight W[Z, N_H] on `joint_networks`' grid, with O = Σ W F. The weights cover photoelectric heating,
+the absorbed power, recombination cooling, H₂ formation and every `destruction_rates` entry. In the joint chain those
+steady-state functions are now computed from the weights, so the two agree at F = `joint_fractions` to round-off. This
+changed what the joint chain reports in three places; the charge-averaged chain is unchanged:
+- **Rates per N_H.** Heating, cooling and the explosions now follow the network's own rates. Each N_H's valence
+  photoionisation (the anion's detachment) has its shifted threshold, and the electron takes the excess over that
+  threshold (`_joint_pe`). The neutral's attachment is scaled per N_H. The explosions are the steps the network drops.
+  Before, these used the intact states' rates over the charge marginal.
+- **Deposits in their source state.** A deposit's C₂H₂ loss, and the bare skeleton's events, are taken in the source
+  state's own share F[Z_src, N_H]. The charge-averaged form multiplied the charge marginal by the hydrogenation marginal.
+  The two agree where F is the product of its marginals.
+- **Not yet linear: band powers.** Their deposit part (`_deposit_bands`, shared with `spectra`) is still the product of
+  the marginals.
+
 **Next.** A literature-based chemistry to about +12:
 - Boschman's alternating barriers;
 - the cation closed-shell barriers;

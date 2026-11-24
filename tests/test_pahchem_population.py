@@ -1776,6 +1776,67 @@ def test_joint_networks_are_the_joint_chains_own():
         population.Population(lib, WINDOWS).joint_networks(env)
 
 
+def test_joint_state_observables_sum_to_the_steady_state_functions():
+    """``joint_state_observables`` (for the GSD scoring): one weight per (Z, N_H) state of ``joint_networks``' grid, and
+    at F = ``joint_fractions`` sum(W F) is photoelectric_heating, its eps (over "absorbed"), recombination_cooling,
+    hydrogenation_summary's "h2" and every destruction_rates entry, which the joint chain computes from them."""
+    lib = _v400_parents()
+    pop = _joint(lib)
+    for env in (Environment("shielded", 1e-2, 1e2, 1.4e-2, 100.0, None), Environment("pdr", 1e4, 1e4, 1.4, 100.0, None)):
+        obs, jf, nets = pop.joint_state_observables(env), pop.joint_fractions(env), pop.joint_networks(env)
+        gamma, _, eps = pop.photoelectric_heating(env)
+        ref = {"heating": gamma, "cooling": pop.recombination_cooling(env)[0], "h2": pop.hydrogenation_summary(env)["h2"],
+               **pop.destruction_rates(env)}
+        for s, (w, (zs, F), net) in enumerate(zip(obs, jf, nets)):
+            assert set(ref) | {"absorbed"} == set(w)
+            for name, W in w.items():
+                assert W.shape == F.shape == net.shape and np.all(W >= 0.0)
+                if name in ref:
+                    assert (W * F).sum() == pytest.approx(ref[name][s], rel=1e-12, abs=1e-300), name
+            assert gamma[s] / (w["absorbed"] * F).sum() == pytest.approx(eps[s], rel=1e-12)
+        assert np.all(ref["carbon"] > 0.0) and np.all(ref["heating"] > 0.0)
+    with pytest.raises(ValueError, match="joint"):
+        population.Population(lib, WINDOWS).joint_state_observables(env)
+
+
+def test_joint_observables_follow_the_networks_thresholds_and_deposit_shares():
+    """Without threshold shifts the heating and cooling weights are the intact states' at every N_H, so the joint
+    heating is charge_matrix times ``_pe_stack``; with the DFT ladder (coronene) the CH2 radical N_H0 + 1, whose IP is
+    1.3 eV lower, heats more per neutral, the stripped neutral less. A deposit's losses (``loss_rates``' C2H2 and protons;
+    coronene, with no end rings, has deposit protons only) are taken in its source state's share: where F is the product
+    of its marginals, the sum is the charge-averaged chain's (the marginals times ``_deposit_losses``)."""
+    lib = _v400_parents(("C24H12 (18)",))
+    env = Environment("euv", 1e3, 1e2, 1.0, 1e4, 15000, field_e_max_ev=100.0)
+    shape = population.field_shape(env)
+    flat, dft = _joint(lib, threshold_shifts="none"), _joint(lib)
+    nh0, lo = lib[0].nh, flat.joint_fractions(env)[0][0][0] - flat.zmin
+    w, = flat.joint_state_observables(env)
+    (zs, F), = flat.joint_fractions(env)
+    f = flat.charge_matrix(env)[0]
+    G = flat._pe_stack(shape, population.photo.PHOTOELECTRON_PARTITION)[0][0]
+    assert np.allclose(w["heating"], w["heating"][:, :1]) and np.allclose(w["cooling"], w["cooling"][:, :1])
+    assert flat.photoelectric_heating(env)[0][0] == pytest.approx(env.g0 * (f * G).sum() * population.chemistry.EV_ERG,
+                                                                  rel=1e-12)
+    wd, = dft.joint_state_observables(env)
+    n = -dft.zmin - lo
+    assert wd["heating"][n, nh0 + 1] > 1.1 * wd["heating"][n, nh0] > 1.1 * wd["heating"][n, 0]
+    # the deposits' C2H2 in the source state's own share, against the product of the marginals
+    p = F.sum(axis=0)
+    h = np.zeros(population.N_EMITTING)
+    for k in range(min(population.N_EMITTING, nh0)):
+        h[k] = p[nh0 - k]
+    h[0] += p[nh0 + 1:].sum()
+    product = np.outer(F.sum(axis=1), p)
+    weights, = flat._joint_weights(env, bare=False)
+    deposits = 0.0
+    for name, row in (("C2H2", 2), ("Hp", 3)):
+        tab = flat._interp_g0(flat._ladders(shape)[row], env.g0)[0]
+        dl = flat._deposit_losses(env)[row][0]
+        deposits += dl.sum()
+        assert (weights[name] * product).sum() == pytest.approx(f @ tab @ h + h @ dl, rel=1e-10, abs=1e-300), name
+    assert deposits > 0.0
+
+
 def test_super_hydrogenated_states_fill_in_shielded_gas_and_empty_under_uv():
     """Coronene and circumcoronene: in shielded gas H addition outruns the photo-loss of the extra H and the
     Eley-Rideal abstraction releases H2; under a strong field the extra H go and <N_H>/N_H0 <= 1."""
