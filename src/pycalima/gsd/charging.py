@@ -310,16 +310,19 @@ class AreaNodeCharging:
     """One charge solve per bin at its area node, the grain-rate method of RAMSES (decided 2026-11-18).
 
     Each bin's tables are built at ``radii_per_bin`` radii (geometric from the bin's lower to its upper edge, cached
-    on disk). Per cell, every bin's table at its area node a* (``closures.area_node``) is blended from the two
+    on disk; one count for every bin, or one per bin). Per cell, every bin's table at its area node a* (``closures.area_node``) is blended from the two
     bracketing radii (``blend_table``) and solved once (LG5 by default, as ``ChargingModel``). The bin's
     area-like rates are its weight w = int a^2 dN / a*^2 times the single-grain rates at a* (exact for rates
     proportional to a^2 and a^3). How many radii a bin needs is measured by
-    ``diagnostics/gsd/check_area_node_tables.py``.
+    ``diagnostics/gsd/check_area_node_tables.py``: for 1 % on the heating and cooling and 0.05 + 1 % of |<Z>| on the
+    charge, 3-9 per bin (9 for the smallest carbon and silicate bins and the 0.38-1 um carbon bin, 5 for most);
+    the default 5 meets it except there (3.4 % on the heating of 0.45-1.2 nm silicate, 1.0 % for 1-3 nm a-C).
     """
 
-    def __init__(self, material, grid, radii_per_bin=3, groups=AGN_GROUPS, cache=True, lattice=True,
+    def __init__(self, material, grid, radii_per_bin=5, groups=AGN_GROUPS, cache=True, lattice=True,
                  sticking="wd01", rho=None, method=None):
-        if radii_per_bin < 2:
+        counts = np.broadcast_to(np.asarray(radii_per_bin, int), (grid.n_bins,))
+        if np.any(counts < 2):
             raise ValueError("radii_per_bin must be at least 2 (the bin's edges)")
         self.material, self.grid, self.method = material, grid, method
         self.wdb06_material = charging_material(material)
@@ -332,7 +335,7 @@ class AreaNodeCharging:
         self.rho = rho
         self.L0, self.L1 = (np.asarray(g, float) for g in groups)
         a_e = grid.a_edges
-        self.node_radii = [np.geomspace(a_e[i], a_e[i + 1], radii_per_bin) for i in range(grid.n_bins)]
+        self.node_radii = [np.geomspace(a_e[i], a_e[i + 1], int(counts[i])) for i in range(grid.n_bins)]
         self.node_tables = [[bin_table(self.wdb06_material, float(r), self.L0, self.L1, cache) for r in radii]
                             for radii in self.node_radii]
         self.a = None           # the area nodes and blended tables of the last solve (``ChargeState`` reads them)
