@@ -14,10 +14,24 @@ class MassGrid:
     ``m_edges`` [g] has n_bins + 1 entries; ``a_edges`` [cm] are the matching
     radii. A uniform grid has one ratio eta = m_edges[i+1] / m_edges[i]; a
     graded one (``graded``) has a ratio per bin, ``etas``, and ``eta`` raises.
+
+    With ``overflow`` the last bin is the composition's overflow bin (``with_overflow``): one wide bin above the
+    grid's top (1-10 um, decided 2026-11-23), an ordinary bin for every operator, which the per-cell operator
+    computes only once it holds grains.
     """
 
     m_edges: np.ndarray
     rho: float
+    overflow: bool = False
+
+    def with_overflow(self, a_top_cm: float = 1e-3) -> "MassGrid":
+        """This grid plus the overflow bin, from its top edge to ``a_top_cm`` (default 10 um)."""
+        if self.overflow:
+            raise ValueError("the grid already has an overflow bin")
+        m_top = 4.0 / 3.0 * np.pi * self.rho * a_top_cm ** 3
+        if not m_top > self.m_edges[-1]:
+            raise ValueError("the overflow bin must end above the grid's top edge")
+        return MassGrid(np.append(self.m_edges, m_top), self.rho, overflow=True)
 
     @classmethod
     def from_radii(cls, a_min_cm: float, a_max_cm: float, bins_per_mass_decade: float,

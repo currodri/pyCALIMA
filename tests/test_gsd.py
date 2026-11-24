@@ -1188,6 +1188,30 @@ def test_carbon_layout_puts_the_pah_range_on_its_own_bins():
         CarbonLayout(material="carbon").grid()
 
 
+def test_the_overflow_bin_is_one_wide_bin_above_the_grid():
+    """Decided 2026-11-23: one bin per composition over 1-10 um, flagged; the grid below is unchanged, and grids
+    without it carry no flag."""
+    from pycalima.gsd.carbon import CarbonLayout
+    from pycalima.gsd.grid import MassGrid
+
+    base = CarbonLayout().grid()
+    assert not base.overflow
+    g = CarbonLayout(overflow_a_max_cm=1e-3).grid()
+    assert g.overflow and g.n_bins == base.n_bins + 1
+    np.testing.assert_array_equal(g.m_edges[:-1], base.m_edges)
+    np.testing.assert_allclose(g.a_edges[-2:], [1e-4, 1e-3], rtol=1e-12)
+    assert g.etas[-1] == pytest.approx(1e3)
+    lay = CarbonLayout(overflow_a_max_cm=1e-3)
+    assert lay.pah_bins(g).sum() == 4 and not lay.pah_bins(g)[-1]
+    sil = MassGrid.from_radii(4.5e-8, 1e-4, 8 / np.log10((1e-4 / 4.5e-8) ** 3), 3.3)
+    so = sil.with_overflow()
+    assert so.overflow and so.n_bins == sil.n_bins + 1 and so.a_edges[-1] == pytest.approx(1e-3)
+    with pytest.raises(ValueError, match="already"):
+        so.with_overflow()
+    with pytest.raises(ValueError, match="above"):
+        sil.with_overflow(5e-5)
+
+
 def test_carbon_carriers_carry_their_hydrogen_at_their_own_density():
     from pycalima.gsd.carbon import CARRIERS, M_C, M_H
 
