@@ -39,7 +39,8 @@ class Composition:
     ``N`` [cm^-3] and ``M`` [g cm^-3] per bin of ``grid``. ``key``: the gas element the grains are made of and return
     to ('C', 'Si'), ``per_gram`` its atoms per gram of grains. ``material``: the shattering material
     (``shattering.MATERIALS`` entry, or a ``materials.GrainMaterial``'s ``shatter``). ``sputtering``: the
-    ``sputtering.erosion_rate`` material ('graphite', 'silicate') or None; ``sublimation``: the
+    ``sputtering.erosion_rate`` material ('graphite', 'silicate'), a callable (T, n_H) -> da/dt(a), or None;
+    ``a_frag_min``: the smallest fragment radius [cm] (default the grid's lowest edge); ``sublimation``: the
     ``sublimation_kinetics`` model of accretion and sublimation, or None; ``charging``: a
     ``charging.AreaNodeCharging`` (precool), or None for neutral grains; ``pair_rule``: carbon's ``pairs.PairRule``,
     or None. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
@@ -55,8 +56,11 @@ class Composition:
     sublimation: object = None
     charging: object = None
     pair_rule: object = None
+    a_frag_min: float | None = None
     overflow_M: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
+    _collision_model: object = field(default=None, repr=False)
+    _collision_key: tuple = field(default=None, repr=False)
 
     def erosion(self, T, n_H) -> Callable:
         """The thermal sputtering da/dt(a) [cm/s] at (T, n_H), cached per cell condition."""
@@ -64,7 +68,8 @@ class Composition:
 
         key = (float(T), float(n_H))
         if key not in self._erosion:
-            self._erosion[key] = erosion_rate(self.sputtering, T, n_H, rho=self.grid.rho)
+            self._erosion[key] = (self.sputtering(T, n_H) if callable(self.sputtering)
+                                  else erosion_rate(self.sputtering, T, n_H, rho=self.grid.rho))
         return self._erosion[key]
 
 
@@ -189,16 +194,23 @@ def _subgrid(c: Composition, active):
 
 
 def _collisions(c, g, inputs, opt, pre_state):
+    """The composition's collision model for the cell's conditions, kept while they do not change (its pair table is
+    built once per condition, as RAMSES's tables are); a charge state from precool makes a new one."""
     from .shattering import GrainCollisions
     from .velocities import RelativeVelocity
 
     charges = None if pre_state is None else pre_state.charge_points
-    rv = RelativeVelocity(T=inputs.T, n_H=inputs.n_H, mu=1.4, v_turb=inputs.v_turb, L=inputs.L, charges=charges)
-    return GrainCollisions(c.material, rv, law="KT10", alpha_f=opt.alpha_frag,
-                           coagulation="coagulation" in opt.processes,
-                           v_shat=None if "shattering" in opt.processes else 1e30,
-                           a_frag_min=float(g.a_edges[0]), collector="remove", n_speed=opt.n_speed,
-                           table_ppd=opt.table_ppd, threads=opt.threads, pair_rule=c.pair_rule)
+    key = (inputs.T, inputs.n_H, inputs.v_turb, inputs.L, id(pre_state), g.n_bins, opt.processes, opt.n_speed,
+           opt.table_ppd, opt.alpha_frag)
+    if c._collision_key != key:
+        rv = RelativeVelocity(T=inputs.T, n_H=inputs.n_H, mu=1.4, v_turb=inputs.v_turb, L=inputs.L, charges=charges)
+        c._collision_model = GrainCollisions(
+            c.material, rv, law="KT10", alpha_f=opt.alpha_frag, coagulation="coagulation" in opt.processes,
+            v_shat=None if "shattering" in opt.processes else 1e30,
+            a_frag_min=float(g.a_edges[0] if c.a_frag_min is None else c.a_frag_min), collector="remove",
+            n_speed=opt.n_speed, table_ppd=opt.table_ppd, threads=opt.threads, pair_rule=c.pair_rule)
+        c._collision_key = key
+    return c._collision_model
 
 
 def _explode(g, N, M, k_bin, dt, opt, a_star):
