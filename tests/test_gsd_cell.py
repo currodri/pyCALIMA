@@ -145,3 +145,25 @@ def test_precool_is_the_area_node_solve_weighted_by_the_bins():
     np.testing.assert_allclose(pre.area[0], np.pi * N * g.a_edges[:-1] ** 2, rtol=1e-12)
     assert pre.explosion[0].shape == (2,) and pre.total_heating == pytest.approx(float(np.sum(N * ref.Gamma)))
     assert pre.states[1] is None and np.all(pre.heating[1] == 0.0) and pre.explosion[1] is None
+
+
+def test_molecular_bins_skip_the_grain_processes():
+    """The 4 molecular bins take no accretion and no grain explosion, and classical sputtering stops at N_C,max: grains
+    eroded from above join the molecular bins and nothing in them erodes; explosion fragments of larger grains may
+    land in them. Carbon is conserved each way."""
+    for procs in ({"accretion"}, {"sputtering"}, {"explosion"}):
+        c = carbon(n_H=1.0)
+        c.molecular_bins = 4
+        M0, N0 = c.M.copy(), c.N.copy()
+        g = c.grid
+        k = np.full(g.n_bins, 1e-10)
+        state = type("S", (), {"a": g.a_centres, "charge_points": None, "ion_focusing_of": None})()
+        pre = cell.Precool([0.0], [0.0], [state], [None], [k], [0.0])
+        T = 1e6 if procs == {"sputtering"} else 100.0
+        res = cell.update([c], inputs(n_H=1.0, T=T, gas_C=1e-4), pre, 1e5 * YR, cell.Options(processes=frozenset(procs)))
+        assert abs(res.conservation["C"]) < 1e-12
+        if procs == {"accretion"}:
+            np.testing.assert_array_equal(c.M[:4], M0[:4])
+            np.testing.assert_array_equal(c.N[:4], N0[:4])
+        else:                                                  # they only gain (eroded grains, fragments)
+            assert np.all(c.M[:4] >= M0[:4] * (1 - 1e-12)) and c.M[4:].sum() < M0[4:].sum()

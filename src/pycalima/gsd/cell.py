@@ -40,7 +40,10 @@ class Composition:
     to ('C', 'Si'), ``per_gram`` its atoms per gram of grains. ``material``: the shattering material
     (``shattering.MATERIALS`` entry, or a ``materials.GrainMaterial``'s ``shatter``). ``sputtering``: the
     ``sputtering.erosion_rate`` material ('graphite', 'silicate'), a callable (T, n_H) -> da/dt(a), or None;
-    ``a_frag_min``: the smallest fragment radius [cm] (default the grid's lowest edge); ``sublimation``: the
+    ``a_frag_min``: the smallest fragment radius [cm] (default the grid's lowest edge); ``molecular_bins``: how many
+    of the lowest bins are molecular (carbon below N_C,max): the grain processes skip them (accretion, since molecular
+    growth is off by default; classical sputtering and grain Coulomb explosion, since their loss follows the molecular
+    tables), while collisions treat them by the pair rule and grains eroded from above join them; ``sublimation``: the
     ``sublimation_kinetics`` model of accretion and sublimation, or None; ``charging``: a
     ``charging.AreaNodeCharging`` (precool), or None for neutral grains; ``pair_rule``: carbon's ``pairs.PairRule``,
     or None. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
@@ -57,6 +60,7 @@ class Composition:
     charging: object = None
     pair_rule: object = None
     a_frag_min: float | None = None
+    molecular_bins: int = 0
     overflow_M: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
     _collision_model: object = field(default=None, repr=False)
@@ -78,7 +82,9 @@ class CellInputs:
     """A cell's conditions over the substep: T [K], n(H) [cm^-3], n_e [cm^-3], ``gas`` the number densities of the
     compositions' key elements in the gas [cm^-3] (``update`` returns their new values); the dust temperature T_d
     [K] (given until precool computes it); turbulence v_turb [cm/s] and its driving scale L [cm]; the RT photon
-    groups (``charging.PhotonGroups``), the UV background G0_bg [Habing] and the ions [(n, z, m)] for the charge."""
+    groups (``charging.PhotonGroups``), the UV background G0_bg [Habing] and the ions [(n, z, m)] for the charge;
+    ``neutral`` the neutral fraction of each key element in the gas (1 if absent): its ionised part accretes with
+    the grains' Coulomb factor from precool."""
 
     T: float
     n_H: float
@@ -90,6 +96,7 @@ class CellInputs:
     photons: object = None
     G0_bg: float = 0.0
     ions: list | None = None
+    neutral: dict | None = None
 
 
 @dataclass
@@ -263,18 +270,31 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             N, M = r["N"], r["M"]
             over_N, over_M = over_N + r["overflow_N"], over_M + r["overflow_M"]
             gas[c.key] += r["sink_M"] * c.per_gram
+        mb = c.molecular_bins
         if "explosion" in opt.processes and pre is not None and pre.explosion[k] is not None:
-            N, M, to_gas = _explode(g, N, M, pre.explosion[k], dt, opt, pre.states[k].a)
+            kb = np.array(pre.explosion[k], float)
+            kb[:mb] = 0.0
+            N, M, to_gas = _explode(g, N, M, kb, dt, opt, pre.states[k].a)
             gas[c.key] += to_gas * c.per_gram
         if "sputtering" in opt.processes and c.sputtering is not None:
-            N, M, dM = sputter(g, N, M, c.erosion(inputs.T, inputs.n_H), dt, method=c.method)
+            adot = c.erosion(inputs.T, inputs.n_H)
+            if mb:
+                a_mol = float(g.a_edges[mb])
+
+                def adot(a, f=adot, a_mol=a_mol):         # grains stop at N_C,max: below it the molecular tables act
+                    return np.where(np.asarray(a) > a_mol, f(a), 0.0)
+            N, M, dM = sputter(g, N, M, adot, dt, method=c.method)
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
-            pop = Population(c.sublimation, g, N, M, np.broadcast_to(np.asarray(inputs.T_d, float), (g.n_bins,)).copy(),
-                             nucleation=False, method=c.method)
+            gg = g if mb == 0 else MassGrid(g.m_edges[mb:], g.rho)
+            x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
+            focus = None if pre is None or pre.states[k] is None or x_n >= 1.0 else pre.states[k].ion_focusing_of()
+            pop = Population(c.sublimation, gg, N[mb:].copy(), M[mb:].copy(),
+                             np.broadcast_to(np.asarray(inputs.T_d, float), (g.n_bins,))[mb:].copy(),
+                             nucleation=False, method=c.method, neutral_fraction=x_n, ion_focusing=focus)
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
-            N, M = pop.N, pop.M
+            N[mb:], M[mb:] = pop.N, pop.M
             over_N, over_M = over_N + pop.overflow_N, over_M + pop.overflow_M
             gas[c.key] = gk[c.key]
         with np.errstate(divide="ignore", invalid="ignore"):
