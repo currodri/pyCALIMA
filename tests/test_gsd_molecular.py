@@ -120,3 +120,59 @@ def test_sputtering_and_carbon_loss_share_one_erosion_step(tmp_path):
     assert abs(both[3].conservation["C"]) < 1e-12
     np.testing.assert_allclose(both[0].M[5:], gr[0].M[5:], rtol=1e-12)     # the grain bins above don't see the tables
     assert both[0].M[1:4].sum() < gr[0].M[1:4].sum()
+
+
+def fake_group_table(sigma=1e-16, k_up=1e-17, alpha=1e-7, a_bg=1e-9):
+    """A ``pahchem.group_tables`` bin table with flat kernels: absorption sigma, photo-up k_up (out of -1, 0, +1;
+    none out of +2), 2 eV per photoelectron, capture alpha for 0..+2 and a_bg background absorptions per s."""
+    from pycalima.gsd.charging import AGN_GROUP_L0, AGN_GROUP_L1
+    from pycalima.pahchem import group_tables as gt
+
+    L0, L1 = np.array(AGN_GROUP_L0), np.array(AGN_GROUP_L1)
+    nodes = gt._group_nodes(L0, L1, gt.N_E_PER_GROUP)
+    shape = (4, len(nodes), gt.N_E_PER_GROUP)
+    K = np.full(shape, k_up)
+    K[3] = 0.0
+    nT, ni = gt.LT.size, len(gt.ION_NAMES)
+    kern = {"A": np.full(shape, sigma), "K": K, "H": 2.0 * K, "A_bg": np.full(4, a_bg), "K_bg": np.zeros(4),
+            "H_bg": np.zeros(4), "alpha": np.full((3, nT), alpha), "L": np.full((3, nT), 0.1 * alpha),
+            "k_mn": np.zeros((ni, nT)), "k_ct": np.zeros(ni), "k_ad": 0.0, "nc": 30.0, "nh": 12.0}
+    return gt.PAHGroupTable(gt.combine([kern], [1.0], L0, L1))
+
+
+def agn_photons(N):
+    from pycalima.gsd.charging import AGN_GROUP_L0, AGN_GROUP_L1
+
+    L0, L1 = np.array(AGN_GROUP_L0), np.array(AGN_GROUP_L1)
+    return PhotonGroups(L0, L1, np.full(L0.size, float(N)), np.sqrt(L0 * L1))
+
+
+def test_molecular_charge_is_the_detailed_balance_and_absorption_of_the_group_tables(tmp_path):
+    from pycalima.gsd.molecular import C_CGS
+
+    gt_ = [fake_group_table() for _ in range(4)]
+    mt = MolecularTables(tables(tmp_path, [-10.0] * 4), groups=gt_)
+    ph = agn_photons(1e-6)
+    n_e, G0 = 0.01, 3.0
+    st = mt.charge(ph, 100.0, n_e, None, G0)
+    F = C_CGS * ph.N
+    r = F.sum() * 1e-17 / (n_e * 1e-7)
+    f = np.array([1.0, r, r * r, r ** 3])
+    np.testing.assert_allclose(st.f[0], f / f.sum(), rtol=1e-9)
+    np.testing.assert_allclose(st.r_abs, 1e-16 * F.sum() + G0 * 1e-9, rtol=1e-9)
+    np.testing.assert_allclose(st.absorbed.sum(axis=1), st.r_abs, rtol=1e-9)
+    assert st.energy.size == 2 * ph.L0.size and st.valid
+    ref = fake_group_table().solve(F, 100.0, n_e, 0.0, (("H+", n_e),), G0)
+    assert st.gamma[2] == pytest.approx(ref["gamma"], rel=1e-12) and st.lam[2] == pytest.approx(ref["lam"], rel=1e-12)
+    assert st.mean[0] == pytest.approx(float(st.f[0] @ np.array([-1, 0, 1, 2])), rel=1e-12)
+    bad = PhotonGroups(ph.L0[:8], ph.L1[:8], ph.N[:8], ph.egy[:8])
+    with pytest.raises(ValueError):
+        mt.charge(bad, 100.0, n_e)
+
+
+def test_pah_ions_names_the_singly_charged_ions_by_mass():
+    from pycalima.gsd.molecular import AMU, pah_ions
+
+    assert pah_ions(None, 0.5) == (("H+", 0.5),)
+    out = pah_ions([(1.0, 1, 4.0026 * AMU), (2.0, 1.0, 1.008 * AMU), (3.0, 2, 4.0026 * AMU), (4.0, 1, 12.0 * AMU)], 1.0)
+    assert out == (("He+", 1.0), ("H+", 2.0), ("C+", 4.0))
