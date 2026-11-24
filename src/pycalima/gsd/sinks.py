@@ -49,3 +49,27 @@ def sink_per_moment(grid, N, M, k_of_a, dt, method=None, n_nodes=N_NODES):
     fN, fM = survival_weights(grid, N, M, k_of_a, dt, method, n_nodes)
     N1, M1 = N * fN, M * fM
     return N1, M1, N - N1, M - M1
+
+
+def deposit_power_law(grid, mass, a_lo, a_hi, alpha=3.3):
+    """Number and mass per bin of ``mass`` [g cm^-3] of grains with dN/da ~ a^-alpha on [a_lo, a_hi] [cm], exactly
+    (the fragments of shattering and of Coulomb explosion). Returns (dN, dM, below, above): the bins' shares and the
+    mass below the grid's lowest edge (for the gas) and above its top edge."""
+    z = np.zeros(grid.n_bins)
+    if mass <= 0.0:
+        return z, z.copy(), 0.0, 0.0
+    if a_hi <= grid.a_edges[0]:                                  # every fragment below the grid
+        return z, z.copy(), float(mass), 0.0
+    if a_hi <= a_lo:
+        raise ValueError("a_hi must exceed a_lo")
+    if abs(alpha - 1.0) < 1e-9 or abs(alpha - 4.0) < 1e-9:
+        raise ValueError("alpha = 1 or 4 is not supported (log integrals)")
+    eN, eM = 1.0 - alpha, 4.0 - alpha
+    mfac = 4.0 / 3.0 * np.pi * grid.rho
+    norm = mass * eM / (mfac * (a_hi ** eM - a_lo ** eM))            # dN/da = norm a^-alpha
+    x = np.clip(grid.a_edges, a_lo, a_hi)
+    dN = norm * np.diff(x ** eN) / eN
+    dM = norm * mfac * np.diff(x ** eM) / eM
+    below = norm * mfac * (min(grid.a_edges[0], a_hi) ** eM - a_lo ** eM) / eM if a_lo < grid.a_edges[0] else 0.0
+    above = norm * mfac * (a_hi ** eM - max(grid.a_edges[-1], a_lo) ** eM) / eM if a_hi > grid.a_edges[-1] else 0.0
+    return dN, dM, float(below), float(above)
