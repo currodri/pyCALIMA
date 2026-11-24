@@ -15,6 +15,8 @@ import pytest
 from pycalima.gsd.collisions import CoagulationModel, _terms, collide
 from pycalima.gsd.grid import MassGrid
 
+pytestmark = pytest.mark.gsd_quick
+
 RHO = 3.0
 
 

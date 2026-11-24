@@ -14,6 +14,8 @@ from pycalima.gsd.grid import MassGrid
 from pycalima.gsd.pl2m import BinProfile, int_pow, mean_mass_ratio, solve_beta
 from pycalima.gsd.remap import flow_map, inject, remap, trajectory
 
+pytestmark = pytest.mark.gsd_quick
+
 RHO = 2.24
 
 

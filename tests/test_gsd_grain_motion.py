@@ -13,6 +13,8 @@ import pytest
 from pycalima.gsd import grain_motion as vel
 from pycalima.solvers.grain_dynamics import SIGMA_NEUTRAL, grain_relative_velocity
 
+pytestmark = pytest.mark.gsd_quick
+
 KB, MH = 1.380649e-16, 1.6735575e-24
 
 

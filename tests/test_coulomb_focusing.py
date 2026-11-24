@@ -8,6 +8,8 @@ import pytest
 
 from pycalima.models.dust_charge import coulomb_focusing as cf
 
+pytestmark = pytest.mark.gsd_quick
+
 
 def gaussian_sum(mu, sig, T, a, jmax, k=15.0):
     """The discrete Gaussian on every integer within k max(sig, 1/2) of mu, untapered."""
