@@ -18,11 +18,15 @@ grid; astrosilicate (DustEM's aSil) on 8 bins over 0.45 nm - 1 um. Control: grap
 All carbon is CM20 here, as in THEMIS (the molecular bins' PAH band emission comes from pahchem, not tested here).
 
 Method:
-1. Basis: every bin at five in-bin states (PL2M profiles, s = 0.05 ... 0.95) is a DustEM grain type with a fixed
-   mass per H; one DustEM run gives each one's extinction and emission (Mathis ISRF, U = 1).
-2. Fit: the components' masses (non-negative, within the abundance limits) by weighted least squares (SLSQP).
-3. Check: each bin's N and M from the fit are rebuilt by EA (the GSD's representation) and run through DustEM again;
-   its residuals are what the GSD itself would give.
+1. Basis: every bin at nine in-bin states (PL2M profiles, s = 0.05 ... 0.95) is a DustEM grain type with a fixed
+   mass per H; DustEM gives each one's extinction and emission (Mathis ISRF, U = 1).
+2. Fit: smooth parametric size distributions, as the benchmark models use (carbon: DustEM's plaw-ed plus a lognormal;
+   silicate: a lognormal), projected onto the bins; each bin enters through the basis at its own in-bin state. The
+   eight shape parameters by differential evolution, the two masses by least squares within the abundance limits.
+   (A fit of the bins' masses alone, without a shape, fits as well but with sawtooth distributions that no grain
+   population has: it is reported only as the lower bound of chi^2.)
+3. Check: the fitted distributions run through DustEM as continuous curves, and as the GSD carries them (the bins'
+   N and M rebuilt by EA).
 
     python diagnostics/gsd/check_o2_fit.py [--out results/gsd_a3c/o2_fit.txt]
 """
@@ -185,87 +189,135 @@ def gsd_blocks(grid, N, M, n=100):
                 ms = P.n[i, j] * grid.mass(a_s)
                 blocks.append((aa, np.full(aa.size, a_s ** 4), ms))
                 m_spike += ms
-    return [(a, cont, float(np.sum(M)) - m_spike)] + blocks
+    return [(a, cont, float(np.sum(M)) - m_spike), *blocks]
 
 
-def rebuilt_run(work, comps, comp, c):
-    """DustEM's extinction and emission of the EA reconstruction of each composition's bins from the fit."""
-    lines, sizes, alias = [], {}, {}
-    for ci, (name, grid, dtype) in enumerate(comps):
-        N, M = np.zeros(grid.n_bins), np.zeros(grid.n_bins)
-        for cj, (nm, i, _s, mbar) in zip(c, comp, strict=True):
-            if nm == name:
-                N[i] += cj / mbar
-                M[i] += cj
-        if M.sum() <= 0:
-            continue
-        for b, (a, a4n, mass) in enumerate(gsd_blocks(grid, N, M)):
-            if mass <= 0.0 or not np.any(a4n > 0):
-                continue
-            tag = f"{dtype}R{ci}k{b}"
-            sizes[tag] = (a, a4n, np.full(a.size, grid.rho))
-            alias[tag] = dtype
-            lines.append(f"{tag}  {a.size}  size  {mass:.4e}  {grid.rho:.3e}  {a[0]:.4e}  {a[-1]:.4e}")
-    D.link_aliases(work, alias)
-    r = D.run(work, "sdist", lines, sizes)
-    return interp_log(r["ext_lam"], r["ext"], WAVE_EXT), interp_log(r["lam"], r["sed"], np.array(BANDS)), r
+# --- parametric size distributions (the fit) -------------------------------------------------------------------------
+
+def plaw_ed(a, alpha, a_t, a_c):
+    """DustEM's 'plaw-ed' with gamma = 1: a^alpha, times exp(-(a - a_t) / a_c) above a_t (THEMIS's small a-C)."""
+    return np.where(a > a_t, a ** alpha * np.exp(-(a - a_t) / a_c), a ** alpha)
 
 
-def state_columns(A, comp_all, comps, s):
-    """Per-bin columns of A (rows: any quantity) at in-bin states s (one per bin, in sorted (composition, bin)
-    order), linear in s between the tabulated states; and the per-bin components in ``fit``'s form."""
-    keys = sorted({(cc[0], cc[1]) for cc in comp_all}, key=lambda k: (k[0], k[1]))
-    st = np.array(STATES)
-    grids = {name: grid for name, grid, _ in comps}
-    out, cmp_ = [], []
-    for k, sk in zip(keys, s, strict=True):
-        cols = [j for j, cc in enumerate(comp_all) if (cc[0], cc[1]) == k]
-        j = int(np.clip(np.searchsorted(st, sk) - 1, 0, st.size - 2))
-        t = (sk - st[j]) / (st[j + 1] - st[j])
-        out.append((1.0 - t) * A[:, cols[j]] + t * A[:, cols[j + 1]])
-        g = grids[k[0]]
-        cmp_.append((k[0], k[1], float(sk), g.m_edges[k[1]] * (1.0 + sk * (g.etas[k[1]] - 1.0))))
-    return np.array(out).T, cmp_
+def logn(a, a0, sigma):
+    """A lognormal in a: dn/da ~ exp(-ln^2(a / a0) / 2 sigma^2) / a."""
+    return np.exp(-np.log(a / a0) ** 2 / (2.0 * sigma ** 2)) / a
 
 
-def fit_states(A, T, sig, comp_all, comps, limits, smooth=SMOOTH, starts=4, seed=3):
-    """What the GSD can carry: one in-bin state s_i per bin (its basis column linear in s between the tabulated
-    states) and one mass per bin. For given s the masses follow from ``fit`` on the per-bin columns; the states are
-    optimised (L-BFGS-B over [0.05, 0.95], several starts). Returns (c, comp, s): the masses and components in
-    ``fit``'s form, one per bin, and the states."""
-    from scipy.optimize import minimize
-
-    n = len({(cc[0], cc[1]) for cc in comp_all})
-    st = np.array(STATES)
-
-    def solve(s):
-        Ac, cmp_ = state_columns(A, comp_all, comps, s)
-        c = fit(Ac, T, sig, cmp_, limits, smooth)
-        r = (Ac @ c - T) / (sig * T)
-        return float(r @ r), c, cmp_
-
-    rng = np.random.default_rng(seed)
-    best = None
-    for k in range(starts):
-        s0 = np.full(n, 0.5) if k == 0 else rng.uniform(0.1, 0.9, n)
-        res = minimize(lambda s: solve(s)[0], s0, method="L-BFGS-B", bounds=[(st[0], st[-1])] * n,
-                       options={"maxiter": 200, "eps": 1e-3})
-        if best is None or res.fun < best.fun:
-            best = res
-    _, c, cmp_ = solve(best.x)
-    return c, cmp_, best.x
+#: the shape parameters: (low, high, logarithmic)
+PARAMS = {"c_alpha": (-6.0, -1.5, False), "c_at": (5e-8, 1e-5, True), "c_ac": (3e-8, 1e-4, True),
+          "c_a0": (1e-8, 1e-4, True), "c_sigma": (0.1, 2.0, False), "c_fln": (0.0, 1.0, False),
+          "s_a0": (1e-7, 1e-4, True), "s_sigma": (0.1, 2.0, False)}
 
 
-def bins_of(comps, comp, c):
-    """{composition: (N, M)} per bin from per-bin masses c (dust mass per H mass) and the components' mean masses."""
+def physical(x):
+    """Shape parameters from the unit cube."""
     out = {}
+    for (k, (lo, hi, lg)), xi in zip(PARAMS.items(), x, strict=True):
+        out[k] = float(np.exp(np.log(lo) + xi * np.log(hi / lo))) if lg else lo + xi * (hi - lo)
+    return out
+
+
+def components(p):
+    """{composition: [(weight, dn/da)]}: the shapes of each composition and the mass fraction of each."""
+    return {"carbon": [(1.0 - p["c_fln"], lambda a: plaw_ed(a, p["c_alpha"], p["c_at"], p["c_ac"])),
+                       (p["c_fln"], lambda a: logn(a, p["c_a0"], p["c_sigma"]))],
+            "silicate": [(1.0, lambda a: logn(a, p["s_a0"], p["s_sigma"]))]}
+
+
+def unit_distribution(grid, parts, n=3000):
+    """The composition's distribution normalised to unit mass on the grid: radii a, dn/dln a there, and the bins'
+    N and M (sum M = 1), each part normalised to its mass fraction (mass outside the grid is not part of the model)."""
+    a = np.geomspace(grid.a_edges[0], grid.a_edges[-1], n)
+    lna = np.log(a)
+    m = grid.mass(a)
+    dn = np.zeros(n)
+    for w, f in parts:
+        if w <= 0.0:
+            continue
+        y = np.maximum(f(a), 0.0) * a
+        mass = np.trapezoid(y * m, lna)
+        if mass > 0.0:
+            dn += w * y / mass
+    N, M = np.zeros(grid.n_bins), np.zeros(grid.n_bins)
+    for i in range(grid.n_bins):
+        sel = (a >= grid.a_edges[i]) & (a <= grid.a_edges[i + 1])
+        N[i] = np.trapezoid(dn[sel], lna[sel])
+        M[i] = np.trapezoid((dn * m)[sel], lna[sel])
+    return a, dn, N, M
+
+
+def unit_spectrum(Bmat, comp_all, name, grid, N, M):
+    """Per unit dust mass: the sum over bins of M_i times the basis column of bin i at its own in-bin state s_i (linear
+    in s between the tabulated states, clipped to them); Bmat rows any quantity."""
+    st = np.array(STATES)
+    out = np.zeros(Bmat.shape[0])
+    for i in range(grid.n_bins):
+        if M[i] <= 0.0 or N[i] <= 0.0:
+            continue
+        s = float(np.clip((M[i] / (N[i] * grid.m_edges[i]) - 1.0) / (grid.etas[i] - 1.0), st[0], st[-1]))
+        cols = [j for j, cc in enumerate(comp_all) if cc[0] == name and cc[1] == i]
+        j = int(np.clip(np.searchsorted(st, s) - 1, 0, st.size - 2))
+        t = (s - st[j]) / (st[j + 1] - st[j])
+        out += M[i] * ((1.0 - t) * Bmat[:, cols[j]] + t * Bmat[:, cols[j + 1]])
+    return out
+
+
+def spectra(p, comps, Bmat, comp_all):
+    """{composition: unit-mass spectrum} and {composition: (a, dn/dln a, N, M)} for shape parameters p."""
+    parts = components(p)
+    dist, spec = {}, {}
     for name, grid, _ in comps:
-        N, M = np.zeros(grid.n_bins), np.zeros(grid.n_bins)
-        for cj, (nm, i, _s, mbar) in zip(c, comp, strict=True):
-            if nm == name:
-                N[i] += cj / mbar
-                M[i] += cj
-        out[name] = (N, M)
+        dist[name] = unit_distribution(grid, parts[name])
+        spec[name] = unit_spectrum(Bmat, comp_all, name, grid, dist[name][2], dist[name][3])
+    return spec, dist
+
+
+def fit_parametric(A, T, sig, comps, comp_all, limits, seed=7, maxiter=300):
+    """The shape parameters (differential evolution on the unit cube) and the compositions' masses (least squares
+    within the abundance limits, ``fit``) that best fit the targets T. Returns (p, masses, model)."""
+    from scipy.optimize import differential_evolution
+
+    names = [nm for nm, _, _ in comps]
+    two = [(nm, 0, 0.5, 1.0) for nm in names]
+
+    def solve(x):
+        spec, _ = spectra(physical(x), comps, A, comp_all)
+        Ac = np.array([spec[nm] for nm in names]).T
+        c = fit(Ac, T, sig, two, limits, smooth=0.0)
+        r = (Ac @ c - T) / (sig * T)
+        return float(r @ r), c, Ac @ c
+
+    res = differential_evolution(lambda x: solve(x)[0], [(0.0, 1.0)] * len(PARAMS), seed=seed, maxiter=maxiter,
+                                 popsize=20, tol=1e-8, polish=True)
+    _, c, model = solve(res.x)
+    return physical(res.x), dict(zip(names, c, strict=True)), model
+
+
+def dustem_checks(work, comps, dist, masses):
+    """DustEM runs of the fitted distributions: continuous (the parametric curves on 100 sizes per composition) and
+    as the GSD carries them (the bins' N and M rebuilt by EA, spikes as narrow types)."""
+    out = {}
+    for mode in ("continuous", "gsd"):
+        lines, sizes, alias = [], {}, {}
+        for ci, (name, grid, dtype) in enumerate(comps):
+            a_f, dn, N, M = dist[name]
+            if mode == "continuous":
+                a = np.geomspace(grid.a_edges[0] * (1 + 1e-6), grid.a_edges[-1] * (1 - 1e-6), 100)
+                y = np.exp(np.interp(np.log(a), np.log(a_f), np.log(np.maximum(dn, 1e-300)))) * a ** 3
+                blocks = [(a, y, 1.0)]
+            else:
+                blocks = gsd_blocks(grid, N, M)
+            for b, (a, a4n, frac) in enumerate(blocks):
+                mass = masses[name] * frac
+                if mass <= 0.0 or not np.any(a4n > 0):
+                    continue
+                tag = f"{dtype}{mode[0].upper()}{ci}k{b}"
+                sizes[tag] = (a, a4n, np.full(a.size, grid.rho))
+                alias[tag] = dtype
+                lines.append(f"{tag}  {a.size}  size  {mass:.4e}  {grid.rho:.3e}  {a[0]:.4e}  {a[-1]:.4e}")
+        D.link_aliases(work, alias)
+        out[mode] = D.run(work, "sdist", lines, sizes)
     return out
 
 
@@ -277,64 +329,65 @@ def report_mw(work, control, lines):
     A = np.vstack([B["ext"], B["sed"]])
     T = np.concatenate([ext_t, sed_t])
     sig = np.concatenate([np.full(ext_t.size, SIG_EXT), np.full(sed_t.size, SIG_SED)])
-    c_mix = fit(A, T, sig, comp_all, LIMITS)
-    rm = A @ c_mix / T - 1.0
-    c, comp, s = fit_states(A, T, sig, comp_all, comps, LIMITS)
-    model = state_columns(A, comp_all, comps, s)[0] @ c
-    ext_r, sed_r, run = rebuilt_run(work, comps, comp, c)
+    rm = A @ fit(A, T, sig, comp_all, LIMITS, smooth=0.0) / T - 1.0
+    p, masses, model = fit_parametric(A, T, sig, comps, comp_all, LIMITS)
+    _, dist = spectra(p, comps, A, comp_all)
+    runs = dustem_checks(work, comps, dist, masses)
+    at_t = {k: np.concatenate([interp_log(r["ext_lam"], r["ext"], WAVE_EXT), interp_log(r["lam"], r["sed"],
+                                                                                       np.array(BANDS))])
+            for k, r in runs.items()}
     label = "graphite + astrosilicate (control)" if control else "a-C(:H) + astrosilicate"
     lines.append(f"\n=== Milky Way, {label}")
     for name in LIMITS:
-        used = sum(cj for cj, cc in zip(c, comp, strict=True) if cc[0] == name)
-        lines.append(f"  {name}: dust mass per H mass {used:.3e} (limit {LIMITS[name]:.1e})")
-    rf = model / T - 1.0
-    rr = np.concatenate([ext_r, sed_r]) / T - 1.0
+        lines.append(f"  {name}: dust mass per H mass {masses[name]:.3e} (limit {LIMITS[name]:.1e})")
+    lines.append("  shapes: carbon power law alpha {c_alpha:.2f}, a_t {at:.1f} nm, a_c {ac:.1f} nm; lognormal a0 {ca0:.2f} "
+                 "nm, sigma {c_sigma:.2f}, mass fraction {c_fln:.2f}; silicate lognormal a0 {sa0:.1f} nm, sigma "
+                 "{s_sigma:.2f}".format(at=p["c_at"] * 1e7, ac=p["c_ac"] * 1e7, ca0=p["c_a0"] * 1e7,
+                                        sa0=p["s_a0"] * 1e7, **p))
     n_e = ext_t.size
-    lines.append(f"  chi2 / point: free in-bin mixture {np.mean((rm / sig) ** 2):.2f}, one state per bin (fit) "
-                 f"{np.mean((rf / sig) ** 2):.2f}, its GSD rebuild {np.mean((rr / sig) ** 2):.2f}")
-    lines.append("  states per bin: " + ", ".join(f"{cc[0][0]}{cc[1]} {cc[2]:.2f}" for cc in comp))
-    lines.append("  extinction 0.1-3 um, worst |model/target - 1|: fit "
-                 f"{100 * np.max(np.abs(rf[:n_e])):.1f} %, rebuild {100 * np.max(np.abs(rr[:n_e])):.1f} %; at "
-                 + ", ".join(f"{w:.3g} um {100 * rr[k]:+.1f}" for k, w in enumerate(WAVE_EXT) if k % 6 == 0))
-    lines.append("  emission (rebuild) [%]: " + ", ".join(f"{b:g} um {100 * rr[n_e + k]:+.1f}"
-                                                      for k, b in enumerate(BANDS)))
-    full_ext = state_columns(B["ext_full"], comp_all, comps, s)[0] @ c
-    full_sed = state_columns(B["sed_full"], comp_all, comps, s)[0] @ c
-    res = {"label": label, "ext_t": ext_t, "sed_t": sed_t, "fit": model, "rebuild": np.concatenate([ext_r, sed_r]),
-           "lam": B["lam"], "ext_lam": B["ext_lam"], "fit_ext_full": full_ext, "fit_sed_full": full_sed,
-           "reb_lam": run["lam"], "reb_sed_full": run["sed"], "reb_ext_lam": run["ext_lam"],
-           "reb_ext_full": run["ext"]}
-    for name, (N, M) in bins_of(comps, comp, c).items():
-        grid = next(g for nm, g, _ in comps if nm == name)
-        res[f"{name}_N"], res[f"{name}_M"], res[f"{name}_edges"] = N, M, grid.m_edges
-        res[f"{name}_rho"] = grid.rho
+    chi = {k: np.mean(((v / T - 1.0) / sig) ** 2) for k, v in (("fit", model), *at_t.items())}
+    lines.append(f"  chi2 / point: free bins (no shape constraint) {np.mean((rm / sig) ** 2):.2f}; parametric: through "
+                 f"the bin basis {chi['fit']:.2f}, continuous (DustEM) {chi['continuous']:.2f}, as the GSD carries it "
+                 f"(EA rebuild) {chi['gsd']:.2f}")
+    for k in ("continuous", "gsd"):
+        r = at_t[k] / T - 1.0
+        lines.append(f"  {k}: extinction worst {100 * np.max(np.abs(r[:n_e])):.1f} % (bump 0.2175 um "
+                     f"{100 * np.interp(0.2175, WAVE_EXT, r[:n_e]):+.1f} %); emission [%] "
+                     + ", ".join(f"{b:g} {100 * r[n_e + q]:+.0f}" for q, b in enumerate(BANDS)))
+    res = {"label": label, "ext_t": ext_t, "sed_t": sed_t, **{f"{k}_at_t": v for k, v in at_t.items()}}
+    for k, r in runs.items():
+        res.update({f"{k}_lam": r["lam"], f"{k}_sed": r["sed"], f"{k}_ext_lam": r["ext_lam"], f"{k}_ext": r["ext"]})
+    for name, grid, _ in comps:
+        a_f, dn, N, M = dist[name]
+        res.update({f"{name}_a": a_f, f"{name}_dn": dn * masses[name], f"{name}_N": N * masses[name],
+                    f"{name}_M": M * masses[name], f"{name}_edges": grid.m_edges, f"{name}_rho": grid.rho})
     return comps, B, comp_all, res
 
 
-def report_shape(name, comps, B, comp, lines):
+def report_shape(name, comps, B, comp_all, lines, seed=7):
+    """The parametric families fitted to an LMC/SMC curve shape (normalisation free, no abundance limits): the shape
+    parameters and the carbon share of the dust mass, by differential evolution through the bin basis."""
+    from scipy.optimize import differential_evolution
+
     lam, shape = shape_target(name)
     idx = np.isin(WAVE_EXT, lam)
     iv = int(np.argmin(np.abs(WAVE_EXT - 0.55)))
-    A = B["ext"][idx]                                                # per unit mass; the normalisation is free
-    # fit A c = shape * B_V c, i.e. (A - shape B_V) c = 0, with sum c = 1: shape-only least squares
-    Bv = B["ext"][iv]
-    M = (A - shape[:, None] * Bv[None, :]) / (SIG_EXT * shape[:, None])
-    M = M / np.abs(M).max()                                          # scaled for the optimiser
-    from scipy.optimize import minimize
 
-    n = len(comp)
-    res = minimize(lambda c: 0.5 * np.sum((M @ c) ** 2), np.full(n, 1.0 / n), jac=lambda c: M.T @ (M @ c),
-                   bounds=[(0.0, None)] * n, constraints=[{"type": "eq", "fun": lambda c: c.sum() - 1.0}],
-                   method="SLSQP", options={"maxiter": 5000, "ftol": 1e-16})
-    if not res.success:
-        raise RuntimeError(f"{name} shape fit failed: {res.message}")
-    c = res.x
-    model = (A @ c) / (Bv @ c)
-    r = model / shape - 1.0
-    carbon = sum(cj for cj, cc in zip(c, comp, strict=True) if cc[0] == "carbon")
+    def model(x):
+        spec, _ = spectra(physical(x[:-1]), comps, B["ext"], comp_all)
+        e = x[-1] * spec["carbon"] + (1.0 - x[-1]) * spec["silicate"]
+        return e[idx] / e[iv]
+
+    def chi(x):
+        return float(np.sum(((model(x) / shape - 1.0) / SIG_EXT) ** 2))
+
+    res = differential_evolution(chi, [(0.0, 1.0)] * (len(PARAMS) + 1), seed=seed, maxiter=200, popsize=15,
+                                 tol=1e-8, polish=True)
+    m = model(res.x)
+    r = m / shape - 1.0
     lines.append(f"  {name} shape: worst {100 * np.max(np.abs(r)):.1f} %, chi2/point {np.mean((r / SIG_EXT) ** 2):.2f};"
-                 f" carbon share of the dust mass {carbon:.2f}")
-    return {"lam": lam, "shape": shape, "model": model}
+                 f" carbon share of the dust mass {res.x[-1]:.2f}")
+    return {"lam": lam, "shape": shape, "model": m}
 
 
 # --- figures (house style) -------------------------------------------------------------------------------------------
@@ -370,7 +423,10 @@ def gsd_curve(N, M, edges, rho, n=400):
 
     g = MassGrid(np.asarray(edges, float), float(rho))
     a = np.geomspace(g.a_edges[0] * (1 + 1e-6), g.a_edges[-1] * (1 - 1e-6), n)
-    return a, np.maximum(O1.rebuild(g, np.asarray(N, float), np.asarray(M, float), a), 0.0) * 1.6735575e-24
+    return a, np.maximum(O1.rebuild(g, np.asarray(N, float), np.asarray(M, float), a), 0.0) * M_HYDROGEN
+
+
+M_HYDROGEN = 1.6735575e-24
 
 
 def plot(res, shapes, outdir):
@@ -384,7 +440,8 @@ def plot(res, shapes, outdir):
 
     _style()
     outdir.mkdir(parents=True, exist_ok=True)
-    cols = {"target": "k", "fit": "#2a78d6", "rebuild": "#eb6834"}
+    cols = {"target": "k", "continuous": "#2a78d6", "gsd": "#eb6834"}
+    labs = {"continuous": "parametric fit (continuous)", "gsd": "as the GSD carries it (EA)"}
     n_e = WAVE_EXT.size
     wav, irem, a_hd, sd_ad, sd_pah = hd23_curves()
 
@@ -398,37 +455,33 @@ def plot(res, shapes, outdir):
         ax.tick_params(labelbottom=False)
         ax2.tick_params(labelbottom=False)
         ax.plot(WAVE_EXT, r["ext_t"] * 1.0857, color=cols["target"], lw=2.2, label="Gordon+23, $R_V = 3.1$")
-        sel = (r["ext_lam"] >= 0.1) & (r["ext_lam"] <= 3.0)
-        ax.plot(r["ext_lam"][sel], r["fit_ext_full"][sel] * 1.0857, color=cols["fit"], lw=1.6,
-                label="fit: one state per bin")
-        sel = (r["reb_ext_lam"] >= 0.1) & (r["reb_ext_lam"] <= 3.0)
-        ax.plot(r["reb_ext_lam"][sel], r["reb_ext_full"][sel] * 1.0857, color=cols["rebuild"], lw=1.6, ls="--",
-                label="its EA rebuild")
+        ax2.plot(wav, irem, color=cols["target"], lw=2.2, label="Hensley \\& Draine (2023) model, $U = 1$")
+        ax2.plot(BANDS, r["sed_t"] / (4 * np.pi), "o", mfc="white", mec=cols["target"], ms=6, label="fitted bands")
+        axr.axhline(0.0, color="0.5", lw=0.8)
+        axr.fill_between(WAVE_EXT, -100 * SIG_EXT, 100 * SIG_EXT, color="0.9")
+        ax2r.axhline(0.0, color="0.5", lw=0.8)
+        ax2r.fill_between([2.0, 1500.0], -100 * SIG_SED, 100 * SIG_SED, color="0.9")
+        for k, ls in (("continuous", "-"), ("gsd", "--")):
+            el, e = r[f"{k}_ext_lam"], r[f"{k}_ext"]
+            sel = (el >= 0.1) & (el <= 3.0)
+            ax.plot(el[sel], e[sel] * 1.0857, color=cols[k], lw=1.6, ls=ls, label=labs[k])
+            ax2.plot(r[f"{k}_lam"], r[f"{k}_sed"] / (4 * np.pi), color=cols[k], lw=1.6, ls=ls)
+            at = r[f"{k}_at_t"]
+            axr.plot(WAVE_EXT, 100 * (at[:n_e] / r["ext_t"] - 1.0), color=cols[k], lw=1.4, ls=ls)
+            ax2r.plot(BANDS, 100 * (at[n_e:] / r["sed_t"] - 1.0), "o" + ls, color=cols[k], ms=4, lw=1.2)
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlim(0.1, 3.0)
         ax.set_title(r["label"].replace("+", r"$+$"), fontsize=14)
-        axr.axhline(0.0, color="0.5", lw=0.8)
-        axr.fill_between(WAVE_EXT, -100 * SIG_EXT, 100 * SIG_EXT, color="0.9")
-        axr.plot(WAVE_EXT, 100 * (r["fit"][:n_e] / r["ext_t"] - 1.0), color=cols["fit"], lw=1.4)
-        axr.plot(WAVE_EXT, 100 * (r["rebuild"][:n_e] / r["ext_t"] - 1.0), color=cols["rebuild"], lw=1.4, ls="--")
         axr.set_ylim(-35, 35)
         axr.set_xlabel(r"$\lambda$ [$\mu$m]", fontsize=14)
         axr.set_xticks([0.1, 0.2, 0.3, 0.5, 1.0, 2.0, 3.0])
         axr.xaxis.set_major_formatter(FormatStrFormatter("%g"))
         axr.xaxis.set_minor_formatter(NullFormatter())
-        ax2.plot(wav, irem, color=cols["target"], lw=2.2, label="Hensley \\& Draine (2023) model, $U = 1$")
-        ax2.plot(r["lam"], r["fit_sed_full"] / (4 * np.pi), color=cols["fit"], lw=1.6)
-        ax2.plot(r["reb_lam"], r["reb_sed_full"] / (4 * np.pi), color=cols["rebuild"], lw=1.6, ls="--")
-        ax2.plot(BANDS, r["sed_t"] / (4 * np.pi), "o", mfc="white", mec=cols["target"], ms=6, label="fitted bands")
         ax2.set_xscale("log")
         ax2.set_yscale("log")
         ax2.set_xlim(2.0, 1500.0)
         ax2.set_ylim(1e-28, 3e-24)
-        ax2r.axhline(0.0, color="0.5", lw=0.8)
-        ax2r.fill_between([2.0, 1500.0], -100 * SIG_SED, 100 * SIG_SED, color="0.9")
-        ax2r.plot(BANDS, 100 * (r["fit"][n_e:] / r["sed_t"] - 1.0), "o-", color=cols["fit"], ms=4, lw=1.2)
-        ax2r.plot(BANDS, 100 * (r["rebuild"][n_e:] / r["sed_t"] - 1.0), "s--", color=cols["rebuild"], ms=4, lw=1.2)
         ax2r.set_ylim(-90, 90)
         ax2r.set_xlabel(r"$\lambda$ [$\mu$m]", fontsize=14)
         if j == 0:
@@ -449,12 +502,11 @@ def plot(res, shapes, outdir):
         ax = axes[j]
         ax.plot(a_hd * 1e4, sd_ad, color="0.6", lw=1.4, label="HD23 astrodust")
         ax.plot(a_hd * 1e4, sd_pah, color="0.6", lw=1.4, ls=":", label="HD23 PAH")
-        for name, c in (("carbon", cols["fit"]), ("silicate", cols["rebuild"])):
+        for name, c in (("carbon", cols["continuous"]), ("silicate", cols["gsd"])):
+            a_f = r[f"{name}_a"]
+            ax.plot(a_f * 1e4, r[f"{name}_dn"] * a_f ** 3 * M_HYDROGEN, color=c, lw=1.0, alpha=0.6)
             a, y = gsd_curve(r[f"{name}_N"], r[f"{name}_M"], r[f"{name}_edges"], r[f"{name}_rho"])
-            ax.plot(a * 1e4, y, color=c, lw=1.8, label=f"GSD {name} (EA)")
-            edges = (3.0 * np.asarray(r[f"{name}_edges"]) / (4 * np.pi * r[f"{name}_rho"])) ** (1 / 3)
-            for e in edges:
-                ax.axvline(e * 1e4, color=c, lw=0.4, alpha=0.3)
+            ax.plot(a * 1e4, y, color=c, lw=1.8, ls="--", label=f"{name}: fit (thin), GSD bins (EA, dashed)")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_ylim(1e-30, 3e-27)
@@ -462,7 +514,7 @@ def plot(res, shapes, outdir):
         ax.set_title(r["label"].replace("+", r"$+$"), fontsize=14)
         if j == 0:
             ax.set_ylabel(r"$a^4\, dn/da / n_{\rm H}$ [cm$^3$ H$^{-1}$]", fontsize=14)
-            ax.legend(frameon=False, fontsize=10, loc="lower center")
+            ax.legend(frameon=False, fontsize=9, loc="lower center")
         _ticks(ax)
     fig.savefig(outdir / "o2_size_distributions.png", dpi=220, bbox_inches="tight")
     plt.close(fig)
@@ -473,7 +525,7 @@ def plot(res, shapes, outdir):
         ax = axes[k]
         sh = shapes[0][nm]
         ax.plot(1.0 / sh["lam"], sh["shape"], color=cols["target"], lw=2.2, label=nm.replace("_", " "))
-        for j, (r, c) in enumerate(zip(res, (cols["fit"], cols["rebuild"]), strict=False)):
+        for j, (r, c) in enumerate(zip(res, (cols["continuous"], cols["gsd"]), strict=False)):
             ax.plot(1.0 / shapes[j][nm]["lam"], shapes[j][nm]["model"], color=c, lw=1.6, ls="-" if j == 0 else "--",
                     label=r["label"].replace("+", r"$+$"))
         ax.set_xlabel(r"$1/\lambda$ [$\mu$m$^{-1}$]", fontsize=14)
@@ -495,18 +547,19 @@ def main(argv=None):
     store = out.with_suffix(".npz")
     if not args.plot_only:
         work = Path(args.work)
-        lines = ["Track O2: the GSD's materials on its grids fitted to the Milky Way (Gordon+23 extinction per H with",
-                 "Hensley & Draine 2021's N_H/E(B-V); Hensley & Draine 2023's model emission at U = 1) and to the",
-                 "LMC/SMC curve shapes (Gordon+03/+24). Errors 5 % (extinction), 10 % (emission); limits on carbon",
-                 "and silicate dust per H (labelled). 'free in-bin mixture': any mix of in-bin states per bin; 'fit':",
-                 "one state and one mass per bin (what the GSD carries); 'rebuild': that fit's N and M rebuilt by EA."]
+        lines = ["Track O2: the GSD's materials with smooth parametric size distributions (carbon: a power law with an",
+                 "exponential cutoff plus a lognormal; silicate: a lognormal), fitted through the bins to the Milky Way",
+                 "(Gordon+23 extinction per H with Hensley & Draine 2021's N_H/E(B-V); Hensley & Draine 2023's model",
+                 "emission at U = 1) and to the LMC/SMC curve shapes (Gordon+03/+24). Errors 5 % (extinction), 10 %",
+                 "(emission); limits on carbon and silicate dust per H (labelled). Checked in DustEM as continuous",
+                 "curves and as the GSD carries them (bins' N and M rebuilt by EA)."]
         res, shapes = [], []
         for control in (False, True):
-            comps, B, comp, r = report_mw(work, control, lines)
+            comps, B, comp_all, r = report_mw(work, control, lines)
             res.append(r)
-            shapes.append({nm: report_shape(nm, comps, B, comp, lines)
+            shapes.append({nm: report_shape(nm, comps, B, comp_all, lines)
                            for nm in ("G03_LMCAvg", "G03_SMCBar", "G24_SMCAvg")})
-            print("\n".join(lines[-8:]), flush=True)
+            print("\n".join(lines[-10:]), flush=True)
         txt = "\n".join(lines)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(txt + "\n")
