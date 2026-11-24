@@ -1,6 +1,7 @@
 """The cell's pseudo-bin optics (``pycalima.gsd.optics.PseudoBinOptics``) on analytic per-gram absorption."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,7 @@ def _jones_root():
 
 
 _JONES_ROOT = _jones_root()
+_DUSTEM_DIR = os.environ.get("CALIMA_DUSTEM_DIR")
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +43,17 @@ def jones(monkeypatch):
         monkeypatch.setenv("CALIMA_DATASETS", str(_JONES_ROOT))
     if get_dataset("optical-jones-2012-size").locate() is None:
         pytest.skip("Jones (2012) tables not fetched; run `calima-fetch-data fetch optical-jones-2012-size`")
+
+
+@pytest.fixture
+def dustem(monkeypatch):
+    """DustEM's THEMIS data (the 'ac' charging tables) inside isolated_env: the ambient $CALIMA_DUSTEM_DIR, or skip."""
+    from pycalima._datasets import get_dataset
+
+    if _DUSTEM_DIR:
+        monkeypatch.setenv("CALIMA_DUSTEM_DIR", _DUSTEM_DIR)
+    if get_dataset("dustem-themis-cm20").locate() is None:
+        pytest.skip("DustEM THEMIS data not available; set $CALIMA_DUSTEM_DIR")
 
 
 def grid():
@@ -183,3 +196,31 @@ def test_the_covalent_band_gap_is_the_hydrogen_equilibrium(jones):
     assert np.all((gap > E_FLOOR) & (gap < E_PLATEAU))
     with pytest.raises(ValueError):
         cell.precool([replace(c, hydrogen=None)], lit)
+
+
+def test_area_node_charging_follows_the_band_gap_of_the_covalent_bins(jones, dustem):
+    """At a node gap the table is that acx node's (blended in radius); between two nodes the tabulated arrays are
+    linear in the H/C; the solve with gaps differs from the base material's."""
+    from pycalima.gsd.charging import AreaNodeCharging, blend_table
+    from pycalima.models.dust_radiation import jones2012_optics as jo
+
+    m = 4.0 / 3.0 * np.pi * 1.6 * np.array([1.2e-7, 3.6e-7]) ** 3
+    g = MassGrid(np.geomspace(m[0], m[1], 2), 1.6)
+    ch = AreaNodeCharging("themis_ac", g, radii_per_bin=2, gap_bins=(0,), gap_nodes=(0.1, 2.5), sticking="seam")
+    a = 2.0e-7
+    t = ch.gap_tables[0]
+    lo = blend_table(t[0][0], t[0][1], a, "seam", ch.rho)
+    hi = blend_table(t[1][0], t[1][1], a, "seam", ch.rho)
+    np.testing.assert_allclose(ch.table_at(0, a, 0.1)["K"], lo["K"], rtol=1e-12)
+    np.testing.assert_allclose(ch.table_at(0, a, 2.5)["K"], hi["K"], rtol=1e-12)
+    x0, x1, x = (float(jo.h_per_carbon(a, e)) for e in (0.1, 2.5, 1.0))
+    w = (x - x0) / (x1 - x0)
+    mid = ch.table_at(0, a, 1.0)
+    np.testing.assert_allclose(mid["K"], (1 - w) * np.asarray(lo["K"]) + w * np.asarray(hi["K"]), rtol=1e-12)
+    assert mid["material"] == "acx1.0000" and mid["stick_pos"] == lo["stick_pos"]
+    N = np.array([1e-8])
+    M = N * 4.0 / 3.0 * np.pi * 1.6 * a ** 3
+    ph = photons(1e-3)
+    base, _ = ch.solve(N, M, ph, 100.0, 0.03)
+    hyd, _ = ch.solve(N, M, ph, 100.0, 0.03, gaps=[2.5])
+    assert hyd.Gamma[0] != base.Gamma[0]

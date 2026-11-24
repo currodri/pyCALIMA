@@ -135,7 +135,8 @@ class Options:
 def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Precool:
     """The dust at the substep's start, for the gas and the update (module doc).
 
-    Per composition with a charging model: one charge solve per bin at its area node (``charging.AreaNodeCharging``);
+    Per composition with a charging model: one charge solve per bin at its area node (``charging.AreaNodeCharging``;
+    its covalent bins at precool's band gaps when it and the optics have them);
     heating Gamma_i = w_i Gamma(a*_i) and cooling Lambda_i = w_i (Lambda + Lambda_auto)(a*_i) with the bins' weights
     w_i = int a^2 dN / a*_i^2; the explosion rate at each area node (``ChargeState.explosion_rate`` with
     ``Options.s_max``), held over the bin. Without a charging model the grains are neutral: no heating, cooling or
@@ -162,7 +163,12 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
             if ph is None:
                 L0, L1 = c.charging.L0, c.charging.L1
                 ph = PhotonGroups(L0, L1, np.zeros(L0.size), np.sqrt(L0 * L1))
-            st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
+            gaps = None
+            if gap is not None and getattr(c.charging, "gap_bins", np.zeros(0)).size:
+                if not np.array_equal(c.charging.gap_bins, c.optics.gap_bins):
+                    raise ValueError("the charging's covalent bins differ from the optics'")
+                gaps = gap
+            st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg, gaps=gaps)
             heat = w * st.Gamma
             cool = w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results])
             expl = st.explosion_rate(S_max=opt.s_max) if "explosion" in opt.processes else None

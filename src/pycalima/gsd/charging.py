@@ -55,6 +55,8 @@ M_H = 1.67262192e-24
 AGN_GROUP_L0 = (0.1, 1.0, 5.6, 11.2, 13.6, 15.2, 24.59, 54.42, 100.0, 300.0, 1000.0, 3000.0)
 AGN_GROUP_L1 = (1.0, 5.6, 11.2, 13.6, 15.2, 24.59, 54.42, 100.0, 300.0, 1000.0, 3000.0, 1e4)
 AGN_GROUPS = (AGN_GROUP_L0, AGN_GROUP_L1)
+#: the band-gap nodes of the covalent bins' charging tables [eV] (decided 2026-10-30: 5 nodes, ``acx<E_g>``)
+ACX_GAP_NODES = (0.1, 0.7, 1.3, 1.9, 2.5)
 
 _CARBON = ("graphite", "amorphous_carbon", "carbon", "diamond", "PAH", "SiC")
 
@@ -317,10 +319,17 @@ class AreaNodeCharging:
     ``diagnostics/gsd/check_area_node_tables.py``: for 1 % on the heating and cooling and 0.05 + 1 % of |<Z>| on the
     charge, 3-9 per bin (9 for the smallest carbon and silicate bins and the 0.38-1 um carbon bin, 5 for most);
     the default 5 meets it except there (3.4 % on the heating of 0.45-1.2 nm silicate, 1.0 % for 1-3 nm a-C).
+
+    The covalent a-C(:H) bins ``gap_bins`` follow the cell's band gap (precool's hydrogen equilibrium): their tables
+    are also built for the intermediate materials ``acx<E_g>`` (``wdb06_yields``, labelled) at ``gap_nodes``
+    (5 nodes keep heating and cooling within 1 %, decided 2026-10-30; ``check_acx_interpolation.py``), and a solve
+    with ``gaps`` blends each such bin's table in radius at the two bracketing band-gap nodes, then linearly in the
+    H/C between them (``rt_group_charging.interpolate_bin_tables``; the analytic parts are the acx material's at the
+    cell's gap).
     """
 
     def __init__(self, material, grid, radii_per_bin=5, groups=AGN_GROUPS, cache=True, lattice=True,
-                 sticking="wd01", rho=None, method=None):
+                 sticking="wd01", rho=None, method=None, gap_bins=(), gap_nodes=ACX_GAP_NODES):
         counts = np.broadcast_to(np.asarray(radii_per_bin, int), (grid.n_bins,))
         if np.any(counts < 2):
             raise ValueError("radii_per_bin must be at least 2 (the bin's edges)")
@@ -338,25 +347,51 @@ class AreaNodeCharging:
         self.node_radii = [np.geomspace(a_e[i], a_e[i + 1], int(counts[i])) for i in range(grid.n_bins)]
         self.node_tables = [[bin_table(self.wdb06_material, float(r), self.L0, self.L1, cache) for r in radii]
                             for radii in self.node_radii]
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        self.gap_bins = np.asarray(gap_bins, int)
+        self.gap_nodes = np.asarray(gap_nodes, float)
+        self.gap_tables = {int(i): [[bin_table(wy.acx_label(e), float(r), self.L0, self.L1, cache)
+                                     for r in self.node_radii[i]] for e in self.gap_nodes] for i in self.gap_bins}
         self.a = None           # the area nodes and blended tables of the last solve (``ChargeState`` reads them)
         self.tables = None
 
-    def table_at(self, i, a):
-        """Bin i's table at radius a (inside the bin)."""
+    def table_at(self, i, a, gap=None):
+        """Bin i's table at radius a (inside the bin); for a covalent bin with ``gap`` [eV], at that band gap."""
         r = self.node_radii[i]
         j = int(np.clip(np.searchsorted(r, a, side="right") - 1, 0, r.size - 2))
-        return blend_table(self.node_tables[i][j], self.node_tables[i][j + 1], a, self.sticking, self.rho)
+        if gap is None or int(i) not in self.gap_tables:
+            return blend_table(self.node_tables[i][j], self.node_tables[i][j + 1], a, self.sticking, self.rho)
+        from pycalima.models.dust_charge import wdb06_yields as wy
+        from pycalima.models.dust_radiation import jones2012_optics as jo
 
-    def solve(self, N, M, photons: PhotonGroups, T, n_e, ions: Sequence | None = None, G0_bg=0.0, c_red=C_CGS):
+        g = self.gap_nodes
+        e = float(np.clip(gap, g[0], g[-1]))
+        k = int(np.clip(np.searchsorted(g, e, side="right") - 1, 0, g.size - 2))
+        lo, hi = (blend_table(self.gap_tables[int(i)][q][j], self.gap_tables[int(i)][q][j + 1], a, self.sticking,
+                              self.rho) for q in (k, k + 1))
+        x0, x1, x = (float(jo.h_per_carbon(a, v)) for v in (g[k], g[k + 1], e))
+        w = 0.0 if x1 == x0 else (x - x0) / (x1 - x0)
+        out = rg.interpolate_bin_tables(lo, hi, w, wy.acx_label(e))
+        for key in ("stick_pos", "stick_neg"):
+            if key in lo:
+                out[key] = lo[key]
+        return out
+
+    def solve(self, N, M, photons: PhotonGroups, T, n_e, ions: Sequence | None = None, G0_bg=0.0, c_red=C_CGS,
+              gaps=None):
         """The charge state at every bin's area node, and the bins' weights: (``ChargeState`` on the area nodes,
-        w [cm^-3]). A bin's photoelectric heating is w_i Gamma_i, and so on."""
+        w [cm^-3]). A bin's photoelectric heating is w_i Gamma_i, and so on. ``gaps`` [eV]: the band gaps of the
+        ``gap_bins``, in order (None: their base material)."""
         if not (np.allclose(photons.L0, self.L0) and np.allclose(photons.L1, self.L1)):
             raise ValueError("photon groups differ from the tables' groups")
         from .closures import area_node
 
         a_star, w = area_node(self.grid, N, M, self.method)
         self.a = a_star
-        self.tables = [rg.GroupChargingTable(self.table_at(i, a), egy=photons.egy) for i, a in enumerate(a_star)]
+        gap_of = {} if gaps is None else dict(zip(self.gap_bins.tolist(), np.asarray(gaps, float), strict=True))
+        self.tables = [rg.GroupChargingTable(self.table_at(i, a, gap_of.get(i)), egy=photons.egy)
+                       for i, a in enumerate(a_star)]
         ions = [(n_e, 1.0, M_H)] if ions is None else list(ions)
         res = [gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None, lattice=self.lattice)
                for gt in self.tables]
