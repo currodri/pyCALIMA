@@ -698,3 +698,87 @@ class PseudoBinOptics:
             lg = np.log(4.0 * SIGMA_SB * self.planck_t ** 4 * np.maximum(kp[i], 1e-300))
             out[i] = np.exp(np.interp(np.log(max(float(power[i]), 1e-300)), lg, lt))
         return out
+
+
+def _disk_cached(tag, key, build, cache=True):
+    """build() pickled under model_data/gsd_cell_tables/<tag>-<hash of key>.pkl (our own files only)."""
+    import hashlib
+    import pickle
+
+    from pycalima._paths import get_model_data_dir
+
+    if not cache:
+        return build()
+    h = hashlib.sha1(repr(key).encode()).hexdigest()[:16]
+    path = get_model_data_dir() / "gsd_cell_tables" / f"{tag}-{h}.pkl"
+    if path.exists():
+        with path.open("rb") as fh:
+            return pickle.load(fh)
+    obj = build()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("wb") as fh:
+        pickle.dump(obj, fh)
+    tmp.replace(path)
+    return obj
+
+
+#: the per-gram optics of the cell tables, by GSD material
+CELL_OPTICS = {"themis_ac": "THEMIS CM20 (themis_optics, Henke below 40 nm); covalent bins Jones (2012) a-C(:H) at E_g",
+               "silicate": "astrosilicate (Draine & Lee 1984 suvSil, Mie; extrapolated below 1e-3 um, labelled)"}
+CELL_OPTICS_VERSION = 1
+
+
+def material_optics(material, grid, groups, gap_bins=(), n_nodes=32, cache=True):
+    """The ``PseudoBinOptics`` of a GSD material on ``grid`` (``CELL_OPTICS``), cached on disk: 'themis_ac' (its
+    ``gap_bins`` with the Jones (2012) a-C(:H) optics on ``GAP_NODES``) or 'silicate'."""
+    if material not in CELL_OPTICS:
+        raise ValueError(f"no cell optics for {material!r}; known: {sorted(CELL_OPTICS)}")
+    key = (CELL_OPTICS_VERSION, material, np.round(grid.m_edges, 30).tolist(), grid.rho,
+           np.asarray(groups, float).tolist(), tuple(int(i) for i in gap_bins), n_nodes, GAP_NODES.tolist())
+
+    def build():
+        if material == "themis_ac":
+            from .carbon import CARRIERS, HydrogenatedCarbon
+
+            aro, hyd = CARRIERS["aromatic"], HydrogenatedCarbon()
+            return PseudoBinOptics(
+                grid, lambda a, lam: aro.per_gram_carbon(grid.mass(np.asarray(a, float)), lam)[..., 0], groups,
+                gap_bins=gap_bins, n_nodes=n_nodes,
+                per_gram_gap=lambda a, lam, e: hyd.per_gram_carbon_at_gap(grid.mass(np.asarray(a, float)), lam, e)[..., 0])
+        if gap_bins:
+            raise ValueError("only carbon has covalent bins")
+        return PseudoBinOptics(grid, _silicate_per_gram, groups, n_nodes=n_nodes)
+
+    return _disk_cached(f"optics-{material}", key, build, cache)
+
+
+def _silicate_per_gram(a_cm, lam_um):
+    """Astrosilicate absorption per gram [cm^2 g^-1], (n_a, n_lam): Mie on Draine & Lee's suvSil."""
+    import contextlib
+    import io
+
+    from pycalima import _paths
+    from pycalima.models.tools.mie_theory import MieTheory
+
+    from .shattering import SILICATE
+
+    mie = MieTheory()
+    with contextlib.redirect_stdout(io.StringIO()):
+        mie.load_dielectric_constants(str(_paths.get_optical_props_path() / "draine_lee_1984" / "eps_suvSil"),
+                                      "suvSil")
+    a_cm = np.atleast_1d(np.asarray(a_cm, float))
+    out = np.empty((a_cm.size, np.size(lam_um)))
+    for i, a in enumerate(a_cm):
+        for j, w in enumerate(np.asarray(lam_um, float)):
+            out[i, j] = mie.compute_grain_properties(a * 1e4, w, "suvSil", use_fast_path=False)[0]
+    return out * (np.pi * a_cm ** 2 / (4.0 / 3.0 * np.pi * SILICATE.rho * a_cm ** 3))[:, None]
+
+
+def covalent_hydrogen(grid, gap_bins, cache=True):
+    """The ``hydrogen.BinHydrogen`` of the covalent bins (at s = 0.5: the x <-> E_g map of the bin's mid state,
+    labelled), cached on disk."""
+    from .hydrogen import BinHydrogen
+
+    key = (CELL_OPTICS_VERSION, np.round(grid.m_edges, 30).tolist(), grid.rho, tuple(int(i) for i in gap_bins))
+    return _disk_cached("hydrogen", key, lambda: [BinHydrogen(grid, int(i), s=0.5) for i in gap_bins], cache)
