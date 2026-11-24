@@ -25,10 +25,12 @@ solves per cell (= bins) and the Python time per precool and per update.
 With ``--molecular DIR`` the molecular bins take their tables (``gsd.molecular.MolecularTables``): the carbon loss
 of pahchem's hydrogen tables in DIR (``--hot DIR``: the hot-gas set above 1e4 K) and, with ``--groups DIR``, their
 charge, heating and cooling from the group tables (``build_molecular_group_tables.py``) and the photo-release S_eff of
-molecules on nano-grains (``--y-pd``: the photodesorption yield, 'calibrated', default 0).
+molecules on any larger particle (``--y-pd``: the photodesorption yield, 'calibrated', default 0). With
+``--optics`` precool computes the dust temperature per bin and the covalent a-C(:H) bins' equilibrium band gap, with
+which their charge is solved (``gsd.optics.material_optics``; tables cached on first use).
 
     python diagnostics/gsd/run_cell.py demo [--steps 40] [--out results/gsd_a3c/run_cell_demo.txt]
-        [--molecular DIR [--hot DIR] [--groups DIR] [--y-pd Y]]
+        [--molecular DIR [--hot DIR] [--groups DIR] [--y-pd Y]] [--optics]
 """
 from __future__ import annotations
 
@@ -85,6 +87,8 @@ AMU = 1.66053906660e-24
 CELLS = {"WNM": (6000.0, 0.3, 0.012, 1.0, 20.0, 100.0, 30.0, 0.0), "CNM": (100.0, 30.0, 0.03, 1.0, 2.6, 10.0, 30.0, 0.0),
          "dense": (10.0, 1e4, 1e-3, 1e-2, 1.5, 1.0, 1.0, 1.0), "PDR": (300.0, 1e4, 1.0, 1e3, 1.5, 1.0, 1.0, 0.0)}
 SOLAR = {"C": 2.69e-4, "Si": 3.24e-5}
+#: n(H I) / n_H of the demo cells (labelled: atomic WNM/CNM, molecular core, half-atomic PDR layer)
+N_HI_FRAC = {"WNM": 1.0, "CNM": 1.0, "dense": 1e-3, "PDR": 0.5}
 
 
 def j13_like(grid, parts, mass_per_h, n_H):
@@ -103,7 +107,12 @@ def j13_like(grid, parts, mass_per_h, n_H):
     return N * scale, M * scale
 
 
-def demo_compositions(n_H, molecular=None, hot=None, groups=None):
+def covalent_bins(grid, n_mol, a_max=53.2e-7):
+    """The covalent a-C(:H) bins: above the molecular ones, up to 53 nm."""
+    return [i for i in range(n_mol, grid.n_bins) if grid.a_edges[i + 1] <= a_max]
+
+
+def demo_compositions(n_H, molecular=None, hot=None, groups=None, optics=False):
     from dataclasses import replace
 
     from pycalima.gsd import cell
@@ -129,15 +138,24 @@ def demo_compositions(n_H, molecular=None, hot=None, groups=None):
     sub_s = replace(get_sublimation_model("silicate", "GD89"), alpha_gd89=0.3, density_gcm3=sg.rho)
     per_c = 1.0 / (12.011 * AMU)
     per_si = sub_s.key_per_unit / (sub_s.unit_mass_amu * AMU)
+    gap_bins = covalent_bins(cg, lay.n_pah_bins) if optics else ()
     carbon = cell.Composition(cg, Nc, Mc, "C", per_c, get_material("themis_ac").shatter, sputtering="graphite",
                               sublimation=sub_c, pair_rule=PairRule.from_layout(lay, cg), molecular_bins=lay.n_pah_bins,
-                              charging=AreaNodeCharging("themis_ac", cg, radii_per_bin=5, sticking="seam"))
+                              charging=AreaNodeCharging("themis_ac", cg, radii_per_bin=5, sticking="seam",
+                                                        gap_bins=gap_bins))
     silicate = cell.Composition(sg, Ns, Ms, "Si", per_si, get_material("silicate").shatter, sputtering="silicate",
                                 sublimation=sub_s, charging=AreaNodeCharging("silicate", sg, radii_per_bin=5))
     if molecular is not None:
         from pycalima.gsd.molecular import MolecularTables
 
         carbon.molecular_tables = MolecularTables.from_directories(molecular, hot, group_dir=groups)
+    if optics:
+        from pycalima.gsd.charging import AGN_GROUPS
+        from pycalima.gsd.optics import covalent_hydrogen, material_optics
+
+        carbon.optics = material_optics("themis_ac", cg, AGN_GROUPS, gap_bins)
+        carbon.hydrogen = covalent_hydrogen(cg, gap_bins)
+        silicate.optics = material_optics("silicate", sg, AGN_GROUPS)
     return carbon, silicate, lay
 
 
@@ -150,13 +168,13 @@ def carbon_shares(c, lay, gas_C):
                      (c.M[nb_mol:].sum() - c.M[nano].sum() + c.overflow_M) * c.per_gram, gas_C]) / tot
 
 
-def demo_cell(name, steps, molecular=None, hot=None, groups=None, y_pd=0.0):
+def demo_cell(name, steps, molecular=None, hot=None, groups=None, y_pd=0.0, optics=False):
     import time
 
     from pycalima.gsd import cell
 
     T, n_H, n_e, G0, V, L, myr, x_n = CELLS[name]
-    carbon, silicate, lay = demo_compositions(n_H, molecular, hot, groups)
+    carbon, silicate, lay = demo_compositions(n_H, molecular, hot, groups, optics)
     gas = {"C": 0.5 * SOLAR["C"] * n_H, "Si": 0.5 * SOLAR["Si"] * n_H}
     opt = cell.Options(table_ppd=None, y_pd=y_pd)
     dt = myr * 1e6 * 3.15576e7 / steps
@@ -165,7 +183,7 @@ def demo_cell(name, steps, molecular=None, hot=None, groups=None, y_pd=0.0):
     cons = 0.0
     for _ in range(steps):
         inp = cell.CellInputs(T=T, n_H=n_H, n_e=n_e, gas=gas, T_d=20.0, v_turb=V * 1e5, L=L * PC, G0_bg=G0,
-                              neutral={"C": x_n, "Si": x_n})
+                              neutral={"C": x_n, "Si": x_n}, n_HI=N_HI_FRAC[name] * n_H)
         t0 = time.perf_counter()
         pre = cell.precool([carbon, silicate], inp, opt)
         t1 = time.perf_counter()
@@ -175,7 +193,11 @@ def demo_cell(name, steps, molecular=None, hot=None, groups=None, y_pd=0.0):
         gas = res.gas
         cons = max(cons, max(abs(v) for v in res.conservation.values()))
     end = carbon_shares(carbon, lay, gas["C"])
-    return dict(start=start, end=end, heating=pre.total_heating, cooling=pre.total_cooling, cons=cons,
+    extra = None
+    if optics:
+        mb = lay.n_pah_bins
+        extra = {"td_c": pre.t_dust[0][mb:carbon.grid.n_bins - 1], "td_s": pre.t_dust[1][:-1], "gap": pre.e_gap[0]}
+    return dict(extra=extra, start=start, end=end, heating=pre.total_heating, cooling=pre.total_cooling, cons=cons,
                 overflow=max(res.overflow_share), solves=carbon.grid.n_bins + silicate.grid.n_bins,
                 t_pre=1e3 * t_pre / steps, t_up=1e3 * t_up / steps, myr=myr, n_H=n_H)
 
@@ -188,13 +210,24 @@ def cmd_demo(args):
     if args.molecular:
         lines.insert(2, f"molecular tables: {args.molecular} (hot: {args.hot}), group tables: {args.groups}, "
                         f"Y_pd = {args.y_pd:g}")
+    if args.optics:
+        lines.insert(2, "optics on: T_d per bin and the covalent bins' equilibrium band gap from precool "
+                        f"(n(H I)/n_H: {N_HI_FRAC})")
+    extras = []
     for name in CELLS:
-        r = demo_cell(name, args.steps, args.molecular, args.hot, args.groups, args.y_pd)
+        r = demo_cell(name, args.steps, args.molecular, args.hot, args.groups, args.y_pd, args.optics)
+        if r["extra"] is not None:
+            x = r["extra"]
+            extras.append(f"{name:6s} T_d carbon grain bins " + " ".join(f"{t:5.1f}" for t in x["td_c"])
+                          + "  silicate " + " ".join(f"{t:5.1f}" for t in x["td_s"])
+                          + "  E_g [eV] covalent bins " + " ".join(f"{e:4.2f}" for e in x["gap"]))
         lines.append(f"{name:6s} {r['myr']:5.1f}   " + " ".join(f"{x:6.3f}" for x in r["start"]) + "    "
                      + " ".join(f"{x:6.3f}" for x in r["end"])
                      + f"   {r['heating'] / r['n_H']:.2e}   {r['cooling'] / r['n_H']:.2e}            {r['cons']:.1e}"
                      f"      {r['overflow']:.1e}    {r['solves']}     {r['t_pre']:7.1f}    {r['t_up']:7.1f}")
         print(lines[-1], flush=True)
+    if extras:
+        lines += ["at the end, per bin (smallest first, overflow bins left out):", *extras]
     txt = "\n".join(lines)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -229,6 +262,7 @@ def main(argv=None):
     d.add_argument("--hot", default=None, help="hot-gas hydrogen tables (above 1e4 K)")
     d.add_argument("--groups", default=None, help="group-table directory (charge, heating, photo-release)")
     d.add_argument("--y-pd", type=float, default=0.0)
+    d.add_argument("--optics", action="store_true", help="precool computes T_d and the covalent band gaps")
     args = ap.parse_args(argv)
     {"oracle": cmd_oracle, "demo": cmd_demo}[args.cmd](args)
 
