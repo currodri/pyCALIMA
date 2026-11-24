@@ -811,6 +811,36 @@ def test_relative_velocity_reproduces_the_turbulent_coagulation_kernel():
     np.testing.assert_allclose(c, 1.0)
 
 
+def test_equal_radii_without_brownian_motion_give_finite_rates():
+    """Turbulence alone gives dV = 0 for equal radii (a difference of stopping times). The dispersion floor
+    ``DV_MIN`` keeps (alpha v)^2 from overflowing into NaN rates, which emptied bins; those pairs do not collide."""
+    import warnings
+
+    from pycalima.gsd.carbon import CarbonLayout
+    from pycalima.gsd.materials import get_material
+    from pycalima.gsd.shattering import GrainCollisions
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    grid = CarbonLayout().grid()
+    a = grid.a_centres
+    m = grid.mass(a)
+    rv = RelativeVelocity(T=6000.0, n_H=0.3, v_turb=1e6, L=3e20, brownian=False)
+    dV, mu = rv.pair_statistics(a, m, grid.rho)
+    assert np.any(dV == 0.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        v_mean, c, v_q = rv.collision_speeds(dV, mu, 1e5, 4)
+        model = GrainCollisions(get_material("themis_ac").shatter, rv, coagulation=True,
+                                a_frag_min=float(grid.a_edges[0]), table_ppd=None, threads=1)
+        chans = model.channels(a, m)
+    assert np.all(np.isfinite(v_mean)) and np.all(np.isfinite(c)) and np.all(np.isfinite(v_q))
+    for ch in chans:
+        assert np.all(np.isfinite(ch.K)) and np.all(ch.K >= 0.0)
+    tot = sum(ch.K for ch in chans)
+    zero = (dV == 0.0) & (mu == 0.0)
+    assert np.all(tot[zero] < 1e-12 * tot.max())
+
+
 def test_shattering_rates_are_the_flux_above_threshold_and_continuous():
     """The shattering channels carry sigma <v> C(v_shat) in equal parts at
     speeds above v_shat, and the total rate varies smoothly with the gas
