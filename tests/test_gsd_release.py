@@ -47,3 +47,12 @@ def test_s_eff_limits():
     assert float(R.s_eff(1e-8, 1e-3, 1e11)) == pytest.approx(1.0 / (1.0 + 1e-8 * 1e-3 * 1e11))
     assert float(R.s_eff(1e-8, 0.0, 1e11, y_pd=1e-6)) < 1.0
     assert np.isinf(R.burial_time(0.0)) and R.burial_time(1e-15) == pytest.approx(0.34e-7 / 1e-15)
+
+
+def test_release_rate_sums_the_groups(themis_cm20):
+    absorbed, energy = np.array([1e-9, 2e-9, 0.0, 5e-10]), np.array([0.5, 8.0, 12.0, 20.0])
+    want = sum(r * R.p_thermal(24, 0.8e-7, e) for r, e in zip(absorbed, energy, strict=True))
+    assert R.release_rate(24, 0.8e-7, absorbed, energy) == pytest.approx(want, rel=1e-12)
+    assert R.release_rate(24, 0.8e-7, absorbed, energy, y_pd=1e-6) == pytest.approx(want + 1e-6 * absorbed.sum())
+    assert R.release_rate(24, 0.8e-7, np.zeros(4), energy) == 0.0
+    assert R.release_rate(24, 5e-7, absorbed, energy) < 1e-30              # a 5 nm host: no thermal release

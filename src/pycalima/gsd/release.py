@@ -25,6 +25,10 @@ for a UV photon) gives P_th ~ 0.
 
 t_bury (``burial_time``) is the time for the host to grow by one graphitic layer (0.34 nm, labelled) at its rate
 of growth da/dt; without growth it is infinite and any release keeps the molecule off the host.
+
+In a cell the absorbed photons span the RT groups, and P_th is steep in the photon energy: ``release_rate`` sums
+R_abs (P_th + Y_pd) over the groups' mean energies, and S_eff = 1 / (1 + release_rate t_bury) (``s_eff`` with
+p_th = 1, y_pd = 0).
 """
 from __future__ import annotations
 
@@ -110,6 +114,16 @@ def p_thermal(nc_mol, a_host, energy_ev, rho=1.6):
     dtdt = float(ir_power(n_tot, t_m)) / c_tot
     tau = (K_B * t_e ** 2 / (e_b * EV)) / max(dtdt, 1e-300)
     return float(min(1.0, k * tau))
+
+
+def release_rate(nc_mol, a_host, absorbed, energy_ev, rho=1.6, y_pd=Y_PD_DEFAULT):
+    """Releases per second [s^-1] of a molecule of nc_mol C atoms on a host of radius a_host [cm]: R_abs (P_th + Y_pd)
+    summed over the photon energies, sum_k absorbed_k (P_th(E_k) + Y_pd), with ``absorbed`` [s^-1] the molecule's
+    absorptions at energies ``energy_ev`` [eV] (``molecular.MolecularState.absorbed`` and ``energy``)."""
+    absorbed = np.asarray(absorbed, float)
+    p = np.array([p_thermal(nc_mol, a_host, e, rho) if r > 0.0 else 0.0
+                  for r, e in zip(absorbed, np.asarray(energy_ev, float), strict=True)])
+    return float(absorbed @ (p + y_pd))
 
 
 def burial_time(a_dot):
