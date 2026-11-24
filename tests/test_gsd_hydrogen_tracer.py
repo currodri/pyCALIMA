@@ -75,3 +75,38 @@ def test_pl2m_is_not_traced():
     N, M = state(g)
     with pytest.raises(NotImplementedError):
         remap_hydrogen(g, N, M, 0.3 * M, lambda a: a, N, method="pl2m")
+
+
+def test_sputtering_keeps_the_h_per_c_and_returns_the_rest():
+    from pycalima.gsd.sputtering import sputter
+
+    g = grid()
+    N, M = state(g)
+    H = 0.3 * M
+    adot = lambda a: np.full(np.shape(a), -1e-15)                     # noqa: E731
+    N1, M1, _, H1, dH = sputter(g, N, M, adot, 3e7 * 3.15576e7, H=H)
+    ref = sputter(g, N, M, adot, 3e7 * 3.15576e7)
+    np.testing.assert_array_equal(N1, ref[0])
+    np.testing.assert_array_equal(M1, ref[1])
+    np.testing.assert_allclose(H1, 0.3 * M1, rtol=1e-10, atol=1e-14 * H.sum())
+    assert H1.sum() + dH == pytest.approx(H.sum(), rel=1e-12)
+
+
+def test_accretion_dilutes_the_hydrogen_and_conserves_it():
+    from dataclasses import replace
+
+    from pycalima.gsd.exchange import Population, exchange_step
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+    g = grid()
+    N, M = state(g)
+    sub = replace(get_sublimation_model("graphite", "GD89"), alpha_gd89=0.3, density_gcm3=RHO)
+    ref = Population(sub, g, N.copy(), M.copy(), np.full(g.n_bins, 20.0), nucleation=False)
+    pop = Population(sub, g, N.copy(), M.copy(), np.full(g.n_bins, 20.0), nucleation=False, H=0.3 * M)
+    gas_ref, gas = {"C": 1e-2}, {"C": 1e-2}
+    exchange_step([ref], gas_ref, 100.0, 1e14)
+    exchange_step([pop], gas, 100.0, 1e14)
+    np.testing.assert_array_equal(pop.M, ref.M)
+    assert gas["C"] == gas_ref["C"] and pop.M.sum() > M.sum()
+    assert pop.H.sum() + pop.overflow_H + pop.h_to_gas == pytest.approx(0.3 * M.sum(), rel=1e-12)
+    assert pop.H.sum() / pop.M.sum() < 0.3

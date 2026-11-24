@@ -71,7 +71,11 @@ class Population:
     ion Coulomb factor, ``charging.ChargeState.ion_focusing_of``) is given
     the ionised rest accretes with that factor (else all of it at the
     geometric rate, as before). ``method`` selects the in-bin closure of the
-    remap (``closures``; None: ``closures.DEFAULT_METHOD``).
+    remap (``closures``; None: ``closures.DEFAULT_METHOD``). ``H``: the bins'
+    hydrogen mass (tracer, None: not tracked), carried at each bin's H/C
+    (``remap.remap_hydrogen``: growing grains keep their hydrogen, shrinking
+    ones their H/C); ``overflow_H`` and ``h_to_gas`` collect what leaves the
+    top and what is released; nucleated grains carry none.
     """
 
     model: object
@@ -89,6 +93,9 @@ class Population:
     microcanonical: bool = False
     kelvin: bool = True
     method: object = None
+    H: Optional[np.ndarray] = None
+    overflow_H: float = 0.0
+    h_to_gas: float = 0.0
     _fcorr: tuple = field(default=None, repr=False)
     _profile: tuple = field(default=None, repr=False)
 
@@ -150,12 +157,25 @@ class Population:
         return rate
 
     # -- one step at fixed gas ---------------------------------------------------
+    def _table(self, n_key, T_gas):
+        rate = self.adot(n_key, T_gas)
+        return rate, velocity_table(rate, self.grid.a_edges[0] * 0.3, self.grid.a_edges[-1] * 3.0,
+                                    self.table_points)
+
+    def advance_hydrogen(self, n_key, T_gas, dt, N_new):
+        """Carry ``H`` over the step at gas n_key (the accepted one; ``N_new`` its N) and collect what leaves."""
+        from .remap import remap_hydrogen
+
+        _, table = self._table(n_key, T_gas)
+        prof = self._profile[2] if (self._profile is not None and self._profile[0] is self.N) else None
+        H1, gas, over = remap_hydrogen(self.grid, self.N, self.M, self.H, lambda a: advance(table, a, dt), N_new,
+                                       profile=prof, method=self.method)
+        self.H, self.overflow_H, self.h_to_gas = H1, self.overflow_H + over, self.h_to_gas + gas
+
     def advanced(self, n_key, T_gas, dt, nucleate=True):
         """(N, M, overflow_N, overflow_M, born) after dt at fixed gas n_key (no
         mutation); ``born`` is the number nucleated in the step."""
-        rate = self.adot(n_key, T_gas)
-        table = velocity_table(rate, self.grid.a_edges[0] * 0.3, self.grid.a_edges[-1] * 3.0,
-                               self.table_points)
+        rate, table = self._table(n_key, T_gas)
         meth = resolve(self.method)
         # the reconstruction of (N, M) is the same for every gas density the root finder tries
         if (self._profile is None or self._profile[0] is not self.N or self._profile[1] is not self.M
@@ -216,7 +236,7 @@ def exchange_step(populations: List[Population], gas: Dict[str, float], T_gas: f
 
 def _advance_key(pops, gas, key, T_gas, dt, rtol, dlnn_max, depth):
     n0 = gas.get(key, 0.0)
-    saved = [(p.N, p.M, p.overflow_N, p.overflow_M) for p in pops]
+    saved = [(p.N, p.M, p.overflow_N, p.overflow_M, p.H, p.overflow_H, p.h_to_gas) for p in pops]
     born = _implicit_step(pops, gas, key, T_gas, dt, rtol)
     n1 = gas.get(key, 0.0)
     if depth <= 0 or n0 <= 0.0:
@@ -224,7 +244,7 @@ def _advance_key(pops, gas, key, T_gas, dt, rtol, dlnn_max, depth):
     N_tot = sum(p.N.sum() for p in pops)
     if born > 1e-3 * N_tot and abs(np.log(max(n1, 1e-300) / n0)) > dlnn_max:
         for p, st in zip(pops, saved):
-            p.N, p.M, p.overflow_N, p.overflow_M = st
+            p.N, p.M, p.overflow_N, p.overflow_M, p.H, p.overflow_H, p.h_to_gas = st
         gas[key] = n0
         _advance_key(pops, gas, key, T_gas, 0.5 * dt, rtol, dlnn_max, depth - 1)
         _advance_key(pops, gas, key, T_gas, 0.5 * dt, rtol, dlnn_max, depth - 1)
@@ -255,6 +275,8 @@ def _implicit_step(pops, gas, key, T_gas, dt, rtol):
         n = brentq(residual, lo, hi, xtol=rtol * total, rtol=rtol, maxiter=200)
     born = 0.0
     for p, r in zip(pops, dust_after(n)):
+        if p.H is not None:
+            p.advance_hydrogen(n, T_gas, dt, r[0])
         p.N, p.M, p.overflow_N, p.overflow_M, b = r
         born += b
     gas[key] = max(total - sum(p.key_atoms() for p in pops), 0.0)
