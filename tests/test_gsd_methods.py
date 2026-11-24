@@ -198,6 +198,24 @@ def test_gauss_nodes_reproduce_the_radius_moments_up_to_the_third(name):
         np.testing.assert_allclose((wm * mm).sum(axis=1)[filled], M[filled], rtol=1e-11)
 
 
+@pytest.mark.parametrize("name", METHOD_NAMES)
+def test_area_node_carries_the_bin_area_and_lies_inside_the_bin(name):
+    """w a*^2 = int a^2 dN and w a*^3 = int a^3 dN for every filled bin (spikes included); a* within the bin's edges;
+    empty bins weigh nothing."""
+    rng = np.random.default_rng(5)
+    a, g = grid_of(12)
+    N, M = random_state(g, rng)
+    a_star, w = C.area_node(g, N, M, name)
+    P = C.pieces(g, N, M, name)
+    filled = N > 0
+    np.testing.assert_allclose((w * a_star ** 2)[filled], C.radius_moments(P, 2)[filled], rtol=1e-12)
+    np.testing.assert_allclose((w * a_star ** 3)[filled], C.radius_moments(P, 3)[filled], rtol=1e-12)
+    assert np.all(a_star[filled] >= a[:-1][filled] * (1 - 1e-12))
+    assert np.all(a_star[filled] <= a[1:][filled] * (1 + 1e-12))
+    assert np.all(w[~filled] == 0.0)
+    np.testing.assert_allclose(a_star[~filled], g.a_centres[~filled])
+
+
 def test_kernel_averaging_changes_nothing_for_a_constant_kernel():
     a, g = grid_of(16)
     N, M = segment(a, 1e-7, 1e-5, -3.5)
