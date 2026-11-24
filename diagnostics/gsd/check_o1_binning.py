@@ -149,33 +149,10 @@ def run_model(work, model, cgrid, sgrid, summed):
         new_lines.append(f"{tag}  {N_SIZES}  {opts}  {mprop * (1.0 - out_frac):.4e}  {f[4]}  {a[0]:.4e}  {a[-1]:.4e}")
         ident_lines.append(f"{tag}  {N_SIZES}  {opts}  {mprop:.4e}  {f[4]}  {a[0]:.4e}  {a[-1]:.4e}")
         lost[tag] = out_frac
-    _link_optics(work, {tag: sd[g[0]][0] for tag, g in zip(sizes, groups, strict=True)})
+    D.link_aliases(work, {tag: sd[g[0]][0] for tag, g in zip(sizes, groups, strict=True)})
     ref = D.run(work, kw, ident_lines, ident)
     test = D.run(work, kw, new_lines, sizes)
     return compare(ref, test), compare(analytic, ref), lost
-
-
-def _link_optics(work, alias):
-    """DustEM reads Q_<type>, G_<type>, C_<type> (and charge/mix data) by type name: link the renamed types."""
-    run = D.build(work)
-    root = D.dustem_root()
-    for tag, base in alias.items():
-        for f in (root / "data").glob(f"*_{base}.DAT"):
-            dst = run / "data" / f.name.replace(f"_{base}.DAT", f"_{tag}.DAT")
-            if not dst.exists() and not f.name.startswith("SIZE_"):
-                dst.symlink_to(f)
-    for sub in ("oprop", "hcap"):
-        d = run / sub
-        if d.is_symlink():                     # replace the folder link by a folder of links, to add aliases
-            d.unlink()
-            d.mkdir()
-            for f in (root / sub).iterdir():
-                (d / f.name).symlink_to(f)
-        for tag, base in alias.items():
-            for f in (root / sub).glob(f"*_{base}.DAT"):
-                dst = d / f.name.replace(f"_{base}.DAT", f"_{tag}.DAT")
-                if not dst.exists():
-                    dst.symlink_to(f)
 
 
 def main(argv=None):

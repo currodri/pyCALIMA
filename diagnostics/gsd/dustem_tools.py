@@ -60,7 +60,8 @@ def build(work: Path) -> Path:
 def run(work: Path, keywords: str, lines: list[str], sizes: dict | None = None, g0: float = 1.0) -> dict:
     """Run DustEM with the grain lines ``lines`` (GRAIN.DAT format) and run keywords. ``sizes``: {grain type:
     (a [cm], a^4 dn/da, rho(a))} written as SIZE_<type>.DAT for types with the 'size' keyword. Returns {'lam' [um],
-    'sed' [erg/s/H, 4 pi nu I_nu / N_H, total], 'ext' [cm^2/H, total], 'sed_types', 'ext_types'}."""
+    'sed' [erg/s/H, 4 pi nu I_nu / N_H, total], 'ext' [cm^2/H, total], 'sed_types', 'ext_types' (absorption plus
+    scattering per type), 'ext_lam'}."""
     run_dir = build(work)
     data = run_dir / "data"
     for f in data.glob("SIZE_*.DAT"):
@@ -79,24 +80,28 @@ def run(work: Path, keywords: str, lines: list[str], sizes: dict | None = None, 
         raise RuntimeError("DustEM failed:\n" + p.stdout[-2000:] + p.stderr[-2000:])
     sed = _read_res(run_dir / "out" / "SED.RES")
     ext = _read_res(run_dir / "out" / "EXT.RES")
+    nt = (ext.shape[1] - 2) // 2
     out = {"lam": sed[:, 0], "sed": sed[:, -1], "sed_types": sed[:, 1:-1], "ext": ext[:, -1] * 1e-21,
-           "ext_lam": ext[:, 0]}
+           "ext_lam": ext[:, 0], "ext_types": (ext[:, 1:1 + nt] + ext[:, 1 + nt:1 + 2 * nt]) * 1e-21}
     if (run_dir / "out" / "SDIST.RES").exists():
         out["sdist"] = read_sdist(run_dir / "out" / "SDIST.RES")
     return out
 
 
 def _read_res(path):
-    rows = []
-    started = False
+    """The table of a DustEM .RES file, [n_lambda, n_columns]. DustEM wraps long rows (and the list of type names)
+    over several lines, so the numbers are read as one stream after the comments: "n_types n_lambda", then the
+    rows."""
+    vals = []
     for line in Path(path).read_text().splitlines():
         if line.startswith("#") or not line.strip():
             continue
-        if not started:                      # the "n_types n_lambda" line
-            started = True
+        try:
+            vals.extend(float(x) for x in line.split())
+        except ValueError:                   # the type names
             continue
-        rows.append([float(x) for x in line.split()])
-    return np.array(rows)
+    n_lam = int(vals[1])
+    return np.array(vals[2:]).reshape(n_lam, -1)
 
 
 def read_sdist(path):
@@ -109,6 +114,30 @@ def read_sdist(path):
         out.append((name, arr[:, 0], arr[:, 1], arr[:, 2]))
         k += 1 + n
     return out
+
+
+def link_aliases(work: Path, alias: dict):
+    """Make DustEM type names ``alias`` {new name: existing type} usable: DustEM reads Q_, G_ (oprop), C_ (hcap) and
+    the charge and mix data by type name, so each new name gets links to the existing type's files."""
+    run = build(work)
+    root = dustem_root()
+    for tag, base in alias.items():
+        for f in (root / "data").glob(f"*_{base}.DAT"):
+            dst = run / "data" / f.name.replace(f"_{base}.DAT", f"_{tag}.DAT")
+            if not dst.exists() and not f.name.startswith("SIZE_"):
+                dst.symlink_to(f)
+    for sub in ("oprop", "hcap"):
+        d = run / sub
+        if d.is_symlink():                     # replace the folder link by a folder of links, to add aliases
+            d.unlink()
+            d.mkdir()
+            for f in (root / sub).iterdir():
+                (d / f.name).symlink_to(f)
+        for tag, base in alias.items():
+            for f in (root / sub).glob(f"*_{base}.DAT"):
+                dst = d / f.name.replace(f"_{base}.DAT", f"_{tag}.DAT")
+                if not dst.exists():
+                    dst.symlink_to(f)
 
 
 def grain_lines(model: str) -> tuple[str, list[str]]:
