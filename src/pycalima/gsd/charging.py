@@ -147,9 +147,59 @@ def _table_path(material, a, L0, L1):
     return _cache_dir() / f"{material}_{a:.6e}_{key}_v{rg.FORMAT_VERSION}.npz"
 
 
-def bin_table(material, a, L0=AGN_GROUP_L0, L1=AGN_GROUP_L1, cache=True):
-    """rt_group_charging table of one radius (potentials ``U_GRID``), from the
-    disk cache if present."""
+#: the electron-sticking laws of the grain tables (``sticking_law``); 'wd01' is the solver's own
+STICKING_LAWS = ("wd01", "seam", "molecular")
+#: the seam law's taper [cm]: pahchem's laboratory sticking at N_C,max (1.06 nm for a-C at 1.6 g cm^-3) to WD01's
+#: grain law at 3 nm (labelled, 2026-11-23)
+SEAM_TAPER_CM = (1.06e-7, 3e-7)
+_M_C = 12.011 * 1.66053906660e-24
+
+
+def sticking_law(name, a, rho=None):
+    """(s_pos, s_neg): the electron sticking of cations, and of neutral and negative grains, of radius a [cm].
+
+    Decided 2026-11-23 (status report, "How carbon moves"): the PAH/grain seam's heating gap is the electron
+    sticking on cations, measured only up to N_C 16 (pahchem's laboratory fit saturates at 1 by N_C ~ 35; WD01's grain
+    law gives 0.2-0.3 at these sizes). The laws:
+    - 'wd01': Weingartner & Draine (2001), the solver's built-in law (cations 0.5 (1 - exp(-a / 1 nm)));
+    - 'seam' (carbon's GSD default, labelled): cations take pahchem's laboratory fit
+      (``pahchem.chemistry.lab_sticking``, 'cold') at the grain's N_C up to ``SEAM_TAPER_CM[0]`` and taper linearly
+      in ln a to WD01 at ``SEAM_TAPER_CM[1]``;
+    - 'molecular' (an A5 bracket): the laboratory fit for cations at every size.
+    Neutrals and anions keep WD01 in every law, since the gap is on cations. ``rho`` [g cm^-3] turns a into N_C
+    (needed by every law but 'wd01')."""
+    if name not in STICKING_LAWS:
+        raise ValueError(f"sticking must be one of {STICKING_LAWS}")
+    a = float(a)
+    wd_pos = 0.5 * (1.0 - math.exp(-a / 1e-7))
+    wd_neg = wd_pos / (1.0 + math.exp(20.0 - 468.0 * (a / 1e-7) ** 3))
+    if name == "wd01":
+        return wd_pos, wd_neg
+    if rho is None:
+        raise ValueError(f"the '{name}' sticking law needs the bulk density rho")
+    from pycalima.pahchem.chemistry import lab_sticking
+
+    lab = float(lab_sticking(4.0 / 3.0 * math.pi * rho * a ** 3 / _M_C, "cold"))
+    a0, a1 = SEAM_TAPER_CM
+    if name == "molecular" or a <= a0:
+        return lab, wd_neg
+    if a >= a1:
+        return wd_pos, wd_neg
+    t = math.log(a / a0) / math.log(a1 / a0)
+    return (1.0 - t) * lab + t * wd_pos, wd_neg
+
+
+def bin_table(material, a, L0=AGN_GROUP_L0, L1=AGN_GROUP_L1, cache=True, sticking="wd01", rho=None):
+    """rt_group_charging table of one radius (potentials ``U_GRID``), from the disk cache if present. A
+    ``sticking`` law other than 'wd01' (``sticking_law``; ``rho`` turns a into N_C) adds the table's stick_pos and
+    stick_neg at radius a, after the cache, which stays free of the law."""
+    tab = _cached_table(material, a, L0, L1, cache)
+    if sticking != "wd01":
+        tab["stick_pos"], tab["stick_neg"] = sticking_law(sticking, a, rho)
+    return tab
+
+
+def _cached_table(material, a, L0, L1, cache):
     path = _table_path(material, a, L0, L1)
     if cache and path.exists():
         with np.load(path, allow_pickle=False) as z:
@@ -172,16 +222,24 @@ class ChargingModel:
     rtg_lattice), the rates at the 5 (7) integer charges around the mode of P(Z), 2-4x cheaper than the full solve
     and within the documented charging-parameter uncertainties of the exact P(Z) (95th percentile of the error in <Z>:
     0.11 charges in diffuse gas, against the full solve's 0.03). False: the full WDB06rt solve (root, width, a window grown
-    to its tails), RAMSES's default."""
+    to its tails), RAMSES's default.
 
-    def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True, lattice=True):
+    sticking: the electron-sticking law of the tables (``sticking_law``): 'wd01' (default) or, for carbon, 'seam'
+    (the GSD's choice) and 'molecular'; ``rho`` [g cm^-3] for N_C defaults to the GSD material's (``materials``)."""
+
+    def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True, lattice=True, sticking="wd01", rho=None):
         self.material = material
         self.lattice = bool(lattice)
         self.wdb06_material = charging_material(material)
         self.a = np.asarray(a_grid, float)
         self.L0, self.L1 = (np.asarray(g, float) for g in groups)
+        self.sticking = sticking
+        if sticking != "wd01" and rho is None:
+            from .materials import get_material
+
+            rho = get_material(material).rho
         self.tables = [rg.GroupChargingTable(bin_table(self.wdb06_material, float(ai),
-                                                       self.L0, self.L1, cache))
+                                                       self.L0, self.L1, cache, sticking, rho))
                        for ai in self.a]
         self._egy = None
         self._warm = [None] * self.a.size

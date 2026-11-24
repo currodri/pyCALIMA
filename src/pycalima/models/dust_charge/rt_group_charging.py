@@ -522,13 +522,17 @@ class GroupChargingTable:
 
     def _sticking(self, Z):
         """WD01 eqs. 27-30 with the continuous extension used by the solver;
-        the table's s_e(U), linear in the U-node index, where it has one (cm20)."""
+        the table's s_e(U), linear in the U-node index, where it has one (cm20);
+        the table's stick_pos / stick_neg (cations / neutrals and anions) where it
+        has them (a law fixed per table radius, ``gsd.charging`` ``sticking=``)."""
         a = self.a
         if Z <= self.t["Zmin"]:
             return 0.0
         if "s_e" in self.t:
             i, w = self._u_index(Z * E2_EV_CM / a)
             return (1 - w) * self.t["s_e"][i] + w * self.t["s_e"][i + 1]
+        if "stick_pos" in self.t:
+            return self.t["stick_pos"] if Z > 0 else self.t["stick_neg"]
         base = 0.5 * (1.0 - np.exp(-a / 1e-7))
         if Z > 0:
             return base
@@ -599,6 +603,9 @@ class GroupChargingTable:
             i, w = self._u_index_arr(Z * E2_EV_CM / a)
             s = (1 - w) * self.t["s_e"][i] + w * self.t["s_e"][i + 1]
             return np.where(Z <= self.t["Zmin"], 0.0, s)
+        if "stick_pos" in self.t:
+            base, neg = self.t["stick_pos"], self.t["stick_neg"]
+            return np.where(Z <= self.t["Zmin"], 0.0, np.where(Z > 0, base, neg))
         base = 0.5 * (1.0 - np.exp(-a / 1e-7))
         neg = base / (1.0 + np.exp(20.0 - 468.0 * (a / 1e-7) ** 3))
         return np.where(Z <= self.t["Zmin"], 0.0, np.where(Z > 0, base, neg))

@@ -1018,6 +1018,62 @@ def test_the_full_solver_is_an_option_and_lg5_stays_close_to_it(silicate_chargin
     np.testing.assert_allclose(lg.Gamma, fs.Gamma, rtol=0.05)
 
 
+def test_the_seam_sticking_law_runs_from_the_lab_fit_to_wd01():
+    """Decided 2026-11-23: cations take pahchem's laboratory sticking at N_C,max (1.06 nm), tapering to WD01 by 3 nm;
+    neutrals and anions keep WD01 in every law."""
+    from pycalima.gsd.charging import SEAM_TAPER_CM, sticking_law
+    from pycalima.pahchem.chemistry import lab_sticking
+
+    def wd01(a):
+        p = 0.5 * (1.0 - np.exp(-a / 1e-7))
+        return p, p / (1.0 + np.exp(20.0 - 468.0 * (a / 1e-7) ** 3))
+
+    rho = 1.6
+    nc = lambda a: 4.0 / 3.0 * np.pi * rho * a ** 3 / (12.011 * 1.66053906660e-24)      # noqa: E731
+    a0, a1 = SEAM_TAPER_CM
+    assert sticking_law("seam", a0, rho)[0] == pytest.approx(float(lab_sticking(nc(a0), "cold")))
+    assert sticking_law("seam", a0, rho)[0] > 0.95
+    radii = np.geomspace(5e-8, 1e-5, 40)
+    seam = np.array([sticking_law("seam", a, rho) for a in radii])
+    ref = np.array([wd01(a) for a in radii])
+    np.testing.assert_allclose(seam[:, 1], ref[:, 1], rtol=1e-14)
+    np.testing.assert_allclose(seam[radii >= a1, 0], ref[radii >= a1, 0], rtol=1e-14)
+    taper = (radii > a0) & (radii < a1)
+    assert np.all(np.diff(seam[taper, 0]) < 0) and np.all(seam[taper, 0] > ref[taper, 0])
+    assert sticking_law("molecular", 1e-5, rho)[0] == pytest.approx(float(lab_sticking(nc(1e-5), "cold")))
+    np.testing.assert_allclose(sticking_law("wd01", 3e-7), wd01(3e-7), rtol=1e-14)
+    with pytest.raises(ValueError, match="rho"):
+        sticking_law("seam", 1e-7)
+    with pytest.raises(ValueError, match="one of"):
+        sticking_law("bt94", 1e-7, rho)
+
+
+def test_table_sticking_scalars_drive_the_solve():
+    """stick_pos / stick_neg on a table replace the built-in WD01 law: WD01's own values change nothing; the seam
+    law's higher cation sticking lowers <Z> of a small grain in diffuse gas."""
+    from pycalima.gsd.charging import sticking_law
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    a = 1.2e-7
+    tab = rg.build_bin_table("graphite", a, U=rg.u_grid(n=241), Ts=np.geomspace(3e3, 3e6, 13),
+                             T_hot=np.geomspace(1e3, 1e9, 13), label="sticking")
+    N = np.array([1e-4, 3e-5, 1e-5, 2e-7, 0.0, 0.0, 0.0, 0.0])
+    egy = np.sqrt(np.asarray(tab["L0"]) * np.asarray(tab["L1"]))
+
+    def solve(extra):
+        gt = rg.GroupChargingTable({**tab, **extra}, egy=egy)
+        return gt.solve(N, 2.99792458e10, 100.0, 0.03, [(0.03, 1.0, 1.67262192e-24)])
+
+    base = solve({})
+    wd = sticking_law("wd01", a)
+    same = solve({"stick_pos": wd[0], "stick_neg": wd[1]})
+    for k in ("Zmean", "Zsigma", "Gamma", "Lambda"):
+        assert same[k] == pytest.approx(base[k], rel=1e-12, abs=1e-30)
+    sp, sn = sticking_law("seam", a, 2.2)
+    seam = solve({"stick_pos": sp, "stick_neg": sn})
+    assert sp > wd[0] and seam["Zmean"] < base["Zmean"]
+
+
 def test_coulomb_explosion_follows_tazaki_ichikawa_kokubo_2020(silicate_charging):
     """TIK20 (L45 = 10, T = 1e4 K, n_H = 1e2, S_max = 1e10): grains below
     a_CE ~ 0.01-0.1 um explode; a_CE falls much more slowly than the
