@@ -1,0 +1,14 @@
+Cost at 8 bins (MRN 5-250 nm, both cut-offs inside bins), best of 5 x 200 calls, this laptop (numba, one thread). 'closure' = the compiled closure alone; 'remap kern' = the compiled remap of its pieces (one growth step, 4 sub-intervals per piece); these two are what a Fortran routine would do per cell and step. 'remap API' = both through the Python API (dominated by Python overhead); 'nodes' = two collision nodes from the generic (bisection) node routine of pl2m_variants (the production analytic bin_nodes takes the time quoted above); 'terms' = one collision-operator evaluation (coagulation, McKinnon kernel). 'pieces' = non-empty pieces over the 8 bins.
+  production PL2M: BinProfile 59.3 us, remap 75.5 us, bin_nodes 90.3 us; compiled PL2M closure 6.11 us
+  variant        pieces closure [us]  x PL2M remap kern [us]  x PL2M remap API [us]  nodes [us]  gauss [us]
+  pl2m                6         6.11    1.00            3.33    1.00           85.2       217.4       184.9
+  tc:16               6         4.72    0.77            3.37    1.01           68.4       200.7       168.4
+  tc:8                6         5.15    0.84            3.21    0.96           67.2       199.8       169.5
+  tc:4                6         4.33    0.71            3.12    0.94           66.5       196.0       163.5
+  ea:1e-2             6         8.11    1.33            3.19    0.96           73.2       205.6       170.6
+  ea:1e-6             6         8.29    1.36            3.20    0.96           73.0       204.8       174.1
+  ea:1e-2:8           6         6.87    1.12            3.18    0.96           72.2       200.5       172.0
+  aff                48        37.23    6.09           17.10    5.13          124.9       388.0       334.2
+  exp                48        69.65   11.40           17.94    5.39          157.0       406.8       361.3
+  eaf:1e-6:-3.5       6         8.33    1.36            3.17    0.95           71.8       204.0       171.3
+  collision terms (coagulation, 8 bins): prod 0.12 ms, pl2m 0.12 ms, pl2m+gauss 0.22 ms, pl2m+ka2 0.47 ms, pl2m+ka4 0.66 ms, pl2m+ka8 1.05 ms, ea:1e-6 0.23 ms, ea:1e-6+gauss 0.20 ms

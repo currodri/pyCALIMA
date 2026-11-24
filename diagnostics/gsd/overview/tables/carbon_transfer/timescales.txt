@@ -1,0 +1,49 @@
+Carbon grid (CarbonLayout, rho 1.6) with THEMIS J13 carbon; times in yr
+bin  a_lo-a_hi [nm]  N_C(centre)  mass share
+  1     0.39-    0.50        29.1   15.01 %
+  2     0.50-    0.64        61.5   13.11 %
+  3     0.64-    0.83         130   10.21 %
+  4     0.83-    1.06         275    7.96 %
+  5     1.06-    2.82    1.74e+03   17.51 %
+  6     2.82-    7.50    3.27e+04    6.63 %
+  7     7.50-   19.96    6.16e+05    3.01 %
+  8    19.96-   53.10    1.16e+07    4.42 %
+  9    53.10-  141.27    2.18e+08    9.26 %
+ 10   141.27-  375.87    4.11e+09    9.13 %
+ 11   375.87- 1000.00    7.74e+10    3.75 %
+
+collisions (graphite strength, KT10, a^-3.3 to 0.39 nm): supply time M_i / inflow from the other bins, loss time M_i / outflow (to other bins, overflow, sink); J13 state
+  WIM  supply  1.1e+07  1.1e+07  8.6e+06  7.6e+06  9.1e+06  1.1e+07  1.1e+07  9.7e+06  1.2e+07  5.2e+07  4.3e+09
+  WIM  loss    5.2e+07  4.3e+07  3.2e+07  2.4e+07  2.1e+07  1.1e+07  6.6e+06  4.6e+06  3.3e+06  3.0e+06  7.0e+06
+  WNM  supply  9.1e+06  9.1e+06  7.9e+06  7.6e+06  9.0e+06  1.1e+07  9.9e+06  9.6e+06  1.2e+07  1.9e+07  1.4e+09
+  WNM  loss    4.2e+07  4.2e+07  3.3e+07  2.4e+07  2.1e+07  1.2e+07  8.3e+06  5.7e+06  3.7e+06  2.5e+06  2.2e+06
+  CNM  supply  1.6e+09  2.7e+06  1.9e+06  2.4e+06  7.7e+06  2.4e+07  6.2e+07  2.4e+08  6.9e+08  3.2e+08  2.8e+08
+  CNM  loss    2.0e+06  2.6e+06  4.0e+06  7.4e+06  2.5e+08  2.4e+09  2.4e+09  2.4e+09  1.1e+09  2.0e+08  9.4e+07
+  DC   supply  7.4e+25  2.6e+04  1.8e+04  2.3e+04  8.2e+04  4.4e+05  7.8e+05  1.6e+06  2.8e+06  5.1e+06  1.1e+07
+  DC   loss    1.9e+04  2.6e+04  3.9e+04  7.6e+04  2.8e+06  8.4e+06  1.6e+08  1.8e+10 2.2e+112  1.2e+51  2.0e+24
+molecular bins 1-4 lost to the grain bins only (trace molecules, no molecule + molecule collisions):
+  WIM  freeze  2.5e+08  2.3e+08  2.1e+08  2.0e+08
+  WNM  freeze  1.4e+08  1.4e+08  1.3e+08  1.3e+08
+  CNM  freeze  2.7e+07  3.1e+07  3.3e+07  3.3e+07
+  DC   freeze  2.9e+05  3.6e+05  4.3e+05  4.8e+05
+
+PAH carbon loss (pahchem tables, deep +8): time to lose the molecule's carbon, bins 1-4
+  WIM   2.1e+06  7.5e+09  5.1e+17  5.2e+31
+  WNM   1.9e+06  5.7e+09  3.6e+17  3.5e+31
+  CNM   2.5e+06  1.8e+11  1.4e+19  1.3e+33
+  DC    1.8e+09  1.6e+15  3.1e+24  3.0e+38
+  PDR   2.9e+02  1.7e+06  1.4e+11  2.3e+24
+  HOT   2.3e+06  1.4e+11  2.5e+19  2.9e+33
+
+a-C(:H) hydrogen relaxation 1/(k_UV + k_H) (lab laws, gsd.hydrogen), covalent bins [5, 6, 7, 8]; HM20 Eq. 21 aromatisation in brackets
+  WIM   3.3e+03 (1.3e+06)  3.3e+03 (5.1e+05)  3.6e+03 (9.4e+05)  6.3e+03 (2.5e+06)
+  WNM   3.2e+03 (1.3e+06)  3.2e+03 (5.1e+05)  3.5e+03 (9.4e+05)  6.0e+03 (2.5e+06)
+  CNM   2.8e+03 (1.3e+06)  2.8e+03 (5.1e+05)  3.0e+03 (9.4e+05)  4.7e+03 (2.5e+06)
+  DC    3.3e+05 (1.3e+08)  3.3e+05 (5.1e+07)  3.6e+05 (9.4e+07)  6.3e+05 (2.5e+08)
+  PDR   2.8e+00 (1.3e+03)  2.8e+00 (5.1e+02)  3.0e+00 (9.4e+02)  4.8e+00 (2.5e+03)
+
+classical sputtering a/|da/dt| (graphite yields; invalid for N_C < ~1000, i.e. bins 1-5)
+  WIM       inf      inf      inf      inf      inf      inf      inf      inf      inf      inf      inf
+  HOT   1.2e+04  7.6e+03  5.1e+03  3.9e+03  2.7e+03  3.5e+03  1.2e+04  5.9e+04  1.8e+05  4.7e+05  1.2e+06
+
+literature (not computed): Micelotta+10b PAH lifetime ~1e3 yr at n_H 0.01, 1e7 K (scales as 1/n); Jones & Ysard 2025 a-C photo-fragmentation 1e6-1e7 yr for 40-60 C in the diffuse ISM, 1e2-1e4 times shorter in PDRs, > 150 C stable; freeze-out 0.3-0.5 Myr dense clouds, 1e8 yr CNM (Seok+14)

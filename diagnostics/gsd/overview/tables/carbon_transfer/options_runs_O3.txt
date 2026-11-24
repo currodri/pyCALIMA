@@ -1,0 +1,7 @@
+One-zone carbon-grid runs from THEMIS J13 (Brownian velocities on); carbon shares of the initial carbon mass at the end
+env   rule  t[Myr]  molecular  nano(1-20nm)  grains  gas   PE heating PAH/ac   substeps
+start                0.463       0.272    0.266  0.000
+WNM   O3     30.0     0.259       0.381    0.010  0.349     2.31          1207
+      bins  0.0007  0.0657  0.1047  0.0880  0.3091  0.0591  0.0130  0.0089  0.0016  0.0000  0.0000
+CNM   O3     30.0     0.079       0.440    0.271  0.209     1.23          598
+      bins  0.0001  0.0209  0.0332  0.0251  0.1987  0.2034  0.0379  0.0492  0.0977  0.0911  0.0334

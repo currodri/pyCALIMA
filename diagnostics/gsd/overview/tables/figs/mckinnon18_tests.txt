@@ -1,0 +1,46 @@
+Fig. 11 test (grains past a_max): m_d(8 Gyr)/analytic - 1
+  PL, rebinning, a_max = 1 um        +21.038
+  PL2M, rebin, a_max = 1 um          +18.079
+  EA, carry, a_max = 1 um            +0.018
+  PL, rebinning, a_max = 2 um        +0.460
+  PL2M, rebin, a_max = 2 um          +0.407
+  EA, carry, a_max = 2 um            +0.005
+  PL, rebinning, a_max = 4 um        -0.004
+  PL2M, rebin, a_max = 4 um          -0.001
+  EA, carry, a_max = 4 um            +0.000
+Fig. 12 test (finite reservoir, implicit gas): final m_d/m_d(0) against 1 + Z/D
+  D = 1e-02: 11 against 11 (relative -2.4e-11)
+  D = 1e-03: 101 against 101 (relative -3.6e-07)
+  D = 1e-04: 997.27 against 1001 (relative -3.7e-03)
+Fig. 10 test (growth, 100 steps): fractional mass error at 5 Gyr
+   N           PC           PL       PL2M_1     PL2M_100    PL2M_1000        EAF_1      EAF_100     EAF_1000         EA_1       EA_100      EA_1000
+   8    2.225e+01    5.114e-01    0.000e+00    1.422e-01    1.475e-01    1.234e-03    2.182e-02    2.325e-02    2.220e-16    1.620e-02    1.654e-02
+  16    2.989e+00    1.821e-01    6.661e-16    4.611e-02    4.931e-02    6.851e-05    5.109e-03    1.061e-02    4.441e-16    5.199e-03    1.029e-02
+  32    8.778e-01    4.804e-02    1.110e-15    1.232e-02    1.399e-02    4.081e-06    1.077e-03    1.149e-03    2.220e-16    1.503e-03    1.573e-03
+  64    3.357e-01    1.156e-02    2.442e-15    2.544e-03    3.259e-03    2.493e-07    1.267e-04    1.544e-04    8.882e-16    1.201e-13    1.088e-12
+ 128    1.347e-01    2.808e-03    6.661e-16    4.215e-04    6.737e-04    1.540e-08    1.469e-05    2.457e-05    0.000e+00    8.726e-14    1.356e-12
+ 256    4.739e-02    7.085e-04    5.995e-15    5.549e-05    1.370e-04    9.571e-10    1.025e-06    3.176e-06    7.327e-15    5.964e-13    5.452e-12
+ 512    1.037e-02    1.619e-04    4.219e-15    4.989e-06    2.634e-05    5.963e-11    5.536e-08    3.673e-07    1.821e-14    1.343e-12    1.185e-11
+1024    2.622e-03    3.858e-05    1.488e-14    4.847e-07    4.223e-06    3.712e-12    4.041e-09    3.675e-08    1.088e-14    7.194e-13    7.152e-12
+Fig. 13 test, N = 128: bins beyond the left analytic edge after one period (mean dn/da > 1e-3 of the plateau): PC 15, PL 5, PL2M 3, EAF 0, EA 0; mass error PC 0.042, PL2M 6.83e-06, EAF 7.90e-07, EA 3.24e-13
+Fig. 13 test, N = 16: bins beyond the left analytic edge after one period (mean dn/da > 1e-3 of the plateau): PC 6, PL 2, PL2M 2, EAF 0, EA 0; mass error PC 0.441, PL2M 4.62e-06, EAF 1.36e-05, EA 3.25e-13
+Fig. 15 test, PL2M, N = 8, t = 100 Myr: bins with >= 1 % of the mass: worst error in mass 0.150, in number 0.151; mass misplaced (sum |dM| / M) 0.021; total mass +6.7e-16
+Fig. 15 test, EA, N = 8, t = 100 Myr: bins with >= 1 % of the mass: worst error in mass 0.154, in number 0.155; mass misplaced (sum |dM| / M) 0.022; total mass +1.3e-15
+Fig. 15 test, PL2M, N = 16, t = 100 Myr: bins with >= 1 % of the mass: worst error in mass 0.071, in number 0.073; mass misplaced (sum |dM| / M) 0.010; total mass +1.6e-15
+Fig. 15 test, EA, N = 16, t = 100 Myr: bins with >= 1 % of the mass: worst error in mass 0.071, in number 0.073; mass misplaced (sum |dM| / M) 0.010; total mass +1.6e-15
+Fig. 16 test, PL2M, N = 32, t = 2 Myr: bins with >= 1 % of the mass: worst error in mass 0.238, in number 0.299; mass misplaced (sum |dM| / M) 0.035; total mass -3.3e-16
+Fig. 16 test, EA, N = 32, t = 2 Myr: bins with >= 1 % of the mass: worst error in mass 0.238, in number 0.299; mass misplaced (sum |dM| / M) 0.035; total mass +0.0e+00
+Fig. 16 test, PL2M, N = 32, t = 5 Myr: bins with >= 1 % of the mass: worst error in mass 0.238, in number 0.300; mass misplaced (sum |dM| / M) 0.036; total mass -2.1e-15
+Fig. 16 test, EA, N = 32, t = 5 Myr: bins with >= 1 % of the mass: worst error in mass 0.238, in number 0.300; mass misplaced (sum |dM| / M) 0.036; total mass -2.1e-15
+Fig. 16 test, PL2M, N = 32, t = 10 Myr: bins with >= 1 % of the mass: worst error in mass 0.239, in number 0.300; mass misplaced (sum |dM| / M) 0.035; total mass -3.9e-15
+Fig. 16 test, EA, N = 32, t = 10 Myr: bins with >= 1 % of the mass: worst error in mass 0.239, in number 0.300; mass misplaced (sum |dM| / M) 0.035; total mass -3.9e-15
+Fig. 16 test, PL2M, N = 32, t = 20 Myr: bins with >= 1 % of the mass: worst error in mass 0.239, in number 0.300; mass misplaced (sum |dM| / M) 0.035; total mass +6.0e-15
+Fig. 16 test, EA, N = 32, t = 20 Myr: bins with >= 1 % of the mass: worst error in mass 0.239, in number 0.300; mass misplaced (sum |dM| / M) 0.035; total mass +6.0e-15
+Fig. 16 test, PL2M, N = 8, t = 2 Myr: bins with >= 1 % of the mass: worst error in mass 0.112, in number 0.206; mass misplaced (sum |dM| / M) 0.011; total mass +2.2e-16
+Fig. 16 test, EA, N = 8, t = 2 Myr: bins with >= 1 % of the mass: worst error in mass 0.112, in number 0.206; mass misplaced (sum |dM| / M) 0.011; total mass +0.0e+00
+Fig. 16 test, PL2M, N = 8, t = 5 Myr: bins with >= 1 % of the mass: worst error in mass 0.037, in number 0.161; mass misplaced (sum |dM| / M) 0.003; total mass -6.7e-16
+Fig. 16 test, EA, N = 8, t = 5 Myr: bins with >= 1 % of the mass: worst error in mass 0.037, in number 0.161; mass misplaced (sum |dM| / M) 0.003; total mass +2.2e-16
+Fig. 16 test, PL2M, N = 8, t = 10 Myr: bins with >= 1 % of the mass: worst error in mass 0.050, in number 0.225; mass misplaced (sum |dM| / M) 0.004; total mass -3.6e-15
+Fig. 16 test, EA, N = 8, t = 10 Myr: bins with >= 1 % of the mass: worst error in mass 0.050, in number 0.225; mass misplaced (sum |dM| / M) 0.004; total mass -4.6e-15
+Fig. 16 test, PL2M, N = 8, t = 20 Myr: bins with >= 1 % of the mass: worst error in mass 0.053, in number 0.254; mass misplaced (sum |dM| / M) 0.004; total mass -1.6e-15
+Fig. 16 test, EA, N = 8, t = 20 Myr: bins with >= 1 % of the mass: worst error in mass 0.053, in number 0.254; mass misplaced (sum |dM| / M) 0.004; total mass -3.9e-15

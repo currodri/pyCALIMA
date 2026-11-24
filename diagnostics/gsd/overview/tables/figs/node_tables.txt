@@ -1,0 +1,66 @@
+Per-radius node tables for any closure (A2 grids, 61 wavelengths, C_abs/C_sca/C_rp): max relative error of the per-gram kappa against 512 uniform nodes, and nodes per bin.
+s tables of A2 for comparison (points per bin): carbon tol 0.01: 210 total; carbon tol 0.003: 358 total; carbon tol 0.001: 602 total; silicate tol 0.01: 185 total; silicate tol 0.003: 298 total; silicate tol 0.001: 502 total
+
+carbon
+  layout           nodes per bin                       total   PL2M s  EA fronts EAF fronts   random
+  uniform 8          9   9   9   9   9   9   9   9        72  2.5e-01    2.6e-01    1.7e-01  2.6e-01
+  geometric 8        9   9   9   9   9   9   9   9        72  1.1e-01    1.4e-01    1.1e-01  1.2e-01
+  uniform 12        13  13  13  13  13  13  13  13       104  1.2e-01    1.1e-01    8.2e-02  1.2e-01
+  geometric 12      13  13  13  13  13  13  13  13       104  4.9e-02    5.8e-02    5.1e-02  6.3e-02
+  uniform 16        17  17  17  17  17  17  17  17       136  5.6e-02    5.5e-02    4.7e-02  5.9e-02
+  geometric 16      17  17  17  17  17  17  17  17       136  2.7e-02    3.0e-02    2.8e-02  3.8e-02
+  uniform 24        25  25  25  25  25  25  25  25       200  2.5e-02    2.3e-02    2.1e-02  3.2e-02
+  geometric 24      25  25  25  25  25  25  25  25       200  1.0e-02    1.3e-02    1.2e-02  1.1e-02
+  uniform 32        33  33  33  33  33  33  33  33       264  1.5e-02    1.3e-02    1.2e-02  1.7e-02
+  geometric 32      33  33  33  33  33  33  33  33       264  6.9e-03    7.3e-03    6.7e-03  1.1e-02
+  uniform 48        49  49  49  49  49  49  49  49       392  5.6e-03    5.7e-03    5.4e-03  6.9e-03
+  geometric 48      49  49  49  49  49  49  49  49       392  3.0e-03    3.2e-03    3.1e-03  3.6e-03
+  uniform 64        65  65  65  65  65  65  65  65       520  3.5e-03    3.3e-03    3.0e-03  3.6e-03
+  geometric 64      65  65  65  65  65  65  65  65       520  1.4e-03    1.7e-03    1.7e-03  1.8e-03
+  uniform 96        97  97  97  97  97  97  97  97       776  1.5e-03    1.4e-03    1.3e-03  1.6e-03
+  geometric 96      97  97  97  97  97  97  97  97       776  1.0e-03    7.4e-04    7.0e-04  1.3e-03
+  uniform 128      129 129 129 129 129 129 129 129      1032  8.6e-04    7.7e-04    7.0e-04  8.9e-04
+  geometric 128    129 129 129 129 129 129 129 129      1032  7.9e-04    3.9e-04    3.7e-04  3.6e-04
+  adaptive 0.01     49  36  23  17  14  12  21  38       210  6.1e-03    6.0e-03    6.2e-03  7.3e-03
+  builder 0.01      65  33  25   9   9   9  17  33       200  7.8e-03    8.2e-03    8.0e-03  7.9e-03
+  adaptive 0.003    93  59  37  19  18  24  40  65       355  2.1e-03    1.9e-03    1.9e-03  2.1e-03
+  builder 0.003     97  65  33  17  17  17  25  65       336  2.7e-03    2.8e-03    2.9e-03  2.5e-03
+  adaptive 0.001   169 111  57  42  38  44  73 104       638  4.5e-04    5.7e-04    5.8e-04  4.2e-04
+  builder 0.001    193  97  65  33  33  49  49 129       648  1.2e-03    8.4e-04    7.3e-04  9.8e-04
+  best per bin for tol 0.01 (on the bin averages):  49  33  17   9   9   9  13  33  total 172  [adaptive 0.01, builder 0.01, uniform 16, builder 0.01, builder 0.01, builder 0.01, geometric 12, builder 0.01]
+  best per bin for tol 0.003 (on the bin averages):  65  59  33  17  17  17  25  65  total 298  [builder 0.01, adaptive 0.003, builder 0.003, adaptive 0.01, builder 0.003, builder 0.003, builder 0.003, adaptive 0.003]
+  best per bin for tol 0.001 (on the bin averages): 129  97  37  33  33  33  65  97  total 524  [geometric 128, builder 0.001, adaptive 0.003, builder 0.001, builder 0.001, uniform 32, uniform 64, geometric 96]
+  cost of the EA weights, adaptive 0.003: 6.3 us per call for 8 bins (padded to 93 nodes; shared by every wavelength and quantity)
+  cost of the EA weights, uniform 64: 10.2 us per call for 8 bins (padded to 65 nodes; shared by every wavelength and quantity)
+
+silicate
+  layout           nodes per bin                       total   PL2M s  EA fronts EAF fronts   random
+  uniform 8          9   9   9   9   9   9   9   9        72  9.2e-02    1.3e-01    1.2e-01  1.3e-01
+  geometric 8        9   9   9   9   9   9   9   9        72  8.1e-02    8.8e-02    8.5e-02  1.1e-01
+  uniform 12        13  13  13  13  13  13  13  13       104  5.9e-02    9.6e-02    9.2e-02  6.0e-02
+  geometric 12      13  13  13  13  13  13  13  13       104  5.4e-02    3.7e-02    3.7e-02  5.3e-02
+  uniform 16        17  17  17  17  17  17  17  17       136  4.9e-02    4.7e-02    4.7e-02  6.4e-02
+  geometric 16      17  17  17  17  17  17  17  17       136  3.0e-02    2.7e-02    2.3e-02  6.3e-02
+  uniform 24        25  25  25  25  25  25  25  25       200  2.1e-02    2.8e-02    2.8e-02  3.0e-02
+  geometric 24      25  25  25  25  25  25  25  25       200  3.2e-02    9.3e-03    9.0e-03  3.3e-02
+  uniform 32        33  33  33  33  33  33  33  33       264  1.7e-02    1.5e-02    1.5e-02  2.0e-02
+  geometric 32      33  33  33  33  33  33  33  33       264  2.5e-02    4.7e-03    4.6e-03  2.4e-02
+  uniform 48        49  49  49  49  49  49  49  49       392  5.9e-03    6.0e-03    5.8e-03  9.9e-03
+  geometric 48      49  49  49  49  49  49  49  49       392  1.1e-02    1.9e-03    1.9e-03  1.0e-02
+  uniform 64        65  65  65  65  65  65  65  65       520  3.2e-03    3.2e-03    3.1e-03  3.2e-03
+  geometric 64      65  65  65  65  65  65  65  65       520  5.7e-03    1.1e-03    1.1e-03  5.3e-03
+  uniform 96        97  97  97  97  97  97  97  97       776  1.4e-03    1.4e-03    1.3e-03  1.8e-03
+  geometric 96      97  97  97  97  97  97  97  97       776  2.3e-03    4.4e-04    4.4e-04  2.2e-03
+  uniform 128      129 129 129 129 129 129 129 129      1032  7.4e-04    7.5e-04    7.3e-04  8.3e-04
+  geometric 128    129 129 129 129 129 129 129 129      1032  1.3e-03    2.3e-04    2.2e-04  1.2e-03
+  adaptive 0.01     17  17  17  17  19  40  88  83       298  4.4e-03    2.1e-03    2.1e-03  4.4e-03
+  builder 0.01       9   9   9   9  13  33  49  33       164  9.0e-03    8.6e-03    8.2e-03  1.4e-02
+  adaptive 0.003    17  17  17  26  29  72 158 157       493  1.9e-03    2.0e-03    1.9e-03  2.0e-03
+  builder 0.003     17  17  17  17  25  49  97  65       304  3.6e-03    2.1e-03    2.0e-03  4.0e-03
+  adaptive 0.001    33  33  33  33  51 116 262 265       826  4.9e-04    5.1e-04    5.0e-04  5.1e-04
+  builder 0.001     25  25  25  25  49  97 129 129       504  9.9e-04    9.1e-04    9.0e-04  1.2e-03
+  best per bin for tol 0.01 (on the bin averages):   9   9   9   9  13  25  49  49  total 172  [builder 0.01, builder 0.01, builder 0.01, builder 0.01, builder 0.01, uniform 24, builder 0.01, geometric 48]
+  best per bin for tol 0.003 (on the bin averages):  17  17  17  17  25  40  88  97  total 318  [adaptive 0.003, adaptive 0.003, adaptive 0.003, adaptive 0.01, builder 0.003, adaptive 0.01, adaptive 0.01, geometric 96]
+  best per bin for tol 0.001 (on the bin averages):  25  25  25  25  49  65 129 129  total 472  [builder 0.001, builder 0.001, builder 0.001, builder 0.001, builder 0.001, uniform 64, builder 0.001, uniform 128]
+  cost of the EA weights, adaptive 0.003: 10.7 us per call for 8 bins (padded to 158 nodes; shared by every wavelength and quantity)
+  cost of the EA weights, uniform 64: 10.5 us per call for 8 bins (padded to 65 nodes; shared by every wavelength and quantity)

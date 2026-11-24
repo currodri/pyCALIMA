@@ -1,0 +1,71 @@
+A0 cases: worst observable error over the 10/30/100 % snapshots against the stored references (exact for accretion and sputtering, 30 bins/decade otherwise); observables from each variant's own closure [and, in brackets, from the PL2M closure on the same states]
+sn_diffuse
+  variant                      4                    6                    8                   12
+  stored           0.246     R_V        0.127 curve(2        0.034 curve(2        0.011 curve(2
+  pl2m             0.246     R_V        0.127 curve(2        0.034 curve(2        0.011 curve(2
+  tc8       0.246[0.246]     R_V 0.128[0.128] curve(2 0.034[0.034] curve(2 0.011[0.012] curve(2
+  ea        0.240[0.246]     R_V 0.279[0.123]   slope 0.030[0.036] curve(1 0.009[0.012] curve(1
+  ea_tc8    0.240[0.246]     R_V 0.279[0.123]   slope 0.030[0.036] curve(1 0.009[0.012] curve(1
+  aff       0.095[0.246]     R_V 0.286[0.123]   slope 0.068[0.035] curve(2 0.034[0.012] curve(2
+  exp       0.247[0.246]     R_V 0.199[0.122]   slope 0.057[0.034] curve(2 0.023[0.012] curve(2
+  gauss            0.243     R_V        0.110 curve(2        0.029   slope        0.009 curve(2
+  ea_gauss  0.238[0.244]     R_V 0.279[0.125]   slope 0.029[0.035] curve(1 0.008[0.010] curve(1
+  ea6       0.240[0.246]     R_V 0.128[0.128] curve(2 0.034[0.034] curve(2 0.011[0.011] curve(2
+  ea6_gauss 0.238[0.244]     R_V 0.110[0.110] curve(2 0.029[0.029]   slope 0.009[0.009] curve(2
+  eaf6      0.241[0.246]     R_V 0.128[0.128] curve(2 0.034[0.034] curve(2 0.011[0.011] curve(2
+mrn_accretion
+  variant                      4                    6                    8                   12
+  stored           0.232 UV_slop        0.142 UV_slop        0.081 UV_slop        0.032 UV_slop
+  pl2m             0.232 UV_slop        0.142 UV_slop        0.081 UV_slop        0.032 UV_slop
+  tc8       0.232[0.232] UV_slop 0.142[0.142] UV_slop 0.081[0.081] UV_slop 0.032[0.032] UV_slop
+  ea        0.921[0.225] curve(0 0.220[0.132] curve(0 0.028[0.054]   slope 0.004[0.016] curve(0
+  ea_tc8    0.921[0.225] curve(0 0.220[0.132] curve(0 0.028[0.054]   slope 0.004[0.016] curve(0
+  aff       0.804[0.215] curve(0 0.202[0.137] curve(0 0.111[0.091] curve(0 0.042[0.036] curve(0
+  exp       0.667[0.128] curve(0 0.163[0.117] curve(2 0.088[0.077] curve(0 0.034[0.031] curve(0
+  gauss            0.232 UV_slop        0.142 UV_slop        0.081 UV_slop        0.032 UV_slop
+  ea_gauss  0.921[0.225] curve(0 0.220[0.132] curve(0 0.028[0.054]   slope 0.004[0.016] curve(0
+  ea6       0.089[0.139] curve(0 0.037[0.075] curve(2 0.028[0.054]   slope 0.004[0.016] curve(0
+  ea6_gauss 0.089[0.139] curve(0 0.037[0.075] curve(2 0.028[0.054]   slope 0.004[0.016] curve(0
+  eaf6      0.115[0.162] curve(0 0.060[0.090] UV_slop 0.041[0.061] UV_slop 0.011[0.017] UV_slop
+mrn_coagulation
+  variant                      4                    6                    8                   12
+  stored           0.079 curve(2        0.042 curve(2        0.059 curve(2        0.015 curve(2
+  pl2m             0.079 curve(2        0.042 curve(2        0.059 curve(2        0.015 curve(2
+  tc8       0.079[0.079] curve(2 0.042[0.042] curve(2 0.059[0.059] curve(2 0.015[0.015] curve(2
+  ea        0.635[0.078] curve(0 0.015[0.041] curve(2 0.003[0.058]   slope 0.003[0.015]   slope
+  ea_tc8    0.635[0.078] curve(0 0.015[0.041] curve(2 0.003[0.058]   slope 0.003[0.015]   slope
+  aff       0.566[0.078] curve(0 0.180[0.041] curve(2 0.039[0.058] curve(1 0.017[0.015] curve(2
+  exp       0.586[0.076] curve(0 0.185[0.041] curve(2 0.032[0.058]     a_m 0.010[0.015] curve(2
+  gauss            0.083 curve(2        0.043 curve(2        0.058 curve(2        0.015 curve(2
+  ea_gauss  0.645[0.078] curve(0 0.037[0.042] curve(2 0.006[0.058] UV_slop 0.003[0.015]   slope
+  ea6       0.030[0.076] curve(0 0.018[0.041] curve(2 0.003[0.058]   slope 0.002[0.015]   slope
+  ea6_gauss 0.015[0.077]   width 0.026[0.042] curve(2 0.006[0.058] UV_slop 0.003[0.015]   slope
+  eaf6      0.030[0.076] curve(0 0.018[0.041]   width 0.003[0.058] curve(0 0.002[0.015] curve(0
+mrn_shattering
+  variant                      4                    6                    8                   12
+  stored           0.081 curve(2        0.164     a_m        0.078 curve(2        0.055 curve(2
+  pl2m             0.081 curve(2        0.164     a_m        0.078 curve(2        0.055 curve(2
+  tc8       0.081[0.081] curve(2 0.164[0.164]     a_m 0.078[0.078] curve(2 0.055[0.055] curve(2
+  ea        0.321[0.105] curve(0 0.207[0.172]     a_m 0.044[0.077] curve(1 0.046[0.056] curve(1
+  ea_tc8    0.321[0.105] curve(0 0.207[0.172]     a_m 0.044[0.077] curve(1 0.046[0.056] curve(1
+  aff       0.532[0.083] curve(0 0.287[0.201]     a_m 0.108[0.074]     a_m 0.040[0.056] curve(2
+  exp       0.580[0.102] curve(0 0.292[0.208]     a_m 0.107[0.074]     a_m 0.045[0.055] curve(2
+  gauss            0.165     a_m        0.107 curve(1        0.091 curve(2        0.063 curve(1
+  ea_gauss  0.327[0.120]     a_m 0.097[0.102] curve(1 0.051[0.082] curve(1 0.051[0.060] curve(1
+  ea6       0.048[0.076]   width 0.166[0.165]     a_m 0.044[0.077] curve(1 0.046[0.056] curve(1
+  ea6_gauss 0.107[0.112]     a_m 0.091[0.103] curve(1 0.051[0.082] curve(1 0.051[0.060] curve(1
+  eaf6      0.048[0.077]   width 0.172[0.166]     a_m 0.044[0.079] curve(1 0.047[0.058] curve(1
+mrn_sputtering
+  variant                      4                    6                    8                   12
+  stored           0.212   width        0.120   width        0.121   width        0.049   width
+  pl2m             0.212   width        0.120   width        0.121   width        0.049   width
+  tc8       0.212[0.212]   width 0.120[0.120]   width 0.121[0.121]   width 0.049[0.049]   width
+  ea        0.631[0.358] curve(0 0.115[0.081] curve(2 0.006[0.063]   width 0.003[0.032]   width
+  ea_tc8    0.631[0.358] curve(0 0.115[0.081] curve(2 0.006[0.063]   width 0.003[0.032]   width
+  aff       0.834[0.509] curve(0 0.398[0.132]     R_V 0.109[0.111]   slope 0.033[0.054]   slope
+  exp       0.973[0.630] curve(0 0.445[0.148]     R_V 0.139[0.135]   slope 0.048[0.059]   slope
+  gauss            0.212   width        0.120   width        0.121   width        0.049   width
+  ea_gauss  0.631[0.358] curve(0 0.115[0.081] curve(2 0.006[0.063]   width 0.003[0.032]   width
+  ea6       0.062[0.076]   width 0.117[0.081] curve(2 0.006[0.063]   width 0.003[0.032]   width
+  ea6_gauss 0.062[0.076]   width 0.117[0.081] curve(2 0.006[0.063]   width 0.003[0.032]   width
+  eaf6      0.056[0.076]     R_V 0.116[0.116]   width 0.006[0.065]   slope 0.007[0.034]   slope

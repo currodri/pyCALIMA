@@ -1,0 +1,9 @@
+Drift of one grain bin (20-53 nm, w ~ a; check_inbin_drift setup, 128184 upwind steps) against 64 sub-bins: L1 of N and M (relative to the totals), mean |ds| where the dust is. Velocities from tables in s (4001 points) of each local closure
+  moments, pl2m          N 0.091  M 0.120  mean |ds| 0.036
+  two nodes, median      N 0.154  M 0.230  mean |ds| 0.024
+  two nodes, gauss       N 0.090  M 0.118  mean |ds| 0.035
+  moments, tc:16         N 0.091  M 0.120  mean |ds| 0.035
+  moments, tc:8          N 0.092  M 0.123  mean |ds| 0.032
+  moments, tc:4          N 0.062  M 0.085  mean |ds| 0.030
+  moments, aff           N 0.154  M 0.203  mean |ds| 0.032
+  moments, exp           N 0.145  M 0.197  mean |ds| 0.041

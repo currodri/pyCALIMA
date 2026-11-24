@@ -1,0 +1,2212 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.1cm]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\setlist{itemsep=1pt,topsep=3pt}
+\setlength{\parskip}{3pt}
+\newcommand{\NC}{N_{\rm C}}
+\newcommand{\NH}{N_{\rm H}}
+\newcommand{\MH}{M_{\rm H}}
+\newcommand{\MC}{M_{\rm C}}
+\newcommand{\Eg}{E_{\rm g}}
+\newcommand{\ok}{\textcolor{green!45!black}{done}}
+\newcommand{\wip}{\textcolor{orange!80!black}{partial}}
+\newcommand{\todo}{\textcolor{red!70!black}{to do}}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\title{The grain-size-distribution (GSD) extension of CALIMA\\[3pt]
+\large Where we are, and where we are going}
+\author{Status report, 17 November 2026\\ \small revised to 23 November: your review, EA as the default solver (19
+  November),\\ \small the checks rerun on \texttt{main} and the decisions of 22 November, the carbon transfer (23 November)}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-1.5em}
+\begin{center}
+\small Code: pyCALIMA \texttt{main} (GSD branch merged as PR \#20 on 19 November; checks rerun on \texttt{main}
+89ee18a, with PRs \#19 and \#22, on 22 November); the report sources and the carbon-transfer scripts of 23 November are
+on the branch \texttt{gsd/status-2026-11-22}. The working plan is local, outside the repository.
+\end{center}
+
+\tableofcontents
+
+%======================================================================================================================
+\section{Summary}
+
+\paragraph{The goal.} RAMSES-CALIMA should evolve a full grain-size distribution, per composition, with the
+microphysics it needs (growth, destruction, collisions, charge, hydrogenation), at a memory cost the simulations can
+afford. The carbon side is the hard part: it runs from PAH molecules to micron grains, and its material changes with
+size and with hydrogen content. We are building it as a \emph{minimal model}. A carrier, state or process stays only if
+it acts on its own timescale or controls an observable that the next simpler model misses. The baseline M0 and the optional
+rungs M1 and M3 (M2 was dropped on 23 November) are each adopted only after passing tests against benchmarks and
+observations. Everything is prototyped in pyCALIMA first
+(Phase A), and the RAMSES implementation (Phase B) follows.
+
+\paragraph{What changed after your review.}
+\begin{itemize}
+\item \textbf{Graphite and $\NC\approx400$} (Sect.~\ref{sec:materials}): every claim now has verified references, and
+  two claims of the first version were wrong (Hensley \& Draine 2023 kept graphite; large-PAH spectra do not
+  converge). The $\NC$ limit is argued from where the bands come from, with the counterpoints.
+\item \textbf{The in-bin state $s$} is defined and derived (Sect.~\ref{sec:s}). For the other grain physics, bin-centre
+  tables are off by up to a factor 2.8 for a single bin and by 42--50\,\% for evolved 8-bin distributions; the exact
+  in-bin integral brings that to 4--6\,\%, one charge solve at the area node to 6--9\,\%
+  (Sects.~\ref{sec:inbin}, \ref{sec:rateconv}).
+\item \textbf{Grain and PAH hydrogen on the same metric} (Sect.~\ref{sec:hwhy}): what Montillaud, Andrews, Murga and
+  Jones actually say, and the grains rescored with the PAH metric. Grain heating is as safe in equilibrium as PAH
+  heating; the far-IR, visible and 3.4\,\textmu m opacity are not. On 22 November this led to equilibrium for the grains
+  too, with the tracked $\MH$ built but off.
+\item \textbf{A bottom-up channel} for the molecular bins (Sect.~\ref{sec:growth}): options and a recommendation, a
+  calibrated source plus reaction-limited growth.
+\item \textbf{The solver} (Sect.~\ref{sec:pl2m}): a full derivation, its assumptions, and a comparison with AREPO,
+  FIRE and GADGET4. McKinnon et al.'s tests are rerun (Sect.~\ref{sec:mck}): EA and PL2M pass all and beat their
+  piecewise-linear scheme where both run. RAMSES-MCR's moment-specific coefficients fix the frozen in-bin state under
+  size-dependent drift (Sect.~\ref{sec:diallo}).
+\item \textbf{A new default solver, EA} (Sects.~\ref{sec:eaf}, \ref{sec:variants}): after a survey and a benchmark
+  study of variants at equal memory, the edge-aware power-law closure EA is the default of \texttt{pycalima.gsd} (same
+  two scalars, about 22\,\% more cost in growth). It cuts McKinnon's growth error at 8 bins from 14 to 1.6\,\% and the
+  worst A0 error from 12.1 to 7.1\,\% (Sect.~\ref{sec:binconv}), and represents distributions that end inside a bin; Gauss nodes are the default
+  rate nodes. EAF, PL2M, affine and exponential closures and kernel averaging are selectable; every figure is redrawn
+  with EA and PL2M (and EAF where it differs).
+\item \textbf{Tables at a minimum} (Sect.~\ref{sec:nodetab}): per-radius node tables, integrated over each cell's own
+  reconstruction, serve EA (or any closure) with about as many stored values as PL2M's $s$ tables.
+\item \textbf{RT cross-sections in RAMSES's cool step} (Sect.~\ref{sec:rtgroups}): five fixed-$s$ pseudo-bins per bin,
+  polled like ordinary bins and blended linearly in the cell's $s$. They cost 0.19\,\textmu s per cell-call, against
+  4.0\,\textmu s for the exact EA average, and are within 4--6\,\% of it on the A0 group totals.
+\item \textbf{Convergence of the thermal and chemical rates} with the bin number (Sect.~\ref{sec:rateconv}): a first
+  look, and the full test planned for A5.
+\end{itemize}
+
+\paragraph{Rerun on 22 November.} The GSD checks were rerun on \texttt{main} after two merges that move them: the
+charge solve ported from RAMSES (PR \#19: PCHIP kernels, the integer-lattice solve, LG5 as \texttt{gsd.charging}'s
+default, \texttt{wide\_moments}) and a fix of the collision solver (PR \#22: the number update counted a grain that stays
+in its bin twice, which cut the scheme to first order with a bias the error estimate could not see).
+\begin{itemize}
+\item \textbf{A0:} accretion and sputtering are bit-identical; SN dust and coagulation move by at most 0.3 points. The
+  shattering case changes: at 8 bins EA goes from 4.4 to 7.1\,\%, PL2M from 7.8 to 5.7\,\%. The coarse runs moved (the
+  reference only by 0.2\,\%), and they are converged in time (errmax $10^{-5}$ gives the same to 0.01\,\%). The old
+  4.4\,\% was partly a cancellation: shattering now converges steadily with the bin number (EA 2.1\,\% at 16 bins and
+  0.6\,\% at 32, from 3.0 and 1.7\,\%). EA's worst at 8 bins is 7.1\,\% (PL2M 12.1\,\%), above the 5\,\% line in that
+  one case (Sect.~\ref{sec:binconv}).
+\item \textbf{Rates at 8 bins} rise by about a point, all from shattering: the area node is within 8.8\,\% (heating)
+  and 7.3\,\% (cooling), from 7.9 and 6.6\,\%; the other four cases stay at 0.7--2.0\,\% (Table~\ref{tab:areanode}).
+  For a single bin the new charge solve changes mainly the large carbon bins (53\,nm--1\,\textmu m) in the PDR cell,
+  whose charge distributions are wide: the Gauss nodes' worst falls from 4.2 to 1.6\,\%, the area node's 95th
+  percentile from 7.8 to 7.0\,\% (Sect.~\ref{sec:inbin}).
+\item \textbf{McKinnon's coagulation test} at 32 bins: the worst bin, just above the sticking threshold, is 24\,\% off,
+  not 16\,\%. The old solver gives 23\,\% too once its step is cut tenfold, so the 16\,\% was a step-size artefact.
+\item \textbf{Unchanged:} the PAH/grain seam (the grain side moves by $\le0.3$\,\%), \texttt{ac} against DustEM, the
+  shattering test of McKinnon et al., and the RT pseudo-bins (IR means 1.3 $\to$ 1.4\,\%).
+\item \textbf{Not rerun:} the variant study of Sect.~\ref{sec:variants}; its bench predates the \texttt{GSDMethod} API.
+\end{itemize}
+
+\paragraph{What is decided.}
+\begin{itemize}
+\item \textbf{Scheme:} two moments per bin, $N$ and $M$, with the edge-aware power-law closure EA inside each bin
+  (default since 19 November; PL2M kept for comparison), and 8 bins per composition (22 November): 8 for silicate;
+  for carbon 7 grain bins to 1\,\textmu m plus the 4 molecular bins, 11 in all.
+\item \textbf{Carbon:} one carbon population per bin on a single graded mass grid from $\NC = 20$ to 1\,\textmu m:
+  \begin{itemize}
+  \item 4 molecular bins below $\NC = 400$;
+  \item covalent a-C nano-grains up to 20\,nm;
+  \item small grains, 20--53\,nm;
+  \item large CM20-like grains up to 1\,\textmu m.
+  \end{itemize}
+  Its material is THEMIS-like amorphous carbon, a-C(:H), at $\rho = 1.6$\,g\,cm$^{-3}$ (confirmed 22 November). Graphite
+  is kept as the control, run at every rung.
+\item \textbf{Optics:} per-gram values at a few radii per bin (node tables), integrated over each cell's
+  reconstruction, kept per wavelength, so that the number and edges of the RT groups stay free; with PL2M the
+  equivalent $s$ tables, indexed by the in-bin state $s$ (Eq.~\ref{eq:s}). The RT cross-sections in RAMSES's cool step
+  use five PL2M pseudo-bins per bin (Sect.~\ref{sec:rtgroups}).
+\item \textbf{Grain rates in RAMSES} (Sect.~\ref{sec:inbin}): one charge solve per bin, at its area node
+  $a_* = \int a^3dN/\int a^2dN$, as many solves as today, within 8.8\,\% at 8 bins against 42--50\,\% at the bin
+  centre; surface processes exact from the closure's moments; size-dependent sinks at two nodes, per moment.
+\item \textbf{Top edge} (Sect.~\ref{sec:mck}): one wide overflow bin per composition over 1--10\,\textmu m, carrying
+  $N$ and $M$, computed only when it holds more than $10^{-6}$ of the cell's dust mass, with a warning above 1\,\%
+  (23 November; it replaces the open-ended bin of 18 November); not a rebinned top bin (19--22 times too much mass in
+  McKinnon's test) and not a hard stop.
+\item \textbf{Hydrogen:}
+  \begin{itemize}
+  \item covalent grains below 53\,nm take their band gap from the local equilibrium of UV loss and
+    re-hydrogenation, nothing tracked by default (22 November); a tracked $\MH$ (rung M1) is built in, compile-time
+    for 0--4 bins, and switched on only if the acceptance tests (A5) need it;
+  \item the molecular bins' hydrogenation is \emph{tabulated} from the equilibrium chain, not tracked (15 November):
+    the state lags near transitions, but the observables RAMSES uses do not;
+  \item these tables are judged on observables: carbon loss, heating, cooling, H$_2$ and the 3.4/3.3\,\textmu m proxy.
+  \end{itemize}
+\item \textbf{Growth of molecules:} still off by default, as in PDR codes; a bottom-up channel is now proposed
+  (Sect.~\ref{sec:growth}) and needs your decision.
+\item \textbf{Carbon transfer} (23 November, Sect.~\ref{sec:transfer}): no PAH clusters, and the legacy CALIMA
+  PAH--PAH and PAH--grain methods are not reused. Molecule + molecule has no outcome. A molecule hitting a larger
+  particle sticks below about 4\,km\,s$^{-1}$, rebounds between, and is destroyed above about 7\,km\,s$^{-1}$, its
+  carbon going to the gas (labelled). On nano-grains, UV photo-release competes with sticking, through a labelled
+  yield, 0 by default and calibrated in A5. The PAH/grain seam is one labelled electron-sticking law.
+\end{itemize}
+
+\paragraph{Where we are.} Table~\ref{tab:status} lists the work packages. In short:
+\begin{itemize}
+\item The scheme, optics, charging and heat capacity for all carbon carriers exist and are tested.
+\item The hydrogen question has been settled for both grains and PAHs, and the carbon transfer and the seam on 23
+  November.
+\item The first production tables for the molecular bins exist.
+\item Not started yet: the RAMSES-mode operator of the GSD (A3c), the advection prototype (A4), the acceptance runs
+  against observations (A5), the exporter (A6), and everything on the RAMSES side.
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{Work packages and their status.}\label{tab:status}
+\begin{tabularx}{\textwidth}{@{}l l L l@{}}
+\toprule
+& work package & key result & status \\
+\midrule
+A0 & bin convergence of the scheme & EA with 8 bins per composition: worst error 7.1\,\% in five test cases (PL2M
+      12.1\,\%; rerun 22 November); McKinnon+18's solver tests passed & \ok \\
+A0b & rates over the in-bin profile & bin centre 42--50\,\% off at 8 bins; EA exact 4.4--6.2\,\%, Gauss nodes $\le$\,7.1\,\%;
+      RAMSES: one charge solve per bin at the area node, $\le$\,8.8\,\% (decided 18 November) & \ok \\
+A0c & selectable solver methods & \texttt{pycalima.gsd.closures}: EA default, EAF/PL2M/affine/exp, Gauss nodes, kernel
+      averaging; node tables for any closure & \ok \\
+A1 & THEMIS CM20 optics & reproduces DustEM's J13 extinction to 0.9\,\%; Henke extension below 40\,nm & \ok \\
+A2 & per-bin optics tables $\kappa_i(\lambda,s)$ & every observable within 0.5\,\% & \ok \\
+A3a & materials, graded grid, $\rho = 1.6$ & material registry (unknown names raise), \texttt{CarbonLayout} & \ok \\
+A3b & per-carrier tables & a-C(:H) optics on an $\Eg$ axis; charging \texttt{ac}/\texttt{ach}/\texttt{cm20}, 5 intermediate nodes;
+      heat capacity; the seam's sticking law decided 23 November (to build) & \wip \\
+step 1 & tracked-hydrogen machinery & surface H, size-limited gap ($\le$\,1\,\% heating with 5 nodes), H-axis tables & \ok \\
+step 2 & tabulate or track (grains) & equilibrium band gap by default; $\MH$ block compile-time 0--4 bins, off;
+      A5 decides (22 November) & \ok \\
+step 2 & tabulate or track (PAHs) & tables, judged on observables; production tables built (deep chain, +8) & \ok \\
+carbon & carbon transfer & pair rule, impact speeds, photo-release, seam law (23 November) & \ok \\
+A3c & \texttt{ramses} mode of \texttt{gsd} & the per-cell operator: equilibrium band gap, optional $\MH$ block,
+      overflow bin, pair rule and release term & \todo \\
+A4 & advection prototype & ratio pass, donor-ratio TVA flux, $\MH$ as a child of $\MC$ & \todo \\
+A5 & accept or reject & DustEM SED/EXT, diffuse ISM, PDR one-zone and slab runs; ladder ablations & \todo \\
+A6 & exporter & all per-bin tables for RAMSES with provenance & \todo \\
+B & RAMSES & state layout, sources, transport, tables (ask before branching) & \todo \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{The next steps,} in order (Sect.~\ref{sec:next}):
+\begin{enumerate}
+\item consolidate: done for the GSD branch (merged as PR \#20; checks rerun on \texttt{main} on 22 November); merge
+  pahchem's PRs \#17 and \#18 and rerun the checks that read pahchem;
+\item settle the open choices: the bottom-up channel, kernel averaging, the super-H physical stop, the $G_0$ axis
+  above $10^4$, associative detachment on PAH anions;
+\item build A3c, the GSD operator RAMSES will run per cell;
+\item A4 and A5, the advection prototype and the acceptance tests;
+\item A6, the exporter, then Phase B in RAMSES.
+\end{enumerate}
+
+%======================================================================================================================
+\section{The design in one picture}
+
+Figure~\ref{fig:network} shows the model as it stands after the decisions of 22 and 23 November. The rules behind it:
+\begin{itemize}
+\item \textbf{One carbon grid.} Every carrier is carbon on one mass grid, with $\NC = m/m_{\rm C}$ exact. The radius
+  follows from $\rho = 1.6$\,g\,cm$^{-3}$ wherever geometry enters. A bin's size and hydrogen content decide what it is:
+  a PAH, a hydrogenated nano-grain or a-C. A grain that grows or erodes across $\NC = 400$ changes family by this size
+  rule.
+\item \textbf{What is stored.} Each bin stores $N$ and $M$ ($\MC$ for carbon). The covalent bins below 53\,nm take
+  their band gap from the local balance of UV hydrogen loss and re-hydrogenation; a tracked $\MH$ (rung M1,
+  compile-time for 0--4 bins, off by default) is built in. Charge, dust temperature and the molecular bins' hydrogen
+  state come from tables.
+\item \textbf{Moving carbon moves hydrogen.} Where $\MH$ is tracked, every process that moves carbon between bins also
+  moves hydrogen at the source bin's H/C.
+\item \textbf{Conditions are inputs.} $G_0$, $n$(H), $T$ and $n_e$ come from the simulation or from sourced environment
+  cards, never from a model inside the dust code. Anything tuned stays opt-in and labelled.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/gsd_model.pdf}
+\caption{The model in one picture. (a) The state: 11 carbon bins (4 molecular below $\NC = 400$, 7 grain bins to
+1\,\textmu m) and 8 silicate bins, each storing $N$ and $M$, plus one wide overflow bin per composition over
+1--10\,\textmu m, computed only when it holds more than $10^{-6}$ of the cell's dust mass. Above 1\,nm the silicate
+edges lie within 11\,\% of carbon's. The middle row gives what each carbon family takes from tables. (b) How carbon
+moves between the families (Sect.~\ref{sec:transfer}). Shattering and cratering fragments follow $a^{-3.3}$ down to the
+grid's 0.39\,nm; smaller ones go to the gas. Dashed arrows and italics: opt-in, or off by default. (c) The pair rule.
+Molecules do not react with each other. A molecule hitting a larger particle sticks, rebounds or is destroyed according
+to the impact speed (labelled thresholds, from C$_{60}$ and cluster impacts on surfaces). On nano-grains, UV
+photo-release competes with sticking (a labelled yield, calibrated in A5). Grain pairs follow the grain collision
+physics. The brackets give the rms speeds of molecules against grains: 0.05--1.7\,km\,s$^{-1}$ in cold gas, 9--30 in
+warm gas. (d) The operator that A3c builds, mirroring RAMSES's two calls per cooling substep: precool at the start of
+the substep, then the update over it with the charges held.}
+\label{fig:network}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\caption{The minimal-model ladder. Each rung is run with and without its addition, and adopted only if it brings an
+observable inside its observed range where the rung below fails. Memory is for $10^6$ cells and the carbon scalars,
+with the TVA drift stored or recomputed (B4).}\label{tab:ladder}
+\begin{tabularx}{\textwidth}{@{}l L l l@{}}
+\toprule
+rung & adds & carbon scalars & memory per $10^6$ cells \\
+\midrule
+M0 & the GSD with THEMIS-like carbon; molecular tables below $\NC = 400$; equilibrium hydrogen everywhere (the band
+  gap from the local balance); the overflow bin & 24 & 670 / 385 MB \\
+M1 & tracked $\MH$ in up to 4 covalent bins below 53\,nm (compile-time 0--4, default 0): UV H loss, re-hydrogenation,
+  H$_2$ release, $\Eg$ follows H/C & +1 to +4 & +16 MB per bin \\
+M2 & \emph{dropped 23 November} (no PAH clusters); a-C(:H) photo-fragmentation is now an opt-in process & -- & -- \\
+M3 & a hydrogenated skin on large grains (dense-gas mantles) & +3 & +48 MB \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\noindent Memory counts 16\,B per scalar per cell, plus 24\,B per TVA species (one per carbon bin) when the drift is
+stored. The silicate bins add 18 scalars. The opt-in processes (molecular growth, the C($^3$P) channel, the bottom-up
+source, photo-fragmentation, the photodesorption yield) add no scalars.
+
+%======================================================================================================================
+\section{The size-distribution solver: two moments and edge-aware power laws}\label{sec:pl2m}
+
+The solver stores two moments per bin, $N$ and $M$, and rebuilds the distribution inside each bin from them. Its
+default method since 19 November is EA: a power law in each bin (PL2M) except in bins at an edge of the distribution,
+which are treated as fronts (Sect.~\ref{sec:eaf}). PL2M stays available as a method for comparison, together with
+EAF and the affine and exponential closures (\texttt{pycalima.gsd.closures}). This section derives the scheme step by
+step: what is evolved, how a bin is represented, how each process acts on
+that representation, how the bins are transported in RAMSES, which assumptions it rests on, and how it differs from the
+GSD solvers of AREPO, GIZMO/FIRE and GADGET. The code is \texttt{pycalima.gsd}. The design review behind it, with the
+numerical literature (aerosol and planet-formation schemes), is \texttt{docs/development/gsd\_solver\_review.md}; the
+comparison with galaxy codes is in \texttt{diagnostics/gsd/overview/lit/gsd\_solvers.md}.
+
+\subsection{What is evolved}
+For each composition (carbon, silicate) let $f(m,\mathbf x,t)$ be the number of grains per unit volume and per unit
+grain mass. It obeys
+\begin{equation}\label{eq:gde}
+\frac{\partial f}{\partial t} + \nabla\!\cdot\!\big[f\,(\mathbf v + \mathbf w(m))\big]
+ + \frac{\partial (\dot m f)}{\partial m} = \mathcal C[f] + S(m),
+\end{equation}
+where $\mathbf v$ is the gas velocity, $\mathbf w(m)$ the drift of grains of mass $m$ relative to the gas,
+$\dot m = 4\pi a^2\rho\,\dot a$ the growth (accretion) or loss (sputtering, sublimation) of a single grain,
+$\mathcal C[f]$ the collisions (coagulation, cratering, shattering) and $S$ the sources and sinks (stellar injection,
+nucleation, a bottom-up PAH source, carbon loss of the molecules). Mass and radius are tied by
+$m = \tfrac43\pi\rho a^3$ ($\rho = 1.6$\,g\,cm$^{-3}$ for carbon, 3.3 for silicate), and $\NC = m/m_{\rm C}$.
+
+\subsection{Bins, moments and the closure problem}
+The mass axis is cut into fixed bins $I_i = [m_i, m_{i+1}]$ with mass ratio $\eta_i = m_{i+1}/m_i$ (for carbon,
+$\eta = 2.1$ in the four molecular bins and 18.8, a factor 2.66 in radius, in the seven grain bins). Each bin stores
+two numbers per cell:
+\begin{equation}
+N_i = \int_{I_i} f\,dm, \qquad M_i = \int_{I_i} m f\,dm .
+\end{equation}
+Integrating Eq.~(\ref{eq:gde}) over $I_i$ (transport aside, and using $\int m\,\partial_m(\dot m f)\,dm = [m\dot m f] -
+\int \dot m f\,dm$):
+\begin{align}
+\frac{dN_i}{dt} &= (\dot m f)_{m_i} - (\dot m f)_{m_{i+1}} + \int_{I_i}(\mathcal C + S)\,dm, \label{eq:dN}\\
+\frac{dM_i}{dt} &= \int_{I_i}\dot m f\,dm + m_i(\dot m f)_{m_i} - m_{i+1}(\dot m f)_{m_{i+1}}
+ + \int_{I_i} m\,(\mathcal C + S)\,dm. \label{eq:dM}
+\end{align}
+The right-hand sides need $f$ at the bin edges and inside the bins, which $(N_i, M_i)$ do not determine. A scheme is
+defined by its \emph{closure}, the shape $f$ it assumes inside a bin given the stored moments, and by how each process
+uses that shape. One-moment schemes store only $M_i$ and must also assume $N_i$, i.e.\ fix the shape a priori; A0
+tested two such closures (an MRN slope inside every bin, and slopes from the neighbours).
+
+\subsection{The power law inside a bin, and the in-bin state \texorpdfstring{$s$}{s}}\label{sec:s}
+PL2M closes the system with a power law in each bin, $f(m) = A_i\,m^{\beta_i}$ on $I_i$. Then
+\begin{equation}
+N_i = A_i m_i^{\beta+1}\frac{\eta^{\beta+1}-1}{\beta+1},\qquad
+M_i = A_i m_i^{\beta+2}\frac{\eta^{\beta+2}-1}{\beta+2},
+\end{equation}
+and the mean mass $\bar m_i = M_i/N_i$ fixes the exponent through
+\begin{equation}\label{eq:R}
+\frac{\bar m_i}{m_i} = R(\beta;\eta) \equiv \frac{\beta+1}{\beta+2}\,\frac{\eta^{\beta+2}-1}{\eta^{\beta+1}-1}
+\end{equation}
+(with the limits $R = (\eta-1)/\ln\eta$ at $\beta=-1$ and $R = \eta\ln\eta/(\eta-1)$ at $\beta=-2$). $R$ rises
+monotonically from 1 ($\beta\to-\infty$, every grain at $m_i$) to $\eta$ ($\beta\to+\infty$, every grain at $m_{i+1}$),
+so every \emph{realisable} pair, $m_i \le M_i/N_i \le m_{i+1}$, has exactly one $\beta$. It is found by a bracketed
+(Illinois) iteration in about 40\,\textmu s; $A_i$ then follows from $N_i$. In radius the profile is $dN/da \propto
+a^{\lambda}$ with $\lambda = 3\beta+2$. Bins steeper than $|\beta| = \min(150, 300/\ln\eta)$ are held as spikes,
+$N_i$ grains at $\bar m_i$.
+
+\paragraph{The in-bin state.} We define
+\begin{equation}\label{eq:s}
+s_i = \frac{\bar m_i/m_i - 1}{\eta_i - 1} \in [0,1], \qquad \bar m_i = M_i/N_i .
+\end{equation}
+$s = 0$ means every grain sits at the lower edge, $s = 1$ every grain at the upper edge. Since $R$ depends on $\beta$
+and $\eta$ only, $s$ fixes the whole shape inside the bin (Fig.~\ref{fig:pl2m}a,b). Any per-gram average of a
+single-grain property $k(a)$ (an opacity, a heating rate per grain over its mass, ...),
+\begin{equation}\label{eq:kavg}
+\langle k\rangle_i(s) = \frac{\int_{I_i} k(a)\,m\,dN}{\int_{I_i} m\,dN},
+\end{equation}
+therefore depends on the cell only through $s$ and the local conditions. That is what the optics tables
+$\kappa_i(\lambda, s)$ use (Sect.~\ref{sec:materials}). $s$ describes the population inside a bin, not a size: two cells
+with the same $s_i$ have the same in-bin shape and the same per-gram rates. Reference values: an MRN slope
+($dN/da\propto a^{-3.5}$, $\beta = -11/6$) gives $s = 0.14$ in a grain bin and 0.39 in a molecular bin; equal number
+per $\ln m$ ($\beta=-1$) gives 0.29 and 0.44; equal mass per $\ln m$ ($\beta=-2$) gives 0.12 and 0.38.
+
+\paragraph{Why a power law.}
+\begin{itemize}
+\item It is positive for every realisable $(N, M)$, so it needs no slope limiter.
+\item It is local: it needs no neighbouring bin, unlike slope-limited linear reconstructions.
+\item It covers the whole realisable range, down to a population at a single size, so a nucleation burst or a
+  narrow injected population stays sharp.
+\item Integrals of powers of $a$ (moments, power-law fragment spectra) are analytic.
+\item A scale-free distribution such as MRN is exact inside every bin.
+\end{itemize}
+The price: a bin cannot hold structure narrower than itself (two peaks, a cut-off inside the bin), and the
+reconstruction jumps at bin edges (Fig.~\ref{fig:pl2m}c).
+
+\subsection{The default closure: edge-aware power laws (EA)}\label{sec:eaf}
+A power law fills the whole bin. Where the distribution ends inside a bin, a growth front or the edge of a narrow
+population, PL2M must still spread the bin's $N$ and $M$ over the bin and piles grains against one edge
+(Sect.~\ref{sec:mck}); after every step this wrong shape is moved and re-imposed, which is PL2M's numerical diffusion.
+The default closure since 19 November, EA, keeps the two stored moments and changes only the shape in bins that sit at
+an edge of the distribution (Sect.~\ref{sec:variants} explains how it was chosen):
+\begin{itemize}
+\item \textbf{Is a neighbour empty?} For bin $i$ and each neighbour, $q = (N_{\rm nb}/\Delta a_{\rm nb})/(N_i/\Delta a_i)$
+  compares the number per unit radius; the ends of the grid count as empty. A neighbour is a front's empty side to the
+  degree $e = \max(0, 1 - q/\epsilon)$, with $\epsilon = 10^{-6}$, so smooth tails are never mistaken for fronts.
+\item \textbf{The profile} is a blend of four shapes, each carrying the bin's own $N_i$ and $M_i$:
+  \begin{equation}
+  f_i = (1-e_L)(1-e_R)\,f_{\rm PL2M} + e_R(1-e_L)\,f_{R} + e_L(1-e_R)\,f_{L} + e_Le_R\,N_i\,\delta(m - \bar m_i).
+  \end{equation}
+  With the right neighbour empty, $f_R\propto a^{\lambda_f}$ on $[a_i, a_c]$: the distribution continues into the bin
+  with the slope of its other (left) neighbour, $\lambda_f = \lambda_{i-1}$, and ends at the cut $a_c$ that makes its
+  mean mass $\bar m_i$; $f_L$ is the mirror image, on $[a_c, a_{i+1}]$ with $\lambda_f = \lambda_{i+1}$ (flat,
+  $\lambda_f = 0$, if that neighbour is itself a front). With both neighbours empty the bin is held at its mean mass
+  (a moving pivot). Where no cut fits, the PL2M power law is used.
+\item \textbf{A power-law segment with sharp ends is exact}: the fronts continue the segment's own slope, so a boxcar,
+  an MRN with a cut-off or a narrow population are represented as they are, and growth moves them without diffusion.
+\item \textbf{The variant EAF} fixes the front exponent at $\lambda_f = -3.5$ (an MRN slope), so that every shape
+  depends on $s$ alone and one-dimensional $s$ tables suffice (four per bin). It was the default for a day: on flat
+  profiles its fixed slope puts peaks at the edges (Figs.~\ref{fig:mck9}, \ref{fig:mckgrowth}). EA's tables are kept small
+  instead with per-radius node tables (Sect.~\ref{sec:nodetab}).
+\item \textbf{What does not change:} $N$ and $M$ are exact, the profile is positive and realisable, and the remap,
+  the collision nodes and the in-bin integrals work on these shapes exactly as on a power law. The drift velocities use
+  the local power law, never the pivot, which would freeze the in-bin segregation.
+\end{itemize}
+PL2M stays available as a method (\texttt{closure="pl2m"}), together with EAF and the affine and exponential closures,
+for comparison.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/pl2m_scheme.pdf}
+\caption{The scheme. (a) Inside a grain bin the profile is a power law fixed by $s$; the ticks mark the two
+nodes the collision operator uses (Sect.~\ref{sec:coll}). (b) $s$ against the exponent $\beta$ for the molecular and
+grain bins, with the MRN slope and the flat-in-number and flat-in-mass profiles marked. (c) A real case: silicate
+after 5\,Myr of shattering, coagulation and accretion of SN dust in the WNM (A0), EA and PL2M with 8 bins against
+the reference (identical here: no bin is at an edge; dotted lines: the bin edges). (d) One remap step: an $a^{-3.5}$
+distribution that ends inside a bin, grown by a constant $\Delta a$. The exact image (dashed) is cut at the fixed edges
+and stored as $(N_i, M_i)$; EA rebuilds both ends as fronts where they are, PL2M spreads them over the end bins.}
+\label{fig:pl2m}
+\end{figure}
+
+\subsection{Growth and erosion along characteristics}
+Rather than evaluating the edge fluxes $\dot m f$ of Eqs.~(\ref{eq:dN})--(\ref{eq:dM}) (an Eulerian upwind scheme,
+which is diffusive and limited by a CFL condition set by the smallest grains; Hirashita \& Aoyama 2019 report the
+smoothing it causes at 16 bins), the solver moves the grains along their characteristics. With the conditions frozen over a
+step $\Delta t$, a grain of radius $a$ ends at $X(a)$, the solution of $da/dt = \dot a(a)$. Number is conserved along
+characteristics, $f(X)\,dX = f(a)\,da$, so
+\begin{equation}
+N_j^{n+1} = \sum_i \int_{a\in I_i,\;X(a)\in I_j} \Big(\frac{dN}{da}\Big)_i da,\qquad
+M_j^{n+1} = \sum_i \int_{a\in I_i,\;X(a)\in I_j} m\big(X(a)\big)\Big(\frac{dN}{da}\Big)_i da .
+\end{equation}
+In practice (\texttt{gsd.remap}):
+\begin{itemize}
+\item $\dot a(a)$ is tabulated on a fine logarithmic grid, and $X(a)$ is integrated exactly for an $\dot a$ linear
+  between table points. The step has no time-step limit, and equilibrium radii ($\dot a = 0$, e.g.\ in sublimation)
+  are approached but never crossed.
+\item Each bin is split into four pieces in $\ln a$ whose images are linear in $a$. This is exact for a constant
+  $\dot a$, which is the case for accretion of neutral species and for thermal sputtering at a fixed yield.
+\item The images are cut at the fixed edges, and each piece's number and mass are integrated analytically against
+  $u^\lambda$ ($u = a/a_i$; the mass integrand $X(u)^3 u^\lambda$ is a cubic times a power).
+\item Grains mapped below the smallest edge are removed and their mass is returned to the gas; grains above the
+  largest edge go to the overflow bin (1--10\,\textmu m).
+\end{itemize}
+Number is moved exactly, mass is exact for the flow map, the map is monotone (characteristics do not cross), and there
+is little numerical diffusion. Figure~\ref{fig:pl2m}d shows the cost: after the step the shape inside each bin is a
+power law again. A spike inside a bin, re-represented as a steep power law, loses about 0.5\,\% of its mass per
+factor 10 of growth.
+
+\paragraph{Exchange with the gas and sources} (\texttt{gsd.exchange}). Accretion and sublimation exchange a key
+species X with the gas. The step is implicit in the gas: the end-of-step density $n_X^{n+1}$ is the root of
+\begin{equation}
+n_X^{n+1} + X_{\rm dust}\big(n_X^{n+1}\big) = X_{\rm tot},
+\end{equation}
+where $X_{\rm dust}$ is what the remap leaves on the grains when the growth rate is evaluated at $n_X^{n+1}$. The left
+side is monotone in $n_X^{n+1}$, so the root is unique and positive, and every element is conserved to round-off (the
+idea of Jacobson's analytical predictor of condensation). Nucleation, where it matters (AGN rims, SN ejecta), is
+injected along the characteristic from the critical size; stellar injection (SN, AGB) adds its source spectrum
+integrated exactly over the bins; a bottom-up PAH source (Sect.~\ref{sec:growth}) would inject into the first
+molecular bin.
+
+\subsection{Collisions}\label{sec:coll}
+Coagulation and shattering follow the Smoluchowski equation with fragmentation,
+\begin{equation}
+\frac{\partial f}{\partial t}\Big|_{\rm coll} = \frac12\int_0^m K(m',m-m')\,f(m')f(m-m')\,dm'
+ - f(m)\int_0^\infty K(m,m')f(m')\,dm' + (\text{fragments}),
+\end{equation}
+with the kernel $K = \sigma\,\Delta v\,P\times$ (Coulomb factor). The solver evaluates the pair integrals with \textbf{two
+nodes per bin} (\texttt{collisions.bin\_nodes}). The bin's number is split at its median,
+\begin{equation}
+\int_1^{u_{\rm med}} u^\lambda du = \tfrac12\int_1^{u_R}u^\lambda du \;\Rightarrow\;
+u_{\rm med} = \big[\tfrac12(1+u_R^{\lambda+1})\big]^{1/(\lambda+1)},\qquad u_R = \eta^{1/3}.
+\end{equation}
+Node 1 carries $N_i/2$ grains at the mean mass of the lower half,
+$m_{i,1} = m_i\int_1^{u_{\rm med}}u^{\lambda+3}du\big/\int_1^{u_{\rm med}}u^{\lambda}du$; node 2 carries $N_i/2$ at
+$m_{i,2} = 2M_i/N_i - m_{i,1}$. The two nodes reproduce $N_i$ and $M_i$ exactly.
+\begin{itemize}
+\item \textbf{Pairs.} Node pairs $(p,q)$ collide at $r_{pq} = K_c(p,q)\,w_p w_q/2$ per outcome channel $c$
+  (coalescence, cratering, shattering), with $w$ the node weights.
+\item \textbf{Products.} The remnant (merged grain, or cratered target) is deposited as one grain spread uniformly in
+  mass over its parents' node intervals; a point deposit would switch bins discontinuously as a node crosses an edge.
+  Fragments with $dN/da\propto a^{-\alpha_f}$ on $[a_{\rm lo}, a_{\rm hi}]$ are integrated exactly over the bins, at
+  $O(1)$ cost per pair (difference arrays; the idea of Rafikov et al.\ 2020).
+\item \textbf{Velocities and charges.} Brownian, turbulent (Ormel \& Cuzzi 2007; Yan et al.\ 2004 as in Hirashita \&
+  Yan 2009) and drift velocities; Coulomb factors from the charge distributions (three Gauss--Hermite charge points
+  per radius).
+\item \textbf{Time integration.} The mass transfers form a production--destruction system,
+  $dM_k/dt = \sum_j [p_{kj}(M) - d_{kj}(M)]$ with $p_{kj} = d_{jk}$, integrated with MPRK22 (Kopecz \& Meister 2018):
+  \begin{align*}
+  M_k^{(1)} &= M_k^n + \Delta t\sum_j\Big[p^n_{kj}\frac{M_j^{(1)}}{M_j^n} - d^n_{kj}\frac{M_k^{(1)}}{M_k^n}\Big],\\
+  M_k^{n+1} &= M_k^n + \frac{\Delta t}{2}\sum_j\Big[(p^n_{kj}+p^{(1)}_{kj})\frac{M_j^{n+1}}{M_j^{(1)}}
+     - (d^n_{kj}+d^{(1)}_{kj})\frac{M_k^{n+1}}{M_k^{(1)}}\Big].
+  \end{align*}
+  Each stage is one linear solve with an M-matrix, so the masses stay positive for any $\Delta t$, mass is conserved to
+  round-off, and the scheme is second order. Number losses are Patankar-weighted in each bin (positive), and number
+  gains follow the delivered mass. The difference between the first- and second-order stages sets the sub-steps.
+\item \textbf{Options.} The nodes are computed from the bin's reconstruction (EA by default); a 2-point Gauss rule
+  in radius (\texttt{nodes="gauss"}) and kernel averaging over sub-slices of each node pair (\texttt{kernel\_average})
+  are available (Sect.~\ref{sec:variants}).
+\item \textbf{Checks.} The constant, additive and multiplicative Smoluchowski solutions, and Hirashita \& Yan (2009)
+  shattering; about 2\,ms per sub-step on 150 bins.
+\end{itemize}
+
+\subsection{Transport in RAMSES (A4: designed, not built)}
+$N_i$ and $M_i$ are advected as passive scalars with the gas, and each bin drifts with its terminal velocity $\mathbf
+w_i$ (TVA):
+\begin{equation}
+\partial_t N_i + \nabla\!\cdot[N_i(\mathbf v + \mathbf w_i)] = 0,\qquad
+\partial_t M_i + \nabla\!\cdot[M_i(\mathbf v + \mathbf w_i)] = 0 .
+\end{equation}
+The constraint is realisability, $m_i \le M_i/N_i \le m_{i+1}$. Mixing two realisable states of one bin gives
+$\bar m = (N_1\bar m_1 + N_2\bar m_2)/(N_1+N_2)$, which lies between $\bar m_1$ and $\bar m_2$: the realisable states
+form a convex cone. Any update that writes a cell's new $(N_i, M_i)$ as a positive combination of old states
+(first-order upwind under the CFL limit, AMR restriction) keeps them realisable. A MUSCL scheme with independent slopes
+for $N$ and $M$ can break this at the cell faces. The design therefore:
+\begin{itemize}
+\item advects $M_i$ with the gas scheme, inside the CMA group of its element, so that the groups still sum to the
+  element;
+\item gives $N_i$ the donor-ratio flux $F_N = F_M/\bar m_{\rm face}$, with $\bar m_{\rm face}$ reconstructed with a
+  limited slope, so that it lies between the neighbouring cells' values and hence inside the bin;
+\item treats $\MH$ the same way, as a child of $\MC$ with the ratio $x = \MH/\MC$ (as CMA treats ion fractions);
+\item moves $N_i$ and $M_i$ with their own drift velocities, $w^N_i = \int w\,dN/N_i$ and $w^M_i = \int w\,m\,dN/M_i$,
+  from the bin's power law (the moment-specific coefficients of Diallo et al.\ 2026 and Hopkins 2023;
+  Sect.~\ref{sec:diallo}). The packet that crosses a face then has the mean mass $\int m\,w\,dN/\int w\,dN$, which
+  lies inside the bin, so realisability holds, and big and small grains of one bin can separate ($s$ changes); with one
+  velocity per bin they cannot;
+\item injects the parent's ratios at AMR prolongation, and sums $N$ and $M$ at restriction;
+\item keeps a realisability clip as a counted safety net, whose count A4 will report.
+\end{itemize}
+
+\subsection{One RAMSES step}
+After the hydro step, \texttt{dust\_solver.f90} advances each cell with its conditions frozen:
+\begin{enumerate}
+\item the covalent bins' band gap: the local equilibrium by default, or the exact hydrogen step where $\MH$ is
+  carried (rung M1);
+\item collisions, in MPRK22 sub-steps;
+\item sources: stellar injection, the bottom-up source if on, carbon loss of the molecular bins from their tables;
+\item the exchange with the gas (accretion, sputtering, sublimation), last because it is the stiffest coupling
+  (Sportisse 2000).
+\end{enumerate}
+The order is to be fixed in A3c, where the per-cell operator is built and timed.
+
+\subsection{Assumptions}
+\begin{enumerate}
+\item Grains are spherical, one material per population; the radius follows from $\rho$, and $\NC = m/m_{\rm C}$.
+\item Inside a bin the distribution is a power law in mass; structure narrower than a bin is lost.
+\item The conditions in a cell (density, temperature, radiation, electron density) are uniform and frozen over a step;
+  collisions are sub-stepped inside it.
+\item Grain charges are in equilibrium (they relax in hours to weeks), from the charge solve in each cell.
+\item Collisions see each bin through its two nodes. Grains of different compositions do not collide (no mixed grains).
+\item Grains move with the gas plus a terminal drift per bin: the stopping time is short against the cell-crossing and
+  dynamical times, and grains of different sizes inside one bin share its drift.
+\item The grid is fixed, with a wide overflow bin over 1--10\,\textmu m. Fragments below the grid go to the gas or to the smallest
+  bin, a recorded choice.
+\item Stochastic heating enters only the molecular tables and post-processing; the solver uses one charge distribution
+  and one rate per radius.
+\end{enumerate}
+
+\subsection{How it compares with the GSD solvers of other codes}\label{sec:codes}
+Every full-GSD solver in a galaxy code descends from Hirashita \& Yan (2009), through Asano et al.\ (2013) and
+McKinnon et al.\ (2018). Three lines are in use today: McKinnon's in AREPO, its port to FIRE by Choban et al.\ (2026),
+and the Osaka scheme of Hirashita \& Aoyama (2019) in GADGET4 (Aoyama et al.\ 2020; Romano et al.\ 2022; Matsumoto et
+al.\ 2026). Table~\ref{tab:codes} compares them with our scheme feature by feature; the papers and quotes are in
+\texttt{lit/gsd\_solvers.md}, and Sect.~\ref{sec:mck} reruns McKinnon's tests.
+
+\begin{table}[H]
+\centering\footnotesize
+\caption{The three GSD solvers in use in galaxy codes, against ours (EA, the default). McKinnon+18: AREPO; Choban+26: FIRE (GIZMO);
+GADGET4: Matsumoto+26 with the scheme of Hirashita \& Aoyama (2019), Aoyama+20 and Romano+22.}\label{tab:codes}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{2.3cm} L L L L@{}}
+\toprule
+ & McKinnon+18 (AREPO) & Choban+26 (FIRE) & GADGET4-OSAKA & EA (this work) \\
+\midrule
+stored per bin & $N$ and slope ($\equiv N$, $M$) & as McKinnon & mass only & $N$, $M$ \\
+shape in a bin & linear in $a$; slope limiter keeps $M$, changes $N$ & as McKinnon & constant & power law in $m$, fronts at the edges of the distribution (EA); positive by construction \\
+bins, range & 16; 1\,nm--1\,\textmu m & 16; 5\,nm--1\,\textmu m & 30; 0.3\,nm--10\,\textmu m & silicate 8, carbon 11 (4 molecular); 0.39\,nm--1\,\textmu m, overflow to 10\,\textmu m \\
+compositions & one GSD for all dust & one per species (silicate, carbon, Fe) & one; composition in post-processing & one per composition, carbon graded (molecular bins) \\
+growth, sputtering & shift by $\dot a\Delta t$ + intersection with the bins & as McKinnon; $\Delta t\le0.3\,\delta a_1/\dot a$ & first-order upwind in mass (diffusive) & characteristic remap, any $\dot a(a)$, no step limit \\
+past the grid edges & rebinned into the edge bin (mass kept) & as McKinnon & -- (grid to 10\,\textmu m) & removed to the gas (bottom), overflow (top) \\
+collisions & HY09 kernels on the linear profiles, explicit first order, masses rescaled & as McKinnon, sub-cycled on mass moved and number lost & Smoluchowski sums, loss semi-implicit & two nodes per bin, MPRK22 (positive and conservative for any step) \\
+gas coupling & from neighbour cells, capped by available metals & in the cell & in the particle & implicit in the gas, elements to round-off \\
+transport & dust particles with drag; one stopping time per GSD & with the gas cell + turbulent diffusion & with the SPH particle + turbulent diffusion & passive scalars + drift per bin and moment \\
+sub-grid ISM & -- & clumping factors, ad hoc coagulation boost & two phases per particle & conditions are cell inputs \\
+convergence shown & growth: 1st/2nd order; collisions vs a many-bin solver & GSD at 16 bins, extinction near 8 & HA19: 16 vs 128 bins diffusive & A0 observables at 8 bins; McKinnon's tests (Sect.~\ref{sec:mck}) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{McKinnon against FIRE.} Choban et al.\ (2026) say their method ``largely follows the second-order
+piecewise linear method developed in McKinnon et al.\ (2018)'': the same profile, slope limiter, shift-and-intersect
+update and top-edge rebinning (their Eqs.~E5--E11 are McKinnon's Eqs.~34--46). What changes is where the GSD lives (in
+each gas cell, not on dust particles), one GSD per species, explicit sub-cycling criteria (they report that without
+them coagulation ``heavily reduced'' the large grains), and sub-grid factors: clumping, Coulomb enhancement of accretion
+and an ad hoc coagulation boost.
+
+\paragraph{McKinnon against GADGET4.} The Osaka line stores only the mass per bin with a constant profile, moves
+growth and sputtering by first-order upwind, and needs many bins (30, from 0.3\,nm to 10\,\textmu m); HA19 show the
+numerical diffusion at 16 bins. Its grid ends at 10\,\textmu m, so the top-edge rebinning that McKinnon's Fig.~11
+warns about does not arise. Composition is not evolved: it is assigned in post-processing. Each particle carries two
+sub-grid phases, and the processes are split between them.
+
+\paragraph{Where our scheme stands.}
+\begin{itemize}
+\item It shares McKinnon's and FIRE's two moments and characteristic update, but its profile is a power law in $m$,
+  which never goes negative, so no limiter changes $N$ (McKinnon's slope limiter keeps $M$ at the cost of $N$); and
+  with EA it represents a distribution that ends inside a bin, which none of the others does.
+\item Its collisions are positive and conservative for any step (MPRK22), where the others take explicit or
+  semi-implicit first-order steps with mass rescaling and sub-cycling; we found no dust code that uses MPRK22.
+\item Its growth step takes any size-dependent $\dot a(a)$ (sublimation, Kelvin term), not only a constant shift.
+\item It uses 8 bins per composition, plus the 4 molecular carbon bins (16 in AREPO and FIRE, 30 in GADGET4), and the in-bin state $s$ as a table axis.
+\item It is the only one that moves $N$ and $M$ as passive scalars with a size-dependent drift in an Eulerian code;
+  the only terminal-drift treatment in RAMSES (Lebreuilly et al.\ 2019) has fixed sizes, and McKinnon's particles
+  share one stopping time per GSD.
+\item RAMSES-CALIMA today: two sizes per composition (Dubois et al.\ 2024; Rodr\'iguez Montero et al.\ 2026). Its paper
+  (Sect.~5.2) flags that processes are evaluated at the central size of each bin, that memory grows with the bins, and
+  that large grains decouple in hot, low-density gas; the in-bin treatment (Sect.~\ref{sec:inbin}) and the drift
+  address the first and last.
+\end{itemize}
+
+%======================================================================================================================
+\section{McKinnon et al.'s solver tests, rerun with EA and PL2M}\label{sec:mck}
+
+McKinnon et al.\ (2018, Sect.~3) test their scheme on a set of problems with known answers. We reran all of them
+(their Figs.~9--13 and 15--16) with the default method, EA, with PL2M for comparison and with EAF where it differs,
+in
+\texttt{diagnostics/gsd/check\_mckinnon18\_tests.py}. For the growth tests we also re-implemented their
+piecewise-constant (PC) and piecewise-linear (PL) schemes from their Sect.~3.2, so that all schemes run on the same
+problem with the same steps; at 64 bins our PC and PL give 34\,\% and 1.2\,\% mass
+error where they quote about 40\,\% and 1\,\%, which validates the re-implementation. The collision tests are compared
+with an independent fine solution (640 bins, scipy LSODA), as theirs were. Results are in
+\texttt{figs/mckinnon18\_tests.txt}.
+
+\subsection{One step of the scheme (their Fig.~9)}
+Figure~\ref{fig:mck9} redraws their schematic with the five schemes on the same few bins: a boxcar that ends inside
+a bin, before and after a growth step. PL needs its slope limiter where the boxcar's edge enters a bin (the profile
+would go negative); the limiter keeps the bin's mass and changes its number. PL2M needs no limiter, but in a
+partly filled bin its power law piles the grains against one edge: number and mass are exact, the local shape is not.
+EA puts the edge inside the bin where it is and reproduces the boxcar exactly. EAF also places the edge, but its fixed
+front exponent ($-3.5$) slopes where the boxcar is flat and peaks at the cut: this is why EA, not EAF, is the default.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/mckinnon18_fig9.pdf}
+\caption{After McKinnon et al.'s Fig.~9: a boxcar (grey) on five bins at time $t$ and after all grains have grown by
+$\Delta a$, as PC (dashed), PL (green), PL2M (orange), EAF (purple) and EA (blue, the default) represent it. Dotted
+lines: bin edges.}
+\label{fig:mck9}
+\end{figure}
+
+\subsection{Growth: convergence and a growth--shrinking cycle (their Figs.~10, 13)}
+\begin{itemize}
+\item \textbf{Convergence} (Fig.~\ref{fig:mckgrowth}a): a boxcar from 1\,nm to 5.6\,nm grown at 0.005\,\textmu m/Gyr
+  for 5\,Gyr, in 100 steps, against the exact shifted boxcar. PC is first order and PL second order, as they found.
+  EA is 1.6\,\% at 8 bins, 0.5\,\% at 16, 0.15\,\% at 32 and exact to round-off from 64; PL2M 14\,\%, 4.6\,\%, 1.2\,\%
+  and 0.25\,\%; PL 51\,\%, 18\,\%, 4.8\,\% and 1.2\,\% (EAF: 2.2\,\%, 0.5\,\%, 0.11\,\%, 0.013\,\%). PL2M's error comes
+  from re-imposing a power law on the moved boxcar at every step; EA keeps the boxcar's edges as fronts, and its
+  residual at few bins comes from phases where the whole boxcar sits inside one bin (held as a pivot). 1000 steps cost
+  little more than 100.
+\item \textbf{Growth and shrinking} (Fig.~\ref{fig:mckgrowth}b--d): a boxcar over the middle quarter of the grid with
+  $\dot a$ sinusoidal (0.015\,\textmu m/Gyr, period 1\,Gyr). After one period, at 128 bins, the spread beyond the left
+  edge is none for EA (and EAF), 3 bins for PL2M, 5 for PL and 15 for PC (they report 3 and 9 for PL and PC by eye;
+  our threshold, $10^{-3}$ of the plateau, is stricter). The mass returns to its initial value to $3\times10^{-13}$ for
+  EA at 128 and 16 bins ($7\times10^{-6}$ for PL2M, 4\,\% for PC). EA follows the analytic boxcar exactly; PL2M
+  overshoots at the right edge, EAF peaks at the left one.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/mckinnon18_growth.pdf}
+\caption{After McKinnon et al.'s Figs.~10 and 13. (a) Fractional dust-mass error of the growth test at 5\,Gyr against
+the number of bins, PC and PL re-implemented from their paper, PL2M, EAF and EA (default); stars: the values they quote
+at 64 bins.
+(b, c) The growth--shrinking cycle at 128 and 16 bins, at four times, against the analytic boxcar (black).
+(d) The mass error through the cycle.}
+\label{fig:mckgrowth}
+\end{figure}
+
+\subsection{The grid edge and a finite metal reservoir (their Figs.~11, 12)}
+\begin{itemize}
+\item \textbf{Grains growing past $a_{\max}$} (Fig.~\ref{fig:mckbound}a): grains up to 1\,\textmu m grown by
+  2.4\,\textmu m with grids ending at 1, 2 and 4\,\textmu m. Rebinning the overflow into the top bin, at the top edge
+  with its mass kept (McKinnon's and FIRE's choice), makes the mass grow too fast: $\times$22 by 8\,Gyr for the
+  1-\textmu m grid, for PL and PL2M alike, as McKinnon et al.\ explain (radius is capped, so the number grows). Carrying
+  the overflow as one population at its mean size, growing with the rest (shown with EA; the closure does not matter
+  here), is within 1.8\,\% (0.5\,\% for 2\,\textmu m).
+  RAMSES-CALIMA's overflow collector should therefore carry $N$ and $M$ and keep growing, not be rebinned.
+\item \textbf{Decided for RAMSES (18 November, revised 23 November): one overflow bin per composition}, a single
+  wide bin over 1--10\,\textmu m holding $N$ and $M$ (2 scalars per composition, handled by every operator like an
+  ordinary bin, with the same closure):
+  \begin{itemize}
+  \item its grains grow, drift and collide as one population at the bin's mean size. The top bin's growth remap fills
+    it; erosion returns grains to the grid;
+  \item it is computed only when needed. Its charge solve, optics, drift and collisions are skipped while it holds
+    less than $10^{-6}$ of the cell's dust mass (a parameter). Its share of any rate is then of order $10^{-6}$, since
+    its per-gram rates are no larger than the smaller grains' to within a few. Transport always carries it. In most
+    of a galaxy it stays empty and costs nothing but its two scalars;
+  \item a diagnostic replaces a hard stop. Each coarse step logs its share of the dust mass and warns above 1\,\%,
+    meaning $a_{\max}$ was too low for this run. An optional namelist threshold aborts the run, off by default.
+    pyCALIMA has a strict mode that raises, so tests can assert it stays empty;
+  \item its optics and charging tables span 1--10\,\textmu m; near the geometric limit they are cheap. Grains
+    grown past 10\,\textmu m go to the operators' existing overflow accumulators, counted and warned.
+  \end{itemize}
+  Why not a larger $a_{\max}$ with a stop: coagulation in dense gas can cross any edge. Sweep-up at sticking 1 gives
+  $da/dt \approx \rho_{\rm d}\Delta v/(4\rho_{\rm gr})$, roughly 1\,\textmu m per Myr at $n_{\rm H}\sim10^5$\,cm$^{-3}$
+  and $\Delta v\sim0.1$\,km\,s$^{-1}$, an order-of-magnitude estimate. Coreshine points to grains of about 1\,\textmu m
+  in dense cores (Pagani et al.\ 2010; Steinacker et al.\ 2010). Reaching 10\,\textmu m with ordinary bins would add
+  3 bins per composition, and a stop would end a large run over a few cells.
+\item \textbf{A finite reservoir} (Fig.~\ref{fig:mckbound}b): dust accreting from gas-phase metals ($Z = 0.1$) with
+  initial dust-to-gas ratios $10^{-2}$--$10^{-4}$, through \texttt{gsd.exchange}'s implicit gas update. With the
+  physical rate, proportional to the gas-phase density, the dust mass approaches $1 + Z/D$ smoothly (McKinnon's fixed
+  $\dot a$ stops abruptly); the final values match it to $2\times10^{-11}$ and $4\times10^{-7}$ (the $10^{-4}$ case is
+  still converging at 4\,Gyr), with the metals conserved to round-off throughout.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/mckinnon18_boundary.pdf}
+\caption{After McKinnon et al.'s Figs.~11 and 12. (a) Dust mass of grains growing past the top of the grid (grids to
+1, 2, 4\,\textmu m; marker size), with the overflow rebinned into the top bin (PL, PL2M) or carried at its mean size
+(EA). (b) Growth from a finite metal reservoir with the implicit gas update; dotted lines: $1 + Z/D$.}
+\label{fig:mckbound}
+\end{figure}
+
+\subsection{Shattering and coagulation (their Figs.~15, 16)}
+\begin{itemize}
+\item \textbf{Shattering}: their log-normal ($a_0 = 0.1$\,\textmu m, $\sigma = 0.6$) in WNM-like gas, collisions at
+  3\,km/s only between grains above 0.1\,\textmu m, every collision shattering both grains into $a^{-3.3}$; 100\,Myr.
+  With 8 bins (their number) the bins holding at least 1\,\% of the mass are within 15\,\% of the reference, and 2\,\%
+  of the mass is misplaced in all; 7\,\% and 1\,\% with 16 bins. EA and PL2M agree to a few tenths of a per cent here,
+  since collisions fill the bins smoothly. Total mass is conserved to $10^{-15}$.
+\item \textbf{Coagulation}: their MRN in dense gas ($n_{\rm H} = 10^5$, $D = 0.01$), $v(a)\propto a^{1/2}$, sticking
+  below 11\,m/s; 20\,Myr. The 32-bin run follows the reference except in the bin at the sticking threshold
+  ($a\approx0.02$--0.03\,\textmu m), where the kernel is a step function and two nodes per bin cannot resolve it:
+  24\,\% in the bin just above it (0.039--0.049\,\textmu m, where the coagulated grains pile up) and 3.5\,\% of the mass
+  misplaced, from 2\,Myr on (with a reference whose 640 fine bins nest in the coarse ones). The result is converged in time
+  ($10^{-4}$ and $10^{-6}$ agree); the 16\,\% of the first version was a step-size artefact. McKinnon et al.\ report ``some tension near $a\approx
+  0.02$\,\textmu m'' at the same place. With 8 bins the misplaced mass is 0.3--1\,\%. EA and PL2M give the same
+  numbers.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/mckinnon18_collisions.pdf}
+\caption{After McKinnon et al.'s Figs.~15 and 16. Top: shattering of a log-normal after 100\,Myr with 8 and 16 bins.
+Bottom: coagulation of an MRN distribution at 2, 5, 10 and 20\,Myr with 32 and 8 bins. Lines: the fine reference;
+circles: EA bin averages (thin lines: its profiles); crosses: PL2M bin averages.}
+\label{fig:mckcoll}
+\end{figure}
+
+\subsection{What the tests show}
+\begin{itemize}
+\item EA and PL2M pass every test of McKinnon et al., and where they run the same problem as McKinnon's PL scheme
+  they are more accurate, with exact number and mass, no limiter and no step limit; EA is 9 times more accurate than
+  PL2M in the growth test at 8 bins and exact from 64, and exact in the growth--shrinking cycle.
+\item PL2M's artefact is the shape inside partly filled bins: the power law piles grains against an edge (Figs.~9, 13).
+  EA removes it by treating such bins as fronts that continue the neighbour's slope (Sect.~\ref{sec:eaf}).
+\item Sharp features of a kernel (a sticking threshold) inside a bin are resolved only to that bin; a third node or
+  bin edges at known thresholds would help.
+\item The overflow above $a_{\max}$ must be carried and grown, not rebinned.
+\end{itemize}
+
+%======================================================================================================================
+\section{What RAMSES-MCR (Diallo et al.\ 2026) offers our solver}\label{sec:diallo}
+
+Diallo et al.\ (2026) evolve cosmic-ray protons in momentum bins with the closure PL2M uses for grains: a power law in
+each bin, its slope fixed by the ratio of two moments (number and energy), tabulated against that ratio (their
+Eq.~20). Their choices, and what each would do for us:
+\begin{itemize}
+\item \textbf{Moment-specific coefficients} (their Sect.~2.2.5, after Hopkins 2023). With one bin-centred diffusion
+  coefficient, number and energy move together and the inner slope can never change; they give each moment its own
+  effective coefficient. The dust analogue is the drift: with one velocity per bin, big and small grains of a bin
+  cannot separate. Giving $N$ and $M$ their own velocities from the power law fixes it and keeps the bins realisable
+  (Sect.~\ref{sec:pl2m}, transport). Figure~\ref{fig:drift} tests it: one 20--53\,nm bin drifting with $w\propto a$ in
+  a 1-D box. One bin-centre velocity freezes $s$ and is off by 47\,\% in $N$ and $M$; the moment velocities follow the
+  64-sub-bin reference to 9--12\,\% and its in-bin state to 0.04; the two Gauss nodes per cell (the default rate
+  nodes) do as well (9--12\,\%, 0.035), the median nodes less so (15--23\,\%).
+  The same applies to any size-dependent sink that removes grains without changing their size (molecular carbon loss,
+  freeze-out onto large grains, Coulomb explosion): $N$ and $M$ need their own rates.
+\item \textbf{The slope from a table} of $s$ (their $e/n$) per bin, rather than an iteration: a speed-up for the
+  Fortran.
+\item \textbf{Open boundaries} that give the edge bins their neighbour's slope for inflowing quantities.
+\item \textbf{In-bin integrals of the loss terms}, by quadrature with a semi-implicit update, rather than bin-centre
+  values: the same conclusion as our in-bin rate test (Sect.~\ref{sec:inbin}).
+\end{itemize}
+What it does not change: their transport in momentum is a flux through the bin edges, integrated over the power law
+across the momentum swept in a step, with the step limited to a tenth of the bin's width; our characteristic remap
+does the same without a step limit and is exact for a constant $\dot a$. And since the closure is the same, the
+artefact in partly filled bins and the threshold resolution remain.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/inbin_drift.pdf}
+\caption{One grain bin (20--53\,nm, MRN-like start, $s = 0.14$) drifting with $w\propto a$ through a periodic box,
+first-order upwind for all. Black: 64 sub-bins, each at its own velocity. Dashed: one velocity per bin (bin centre).
+Blue: $N$ and $M$ with their own power-law velocities (the Diallo/Hopkins approach). Dotted: the median nodes;
+dash-dot: the Gauss nodes. Right:
+the in-bin state, which only the last two let evolve.}
+\label{fig:drift}
+\end{figure}
+
+%======================================================================================================================
+\section{How the default was chosen: variants at equal memory}\label{sec:variants}
+
+You asked whether the defects found above can be reduced without adding memory (still two scalars per bin, $N$ and
+$M$) or computational cost. A literature survey (\texttt{lit/pl2m\_like\_solvers.md}; mostly unverified leads, since it
+read no full texts) fed a second, careful study that designed variants, implemented them as standalone code
+(\texttt{diagnostics/gsd/pl2m\_variants.py}, \texttt{bench\_pl2m\_variants.py}, \texttt{bench\_pl2m\_figures.py}; no
+existing file changed) and benchmarked them against PL2M on every test of this report plus harder stress tests. The
+full report is \texttt{variants/REPORT.md}; I checked its numbers against the output files and every figure.
+
+\emph{Dated study (17--18 November).} Its numbers are from the collision solver before PR \#22 and were not rerun: the
+bench patches internals that moved into \texttt{GSDMethod} on 18--19 November, so it no longer runs. Where it overlaps
+the production runs, those supersede it: the A0 numbers of EA, EAF and PL2M (Sect.~\ref{sec:binconv}; shattering at 8
+bins EA 7.1\,\%, PL2M 5.7\,\%) and McKinnon's tests (Sect.~\ref{sec:mck}). The collision variants (kernel averaging,
+Gauss nodes) are to be re-measured through \texttt{GSDMethod} before kernel averaging is considered as a default.
+
+Two checks come first. With the PL2M closure the variant machinery reproduces the production remap to $3\times10^{-15}$
+and the collision nodes to $3\times10^{-14}$, and a PL2M A0 rerun through it reproduces the stored run bit for bit.
+Every variant keeps $N$ and $M$ exactly, stays positive and keeps $\bar m$ inside the bin.
+
+\subsection{The variants}
+\begin{table}[H]
+\centering\small
+\caption{Variants tested, all with $N$ and $M$ per bin. Cost: compiled closure + remap per cell and step at 8 bins,
+relative to PL2M.}\label{tab:variants}
+\begin{tabularx}{\textwidth}{@{}l L l@{}}
+\toprule
+variant & idea & cost \\
+\midrule
+\textbf{EA} (edge-aware) & a bin whose neighbour is (nearly) empty is a front: its profile continues the neighbour's
+  power-law exponent and is cut off inside the bin (cut set by $N$, $M$); a bin with both neighbours empty is a spike at
+  its mean mass; elsewhere PL2M. Emptiness threshold $\epsilon$ on the neighbour's number density per size & 1.22 \\
+EAF & EA with a fixed front exponent ($-3.5$), so every shape depends on $s$ only & 1.22 \\
+TC & PL2M with the exponent limited to $\pm L$; beyond, a cut-off power law & 0.8--0.9 \\
+affine, exponential & other closures with the same two moments: linear in $a$ with a positivity switch; $e^{-\kappa m}$
+  (maximum entropy) & 5.8, 9.3 \\
+Gauss nodes & collision/rate nodes at the 2-point Gauss quadrature of the bin in radius (exact for $\int a^k dN$, $k\le3$)
+  & same pairs \\
+KA & kernel averaging: each node pair's rate, products and donor split averaged over $4\times4$ sub-slices & 5.5$\times$
+  one collision evaluation \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Growth, edges and stress tests}
+The edge-aware closure removes most of the growth error (Fig.~\ref{fig:varg}). In McKinnon's growth test at 8 bins and
+100 steps the error falls from 14.2\,\% (PL2M) to 1.6\,\%, and it is exact to round-off from 64 bins, because a front
+that sits inside a bin is now represented as one. In the growth--shrinking cycle the spread past the edge falls from 3
+bins to none (Fig.~\ref{fig:vare}). The stress tests (Fig.~\ref{fig:vars}) show the same picture:
+\begin{itemize}
+\item a narrow population grown by a factor 10 to 100 over up to 5000 steps: mass error 17--20\,\% $\to$ $10^{-5}$;
+\item ten growth--shrink cycles: PL2M's error grows with every cycle (L1 of the mass distribution 0.07 $\to$ 0.31), EA's
+  stays at zero for a boxcar and below 0.004 for an MRN segment;
+\item a cut-off at any position inside a bin: the Wasserstein distance of the mass distribution falls 3--13 times;
+\item two cells mixed, 200 times: L1 error 0.12 $\to$ 0.016, surface error $-3.3\,\% \to -0.2\,\%$;
+\item RAMSES-like steps ($10^2$--$10^4$\,yr, $10^3$--$10^5$ steps) on the real grids (8 silicate bins; the 11-bin carbon
+  layout with $\eta$ = 2.1 and 18.8): mass error 0.8\,\% $\to$ 0.12--0.16\,\%, surface error 4\,\% $\to$ 1\,\%,
+  independent of the step size.
+\end{itemize}
+The affine and exponential closures, with the same memory, do worse than PL2M on MRN-like profiles at 6--11 times the
+cost; TC helps only marginally.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{variants/variants_growth.pdf}
+\caption{McKinnon's growth test with the variants: (a) mass error at 5\,Gyr against the bin number (100 steps);
+(b, c) against the number of steps at 8 and 32 bins. EA (red) is exact to round-off from 64 bins.}
+\label{fig:varg}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{variants/variants_edges.pdf}
+\caption{How each closure represents a sharp edge. Top: a boxcar after 20 growth steps (grey: exact). Bottom: the
+growth--shrinking cycle at 16 bins after half a period (dashed) and one period (solid), with McKinnon's PL for
+comparison. EA keeps the edge inside the bin where it is.}
+\label{fig:vare}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{variants/variants_stress.pdf}
+\caption{Stress tests: each row's error metric for PL2M (open circles) and the variants. EA (red squares) is the best on
+every transport test; values below $10^{-7}$ are drawn at $10^{-7}$.}
+\label{fig:vars}
+\end{figure}
+
+\subsection{A0, rates and drift}
+\begin{itemize}
+\item \textbf{A0 at 8 bins} (worst observable over the snapshots): EA lowers accretion 8.1 $\to$ 2.8\,\%, coagulation
+  5.9 $\to$ 0.3\,\%, shattering 7.8 $\to$ 4.4\,\% and sputtering 12.1 $\to$ 0.6\,\%; SN dust stays at 3.4\,\%. The worst
+  over the five cases falls from 12.1 to 4.4\,\% (Fig.~\ref{fig:vara}). EA lowers accretion, coagulation and sputtering
+  at every bin count (at 4 bins accretion 23 $\to$ 9\,\%, sputtering 21 $\to$ 6\,\%), but the worst case at 4 and 6
+  bins is SN dust ($R_V$), which it does not change.
+\item About half of that gain needs the optics and rate tables to see the EA shape: EA's states read through the
+  present PL2M tables give 7.7\,\%. So EA requires front-aware tables: two-dimensional $s$ tables (in $s$ and the
+  front exponent), four one-dimensional ones with EAF, or node tables, which serve any closure at about the size of the
+  PL2M $s$ tables (Sect.~\ref{sec:nodetab}).
+\item \textbf{The emptiness threshold must be small} ($\epsilon = 10^{-6}$): with $10^{-2}$ the very wide bins of 4--6-bin
+  grids treat smooth MRN tails as fronts, and A0 errors reach 92\,\%.
+\item \textbf{Rates:} with EA states and Gauss nodes in radius, the worst rate error at 8 bins is 1.0\,\% (exact in-bin
+  integral) and 2.1\,\% (two nodes), against 6.2\,\% and 7.8\,\% for PL2M.
+\item \textbf{Drift:} Gauss nodes bring the two-node velocities to the accuracy of the per-moment velocities (9\,\% and
+  12\,\% in $N$ and $M$, from 15\,\% and 23\,\%). EA's isolated-bin spike must not be used for the drift, since it would
+  freeze the in-bin segregation; there the local closure stays.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{variants/variants_a0_rates_drift.pdf}
+\caption{A0 cases against the bin number for every variant (dashed red: EA with $\epsilon=10^{-2}$, solid red:
+$10^{-6}$), the worst grain-rate error at 4 and 8 bins (filled: exact in-bin integral; open: two nodes), and the drift
+test.}
+\label{fig:vara}
+\end{figure}
+
+\subsection{Collisions}
+No closure change helps collisions much, since collisions fill bins smoothly. Two quadrature changes do
+(Fig.~\ref{fig:varc}):
+\begin{itemize}
+\item \textbf{Kernel averaging} fixes the sharp shattering threshold: in McKinnon's test at 8 bins the worst bin falls from
+  15\,\% to 0.6\,\% and the misplaced mass from 2.1\,\% to 0.26\,\%; with the threshold swept through a bin, from
+  2.1\,\% to 0.6\,\% at worst. It also improves the Golovin kernel (37 $\to$ 12\,\% at 8 bins) and cuts the sub-steps
+  of the step control tenfold in threshold cases. It costs 5.5 times one collision evaluation.
+\item \textbf{Gauss nodes} are mixed: much better for the Golovin kernel (37 $\to$ 4\,\% at 8 bins) and for coagulation
+  at 32 bins (3.3 $\to$ 1.1\,\%), but worse for the constant kernel at 8 bins (2.3 $\to$ 12\,\%) and coagulation at 8 bins.
+\item \textbf{The coagulation threshold is not fixed by anything}: sticking empties the light side of the threshold bin,
+  an in-bin edge that no two-parameter description holds (16\,\% in that bin at 32 bins with the old collision solver;
+  24\,\% after its fix, Sect.~\ref{sec:mck}).
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{variants/variants_collisions.pdf}
+\caption{Collision tests: McKinnon's shattering and coagulation tests (misplaced mass; small faint symbols: worst bin),
+a shattering and a coagulation threshold swept through a bin, and the constant and additive kernels against their
+analytic solutions.}
+\label{fig:varc}
+\end{figure}
+
+\subsection{What was adopted (18--19 November)}
+\begin{enumerate}
+\item \textbf{EA is the default closure} of every \texttt{pycalima.gsd} operator: fronts that continue the neighbour's
+  slope, $\epsilon = 10^{-6}$. EAF (a fixed front slope, $-3.5$) was the default on 18 November, to keep the tables
+  one-dimensional in $s$; on flat profiles its slope puts peaks at the edges (Figs.~\ref{fig:mck9},
+  \ref{fig:mckgrowth}), so EA replaced it, and its tables are kept small with node tables (Sect.~\ref{sec:nodetab}).
+  The cost is about 22\,\% more in the growth operator per cell and step, no memory; EA reads the neighbouring bins of
+  the same cell, which is local in RAMSES.
+\item \textbf{Gauss nodes in radius are the default rate nodes}; the collisions keep the median nodes.
+\item \textbf{All methods are selectable} in \texttt{pycalima.gsd.closures}. A \texttt{GSDMethod} sets the closure,
+  $\epsilon$, the front exponent of EAF, the collision and rate nodes and the kernel averaging; the presets are
+  \texttt{ea} (default), \texttt{eaf}, \texttt{pl2m}, \texttt{affine} and \texttt{exp}, and every operator takes a
+  \texttt{method} argument. The \texttt{pl2m} preset reproduces the code before 18 November bit for bit. TC is not
+  offered. Kernel averaging is an option, to be tested inside the full collision model before any default use.
+\item \textbf{Checks:} 120 GSD tests pass (67 existing, 53 for the methods and node tables) and the 8 docs tests;
+  through the production code the growth test and the A0 numbers match the study to four digits
+  (\texttt{variants/}\allowbreak\texttt{production\_check.txt}).
+\item \textbf{Accepted limits} of two degrees of freedom per bin: the coagulation-threshold bin, and the jump of the
+  profile at bin edges in smooth regions.
+\end{enumerate}
+Every figure of this report has been redrawn with EA as the default and PL2M for comparison (and EAF where it
+differs).
+
+\subsection{Tables at a minimum for EA: per-radius node tables}\label{sec:nodetab}
+With PL2M a bin's per-gram optics depend on the cell only through $s$, so RAMSES can read $\kappa_i(\lambda, s)$ from a
+one-dimensional table (Sect.~\ref{sec:materials}). EA breaks this: a front bin's shape depends on its neighbour's
+exponent as well as on $s$. Two-dimensional $s$ tables (in $s$ and the front exponent) would cost roughly 16 times the
+PL2M tables, and even EAF's four one-dimensional tables per bin cost 4 times.
+
+The way out uses the structure all closures share. Every reconstruction is a few power-law pieces, and the per-gram
+average of a single-grain quantity $k(u)$ ($u = a/a_L$) over any piece is exact when $k$ is linear in $u$ between nodes
+(\texttt{closures.bin\_weights}). So RAMSES can store $k$ at a few radii per bin, the \emph{node table}, and integrate
+it over each cell's own reconstruction:
+\begin{equation}
+\kappa_i(\lambda) = \sum_j W_{ij}\,k_i(u_j, \lambda),
+\end{equation}
+where $W_{ij}$ is the exact integral of the hat function at node $u_j$ over the mass in bin $i$'s pieces. The weights
+are computed once per cell and hydro step and shared by every wavelength (or RT group) and quantity. \texttt{optics.node\_table} picks, per bin, the cheapest layout (uniform or geometric in $u$, from 8 to 256
+intervals) whose averages over a set of probe profiles meet a tolerance: PL2M power laws at every in-bin state and
+truncated fronts with slopes from $-6$ to $+3$ cut anywhere in the bin. \texttt{optics.node\_average} evaluates the
+table for any method. The same table serves EA, EAF, PL2M and the other closures.
+
+\begin{table}[H]
+\centering\small
+\caption{Optics tables for the A2 grids (8 bins per material; 61 wavelengths; $C_{\rm abs}$, $C_{\rm sca}$, $C_{\rm rp}$):
+stored values per wavelength for all 8 bins at a tolerance of $3\times10^{-3}$, and the worst relative error of the
+per-gram $\kappa$ against a 512-node reference (\texttt{figs/node\_tables.txt}). The $s$ tables serve PL2M only; EAF's
+four component tables are 4 times the $s$ tables; EA's two-dimensional $s$ tables are an estimate.}\label{tab:nodetab}
+\begin{tabularx}{\textwidth}{@{}l r r L@{}}
+\toprule
+tables & carbon & silicate & closures served, worst error \\
+\midrule
+PL2M $s$ tables (A2) & 358 & 298 & PL2M; 2.8--3.2$\times10^{-3}$ \\
+EAF component $s$ tables & 1432 & 1192 & EAF \\
+EA as 2-D $s$ tables (estimate) & $\sim$5700 & $\sim$4800 & EA \\
+\textbf{node tables} (tol $3\times10^{-3}$) & \textbf{336} & \textbf{304} & \textbf{any}; $2.9\times10^{-3}$ (carbon);
+  $2.1\times10^{-3}$ on EA fronts, $4.0\times10^{-3}$ on random states (silicate) \\
+node tables, best layout per bin & 298 & 318 & any; $\le3\times10^{-3}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/node_tables.pdf}
+\caption{Node tables against $s$ tables: worst relative error of the per-gram $\kappa$ against the stored values per
+wavelength (all 8 bins), for uniform, geometric and adaptive node layouts and the production builder, on PL2M profiles
+(open) and EA states with fronts (filled); stars: the A2 $s$ tables, which serve PL2M only.}
+\label{fig:nodetab}
+\end{figure}
+
+\begin{itemize}
+\item \textbf{Memory:} node tables cost about as much as PL2M's $s$ tables (carbon 336 against 358 values per
+  wavelength; silicate 304 against 298) and serve EA exactly, against 4 times for EAF's tables and an estimated 16
+  times for two-dimensional EA tables. The band-gap axis of the covalent bins multiplies node and $s$ tables alike.
+\item \textbf{Cost:} the weights take 6--11\,\textmu s per cell and hydro step for 8 bins (compiled, one thread),
+  shared by every group and quantity; each group then costs one dot product per bin. With PL2M's $s$ tables this was a
+  lookup, so the optics side of EA adds about the cost of one closure evaluation per hydro step.
+\item \textbf{Consistency:} the same per-radius approach serves the charge kernels at the Gauss nodes
+  (Sect.~\ref{sec:inbin}) and the drift velocities, so optics, rates and transport all integrate the cell's own
+  reconstruction.
+\item \textbf{Where they are used:} in pyCALIMA, for exact evaluation, and in the post-processing export (A6). For the RT
+  cross-sections in RAMSES's cool step even these weights are too dear; RAMSES uses five pseudo-bins per bin instead
+  (Sect.~\ref{sec:rtgroups}).
+\end{itemize}
+
+\subsection{RT group cross-sections in the cool step: five pseudo-bins per bin}\label{sec:rtgroups}
+
+\paragraph{How RAMSES does it today.} RAMSES-RT tabulates each dust bin's per-gram group cross-sections against stellar
+age and metallicity at start-up, one copy per node. These are absorption (csa), scattering (css) and radiation pressure
+(csr), stored in \texttt{init\_SED\_table}. Every few coarse steps it weights them by the stars' luminosities
+(\texttt{update\_SED\_group\_props}), and the cool step copies the result into each cell. The IR group (0.1--1\,eV) is
+the exception: on every substep its cross-sections are replaced by Planck and Rosseland means at the cell's radiation
+temperature. While each bin had one fixed size distribution, its cross-section was the same in every cell. With two
+moments it depends on the cell's in-bin profile.
+
+\paragraph{Why not EA exactly.} The exact EA average costs 4.0\,\textmu s per cell-call for 8 carbon and 8 silicate bins
+(compiled, one thread; the A0 grids, where production has 11 carbon bins). It takes $s$ tables where a bin is pure base, where EA equals PL2M, and node integrals over the
+fronts. That is a large addition to a cool step of 30--80\,\textmu s, for numbers the RT uses only as absorption and
+radiation pressure.
+
+\paragraph{The scheme.} The cool step ignores EA's fronts and uses the PL2M profile at the bin's $s$. Each GSD bin is
+exported as five \emph{pseudo-bins}: the PL2M per-gram $\sigma(\lambda)$, with its Planck and Rosseland tables, at the
+fixed states
+\begin{equation}
+s_k = \tfrac12\left[1 - \cos(\pi k/4)\right] = 0,\ 0.15,\ 0.5,\ 0.85,\ 1 .
+\end{equation}
+These are Chebyshev points, which cluster near the bin edges. RAMSES treats every pseudo-bin as an ordinary dust bin:
+in the SED table, in the star polling and in the IR means, all unchanged. This works because the group average, the
+luminosity weighting and the blend below are all linear in $\sigma$. In each cell-call every bin finds its bracket and
+weight once,
+\begin{equation}
+\kappa_{i,g} = (1-t_i)\,\kappa^{(k)}_{i,g} + t_i\,\kappa^{(k+1)}_{i,g}, \qquad t_i = \frac{s_i - s_k}{s_{k+1}-s_k},
+\end{equation}
+and keeps them over the substeps, while the masses still update. The IR substep uses one $T_{\rm rad}$ index for all
+bins and blends the two bracketing pseudo-bins. The shielding bands, and csrat and la when they are on, take the same
+blend. RAMSES copies css into the cell but none of its rates read it, so css is dropped.
+
+\begin{table}[H]
+\centering\small
+\caption{Per-gram RT group cross-sections against the exact EA in-bin average: $|\mathrm{scheme}/\mathrm{EA}-1|$ in
+\%, worst over the states, for the composition total $\sum_i M_i\kappa_i$ (what the RT absorption sees); in brackets,
+per bin (bins with $\ge$\,1\,\% of the mass). Groups 2--8: RTZ's groups, photon-weighted over a $5\times10^4$\,K
+blackbody, absorption and radiation pressure. IR: Planck absorption and Rosseland radiation pressure at
+$T_{\rm rad} = 10$--300\,K. A0: the EA 8-bin end states of the five cases. Stress: fronts cut anywhere in a bin, narrow
+segments and random states (135). $\times$: the ratio, where the error exceeds 100\,\%.
+\texttt{diagnostics/gsd/check\_rt\_group\_optics.py}, \texttt{figs/rt\_group\_optics.txt}; A0 columns rerun on 22
+November on the new A0 states.}\label{tab:rtgroups}
+\begin{tabular}{@{}l rr rr rr rr@{}}
+\toprule
+ & \multicolumn{4}{c}{A0 end states} & \multicolumn{4}{c}{stress states} \\
+\cmidrule(lr){2-5}\cmidrule(l){6-9}
+ & \multicolumn{2}{c}{groups 2--8} & \multicolumn{2}{c}{IR} & \multicolumn{2}{c}{groups 2--8} & \multicolumn{2}{c}{IR} \\
+scheme & carbon & silicate & carbon & silicate & carbon & silicate & carbon & silicate \\
+\midrule
+one value per bin ($s=\tfrac12$) & 25 (57) & 27 (66) & 10 & 2.8 & 44 & $\times2.4$ & $\times66$ & 19 \\
+grain at the mean mass & 7.9 (11) & 9.5 (25) & 3.5 & 0.3 & 18 & 9.8 & 46 & 5.0 \\
+3-point polynomial in $s$ & 28 (40) & 31 (40) & 7.3 & 0.2 & 38 & 33 & $\times5.8$ & 6.0 \\
+3 pseudo-bins & 36 (50) & 42 (53) & 9.2 & 0.3 & 53 & 47 & $\times5.0$ & 7.9 \\
+\textbf{5 pseudo-bins (adopted)} & \textbf{4.1 (15)} & \textbf{6.1 (14)} & \textbf{1.4} & \textbf{0.1} & \textbf{17} &
+  \textbf{12} & $\boldsymbol{\times7.8}$ & \textbf{3.9} \\
+9 pseudo-bins & 1.8 (5.9) & 2.1 (5.6) & 0.9 & 0.2 & 15 & 12 & $\times5.0$ & 4.1 \\
+PL2M at $s$, exact & 1.8 (3.1) & 3.6 (6.1) & 0.8 & 0.2 & 14 & 18 & $\times5.2$ & 4.4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+\item \textbf{Accuracy} (Table~\ref{tab:rtgroups}): on the A0 states five pseudo-bins are within 4--6\,\% of EA on the
+  group totals and within 1.4\,\% on the IR means. That is the error you accepted on 18 November. Nine pseudo-bins
+  would reach PL2M's own floor (about 2\,\%).
+\item \textbf{What it gives up:} the fronts. Where a population ends inside a bin, the RT optics see the PL2M profile,
+  not EA's: up to 12--17\,\% on the group totals in the stress states. On narrow carbon segments the IR opacity is
+  5--8 times too large, against 4--5 times for PL2M itself. The dust solver, the rates and the drift still use EA.
+\item \textbf{Cost} (\texttt{bench\_rt\_group\_optics.py}): 0.19\,\textmu s per cell-call against 0.11 for today's
+  copy; 9 pseudo-bins take 0.21, PL2M's full $s$ tables 0.30, EA exactly 4.0. The IR substep costs 0.03\,\textmu s, as
+  today.
+\item \textbf{Memory:} the SED table's dust columns (247 ages, 8 metallicities, 8 groups, real*8, one copy per node)
+  grow from 6.1 to 20.2\,MB for 16 bins, or 36\,MB with nine pseudo-bins (the A0 grids; the production 11 carbon
+  and 8 silicate bins take about 24\,MB, 27\,MB with the overflow bins). The per-bin $\sigma(\lambda)$ tables stay
+  small.
+\item \textbf{The polling stays.} Across BPASS constant-SFR mixes, a bin's per-gram group values vary by 30--53\,\% in
+  group 2 (1--5.6\,eV), by 5--13\,\% in groups 7--8 and by at most 10\,\% elsewhere. Across single bursts the variation
+  reaches 95\,\%. A fixed spectrum would cost more than the in-bin error.
+\item \textbf{Open for the four covalent bins below 53\,nm} (with or without M1, since the equilibrium band gap
+  needs the same axis): the band-gap axis multiplies the pseudo-bins, giving a bilinear blend in $s$ and $\Eg$. Five
+  $s$ points times about six $\Eg$ nodes would take about 30\,MB of the SED table per node. Fewer $\Eg$ nodes or a coarser age axis have to be measured before B6/B7.
+\end{itemize}
+
+%======================================================================================================================
+\section{How many bins, and what the bins must reproduce}\label{sec:bins}
+
+\subsection{Optical observables (A0)}\label{sec:binconv}
+\texttt{diagnostics/gsd/check\_bin\_convergence.py} runs five fast test cases against reference solutions. Two of them,
+accretion and sputtering, have exact solutions. The metrics are observables, not the distribution itself: mass, slope,
+mean and width in $\ln a$, $A_V$, $R_V$, the bump, the UV slope and the extinction curve.
+\begin{itemize}
+\item The two-moment schemes need about half the bins of a one-moment scheme for the same accuracy
+  (Fig.~\ref{fig:binconv}).
+\item With 8 bins per composition, the worst observable errors with EA (PL2M in brackets) are:
+  \begin{itemize}
+  \item SN injection into diffuse gas: 3.1\,\% (3.1\,\%);
+  \item accretion: 2.8\,\% (8.1\,\%);
+  \item coagulation: 0.3\,\% (5.8\,\%);
+  \item shattering: 7.1\,\% (5.7\,\%), on the graphite mean size;
+  \item sputtering: 0.6\,\% (12.1\,\%, on the silicate width).
+  \end{itemize}
+  The worst over the five cases is 7.1\,\% with EA (7.2\,\% with EAF) against 12.1\,\% with PL2M.
+\item With 6 bins the worst is 19\,\% for EA and 18\,\% for PL2M (shattering); with 12 bins 3.9\,\% and 4.9\,\%; with 32
+  bins 0.6\,\% and 2.2\,\%.
+\item These numbers are from the rerun of 22 November, with the fixed collision solver (PR \#22; the summary gives
+  the changes). Shattering is converged in time and converges steadily from 8 to 32 bins (Fig.~\ref{fig:binconv}). At
+  8 bins EA misses 5\,\% only in shattering; 12 bins would meet it in every case. You kept 8 bins (22 November), to
+  hold the operations and memory down.
+\end{itemize}
+You chose 8 bins after comparing memory per scalar: each scalar costs 16\,B per cell, and each TVA species another
+24\,B. EA does not change the memory.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/gsd_bin_convergence.png}
+\caption{A0: worst relative error over the observables against the number of bins per composition (top) and against
+the scalars per cell (bottom), for EA (the default, blue), EAF (purple), PL2M (orange) and two one-moment schemes. The
+dashed line marks 5\,\%. Results in \texttt{results/binconv\_v4/} (PL2M, one-moment) and
+\texttt{gsd\_overview/variants/a0\_prod/} (EA, EAF).}
+\label{fig:binconv}
+\end{figure}
+
+\subsection{The in-bin state beyond optics}\label{sec:inbin}
+Today's RAMSES-CALIMA builds its charging, photoelectric-heating, recombination-cooling, sputtering, gas--grain and
+H$_2$ tables at one radius per bin, the bin centre. With 8 bins the grain bins are wide (a factor 2.66 in radius), and a
+bin's rate per gram depends on where its mass sits, exactly as its opacity does.
+
+The rates RAMSES needs from the grains are sums over grains of single-grain rates that depend only on the grain's size
+and the local conditions; a grain's charge distribution depends on the gas and the radiation, not on the other grains.
+So $\Gamma_i = \int_{I_i}\Gamma(a)\,dN$, and per gram $\Gamma_i/M_i = \langle\Gamma/m\rangle_i(s)$, Eq.~(\ref{eq:kavg}).
+The same holds for recombination cooling, gas--grain energy exchange, H$_2$ formation, accretion and sputtering.
+\texttt{diagnostics/gsd/check\_inbin\_rates.py} compares these ways to obtain a bin's rate at state $s$, for the
+carbon (a-C, \texttt{ac} charging) and silicate grain bins in the WNM, CNM, a PDR and dense gas:
+\begin{itemize}
+\item \textbf{exact}: the integral over the bin's power law, Eq.~(\ref{eq:kavg}); what an $s$ axis on the tables gives;
+\item \textbf{bin centre}: every grain at the centre (today);
+\item \textbf{mean mass}: every grain at $\bar m_i$, one charge solve per bin. It is exact only if the rate per gram is
+  the same at every size;
+\item \textbf{area node}: one charge solve per bin at
+  \begin{equation}
+  a_* = \frac{\int a^3\,dN}{\int a^2\,dN}, \qquad \Gamma_i = \frac{\int a^2\,dN}{a_*^2}\,\Gamma(a_*),
+  \label{eq:areanode}
+  \end{equation}
+  the one-point Gauss rule of the area measure $a^2\,dN$. The bin's total grain area is exact, and so is the rate
+  whenever $\Gamma(a)/a^2$ is linear in $a$ across the bin. The charge-dependent rates scale roughly as the grain area,
+  which the mean mass gets wrong. Both moments come from the closure at no cost, and per gram the rule is simply the
+  single-grain value at $a_*$;
+\item \textbf{median nodes}: the two collision nodes of Sect.~\ref{sec:coll};
+\item \textbf{Gauss nodes}: the 2-point Gauss rule of the bin in radius, exact for $\int a^k dN$ with $k\le3$ (the
+  default rate nodes since 18 November).
+\end{itemize}
+The profile here is the power law of a single bin: the question is how to evaluate a rate over a given in-bin shape.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/inbin_rates.pdf}
+\caption{Grain rates of a single bin against its in-bin state. (a) Photoelectric heating per gram of three a-C bins in
+the CNM, relative to the exact profile average: bin centre (solid), mean mass (dotted), the area node (thick
+dash-dot-dot, adopted), median nodes (dashed), Gauss nodes (dash-dot). (b--d) The
+worst error over $s\in[0,1]$ per bin, for photoelectric heating, recombination cooling and grain surface (H$_2$
+formation, accretion, sputtering), carbon (filled) and silicate (open), in four cells.}
+\label{fig:inbin}
+\end{figure}
+
+Results (Fig.~\ref{fig:inbin}; \texttt{figs/inbin\_rates.txt}):
+\begin{itemize}
+\item Inside one bin the rate per gram changes by a factor 1.1--8 between $s=0$ and $s=1$.
+\item The bin centre is off by up to a factor 2.8 at the extremes of $s$, although within 9\,\% at the MRN slope.
+\item The mean mass is within 10\,\% in 95\,\% of the cases (worst 18\,\%).
+\item The area node, with the same single solve, is within 1.4\,\% in half the cases and 7.0\,\% in 95\,\% of them;
+  its worst, 9.7\,\%, is the largest carbon bins (0.14--1\,\textmu m) in cold gas. It is exact for the surface.
+\item The median nodes are within 5\,\% (worst 9.1\,\%, the largest carbon bin in the WNM).
+\item The Gauss nodes are within 1.2\,\% (worst 1.6\,\%), at the median nodes' cost of two solves per bin: they
+  became pyCALIMA's default rate nodes, and stay so for size-dependent sinks, which must move $N$ and $M$ apart.
+\item For surface processes the exact value is analytic: per gram $\propto\langle a^2\rangle/\langle a^3\rangle$,
+  known from $\beta$ at no cost.
+\item These numbers are from the rerun of 22 November, with the charge solve ported from RAMSES (PR \#19;
+  \texttt{gsd.charging} on LG5). The port changed mainly the large carbon bins (53\,nm--1\,\textmu m) of the PDR cell,
+  whose charge distributions are wide.
+\end{itemize}
+
+\paragraph{Decided for RAMSES (18 November).} By kind of rate:
+\begin{itemize}
+\item \textbf{Charge-dependent rates} (photoelectric heating, recombination cooling, Coulomb factors, grain-assisted
+  recombination): one charge solve per bin at its area node, Eq.~(\ref{eq:areanode}), from the EA reconstruction. That
+  keeps today's number of solves; two Gauss nodes would double the charge solve, the dearest part of the dust step,
+  for at most 3 points less error at 8 bins (Sect.~\ref{sec:rateconv}). $a_*$ moves inside the bin with $s$, so the
+  charge kernels are still needed at a few radii per bin, interpolated in $\ln a$. That multiplies the kernel memory
+  by the radii per bin, which the planned coarsening (real*4, a cut potential range) has to absorb.
+\item \textbf{Size-dependent sinks} (molecular carbon loss, Coulomb explosion, freeze-out): two nodes, per moment
+  (Sect.~\ref{sec:diallo}), since one node cannot move $N$ and $M$ apart.
+\item \textbf{Surface processes} (H$_2$ formation, neutral accretion, gas--grain collisional cooling, sputtering mass
+  loss): the exact second moment from $\beta$; no table changes.
+\item \textbf{Optics:} in RAMSES's cool step, five PL2M pseudo-bins per bin, blended in $s$
+  (Sect.~\ref{sec:rtgroups}); elsewhere node tables (Sect.~\ref{sec:nodetab}), the same per-radius approach as the
+  charge kernels.
+\item \textbf{Molecular bins:} their tables average PAHdb molecules with fixed in-bin weights. The same treatment
+  (two half-bin tables weighted by the two nodes) is possible; the bins are narrow (a factor 1.28 in radius), so the
+  effect should be smaller, but it has to be measured.
+\item The alternative, an $s$ axis on every rate table, is exact but costs 30--70 times the memory of each table; it
+  suits only small tables.
+\end{itemize}
+
+\subsection{Convergence of the thermal and chemical rates}\label{sec:rateconv}
+A0 tested the observables of the distribution (mass, shape, extinction). RAMSES also needs the rates the grains impose
+on the gas. A first look, \texttt{diagnostics/gsd/check\_rates\_convergence.py}, takes the final distributions of the
+A0 runs (graphite and silicate, 2--32 bins and the reference), for EA and PL2M, and computes the population's
+photoelectric heating, recombination cooling and total grain surface in the four cells above, each run with its own
+closure.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/rates_convergence.pdf}
+\caption{Population rates against the number of bins, worst over the five A0 cases and the four cells: EA (blue,
+default) with the exact in-bin integral and with two Gauss nodes per bin; EA with one charge solve per bin, at the
+area node (thick green, adopted for RAMSES) or at the mean mass (purple); PL2M (orange) with the exact integral and
+the median nodes; and bin-centre tables (red, today's RAMSES). Dotted lines: 8 bins and 5\,\%.}
+\label{fig:rateconv}
+\end{figure}
+
+Results at 8 bins (Fig.~\ref{fig:rateconv}; \texttt{figs/rates\_convergence.txt}):
+\begin{itemize}
+\item EA runs, exact integral over the EA profile: within 4.4\,\% for heating, 4.6\,\% for cooling and 6.2\,\% for the
+  surface; with the Gauss rate nodes 5.4--7.1\,\%;
+\item EA runs, one solve per bin: at the area node 8.8\,\% for heating, 7.3\,\% for cooling, 5.8\,\% for the surface;
+  at the mean mass 13--14\,\%. The worst case is shattering for both. In the other four cases the area node is within
+  0.7--2.0\,\%, against 0.3--1.0\,\% for the Gauss nodes and 4.5--9\,\% for the mean mass (Table~\ref{tab:areanode});
+\item PL2M runs, exact integral: within 6.1\,\%; with the median nodes 7.0--8.1\,\%;
+\item bin-centre tables: off by 42--50\,\%; 5\,\% would need 32 bins.
+\item These numbers are from the rerun of 22 November (PRs \#19 and \#22). The changes come from the shattering
+  case, whose 8-bin state changed with the collision fix (Sect.~\ref{sec:binconv}); the charge solve alone moves the
+  other four cases by at most 0.3 points.
+\end{itemize}
+\begin{table}[H]
+\centering\small
+\caption{Heating / cooling of the whole population at 8 bins, EA runs: $|$run/ref$-1|$ in \%, worst over the four
+cells, against the high-resolution reference integrated exactly (\texttt{figs/rates\_convergence.txt}). Correcting
+the area node with the rate's size slope from the neighbouring bins' solves gains less than one point (shattering
+8.1 / 6.8\,\%), so it is not used. Rerun on 22 November.}\label{tab:areanode}
+\begin{tabular}{@{}l c rrrrr@{}}
+\toprule
+way & solves per bin & SN diffuse & accretion & coagulation & sputtering & shattering \\
+\midrule
+exact integral & many & 1.1 / 0.7 & 0.8 / 0.7 & 0.3 / 0.1 & 0.2 / 0.2 & 4.4 / 4.6 \\
+2 Gauss nodes & 2 & 1.0 / 0.8 & 1.0 / 0.9 & 0.7 / 0.5 & 0.3 / 0.3 & 5.4 / 7.1 \\
+\textbf{area node (adopted)} & \textbf{1} & \textbf{2.0 / 0.9} & \textbf{1.2 / 0.9} & \textbf{1.6 / 0.7} &
+  \textbf{1.0 / 1.1} & \textbf{8.8 / 7.3} \\
+mean-mass grain & 1 & 7.2 / 7.5 & 4.5 / 4.6 & 8.9 / 8.1 & 8.8 / 8.5 & 12.7 / 14.1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+So 8 bins carry the thermal rates as well as the optics, \emph{provided} the rates are taken over the in-bin profile;
+EA gains about a quarter over PL2M for heating and an eighth for cooling here (4.4 / 4.6\,\% against 6.1 / 5.3\,\%). (Gauss nodes in the collisions too, an option, would
+bring the EA rate errors to 1--2\,\%, Sect.~\ref{sec:variants}.)
+Caveats: graphite (the A0 material), final states only, fixed cells rather than each case's own gas, no molecular bins,
+and no feedback of the rates on the gas.
+
+\paragraph{The full test} (part of A5, once the chemistry of every species is final). Rerun the A0 cases and one-zone
+PDR and diffuse-ISM runs with 6, 8, 12 and 16 bins and a reference, with the rates coupled to the gas, and score:
+\begin{itemize}
+\item photoelectric heating, recombination cooling, gas--grain collisional energy exchange;
+\item H$_2$ formation on grains and on the molecular bins;
+\item grain-assisted recombination of H$^+$, C$^+$ and other ions, and the electron density;
+\item accretion (depletion) rates per element; carbon loss of the molecular bins;
+\item dust temperature and IR emission;
+\item the resulting gas state in thermal and chemical equilibrium ($T$, $x_e$, $f_{\rm H_2}$).
+\end{itemize}
+Pass: 5\,\% on each rate and on the equilibrium gas state, at 10, 30 and 100\,\% of every run, with the chosen in-bin
+treatment, and on path-integrated rates (the path budgets used for the PAH tables).
+
+%======================================================================================================================
+\section{Carbon materials, grid and optics (A1, A2, A3a, step 1)}\label{sec:materials}
+
+\paragraph{Why amorphous carbon, not graphite.} The arguments, each with what its sources actually support
+(verified on 17 November; \texttt{lit/graphite\_and\_pah\_size.md}):
+\begin{itemize}
+\item \textbf{Stellar carbon dust is amorphous and aromatic-rich.} Gas-phase condensation experiments make soot built
+  from PAHs below about 1700\,K (J\"ager et al.\ 2009). Presolar graphite exists but makes up about $10^{-6}$ of
+  meteorite mass and is biased towards survivors (Draine 2003, Table~3). Jones et al.\ (2017) find ``no evidence to
+  support it [graphite] as the most abundant interstellar carbon dust material''. THEMIS adopts 1.6\,g\,cm$^{-3}$ for
+  the a-C nano-particles and 1.51--1.57 for the large grains (Jones et al.\ 2017, Table~1); we use 1.6.
+\item \textbf{The 2175\,\AA\ bump.} Its width varies between sightlines at nearly constant central wavelength, and
+  ``the graphite hypothesis does not appear to have a natural way to accommodate'' that (Draine 2003, Sect.~3.3,
+  citing Draine \& Malhotra 1993).
+\item \textbf{The 3.4\,\textmu m band.} Diffuse sightlines show aliphatic C--H absorption (Sandford et al.\ 1991, via
+  Draine 2003, Sect.~3.4), which pure graphite cannot produce. This rules out pure graphite, not a graphite plus
+  hydrocarbon mixture (which Draine 2003 himself suggested).
+\item \textbf{Far-IR emission per extinction.} The graphite--silicate model of Draine \& Li (2007), fitted to Planck,
+  predicts $A_V$ about twice that measured towards quasars (Planck Collaboration Int.\ XXIX 2016); dust models with
+  laboratory a-C and silicate optics reproduce the emission per extinction best (Fanciullo et al.\ 2015).
+\item \textbf{Polarisation} constrains the grains' structure, not graphite as such: the unpolarised 3.4\,\textmu m band
+  where silicates are polarised rules out hydrocarbon mantles on aligned silicates (Chiar et al.\ 2006; Jones et al.\
+  2017, Sect.~5.1), and the submm-to-optical polarisation ratio led Hensley \& Draine (2023) to one composite material
+  for the large grains.
+\item \textbf{Counterpoints.} Graphite reproduces the bump strength with an acceptable carbon abundance (Draine 2003);
+  Draine \& Li (2007) and Hensley \& Draine (2023) keep graphitic optics in their carbonaceous grains; the bump carrier
+  is still unidentified. \emph{Correction to the first version of this report:} Hensley \& Draine (2023) did not drop
+  graphite.
+\end{itemize}
+Graphite therefore stays as the control material. THEMIS and DustEM serve as guidance and benchmarks, not as fixed
+choices: where newer physics exists it is the default, and the DustEM version is kept for comparison.
+
+\paragraph{Why molecular properties stop at $\NC\approx400$.} This is a modelling choice with support, not an
+observational requirement, and it is a run-time knob.
+\begin{itemize}
+\item \textbf{The bands come from small molecules.} Size diagnostics give a mean of $\NC\approx50$ at the NGC\,7023 PDR
+  surface and 70 in its cavity (Croiset et al.\ 2016), and PAHs below about 50--60 C do not survive in PDRs or the
+  diffuse ISM (Montillaud et al.\ 2013; Murga et al.\ 2022). A single UV photon heats a small molecule far more than a
+  large one, so the 3.3\,\textmu m band is radiated by $\NC\lesssim100$ and the 7.7\,\textmu m band by $\NC\sim10^2$
+  (Draine et al.\ 2021).
+\item \textbf{Large compact PAHs stop matching the bands.} Above about 150 C the computed 6.2\,\textmu m band broadens
+  and shifts and the 8.6\,\textmu m band overtakes the 7.7, so such PAHs ``are unlikely to be the dominant species''
+  (Ricca et al.\ 2012). Their spectra do not converge to a size-independent molecular limit; the molecular detail
+  there is simply not constrained by the observed bands.
+\item \textbf{What is seen at a few hundred C is not a molecule.} Evaporating very small grains have been interpreted
+  as PAH clusters of at least 400 C (Rapacioli et al.\ 2005, 2006; Bern\'e et al.\ 2007) of mixed aromatic and
+  aliphatic composition (Pilleri et al.\ 2015). In our model such carriers are a-C(:H) nano-grains with Jones' (2012)
+  size-dependent optical constants, which reach down to a few tens of C. With no clusters in the model (23 November)
+  this is no longer an anchor for 400 C; the band physics still supports 150--400 C.
+\item \textbf{Nothing is switched off above 400 C.} Those grains still absorb, heat the gas, charge and emit, through
+  the a-C optics, the \texttt{ac} charging and THEMIS-like emission; only the molecular detail (PAHdb spectra and the
+  multi-photon chemistry) stops.
+\item \textbf{Counterpoints.} In Draine et al.'s (2021) model the 17\,\textmu m band is radiated by $\NC\gtrsim10^3$;
+  Draine \& Li (2007) keep PAH cross sections up to $a = 50$\,\AA\ ($\NC\approx6\times10^4$, a transition they call
+  ``entirely ad hoc''), and Hensley \& Draine (2023) up to about 1000 C.
+\end{itemize}
+So $\NC^{\max}$ stays a run-time choice (through the table headers); the seam test checks that the two sides agree at
+the switch, and the extended band test (open) sets the default: the 3.3, 7.7, 11.2 and 17\,\textmu m band ratios with
+$\NC^{\max} = 400$ against a model that keeps molecules to about 1000 C. An October test gave 2--7\,\% on the
+3.3\,\textmu m-based ratios with 3--4 two-moment bins over $\NC$ 20--400, but left no script; it is to be redone with
+the extended test.
+
+The grid: a material registry in \texttt{gsd/materials.py}, and a graded grid in \texttt{gsd/carbon.py}, 4 molecular
+bins over $\NC$ 20--400 ($\eta \approx 2.1$, 0.39--1.06\,nm), then 7 grain bins ($\eta \approx 19$) up to 1\,\textmu m.
+
+\paragraph{Optics.}
+\begin{itemize}
+\item THEMIS CM20 is read from DustEM's tables, with Henke data below 40\,nm, and reproduces the J13 extinction to 0.9\,\%.
+\item Large grains are recomputed with a coated Mie code (Jones' 100\,nm $n,k$), which matches DustEM's $Q_{\rm CM20}$
+  to 0.1\,\% in the continuum. DustEM's own table is broken for $a \gtrsim 0.9$\,\textmu m below 0.1\,\textmu m.
+\item The a-C(:H) $n,k$ are Jones (2012), with sizes from 0.33 to 100\,nm and $\Eg$ from $-0.1$ to 2.67\,eV.
+\item Between Jones' tabulated radii the far-IR goes wrong unless the size-limited band gap is followed. The fit
+  $E_{\rm lim} = 0.75\,(1\,{\rm nm}/a)^{1.06}$\,eV reproduces $Q_{\rm CM20}$ between 1 and 10\,nm (Fig.~\ref{fig:gap}).
+\end{itemize}
+
+\paragraph{Per-bin tables.} A bin's opacity depends on where its mass sits inside it, i.e.\ on its in-bin state $s$
+(Sect.~\ref{sec:s}), so a fixed in-bin profile does not work.
+\begin{itemize}
+\item We tabulate $\kappa_i(\lambda, s)$ per gram on an adaptive $s$ grid: 31--77 points per carbon bin, 32--47 per
+  silicate bin (Fig.~\ref{fig:optics}).
+\item Errors: $\kappa$ 0.32\,\%, observables 0.045\,\%, emitted power 0.46\,\%, dust temperature 0.07\,\%.
+\item A uniform $s$ grid fails: the sub-nanometre THEMIS grains make bin 1's near-IR opacity vary 300-fold with $s$.
+\item For tracked hydrogen (M1) the covalent bins get an extra axis, the bulk band gap $\Eg$, with 39--48 points per bin.
+\item With the EA closure (the default since 19 November) the same per-gram data are stored as node tables: values at a
+  few radii per bin, integrated over each cell's reconstruction (Sect.~\ref{sec:nodetab}).
+\item The tables keep every wavelength, so RAMSES can average them over any group set. That costs 1.4\,MB as 8-group
+  tables, or 42\,MB per wavelength at start-up.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.74\textwidth]{figs/gsd_optics_tables.png}
+\caption{A2: absorption opacity per gram for the smallest and a middle bin, carbon and silicate, at five in-bin states
+$s$. In bin 1, carbon's near-IR opacity changes by orders of magnitude with $s$; this is why the tables carry $s$.}
+\label{fig:optics}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.74\textwidth]{figs/size_limited_gap.png}
+\caption{Step 1: the size-limited band gap. (a) The fitted gap (green) against DustEM's charging law. (b, c) Far-IR
+absorption of a-C between Jones' tabulated radii: plain interpolation (blue) misses DustEM by up to 60\,\%, the fitted
+gap stays within 15\,\%. (d) The electron affinity that follows. You approved this choice for the \texttt{ac}
+charging too.}
+\label{fig:gap}
+\end{figure}
+
+%======================================================================================================================
+\section{Charging, heat capacity and the PAH/grain seam (A3b)}
+
+\paragraph{Three charging materials} for carbon grains, in \texttt{wdb06\_yields} and \texttt{rt\_group\_charging}:
+\begin{itemize}
+\item \texttt{ac}, the default. The ionisation potential follows WD01 with work function $W = 4.75$\,eV and radii at
+  $\rho = 1.6$. The photoelectric yield is the extended Kimura model, eK16 (Hrodmarsson+25), with the size-limited gap
+  from 1\,nm.
+\item \texttt{ach}, for a-C:H: bulk ionisation energy 4.6\,eV (Schafer+93), with Jones' $\Eg = 2.5$\,eV optics.
+\item \texttt{cm20}, a port of DustEM's model, kept as the benchmark. It matches DustEM's $\langle Z \rangle$ to
+  0.1\,$\sigma$ and the photoelectric current to $<$\,1\,\% (with WDB06 photo-secondaries off). Along the way:
+  \begin{itemize}
+  \item DustEM's shipped \texttt{ZDIST.RES} turned out wrong above about 0.5\,\textmu m; a fresh build agrees with us;
+  \item a threshold in the gas-secondary yield was fixed (energy conservation).
+  \end{itemize}
+\end{itemize}
+Intermediate H/C uses \texttt{acx} materials at 5 band-gap nodes per bin, which keep heating and cooling within 1\,\%.
+Interpolating between the two end members alone is 7--9\,\% off. Against DustEM, \texttt{ac} heats the smallest grains
+more efficiently (Fig.~\ref{fig:charging}): the heating per absorbed power is $\times$1.4--3.4 at 0.4--3\,nm, from the
+lower thresholds and the eK16 yield, and agrees within 6\,\% from 9\,nm to 1\,\textmu m.
+
+\paragraph{Heat capacity.} A harmonic per-atom model (\texttt{carbon\_heat\_capacity.py}): sp$^2$ and sp$^3$ modes plus
+CH$_2$ modes per H, taking $\Eg$. DustEM's $C_{\rm CM20}$ is 1.5--1.7 times larger at 5000\,K (a liquid-polyethylene
+extrapolation) and is kept as the benchmark.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{figs/check_cm20_dustem_ac.png}
+\caption{Grain charging in the warm neutral medium: \texttt{ac} (circles) against DustEM's CM20 (lines). Top: mean
+charge and its spread against radius. Bottom left: ratios of photoelectric current, gas current, absorbed power and
+heating efficiency. Bottom right: charge distributions at four radii.}
+\label{fig:charging}
+\end{figure}
+
+\paragraph{The PAH/grain seam.} At $\NC = 400$ the molecular tables (pahchem) meet the grain tables (\texttt{ac}). The
+two should roughly agree there; they do not.
+\begin{itemize}
+\item Rerun on 12 November with pahchem's calibrated thresholds, PAHs heat more per C atom than \texttt{ac}: 0.9--2.7
+  times in bin 1 and 1.9--3.6 times in bins 2--4. In CNM and dense gas, bins 2--4 are 40--75\,\% anions, against
+  22--37\,\% for \texttt{ac}.
+\item Redone on 23 November (Sect.~\ref{sec:transfer}): the gap is the electron sticking on cations, unmeasured
+  beyond 16\,C.
+\end{itemize}
+Decided on 23 November: one labelled electron-sticking law, pahchem's laboratory fit for the molecules, with
+\texttt{ac} taking the same value at $\NC = 400$ and tapering to WD01 by about 3\,nm; A5 runs the brackets (WD01
+everywhere; the molecular law everywhere).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/check_pah_grain_seam.png}
+\caption{The PAH/grain seam. Left: charging thresholds against $\NC$ (dots: PAHdb with calibrated shifts; lines:
+\texttt{ac}; dotted: DustEM). Middle and right: photoelectric heating $\Gamma$ and recombination cooling $\Lambda$ per C
+atom for the four molecular bins, PAH tables against \texttt{ac}, in the WNM and a PDR.}
+\label{fig:seam}
+\end{figure}
+
+%======================================================================================================================
+\section{Hydrogen: tabulate or track?}
+
+Montillaud+13 showed that hydrogenation is not always in equilibrium. C$_{66}$H$_{20}$ takes $10^2$\,yr to rehydrogenate
+at $A_V = 0$ and $10^4$\,yr at $A_V = 1$ in NGC\,7023, while its charge relaxes in hours. Before adding scalars, we
+therefore tested where an equilibrium table (E) is enough, where one tracked scalar (M) is needed, and where even one
+scalar fails (F). The tests:
+\begin{itemize}
+\item T1, relaxation times;
+\item T2, whether the charge can be eliminated;
+\item T3, a one-scalar closure;
+\item T4, parcels crossing PDRs at 0.3--3\,km\,s$^{-1}$, in and out of the cloud, and gas cycling between phases;
+\item T5, mixing;
+\item T6, a RAMSES-like frozen-rate step.
+\end{itemize}
+
+\subsection{Grains (laboratory laws)}
+For the covalent grains the hydrogen balance has two terms (\texttt{gsd/hydrogen.py}). UV H loss is a laboratory yield
+per absorbed photon (Alata+14, Mennella+01); re-hydrogenation by H atoms follows Mennella+02, with a plateau at
+H/C\,$\approx$\,0.65. One scalar is then exact, and the step RAMSES would take, with rates frozen over a hydro step,
+is exact to 0.05\,eV in $\Eg$. Re-hydrogenation turns out 10 times slower in the CNM than Mennella estimated, partly
+because his balance used the flux $nv$ where $nv/4$ applies. The resulting treatment map:
+\begin{itemize}
+\item \textbf{E} in UV-lit gas changing on $\gtrsim 10^5$\,yr;
+\item \textbf{M} in PDR transition layers, outflows from clouds, fast phase cycling and shielded gas;
+\item \textbf{F} only where grains with different histories mix, for far-IR observables (a mixing bias of up to
+  $-99$\,\% at 100\,\textmu m).
+\end{itemize}
+This is the case for rung M1 in the covalent bins (Figs.~\ref{fig:grainT1}, \ref{fig:grainpaths}). On 22 November
+you chose equilibrium by default all the same (option B; Sect.~\ref{sec:hwhy}): M1 is built, compile-time for 0--4
+bins, and stays off until A5 needs it.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.80\textwidth]{figs/check_hydrogen_tracking_T1.png}
+\caption{Grains, T1: relaxation time (top) and equilibrium band gap (bottom) of the 1--3\,nm bin against FUV and
+$n$(H\,{\sc i}) at three temperatures. White lines are contours of constant relaxation time.}
+\label{fig:grainT1}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figs/check_hydrogen_tracking_paths.png}
+\caption{Grains, T4: band gap of the 1--3\,nm bin along PDR paths, the true evolution at three speeds (blue) against the
+equilibrium table (black), with the conditions below. Where the blue lines leave the black one, the grains remember
+their history and one tracked scalar is needed.}
+\label{fig:grainpaths}
+\end{figure}
+
+\subsection{PAHs: from ``track bin 1'' to ``tabulate everything''}
+The molecular bins use pahchem's full model, with every PAHdb v4.00 molecule in each bin (712 in all). It took four
+rounds to settle:
+\begin{enumerate}
+\item \textbf{Single parents} (C$_{24}$, C$_{54}$, C$_{96}$; 7 November). We reproduced Montillaud+13's Fig.~9 once the
+  transition sits where theirs does. Near each molecule's own transition, with conditions changing on $\lesssim
+  10^5$\,yr, neither E nor one scalar works, because the hydrogenation ladder is all-or-nothing.
+\item \textbf{Full bins, charge-averaged chain} (8 November). Bin 1 fails E by 0.4--0.6 and is helped by one tracked
+  $\langle\NH\rangle$; bins 2--4 are E. Proposal: $\MH$ in molecular bin 1 only.
+\item \textbf{Full bins, joint $(Z, \NH)$ chain} (13 November), with super-hydrogenated states up to $N_{\rm H,0}+4$ and
+  a charge for each $\NH$. Bin 1 becomes E through the PDRs. Bins 3--4 now fail in shielded PDR layers, through their
+  super-hydrogenated states, and the +4 cap sets the answer there. The one-scalar closure fails too, because H addition
+  alternates between slow and fast steps.
+\item \textbf{Literature review and decision} (15 November). No code in the literature carries a hydrogenation state
+  through moving gas, and what matters is UV-weighted and time-averaged. You decided: \emph{equilibrium tables, nothing
+  tracked, judged on observables}.
+\end{enumerate}
+
+\paragraph{Observables.} \texttt{pahchem/hydrogen\_observables.py} gives each state $(Z, \NH)$ of each molecule a weight
+per observable, $W[Z,\NH]$, so that $O = \sum W F$ holds for any state distribution $F$, steady or evolving. The
+observables:
+\begin{itemize}
+\item carbon loss;
+\item photoelectric heating and recombination cooling;
+\item H$_2$ released and H taken up;
+\item absorbed UV, together with the aromatic and aliphatic CH counts. Their UV-weighted ratio $r_{\rm ali}$ is the
+  proxy for the 3.4/3.3\,\textmu m band ratio (Murga+22).
+\end{itemize}
+Carbon, heating, cooling and absorbed UV come from pahchem's own \texttt{joint\_state\_observables} (PR \#17), and
+reproduce pahchem's steady-state functions to $10^{-9}$ or better.
+
+\paragraph{Scoring.}
+\begin{itemize}
+\item \textbf{Paths:} 38, namely NGC\,7023, the Orion Bar and the Horsehead at 0.3, 1 and 3\,km\,s$^{-1}$ in and out;
+  CNM$\leftrightarrow$WNM cycles; and $G_0\times10$ cycles at $n$(H)\,=\,10 with periods of $10^3$--$10^5$\,yr.
+\item \textbf{Error measure:} on each path, E is compared with the time-dependent truth through the factor error
+  $\max(E/T, T/E) - 1$.
+\item \textbf{Worst cell and path budget:} the worst cell is taken over cells where the observable is significant. The
+  path budget compares the path integrals, which is what an emitting or heating parcel feels.
+\item \textbf{Carbon} is scored only where the bin loses its carbon within 1\,Gyr.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/pah_paths.pdf}
+\caption{PAH bins with the production chemistry (deep super-H chain, cap +8): the time-dependent truth (solid) against
+the equilibrium tables (dashed) along four paths. Top row: the conditions. Then the photoelectric heating, carbon loss and
+H$_2$ release per C atom, and the 3.4/3.3 proxy $r_{\rm ali}$. On the PDR paths the dashed lines lie on the solid ones.
+The cycle with a $10^3$-yr period shows the lag of the larger bins.}
+\label{fig:pahpaths}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/pah_scores.pdf}
+\caption{Equilibrium tables against the truth: worst path-budget error per bin and observable, by kind of path (deep
+chain, cap +8). Dashes: no carbon loss above the 1-Gyr floor.}
+\label{fig:pahscores}
+\end{figure}
+
+\paragraph{Result} (Figs.~\ref{fig:pahpaths}, \ref{fig:pahscores}):
+\begin{itemize}
+\item On every PDR path, in every bin and for every observable, the tables are within 8\,\% of the truth in path budget.
+\item Cycles with $10^4$--$10^5$\,yr periods stay within 0.5.
+\item Only cycles with a $10^3$-yr period fail: carbon loss by a factor 2.2--2.4 in bins 1--2, and H$_2$ by up to 6.4.
+  \begin{itemize}
+  \item The H$_2$ error is real physics. Large PAHs lose their hydrogen more slowly than a 500-yr bright half-cycle,
+    stay nearly intact, and shed H$_2$ from intact molecules.
+  \item It sits in atomic gas, where PAH H$_2$ is about 1\,\% of grain formation and H$_2$ is photodissociated at once.
+  \end{itemize}
+\item Heating and cooling are within 11\,\% everywhere.
+\end{itemize}
+
+\subsection{The super-hydrogenation cap}
+At the +4 cap, bins 3--4 sat at the top of the ladder in shielded gas. pahchem therefore built a deep chain
+(\texttt{superh\_chemistry = "deep"}, PR \#18) with your choices of 15 November:
+\begin{itemize}
+\item the first four steps unchanged;
+\item Boschman+15's alternating barriers beyond them, with Cazaux+16's barriers at the cation's +5, +11 and +17;
+\item Eley--Rideal abstraction per extra H;
+\item sequential H losses;
+\item caps up to +24.
+\end{itemize}
+We reran all 712 molecules at +4 (the old chemistry) and with the deep chain at +8, +12 and +24 (Fig.~\ref{fig:cap}).
+\begin{itemize}
+\item \textbf{Heating, cooling and carbon loss do not depend on the cap or the chemistry:} $\le$\,2\,\% in path budget.
+\item \textbf{Bins 1--2} have converged by +8.
+\item \textbf{Bins 3--4 depend on the cap} for H$_2$, H uptake and $r_{\rm ali}$. Bin 4 has not converged even at +24.
+  \begin{itemize}
+  \item Below $G_0/n({\rm H}) \approx 10^{-2}$, past +4 the additions run on until the cap stops them.
+  \item At +24, 76\,\% of bin 4 sits at the cap in the Orion Bar, and its aliphatic CH equal its aromatic CH on every
+    path ($r_{\rm ali} \approx 1$).
+  \end{itemize}
+\end{itemize}
+Whether that is allowed needs the band emission, not this proxy. The physical stop belongs to pahchem: barriers past
++24, the Eley--Rideal bracket ($\times2$, $\times7.5$), and the 3.4\,\textmu m band.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/pah_cap.pdf}
+\caption{The cap test along three paths (line styles) for the four bins (colours). Left: the path-averaged 3.4/3.3
+proxy. Middle: the largest share sitting at the cap. Right: the path-averaged H$_2$ release relative to cap +24. A16 is
+pahchem's default chemistry (Andrews+16) at +4; the others use the deep chain.}
+\label{fig:cap}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figs/pah_T1_deep_k8.png}
+\caption{PAH bins, T1 (deep chain, +8): the time the hydrogenation takes to settle (90\,\%) after a $\times10$ step in
+$G_0$, with contours of the intact share. Dark regions settle in about an hour or less. The slow regions sit at low
+density near each bin's transitions, which move to higher $G_0/n$ for larger molecules.}
+\label{fig:pahT1}
+\end{figure}
+
+\subsection{The production tables}
+You chose the deep chain at +8 for the first production build (16 November). It was built with
+\texttt{pahchem/hydrogen\_tables.py} on megatron in 37\,min.
+\begin{itemize}
+\item \textbf{Grid:} the full pahchem-nd v1 grid. $\log G_0$ runs from $-1$ to 6 and $\log n$(H\,{\sc i}) from $-1$ to 6,
+  both in 0.5 steps; $\log T$ from 1 to 4 and $\log x_e$ from $-5$ to $-1$; 7875 nodes in all.
+\item \textbf{Files per bin:}
+  \begin{itemize}
+  \item \texttt{<bin>\_carbon.dat}, the carbon-loss table in the format RAMSES already reads;
+  \item \texttt{<bin>.npz}, with every observable, the shares and the at-cap share.
+  \end{itemize}
+\item \textbf{Checks:} the files read back exactly, the shares sum to 1, and the build matches the pilot at shared nodes.
+\item \textbf{Cap over the whole grid:} comparing +8 with +24 over the grid's corners, heating and cooling change by
+  $\le$\,0.3\,\%. Carbon changes by $\le$\,0.13\,\% in bins 2--4. In bin 1 it changes by 33\,\% at one hot, dense node,
+  through C$_{24}$H$_{14}$'s tiny dication share.
+\item \textbf{Where the tables are provisional:} H$_2$ and $r_{\rm ali}$ are set by the cap wherever the gas is warm and
+  shielded, in every bin. The at-cap share marks those nodes.
+\item \textbf{Axis definition:} the density axis is the \emph{atomic} H density, and $x_e = n_e/n$(H\,{\sc i}).
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{Interpolation error of the production tables: log-linear interpolation against 286 nodes solved half a step
+away.}\label{tab:interp}
+\begin{tabular}{@{}l l@{}}
+\toprule
+observable & interpolation error \\
+\midrule
+heating, cooling & $\le$\,9\,\% \\
+carbon loss, bin 1 & $\le$\,13\,\% \\
+carbon loss, bins 2--3, $G_0 \le 10^{4.5}$ & 90th percentile $\le$\,0.2, worst $\times$1.7 \\
+carbon loss, bins 2--3, $G_0 > 10^{4.5}$ & up to $\times$2.3 (bin 2) and $\times$24 (bin 3): 3.6\,dex per step \\
+H$_2$ & up to $\times$9, where the addition barriers open between 10 and 32\,K \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{figs/tables.pdf}
+\caption{The production tables at $T = 100$\,K and $x_e = 10^{-4}$, one row per bin. Left: lifetime of the bin's carbon
+(1\,Myr and 1\,Gyr contours). Middle: photoelectric heating per C atom. Right: mean hydrogenation $\langle\NH\rangle /
+N_{\rm H,0}$: blue is dehydrogenated, red super-hydrogenated, and the black contour marks half the molecules at the
+cap. Small PAHs are stripped and destroyed at high $G_0/n$; large ones survive everywhere but super-hydrogenate in
+shielded gas.}
+\label{fig:tables}
+\end{figure}
+
+\subsection{Grain and PAH hydrogen on the same metric}\label{sec:hwhy}
+The literature does not say ``PAH hydrogenation is in equilibrium, small a-C(:H) is not'' (reading in
+\texttt{lit/hydrogen\_grains\_vs\_pahs.md}):
+\begin{itemize}
+\item \textbf{PAH models.} Montillaud et al.\ (2013) find steady state reached ``from less than a year for small PAHs,
+  up to $10^4$ years for large PAHs at $A_V = 1$'', because each multi-photon dehydrogenation step is a bottleneck, and
+  conclude that ``large PAHs may never reach their steady state abundances''. Andrews et al.\ (2016) solve for steady
+  state without testing it. Murga et al.\ (2022) run fixed environments for $10^5$\,yr without a steady-state
+  comparison (our re-read of their chains: settled by $10^4$\,yr except in their molecular cloud).
+\item \textbf{a-C(:H) models.} Jones et al.\ (2013) state that ``the dust processing time-scale is generally longer
+  than the local dynamical time-scale and so the dust will therefore not be in equilibrium''; Jones et al.\ (2017):
+  in equilibrium in diffuse and dense clouds, ``often out of equilibrium'' in PDRs and shocks. Murga et al.\ (2016,
+  2019, 2023) follow the H content in time. Only the galaxy-scale one-zone model of Hirashita \& Murga (2020) takes it
+  in equilibrium.
+\end{itemize}
+So our PAH decision does not claim the hydrogenation \emph{state} is in equilibrium: near each molecule's transition
+it is not, as Montillaud et al.\ found and our single-parent tests reproduced. It claims that the PAH observables
+RAMSES uses (heating, cooling, carbon loss) are within 8\,\% of the time-dependent truth on every PDR path.
+
+\paragraph{The same metric for the grains.} The first grain verdict was made on the state (band gap). To compare like with
+like, \texttt{diagnostics/gsd/score\_grain\_hydrogen\_obs.py} scores the grains as the PAHs were scored: equilibrium
+against the truth, path budget of the per-gram opacity, on the same PDR paths and phase cycles
+(Table~\ref{tab:grainobs}).
+
+\begin{table}[H]
+\centering\small
+\caption{Grain hydrogen scored like the PAH tables: path-budget factor error of the equilibrium table against the
+time-dependent truth, worst over the paths of each kind, for the 1--3\,nm bin (and the 20--53\,nm bin). ``Out'':
+cloud material leaving the cloud (starting H-rich). 0.15\,\textmu m drives the photoelectric heating.}\label{tab:grainobs}
+\begin{tabular}{@{}l l l l l@{}}
+\toprule
+paths & 0.15\,\textmu m & 0.55\,\textmu m & 3.4\,\textmu m & 100\,\textmu m \\
+\midrule
+Orion Bar, inward & 0.00 (0.00) & 0.02 (0.02) & 0.04 (0.07) & 0.13 (0.59) \\
+Orion Bar, outward & 0.00 (0.03) & 0.11 (0.16) & 0.22 (0.59) & 1.2 (7.9) \\
+Horsehead, inward & 0.01 (0.07) & 0.17 (0.59) & 0.60 (4.1) & 3.6 (104) \\
+Horsehead, outward & 0.03 (0.19) & 1.6 (2.2) & 3.0 (8.7) & 250 (3100) \\
+CNM$\leftrightarrow$WNM, $10^4$\,yr & 0.00 (0.01) & 0.02 (0.07) & 0.06 (0.30) & 0.35 (1.7) \\
+\midrule
+PAH bins, any PDR path (Fig.~\ref{fig:pahscores}) & \multicolumn{4}{l}{heating, cooling, carbon $\le$\,0.08} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With the same metric, the grains' FUV absorption, and so their photoelectric heating, is as safe in equilibrium as the
+PAHs' heating (within a few per cent on every path). What fails is what depends steeply on the band gap: the far-IR
+opacity (factors of 2 to $10^3$ on the outward and Horsehead paths), the visible extinction and the 3.4\,\textmu m
+region, mainly for material leaving clouds. The two verdicts are consistent once they are stated per observable.
+Since those failures are mostly post-processing observables, and tracking costs a transported scalar per bin while the
+band-gap tables are needed either way, you chose on 22 November to take the grains' band gap from the local
+equilibrium too, with the tracked $\MH$ built in for 0--4 bins and switched on only if A5 needs it.
+
+\paragraph{Why grains and PAHs differ physically.}
+\begin{itemize}
+\item \textbf{The observables differ in sensitivity.} PAH heating, cooling and carbon loss depend on the H state only
+  for small, dehydrogenated molecules; elsewhere the charge sets them. The far-IR, visible and 3.4\,\textmu m opacity of
+  a-C(:H) depend steeply on the band gap (0.1\,eV is a factor 2--3 in $\kappa_{100}$).
+\item \textbf{A PAH's state is bimodal, a grain's is continuous.} Outside its narrow transition a PAH sits at one end of
+  its ladder and gets there fast; the lag lives only near the transition. A grain's H/C is a bulk quantity anywhere
+  between the UV floor and the H plateau.
+\item \textbf{The slow step differs.} A PAH exchanges 10--20 edge H, and its slow step is the multi-photon H loss near
+  the transition. A grain holds H/C of 0.05--0.65 over thousands of C, and its slow step is re-hydrogenation:
+  $\sigma_f = 1.9\times10^{-18}$\,cm$^2$ (Mennella et al.\ 2002) is a net incorporation efficiency, $10^3$--$10^4$ below the
+  geometric cross section, and Jones et al.\ (2014) find H incorporation slower than photolysis below $A_V\approx0.7$.
+  Hence $10^5$--$10^6$\,yr relaxation in shielded, low-density gas.
+\item \textbf{Memory.} Cloud material that leaves a cloud keeps its H-rich state for $10^4$--$10^5$\,yr.
+\end{itemize}
+
+\paragraph{Caveats.}
+\begin{itemize}
+\item The grain laws have no thermal (multi-photon) H loss, which would speed up the smallest grains; Jones \& Ysard
+  (2025) treat only C--C bond loss. A rough estimate gives about 10\,\% H loss per photon above 10\,eV for sub-nm
+  grains, which could move the 1--3\,nm bin towards tabulation: a sensitivity run is needed.
+\item ``Outward'' paths start H-rich, an assumption (no C + H accretion physics yet).
+\item Re-hydrogenation efficiencies are poorly constrained (Murga et al.\ 2023 call it ``undetermined'').
+\item Elyajouri et al.\ (2024) fit $\Eg = 0.03$\,eV in the Orion Bar's atomic zone, below the laboratory floor.
+\item The PAH bins and the smallest a-C bins may describe the same carriers (Jones 2012, paper III).
+\item Our 2900\,yr relaxation at $G_0 = 1$ for 1--3\,nm and Jones \& Habart's (2015) $6.5\times10^4/G_0$\,yr are
+  different quantities (a relaxation with re-hydrogenation against one-way photolysis, and different photon bands);
+  still to be reconciled.
+\end{itemize}
+
+%======================================================================================================================
+\section{Growth of the molecular bins: a bottom-up channel to decide}\label{sec:growth}
+
+The plan of 30 October left molecular growth off by default ($f_{\rm acc} = 0$, as in PDR codes) and the bottom-up
+source opt-in. A model of PAH evolution needs a bottom-up channel, so a choice has to be made now; the numbers can be
+calibrated later.
+
+\paragraph{Why the grain growth law cannot be used for molecules.} Applied to PAHs and nano-grains with sticking 1,
+the classical law doubles a 50-C PAH's carbon in $10^3$--$3\times10^4$\,yr in the CNM, through Coulomb-focused
+C$^+$ capture on anions, which contradicts the stable PAH sizes and gas-phase carbon of the diffuse ISM. Growth of
+molecules must be reaction-limited: capture rate $\times$ the probability that the carbon stays $\times$ its survival
+against UV.
+
+\begin{table}[H]
+\centering\small
+\caption{What is known about the pieces of a bottom-up channel (references in the plan and
+\texttt{reference\_data/carbon\_growth\_2026-10-30/}).}\label{tab:growthparams}
+\begin{tabularx}{\textwidth}{@{}l L L@{}}
+\toprule
+piece & range & source \\
+\midrule
+C$^+$ capture $k_{\rm cap}$ & neutral $3$--$6\times10^{-9}$\,cm$^3$\,s$^{-1}$; anion $2.3\times10^{-7}\,T_2^{-1/2}$; cation $\approx0$ & Canosa+95 (anthracene), Langevin; Wolfire+08, Hollenbach+12 \\
+fraction that adds carbon $f_{\rm acc}$ & 0 (PDR codes) to 0.4 (anthracene, the only measurement, $\NC = 14$) & Omont \& Bettinger 2021, 2025 \\
+retention against UV $p_{\rm ret}$ & $\lesssim0.5$ below $\NC\approx40$--50 & Omont \& Bettinger 2025 \\
+bound on net growth & $f_{\rm acc}p_{\rm ret}\lesssim0.15$ (slower than O sputtering) & Omont \& Bettinger 2021, App.~A.4 \\
+C($^3$P) channel & $3$--$6\times10^{-10}$\,cm$^3$\,s$^{-1}$ (C + C$_6$H$_6$) $\times$ reactivity $r\in[0,1]$ & Hickson \& Loison 2026; Krasnokutski+17 \\
+new molecules from gas & not derivable: TMC-1 small PAHs are 2.5--6\,dex above chemical models & McGuire+21; Wenzel+24/25; Byrne+24 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Why both a source and growth are needed.} Molecules made from the gas enter at $\NC\approx20$--24
+(coronene is the largest PAH detected in TMC-1), below the $\approx$50-C photostability limit of the diffuse ISM; a
+lasting population needs growth through bins 1--2 before the cloud disperses. Growth alone, without a source, only moves
+carbon that shattering has already brought down. So the options are:
+
+\begin{table}[H]
+\centering\small
+\caption{Options for the bottom-up channel. All add no scalars: growth is a reaction-limited $\dot a$ through the same
+characteristic remap, the source an injection into bin 1 at its normal H/C.}\label{tab:growthopts}
+\begin{tabularx}{\textwidth}{@{}l L L L@{}}
+\toprule
+option & what & calibrated on & expected weakness \\
+\midrule
+A & off (PDR codes): top-down only & -- & no TMC-1 PAHs; no translucent rise in $q_{\rm PAH}$ beyond shattering \\
+B & growth only: C$^+$ and C capture with one efficiency $\epsilon = f_{\rm acc}p_{\rm ret}\le0.15$ & the $q_{\rm PAH}$ rise from $A_V$ 1 to 3 (Zhang+25) & no new molecules \\
+C & source only: Form A, $\kappa\,n_{\rm H}n({\rm C})\,\Theta(A_V - A_c)$, or Form B, $\epsilon_{\rm ff}$ per free-fall time & TMC-1 & injected molecules stay small and are destroyed when exposed \\
+D & source (Form A) + growth ($\epsilon$) & TMC-1 for $\kappa$; Zhang+25 for $\epsilon$ & two calibrated numbers \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Recommendation: option D}, with option A kept as the ablation baseline and both numbers labelled
+``calibrated'' in every output header.
+\begin{itemize}
+\item Form A rather than B as the default source: it lives where atomic carbon lives (the C\,{\sc i} layer that RTZ
+  computes), scales with $n({\rm C})$ and so with metallicity, and vanishes in UV-lit gas without an extra cut. Form B
+  stays for runs without atomic carbon.
+\item One growth efficiency $\epsilon$ rather than the pair $f_{\rm acc}(\NC,Z)$, $p_{\rm ret}(\NC, G_0/n)$, until the
+  data constrain more than one number; its upper limit is Omont \& Bettinger's 0.15.
+\item Gates: the TMC-1 box (the bin-1 abundance within $\times10$); phase parity of $q_{\rm PAH}$ (1.0--1.1,
+  Chastenet+19); at most $\times2$ from $A_V$ 1 to 3 (Zhang+25); $q_{\rm PAH}<1\,\%$ below 0.3\,Z$_\odot$ (Draine+07,
+  Aniano+20, Whitcomb+24); the Sextans~A clumps (Tarantino+26); diffuse PAH sizes stable over Myr; gas-phase C at
+  100--200\,ppm (Jenkins 2009; Sofia+11); and the budget limit (rate per gas-phase C atom $\times$ shielded fraction
+  $\lesssim10^{-3}$ per Myr).
+\end{itemize}
+\textbf{To decide:} D (or another option) for the reference model; Form A or B; one $\epsilon$ or the two-parameter
+form.
+
+%======================================================================================================================
+\section{How carbon moves between molecules, nano-grains, grains and the gas (23 November)}\label{sec:transfer}
+
+Before A3c the shattering and coagulation modelling of carbon was reopened: what shattered fragments become, how
+PAH-sized carbon moves up in size, and how erosion routes carbon between the species. The study has three
+literature reviews (collisions; erosion; growth and identity) plus two on survival and release, a check of the
+original design against them, and four quantitative checks (scripts \texttt{diagnostics/gsd/check\_carbon\_*.py} and
+\texttt{check\_seam\_decomposition.py}; notes and outputs in \texttt{overview/lit/} and \texttt{overview/tables/}).
+
+\paragraph{The original design stands where it was decided.} The 30 October design already routed nearly every
+process, and the literature confirms it: fragments keep their parent's H/C (Murga et al.\ 2016's choice, the only
+published one); molecules and nano-grains freeze out onto large grains (K\"ohler et al.\ 2015); growth of molecules is
+reaction-limited; PAH carbon loss is a downward shift; sublimation uses graphite as the a-C proxy. The identity of carbon
+below $\NC^{\max}$ is the hydrocarbon family along the hydrogen coordinate: a PAH unless bare (a-C-like) or fully
+hydrogenated (a-C:H-like), the structure at equal H/C a labelled assumption. The literature cannot settle that
+structure: size diagnostics fix the emitters' size (about 40--100\,C), not their planarity, and THEMIS and PAH-database
+fits both reproduce the bands. Two records were found wanting: the October test behind ``3--4 bins over $\NC$
+20--400 keep the 3.3\,\textmu m ratios within 2--7\,\%'' left no script or output (to redo with the extended
+$\NC^{\max}$ test), and $\NC^{\max} = 400$ loses its main anchor (evaporating VSGs as clusters of $\ge400$\,C) with the
+clusters; the band physics still supports 150--400\,C.
+
+\paragraph{What the checks show.}
+\begin{itemize}
+\item \textbf{The seam is first-order for the gas.} For THEMIS J13 carbon (43\,\% of it below 400\,C) that carbon carries
+  70--80\,\% of the grain photoelectric heating and recombination cooling; charging it with the PAH tables instead of
+  \texttt{ac} multiplies the total heating by 1.4 (CNM, dense) to 2.5 (WNM, PDR), and still by 1.2--2.0 if only
+  10--20\,\% of the carbon is below 400\,C (\texttt{check\_carbon\_heating\_share.py}).
+\item \textbf{Timescales} (\texttt{check\_carbon\_transfer\_timescales.py}): shattering refills the small bins in about
+  $10^7$\,yr in warm gas; bin 1 (20--42\,C) photolyses in $2\times10^6$\,yr (diffuse) and 300\,yr (PDR), bins 3--4 never;
+  a-C hydrogen relaxes in $3\times10^3$\,yr (diffuse) and 3\,yr (PDR) with the laboratory laws, so the equilibrium band
+  gap is consistent where there is UV; freeze-out onto grains takes $3\times10^7$\,yr (CNM) and $3$--$5\times10^5$\,yr
+  (dense cloud; Seok et al.\ 2014: 0.3--0.5\,Myr).
+\item \textbf{Molecules must not collide with molecules under grain physics.} In the code as it was, PAH--PAH sticking
+  (cold gas) and even PAH--PAH ``shattering'' (warm gas: thermal speeds of $\sim$3\,km\,s$^{-1}$ above graphite's
+  1.2\,km\,s$^{-1}$) dominate the molecular bins 10--25 times over freeze-out.
+\item \textbf{One-zone runs} (\texttt{check\_carbon\_transfer\_options.py}, Table~\ref{tab:transfer}): whether molecules
+  stick to nano-grains decides how much PAH-sized carbon survives in cold gas.
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{One-zone runs of the carbon grid from THEMIS J13 (collisions with graphite strength and HY09 sticking, neutral
+grains; molecular carbon loss from the pahchem tables): carbon shares at the end. O0: the code as it was; O1: no
+molecule--molecule outcome, molecules only stick to larger particles; O2: as O1, molecules stick only to grains
+$\ge20$\,nm. Last column: total photoelectric heating with the molecular bins on PAH tables over \texttt{ac}.}\label{tab:transfer}
+\begin{tabular}{@{}l l r r r r r@{}}
+\toprule
+cell & rule & molecular & nano 1--20\,nm & grains $\ge20$\,nm & gas & heating PAH/ac \\
+\midrule
+start & & 0.463 & 0.272 & 0.266 & 0 & \\
+WNM, 30\,Myr & O0 & 0.283 & 0.165 & 0.002 & 0.550 & 2.77 \\
+ & O1 / O2 & 0.348 & 0.309 & 0.014 & 0.329 & 2.62 \\
+CNM, 30\,Myr & O0 & 0.038 & 0.542 & 0.256 & 0.164 & 1.10 \\
+ & O1 & 0.087 & 0.444 & 0.259 & 0.210 & 1.25 \\
+ & O2 & 0.246 & 0.273 & 0.261 & 0.220 & 1.57 \\
+dense, 1\,Myr & O0 & 0.004 & 0.670 & 0.326 & 0 & 1.01 \\
+ & O1 & 0.028 & 0.649 & 0.323 & 0 & 1.07 \\
+ & O2 & 0.398 & 0.251 & 0.351 & 0 & 1.43 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Observations of PAH survival.} PAHs survive at molecular-cloud scale: $q_{\rm PAH}$ in molecular gas equals
+the diffuse value to $\pm30$\,\% in the LMC and SMC (Chastenet et al.\ 2019), JWST finds the PAH abundance insensitive to
+the molecular fraction (Chastenet et al.\ 2023), and translucent clouds show no drop from $A_V$ 1 to 3 (Zhang et al.\
+2025). Dense, dark filaments and cores ($n_{\rm H}\gtrsim$ a few $10^3$, $A_V\gtrsim2$--3) lose small-grain emission by a
+factor of a few (Stepnik et al.\ 2003; Flagey et al.\ 2009; Ysard et al.\ 2013), partly from the weaker heating field.
+Sticking to everything conflicts with the first (PAH bins 2--4 lose 72\,\% in 30\,Myr of CNM); sticking only to big
+grains (21\,\%) passes it but may lose too little in cores.
+
+\paragraph{Release from nano-grains.} A PAH binds to a carbon surface at about 0.05\,eV per C (Zacharia et al.\ 2004).
+One UV photon heats a 1\,nm host to 400--640\,K but a 3\,nm host only to 100--140\,K, so thermal release is a
+single-photon effect for small PAHs on the smallest hosts (Montillaud \& Joblin 2014; Lange et al.\ 2023). No other
+channel was found that releases a PAH from a host of 3\,nm or more (cosmic-ray heating, reactive desorption, collisions,
+host photo-fragmentation, shocks: all negligible or $\gtrsim10^8$\,yr) except non-thermal photodesorption, unmeasured for
+PAHs on carbon or ice: a yield of only $\sim10^{-7}$ per absorbed photon balances freeze-out in the CNM, while a dense
+cloud would need $\sim10^{-3}$. Such a yield alone gives the observed pattern.
+
+\paragraph{The seam is electron sticking.} Redone with today's pahchem (four-state chains reproducing both full solves),
+the heating gap decomposes as: photoemission rate $\times$0.95--1.4, energy per photoelectron $\times$0.7--1.3, ion
+channels $\times$1.0--1.2, and electron capture $\times$1.3--2.7 in bins 2--4. Both sides use the same Coulomb focusing;
+the difference is the sticking on cations: pahchem's laboratory fit reaches 1 by $\sim$35\,C, WD01's grain law gives
+0.2--0.3. No recombination rate has been measured beyond 16\,C; WD01's 0.5 ceiling and 1\,nm escape length are
+assumptions; C$_{60}$'s neutral attachment ($\sim$1, Viggiano et al.\ 2010) is the only point above. The plausible range
+is 0.3--1 for 35--400\,C, and the gap lies inside it.
+
+\paragraph{Decided (23 November).}
+\begin{itemize}
+\item No PAH clusters (rung M2's cluster part and P4 removed); the legacy CALIMA PAH--PAH and PAH--grain methods are not
+  reused (they stay untouched for runs without the GSD).
+\item Molecule + molecule: no outcome.
+\item Molecule + larger particle, by impact speed (C$_{60}$ and cluster surface-impact data; no PAH-specific measurements;
+  labelled): stick below $\sim$4\,km\,s$^{-1}$ ($\sim$1\,eV per atom), rebound intact between, molecule destroyed above
+  $\sim$7\,km\,s$^{-1}$ ($\sim$3\,eV per atom, a factor 2 uncertain; its carbon to the gas). Molecules meet grains
+  $\ge20$\,nm at 9--30\,km\,s$^{-1}$ (rms) in warm turbulent gas and 0.05--1.7\,km\,s$^{-1}$ in cold gas: destroyed in the
+  first, frozen out in the second. The destruction is a minor sink ($\sim$5\,\% of the PAH carbon in 30\,Myr of WNM;
+  molecule--grain collisions take $\sim10^8$\,yr there). This keeps the one channel of the galaxy models' small-grain
+  shattering that acts on molecules, with a molecular threshold $\sim$30 times the bulk strength they use.
+\item Sticking onto grains $\ge20$\,nm is then complete below 4\,km\,s$^{-1}$. Molecule + nano-grain: $S_{\rm eff} = 1/[1 + R_{\rm abs}
+  (P_{\rm th} + Y_{\rm pd})\,t_{\rm bury}]$, with $R_{\rm abs}$ the adsorbed molecule's photon absorption rate, $P_{\rm th}$
+  the single-photon thermal release (derived), $Y_{\rm pd}$ the non-thermal photodesorption yield (an input labelled
+  ``calibrated'', default 0, calibrated in A5 against the parity and dense-core gates, expected $10^{-7}$--$10^{-6}$) and
+  $t_{\rm bury}$ the host's burial time.
+\item The seam's electron sticking: one labelled law, pahchem's laboratory fit for the molecules, \texttt{ac} taking the
+  same value at $\NC = 400$ and tapering to WD01 by $\sim$3\,nm; A5 runs the brackets (WD01 everywhere; the molecular
+  value everywhere).
+\end{itemize}
+
+\paragraph{Open.}
+\begin{itemize}
+\item \textbf{Hot-gas erosion of the smallest carbon.} Classical sputtering fails below $\NC\approx1000$ (Bocchio et al.\
+  2012). pahchem has modern molecular rates (thermal electron and ion passages, C and H knock-outs; \texttt{population.hot\_passages},
+  \texttt{hot\_ion\_passages}), but the production tables stop at $10^4$\,K. Proposal: extend the tables' temperature axis
+  and join pahchem's rates to the classical yields at $\NC\approx1000$, where Bocchio et al.\ find the two agree.
+\item \textbf{Coulomb explosion: fragments or ion loss.} Two limits compete (Waxman \& Draine 2000; the code's
+  \texttt{explosion\_rate}): mechanical failure when $(U/a)^2/4\pi$ reaches the tensile strength $S_{\max}$ tears the grain
+  into fragments, while ion field emission at $\sim3\times10^8$\,V\,cm$^{-1}$ sheds ions one by one. The crossover is at
+  $S_{\max}\approx8\times10^{10}$\,erg\,cm$^{-3}$: flawed or porous grains ($10^9$--$10^{10}$) explode, defect-free grains
+  near the ideal strength ($\sim10^{11}$) shed ions, as the other dissociation channels do. The routing follows from the
+  assumed strength, known only for bulk material; the fragments' size law ($a^{-3.3}$) is an assumption.
+\item The a-C:H end of the hydrocarbon family (P1) and the bare end (pahchem's bare states or a-C physics).
+\item Labelled omissions: vaporisation above $\sim$19\,km\,s$^{-1}$, fullerenes, cosmic-ray processing.
+\end{itemize}
+
+%======================================================================================================================
+\section{What RAMSES will need}
+
+\paragraph{Memory.} Measured on today's RAMSES-CALIMA: every table is real*8 and read in full by every MPI rank, at
+11--13\,MiB per bin. Collisional cooling and sputtering dominate, then the WDB06rt charging kernels. In today's formats
+the GSD scheme would need about 190\,MiB per rank: 7 carbon and 8 silicate grain bins, 4 molecular bins, the
+overflow bins and the \texttt{acx} nodes. The plan brings that to about 20\,MiB per rank, under the 46\,MB target, with five principles:
+\begin{enumerate}
+\item export only expensive integrals needed per cell: photoemission yields, sputtering yields, multiphoton cascades
+  (the PAH tables above), Mie and Jones optics;
+\item compute in RAMSES whatever is analytic or a cheap combination of tables already in memory: accretion,
+  coagulation, the charge solve, the grain H step;
+\item never load post-processing quantities, such as band emission and heat capacity; those go to the exporter for
+  SKIRT;
+\item use axes the physics is smooth in, with real*4 storage. Uniform coarsening of the cooling and sputtering tables
+  fails, so they are re-gridded on $(\log T, \phi/kT)$ first;
+\item keep one copy per node, through MPI-3 shared memory; this is the largest single lever.
+\end{enumerate}
+
+\paragraph{Phase B in RAMSES} (feature branch off \texttt{staging}; to be created only when you say so):
+\begin{itemize}
+\item \textbf{B1, state:} the carbon $\MC$ block, then the $N$ block, then the $\MH$ block (compile-time 0--4 bins,
+  default 0), and the overflow bin (2 scalars per composition). \texttt{NGSD=0} keeps today's behaviour byte for
+  byte.
+\item \textbf{B2, sources per cell in \texttt{dust\_solver.f90}:}
+  \begin{itemize}
+  \item first the covalent bins' band gap: the local equilibrium $x_{\rm eq} = (k_{\rm H}x_{\max} + k_{\rm UV}x_{\min})
+    /(k_{\rm UV}+k_{\rm H})$ by default, with $k_{\rm UV}$ from the RT group photons and $k_{\rm H}$ from
+    $n$(H\,{\sc i}) and $T$; where $\MH$ is carried, the exact step $\MH \to M_{\rm eq} + (\MH -
+    M_{\rm eq})\,e^{-(k_{\rm UV}+k_{\rm H})\Delta t}$;
+  \item then the carbon-moving processes (each carrying H/C where $\MH$ is tracked), with the molecule pair rule and
+    the photo-release term in the collisions (Sect.~\ref{sec:transfer});
+  \item the grains' rates on the gas: one charge solve per bin at its area node (Sect.~\ref{sec:inbin}), the
+    surface processes from the closure's second moment;
+  \item the overflow bin per composition, one wide bin over 1--10\,\textmu m, computed only above $10^{-6}$ of the
+    cell's dust mass,
+    with its share logged and a warning above 1\,\% (Sect.~\ref{sec:mck}).
+  \end{itemize}
+\item \textbf{Transport:}
+  \begin{itemize}
+  \item a ratio pass at the CMA hook, with $N$ outside the CMA groups;
+  \item $\MH$ as a CMA child of $\MC$, its slopes on $x$ = H/C;
+  \item donor-ratio TVA fluxes for $N$ and $\MH$;
+  \item an HLLC, exact or acoustic Riemann solver;
+  \item recomputing the TVA drift (B4) instead of storing it.
+  \end{itemize}
+\item \textbf{B6/B7, tables per GSD bin:} optics and charging, molecular- or grain-type from the header, with a
+  band-gap axis for the covalent bins (band emission goes to the post-processing exporter, not to RAMSES).
+  The RT optics come as five pseudo-bins per bin: ordinary dust bins for the SED table, the star polling and the IR
+  means, blended linearly in the cell's $s$ once per cell-call. css is dropped (Sect.~\ref{sec:rtgroups}).
+\item \textbf{Targets:}
+  \begin{itemize}
+  \item a CALIMA step at most 1.5 times the legacy one;
+  \item Godunov at most 35\,\% slower;
+  \item tables $\le$\,46\,MB per rank;
+  \item the nightly suite byte-identical with \texttt{NGSD=0}.
+  \end{itemize}
+\end{itemize}
+
+%======================================================================================================================
+\section{Where we go from here}\label{sec:next}
+
+\subsection{Immediate: consolidate}
+\begin{enumerate}
+\item \textbf{Done (19--22 November):} the GSD branch is merged (PR \#20), with the charge solve ported from RAMSES
+  (PR \#19); the checks were rerun on \texttt{main} after the collision solver's fix (PR \#22), see ``Rerun on 22
+  November'' in the summary. After that rerun EA misses 5\,\% at 8 bins only in the shattering case (7.1\,\%; under
+  10\,\% everywhere); 12 bins would bring every case under 5\,\%. Decided (22 November): keep 8 bins.
+\item \textbf{Re-measure the collision variants} (kernel averaging, Gauss nodes) through \texttt{GSDMethod} on the fixed
+  solver: the variant bench of Sect.~\ref{sec:variants} predates that API and no longer runs.
+\item \textbf{Merge pahchem's PRs \#17 and \#18,} then work from \texttt{main}. Rerun the checks that read
+  pahchem (seam, bins), as every pahchem merge so far has moved them. The production tables were built from the
+  unmerged code and need a rebuild only if pahchem changes before the merge.
+\end{enumerate}
+
+\subsection{Decisions waiting for you}
+\begin{itemize}
+\item \textbf{The bottom-up channel} for the molecular bins (Sect.~\ref{sec:growth}): recommended, a Form-A source
+  calibrated on TMC-1 plus one reaction-limited growth efficiency calibrated on the translucent $q_{\rm PAH}$ rise.
+\item \textbf{Kernel averaging} in the collisions (Sect.~\ref{sec:variants}): available as an option; to be tested in
+  the full collision model before deciding on a default.
+\item \textbf{Still open from the transfer study:} PAH erosion in hot gas with pahchem's impact rates (the tables stop
+  at $10^4$\,K) joined to classical sputtering at $\NC\approx1000$; the routing of Coulomb explosion (fragments or ion
+  loss, set by the assumed tensile strength); the a-C:H end of the hydrocarbon family (P1) and the bare end; redoing
+  the band test.
+\item \textbf{The super-H physical stop} for large PAHs, a pahchem question: barriers past +24, the Eley--Rideal bracket,
+  a check against the 3.4\,\textmu m band. Until then, the H$_2$ and $r_{\rm ali}$ tables of bins 3--4 stay provisional.
+\item \textbf{A finer $G_0$ axis above $10^4$} for the carbon-loss tables of bins 2--3, if the runs reach fields near
+  massive stars. The format allows it, and the rebuild takes under an hour.
+\item \textbf{The default $\NC^{\max}$} (400) after the extended band test; whether to use a $\xi(a)$ transition band
+  for the DL07 comparison.
+\item \textbf{Smaller choices:} H$_2$ release from cold grains (diffusion-limited or immediate); whether sputtering
+  removes H first; associative detachment on intact PAH anions, which decides the dense-gas PAH charge.
+\item \textbf{Which observational datasets to fetch first} for T3/T4: extinction (Gordon+23), $\tau_{3.4}/A_V$, the JWST
+  PDR nano-grain results, Pilleri+15 maps, and others.
+\end{itemize}
+
+\subsection{Decided since your review}
+\begin{itemize}
+\item \emph{18 November:} one charge solve per bin at its area node; five PL2M pseudo-bins per bin for the RT optics;
+  drift and size-dependent sinks per moment, $N$ and $M$ with their own power-law velocities and rates, as RAMSES-MCR
+  does for cosmic rays (Sect.~\ref{sec:diallo}).
+\item \emph{19 November:} EA is the default closure.
+\item \emph{22 November:} $a_{\rm H,max}$. The four covalent bins below 53\,nm use the equilibrium band gap, nothing
+  tracked by default; $\MH$ is compile-time for 0--4 bins (default 0) and A5 decides, bin by bin. Heating and charging
+  are safe in equilibrium (Table~\ref{tab:grainobs}); what fails (visible, 3.4\,\textmu m, far-IR for material leaving
+  clouds) is mostly post-processing; a tracked bin costs 16\,B per cell and one transported scalar, while the band-gap
+  tables are needed either way. 8 bins per composition kept after the collision fix (same day).
+\item \emph{22 November:} the carbon material. THEMIS a-C(:H) at 1.6\,g\,cm$^{-3}$ is the default and graphite the
+  control (Sect.~\ref{sec:materials}); a material is a table set, so the choice stays reversible.
+\item \emph{23 November} (Sect.~\ref{sec:transfer}): the carbon mass transfer. No PAH clusters; molecules do not react
+  with molecules. A molecule hitting a larger particle sticks below about 4\,km\,s$^{-1}$, rebounds between, and is
+  destroyed above about 7\,km\,s$^{-1}$, its carbon going to the gas (labelled). On nano-grains a photo-release term
+  competes with sticking; its non-thermal yield is a labelled, calibrated input (default 0). The seam's electron
+  sticking is one labelled law (molecular below $\NC = 400$, tapering to WD01 by $\sim$3\,nm), bracketed in A5. The
+  overflow bin becomes one wide bin over 1--10\,\textmu m.
+\end{itemize}
+
+\subsection{The build, in order}
+\begin{enumerate}
+\item \textbf{Finish A3b:}
+  \begin{itemize}
+  \item the charge kernels at a few radii per bin for the area node: how many radii, and their memory against the
+    planned coarsening, with \texttt{check\_inbin\_rates} as the test;
+  \item the optics on a band-gap axis with Planck/Rosseland tables to match, and the error of the \texttt{ac}/\texttt{ach}
+    interpolation;
+  \item charge and photoelectric heating per GSD bin from the PAH group tables, conditional on the H state;
+  \item molecular band emission per bin, for post-processing;
+  \item the re-gridded, real*4 cooling and sputtering tables.
+  \end{itemize}
+\item \textbf{A3c, the \texttt{ramses} mode of \texttt{gsd}:} the per-cell operator RAMSES will mirror. It reuses the
+  remap, collision, sputtering and closure modules (EA default, Gauss rate nodes), and adds the equilibrium band gap
+  of the covalent bins, the $\MH$ block (0--4 bins, default 0; tested on though off) with the exact step and H carried
+  by every remap, the overflow bin, the molecule pair rule and the release term in \texttt{gsd.collisions}, the
+  area-node rates and moment-specific rates for size-dependent sinks. Its conservation tests (carbon and
+  hydrogen to round-off, bounds on H/C) come first; a third collision node or bin edges at kernel thresholds can be
+  tested there (the coagulation test of Sect.~\ref{sec:mck}). Also: a thermal H-loss sensitivity run for the 1--3\,nm
+  bin (Sect.~\ref{sec:hwhy}).
+\item \textbf{A4, advection prototype:} $N$ following $\MC$ through the ratio pass, $\MH$ as a child of $\MC$, and
+  the drift with moment-specific velocities (Fig.~\ref{fig:drift} is its first test).
+\item \textbf{A5, accept or reject.} T2: our tables against DustEM's SED and extinction, and the graphite control
+  against DL07. T3: the diffuse ISM per H, the bump, $\tau_{3.4}/A_V$, the growth gates. T4: one-zone and slab runs for
+  NGC\,7023, the Orion Bar and the Horsehead. The convergence of the thermal and chemical rates with the bin number
+  (Sect.~\ref{sec:rateconv}). Then the ablations that decide the rungs, and the growth gates once the bottom-up
+  channel is chosen.
+\item \textbf{A6, the exporter} \texttt{models/export\_gsd\_tables.py}, with provenance headers; memory estimated with one
+  worker first.
+\item \textbf{Phase B} in RAMSES (above).
+\end{enumerate}
+
+%======================================================================================================================
+\appendix
+\section{Where things live}
+\small
+\begin{tabularx}{\textwidth}{@{}l L@{}}
+\toprule
+\multicolumn{2}{@{}l}{\textbf{code} (\texttt{src/pycalima/})}\\
+\texttt{gsd/} & \texttt{closures} (the methods: EA default, EAF, PL2M, affine, exp), \texttt{optics} (incl.\ node
+  tables), \texttt{pl2m}, \texttt{remap}, \texttt{collisions}, \texttt{shattering}, \texttt{velocities},
+  \texttt{sputtering}, \texttt{exchange}, \texttt{grid} (graded), \texttt{materials}, \texttt{carbon}
+  (\texttt{CarbonLayout}), \texttt{charging}, \texttt{hydrogen} \\
+\texttt{models/dust\_radiation/} & \texttt{themis\_optics}, \texttt{jones2012\_optics}, \texttt{carbon\_heat\_capacity};
+  \texttt{models/tools/coated\_mie} \\
+\texttt{pahchem/} & \texttt{hydrogen\_tracking}, \texttt{hydrogen\_observables}, \texttt{hydrogen\_tables} \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{checks} (\texttt{diagnostics/gsd/})}\\
+& \texttt{check\_bin\_convergence}, \texttt{check\_optics\_tables}, \texttt{check\_carbon\_carriers},
+  \texttt{check\_hydrogenated\_tables}, \texttt{check\_pah\_grain\_seam}, \texttt{check\_hydrogen\_tracking},
+  \texttt{check\_pah\_hydrogen\_tracking}, \texttt{check\_pah\_bins\_hydrogen}, \texttt{compare\_pah\_bins\_caps},
+  \texttt{analyse\_pah\_bins\_tracking}; \texttt{diagnostics/dust\_charge/check\_cm20\_dustem}; new on 17 November:
+  \texttt{check\_inbin\_rates}, \texttt{check\_rates\_convergence}, \texttt{check\_mckinnon18\_tests},
+  \texttt{check\_inbin\_drift}, \texttt{score\_grain\_hydrogen\_obs}; the variant study: \texttt{pl2m\_variants},
+  \texttt{bench\_pl2m\_variants}, \texttt{bench\_pl2m\_figures} (\texttt{REPORT.md} in
+  \texttt{overview/variants/}); node tables and RT pseudo-bins: \texttt{check\_node\_tables},
+  \texttt{check\_rt\_group\_optics}, \texttt{bench\_rt\_group\_optics}; the carbon transfer (23 November):
+  \texttt{check\_carbon\_heating\_share}, \texttt{check\_carbon\_transfer\_timescales},
+  \texttt{check\_carbon\_transfer\_options}, \texttt{check\_seam\_decomposition} \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{this report} (\texttt{diagnostics/gsd/overview/})}\\
+& \texttt{gsd\_overview.tex}, \texttt{make\_figures.py}, \texttt{make\_infographic.py} (Fig.~\ref{fig:network}),
+  the literature notes \texttt{lit/}, the numbers behind it \texttt{tables/}, the variant study \texttt{variants/};
+  built in the git-ignored \texttt{results/gsd\_overview/}; the to-do list is \texttt{diagnostics/gsd/STATUS.md} \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{documentation} (\texttt{docs/physics/})}\\
+& \texttt{carbon-optics}, \texttt{charging-cm20} (incl.\ the seam), \texttt{grain-hydrogen}, \texttt{pah-hydrogen} \\
+\midrule
+\multicolumn{2}{@{}l}{\textbf{results} (\texttt{results/}, git-ignored)}\\
+& \texttt{binconv\_v4/} (A0, A2), \texttt{optics/}, \texttt{charging/}, \texttt{carbon\_plan/} (hydrogen, seam, PAH bins
+  and caps, production tables in \texttt{hydrogen\_tables/deep\_k8/}), \texttt{gsd\_overview/} (the report's build directory: figures, data,
+  PDF); the papers in \texttt{reference\_data/gsd\_solvers\_2026-11-17/} \\
+\bottomrule
+\end{tabularx}
+
+\section{Glossary}
+\begin{tabularx}{\textwidth}{@{}l L@{}}
+PL2M & two-moment power-law closure: $N$ and $M$ per bin, a power law $dN/dm\propto m^\beta$ inside it (comparison method) \\
+$s$ & in-bin state, $(\bar m/m_L - 1)/(\eta - 1)$ with $\bar m = M/N$: 0 with all grains at the lower edge, 1 at the upper \\
+two nodes & the two quadrature points per bin (number halves at their mean masses) that reproduce $N$ and $M$ exactly \\
+PC, PL & McKinnon et al.'s piecewise-constant and piecewise-linear (in $a$) bins \\
+MPRK22 & modified Patankar Runge--Kutta, second order: positive and conservative for any step \\
+EA, EAF & edge-aware closures: a bin next to an (almost) empty one is a front, cut off inside the bin; EA (the default) continues the neighbour's slope, EAF fixes it at $-3.5$ \\
+node tables & per-gram quantities at a few radii per bin, integrated over the cell's reconstruction (any closure) \\
+pseudo-bins & a bin's PL2M per-gram optics at 5 fixed $s$, each an ordinary RAMSES dust bin, blended linearly in the cell's $s$ \\
+area node & the one radius per bin where RAMSES solves the charge, $a_* = \int a^3dN/\int a^2dN$, weighted to the bin's exact grain area \\
+overflow bin & one wide bin per composition over 1--10\,\textmu m ($N$, $M$, the same closure), computed only above $10^{-6}$ of the dust mass, warning at 1\,\% \\
+M0--M3 & the rungs of the minimal-model ladder (Table~\ref{tab:ladder}); M2 was dropped \\
+pair rule & which pairs collide and how: no molecule--molecule outcome, molecule + larger particle by impact speed (Fig.~\ref{fig:network}c) \\
+seam & where the molecular tables (pahchem) meet the grain tables (\texttt{ac}), at $\NC = 400$ \\
+KA & kernel averaging over sub-slices of each node pair in the collision operator \\
+$\eta$ & a bin's mass ratio $m_R/m_L$ \\
+E / M / F & equilibrium table enough / one tracked scalar needed / one scalar not enough \\
+joint chain & pahchem's network over charge $Z$ and hydrogen number $\NH$ together \\
+super-H, cap & states with more H than the parent PAH ($\NH > N_{\rm H,0}$); the cap is the highest $N_{\rm H,0}+K$ allowed \\
+$r_{\rm ali}$ & UV-weighted aliphatic over aromatic CH: the 3.4/3.3\,\textmu m proxy \\
+path budget & factor error between the path integrals of E and the truth \\
+TVA & terminal-velocity approximation: the dust drift relative to the gas; here $N$ and $M$ drift at their own velocities, recomputed each step (B4) \\
+CMA & consistent multi-fluid advection, which keeps passive-scalar groups summing correctly \\
+\texttt{ac}, \texttt{ach}, \texttt{cm20}, \texttt{acx} & charging materials: a-C (default), a-C:H, DustEM's CM20, intermediate H/C nodes \\
+\end{tabularx}
+
+\section{References}
+{\footnotesize
+\setlength{\parindent}{0pt}
+\newcommand{\rf}[1]{\par\hangindent=1.5em #1}
+Identifiers checked for this revision (arXiv pages or full texts; notes in \texttt{overview/lit/}). Papers cited
+only through the plan (growth chemistry, laboratory hydrogenation) are in \texttt{reference\_data/} with the plan's
+notes and are not repeated here. The papers of the carbon-transfer study (Sect.~\ref{sec:transfer}) are listed in the
+notes \texttt{overview/lit/carbon\_transfer\_*.md}, with what each supports.
+
+\medskip\textbf{Size-distribution solvers}
+\rf{Aoyama S., Hirashita H., Nagamine K. 2020, MNRAS 491, 3844 (arXiv:1906.01917)}
+\rf{Choban C. R., Kere\v{s} D., Hopkins P. F., Sandstrom K. M. 2022, MNRAS 514, 4506 (arXiv:2201.12369)}
+\rf{Choban C. R., Salim S., Kere\v{s} D., Roman-Duval J., Sandstrom K. M. 2026, MNRAS 549, stag1020 (arXiv:2603.08504)}
+\rf{Diallo N.-S., Dubois Y., Marcowith A., Rosdahl J., Commer\c{c}on B. 2026, RAMSES-MCR (arXiv:2602.21147)}
+\rf{Dubois Y. et al.\ 2024, A\&A (arXiv:2402.18515)}
+\rf{Hirashita H. 2015, MNRAS 447, 2937 (arXiv:1412.3866)}
+\rf{Hirashita H., Aoyama S. 2019, MNRAS 482, 2555 (arXiv:1810.07962)}
+\rf{Hirashita H., Yan H. 2009, MNRAS 394, 1061}
+\rf{Hopkins P. F. 2023, the spectral cosmic-ray correction factors as used by Diallo et al.\ (2026, Sect.~2.2.5)}
+\rf{Kopecz S., Meister A. 2018, BIT Numer.\ Math.\ 58, 691 (MPRK22)}
+\rf{Lebreuilly U., Commer\c{c}on B., Laibe G. 2019, A\&A 626, A96 (arXiv:1905.01948)}
+\rf{Lebreuilly U. et al.\ 2023 (arXiv:2211.01891)}
+\rf{Li Q., Narayanan D., Torrey P., Dav\'e R., Vogelsberger M. 2021 (arXiv:2012.03978)}
+\rf{Lombart M., Laibe G. 2021, MNRAS 501, 4298 (arXiv:2011.12298)}
+\rf{Matsumoto K. et al.\ 2026, A\&A 705, A75 (arXiv:2508.21157)}
+\rf{McKinnon R., Vogelsberger M., Torrey P., Marinacci F., Kannan R. 2018, MNRAS 478, 2851 (arXiv:1805.04521)}
+\rf{Narayanan D. et al.\ 2023, ApJ 951, 100 (arXiv:2301.07136); Narayanan D. et al.\ 2026 (arXiv:2606.20809)}
+\rf{Rodr\'iguez Montero F., Dubois Y., Katz H., Slyz A., Devriendt J. 2026, CALIMA (arXiv:2602.21790)}
+\rf{Romano L. E. C., Nagamine K., Hirashita H. 2022, MNRAS 514, 1441 (arXiv:2202.05521)}
+\rf{Sportisse B. 2000, J.\ Comput.\ Phys.\ 161, 140}
+
+\medskip\textbf{Grain growth in dense gas (the overflow bin)}
+\rf{Pagani L., Steinacker J., Bacmann A., Stutz A., Henning T. 2010, Science 329, 1622 (doi:10.1126/science.1193211; arXiv:1110.4180)}
+\rf{Steinacker J., Pagani L., Bacmann A., Guieu S. 2010, A\&A 511, A9 (arXiv:0912.0145)}
+
+\medskip\textbf{Carbon materials and the molecular limit}
+\rf{Bern\'e O. et al.\ 2007, A\&A 469, 575 (arXiv:astro-ph/0703072)}
+\rf{Chiar J. E. et al.\ 2006 (arXiv:astro-ph/0607245)}
+\rf{Croiset B. A., Candian A., Bern\'e O., Tielens A. G. G. M. 2016, A\&A 590, A26 (arXiv:1603.02577)}
+\rf{Draine B. T. 2003, ARA\&A 41, 241 (arXiv:astro-ph/0304489)}
+\rf{Draine B. T., Li A. 2007, ApJ 657, 810 (arXiv:astro-ph/0608003)}
+\rf{Draine B. T. et al.\ 2021, ApJ 917, 3 (arXiv:2011.07046)}
+\rf{Fanciullo L. et al.\ 2015, A\&A 580, A136 (arXiv:1506.07011)}
+\rf{Hensley B. S., Draine B. T. 2023, ApJ 948, 55 (arXiv:2208.12365)}
+\rf{J\"ager C., Huisken F., Mutschke H., Llamas Jansa I., Henning Th.\ 2009, ApJ 696, 706 (arXiv:0903.0775)}
+\rf{Jones A. P. 2012, A\&A 540, A1; 540, A2; 542, A98 (arXiv:1511.01673, 1511.01682, 1511.01684)}
+\rf{Jones A. P. et al.\ 2013, A\&A 558, A62 (arXiv:1411.6293); Jones A. P. et al.\ 2017, A\&A 602, A46 (arXiv:1703.00775)}
+\rf{Pilleri P. et al.\ 2015, A\&A 577, A16 (arXiv:1502.04941)}
+\rf{Planck Collaboration Int.\ XXIX 2016, A\&A 586, A132 (arXiv:1409.2495)}
+\rf{Rapacioli M. et al.\ 2005, A\&A 429, 193; Rapacioli M., Calvo F., Joblin C. et al.\ 2006, A\&A 460, 519 (arXiv:astro-ph/0609186)}
+\rf{Ricca A., Bauschlicher C. W., Boersma C., Tielens A. G. G. M., Allamandola L. J. 2012, ApJ 754, 75}
+
+\medskip\textbf{Hydrogenation}
+\rf{Andrews H. et al.\ 2016, A\&A 595, A23}
+\rf{Elyajouri M. et al.\ 2024 (arXiv:2401.01221)}
+\rf{Hirashita H., Murga M. S. 2020 (arXiv:2001.01968)}
+\rf{Jones A. P., Habart E. 2015 (arXiv:1507.08534); Jones A. P. et al.\ 2014, Faraday Discuss.\ (arXiv:1411.5877)}
+\rf{Jones A. P., Ysard N. 2025 (arXiv:2511.04750)}
+\rf{Montillaud J., Joblin C., Toublanc D. 2013, A\&A 552, A15 (arXiv:1301.6507)}
+\rf{Murga M. S. et al.\ 2016 (arXiv:1612.00419); 2019 (arXiv:1906.11308); 2022, MNRAS 509, 800 (arXiv:2111.05583); 2023 (arXiv:2212.04993)}
+}
+
+\end{document}

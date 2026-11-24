@@ -1,0 +1,5 @@
+Drift of one grain bin (w ~ a), errors against 64 sub-bins: L1 of N and M (relative to the totals), and of s where the dust is (> 1e-3 of the peak number).
+  bin centre                 N 0.474  M 0.465  mean |ds| 0.199
+  moments (Diallo/Hopkins)   N 0.091  M 0.120  mean |ds| 0.036
+  two nodes (median)         N 0.154  M 0.230  mean |ds| 0.024
+  two nodes (Gauss)          N 0.090  M 0.118  mean |ds| 0.035

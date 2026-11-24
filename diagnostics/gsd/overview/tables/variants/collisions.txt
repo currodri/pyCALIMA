@@ -1,0 +1,173 @@
+McKinnon+18 collision tests and threshold sweeps: lines from collisions_mk_sweep.log (complete run); kernel tests rerun by the 'kernels' subcommand
+  shat N= 8 pl2m               worst M 0.153 N 0.154  misplaced 0.0214  mass -4.8e-05  wall 0.9 s  steps 60
+  shat N= 8 pl2m+gauss         worst M 0.199 N 0.200  misplaced 0.0256  mass -4.8e-05  wall 0.0 s  steps 45
+  shat N= 8 pl2m+gaussm        worst M 0.206 N 0.207  misplaced 0.0249  mass -4.8e-05  wall 0.0 s  steps 60
+  shat N= 8 pl2m+ka2           worst M 0.112 N 0.113  misplaced 0.0153  mass -4.8e-05  wall 0.1 s  steps 68
+  shat N= 8 pl2m+ka4           worst M 0.006 N 0.008  misplaced 0.0026  mass -4.8e-05  wall 0.1 s  steps 67
+  shat N= 8 pl2m+ka8           worst M 0.013 N 0.013  misplaced 0.0024  mass -4.8e-05  wall 0.2 s  steps 70
+  shat N= 8 pl2m+gauss+ka4     worst M 0.053 N 0.053  misplaced 0.0067  mass -4.8e-05  wall 0.1 s  steps 68
+  shat N= 8 tc:8               worst M 0.153 N 0.154  misplaced 0.0214  mass -4.8e-05  wall 0.6 s  steps 60
+  shat N= 8 ea:1e-2            worst M 0.158 N 0.158  misplaced 0.0222  mass -4.8e-05  wall 0.4 s  steps 60
+  shat N= 8 aff                worst M 0.169 N 0.170  misplaced 0.0235  mass -4.8e-05  wall 0.7 s  steps 60
+  shat N= 8 exp                worst M 0.173 N 0.173  misplaced 0.0230  mass -4.8e-05  wall 0.5 s  steps 60
+  shat N=16 pl2m               worst M 0.067 N 0.069  misplaced 0.0091  mass -4.8e-05  wall 0.0 s  steps 62
+  shat N=16 pl2m+gauss         worst M 0.060 N 0.061  misplaced 0.0082  mass -4.8e-05  wall 0.1 s  steps 56
+  shat N=16 pl2m+gaussm        worst M 0.030 N 0.031  misplaced 0.0040  mass -4.8e-05  wall 0.1 s  steps 54
+  shat N=16 pl2m+ka2           worst M 0.031 N 0.032  misplaced 0.0045  mass -4.8e-05  wall 0.1 s  steps 52
+  shat N=16 pl2m+ka4           worst M 0.002 N 0.002  misplaced 0.0004  mass -4.8e-05  wall 0.2 s  steps 61
+  shat N=16 pl2m+ka8           worst M 0.000 N 0.000  misplaced 0.0001  mass -4.8e-05  wall 0.3 s  steps 55
+  shat N=16 pl2m+gauss+ka4     worst M 0.010 N 0.010  misplaced 0.0014  mass -4.8e-05  wall 0.2 s  steps 53
+  shat N=16 tc:8               worst M 0.067 N 0.069  misplaced 0.0091  mass -4.8e-05  wall 0.1 s  steps 62
+  shat N=16 ea:1e-2            worst M 0.067 N 0.069  misplaced 0.0091  mass -4.8e-05  wall 0.1 s  steps 62
+  shat N=16 aff                worst M 0.064 N 0.066  misplaced 0.0085  mass -4.8e-05  wall 0.1 s  steps 62
+  shat N=16 exp                worst M 0.065 N 0.066  misplaced 0.0087  mass -4.8e-05  wall 0.1 s  steps 62
+  coag N= 8 pl2m               worst M 0.052 N 0.253  misplaced 0.0041  mass -2.9e-05  wall 27.2 s  steps 29381
+  coag N= 8 pl2m+gauss         worst M 0.302 N 0.303  misplaced 0.0256  mass -2.9e-05  wall 2.3 s  steps 3997
+  coag N= 8 pl2m+gaussm        worst M 0.744 N 0.710  misplaced 0.0606  mass -2.9e-05  wall 2.1 s  steps 3593
+  coag N= 8 pl2m+ka2           worst M 0.184 N 0.130  misplaced 0.0160  mass -2.9e-05  wall 8.4 s  steps 4930
+  coag N= 8 pl2m+ka4           worst M 0.247 N 0.237  misplaced 0.0210  mass -2.9e-05  wall 6.4 s  steps 3862
+  coag N= 8 pl2m+ka8           worst M 0.246 N 0.245  misplaced 0.0210  mass -2.9e-05  wall 10.5 s  steps 3838
+  coag N= 8 pl2m+gauss+ka4     worst M 0.152 N 0.159  misplaced 0.0136  mass -2.9e-05  wall 6.1 s  steps 3823
+  coag N= 8 tc:8               worst M 0.052 N 0.253  misplaced 0.0041  mass -2.9e-05  wall 54.9 s  steps 29381
+  coag N= 8 ea:1e-2            worst M 0.052 N 0.253  misplaced 0.0042  mass -2.9e-05  wall 56.5 s  steps 29396
+  coag N= 8 aff                worst M 0.213 N 0.472  misplaced 0.0169  mass -2.9e-05  wall 68.2 s  steps 21839
+  coag N= 8 exp                worst M 0.108 N 0.304  misplaced 0.0086  mass -2.9e-05  wall 81.2 s  steps 24072
+  coag N=32 pl2m               worst M 0.163 N 0.203  misplaced 0.0325  mass -2.9e-05  wall 35.8 s  steps 33086
+  coag N=32 pl2m+gauss         worst M 0.071 N 0.081  misplaced 0.0113  mass -2.9e-05  wall 5.7 s  steps 3058
+  coag N=32 pl2m+gaussm        worst M 0.208 N 0.243  misplaced 0.0233  mass -2.9e-05  wall 6.5 s  steps 3286
+  coag N=32 pl2m+ka2           worst M 0.200 N 0.259  misplaced 0.0270  mass -2.9e-05  wall 11.9 s  steps 2875
+  coag N=32 pl2m+ka4           worst M 0.223 N 0.276  misplaced 0.0288  mass -2.9e-05  wall 19.4 s  steps 2843
+  coag N=32 pl2m+ka8           worst M 0.236 N 0.286  misplaced 0.0296  mass -2.9e-05  wall 37.8 s  steps 2844
+  coag N=32 pl2m+gauss+ka4     worst M 0.218 N 0.271  misplaced 0.0282  mass -2.9e-05  wall 18.4 s  steps 2843
+  coag N=32 tc:8               worst M 0.163 N 0.203  misplaced 0.0325  mass -2.9e-05  wall 159.9 s  steps 34277
+  coag N=32 ea:1e-2            worst M 0.163 N 0.203  misplaced 0.0325  mass -2.9e-05  wall 145.7 s  steps 33083
+  coag N=32 aff                worst M 0.163 N 0.213  misplaced 0.0325  mass -2.9e-05  wall 338.1 s  steps 34644
+  coag N=32 exp                worst M 0.175 N 0.231  misplaced 0.0347  mass -2.9e-05  wall 379.5 s  steps 33467
+  shat f=0.05 pl2m               misplaced 0.0090 worst M 0.039
+  shat f=0.05 pl2m+gauss         misplaced 0.0061 worst M 0.036
+  shat f=0.05 pl2m+ka2           misplaced 0.0031 worst M 0.006
+  shat f=0.05 pl2m+ka4           misplaced 0.0060 worst M 0.032
+  shat f=0.05 pl2m+ka8           misplaced 0.0020 worst M 0.004
+  shat f=0.05 pl2m+gauss+ka4     misplaced 0.0064 worst M 0.038
+  shat f=0.20 pl2m               misplaced 0.0097 worst M 0.083
+  shat f=0.20 pl2m+gauss         misplaced 0.0248 worst M 0.168
+  shat f=0.20 pl2m+ka2           misplaced 0.0071 worst M 0.039
+  shat f=0.20 pl2m+ka4           misplaced 0.0038 worst M 0.017
+  shat f=0.20 pl2m+ka8           misplaced 0.0021 worst M 0.006
+  shat f=0.20 pl2m+gauss+ka4     misplaced 0.0075 worst M 0.052
+  shat f=0.35 pl2m               misplaced 0.0195 worst M 0.140
+  shat f=0.35 pl2m+gauss         misplaced 0.0236 worst M 0.186
+  shat f=0.35 pl2m+ka2           misplaced 0.0144 worst M 0.107
+  shat f=0.35 pl2m+ka4           misplaced 0.0029 worst M 0.008
+  shat f=0.35 pl2m+ka8           misplaced 0.0024 worst M 0.013
+  shat f=0.35 pl2m+gauss+ka4     misplaced 0.0061 worst M 0.049
+  shat f=0.50 pl2m               misplaced 0.0035 worst M 0.007
+  shat f=0.50 pl2m+gauss         misplaced 0.0063 worst M 0.047
+  shat f=0.50 pl2m+ka2           misplaced 0.0045 worst M 0.045
+  shat f=0.50 pl2m+ka4           misplaced 0.0044 worst M 0.037
+  shat f=0.50 pl2m+ka8           misplaced 0.0015 worst M 0.003
+  shat f=0.50 pl2m+gauss+ka4     misplaced 0.0057 worst M 0.056
+  shat f=0.65 pl2m               misplaced 0.0139 worst M 0.122
+  shat f=0.65 pl2m+gauss         misplaced 0.0098 worst M 0.084
+  shat f=0.65 pl2m+ka2           misplaced 0.0070 worst M 0.041
+  shat f=0.65 pl2m+ka4           misplaced 0.0047 worst M 0.029
+  shat f=0.65 pl2m+ka8           misplaced 0.0015 worst M 0.005
+  shat f=0.65 pl2m+gauss+ka4     misplaced 0.0011 worst M 0.004
+  shat f=0.80 pl2m               misplaced 0.0212 worst M 0.174
+  shat f=0.80 pl2m+gauss         misplaced 0.0244 worst M 0.220
+  shat f=0.80 pl2m+ka2           misplaced 0.0081 worst M 0.080
+  shat f=0.80 pl2m+ka4           misplaced 0.0036 worst M 0.028
+  shat f=0.80 pl2m+ka8           misplaced 0.0016 worst M 0.012
+  shat f=0.80 pl2m+gauss+ka4     misplaced 0.0046 worst M 0.042
+  shat f=0.95 pl2m               misplaced 0.0082 worst M 0.066
+  shat f=0.95 pl2m+gauss         misplaced 0.0039 worst M 0.040
+  shat f=0.95 pl2m+ka2           misplaced 0.0061 worst M 0.053
+  shat f=0.95 pl2m+ka4           misplaced 0.0047 worst M 0.045
+  shat f=0.95 pl2m+ka8           misplaced 0.0033 worst M 0.034
+  shat f=0.95 pl2m+gauss+ka4     misplaced 0.0038 worst M 0.040
+  coag f=0.05 pl2m               misplaced 0.0196 worst M 0.080
+  coag f=0.05 pl2m+gauss         misplaced 0.0538 worst M 0.352
+  coag f=0.05 pl2m+ka2           misplaced 0.0234 worst M 0.153
+  coag f=0.05 pl2m+ka4           misplaced 0.0239 worst M 0.156
+  coag f=0.05 pl2m+ka8           misplaced 0.0251 worst M 0.164
+  coag f=0.05 pl2m+gauss+ka4     misplaced 0.0210 worst M 0.137
+  coag f=0.20 pl2m               misplaced 0.0216 worst M 0.112
+  coag f=0.20 pl2m+gauss         misplaced 0.0447 worst M 0.231
+  coag f=0.20 pl2m+ka2           misplaced 0.0315 worst M 0.163
+  coag f=0.20 pl2m+ka4           misplaced 0.0336 worst M 0.174
+  coag f=0.20 pl2m+ka8           misplaced 0.0345 worst M 0.178
+  coag f=0.20 pl2m+gauss+ka4     misplaced 0.0325 worst M 0.168
+  coag f=0.35 pl2m               misplaced 0.0254 worst M 0.108
+  coag f=0.35 pl2m+gauss         misplaced 0.0501 worst M 0.296
+  coag f=0.35 pl2m+ka2           misplaced 0.0306 worst M 0.130
+  coag f=0.35 pl2m+ka4           misplaced 0.0274 worst M 0.111
+  coag f=0.35 pl2m+ka8           misplaced 0.0280 worst M 0.114
+  coag f=0.35 pl2m+gauss+ka4     misplaced 0.0273 worst M 0.111
+  coag f=0.50 pl2m               misplaced 0.0190 worst M 0.131
+  coag f=0.50 pl2m+gauss         misplaced 0.0194 worst M 0.184
+  coag f=0.50 pl2m+ka2           misplaced 0.0223 worst M 0.129
+  coag f=0.50 pl2m+ka4           misplaced 0.0257 worst M 0.127
+  coag f=0.50 pl2m+ka8           misplaced 0.0262 worst M 0.128
+  coag f=0.50 pl2m+gauss+ka4     misplaced 0.0251 worst M 0.128
+  coag f=0.65 pl2m               misplaced 0.0253 worst M 0.147
+  coag f=0.65 pl2m+gauss         misplaced 0.0353 worst M 0.322
+  coag f=0.65 pl2m+ka2           misplaced 0.0278 worst M 0.154
+  coag f=0.65 pl2m+ka4           misplaced 0.0277 worst M 0.153
+  coag f=0.65 pl2m+ka8           misplaced 0.0273 worst M 0.153
+  coag f=0.65 pl2m+gauss+ka4     misplaced 0.0261 worst M 0.153
+  coag f=0.80 pl2m               misplaced 0.0358 worst M 0.187
+  coag f=0.80 pl2m+gauss         misplaced 0.0181 worst M 0.108
+  coag f=0.80 pl2m+ka2           misplaced 0.0363 worst M 0.189
+  coag f=0.80 pl2m+ka4           misplaced 0.0366 worst M 0.189
+  coag f=0.80 pl2m+ka8           misplaced 0.0365 worst M 0.189
+  coag f=0.80 pl2m+gauss+ka4     misplaced 0.0364 worst M 0.189
+  coag f=0.95 pl2m               misplaced 0.0397 worst M 0.173
+  coag f=0.95 pl2m+gauss         misplaced 0.0266 worst M 0.152
+  coag f=0.95 pl2m+ka2           misplaced 0.0269 worst M 0.099
+  coag f=0.95 pl2m+ka4           misplaced 0.0172 worst M 0.061
+  coag f=0.95 pl2m+ka8           misplaced 0.0156 worst M 0.060
+  coag f=0.95 pl2m+gauss+ka4     misplaced 0.0174 worst M 0.060
+
+Constant and additive (Golovin) kernels from an exponential, 8 decades in mass: mass misplaced and worst bin (>= 1 % of the mass) against the analytic solutions; total number error
+  const   N= 8 pl2m             tau=1: 0.0093/0.005/-0.000  tau=10: 0.0166/0.017/-0.000  tau=100: 0.0228/0.027/-0.000
+  const   N= 8 pl2m+gauss       tau=1: 0.0225/0.015/-0.000  tau=10: 0.0943/0.097/-0.000  tau=100: 0.1224/0.147/-0.000
+  const   N= 8 pl2m+ka4         tau=1: 0.0093/0.005/-0.000  tau=10: 0.0166/0.017/-0.000  tau=100: 0.0228/0.027/-0.000
+  const   N= 8 tc:8             tau=1: 0.0093/0.005/-0.000  tau=10: 0.0166/0.017/-0.000  tau=100: 0.0228/0.027/-0.000
+  const   N= 8 ea:1e-6          tau=1: 0.0093/0.005/-0.000  tau=10: 0.0166/0.017/-0.000  tau=100: 0.0042/0.006/-0.000
+  const   N= 8 aff              tau=1: 0.0198/0.012/-0.000  tau=10: 0.0013/0.001/-0.000  tau=100: 0.0013/0.004/-0.000
+  const   N= 8 exp              tau=1: 0.0190/0.011/-0.000  tau=10: 0.0135/0.014/-0.000  tau=100: 0.0205/0.025/-0.000
+  const   N=16 pl2m             tau=1: 0.0059/0.007/-0.000  tau=10: 0.0084/0.111/-0.000  tau=100: 0.0087/0.235/-0.000
+  const   N=16 pl2m+gauss       tau=1: 0.0163/0.017/-0.000  tau=10: 0.0388/0.593/-0.000  tau=100: 0.0529/0.919/-0.000
+  const   N=16 pl2m+ka4         tau=1: 0.0059/0.007/-0.000  tau=10: 0.0084/0.111/-0.000  tau=100: 0.0087/0.235/-0.000
+  const   N=16 tc:8             tau=1: 0.0066/0.008/-0.000  tau=10: 0.0091/0.122/-0.000  tau=100: 0.0094/0.264/-0.000
+  const   N=16 ea:1e-6          tau=1: 0.0059/0.007/-0.000  tau=10: 0.0084/0.112/-0.000  tau=100: 0.0087/0.237/-0.000
+  const   N=16 aff              tau=1: 0.0081/0.006/-0.000  tau=10: 0.0185/0.286/-0.000  tau=100: 0.0128/0.437/-0.000
+  const   N=16 exp              tau=1: 0.0074/0.005/-0.000  tau=10: 0.0145/0.225/-0.000  tau=100: 0.0110/0.376/-0.000
+  const   N=32 pl2m             tau=1: 0.0009/0.003/-0.000  tau=10: 0.0020/0.004/-0.000  tau=100: 0.0022/0.009/-0.000
+  const   N=32 pl2m+gauss       tau=1: 0.0081/0.023/-0.000  tau=10: 0.0175/0.153/-0.000  tau=100: 0.0195/0.252/-0.000
+  const   N=32 pl2m+ka4         tau=1: 0.0009/0.003/-0.000  tau=10: 0.0020/0.004/-0.000  tau=100: 0.0022/0.009/-0.000
+  const   N=32 tc:8             tau=1: 0.0017/0.007/-0.000  tau=10: 0.0030/0.022/-0.000  tau=100: 0.0034/0.063/-0.000
+  const   N=32 ea:1e-6          tau=1: 0.0009/0.003/-0.000  tau=10: 0.0020/0.004/-0.000  tau=100: 0.0022/0.009/-0.000
+  const   N=32 aff              tau=1: 0.0018/0.003/-0.000  tau=10: 0.0034/0.039/-0.000  tau=100: 0.0028/0.083/-0.000
+  const   N=32 exp              tau=1: 0.0009/0.001/-0.000  tau=10: 0.0017/0.013/-0.000  tau=100: 0.0018/0.035/-0.000
+  golovin N= 8 pl2m             tau=0.5: 0.1124/0.367/+0.000  tau=1: 0.1611/0.170/+0.000  tau=2: 0.2991/0.430/+0.000  tau=3: 0.3667/0.688/+0.000
+  golovin N= 8 pl2m+gauss       tau=0.5: 0.0090/0.029/+0.000  tau=1: 0.0277/0.031/+0.000  tau=2: 0.0413/0.060/+0.000  tau=3: 0.0427/0.080/+0.000
+  golovin N= 8 pl2m+ka4         tau=0.5: 0.0035/0.010/+0.000  tau=1: 0.0334/0.035/+0.000  tau=2: 0.0847/0.118/+0.000  tau=3: 0.1200/0.224/+0.000
+  golovin N= 8 tc:8             tau=0.5: 0.1124/0.367/+0.000  tau=1: 0.1611/0.170/+0.000  tau=2: 0.2991/0.430/+0.000  tau=3: 0.3667/0.688/+0.000
+  golovin N= 8 ea:1e-6          tau=0.5: 0.1124/0.367/+0.000  tau=1: 0.1611/0.170/+0.000  tau=2: 0.3104/0.446/+0.000  tau=3: 0.3893/0.731/+0.000
+  golovin N= 8 aff              tau=0.5: 0.1769/0.577/+0.000  tau=1: 0.2060/0.221/+0.000  tau=2: 0.3976/0.573/+0.000  tau=3: 0.4674/0.878/+0.000
+  golovin N= 8 exp              tau=0.5: 0.1820/0.594/+0.000  tau=1: 0.2287/0.246/+0.000  tau=2: 0.4344/0.627/+0.000  tau=3: 0.4911/0.922/+0.000
+  golovin N=16 pl2m             tau=0.5: 0.0465/0.130/+0.000  tau=1: 0.0718/0.254/+0.000  tau=2: 0.1060/0.519/+0.000  tau=3: 0.1642/0.772/+0.000
+  golovin N=16 pl2m+gauss       tau=0.5: 0.0291/0.084/+0.000  tau=1: 0.0305/0.104/+0.000  tau=2: 0.0399/0.161/+0.000  tau=3: 0.0507/0.287/+0.000
+  golovin N=16 pl2m+ka4         tau=0.5: 0.0137/0.022/+0.000  tau=1: 0.0294/0.092/+0.000  tau=2: 0.0452/0.255/+0.000  tau=3: 0.0647/0.456/+0.000
+  golovin N=16 tc:8             tau=0.5: 0.0466/0.130/+0.000  tau=1: 0.0722/0.254/+0.000  tau=2: 0.1063/0.521/+0.000  tau=3: 0.1647/0.774/+0.000
+  golovin N=16 ea:1e-6          tau=0.5: 0.0465/0.130/+0.000  tau=1: 0.0718/0.254/+0.000  tau=2: 0.1060/0.519/+0.000  tau=3: 0.1643/0.773/+0.000
+  golovin N=16 aff              tau=0.5: 0.0607/0.176/+0.000  tau=1: 0.0895/0.322/+0.000  tau=2: 0.1250/0.627/+0.000  tau=3: 0.1953/0.877/+0.000
+  golovin N=16 exp              tau=0.5: 0.0589/0.171/+0.000  tau=1: 0.0871/0.313/+0.000  tau=2: 0.1294/0.609/+0.000  tau=3: 0.1980/0.857/+0.000
+  golovin N=32 pl2m             tau=0.5: 0.0095/0.077/+0.000  tau=1: 0.0176/0.151/+0.000  tau=2: 0.0312/0.335/+0.000  tau=3: 0.0447/0.273/+0.000
+  golovin N=32 pl2m+gauss       tau=0.5: 0.0131/0.103/+0.000  tau=1: 0.0224/0.160/+0.000  tau=2: 0.0378/0.280/+0.000  tau=3: 0.0507/0.247/+0.000
+  golovin N=32 pl2m+ka4         tau=0.5: 0.0033/0.016/+0.000  tau=1: 0.0071/0.062/+0.000  tau=2: 0.0135/0.183/+0.000  tau=3: 0.0195/0.131/+0.000
+  golovin N=32 tc:8             tau=0.5: 0.0097/0.077/+0.000  tau=1: 0.0180/0.154/+0.000  tau=2: 0.0319/0.344/+0.000  tau=3: 0.0457/0.277/+0.000
+  golovin N=32 ea:1e-6          tau=0.5: 0.0095/0.077/+0.000  tau=1: 0.0176/0.151/+0.000  tau=2: 0.0312/0.335/+0.000  tau=3: 0.0447/0.273/+0.000
+  golovin N=32 aff              tau=0.5: 0.0122/0.107/+0.000  tau=1: 0.0213/0.189/+0.000  tau=2: 0.0357/0.396/+0.000  tau=3: 0.0507/0.313/+0.000
+  golovin N=32 exp              tau=0.5: 0.0113/0.093/+0.000  tau=1: 0.0202/0.173/+0.000  tau=2: 0.0350/0.370/+0.000  tau=3: 0.0496/0.302/+0.000
