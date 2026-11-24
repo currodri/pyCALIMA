@@ -269,8 +269,101 @@ class ChargingModel:
                                             c_red=float(c_red)))
 
 
+#: the tabulated arrays that are per grain (photoemission and its heating): blended per unit area
+_PER_GRAIN_KEYS = ("K", "H", "K_bg", "H_bg")
+
+
+def blend_table(t_lo, t_hi, a, sticking="wd01", rho=None):
+    """A bin table at radius a [cm] between the tables of two radii a_lo <= a <= a_hi on the same potential grid.
+
+    The tabulated arrays are linear in ln a on that grid: the photoemission kernels per unit area (K, H, K_bg, H_bg are
+    per grain, so they scale with a^2), the hot-gas factors and group energies as they are. The analytic parts are
+    recomputed at a: W, Zmin, Zmax, the recombination thresholds, cm20's s_e(U) and the ``sticking`` law's scalars
+    (``sticking_law``, ``rho`` for N_C). At a = a_lo it is t_lo, up to round-off."""
+    for k in ("U", "L0", "L1", "log10_Ts", "log10_Thot"):
+        if not np.allclose(t_lo[k], t_hi[k]):
+            raise ValueError(f"tables differ in {k!r}")
+    a0, a1, a = float(t_lo["a"]), float(t_hi["a"]), float(a)
+    w = 0.0 if a1 == a0 else math.log(a / a0) / math.log(a1 / a0)
+    out = {k: v for k, v in t_lo.items()
+           if k not in rg.TABULATED_KEYS and k not in ("s_e", "stick_pos", "stick_neg")}
+    for k in rg.TABULATED_KEYS:
+        lo, hi = np.asarray(t_lo[k], float), np.asarray(t_hi[k], float)
+        if k in _PER_GRAIN_KEYS:
+            out[k] = a * a * ((1.0 - w) * lo / (a0 * a0) + w * hi / (a1 * a1))
+        else:
+            out[k] = (1.0 - w) * lo + w * hi
+    material, U = t_lo["material"], np.asarray(t_lo["U"], float)
+    W, Zmin, Zmax = rg._charge_bounds(material, a, U, np.asarray(t_lo["L1"], float))
+    out.update(a=a, W=float(W), Zmin=Zmin, Zmax=Zmax,
+               recomb_Zth=rg.recombination_thresholds(material, a, W, Zmin, Zmax))
+    if "s_e" in t_lo:
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        out["s_e"] = wy.cm20_sticking(U * a / rg.E2_EV_CM, a)
+    if sticking != "wd01":
+        out["stick_pos"], out["stick_neg"] = sticking_law(sticking, a, rho)
+    return out
+
+
+class AreaNodeCharging:
+    """One charge solve per bin at its area node, the grain-rate method of RAMSES (decided 2026-11-18).
+
+    Each bin's tables are built at ``radii_per_bin`` radii (geometric from the bin's lower to its upper edge, cached
+    on disk). Per cell, every bin's table at its area node a* (``closures.area_node``) is blended from the two
+    bracketing radii (``blend_table``) and solved once (LG5 by default, as ``ChargingModel``). The bin's
+    area-like rates are its weight w = int a^2 dN / a*^2 times the single-grain rates at a* (exact for rates
+    proportional to a^2 and a^3). How many radii a bin needs is measured by
+    ``diagnostics/gsd/check_area_node_tables.py``.
+    """
+
+    def __init__(self, material, grid, radii_per_bin=3, groups=AGN_GROUPS, cache=True, lattice=True,
+                 sticking="wd01", rho=None, method=None):
+        if radii_per_bin < 2:
+            raise ValueError("radii_per_bin must be at least 2 (the bin's edges)")
+        self.material, self.grid, self.method = material, grid, method
+        self.wdb06_material = charging_material(material)
+        self.lattice = bool(lattice)
+        self.sticking = sticking
+        if sticking != "wd01" and rho is None:
+            from .materials import get_material
+
+            rho = get_material(material).rho
+        self.rho = rho
+        self.L0, self.L1 = (np.asarray(g, float) for g in groups)
+        a_e = grid.a_edges
+        self.node_radii = [np.geomspace(a_e[i], a_e[i + 1], radii_per_bin) for i in range(grid.n_bins)]
+        self.node_tables = [[bin_table(self.wdb06_material, float(r), self.L0, self.L1, cache) for r in radii]
+                            for radii in self.node_radii]
+        self.a = None           # the area nodes and blended tables of the last solve (``ChargeState`` reads them)
+        self.tables = None
+
+    def table_at(self, i, a):
+        """Bin i's table at radius a (inside the bin)."""
+        r = self.node_radii[i]
+        j = int(np.clip(np.searchsorted(r, a, side="right") - 1, 0, r.size - 2))
+        return blend_table(self.node_tables[i][j], self.node_tables[i][j + 1], a, self.sticking, self.rho)
+
+    def solve(self, N, M, photons: PhotonGroups, T, n_e, ions: Sequence | None = None, G0_bg=0.0, c_red=C_CGS):
+        """The charge state at every bin's area node, and the bins' weights: (``ChargeState`` on the area nodes,
+        w [cm^-3]). A bin's photoelectric heating is w_i Gamma_i, and so on."""
+        if not (np.allclose(photons.L0, self.L0) and np.allclose(photons.L1, self.L1)):
+            raise ValueError("photon groups differ from the tables' groups")
+        from .closures import area_node
+
+        a_star, w = area_node(self.grid, N, M, self.method)
+        self.a = a_star
+        self.tables = [rg.GroupChargingTable(self.table_at(i, a), egy=photons.egy) for i, a in enumerate(a_star)]
+        ions = [(n_e, 1.0, M_H)] if ions is None else list(ions)
+        res = [gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None, lattice=self.lattice)
+               for gt in self.tables]
+        env = {"T": float(T), "n_e": float(n_e), "ions": ions, "G0_bg": float(G0_bg),
+               "N": np.array(photons.N, float), "c_red": float(c_red)}
+        return ChargeState(self, res, env), w
+
+
 class ChargeState:
-    """Charge distributions on a ``ChargingModel``'s radius grid."""
+    """Charge distributions on a ``ChargingModel``'s radius grid (or an ``AreaNodeCharging``'s area nodes)."""
 
     def __init__(self, model, results, env):
         self.model = model

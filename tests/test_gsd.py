@@ -1074,6 +1074,48 @@ def test_table_sticking_scalars_drive_the_solve():
     assert sp > wd[0] and seam["Zmean"] < base["Zmean"]
 
 
+def test_blended_tables_are_the_node_tables_at_their_radii():
+    """blend_table between the tables of two radii returns each of them at its own radius (tabulated arrays and the
+    analytic limits); in between, the heating per unit area stays between the two ends."""
+    from pycalima.gsd.charging import blend_table
+    from pycalima.models.dust_charge import rt_group_charging as rg
+
+    radii = (1.0e-7, 2.66e-7)
+    tabs = [rg.build_bin_table("graphite", a, U=rg.u_grid(n=241), Ts=np.geomspace(3e3, 3e6, 13),
+                               T_hot=np.geomspace(1e3, 1e9, 13), label="blend") for a in radii]
+    for t, a in zip(tabs, radii, strict=True):
+        b = blend_table(tabs[0], tabs[1], a)
+        for k in rg.TABULATED_KEYS:
+            np.testing.assert_allclose(b[k], t[k], rtol=1e-13, atol=0.0, err_msg=k)
+        assert (b["W"], b["Zmin"], b["Zmax"]) == (t["W"], t["Zmin"], t["Zmax"])
+        np.testing.assert_array_equal(b["recomb_Zth"], t["recomb_Zth"])
+    am = float(np.sqrt(radii[0] * radii[1]))
+    mid = blend_table(tabs[0], tabs[1], am)
+    assert mid["a"] == am
+    per_area = [t["K_bg"] / t["a"] ** 2 for t in (tabs[0], mid, tabs[1])]
+    lo, hi = np.minimum(per_area[0], per_area[2]), np.maximum(per_area[0], per_area[2])
+    assert np.all(per_area[1] >= lo * (1 - 1e-12)) and np.all(per_area[1] <= hi * (1 + 1e-12))
+
+
+def test_area_node_charging_of_spike_bins_is_the_single_grain_solve():
+    """Bins whose grains all sit at their lower edge: the area node is that edge, the weight the bin's number, and the
+    solve the ordinary single-radius one there."""
+    from pycalima.gsd.charging import AreaNodeCharging, ChargingModel
+    from pycalima.gsd.grid import MassGrid
+
+    grid = MassGrid.from_radii(1e-7, 1e-6, 2.0 / 3.0, 2.2)
+    assert grid.n_bins == 2
+    N = np.array([1e-6, 2e-7])
+    M = N * grid.m_edges[:-1]
+    ph = _agn_photons(1e45, 30.0, xray=False)
+    state, w = AreaNodeCharging("graphite", grid, radii_per_bin=2).solve(N, M, ph, T=1e4, n_e=1.0)
+    ref = ChargingModel("graphite", grid.a_edges[:-1]).solve(ph, T=1e4, n_e=1.0)
+    np.testing.assert_allclose(state.a, grid.a_edges[:-1], rtol=1e-12)
+    np.testing.assert_allclose(w, N, rtol=1e-12)
+    np.testing.assert_allclose(state.Zmean, ref.Zmean, rtol=1e-9)
+    np.testing.assert_allclose(state.Gamma, ref.Gamma, rtol=1e-9)
+
+
 def test_coulomb_explosion_follows_tazaki_ichikawa_kokubo_2020(silicate_charging):
     """TIK20 (L45 = 10, T = 1e4 K, n_H = 1e2, S_max = 1e10): grains below
     a_CE ~ 0.01-0.1 um explode; a_CE falls much more slowly than the
