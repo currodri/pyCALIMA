@@ -17,6 +17,10 @@ pahchem's group tables (``pahchem.group_tables``, one per bin, on the cell's pho
 (``PAHGroupTable.solve``) and gives per molecule f(Z), Gamma, Lambda and the absorption rate R_abs with its split over
 the groups (the photo-release term's input, ``release``). The tables hold the charge to 1e5 K (no hot-gas collisions;
 ``group_tables.T_VALID_MAX_K``); above it the charge is the tables' clamped value (labelled).
+
+The hydrogen tables' ``<label>.npz`` hold every ``pahchem.hydrogen_observables`` quantity per molecule on the same
+axes; ``MolecularTables.observable`` reads them (multilinear in log10 of the value, clamped to the axes), e.g. 'h2',
+the H2 released per molecule per second (in the tables' field shape, Draine 1978 scaled by G0: labelled).
 """
 from __future__ import annotations
 
@@ -84,6 +88,9 @@ class MolecularTables:
     def __init__(self, cold, hot=None, t_join=1e4, groups=None):
         from pycalima.solvers.table_io import build_pah_photolysis_interpolator_nd
 
+        self._npz = {"cold": [Path(str(p).replace("_carbon.dat", ".npz")) for p in cold],
+                     "hot": None if hot is None else [Path(str(p).replace("_carbon.dat", ".npz")) for p in hot]}
+        self._obs = {}
         self.cold = [build_pah_photolysis_interpolator_nd(p)[0] for p in cold]
         self.hot = None if hot is None else [build_pah_photolysis_interpolator_nd(p)[0] for p in hot]
         if self.hot is not None and len(self.hot) != len(self.cold):
@@ -118,6 +125,25 @@ class MolecularTables:
         tabs = self.hot if (self.hot is not None and T > self.t_join) else self.cold
         x = (np.log10(max(g0, 1e-30)), np.log10(n_h), np.log10(T), np.log10(max(n_e / n_h, 1e-30)))
         return np.array([2.0 * 10.0 ** f(*x) for f in tabs])
+
+    def observable(self, name, g0, n_h, T, n_e):
+        """The npz observable ``name`` per molecule, per molecular bin (``pahchem.hydrogen_observables``; zero where
+        the table is), from the hot set above ``t_join`` as ``carbon_loss``."""
+        from scipy.interpolate import RegularGridInterpolator
+
+        kind = "hot" if (self._npz["hot"] is not None and T > self.t_join) else "cold"
+        if (kind, name) not in self._obs:
+            fs = []
+            for f in self._npz[kind]:
+                d = np.load(f, allow_pickle=True)
+                axes = tuple(np.asarray(d[k], float) for k in ("log_g0", "log_nh", "log_t", "log_xe"))
+                v = np.asarray(d[name], float)
+                fs.append((RegularGridInterpolator(axes, np.log10(np.maximum(v, 1e-300))),
+                           np.array([a[0] for a in axes]), np.array([a[-1] for a in axes])))
+            self._obs[(kind, name)] = fs
+        x = np.array([np.log10(max(g0, 1e-30)), np.log10(n_h), np.log10(T), np.log10(max(n_e / n_h, 1e-30))])
+        out = np.array([10.0 ** float(f(np.clip(x, lo, hi)[None, :])[0]) for f, lo, hi in self._obs[(kind, name)]])
+        return np.where(out > 1e-299, out, 0.0)
 
     def _background(self):
         """(F_g / G0 [cm^-2 s^-1], mean energy [eV]) of the Mathis field (``group_tables``' UV background) in the

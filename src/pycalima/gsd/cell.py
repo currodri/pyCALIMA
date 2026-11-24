@@ -159,8 +159,13 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
             heat = w * st.Gamma
             cool = w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results])
             expl = st.explosion_rate(S_max=opt.s_max) if "explosion" in opt.processes else None
-        mol, S = None, None
+        mol, S, h2 = None, None, None
         mt, mb = c.molecular_tables, c.molecular_bins
+        if mt is not None and mb > 0:
+            from .molecular import habing_g0
+
+            g0 = inputs.G0_bg + habing_g0(inputs.photons)
+            h2 = c.N[:mb] * mt.observable("h2", g0, inputs.n_H, inputs.T, inputs.n_e)[:mb]
         if mt is not None and mt.groups is not None and mb > 0:
             mol = mt.charge(inputs.photons, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
             heat[:mb] = c.N[:mb] * mol.gamma
@@ -168,7 +173,7 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
             if c.pair_rule is not None:
                 S = _release(c, inputs, opt, st, mol, a_star)
         for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
-                       (out.explosion, expl), (out.molecular, mol), (out.release, S)):
+                       (out.explosion, expl), (out.molecular, mol), (out.release, S), (out.h2, h2)):
             lst.append(v)
     return out
 
@@ -221,8 +226,9 @@ class Precool:
     """What precool gives the gas and the update, per composition (lists in the order of the compositions):
     heating and cooling [erg s^-1 cm^-3], the charge state on the area nodes (``charging.ChargeState``) and the bins'
     weights, the explosion rate per bin [s^-1] and the grain area per unit volume [cm^2 cm^-3]; with molecular group
-    tables the molecular bins' state (``molecular.MolecularState``) and S_eff [molecular bins, nano-grain bins]
-    (None otherwise, or when absent)."""
+    tables the molecular bins' state (``molecular.MolecularState``) and S_eff [molecular bins, nano-grain bins]; with
+    molecular tables the H2 the molecular bins release [cm^-3 s^-1] per bin (the hydrogen tables' 'h2', at the cell's
+    G0 = G0_bg + the groups' 6-13.6 eV); None otherwise, or when absent."""
 
     heating: list
     cooling: list
@@ -232,6 +238,7 @@ class Precool:
     area: list
     molecular: list = field(default_factory=list)
     release: list = field(default_factory=list)
+    h2: list = field(default_factory=list)
 
     @property
     def total_heating(self):

@@ -39,11 +39,14 @@ def dustem(monkeypatch):
         pytest.skip("DustEM THEMIS data not available; set $CALIMA_DUSTEM_DIR")
 
 
-def table(path, value):
-    """A pahchem-nd table of log10(rate / 2); ``value`` a constant or a function of the axes."""
+def table(path, value, h2=1e-12):
+    """A pahchem-nd table of log10(rate / 2) (``value`` a constant or a function of the axes) and its npz of
+    observables, with 'h2' (a constant or a function of the axes, per molecule per second)."""
     g = np.meshgrid(*(AXES[k] for k in ("log_g0", "log_nh", "log_t", "log_xe")), indexing="ij")
     v = value(*g) if callable(value) else np.full(g[0].shape, float(value))
     write_nd_table(path, AXES, v, ["# test table"])
+    hv = h2(*g) if callable(h2) else np.full(g[0].shape, float(h2))
+    np.savez(str(path).replace("_carbon.dat", ".npz"), h2=hv, **AXES)
     return path
 
 
@@ -263,3 +266,21 @@ def test_the_molecules_charges_and_s_eff_reach_the_collisions(tmp_path, dustem):
     Z, w = pts(g.a_centres)
     np.testing.assert_allclose(Z[:4] @ w, pre.molecular[0].mean, rtol=1e-12)
     assert np.all(Z[4:] == 0.0)
+
+
+def test_observables_read_the_npz_and_precool_gives_the_molecular_h2(tmp_path):
+    from dataclasses import replace
+
+    tables(tmp_path, [-10.0] * 4)
+    d = tmp_path / "cold"
+    table(d / "bin_nc189-400_carbon.dat", -10.0, h2=lambda lg, ln, lt, lx: 10.0 ** (lg - 12.0))
+    mt = MolecularTables.from_directories(d)
+    h2 = mt.observable("h2", 100.0, 10.0, 50.0, 0.01)
+    np.testing.assert_allclose(h2, [1e-12, 1e-12, 1e-12, 1e-10], rtol=1e-9)
+    assert mt.observable("h2", 1e9, 10.0, 50.0, 0.01)[3] == pytest.approx(1e-8, rel=1e-9)     # clamped at log G0 4
+    c = carbon(n_H=30.0)
+    c.molecular_bins = 4
+    c.molecular_tables = mt
+    pre = cell.precool([c], replace(inputs(), G0_bg=100.0))
+    np.testing.assert_allclose(pre.h2[0], c.N[:4] * h2, rtol=1e-9)
+    assert pre.molecular == [None] and pre.release == [None]          # no group tables: no charge, no S_eff
