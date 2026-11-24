@@ -101,6 +101,42 @@ class Options:
     overflow_gate: float = 1e-6          # the overflow bin is passive at or below this share of the mass
     overflow_warn: float = 0.01
     strict: bool = False                 # raise instead of warning when the overflow bin fills up
+    s_max: float = 1e10                  # tensile strength of the grains [erg cm^-3] (flawed a-C, labelled)
+
+
+def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Precool:
+    """The dust at the substep's start, for the gas and the update (module doc).
+
+    Per composition with a charging model: one charge solve per bin at its area node (``charging.AreaNodeCharging``);
+    heating Gamma_i = w_i Gamma(a*_i) and cooling Lambda_i = w_i (Lambda + Lambda_auto)(a*_i) with the bins' weights
+    w_i = int a^2 dN / a*_i^2; the explosion rate at each area node (``ChargeState.explosion_rate`` with
+    ``Options.s_max``), held over the bin. Without a charging model the grains are neutral: no heating, cooling or
+    explosion. Always: the grain area pi int a^2 dN per bin (``closures.area_node``)."""
+    from .charging import PhotonGroups
+    from .closures import area_node
+
+    opt = opt or Options()
+    out = Precool([], [], [], [], [], [])
+    for c in compositions:
+        a_star, w = area_node(c.grid, c.N, c.M, c.method)
+        out.area.append(np.pi * w * a_star ** 2)
+        if c.charging is None:
+            z = np.zeros(c.grid.n_bins)
+            for lst, v in ((out.heating, z), (out.cooling, z.copy()), (out.states, None), (out.weights, w),
+                           (out.explosion, None)):
+                lst.append(v)
+            continue
+        ph = inputs.photons
+        if ph is None:
+            L0, L1 = c.charging.L0, c.charging.L1
+            ph = PhotonGroups(L0, L1, np.zeros(L0.size), np.sqrt(L0 * L1))
+        st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
+        out.states.append(st)
+        out.weights.append(w)
+        out.heating.append(w * st.Gamma)
+        out.cooling.append(w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results]))
+        out.explosion.append(st.explosion_rate(S_max=opt.s_max) if "explosion" in opt.processes else None)
+    return out
 
 
 @dataclass

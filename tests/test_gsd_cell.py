@@ -122,3 +122,26 @@ def test_power_law_deposition_is_exact():
     mbar = dM[inside] / dN[inside]
     assert np.all(mbar >= g.m_edges[:-1][inside] * (1 - 1e-12)) and np.all(mbar <= g.m_edges[1:][inside] * (1 + 1e-12))
     assert deposit_power_law(g, 1.0, 1e-8, 3e-8, 3.3)[2] == 1.0          # all below the grid
+
+
+def test_precool_is_the_area_node_solve_weighted_by_the_bins():
+    """Spike bins (all grains at the lower edge): heating and cooling are N times the single-grain rates there, the
+    area pi N a_L^2; neutral compositions give none."""
+    from pycalima.gsd.charging import AreaNodeCharging, ChargingModel, PhotonGroups
+    from pycalima.gsd.grid import MassGrid
+
+    g = MassGrid.from_radii(1e-7, 1e-6, 2.0 / 3.0, 2.2)
+    N = np.array([1e-6, 2e-7])
+    comp = cell.Composition(g, N.copy(), N * g.m_edges[:-1], "C", PER_GRAM_C, get_material("themis_ac").shatter,
+                            charging=AreaNodeCharging("graphite", g, radii_per_bin=2))
+    L0, L1 = comp.charging.L0, comp.charging.L1
+    ph = PhotonGroups(L0, L1, np.zeros(L0.size), np.sqrt(L0 * L1))
+    inp = cell.CellInputs(T=100.0, n_H=30.0, n_e=0.03, gas={"C": 3e-3}, photons=ph, G0_bg=1.0)
+    pre = cell.precool([comp, carbon()], inp)
+    ref = ChargingModel("graphite", g.a_edges[:-1]).solve(ph, T=100.0, n_e=0.03, G0_bg=1.0)
+    lam = np.array([r["Lambda"] + r["Lambda_auto"] for r in ref.results])
+    np.testing.assert_allclose(pre.heating[0], N * ref.Gamma, rtol=1e-9)
+    np.testing.assert_allclose(pre.cooling[0], N * lam, rtol=1e-9)
+    np.testing.assert_allclose(pre.area[0], np.pi * N * g.a_edges[:-1] ** 2, rtol=1e-12)
+    assert pre.explosion[0].shape == (2,) and pre.total_heating == pytest.approx(float(np.sum(N * ref.Gamma)))
+    assert pre.states[1] is None and np.all(pre.heating[1] == 0.0) and pre.explosion[1] is None
