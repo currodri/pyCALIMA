@@ -29,7 +29,7 @@ import numpy as np
 from .grid import MassGrid
 
 #: the processes ``update`` knows; ``Options.processes`` switches them
-PROCESSES = frozenset({"shattering", "coagulation", "explosion", "sputtering", "accretion"})
+PROCESSES = frozenset({"shattering", "coagulation", "explosion", "sputtering", "carbon_loss", "accretion"})
 
 
 @dataclass
@@ -43,7 +43,8 @@ class Composition:
     ``a_frag_min``: the smallest fragment radius [cm] (default the grid's lowest edge); ``molecular_bins``: how many
     of the lowest bins are molecular (carbon below N_C,max): the grain processes skip them (accretion, since molecular
     growth is off by default; classical sputtering and grain Coulomb explosion, since their loss follows the molecular
-    tables), while collisions treat them by the pair rule and grains eroded from above join them; ``sublimation``: the
+    tables), while collisions treat them by the pair rule and grains eroded from above join them;
+    ``molecular_tables``: their carbon loss (``molecular.MolecularTables``, process 'carbon_loss'); ``sublimation``: the
     ``sublimation_kinetics`` model of accretion and sublimation, or None; ``charging``: a
     ``charging.AreaNodeCharging`` (precool), or None for neutral grains; ``pair_rule``: carbon's ``pairs.PairRule``,
     or None. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
@@ -61,6 +62,7 @@ class Composition:
     pair_rule: object = None
     a_frag_min: float | None = None
     molecular_bins: int = 0
+    molecular_tables: object = None
     overflow_M: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
     _collision_model: object = field(default=None, repr=False)
@@ -220,6 +222,43 @@ def _collisions(c, g, inputs, opt, pre_state):
     return c._collision_model
 
 
+def _erosion_rate(c, g, inputs, grains, molecules):
+    """(da/dt(a) [cm/s], knots) of the erosion step: classical sputtering of the grain bins (stopping at N_C,max, so
+    that grains eroded from above join the molecular bins) and the molecular bins' tabulated carbon loss, each C atom
+    lost per molecule a mass m_C, as a shift (what erodes below the grid goes to the gas). The molecular rate jumps at
+    the molecular bins' edges; the knots (a pair at each) keep the velocity table from smearing a jump into the bin
+    above, which would leak the first grain bin into the molecules where only the molecules erode."""
+    from .molecular import habing_g0
+
+    mb = c.molecular_bins
+    edges = g.a_edges
+    a_mol = float(edges[mb]) if mb else 0.0
+    f_gr = c.erosion(inputs.T, inputs.n_H) if grains else None
+    dmdt = None
+    if molecules:
+        g0 = inputs.G0_bg + habing_g0(inputs.photons)
+        dmdt = -c.molecular_tables.carbon_loss(g0, inputs.n_H, inputs.T, inputs.n_e)[:mb] * M_CARBON
+
+    def adot(a):
+        a = np.asarray(a, float)
+        out = np.zeros(a.shape)
+        if f_gr is not None:                    # with the molecules on, grains at N_C,max keep moving into them
+            out = np.where(a >= a_mol if molecules else a > a_mol, f_gr(a), 0.0)
+        if dmdt is not None:
+            i = np.clip(np.searchsorted(edges, a, side="right") - 1, 0, mb - 1)
+            out = np.where(a < a_mol, dmdt[i] / (4.0 * np.pi * g.rho * a * a), out)
+        return out
+
+    knots = None
+    if molecules:
+        e = np.asarray(edges[1:mb + 1], float)
+        knots = np.concatenate([e * (1.0 - 1e-9), e])
+    return adot, knots
+
+
+M_CARBON = 12.011 * 1.66053906660e-24
+
+
 def _explode(g, N, M, k_bin, dt, opt, a_star):
     """Coulomb explosion at the per-bin rates k_bin [s^-1] (precool's rate at each bin's area node, held over the
     bin: labelled), a sink that removes N and M alike, exactly; returns (N, M, mass to the gas)."""
@@ -276,14 +315,11 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             kb[:mb] = 0.0
             N, M, to_gas = _explode(g, N, M, kb, dt, opt, pre.states[k].a)
             gas[c.key] += to_gas * c.per_gram
-        if "sputtering" in opt.processes and c.sputtering is not None:
-            adot = c.erosion(inputs.T, inputs.n_H)
-            if mb:
-                a_mol = float(g.a_edges[mb])
-
-                def adot(a, f=adot, a_mol=a_mol):         # grains stop at N_C,max: below it the molecular tables act
-                    return np.where(np.asarray(a) > a_mol, f(a), 0.0)
-            N, M, dM = sputter(g, N, M, adot, dt, method=c.method)
+        erode_gr = "sputtering" in opt.processes and c.sputtering is not None
+        erode_mol = "carbon_loss" in opt.processes and c.molecular_tables is not None and mb > 0
+        if erode_gr or erode_mol:
+            adot, knots = _erosion_rate(c, g, inputs, erode_gr, erode_mol)
+            N, M, dM = sputter(g, N, M, adot, dt, method=c.method, knots=knots)
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
             gg = g if mb == 0 else MassGrid(g.m_edges[mb:], g.rho)
