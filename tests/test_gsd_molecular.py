@@ -1,6 +1,8 @@
 """The molecular bins' tables (``pycalima.gsd.molecular``) and their carbon loss in the operator."""
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 from test_gsd_cell import YR, carbon, inputs
@@ -17,9 +19,24 @@ AXES = {"log_g0": np.array([-2.0, 0.0, 2.0, 4.0]), "log_nh": np.array([-1.0, 2.0
         "log_t": np.array([1.0, 2.0, 4.0]), "log_xe": np.array([-6.0, -3.0, 0.0])}
 
 
+_DUSTEM_DIR = os.environ.get("CALIMA_DUSTEM_DIR")
+
+
 @pytest.fixture(autouse=True)
 def _clean_env(isolated_env):
     yield
+
+
+@pytest.fixture
+def dustem(monkeypatch):
+    """DustEM's THEMIS data (the release term's IR cooling) inside isolated_env: the ambient $CALIMA_DUSTEM_DIR,
+    or skip."""
+    from pycalima._datasets import get_dataset
+
+    if _DUSTEM_DIR:
+        monkeypatch.setenv("CALIMA_DUSTEM_DIR", _DUSTEM_DIR)
+    if get_dataset("dustem-themis-cm20").locate() is None:
+        pytest.skip("DustEM THEMIS data not available; set $CALIMA_DUSTEM_DIR")
 
 
 def table(path, value):
@@ -32,7 +49,7 @@ def table(path, value):
 
 def tables(tmp_path, values, tag="cold"):
     d = tmp_path / tag
-    d.mkdir(exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True)
     edges = (20, 42, 89, 189, 400)
     return [table(d / f"bin_nc{lo}-{hi}_carbon.dat", v) for lo, hi, v in zip(edges[:-1], edges[1:], values, strict=True)]
 
@@ -176,3 +193,73 @@ def test_pah_ions_names_the_singly_charged_ions_by_mass():
     assert pah_ions(None, 0.5) == (("H+", 0.5),)
     out = pah_ions([(1.0, 1, 4.0026 * AMU), (2.0, 1.0, 1.008 * AMU), (3.0, 2, 4.0026 * AMU), (4.0, 1, 12.0 * AMU)], 1.0)
     assert out == (("He+", 1.0), ("H+", 2.0), ("C+", 4.0))
+
+
+def molecular_carbon(tmp_path, pair_rule=False, **kw):
+    from pycalima.gsd.carbon import CarbonLayout
+    from pycalima.gsd.pairs import PairRule
+
+    c = carbon(n_H=kw.pop("n_H", 30.0))
+    c.molecular_bins = 4
+    c.molecular_tables = MolecularTables(tables(tmp_path, [-40.0] * 4), groups=[fake_group_table(**kw)] * 4)
+    if pair_rule:
+        c.pair_rule = PairRule.from_layout(CarbonLayout(), c.grid)
+    return c
+
+
+def test_precool_takes_the_molecular_bins_heating_and_cooling_from_their_tables(tmp_path):
+    from dataclasses import replace
+
+    c = molecular_carbon(tmp_path)
+    inp = replace(inputs(), photons=agn_photons(1e-8), G0_bg=1.0)
+    pre = cell.precool([c], inp)
+    st = c.molecular_tables.charge(inp.photons, inp.T, inp.n_e, None, 1.0)
+    np.testing.assert_allclose(pre.heating[0][:4], c.N[:4] * st.gamma, rtol=1e-12)
+    np.testing.assert_allclose(pre.cooling[0][:4], c.N[:4] * st.lam, rtol=1e-12)
+    assert np.all(pre.heating[0][4:] == 0.0)                  # no grain charging model: neutral grains
+    assert pre.release == [None]                              # no pair rule
+    assert pre.molecular[0].f.shape == (4, 4)
+
+
+def test_s_eff_is_one_in_the_dark_and_zero_without_burial(tmp_path, dustem):
+    """No light: S_eff = 1. Light and no growth (burial capped at 1 Gyr): small molecules on the smallest hosts are
+    released (S ~ 0), none on 5-20 nm hosts; growth by accretion buries them, raising S; Y_pd releases on any
+    host."""
+    from dataclasses import replace
+
+    c = molecular_carbon(tmp_path, pair_rule=True)
+    dark = cell.precool([c], inputs(), cell.Options())
+    assert np.all(dark.release[0] == 1.0) and dark.release[0].shape == (4, 3)
+    lit = replace(inputs(), photons=agn_photons(1e-6), G0_bg=1e3)
+    no_burial = cell.precool([c], lit, cell.Options(processes=frozenset({"coagulation"}))).release[0]
+    assert no_burial[0, 0] < 1e-4                             # small molecules on ~1.5 nm hosts are released
+    assert np.all(no_burial[:, -1] > 1 - 1e-6)                  # 5-20 nm hosts: no thermal release
+    burial = cell.precool([c], lit, cell.Options()).release[0]
+    assert np.all(burial >= no_burial) and 0.0 < burial[0, 0] < 1.0
+    pd = cell.precool([c], lit, cell.Options(processes=frozenset({"coagulation"}), y_pd=1e-6)).release[0]
+    assert np.all(pd < 1e-2)                                  # photodesorption with no burial releases everything
+
+
+def test_the_molecules_charges_and_s_eff_reach_the_collisions(tmp_path, dustem):
+    """S_eff = 0 on the nano-grains keeps molecules off them, so fewer freeze out; the collisions see the molecular
+    bins' charges below N_C,max and the grains' (here neutral) above."""
+    from dataclasses import replace
+
+    lit = replace(inputs(n_H=1e3, T=50.0), photons=agn_photons(1e-6), G0_bg=1e3)
+    opt = cell.Options(processes=frozenset({"coagulation"}), table_ppd=None)
+    kept = {}
+    for name in ("released", "stuck"):
+        c = molecular_carbon(tmp_path / name, pair_rule=True, n_H=1e3)
+        pre = cell.precool([c], lit, opt)
+        if name == "stuck":
+            pre.release[0] = np.ones_like(pre.release[0])
+        M0 = c.M[:4].sum()
+        res = cell.update([c], lit, pre, 3e4 * YR, opt)
+        assert abs(res.conservation["C"]) < 1e-12
+        kept[name] = c.M[:4].sum() / M0
+    assert kept["released"] > kept["stuck"]
+    g = c.grid
+    pts = cell._charge_points(None, pre.molecular[0], g.a_edges, 4)
+    Z, w = pts(g.a_centres)
+    np.testing.assert_allclose(Z[:4] @ w, pre.molecular[0].mean, rtol=1e-12)
+    assert np.all(Z[4:] == 0.0)

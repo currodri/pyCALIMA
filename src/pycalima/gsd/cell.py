@@ -12,6 +12,11 @@ RAMSES-CALIMA calls the dust twice per cooling substep (``dust_interface.f90``):
   4. the exchange with the gas (accretion and sublimation, ``exchange.exchange_step``), last, as the stiffest
      coupling.
 
+Carbon's molecular bins (``Composition.molecular_bins``) take their charge, heating, cooling and photon absorption
+from pahchem's group tables and their carbon loss from the hydrogen tables (``molecular.MolecularTables``); precool
+then also gives the collisions the molecules' charges and the photo-release factor S_eff of molecules sticking to
+nano-grains (``release``), per molecular bin and nano-grain bin.
+
 These two calls are the whole interface: their inputs and outputs are plain per-cell quantities, and nothing
 outside this module calls the operators below for a cell. A composition's grid may carry the overflow bin
 (``grid.MassGrid.with_overflow``): while it holds at most ``Options.overflow_gate`` of the composition's mass it is
@@ -44,7 +49,8 @@ class Composition:
     of the lowest bins are molecular (carbon below N_C,max): the grain processes skip them (accretion, since molecular
     growth is off by default; classical sputtering and grain Coulomb explosion, since their loss follows the molecular
     tables), while collisions treat them by the pair rule and grains eroded from above join them;
-    ``molecular_tables``: their carbon loss (``molecular.MolecularTables``, process 'carbon_loss'); ``sublimation``: the
+    ``molecular_tables``: their tables (``molecular.MolecularTables``): carbon loss (process 'carbon_loss'), and with
+    group tables their charge, heating and cooling in precool and S_eff in the pair rule; ``sublimation``: the
     ``sublimation_kinetics`` model of accretion and sublimation, or None; ``charging``: a
     ``charging.AreaNodeCharging`` (precool), or None for neutral grains; ``pair_rule``: carbon's ``pairs.PairRule``,
     or None. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
@@ -116,6 +122,8 @@ class Options:
     overflow_warn: float = 0.01
     strict: bool = False                 # raise instead of warning when the overflow bin fills up
     s_max: float = 1e10                  # tensile strength of the grains [erg cm^-3] (flawed a-C, labelled)
+    y_pd: float = 0.0                    # photodesorption yield of molecules on nano-grains ('calibrated', A5)
+    t_bury_max: float = 3.15576e16       # [s] cap of the burial time (1 Gyr, labelled): slower release counts as none
 
 
 def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Precool:
@@ -125,7 +133,12 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
     heating Gamma_i = w_i Gamma(a*_i) and cooling Lambda_i = w_i (Lambda + Lambda_auto)(a*_i) with the bins' weights
     w_i = int a^2 dN / a*_i^2; the explosion rate at each area node (``ChargeState.explosion_rate`` with
     ``Options.s_max``), held over the bin. Without a charging model the grains are neutral: no heating, cooling or
-    explosion. Always: the grain area pi int a^2 dN per bin (``closures.area_node``)."""
+    explosion. Always: the grain area pi int a^2 dN per bin (``closures.area_node``).
+
+    With molecular group tables (``Composition.molecular_tables``): the molecular bins' heating and cooling are
+    N_i Gamma_i and N_i Lambda_i of their charge balance (``MolecularTables.charge``), in place of the grain tables';
+    their charges enter the collisions; and with a pair rule, S_eff of each molecular bin on each nano-grain bin
+    (``_release``)."""
     from .charging import PhotonGroups
     from .closures import area_node
 
@@ -135,29 +148,81 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
         a_star, w = area_node(c.grid, c.N, c.M, c.method)
         out.area.append(np.pi * w * a_star ** 2)
         if c.charging is None:
-            z = np.zeros(c.grid.n_bins)
-            for lst, v in ((out.heating, z), (out.cooling, z.copy()), (out.states, None), (out.weights, w),
-                           (out.explosion, None)):
-                lst.append(v)
-            continue
-        ph = inputs.photons
-        if ph is None:
-            L0, L1 = c.charging.L0, c.charging.L1
-            ph = PhotonGroups(L0, L1, np.zeros(L0.size), np.sqrt(L0 * L1))
-        st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
-        out.states.append(st)
-        out.weights.append(w)
-        out.heating.append(w * st.Gamma)
-        out.cooling.append(w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results]))
-        out.explosion.append(st.explosion_rate(S_max=opt.s_max) if "explosion" in opt.processes else None)
+            st, expl = None, None
+            heat, cool = np.zeros(c.grid.n_bins), np.zeros(c.grid.n_bins)
+        else:
+            ph = inputs.photons
+            if ph is None:
+                L0, L1 = c.charging.L0, c.charging.L1
+                ph = PhotonGroups(L0, L1, np.zeros(L0.size), np.sqrt(L0 * L1))
+            st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
+            heat = w * st.Gamma
+            cool = w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results])
+            expl = st.explosion_rate(S_max=opt.s_max) if "explosion" in opt.processes else None
+        mol, S = None, None
+        mt, mb = c.molecular_tables, c.molecular_bins
+        if mt is not None and mt.groups is not None and mb > 0:
+            mol = mt.charge(inputs.photons, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
+            heat[:mb] = c.N[:mb] * mol.gamma
+            cool[:mb] = c.N[:mb] * mol.lam
+            if c.pair_rule is not None:
+                S = _release(c, inputs, opt, st, mol, a_star)
+        for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
+                       (out.explosion, expl), (out.molecular, mol), (out.release, S)):
+            lst.append(v)
     return out
+
+
+def _release(c, inputs, opt, state, mol, a_star):
+    """S_eff [molecular bins, nano-grain bins] (``release``): 1 / (1 + release_rate t_bury), each molecular bin at
+    its mean N_C, each host at its area node a*, t_bury from the host's growth by accretion in the cell (the
+    accretion law of ``update``, net of sublimation; growth by coagulation and by the molecules themselves is not
+    counted, labelled: it would bury faster), capped at ``Options.t_bury_max`` (without growth it is infinite, and a
+    release rate that underflows to ~1e-300 s^-1 on a 10 nm host would still empty it)."""
+    from .release import burial_time, release_rate, s_eff
+
+    g, mb = c.grid, c.molecular_bins
+    e = g.a_edges
+    hosts = [j for j in range(mb, g.n_bins) if e[j + 1] <= c.pair_rule.a_nano * (1.0 + 1e-9)]
+    m_c = np.sqrt(g.m_edges[:-1] * g.m_edges[1:])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        nc = np.where(c.N > 0, c.M / np.maximum(c.N, 1e-300), m_c) / M_CARBON
+        a_h = np.where(np.isfinite(a_star) & (a_star > 0), a_star, g.a_centres)[hosts]
+    if c.sublimation is not None and "accretion" in opt.processes and hosts:
+        pop = _grain_population(c, g, c.N, c.M, inputs, state)
+        t_bury = burial_time(np.maximum(pop.adot(inputs.gas[c.key], inputs.T)(a_h), 0.0))
+    else:
+        t_bury = np.full(len(hosts), np.inf)
+    t_bury = np.minimum(t_bury, opt.t_bury_max)
+    S = np.ones((mb, len(hosts)))
+    for i in range(mb):
+        for jj in range(len(hosts)):
+            rate = release_rate(nc[i], a_h[jj], mol.absorbed[i], mol.energy, rho=g.rho, y_pd=opt.y_pd)
+            S[i, jj] = float(s_eff(rate, 1.0, t_bury[jj], 0.0))
+    return S
+
+
+def _grain_population(c, g, N, M, inputs, state):
+    """The grain bins (above the molecular ones) as an ``exchange.Population`` for accretion and sublimation: the
+    ionised share of the key element accretes with the grains' ion Coulomb factor from precool's ``state``."""
+    from .exchange import Population
+
+    mb = c.molecular_bins
+    gg = g if mb == 0 else MassGrid(g.m_edges[mb:], g.rho)
+    x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
+    focus = None if state is None or x_n >= 1.0 else state.ion_focusing_of()
+    return Population(c.sublimation, gg, N[mb:].copy(), M[mb:].copy(),
+                      np.broadcast_to(np.asarray(inputs.T_d, float), (g.n_bins,))[mb:].copy(),
+                      nucleation=False, method=c.method, neutral_fraction=x_n, ion_focusing=focus)
 
 
 @dataclass
 class Precool:
     """What precool gives the gas and the update, per composition (lists in the order of the compositions):
     heating and cooling [erg s^-1 cm^-3], the charge state on the area nodes (``charging.ChargeState``) and the bins'
-    weights, the explosion rate per bin [s^-1] and the grain area per unit volume [cm^2 cm^-3]."""
+    weights, the explosion rate per bin [s^-1] and the grain area per unit volume [cm^2 cm^-3]; with molecular group
+    tables the molecular bins' state (``molecular.MolecularState``) and S_eff [molecular bins, nano-grain bins]
+    (None otherwise, or when absent)."""
 
     heating: list
     cooling: list
@@ -165,6 +230,8 @@ class Precool:
     weights: list
     explosion: list
     area: list
+    molecular: list = field(default_factory=list)
+    release: list = field(default_factory=list)
 
     @property
     def total_heating(self):
@@ -202,24 +269,69 @@ def _subgrid(c: Composition, active):
     return MassGrid(c.grid.m_edges[:-1], c.grid.rho), c.N[:-1].copy(), c.M[:-1].copy()
 
 
-def _collisions(c, g, inputs, opt, pre_state):
+def _collisions(c, g, inputs, opt, pre_state, mol=None, S=None):
     """The composition's collision model for the cell's conditions, kept while they do not change (its pair table is
-    built once per condition, as RAMSES's tables are); a charge state from precool makes a new one."""
+    built once per condition, as RAMSES's tables are); a charge state from precool makes a new one. ``mol``: the
+    molecular bins' charges replace the grain state's on the molecular radii; ``S``: the pair rule's S_eff."""
+    from dataclasses import replace
+
     from .shattering import GrainCollisions
     from .velocities import RelativeVelocity
 
-    charges = None if pre_state is None else pre_state.charge_points
+    mb = c.molecular_bins
+    charges = _charge_points(pre_state, mol, g.a_edges, mb)
     key = (inputs.T, inputs.n_H, inputs.v_turb, inputs.L, id(pre_state), g.n_bins, opt.processes, opt.n_speed,
-           opt.table_ppd, opt.alpha_frag)
+           opt.table_ppd, opt.alpha_frag, id(mol), id(S))
     if c._collision_key != key:
+        rule = c.pair_rule
+        if rule is not None and S is not None:
+            rule = replace(rule, release=_release_lookup(S, g.a_edges, mb))
         rv = RelativeVelocity(T=inputs.T, n_H=inputs.n_H, mu=1.4, v_turb=inputs.v_turb, L=inputs.L, charges=charges)
         c._collision_model = GrainCollisions(
             c.material, rv, law="KT10", alpha_f=opt.alpha_frag, coagulation="coagulation" in opt.processes,
             v_shat=None if "shattering" in opt.processes else 1e30,
             a_frag_min=float(g.a_edges[0] if c.a_frag_min is None else c.a_frag_min), collector="remove",
-            n_speed=opt.n_speed, table_ppd=opt.table_ppd, threads=opt.threads, pair_rule=c.pair_rule)
+            n_speed=opt.n_speed, table_ppd=opt.table_ppd, threads=opt.threads, pair_rule=rule)
         c._collision_key = key
     return c._collision_model
+
+
+_GH_OFFSETS = np.sqrt(3.0) * np.array([-1.0, 0.0, 1.0])
+_GH_WEIGHTS = np.array([1.0, 4.0, 1.0]) / 6.0
+
+
+def _charge_points(state, mol, edges, mb):
+    """The collisions' charges(a) -> (Z[..., 3], w[3]) (``ChargeState.charge_points``): the grain state's, with the
+    molecular bins' three Gauss-Hermite charges of their mean and width below N_C,max (grains neutral without a
+    state); None if neither."""
+    if mol is None:
+        return None if state is None else state.charge_points
+    a_mol = float(edges[mb])
+
+    def points(a):
+        a = np.asarray(a, float)
+        Z = np.zeros((*a.shape, 3)) if state is None else np.array(state.charge_points(a)[0], float)
+        i = np.clip(np.searchsorted(edges, a, side="right") - 1, 0, mb - 1)
+        Zm = mol.mean[i][..., None] + mol.width[i][..., None] * _GH_OFFSETS
+        return np.where((a < a_mol)[..., None], Zm, Z), _GH_WEIGHTS
+
+    return points
+
+
+def _release_lookup(S, edges, mb):
+    """The pair rule's release(a_molecule, a_host): S_eff of the molecular bin and nano-grain bin holding the radii."""
+    nh = S.shape[1]
+
+    def release(a_m, a_h):
+        i = np.clip(np.searchsorted(edges, a_m, side="right") - 1, 0, mb - 1)
+        j = np.clip(np.searchsorted(edges, a_h, side="right") - 1 - mb, 0, nh - 1)
+        return S[i, j]
+
+    return release
+
+
+def _at(lst, k):
+    return lst[k] if lst is not None and k < len(lst) else None
 
 
 def _erosion_rate(c, g, inputs, grains, molecules):
@@ -288,7 +400,7 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
     """Advance every composition over dt [s] (module doc). The compositions' N, M and overflow_M are updated in
     place; returns an ``UpdateResult``."""
     from .collisions import collide
-    from .exchange import Population, exchange_step
+    from .exchange import exchange_step
     from .sputtering import sputter
 
     opt = opt or Options()
@@ -305,7 +417,8 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
         over_N, over_M = 0.0, 0.0                       # grown past g's top this substep
         if opt.processes & {"shattering", "coagulation"}:
             st = None if pre is None else pre.states[k]
-            r = collide(g, N, M, _collisions(c, g, inputs, opt, st), dt, errmax=opt.errmax, method=c.method)
+            mol, S = (None, None) if pre is None else (_at(pre.molecular, k), _at(pre.release, k))
+            r = collide(g, N, M, _collisions(c, g, inputs, opt, st, mol, S), dt, errmax=opt.errmax, method=c.method)
             N, M = r["N"], r["M"]
             over_N, over_M = over_N + r["overflow_N"], over_M + r["overflow_M"]
             gas[c.key] += r["sink_M"] * c.per_gram
@@ -322,12 +435,7 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             N, M, dM = sputter(g, N, M, adot, dt, method=c.method, knots=knots)
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
-            gg = g if mb == 0 else MassGrid(g.m_edges[mb:], g.rho)
-            x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
-            focus = None if pre is None or pre.states[k] is None or x_n >= 1.0 else pre.states[k].ion_focusing_of()
-            pop = Population(c.sublimation, gg, N[mb:].copy(), M[mb:].copy(),
-                             np.broadcast_to(np.asarray(inputs.T_d, float), (g.n_bins,))[mb:].copy(),
-                             nucleation=False, method=c.method, neutral_fraction=x_n, ion_focusing=focus)
+            pop = _grain_population(c, g, N, M, inputs, None if pre is None else pre.states[k])
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
             N[mb:], M[mb:] = pop.N, pop.M
