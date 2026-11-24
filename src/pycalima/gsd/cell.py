@@ -25,6 +25,7 @@ the gate it is an ordinary bin. Its share is reported, with a warning above 1 % 
 """
 from __future__ import annotations
 
+import math
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -34,7 +35,9 @@ import numpy as np
 from .grid import MassGrid
 
 #: the processes ``update`` knows; ``Options.processes`` switches them
-PROCESSES = frozenset({"shattering", "coagulation", "explosion", "sputtering", "carbon_loss", "accretion"})
+PROCESSES = frozenset({"shattering", "coagulation", "explosion", "sputtering", "carbon_loss", "accretion", "hydrogen"})
+#: the mass of an H atom [g] (tracked hydrogen exchanged with the gas)
+M_H_ATOM = 1.6735575e-24
 
 
 @dataclass
@@ -55,7 +58,11 @@ class Composition:
     ``charging.AreaNodeCharging`` (precool), or None for neutral grains; ``pair_rule``: carbon's ``pairs.PairRule``,
     or None; ``optics``: an ``optics.PseudoBinOptics`` on ``grid`` (precool then computes the dust temperature per
     bin, which update uses, and the group absorption), and ``hydrogen`` the ``hydrogen.BinHydrogen`` of its covalent
-    bins (``optics.gap_bins``, in order) for their equilibrium band gap. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
+    bins (``optics.gap_bins``, in order) for their equilibrium band gap; ``M_H``: the hydrogen mass per bin [g cm^-3]
+    (tracer, rung M1; None: not tracked). Tracked, it rides with the grains through every operator at each donor
+    bin's H/C (growing grains keep their hydrogen, shrinking ones their H/C) and the covalent bins with ``hydrogen``
+    take its exact step (process 'hydrogen'; their band gap then follows their H/C instead of the equilibrium);
+    ``overflow_H`` collects what leaves the top of the grid. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
 
     grid: MassGrid
     N: np.ndarray
@@ -73,7 +80,9 @@ class Composition:
     molecular_tables: object = None
     optics: object = None
     hydrogen: list | None = None
+    M_H: np.ndarray | None = None
     overflow_M: float = 0.0
+    overflow_H: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
     _collision_model: object = field(default=None, repr=False)
     _collision_key: tuple = field(default=None, repr=False)
@@ -97,7 +106,9 @@ class CellInputs:
     driving scale L [cm]; the RT photon groups (``charging.PhotonGroups``), the UV background G0_bg [Habing] and the
     ions [(n, z, m)] for the charge; ``neutral`` the neutral fraction of each key element in the gas (1 if absent):
     its ionised part accretes with the grains' Coulomb factor from precool; ``n_HI`` [cm^-3] the atomic hydrogen
-    that re-hydrogenates the covalent bins (None: n_H, all atomic, labelled)."""
+    that re-hydrogenates the covalent bins (None: n_H, all atomic, labelled). With tracked hydrogen
+    (``Composition.M_H``) ``gas['H']`` [atoms cm^-3] takes the H the grains release and gives what they take up (0
+    if absent: it then holds the net exchange of the substep)."""
 
     T: float
     n_H: float
@@ -154,7 +165,7 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
     for c in compositions:
         a_star, w = area_node(c.grid, c.N, c.M, c.method)
         out.area.append(np.pi * w * a_star ** 2)
-        t_d, kap, gap = _optics(c, inputs) if c.optics is not None else (None, None, None)
+        t_d, kap, gap, uvg = _optics(c, inputs) if c.optics is not None else (None, None, None, None)
         if c.charging is None:
             st, expl = None, None
             heat, cool = np.zeros(c.grid.n_bins), np.zeros(c.grid.n_bins)
@@ -187,7 +198,7 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
                 S = _release(c, inputs, opt, st, mol, a_star, t_d)
         for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
                        (out.explosion, expl), (out.molecular, mol), (out.release, S), (out.h2, h2),
-                       (out.t_dust, t_d), (out.absorption, kap), (out.e_gap, gap)):
+                       (out.t_dust, t_d), (out.absorption, kap), (out.e_gap, gap), (out.uv_gap, uvg)):
             lst.append(v)
     return out
 
@@ -222,26 +233,61 @@ def _release(c, inputs, opt, state, mol, a_star, t_dust=None):
 
 
 def _optics(c, inputs):
-    """(T_d per bin [K], group absorption [cm^-1] per group, the covalent bins' band gaps [eV] or None) of a
-    composition with optics: the band gap of each covalent bin from the equilibrium of its hydrogen
-    (``hydrogen.equilibrium_gap``: k_UV = Y_CH times the 6.8-13.6 eV photons absorbed per C atom at every band-gap
-    node, k_H from n(H I) and T), then the absorbed power at those gaps and the temperature that radiates it."""
+    """(T_d per bin [K], group absorption [cm^-1] per group, the covalent bins' band gaps [eV] and their UV photons
+    absorbed per C atom at every band-gap node [s^-1], or None) of a composition with optics: the band gap of each
+    covalent bin from the equilibrium of its hydrogen (``hydrogen.equilibrium_gap``: k_UV = Y_CH times those
+    photons, k_H from n(H I) and T), or from its tracked H/C (``Composition.M_H``), then the absorbed power at those
+    gaps and the temperature that radiates it."""
     from .hydrogen import Y_CH, equilibrium_gap, k_h
     from .optics import state_s
 
     po = c.optics
     s = state_s(c.grid, c.N, c.M)
-    gap = None
+    gap, uv = None, None
     if po.gap is not None:
         if c.hydrogen is None or len(c.hydrogen) != po.gap_bins.size:
             raise ValueError("a composition with covalent bins needs their BinHydrogen (Composition.hydrogen)")
         uv = po.uv_photons(s, inputs.photons, inputs.G0_bg) * M_CARBON           # photons per C atom per s
-        n_hi = inputs.n_H if inputs.n_HI is None else inputs.n_HI
-        kh = k_h(n_hi, inputs.T)
-        gap = np.array([equilibrium_gap(bh, Y_CH * np.interp(bh.e_grid, po.gap_nodes, uv[j]), kh)[1]
-                        for j, bh in enumerate(c.hydrogen)])
+        if c.M_H is not None:
+            gap = np.array([float(bh.e_gap(_h_per_c(c.M_H[i], c.M[i], bh))) for i, bh in zip(po.gap_bins, c.hydrogen,
+                                                                                             strict=True)])
+        else:
+            n_hi = inputs.n_H if inputs.n_HI is None else inputs.n_HI
+            kh = k_h(n_hi, inputs.T)
+            gap = np.array([equilibrium_gap(bh, Y_CH * np.interp(bh.e_grid, po.gap_nodes, uv[j]), kh)[1]
+                            for j, bh in enumerate(c.hydrogen)])
     kg, power, _ = po.absorption(s, inputs.photons, inputs.G0_bg, gap)
-    return po.dust_temperature(s, power, gap), c.M @ kg, gap
+    return po.dust_temperature(s, power, gap), c.M @ kg, gap, uv
+
+
+def _h_per_c(m_h, m, bh):
+    """A bin's H/C (H mass per grain mass), inside the bin's range [x_min, x_max] (x_max if empty)."""
+    return bh.x_max if m <= 0.0 else float(np.clip(m_h / m, bh.x_min, bh.x_max))
+
+
+def _hydrogen_step(c, H, M, inputs, uv, dt):
+    """The exact step of the tracked covalent bins' hydrogen with the rates frozen at their H/C (hydrogen module:
+    dx/dt = -k_UV (x - x_min) + k_H (x_max - x), k_UV = Y_CH times the UV photons absorbed per C atom at the bin's
+    band gap, k_H from n(H I) and T). Returns (H, H given to the gas [g cm^-3])."""
+    from .hydrogen import Y_CH, k_h
+
+    po = c.optics
+    kh = k_h(inputs.n_H if inputs.n_HI is None else inputs.n_HI, inputs.T)
+    H = H.copy()
+    released = 0.0
+    for j, (i, bh) in enumerate(zip(po.gap_bins, c.hydrogen, strict=True)):
+        if i >= H.size or M[i] <= 0.0:
+            continue
+        x = float(H[i] / M[i])
+        ku = Y_CH * float(np.interp(bh.e_gap(min(max(x, bh.x_min), bh.x_max)), po.gap_nodes, uv[j]))
+        k = ku + kh
+        if k <= 0.0:
+            continue
+        x_eq = (ku * bh.x_min + kh * bh.x_max) / k
+        x_new = x_eq + (x - x_eq) * math.exp(-k * dt)
+        released += (x - x_new) * M[i]
+        H[i] = x_new * M[i]
+    return H, released
 
 
 def _grain_population(c, g, N, M, inputs, state, t_dust=None):
@@ -283,6 +329,7 @@ class Precool:
     t_dust: list = field(default_factory=list)
     absorption: list = field(default_factory=list)
     e_gap: list = field(default_factory=list)
+    uv_gap: list = field(default_factory=list)
 
     @property
     def total_heating(self):
@@ -422,29 +469,36 @@ def _erosion_rate(c, g, inputs, grains, molecules):
 M_CARBON = 12.011 * 1.66053906660e-24
 
 
-def _explode(g, N, M, k_bin, dt, opt, a_star):
+def _explode(g, N, M, k_bin, dt, opt, a_star, H=None):
     """Coulomb explosion at the per-bin rates k_bin [s^-1] (precool's rate at each bin's area node, held over the
-    bin: labelled), a sink that removes N and M alike, exactly; returns (N, M, mass to the gas)."""
+    bin: labelled), a sink that removes N and M alike, exactly; returns (N, M, mass to the gas), and with ``H``
+    (H, H to the gas): the fragments carry their parent's H/C."""
     from .sinks import deposit_power_law
 
     nb = g.n_bins
     k = np.asarray(k_bin, float)[:nb]
     if not np.any(k > 0.0):
-        return N, M, 0.0
+        return (N, M, 0.0) if H is None else (N, M, 0.0, H, 0.0)
     edges = g.a_edges
     keep = np.exp(-np.maximum(k, 0.0) * dt)
     dM = M * (1.0 - keep)
     N, M = N * keep, M * keep
+    dH = None if H is None else H * (1.0 - keep)
+    H = None if H is None else H * keep
     if opt.explosion_route == "gas":
-        return N, M, float(dM.sum())
-    gas = 0.0
+        return (N, M, float(dM.sum())) if H is None else (N, M, float(dM.sum()), H, float(dH.sum()))
+    gas, gas_h = 0.0, 0.0
     for i in np.flatnonzero(dM > 0.0):
         # fragments a^-alpha from the grid's lowest edge up to half the parent's mass (labelled)
         dn, dm, below, _ = deposit_power_law(g, float(dM[i]), float(edges[0]), 2.0 ** (-1.0 / 3.0) * a_star[i],
                                              opt.alpha_frag)
         N, M = N + dn, M + dm
         gas += below
-    return N, M, gas
+        if H is not None:
+            x = dH[i] / dM[i]
+            H = H + x * dm
+            gas_h += x * below
+    return (N, M, gas) if H is None else (N, M, gas, H, gas_h)
 
 
 def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt: Options | None = None):
@@ -459,6 +513,8 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
     if unknown:
         raise ValueError(f"unknown processes {sorted(unknown)}; known: {sorted(PROCESSES)}")
     gas = dict(inputs.gas)
+    if any(c.M_H is not None for c in compositions):
+        gas.setdefault("H", 0.0)
     before = _element_totals(compositions, gas)
     shares, notes, duu = [], [], 0.0
     for k, c in enumerate(compositions):
@@ -466,33 +522,57 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
         g, N, M = _subgrid(c, active)
         M0 = M.copy()
         over_N, over_M = 0.0, 0.0                       # grown past g's top this substep
+        Hs, over_H = None, 0.0
+        if c.M_H is not None:
+            Hs = np.asarray(c.M_H, float)[:g.n_bins].copy()
         if opt.processes & {"shattering", "coagulation"}:
             st = None if pre is None else pre.states[k]
             mol, S = (None, None) if pre is None else (_at(pre.molecular, k), _at(pre.release, k))
-            r = collide(g, N, M, _collisions(c, g, inputs, opt, st, mol, S), dt, errmax=opt.errmax, method=c.method)
+            r = collide(g, N, M, _collisions(c, g, inputs, opt, st, mol, S), dt, errmax=opt.errmax, method=c.method,
+                        H=Hs)
             N, M = r["N"], r["M"]
             over_N, over_M = over_N + r["overflow_N"], over_M + r["overflow_M"]
             gas[c.key] += r["sink_M"] * c.per_gram
+            if Hs is not None:
+                Hs, over_H = r["H"], over_H + r["overflow_H"]
+                gas["H"] += r["sink_H"] / M_H_ATOM
         mb = c.molecular_bins
         if "explosion" in opt.processes and pre is not None and pre.explosion[k] is not None:
             kb = np.array(pre.explosion[k], float)
             kb[:mb] = 0.0
-            N, M, to_gas = _explode(g, N, M, kb, dt, opt, pre.states[k].a)
+            if Hs is None:
+                N, M, to_gas = _explode(g, N, M, kb, dt, opt, pre.states[k].a)
+            else:
+                N, M, to_gas, Hs, h_gas = _explode(g, N, M, kb, dt, opt, pre.states[k].a, Hs)
+                gas["H"] += h_gas / M_H_ATOM
             gas[c.key] += to_gas * c.per_gram
         erode_gr = "sputtering" in opt.processes and c.sputtering is not None
         erode_mol = "carbon_loss" in opt.processes and c.molecular_tables is not None and mb > 0
         if erode_gr or erode_mol:
             adot, knots = _erosion_rate(c, g, inputs, erode_gr, erode_mol)
-            N, M, dM = sputter(g, N, M, adot, dt, method=c.method, knots=knots)
+            if Hs is None:
+                N, M, dM = sputter(g, N, M, adot, dt, method=c.method, knots=knots)
+            else:
+                N, M, dM, Hs, h_gas = sputter(g, N, M, adot, dt, method=c.method, knots=knots, H=Hs)
+                gas["H"] += h_gas / M_H_ATOM
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
             pop = _grain_population(c, g, N, M, inputs, None if pre is None else pre.states[k],
                                     None if pre is None else _at(pre.t_dust, k))
+            if Hs is not None:
+                pop.H = Hs[mb:].copy()
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
             N[mb:], M[mb:] = pop.N, pop.M
             over_N, over_M = over_N + pop.overflow_N, over_M + pop.overflow_M
             gas[c.key] = gk[c.key]
+            if Hs is not None:
+                Hs[mb:], over_H = pop.H, over_H + pop.overflow_H
+                gas["H"] += pop.h_to_gas / M_H_ATOM
+        uvg = None if pre is None else _at(pre.uv_gap, k)
+        if Hs is not None and "hydrogen" in opt.processes and c.hydrogen is not None and uvg is not None:
+            Hs, released = _hydrogen_step(c, Hs, M, inputs, uvg, dt)
+            gas["H"] += released / M_H_ATOM
         with np.errstate(divide="ignore", invalid="ignore"):
             ch = np.where(M0 > 0, np.abs(M - M0) / M0, 0.0)
         duu = max(duu, float(ch.max()) if ch.size else 0.0)
@@ -500,9 +580,15 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             c.N[:-1], c.M[:-1] = N, M
             c.N[-1] += over_N
             c.M[-1] += over_M
+            if Hs is not None:
+                c.M_H = np.asarray(c.M_H, float).copy()
+                c.M_H[:-1] = Hs
+                c.M_H[-1] += over_H
         else:
             c.N, c.M = N, M
             c.overflow_M += over_M
+            if Hs is not None:
+                c.M_H, c.overflow_H = Hs, c.overflow_H + over_H
         share = float(c.M[-1] / c.M.sum()) if c.grid.overflow and c.M.sum() > 0 else 0.0
         shares.append(share)
         if share > opt.overflow_warn:
@@ -520,4 +606,6 @@ def _element_totals(compositions, gas):
     tot = {e: float(v) for e, v in gas.items()}
     for c in compositions:
         tot[c.key] = tot.get(c.key, 0.0) + (float(np.sum(c.M)) + c.overflow_M) * c.per_gram
+        if c.M_H is not None:
+            tot["H"] = tot.get("H", 0.0) + (float(np.sum(c.M_H)) + c.overflow_H) / M_H_ATOM
     return tot

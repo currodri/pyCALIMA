@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from test_gsd_cell_optics import jones  # noqa: F401  (the Jones 2012 tables fixture)
 
 from pycalima.gsd.grid import MassGrid
 from pycalima.gsd.remap import remap, remap_hydrogen
@@ -151,3 +152,72 @@ def test_collisions_conserve_a_mixed_h_per_c_within_its_bounds():
     filled = r["M"] > 1e-12 * M.sum()
     ratio = r["H"][filled] / r["M"][filled]
     assert np.all((ratio >= x.min() * (1 - 1e-9)) & (ratio <= x.max() * (1 + 1e-9)))
+
+
+def test_update_conserves_the_tracked_hydrogen_with_the_gas():
+    from dataclasses import replace
+
+    from test_gsd_cell import PC, YR, carbon, inputs
+
+    from pycalima.gsd import cell
+
+    c = carbon(n_H=1.0)
+    x = np.linspace(0.05, 0.6, c.grid.n_bins)
+    c.M_H = x * c.M
+    inp = replace(inputs(n_H=1.0, T=1e6, gas_C=1e-4), v_turb=1e6, L=100 * PC)
+    res = cell.update([c], inp, None, 1e6 * YR, cell.Options(table_ppd=None))
+    assert abs(res.conservation["H"]) < 1e-12 and abs(res.conservation["C"]) < 1e-12
+    assert res.gas["H"] > 0.0                                           # sputtering released some
+
+
+def test_a_uniform_h_per_c_survives_collisions_erosion_and_explosion():
+    from dataclasses import replace
+
+    from test_gsd_cell import PC, YR, carbon, inputs
+
+    from pycalima.gsd import cell
+
+    c = carbon(n_H=1.0)
+    c.M_H = 0.3 * c.M
+    inp = replace(inputs(n_H=1.0, T=1e6, gas_C=1e-4), v_turb=1e6, L=100 * PC)
+    g = c.grid
+    state = type("S", (), {"a": g.a_centres, "charge_points": None, "ion_focusing_of": None})()
+    pre = cell.Precool([0.0], [0.0], [state], [None], [np.full(g.n_bins, 1e-14)], [0.0])
+    opt = cell.Options(table_ppd=None, processes=frozenset({"coagulation", "shattering", "sputtering", "explosion"}))
+    res = cell.update([c], inp, pre, 1e6 * YR, opt)
+    filled = c.M > 1e-12 * c.M.sum()
+    np.testing.assert_allclose(c.M_H[filled] / c.M[filled], 0.3, rtol=1e-8)
+    assert abs(res.conservation["H"]) < 1e-12
+
+
+def test_the_hydrogen_step_is_exact_and_relaxes_to_the_equilibrium_gap(jones):  # noqa: F811
+    from dataclasses import replace
+
+    from test_gsd_cell import YR, inputs
+    from test_gsd_cell_optics import optical_carbon, photons
+
+    from pycalima.gsd import cell
+    from pycalima.gsd.hydrogen import Y_CH, k_h
+
+    c = optical_carbon(gap=True)
+    lit = replace(inputs(), photons=photons(1e-4), G0_bg=10.0, n_HI=30.0)
+    eq = cell.precool([c], lit).e_gap[0]                               # untracked: the equilibrium band gap
+    bh = c.hydrogen
+    x = np.full(c.grid.n_bins, 0.3)
+    x[c.optics.gap_bins] = [0.5 * (b.x_min + b.x_max) for b in bh]          # each bin inside its own range
+    c.M_H = c.M * x
+    pre = cell.precool([c], lit)
+    np.testing.assert_allclose(pre.e_gap[0], [float(b.e_gap(0.5 * (b.x_min + b.x_max))) for b in bh], rtol=1e-12)
+    # one short step: the frozen-rate solution
+    i, b, dt = 4, bh[0], 30.0 * YR
+    x0 = c.M_H[i] / c.M[i]
+    ku = Y_CH * float(np.interp(b.e_gap(x0), c.optics.gap_nodes, pre.uv_gap[0][0]))
+    kh = k_h(30.0, lit.T)
+    x_eq = (ku * b.x_min + kh * b.x_max) / (ku + kh)
+    opt = cell.Options(processes=frozenset({"hydrogen"}))
+    res = cell.update([c], lit, pre, dt, opt)
+    assert c.M_H[i] / c.M[i] == pytest.approx(x_eq + (x0 - x_eq) * np.exp(-(ku + kh) * dt), rel=1e-12)
+    assert abs(res.conservation["H"]) < 1e-12
+    for _ in range(40):                                                 # long steps: the fixed point
+        cell.update([c], lit, cell.precool([c], lit), 1e9 * YR, opt)
+    np.testing.assert_allclose(cell.precool([c], lit).e_gap[0], eq, rtol=1e-3)
