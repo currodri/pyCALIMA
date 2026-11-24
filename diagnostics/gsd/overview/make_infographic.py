@@ -227,7 +227,7 @@ def panel_c():
     yt = 372
     for j, n in enumerate(names):
         s.append(T(xh + cw * (j + 0.5), yt - 8, n, "hd", "middle"))
-    cells = {(0, 0): ("—", "no outcome", "g"), (1, 0): ("by speed,", "+ UV release", "c"), (2, 0): ("by speed", "", "c"),
+    cells = {(0, 0): ("—", "no outcome", "g"), (1, 0): ("by speed,", "+ UV release", "c"), (2, 0): ("by speed,", "+ UV release", "c"),
              (1, 1): ("coagulate", "or shatter", "n"), (2, 1): ("coagulate", "or shatter", "n"),
              (2, 2): ("coagulate", "or shatter", "n")}
     for i, n in enumerate(names):

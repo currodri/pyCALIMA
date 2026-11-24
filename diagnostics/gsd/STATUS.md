@@ -1,4 +1,4 @@
-# GSD modelling: status and what is left to do (as of 2026-11-23)
+# GSD modelling: status and what is left to do (as of 2026-11-24)
 
 The canonical to-do list of the grain-size-distribution (GSD) work: what to do next, the decisions taken and still
 open, and the build (the plan's work packages A and B). Keep it in step with the work.
@@ -8,6 +8,15 @@ are merged into pyCALIMA main (89ee18a); the GSD checks were rerun on it on 2026
 carbon mass transfer was settled before A3c (report section "How carbon moves ..."; notes `overview/lit/carbon_transfer_*.md`,
 outputs `overview/tables/carbon_transfer/`, scripts `check_carbon_heating_share.py`, `check_carbon_transfer_timescales.py`,
 `check_carbon_transfer_options.py`, `check_seam_decomposition.py`). A3c planning resumes with those decisions.
+
+**A3c (23-24 November), branch `feature/gsd-a3c` (off main 89ee18a; this status branch merged into it).** The per-cell
+operator `gsd.cell` is built and tested: `precool` and `update`, the two calls RAMSES will mirror, with every phase of
+the plan but the hot-gas join (its tables are being built on megatron). Summary in the report's section "The per-cell
+operator (A3c)"; the list below is in section 3. Working rules (user, 2026-11-23): `pytest -m gsd_quick`
+(`diagnostics/gsd/run_quick_checks.sh`, ~1.5 min; `CORES=` on megatron) and the golden outputs
+(`tests/data/gsd_golden.npz`) at every commit, one logical change per commit named by module, the full suite before
+each push (with `CALIMA_MODEL_DATA` pointing at a complete model_data: a partial `model_data/` in a worktree makes
+two legacy solver tests fail instead of skipping).
 
 **Where the detail lives:**
 - the status report: `overview/gsd_overview.tex` (its figures and the PDF are built in the git-ignored
@@ -61,14 +70,26 @@ work packages).
   two `test_solvers` sputtering tests then fail instead of skipping (their skip only checks that model_data
   exists).
 
+- [ ] **Hot-gas join (A3c phase 6, the last open item):** the `--hot-gas` hydrogen tables (axes log G0 -1..6, log n_H
+  -1..6, log T 4..7.5, log x_e -1..0; 77 molecules, deep super-H chain +8) are being built on megatron
+  (`~/pycalima_runs/hydrogen_tables/run_hot_k8.sh`). Then `diagnostics/gsd/check_hot_erosion_join.py --hot <dir>
+  --cold <deep_k8>`: the carbon loss per C of the top molecular bin against classical sputtering at N_C 400 and
+  1000 over 1e5-1e8 K, and the two table sets at 1e4 K; beyond x2 at the seam, a labelled interpolation towards
+  N_C ~ 1000 (Bocchio+12). Then a hot cell in `run_cell.py demo`.
+- [ ] **Calibrate Y_pd (A5).** Thermal release is negligible at 8 bins (the smallest host bin's area node is 1.5 nm, the
+  smallest molecular bin's mean N_C ~35), so the photodesorption yield decides freeze-out: in the demo, Y_pd 1e-7-1e-6
+  keeps 0.12-0.14 of the carbon in molecules in the CNM (0.002 at Y_pd 0) and 0.10 in the PDR; dense cores freeze out
+  at any Y_pd.
+- [ ] **Dense-core band gap (for the dense-gas gates):** the covalent bins sit at the UV floor (0.22 eV) even at
+  G0 = 0.01, because the lab re-hydrogenation law's activation energy (Mennella+06) cuts k_H ~1e3-fold at 10 K. What
+  the adopted laws give; check against dense-core a-C:H mantles in A5.
 - [ ] **Open from the carbon-transfer study (2026-11-23):**
-  - hot-gas erosion of N_C < ~1000: pahchem's impact rates (thermal electron/ion passages, C/H knock-outs) exist, but
-    the production tables stop at 1e4 K: extend the T axis, join to classical sputtering at N_C ~ 1000 (Bocchio+12);
+  - ~~hot-gas erosion~~: tables extended (A3c phase 6), join pending (item above);
   - Coulomb explosion: fragments (a^-3.3, labelled) or ion loss, set by the assumed tensile strength (crossover S_max
     ~ 8e10 erg cm^-3 against ion field emission at ~3e8 V/cm);
   - P1's a-C:H end and the bare end (pahchem bare states or a-C physics);
   - redo the band test (3-4 bins over N_C 20-400; no script survived) with the extended N_C,max test;
-  - implement the pair rule (sticking mask by pair class) and the release term in `gsd.collisions` (A3c).
+  - ~~implement the pair rule and the release term~~: done in A3c (`gsd.pairs`, `gsd.release`).
 
 ## 2. Decisions waiting for the user
 
@@ -113,9 +134,13 @@ Decided (for reference):
 - carbon mass transfer (2026-11-23): no PAH clusters (rung M2's cluster part and P4 removed); legacy CALIMA
   PAH-PAH / PAH-grain methods not reused; molecule + molecule no outcome; molecule + larger particle by impact speed
   (labelled, C60/cluster surface-impact data): stick < ~4 km/s, rebound between, molecule destroyed > ~7 km/s
-  (carbon to the gas; destroyed in warm turbulent gas, frozen out in cold gas); molecule + nano-grain S_eff = 1/(1 + R_abs (P_th + Y_pd) t_bury), Y_pd a
-  labelled calibrated photodesorption yield (default 0, calibrated in A5 on molecular-cloud parity and dense-core
-  depletion); the hydrocarbon-family identity below N_C,max (2026-10-30) stands;
+  (carbon to the gas; destroyed in warm turbulent gas, frozen out in cold gas); sticking times S_eff = 1/(1 + R_abs
+  (P_th + Y_pd) t_bury), Y_pd a labelled calibrated photodesorption yield (default 0, calibrated in A5 on
+  molecular-cloud parity and dense-core depletion); the hydrocarbon-family identity below N_C,max (2026-10-30) stands;
+- photo-release on every host (2026-11-24, user: "the photodesorption should consistently act across the whole
+  population"): S_eff applies to molecules on nano-grains and grains alike (was nano-grains only);
+- A3c (2026-11-23): an exploding grain's mass goes to a^-3.3 fragments (gas selectable); the hot-gas extension of the
+  molecular tables inside A3c; Track O targets G23 + the HD23 model (HD21 has no tables);
 - two moments, EA closure, 8 bins (re-confirmed 2026-11-22 after the collide fix);
 - grain hydrogen: equilibrium band gap, nothing tracked by default; M_H block compile-time 0-4 bins (2026-11-22);
 - carbon material: THEMIS a-C(:H) default, graphite control (2026-11-22);
@@ -131,32 +156,51 @@ Decided (for reference):
 ## 3. Build: pyCALIMA (phase A)
 
 **A3b, the static per-bin tables:**
-- [ ] Grain rates over the in-bin profile with the adopted area node: charge kernels at a few radii per bin.
-  Measure how many radii are needed, and the kernel memory against the planned coarsening (real*4, a cut potential
-  range).
-- [ ] Optics with a band-gap (E_g) axis for the M_H bins, with Planck/Rosseland tables to match.
+- [x] Grain rates over the in-bin profile with the adopted area node: charge kernels at 3-9 radii per bin (A3c phase
+  3, `check_area_node_tables.py`; 79 tables, ~28 MiB in RAMSES format for the 15 grain bins). Still to measure: the
+  memory against the planned coarsening (real*4, a cut potential range).
+- [x] Optics with a band-gap (E_g) axis for the covalent bins, with Planck means (`optics.PseudoBinOptics`, 49 E_g
+  nodes; Rosseland means not needed by the operator).
 - [ ] For RAMSES, the E_g axis multiplies the RT pseudo-bins: 5 s x ~6 E_g on the 4 covalent bins is ~30 MB of
   SED_table per node (needed with or without M_H, since the equilibrium band gap reads the same axis). Measure fewer E_g nodes, or a coarser age axis, before B6/B7.
-- [ ] Molecular-bin charge and photoelectric heating per GSD bin through `pahchem.group_tables`, conditional on the
-  H state.
+- [x] Molecular-bin charge and photoelectric heating per GSD bin through `pahchem.group_tables`, on the GSD's 12
+  photon groups (`build_molecular_group_tables.py`; not yet conditional on the H state). The top bin (N_C 189-400) has
+  only 5 molecules complete in -1..+2 in PAHdb.
 - [ ] Molecular-bin band emission per bin, for post-processing (SKIRT), not for RAMSES.
 - [ ] Re-gridded, real*4 cooling and sputtering tables on (log T, phi/kT). Each "to verify" of the table-memory
   proposal is a test: build full, rebuild coarse, compare the interpolated rates at random conditions.
-- [ ] The error of interpolating charging between the `ac` / `ach` end members, against direct tables at
-  intermediate E_g.
+- [x] Charging along E_g: the 5 `acx<E_g>` nodes, linear in H/C (decided 2026-10-30), wired in
+  `charging.AreaNodeCharging(gap_bins=)`.
 
-**A3c, the `ramses` mode of `gsd`** (the per-cell operator RAMSES will mirror). It needs:
-- [ ] EA with Gauss rate nodes;
-- [ ] equilibrium band gap per covalent bin (x_eq from k_UV, k_H) feeding the E_g-axis tables (default, decision 3);
-- [ ] the M_H block (compile-time 0-4 bins, default 0) with the exact H step, and H carried at the source H/C by every
-  remap; tested on, though off by default;
-- [ ] the overflow bin (N, M at its mean size; computed only above 1e-6 of the dust mass; share logged, warning at
-  1 %, optional abort; a strict mode that raises);
-- [ ] per-moment size-dependent sinks;
-- [ ] area-node charge-dependent rates and surface processes from the exact second moment;
-- [ ] pseudo-bin optics.
+**A3c, the `ramses` mode of `gsd`** (the per-cell operator RAMSES will mirror), built on `feature/gsd-a3c`:
+- [x] the operator `gsd.cell`: `precool` (charges, heating, cooling, explosion rates, grain area, T_d, group absorption,
+  band gaps, molecular charge and H2, S_eff) and `update` (collisions with the pair rule, Coulomb explosion as a
+  per-moment sink feeding a^-3.3 fragments, erosion with the molecular carbon loss, accretion and sublimation, the H
+  step); the A0 oracle (`run_cell.py oracle`) agrees to round-off with the features off;
+- [x] EA with Gauss rate nodes (the default method);
+- [x] the pair rule (`gsd.pairs`) and the photo-release (`gsd.release`; on every host since 2026-11-24);
+- [x] equilibrium band gap per covalent bin (x_eq from k_UV, k_H) feeding the E_g-axis optics and charging (default,
+  decision 3);
+- [x] the M_H tracer with the exact H step, carried at the donor H/C by every operator (growing grains keep their H,
+  shrinking ones their H/C); tested on, off by default; not for the 'pl2m' closure;
+- [x] the overflow bin (passive below 1e-6 of the composition's mass; share logged, warning at 1 %, strict mode);
+- [x] per-moment size-dependent sinks (`gsd.sinks`);
+- [x] area-node charge-dependent rates (`AreaNodeCharging`, seam sticking law) and the grain area from the exact second
+  moment;
+- [x] pseudo-bin optics (`optics.PseudoBinOptics`, `material_optics`), T_d per bin from the energy balance;
+- [x] the molecular bins: carbon loss as erosion (`gsd.molecular`, process 'carbon_loss'), charge/heating/R_abs from
+  the group tables, H2 from the hydrogen tables;
+- [ ] the hot-gas join (section 1).
 
-Conservation tests first: carbon and hydrogen to round-off, H/C within bounds. To try there:
+Track O (can the decomposition meet the basic constraints?):
+- [x] O1, the binning alone (`check_o1_binning.py`): <= 0.4 % on THEMIS J13, <= 2 % on DL07; the N_C >= 20 cut costs
+  DL07's 3.3 um band 17 %.
+- [x] O2, our materials (`check_o2_fit.py`, smooth parametric size distributions): a-C(:H) + astrosilicate fit the
+  Milky Way (G23 extinction, the HD23 model's emission) at chi2/point 1.97, 2.02 as the GSD carries it; extinction
+  within 9 %, 8-12 um emission 33-42 % low (monochromatic points), silicate at its abundance limit; graphite control
+  5.4; LMC/SMC curve shapes within 9-26 %.
+
+Conservation tests: carbon and hydrogen to round-off, H/C within bounds (done). To try there:
 - [ ] a third collision node, or bin edges at kernel thresholds (the coagulation threshold bin);
 - [ ] a thermal H-loss sensitivity run for the 1-3 nm bin.
 
@@ -228,6 +272,18 @@ Conservation tests first: carbon and hydrogen to round-off, H/C within bounds. T
   landed (RAMSES side).
 
 ## 5. Known limitations and side findings (recorded, not fixed)
+
+- **A3c, labelled in the code:**
+  - the burial time of S_eff is capped at 1 Gyr (`Options.t_bury_max`): without growth it is infinite, and release
+    rates that underflow to ~1e-300/s would otherwise empty 10 nm hosts; burial counts accretion growth only;
+  - the molecular charge above 1e5 K is the group tables' clamped value (no hot-gas collisions);
+  - the UV background's absorptions are split over the groups by the group-averaged cross-sections;
+  - the hydrogen tables' H2 is for their Draine field shape scaled by G0;
+  - astrosilicate optics are extrapolated below 1e-3 um (X-ray groups);
+  - every grain temperature is an equilibrium one, also for the smallest grains;
+  - the x <-> E_g map of a covalent bin is its mid state's (s = 0.5).
+- **Python cost of the operator** (one-zone demo, 21 bins, all features): ~165 ms per precool and 25-420 ms per
+  update; RAMSES writes its own kernels.
 
 - **wide_moments:** a wide P(Z) of a large grain with a spectral break inside +-1.5 sigma. In the 162 nm graphite
   PDR cell sigma is +12 % (Gaussian -11 %), a ~1e-4 effect on the rates (RAMSES side: within the bar, not tuned).

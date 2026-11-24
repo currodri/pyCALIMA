@@ -150,8 +150,14 @@ in its bin twice, which cut the scheme to first order with a bias the error esti
 \item \textbf{Carbon transfer} (23 November, Sect.~\ref{sec:transfer}): no PAH clusters, and the legacy CALIMA
   PAH--PAH and PAH--grain methods are not reused. Molecule + molecule has no outcome. A molecule hitting a larger
   particle sticks below about 4\,km\,s$^{-1}$, rebounds between, and is destroyed above about 7\,km\,s$^{-1}$, its
-  carbon going to the gas (labelled). On nano-grains, UV photo-release competes with sticking, through a labelled
-  yield, 0 by default and calibrated in A5. The PAH/grain seam is one labelled electron-sticking law.
+  carbon going to the gas (labelled). UV photo-release competes with sticking, through a labelled yield, 0 by default
+  and calibrated in A5; on every host since 24 November (first on nano-grains only). The PAH/grain seam is one labelled
+  electron-sticking law.
+\item \textbf{A3c is built} (23--24 November, Sect.~\ref{sec:a3c}): the per-cell operator RAMSES will mirror, with the
+  pair rule and photo-release, the molecular bins' tables, the dust temperature and band gap in precool, the
+  band-gap-dependent charging and the optional hydrogen tracer, all tested against the A0 runs and conservation. The
+  decomposition fits the Milky Way extinction and emission as well as the published models do (Track O). Left: the
+  hot-gas join of the molecular tables, waiting for its tables.
 \end{itemize}
 
 \paragraph{Where we are.} Table~\ref{tab:status} lists the work packages. In short:
@@ -160,8 +166,9 @@ in its bin twice, which cut the scheme to first order with a bias the error esti
 \item The hydrogen question has been settled for both grains and PAHs, and the carbon transfer and the seam on 23
   November.
 \item The first production tables for the molecular bins exist.
-\item Not started yet: the RAMSES-mode operator of the GSD (A3c), the advection prototype (A4), the acceptance runs
-  against observations (A5), the exporter (A6), and everything on the RAMSES side.
+\item The RAMSES-mode operator of the GSD (A3c) is built and tested, except the hot-gas join (Sect.~\ref{sec:a3c}).
+\item Not started yet: the advection prototype (A4), the acceptance runs against observations (A5), the exporter
+  (A6), and everything on the RAMSES side.
 \end{itemize}
 
 \begin{table}[H]
@@ -181,14 +188,18 @@ A1 & THEMIS CM20 optics & reproduces DustEM's J13 extinction to 0.9\,\%; Henke e
 A2 & per-bin optics tables $\kappa_i(\lambda,s)$ & every observable within 0.5\,\% & \ok \\
 A3a & materials, graded grid, $\rho = 1.6$ & material registry (unknown names raise), \texttt{CarbonLayout} & \ok \\
 A3b & per-carrier tables & a-C(:H) optics on an $\Eg$ axis; charging \texttt{ac}/\texttt{ach}/\texttt{cm20}, 5 intermediate nodes;
-      heat capacity; the seam's sticking law decided 23 November (to build) & \wip \\
+      heat capacity; seam sticking law; area-node kernels at 3--9 radii per bin; PAH group tables per molecular bin
+      (built in A3c; left: memory against the coarsening, re-gridded cooling tables) & \ok \\
 step 1 & tracked-hydrogen machinery & surface H, size-limited gap ($\le$\,1\,\% heating with 5 nodes), H-axis tables & \ok \\
 step 2 & tabulate or track (grains) & equilibrium band gap by default; $\MH$ block compile-time 0--4 bins, off;
       A5 decides (22 November) & \ok \\
 step 2 & tabulate or track (PAHs) & tables, judged on observables; production tables built (deep chain, +8) & \ok \\
 carbon & carbon transfer & pair rule, impact speeds, photo-release, seam law (23 November) & \ok \\
-A3c & \texttt{ramses} mode of \texttt{gsd} & the per-cell operator: equilibrium band gap, optional $\MH$ block,
-      overflow bin, pair rule and release term & \todo \\
+A3c & \texttt{ramses} mode of \texttt{gsd} & \texttt{gsd.cell}: precool and update; pair rule and photo-release,
+      molecular tables, $T_d$ and equilibrium band gap, band-gap charging, $\MH$ tracer (off), overflow bin; A0
+      oracle to round-off (Sect.~\ref{sec:a3c}); left: the hot-gas join & \wip \\
+O & basic constraints & binning $\le$\,0.4\,\% (J13), $\le$\,2\,\% (DL07); a-C(:H) + astrosilicate fit the Milky Way at
+      $\chi^2$ 1.97 per point, graphite 5.4 & \ok \\
 A4 & advection prototype & ratio pass, donor-ratio TVA flux, $\MH$ as a child of $\MC$ & \todo \\
 A5 & accept or reject & DustEM SED/EXT, diffuse ISM, PDR one-zone and slab runs; ladder ablations & \todo \\
 A6 & exporter & all per-bin tables for RAMSES with provenance & \todo \\
@@ -203,7 +214,7 @@ B & RAMSES & state layout, sources, transport, tables (ask before branching) & \
   pahchem's PRs \#17 and \#18 and rerun the checks that read pahchem;
 \item settle the open choices: the bottom-up channel, kernel averaging, the super-H physical stop, the $G_0$ axis
   above $10^4$, associative detachment on PAH anions;
-\item build A3c, the GSD operator RAMSES will run per cell;
+\item finish A3c (built 23--24 November): the hot-gas join of the molecular tables;
 \item A4 and A5, the advection prototype and the acceptance tests;
 \item A6, the exporter, then Phase B in RAMSES.
 \end{enumerate}
@@ -237,8 +248,9 @@ edges lie within 11\,\% of carbon's. The middle row gives what each carbon famil
 moves between the families (Sect.~\ref{sec:transfer}). Shattering and cratering fragments follow $a^{-3.3}$ down to the
 grid's 0.39\,nm; smaller ones go to the gas. Dashed arrows and italics: opt-in, or off by default. (c) The pair rule.
 Molecules do not react with each other. A molecule hitting a larger particle sticks, rebounds or is destroyed according
-to the impact speed (labelled thresholds, from C$_{60}$ and cluster impacts on surfaces). On nano-grains, UV
-photo-release competes with sticking (a labelled yield, calibrated in A5). Grain pairs follow the grain collision
+to the impact speed (labelled thresholds, from C$_{60}$ and cluster impacts on surfaces). UV photo-release competes
+with sticking on every host (thermal release only on $\sim$1\,nm hosts; the non-thermal yield is labelled and
+calibrated in A5). Grain pairs follow the grain collision
 physics. The brackets give the rms speeds of molecules against grains: 0.05--1.7\,km\,s$^{-1}$ in cold gas, 9--30 in
 warm gas. (d) The operator that A3c builds, mirroring RAMSES's two calls per cooling substep: precool at the start of
 the substep, then the update over it with the charges held.}
@@ -1879,7 +1891,8 @@ single-photon effect for small PAHs on the smallest hosts (Montillaud \& Joblin 
 channel was found that releases a PAH from a host of 3\,nm or more (cosmic-ray heating, reactive desorption, collisions,
 host photo-fragmentation, shocks: all negligible or $\gtrsim10^8$\,yr) except non-thermal photodesorption, unmeasured for
 PAHs on carbon or ice: a yield of only $\sim10^{-7}$ per absorbed photon balances freeze-out in the CNM, while a dense
-cloud would need $\sim10^{-3}$. Such a yield alone gives the observed pattern.
+cloud would need $\sim10^{-3}$. Such a yield alone gives the observed pattern. Photodesorption does not depend on the
+host's size, so it acts on every host (decided 24 November).
 
 \paragraph{The seam is electron sticking.} Redone with today's pahchem (four-state chains reproducing both full solves),
 the heating gap decomposes as: photoemission rate $\times$0.95--1.4, energy per photoelectron $\times$0.7--1.3, ion
@@ -1901,11 +1914,13 @@ is 0.3--1 for 35--400\,C, and the gap lies inside it.
   first, frozen out in the second. The destruction is a minor sink ($\sim$5\,\% of the PAH carbon in 30\,Myr of WNM;
   molecule--grain collisions take $\sim10^8$\,yr there). This keeps the one channel of the galaxy models' small-grain
   shattering that acts on molecules, with a molecular threshold $\sim$30 times the bulk strength they use.
-\item Sticking onto grains $\ge20$\,nm is then complete below 4\,km\,s$^{-1}$. Molecule + nano-grain: $S_{\rm eff} = 1/[1 + R_{\rm abs}
+\item Sticking below 4\,km\,s$^{-1}$ is multiplied by $S_{\rm eff} = 1/[1 + R_{\rm abs}
   (P_{\rm th} + Y_{\rm pd})\,t_{\rm bury}]$, with $R_{\rm abs}$ the adsorbed molecule's photon absorption rate, $P_{\rm th}$
   the single-photon thermal release (derived), $Y_{\rm pd}$ the non-thermal photodesorption yield (an input labelled
   ``calibrated'', default 0, calibrated in A5 against the parity and dense-core gates, expected $10^{-7}$--$10^{-6}$) and
-  $t_{\rm bury}$ the host's burial time.
+  $t_{\rm bury}$ the host's burial time. Decided for nano-grains on 23 November (grains $\ge20$\,nm sticking
+  completely); on every host since 24 November: ``the photodesorption should consistently act across the whole
+  population''.
 \item The seam's electron sticking: one labelled law, pahchem's laboratory fit for the molecules, \texttt{ac} taking the
   same value at $\NC = 400$ and tapering to WD01 by $\sim$3\,nm; A5 runs the brackets (WD01 everywhere; the molecular
   value everywhere).
@@ -1926,6 +1941,153 @@ is 0.3--1 for 35--400\,C, and the gap lies inside it.
 \item The a-C:H end of the hydrocarbon family (P1) and the bare end (pahchem's bare states or a-C physics).
 \item Labelled omissions: vaporisation above $\sim$19\,km\,s$^{-1}$, fullerenes, cosmic-ray processing.
 \end{itemize}
+
+%======================================================================================================================
+\section{The per-cell operator (A3c, 23--24 November)}\label{sec:a3c}
+
+A3c builds in pyCALIMA the operator RAMSES will run in every cell: the specification for B2. It lives in
+\texttt{pycalima.gsd} on the branch \texttt{feature/gsd-a3c}, built as you asked on 23 November. Its rules:
+\begin{itemize}
+\item its own branch, and 44 commits, each one logical change named by module;
+\item a quick test subset (\texttt{pytest -m gsd\_quick}, 347 tests in about 1.5\,min) that runs on the laptop and on
+  megatron, and the full suite before each push;
+\item golden outputs of the existing operators (collisions, remap, sputtering, exchange, charging) that every commit
+  reproduces bit for bit;
+\item new behaviour only through opt-in arguments, so every earlier result stays as it was.
+\end{itemize}
+With its new features off, the operator reproduces A0's own split step on the five A0 cases to round-off
+($\le8\times10^{-14}$ of a composition's total): it adds nothing of its own.
+
+\paragraph{Two calls, as in RAMSES.} \texttt{precool} at the start of each cooling substep and \texttt{update} over it,
+mirroring \texttt{compute\_dust\_precool} and \texttt{compute\_dust\_update}. Their inputs and outputs are plain
+per-cell quantities, and nothing else calls the inner modules:
+\begin{itemize}
+\item \emph{in:} $T$, $n_{\rm H}$, $n_e$, $n$(H\,{\sc i}), the ions, the RT group photons, $G_0$ of the UV background,
+  and the gas densities of the dust's elements;
+\item \emph{out:} heating, cooling, charges, the grain area, $T_d$ per bin, the group absorption for the RT, the
+  covalent bins' band gaps, the H$_2$ the molecules release, the elements returned to the gas, the overflow share,
+  dUU and a conservation check.
+\end{itemize}
+
+\begin{table}[H]
+\centering\small
+\caption{What the two calls do, in order. Every item past the A0 processes is opt-in per composition.}\label{tab:a3c}
+\begin{tabularx}{\textwidth}{@{}l L@{}}
+\toprule
+call & step \\
+\midrule
+precool & one charge solve per grain bin at its area node (the seam's sticking law; the covalent bins at their band gap,
+  blended between the five \texttt{acx} nodes linearly in H/C): heating, cooling, Coulomb factors, explosion rates \\
+\addlinespace[3pt]
+& $T_d$ per bin from absorbed against emitted power with the bins' pseudo-bin optics; the group absorption \\
+\addlinespace[3pt]
+& the covalent bins' band gap from the equilibrium of their hydrogen ($k_{\rm UV}$ from the photons absorbed per C at
+  every band-gap node, $k_{\rm H}$ from $n$(H\,{\sc i}) and $T$), or from their tracked H/C \\
+\addlinespace[3pt]
+& the molecular bins: charge, heating, cooling and absorption rate from the PAH group tables (on the 12 photon groups),
+  H$_2$ from the hydrogen tables; $S_{\rm eff}$ for every molecular bin on every larger bin \\
+\addlinespace[3pt]
+\midrule
+update & 1.\ collisions with the pair rule, the precool charges (molecules included) in the Coulomb factors, and
+  $S_{\rm eff}$ \\
+\addlinespace[3pt]
+& 2.\ Coulomb explosion: a per-moment sink feeding $a^{-3.3}$ fragments (or the gas) \\
+\addlinespace[3pt]
+& 3.\ erosion in one remap: classical sputtering of the grains and the molecular bins' carbon loss, with the rate's
+  jump at $\NC = 400$ held sharp \\
+\addlinespace[3pt]
+& 4.\ accretion and sublimation at the precool $T_d$ \\
+\addlinespace[3pt]
+& 5.\ the exact hydrogen step where $\MH$ is tracked \\
+\addlinespace[3pt]
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{What was measured on the way.}
+\begin{itemize}
+\item \emph{Area-node charging:} 3--9 radii per bin keep heating and cooling within 1\,\% and $\langle Z\rangle$ within
+  0.05 (\texttt{check\_area\_node\_tables.py}); 79 tables for the 15 grain bins, about 28\,MiB in RAMSES's format.
+\item \emph{The pair rule} needs the generic collision path, 2.4 times the cost of the fused pair tables; RAMSES writes
+  its own kernel either way.
+\item \emph{A numerical leak at the seam:} the erosion velocity is tabulated on log-spaced radii, which smeared the
+  jump between the grain and the molecular rates over one interval and drained the first grain bin into the molecules.
+  The table now carries knots at the molecular bins' edges.
+\item \emph{The cell optics} agree with the hydrogen module's own: the covalent bins' UV absorption per C differs by one
+  constant (the Habing against Mathis normalisation) within 0.5\,\% over every band gap and bin, and the CNM band gap is
+  the same to $10^{-3}$\,eV (\texttt{check\_cell\_optics.py}). At $G_0 = 1.7$ the largest grains sit at 15--17\,K
+  (a-C) and 14--16\,K (astrosilicate).
+\item \emph{The hydrogen tracer} rides with the grains at the donor bin's H/C: growing grains keep their hydrogen,
+  shrinking ones their H/C, and collisions move it with the mass's own Patankar matrix, so a uniform H/C stays exactly
+  uniform. Hydrogen is conserved with the gas to round-off; repeated long steps relax to precool's equilibrium band gap.
+\end{itemize}
+
+\paragraph{Can the decomposition meet the basic constraints? (Track O)} Your question of 23 November: do our choices
+(8 two-moment bins per composition, 4 molecular bins below $\NC = 400$, a-C(:H) graded by size and band gap, astrosilicate)
+rule out what Draine \& Li, Zubko et al., THEMIS and Hensley \& Draine fit? They do not.
+\begin{itemize}
+\item \emph{O1, the binning alone:} the benchmark size distributions carried by our bins reproduce the originals'
+  extinction and emission within 0.4\,\% (THEMIS J13) and 2\,\% (DL07). Cutting the molecules at $\NC = 20$ costs DL07's
+  3.3\,\textmu m band 17\,\%.
+\item \emph{O2, our materials} (Fig.~\ref{fig:o2}): smooth parametric size distributions of a-C(:H) and astrosilicate fit
+  the Milky Way extinction (Gordon et al.\ 2023) and the Hensley \& Draine (2023) model's emission at $\chi^2 = 1.97$ per
+  point, 2.02 as the GSD carries them. The extinction is within 9\,\%; the 8--12\,\textmu m bands are 33--42\,\% low
+  against monochromatic points; silicate sits at its abundance limit. The graphite control reaches 5.4, and the LMC and
+  SMC curve shapes are within 9--26\,\%. A first fit with free bin moments reached 0.39 but with saw-tooth size
+  distributions, visible only once plotted; hence the smooth families.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{figs/o2_milky_way.png}
+\caption{Track O2: the Milky Way fitted with our materials (left) and with the graphite control (right). Top: extinction
+per H against Gordon et al.\ (2023); bottom: emission per H against the Hensley \& Draine (2023) model at $U = 1$, with
+the fitted bands (open circles). Blue: the continuous parametric size distributions; dashed orange: as the GSD carries
+them (EA, 8 bins per composition, 4 molecular bins). The grey bands mark $\pm5$\,\% and $\pm10$\,\%.}
+\label{fig:o2}
+\end{figure}
+
+\paragraph{One-zone runs, everything on} (\texttt{run\_cell.py demo}: 40 steps; the molecular and group tables, the cell
+optics, $Y_{\rm pd} = 10^{-7}$). Carbon and silicon are conserved to $10^{-15}$, and the overflow bins hold at most
+$10^{-20}$ of the mass.
+
+\begin{table}[H]
+\centering\small
+\caption{The one-zone runs at their end: the share of carbon in molecules (0.277 at the start), the photoelectric
+heating per H, the dust temperature of the largest carbon and silicate grains, and the covalent bins' band gap.}
+\label{tab:demo}
+\begin{tabular}{@{}l r r r r r@{}}
+\toprule
+cell & time & molecular C & $\Gamma/n_{\rm H}$ [erg\,s$^{-1}$] & $T_d$ C / Si [K] & $\Eg$ [eV] \\
+\midrule
+WNM ($G_0$ 1) & 30\,Myr & 0.204 & $1.1\times10^{-25}$ & 15 / 14 & 0.26--0.27 \\
+CNM ($G_0$ 1) & 30\,Myr & 0.120 & $1.3\times10^{-25}$ & 15 / 14 & 0.45--0.55 \\
+dense core ($G_0$ 0.01) & 1\,Myr & 0.000 & $3.5\times10^{-28}$ & 6 / 6 & 0.22 \\
+PDR ($G_0$ $10^3$) & 1\,Myr & 0.099 & $2.4\times10^{-23}$ & 58 / 43 & 0.33--0.40 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+What the runs say:
+\begin{itemize}
+\item \emph{Freeze-out is decided by the photodesorption yield.} Thermal release is negligible at 8 bins: the smallest
+  host bin's area node is at 1.5\,nm and the smallest molecular bin averages $\sim$35\,C, where $P_{\rm th}\approx0$
+  even at $G_0 = 10^3$. With $Y_{\rm pd} = 0$ the molecules freeze out in the CNM, the core and the PDR (0.002, 0, 0 of
+  the carbon left in molecules). With $10^{-7}$--$10^{-6}$ the CNM keeps 0.12--0.14 and the PDR 0.10, while the
+  dense core still freezes out, as Köhler et al.\ (2015) find above 1500\,cm$^{-3}$. Before photodesorption acted on
+  every host, the PDR's molecules went to the grains above 20\,nm instead (0.024 left).
+\item \emph{The covalent bins in cold cores stay hydrogen-poor:} even at $G_0 = 0.01$ their band gap sits at the UV
+  floor (0.22\,eV), because the laboratory re-hydrogenation law's activation energy (Mennella et al.\ 2006) cuts $k_{\rm
+  H}$ about 1000-fold at 10\,K. This is what the adopted laws give; the dense-gas gates of A5 will test it against
+  a-C:H mantles.
+\item \emph{Cost in Python:} about 165\,ms per precool and 25--420\,ms per update for the 21 bins, with as many charge
+  solves as bins. RAMSES writes its own kernels.
+\end{itemize}
+
+\paragraph{Left.} The hot-gas join: the molecular tables extended to $10^{7.5}$\,K (77 molecules, the deep super-H
+chain) are being built on megatron; then their carbon loss is compared with classical sputtering at the seam
+(\texttt{check\_hot\_erosion\_join.py}), with a labelled interpolation towards $\NC\approx1000$ if they differ by more
+than a factor 2. The calibration of $Y_{\rm pd}$ is part of A5.
 
 %======================================================================================================================
 \section{What RAMSES will need}
@@ -2008,8 +2170,8 @@ overflow bins and the \texttt{acx} nodes. The plan brings that to about 20\,MiB 
   calibrated on TMC-1 plus one reaction-limited growth efficiency calibrated on the translucent $q_{\rm PAH}$ rise.
 \item \textbf{Kernel averaging} in the collisions (Sect.~\ref{sec:variants}): available as an option; to be tested in
   the full collision model before deciding on a default.
-\item \textbf{Still open from the transfer study:} PAH erosion in hot gas with pahchem's impact rates (the tables stop
-  at $10^4$\,K) joined to classical sputtering at $\NC\approx1000$; the routing of Coulomb explosion (fragments or ion
+\item \textbf{Still open from the transfer study:} the hot-gas join (the tables are extended in A3c and being built;
+  Sect.~\ref{sec:a3c}); the routing of Coulomb explosion (fragments or ion
   loss, set by the assumed tensile strength); the a-C:H end of the hydrocarbon family (P1) and the bare end; redoing
   the band test.
 \item \textbf{The super-H physical stop} for large PAHs, a pahchem question: barriers past +24, the Eley--Rideal bracket,
@@ -2042,29 +2204,20 @@ overflow bins and the \texttt{acx} nodes. The plan brings that to about 20\,MiB 
   destroyed above about 7\,km\,s$^{-1}$, its carbon going to the gas (labelled). On nano-grains a photo-release term
   competes with sticking; its non-thermal yield is a labelled, calibrated input (default 0). The seam's electron
   sticking is one labelled law (molecular below $\NC = 400$, tapering to WD01 by $\sim$3\,nm), bracketed in A5. The
-  overflow bin becomes one wide bin over 1--10\,\textmu m.
+  overflow bin becomes one wide bin over 1--10\,\textmu m. For A3c: an exploding grain's mass goes to $a^{-3.3}$
+  fragments (the gas selectable); the molecular tables are extended into hot gas within A3c; Track O fits G23 and the
+  HD23 model.
+\item \emph{24 November:} photo-release on every host, not only nano-grains (Sect.~\ref{sec:transfer}).
 \end{itemize}
 
 \subsection{The build, in order}
 \begin{enumerate}
-\item \textbf{Finish A3b:}
-  \begin{itemize}
-  \item the charge kernels at a few radii per bin for the area node: how many radii, and their memory against the
-    planned coarsening, with \texttt{check\_inbin\_rates} as the test;
-  \item the optics on a band-gap axis with Planck/Rosseland tables to match, and the error of the \texttt{ac}/\texttt{ach}
-    interpolation;
-  \item charge and photoelectric heating per GSD bin from the PAH group tables, conditional on the H state;
-  \item molecular band emission per bin, for post-processing;
-  \item the re-gridded, real*4 cooling and sputtering tables.
-  \end{itemize}
-\item \textbf{A3c, the \texttt{ramses} mode of \texttt{gsd}:} the per-cell operator RAMSES will mirror. It reuses the
-  remap, collision, sputtering and closure modules (EA default, Gauss rate nodes), and adds the equilibrium band gap
-  of the covalent bins, the $\MH$ block (0--4 bins, default 0; tested on though off) with the exact step and H carried
-  by every remap, the overflow bin, the molecule pair rule and the release term in \texttt{gsd.collisions}, the
-  area-node rates and moment-specific rates for size-dependent sinks. Its conservation tests (carbon and
-  hydrogen to round-off, bounds on H/C) come first; a third collision node or bin edges at kernel thresholds can be
-  tested there (the coagulation test of Sect.~\ref{sec:mck}). Also: a thermal H-loss sensitivity run for the 1--3\,nm
-  bin (Sect.~\ref{sec:hwhy}).
+\item \textbf{A3b, what is left:} the charge kernels' memory against the planned coarsening; the PAH group tables
+  conditional on the H state; molecular band emission per bin, for post-processing; the re-gridded, real*4 cooling and
+  sputtering tables.
+\item \textbf{A3c} is built (Sect.~\ref{sec:a3c}); left: the hot-gas join. To try on it: a third collision node or
+  bin edges at kernel thresholds (the coagulation test of Sect.~\ref{sec:mck}); a thermal H-loss sensitivity run for
+  the 1--3\,nm bin (Sect.~\ref{sec:hwhy}).
 \item \textbf{A4, advection prototype:} $N$ following $\MC$ through the ratio pass, $\MH$ as a child of $\MC$, and
   the drift with moment-specific velocities (Fig.~\ref{fig:drift} is its first test).
 \item \textbf{A5, accept or reject.} T2: our tables against DustEM's SED and extinction, and the graphite control
@@ -2087,7 +2240,8 @@ overflow bins and the \texttt{acx} nodes. The plan brings that to about 20\,MiB 
 \texttt{gsd/} & \texttt{closures} (the methods: EA default, EAF, PL2M, affine, exp), \texttt{optics} (incl.\ node
   tables), \texttt{pl2m}, \texttt{remap}, \texttt{collisions}, \texttt{shattering}, \texttt{velocities},
   \texttt{sputtering}, \texttt{exchange}, \texttt{grid} (graded), \texttt{materials}, \texttt{carbon}
-  (\texttt{CarbonLayout}), \texttt{charging}, \texttt{hydrogen} \\
+  (\texttt{CarbonLayout}), \texttt{charging}, \texttt{hydrogen}; A3c: \texttt{cell} (the operator), \texttt{pairs},
+  \texttt{release}, \texttt{sinks}, \texttt{molecular} \\
 \texttt{models/dust\_radiation/} & \texttt{themis\_optics}, \texttt{jones2012\_optics}, \texttt{carbon\_heat\_capacity};
   \texttt{models/tools/coated\_mie} \\
 \texttt{pahchem/} & \texttt{hydrogen\_tracking}, \texttt{hydrogen\_observables}, \texttt{hydrogen\_tables} \\
@@ -2103,7 +2257,10 @@ overflow bins and the \texttt{acx} nodes. The plan brings that to about 20\,MiB 
   \texttt{overview/variants/}); node tables and RT pseudo-bins: \texttt{check\_node\_tables},
   \texttt{check\_rt\_group\_optics}, \texttt{bench\_rt\_group\_optics}; the carbon transfer (23 November):
   \texttt{check\_carbon\_heating\_share}, \texttt{check\_carbon\_transfer\_timescales},
-  \texttt{check\_carbon\_transfer\_options}, \texttt{check\_seam\_decomposition} \\
+  \texttt{check\_carbon\_transfer\_options}, \texttt{check\_seam\_decomposition}; A3c: \texttt{run\_cell} (oracle,
+  demo), \texttt{run\_quick\_checks.sh}, \texttt{check\_area\_node\_tables}, \texttt{check\_o1\_binning},
+  \texttt{check\_o2\_fit}, \texttt{dustem\_tools}, \texttt{check\_cell\_optics}, \texttt{check\_hot\_erosion\_join},
+  \texttt{build\_molecular\_group\_tables} \\
 \midrule
 \multicolumn{2}{@{}l}{\textbf{this report} (\texttt{diagnostics/gsd/overview/})}\\
 & \texttt{gsd\_overview.tex}, \texttt{make\_figures.py}, \texttt{make\_infographic.py} (Fig.~\ref{fig:network}),
