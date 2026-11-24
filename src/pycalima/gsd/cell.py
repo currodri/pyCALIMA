@@ -15,7 +15,7 @@ RAMSES-CALIMA calls the dust twice per cooling substep (``dust_interface.f90``):
 Carbon's molecular bins (``Composition.molecular_bins``) take their charge, heating, cooling and photon absorption
 from pahchem's group tables and their carbon loss from the hydrogen tables (``molecular.MolecularTables``); precool
 then also gives the collisions the molecules' charges and the photo-release factor S_eff of molecules sticking to
-nano-grains (``release``), per molecular bin and nano-grain bin.
+larger particles (``release``), per molecular bin and host bin.
 
 These two calls are the whole interface: their inputs and outputs are plain per-cell quantities, and nothing
 outside this module calls the operators below for a cell. A composition's grid may carry the overflow bin
@@ -137,7 +137,7 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
 
     With molecular group tables (``Composition.molecular_tables``): the molecular bins' heating and cooling are
     N_i Gamma_i and N_i Lambda_i of their charge balance (``MolecularTables.charge``), in place of the grain tables';
-    their charges enter the collisions; and with a pair rule, S_eff of each molecular bin on each nano-grain bin
+    their charges enter the collisions; and with a pair rule, S_eff of each molecular bin on each larger bin
     (``_release``)."""
     from .charging import PhotonGroups
     from .closures import area_node
@@ -179,16 +179,16 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
 
 
 def _release(c, inputs, opt, state, mol, a_star):
-    """S_eff [molecular bins, nano-grain bins] (``release``): 1 / (1 + release_rate t_bury), each molecular bin at
-    its mean N_C, each host at its area node a*, t_bury from the host's growth by accretion in the cell (the
+    """S_eff [molecular bins, larger bins] (``release``): 1 / (1 + release_rate t_bury) on every host bin above the
+    molecular ones (photodesorption acts on the whole population, 2026-11-24), each molecular bin at its mean N_C,
+    each host at its area node a*, t_bury from the host's growth by accretion in the cell (the
     accretion law of ``update``, net of sublimation; growth by coagulation and by the molecules themselves is not
     counted, labelled: it would bury faster), capped at ``Options.t_bury_max`` (without growth it is infinite, and a
     release rate that underflows to ~1e-300 s^-1 on a 10 nm host would still empty it)."""
     from .release import burial_time, release_rate, s_eff
 
     g, mb = c.grid, c.molecular_bins
-    e = g.a_edges
-    hosts = [j for j in range(mb, g.n_bins) if e[j + 1] <= c.pair_rule.a_nano * (1.0 + 1e-9)]
+    hosts = list(range(mb, g.n_bins))
     m_c = np.sqrt(g.m_edges[:-1] * g.m_edges[1:])
     with np.errstate(divide="ignore", invalid="ignore"):
         nc = np.where(c.N > 0, c.M / np.maximum(c.N, 1e-300), m_c) / M_CARBON
@@ -226,7 +226,7 @@ class Precool:
     """What precool gives the gas and the update, per composition (lists in the order of the compositions):
     heating and cooling [erg s^-1 cm^-3], the charge state on the area nodes (``charging.ChargeState``) and the bins'
     weights, the explosion rate per bin [s^-1] and the grain area per unit volume [cm^2 cm^-3]; with molecular group
-    tables the molecular bins' state (``molecular.MolecularState``) and S_eff [molecular bins, nano-grain bins]; with
+    tables the molecular bins' state (``molecular.MolecularState``) and S_eff [molecular bins, larger bins]; with
     molecular tables the H2 the molecular bins release [cm^-3 s^-1] per bin (the hydrogen tables' 'h2', at the cell's
     G0 = G0_bg + the groups' 6-13.6 eV); None otherwise, or when absent."""
 
@@ -326,7 +326,7 @@ def _charge_points(state, mol, edges, mb):
 
 
 def _release_lookup(S, edges, mb):
-    """The pair rule's release(a_molecule, a_host): S_eff of the molecular bin and nano-grain bin holding the radii."""
+    """The pair rule's release(a_molecule, a_host): S_eff of the molecular bin and host bin holding the radii."""
     nh = S.shape[1]
 
     def release(a_m, a_h):

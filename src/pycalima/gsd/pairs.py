@@ -15,8 +15,9 @@ What happens in a collision depends on the pair:
   - is destroyed above ``v_destroy`` (~7 km/s, ~3 eV per atom, uncertain by a factor 2), its carbon going to the
     gas and the partner left intact.
 
-  On nano-grains the sticking is multiplied by S_eff, the photo-release term (``release``; 1 unless the cell's
-  operator sets it). The rate is sigma <v> over the speed distribution of the pair (``velocities.RelativeVelocity``),
+  The sticking is multiplied by S_eff, the photo-release term (``release``; 1 unless the cell's operator sets it),
+  on every partner: photodesorption acts on the whole population (user, 2026-11-24), while thermal release matters
+  only on ~1 nm hosts. The rate is sigma <v> over the speed distribution of the pair (``velocities.RelativeVelocity``),
   with the Coulomb factor of both partners' charges when the velocity model carries them.
 - **grain + grain:** the grain collision physics (``shattering.GrainCollisions``), unchanged.
 
@@ -43,8 +44,8 @@ V_STICK, V_DESTROY = 4.0e5, 7.0e5
 @dataclass
 class PairRule:
     """The rule for one carbon grid: molecules are grains with a <= ``a_mol``, nano-grains those up to ``a_nano``
-    [cm]. ``release(a_molecule, a_host)`` (vectorised, broadcasting) returns S_eff for a molecule sticking to a
-    nano-grain; None means 1."""
+    [cm]. ``release(a_molecule, a_host)`` (vectorised, broadcasting) returns S_eff for a molecule sticking to any
+    larger particle; None means 1."""
 
     a_mol: float
     a_nano: float
@@ -75,7 +76,7 @@ class PairRule:
         every channel zeroed for pairs with a molecule, plus a stick and a destroy channel for molecule + larger
         particle. ``rho`` is the bulk density of the velocity model's stopping times; ``a_frag_min`` [cm] the grid's
         smallest radius (destroyed molecules go below it, into the collector)."""
-        mol, nano = self.classes(a)
+        mol, _ = self.classes(a)
         mixed = mol[:, None] ^ mol[None, :]
         out = []
         for ch in chans:
@@ -94,8 +95,8 @@ class PairRule:
         K = np.pi * (A1 + A2) ** 2 * v_mean
         S = np.ones(mixed.shape)
         if self.release is not None:
-            host_row = nano[:, None] & mol[None, :]                   # rows nano-grain, columns molecule
-            host_col = mol[:, None] & nano[None, :]
+            host_row = ~mol[:, None] & mol[None, :]                   # rows host, columns molecule
+            host_col = mol[:, None] & ~mol[None, :]
             S = np.where(host_col, self.release(A1, A2), S)
             S = np.where(host_row, self.release(A2, A1), S)
             S = np.clip(S, 0.0, 1.0)

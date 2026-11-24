@@ -8,7 +8,8 @@ if it is buried before a photon releases it:
 with R_abs the adsorbed molecule's photon absorption rate, P_th the single-photon thermal release probability,
 Y_pd the non-thermal photodesorption yield (unmeasured: an input labelled 'calibrated', default 0, calibrated in A5
 on molecular-cloud parity and dense-core depletion; expected 1e-7 to 1e-6) and t_bury the host's burial time.
-Molecules on grains >= 20 nm stick (S = 1).
+S_eff applies on every host, nano-grains and grains alike: photodesorption acts on the whole population (user,
+2026-11-24); P_th is negligible above ~3 nm, where Y_pd alone releases.
 
 P_th (``p_thermal``) follows the literature review of 2026-11-23 (overview/lit/carbon_transfer_release.md), each
 step labelled:

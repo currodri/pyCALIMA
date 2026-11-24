@@ -93,14 +93,20 @@ def test_fast_impacts_destroy_the_molecules_and_return_their_carbon_to_the_gas()
     assert c["N"][8] == pytest.approx(N[8], rel=1e-12) and c["M"][8] == pytest.approx(M[8], rel=1e-12)
 
 
-def test_release_can_switch_off_sticking_on_nano_grains_only():
+def test_release_acts_on_every_host():
+    """S_eff applies to molecules on nano-grains and on grains alike (photodesorption acts on the whole population,
+    2026-11-24): S = 0 on grains above 20 nm only keeps them clean and lets the nano-grains collect; S = 0 everywhere
+    keeps every host clean."""
     N, M = state([1, 5, 8], 1e4)
-    off = PairRule.from_layout(LAYOUT, GRID, release=lambda a_mol, a_host: 0.0 * a_mol * a_host)
-    c = collide(GRID, N, M, model(cold(), rule=off), 1e6 * YR)
     on = collide(GRID, N, M, model(cold()), 1e6 * YR)
-    assert c["M"][5] == pytest.approx(M[5], rel=1e-12)                        # no molecule stays on a nano-grain
-    assert on["M"][5] > M[5] * (1 + 1e-9)
-    assert c["M"][8] > M[8] * (1 + 1e-9)                                       # grains >= 20 nm still collect them
+    assert on["M"][5] > M[5] * (1 + 1e-9) and on["M"][8] > M[8] * (1 + 1e-9)
+    grains_off = PairRule.from_layout(LAYOUT, GRID, release=lambda a_m, a_h: np.where(a_h > RULE.a_nano, 0.0, 1.0)
+                                      + 0.0 * a_m)
+    c = collide(GRID, N, M, model(cold(), rule=grains_off), 1e6 * YR)
+    assert c["M"][8] == pytest.approx(M[8], rel=1e-12) and c["M"][5] > M[5] * (1 + 1e-9)
+    off = PairRule.from_layout(LAYOUT, GRID, release=lambda a_m, a_h: 0.0 * a_m * a_h)
+    c = collide(GRID, N, M, model(cold(), rule=off), 1e6 * YR)
+    assert c["M"][5] == pytest.approx(M[5], rel=1e-12) and c["M"][8] == pytest.approx(M[8], rel=1e-12)
 
 
 @pytest.mark.parametrize("velocity", [cold, fast])

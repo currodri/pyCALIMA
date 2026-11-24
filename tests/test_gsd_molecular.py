@@ -226,17 +226,17 @@ def test_precool_takes_the_molecular_bins_heating_and_cooling_from_their_tables(
 
 def test_s_eff_is_one_in_the_dark_and_zero_without_burial(tmp_path, dustem):
     """No light: S_eff = 1. Light and no growth (burial capped at 1 Gyr): small molecules on the smallest hosts are
-    released (S ~ 0), none on 5-20 nm hosts; growth by accretion buries them, raising S; Y_pd releases on any
-    host."""
+    released (S ~ 0), none thermally from 7.5 nm up; growth by accretion buries them, raising S; Y_pd releases on
+    every host, grains included."""
     from dataclasses import replace
 
     c = molecular_carbon(tmp_path, pair_rule=True)
     dark = cell.precool([c], inputs(), cell.Options())
-    assert np.all(dark.release[0] == 1.0) and dark.release[0].shape == (4, 3)
+    assert np.all(dark.release[0] == 1.0) and dark.release[0].shape == (4, 7)         # every bin above N_C 400
     lit = replace(inputs(), photons=agn_photons(1e-6), G0_bg=1e3)
     no_burial = cell.precool([c], lit, cell.Options(processes=frozenset({"coagulation"}))).release[0]
     assert no_burial[0, 0] < 1e-4                             # small molecules on ~1.5 nm hosts are released
-    assert np.all(no_burial[:, -1] > 1 - 1e-6)                  # 5-20 nm hosts: no thermal release
+    assert np.all(no_burial[:, 2:] > 1 - 1e-6)                # from 7.5 nm up: no thermal release
     burial = cell.precool([c], lit, cell.Options()).release[0]
     assert np.all(burial >= no_burial) and 0.0 < burial[0, 0] < 1.0
     pd = cell.precool([c], lit, cell.Options(processes=frozenset({"coagulation"}), y_pd=1e-6)).release[0]
