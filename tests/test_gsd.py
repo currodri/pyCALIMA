@@ -1350,3 +1350,27 @@ def test_hydrogen_step_is_exact_for_frozen_rates_and_relaxes_to_equilibrium(bin_
     for _ in range(2000):
         x = bh.step(x, c, 5.0 * YR)
     assert bh.step(x0, c, 1e4 * YR) == pytest.approx(x, rel=0.05)
+
+
+def test_equilibrium_gap_matches_the_bisection_for_a_mathis_shaped_field(bin_hydrogen):
+    """The node-bracketed root (what RAMSES will do, k_UV given on the band-gap nodes) equals BinHydrogen's 60-step
+    bisection when k_UV(E_g) has the Mathis shape, in lit, shielded and cold gas."""
+    from pycalima.gsd.hydrogen import Y_CH, Conditions, equilibrium_gap, k_h
+
+    bh = bin_hydrogen
+    for c in (Conditions(1.0, 50.0, 80.0), Conditions(1e4, 1e5, 500.0), Conditions(1e-3, 1.0, 15.0),
+              Conditions(0.0, 10.0, 100.0)):
+        x, e = equilibrium_gap(bh, Y_CH * c.u_mathis * bh.abs_per_c, float(k_h(c.n_hi, c.t_gas)))
+        assert x == pytest.approx(bh.equilibrium(c), rel=1e-9, abs=1e-12)
+        assert e == pytest.approx(float(bh.e_gap(x)))
+    x, _ = equilibrium_gap(bh, 1e30 * bh.abs_per_c, 0.0)          # no H atoms: the UV floor
+    assert x == pytest.approx(bh.x_min)
+
+
+def test_k_uv_from_groups_is_the_yield_times_the_absorbed_photons():
+    from pycalima.gsd.hydrogen import Y_CH, k_uv_groups
+
+    sigma = np.array([[1e-18, 2e-18, 0.5e-18], [3e-18, 1e-18, 0.0]])        # two band-gap nodes, three groups
+    N = np.array([1e-3, 2e-3, 5e-4])
+    w = np.array([0.0, 0.6, 1.0])
+    np.testing.assert_allclose(k_uv_groups(sigma, N, 3e10, w), Y_CH * 3e10 * (sigma * (w * N)).sum(axis=1))
