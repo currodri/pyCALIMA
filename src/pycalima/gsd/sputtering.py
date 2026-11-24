@@ -58,13 +58,18 @@ def erosion_rate(material, T, n_H, rho=None, ions=SOLAR_IONS, size_correction=Tr
     return lambda a: np.interp(np.log(np.maximum(a, 1e-30)), la, rates)
 
 
-def sputter(grid, N, M, adot, dt, table_points=2000, method=None):
+def sputter(grid, N, M, adot, dt, table_points=2000, method=None, knots=None):
     """Shrink (N, M) over dt along da/dt = adot(a) <= 0, with the in-bin closure
     of ``method`` (``closures``; default ``closures.DEFAULT_METHOD``).
+    ``knots``: extra radii of the velocity table, e.g. a pair on each side of a
+    jump of adot, which the log-spaced table alone would smear over one interval.
 
     Returns (N, M, dM_gas): the new bins and the mass the grains lost,
     including grains eroded below the grid, which goes back to the gas.
     """
     table = velocity_table(adot, grid.a_edges[0] * 0.3, grid.a_edges[-1] * 3.0, table_points)
+    if knots is not None and len(knots):
+        ta = np.unique(np.concatenate([table[0], np.asarray(knots, dtype=float)]))
+        table = (ta, np.asarray(adot(ta), dtype=float))
     N1, M1, _lost, _oN, _oM = remap(grid, N, M, lambda a: advance(table, a, dt), method=method)
     return N1, M1, float(np.sum(M) - M1.sum())

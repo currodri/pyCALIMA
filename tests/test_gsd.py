@@ -335,6 +335,27 @@ def test_constant_sputtering_is_the_exact_shift_and_returns_the_mass():
     assert M1.sum() + dM == pytest.approx(M.sum(), rel=1e-13)
 
 
+def test_sputtering_knots_keep_a_jump_of_the_rate_sharp():
+    """A rate that stops at a bin edge (eroding only below it): the log-spaced velocity table smears the jump over
+    one interval and leaks the bin above; a knot pair at the edge keeps that bin still (round-off)."""
+    from pycalima.gsd.sputtering import sputter
+
+    g = _grid()
+    N, M = _lognormal(g, a0=3e-7, sig=1.0)
+    e = float(g.a_edges[10])
+
+    def adot(a):
+        return np.where(np.asarray(a) < e, -1e-12, 0.0)
+
+    dt = 3e10
+    smeared = sputter(g, N, M, adot, dt)[1]
+    sharp = sputter(g, N, M, adot, dt, knots=[e * (1 - 1e-9), e])[1]
+    assert abs(smeared[10] / M[10] - 1.0) > 1e-6
+    np.testing.assert_allclose(sharp[10:], M[10:], rtol=1e-12)
+    assert sharp[:10].sum() < M[:10].sum()
+    np.testing.assert_array_equal(sputter(g, N, M, adot, dt, knots=[])[1], smeared)
+
+
 def test_size_corrected_sputtering_spares_the_smallest_grains():
     """Ions cross nm grains without depositing their energy (Bocchio et al.
     2016): at 1e7 K the corrected rate tends to the semi-infinite one for
