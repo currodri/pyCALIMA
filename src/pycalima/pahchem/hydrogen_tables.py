@@ -19,6 +19,10 @@ The field is the Draine (1978) shape scaled by G0, plus ``optical_isrf`` times t
 what the chain holds: super-hydrogenation to N_H0 + ``Params.superh_levels``, with ``Params.superh_chemistry``. The npz's
 at_cap share flags the nodes where that cap, not the chemistry, sets the super-hydrogenated share.
 
+``--hot-gas`` adds the thermal electrons' and ions' passages (``Params.hot_gas``: ``population.hot_passages``,
+``hot_ion_passages``, the C and H knock-outs) for tables reaching above 1e4 K. The ions are inputs of each node
+(labelled): H+ at n_e, and above ``HE_ION_T`` K helium as He+ at ``HE_ABUNDANCE`` n_H (pahchem has no He2+).
+
     python -m pycalima.pahchem.hydrogen_tables --bin 20 42 --workers 16 --out results/carbon_plan/hydrogen_tables
 """
 from __future__ import annotations
@@ -33,6 +37,8 @@ from pycalima.pahchem import hydrogen_observables as ho
 
 AXES = ("log_g0", "log_nh", "log_t", "log_xe")
 FLOOR = -100.0
+HE_ABUNDANCE = 0.1           # n(He) / n_H
+HE_ION_T = 2e4               # K: above it the hot-gas tables count helium as He+ (labelled)
 
 
 def default_axes():
@@ -42,11 +48,14 @@ def default_axes():
     return {k: np.round(np.arange(lo, hi + 0.5 * step, step), 10) for k, (lo, hi, step) in DEFAULT_AXES.items()}
 
 
-def environment(lg0, lnh, lt, lxe, optical_isrf=0.0):
+def environment(lg0, lnh, lt, lxe, optical_isrf=0.0, hot_gas=False):
     from pycalima.pahchem.baseline import Environment
 
-    return Environment("table", 10.0 ** lg0, 10.0 ** lnh, 10.0 ** (lnh + lxe), 10.0 ** lt, None,
-                       optical_isrf=optical_isrf)
+    n_h, n_e, t = 10.0 ** lnh, 10.0 ** (lnh + lxe), 10.0 ** lt
+    ions = ()
+    if hot_gas:
+        ions = (("H+", n_e),) + ((("He+", HE_ABUNDANCE * n_h),) if t >= HE_ION_T else ())
+    return Environment("table", 10.0 ** lg0, n_h, n_e, t, None, optical_isrf=optical_isrf, ions=ions)
 
 
 def library(nc_min=21, nc_max=384):
@@ -77,7 +86,8 @@ def molecule_grid(job):
     out = np.zeros(shape + (len(mols), len(ho.OBSERVABLES)))
     prepared = set()
     for idx in np.ndindex(*shape):
-        env = environment(*(axes[a][i] for a, i in zip(AXES, idx)), optical_isrf=optical_isrf)
+        env = environment(*(axes[a][i] for a, i in zip(AXES, idx)), optical_isrf=optical_isrf,
+                          hot_gas=params_kw.get("hot_gas", False))
         sh = population.field_shape(env)
         if sh not in prepared:
             pop.prepare(sh, workers=1)
@@ -127,6 +137,7 @@ def main(argv=None):
     ap.add_argument("--superh-levels", type=int, default=None, help="Params.superh_levels (default: Params')")
     ap.add_argument("--superh-chemistry", default=None, help="Params.superh_chemistry (default: Params')")
     ap.add_argument("--axes", default=None, help="'lo:hi:step' for each of log_g0, log_nh, log_t, log_xe, comma-separated")
+    ap.add_argument("--hot-gas", action="store_true", help="thermal electron and ion passages (Params.hot_gas)")
     ap.add_argument("--out", default="results/carbon_plan/hydrogen_tables")
     args = ap.parse_args(argv)
     from concurrent.futures import ProcessPoolExecutor
@@ -139,8 +150,8 @@ def main(argv=None):
         for a, spec in zip(AXES, args.axes.split(",")):
             lo, hi, step = (float(v) for v in spec.split(":"))
             axes[a] = np.round(np.arange(lo, hi + 0.5 * step, step), 10)
-    params_kw = {k: v for k, v in (("superh_levels", args.superh_levels), ("superh_chemistry", args.superh_chemistry))
-                 if v is not None}
+    params_kw = {k: v for k, v in (("superh_levels", args.superh_levels), ("superh_chemistry", args.superh_chemistry),
+                                   ("hot_gas", True if args.hot_gas else None)) if v is not None}
     settings = {"optical_isrf": args.optical_isrf, "field": "Draine 1978", **params_kw}
     lib = library()
     bins = []
