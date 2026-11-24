@@ -10,11 +10,16 @@ The factor at the seam is the top bin's rate over the classical one at N_C 400. 
 x2 the bins between take a labelled interpolation towards N_C ~ 1000 (Bocchio+12); this script reports, it decides
 nothing.
 
+With ``--cold DIR`` it also checks the tables' own seam: at T = 1e4 K and x_e = 0.1, where the axes of the cold
+production tables and the hot ones meet, the two should agree (the hot rates add only thermal passages, negligible
+at 1e4 K): the ratio hot / cold of the carbon loss per bin over the shared (G0, n_H) nodes.
+
 The gas: n_H = 1 cm^-3 (both rates are linear in the density), n_e = 1.2 n_H (the tables' x_e axis ends at 1, so
 they take x_e = 1, labelled), G0 at the tables' lowest value. A figure of k/N_C against T goes next to the text.
 
     python diagnostics/gsd/check_hot_erosion_join.py --hot results/gsd_a3c/tables/hot_k8 \
-        [--out results/gsd_a3c/hot_erosion_join.txt] [--fig results/gsd_a3c/figs/hot_erosion_join.png]
+        [--cold results/gsd_a3c/tables/deep_k8] [--out results/gsd_a3c/hot_erosion_join.txt] \
+        [--fig results/gsd_a3c/figs/hot_erosion_join.png]
 """
 from __future__ import annotations
 
@@ -56,6 +61,7 @@ def _style(ax):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--hot", type=Path, required=True, help="hot-gas hydrogen tables (bin_nc*_carbon.dat and .npz)")
+    ap.add_argument("--cold", type=Path, default=None, help="cold production tables, for the 1e4 K seam check")
     ap.add_argument("--out", type=Path, default=Path("results/gsd_a3c/hot_erosion_join.txt"))
     ap.add_argument("--fig", type=Path, default=Path("results/gsd_a3c/figs/hot_erosion_join.png"))
     a = ap.parse_args(argv)
@@ -80,6 +86,13 @@ def main(argv=None):
     with np.errstate(divide="ignore"):
         fac = k_mol[hot, -1] / cls[400.0][hot]
     lines.append(f"factor over 1e5-1e8 K: {np.nanmin(fac):.2f} to {np.nanmax(fac):.2f}")
+    if a.cold is not None:
+        cold = MolecularTables.from_directories(a.cold)
+        lg, ln = np.arange(-1.0, 6.0 + 1e-9, 1.0), np.arange(-1.0, 6.0 + 1e-9, 1.0)
+        r = np.array([[mt.carbon_loss(10.0 ** x, 10.0 ** y, 1e4, 0.1 * 10.0 ** y)
+                       / cold.carbon_loss(10.0 ** x, 10.0 ** y, 1e4, 0.1 * 10.0 ** y) for y in ln] for x in lg])
+        lines.append("seam at 1e4 K, x_e = 0.1 (hot / cold, log G0 and log n_H -1..6): per bin min/max "
+                     + ", ".join(f"{r[..., j].min():.3g}/{r[..., j].max():.3g}" for j in range(nc.size)))
     txt = "\n".join(lines)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(txt + "\n")
