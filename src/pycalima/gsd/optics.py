@@ -504,3 +504,197 @@ def node_average(grid, N, M, table, method=None):
             W = profile_weights(eta, [0.5], u, "pl2m")[0]
         rows.append(np.tensordot(W, table.K[i], axes=(0, 0)))
     return np.stack(rows)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The cell's optics: pseudo-bin absorption for precool (A3c)
+# ---------------------------------------------------------------------------------------------------------------------
+
+HC_EV_UM = 1.23984198
+EV_ERG = 1.602176634e-12
+SIGMA_SB = 5.670374419e-5
+#: the band-gap nodes of the optics of the covalent a-C(:H) bins [eV]: 49 nodes as ``hydrogen.BinHydrogen``'s grid
+#: (the 2026-10-30 tables needed 39-48 points in E_g for 0.5 % on every observable)
+GAP_NODES = np.linspace(0.1, 2.5, 49)
+
+
+def _trapz_weights(x):
+    """w with sum(w f) = trapezoid(f, x)."""
+    x = np.asarray(x, float)
+    w = np.zeros(x.size)
+    d = np.diff(x)
+    w[:-1] += 0.5 * d
+    w[1:] += 0.5 * d
+    return w
+
+
+def _planck_lambda(lam_cm, T):
+    x = np.minimum(6.62607015e-27 * 2.99792458e10 / (lam_cm * 1.380649e-16 * T), 700.0)
+    return 2.0 * 6.62607015e-27 * 2.99792458e10 ** 2 / lam_cm ** 5 / np.expm1(x)
+
+
+class PseudoBinOptics:
+    """A composition's per-gram absorption at its bins' pseudo-bins, for the cell's precool (A3c, phase 4).
+
+    A GSD bin's RT optics are its 5 PL2M pseudo-bins blended linearly in the cell's in-bin state s
+    (``pseudo_bin_tables``; decided 2026-11-18). Built once from the per-gram absorption ``per_gram(a_cm, lam_um)``
+    -> (n_a, n_lam) [cm^2 g^-1], and for the bins ``gap_bins`` (the covalent a-C(:H) bins, contiguous) from
+    ``per_gram_gap(a_cm, lam_um, e_gap)`` on the band-gap nodes ``gap_nodes`` (linear in E_g between them), the
+    tables hold per bin and pseudo-bin:
+
+    - the absorption averaged over each photon group [L0, L1] for blackbody in-group photon spectra at the
+      temperatures ``rt_group_charging.TS_GRID``, as the group charging tables average (a cell's group then takes the
+      shape whose mean energy is the group's), with the share of the group's photons in ``hydrogen.UV_RANGE_EV``;
+    - the absorbed power and absorbed 6.8-13.6 eV photons in the UV background: the Mathis (1983) shape over
+      1-13.6 eV at G0 = 1 Habing in 6-13.6 eV, as WDB06rt's;
+    - the Planck mean absorption on ``planck_t`` [K], for the emitted power 4 sigma T^4 kappa_P(T).
+
+    ``absorption`` evaluates the first two in a cell, ``uv_photons`` the UV photons of the covalent bins at every
+    band-gap node (for their equilibrium band gap, ``hydrogen.equilibrium_gap``), and ``dust_temperature`` balances
+    absorbed and emitted power. Grain temperatures are equilibrium ones for every size (stochastic heating of the
+    small grains is not followed: labelled, as RAMSES does).
+    """
+
+    def __init__(self, grid, per_gram, groups, gap_bins=(), per_gram_gap=None, gap_nodes=GAP_NODES, n=5,
+                 n_nodes=64, n_e=16, n_bg=160, planck_t=None, lam_ir=None):
+        from pycalima.models.dust_charge import rt_group_charging as rg
+
+        from .hydrogen import UV_RANGE_EV
+
+        self.grid = grid
+        self.L0, self.L1 = (np.asarray(x, float) for x in groups)
+        self.gap_bins = np.asarray(sorted(gap_bins), int)
+        if self.gap_bins.size and np.any(np.diff(self.gap_bins) != 1):
+            raise ValueError("gap_bins must be contiguous")
+        self.gap_nodes = np.asarray(gap_nodes, float)
+        self.planck_t = np.geomspace(5.0, 3000.0, 48) if planck_t is None else np.asarray(planck_t, float)
+        lam_ir = np.geomspace(0.1, 3000.0, 160) if lam_ir is None else np.asarray(lam_ir, float)
+        e_grp = np.array([np.geomspace(l0, l1, n_e) for l0, l1 in zip(self.L0, self.L1, strict=True)])  # [g, e]
+        e_bg = np.geomspace(1.0, rg.MATHIS_BREAKS[-1], n_bg)
+        lam = np.concatenate([HC_EV_UM / e_grp.ravel(), HC_EV_UM / e_bg, lam_ir])
+        self._slices = (slice(0, e_grp.size), slice(e_grp.size, e_grp.size + n_bg), slice(e_grp.size + n_bg, None))
+        ng, ts = self.L0.size, np.asarray(rg.TS_GRID, float)
+        # group weights per in-group shape, normalised: W[g, t, e]
+        W = np.zeros((ng, ts.size, n_e))
+        for g in range(ng):
+            tw = _trapz_weights(e_grp[g])
+            for t, T in enumerate(ts):
+                w = tw * rg._photon_weights(e_grp[g], T)
+                W[g, t] = w / w.sum()
+        self._W = W
+        self.egy = np.einsum("gte,ge->gt", W, e_grp)
+        in_uv = (e_grp >= UV_RANGE_EV[0]) & (e_grp <= UV_RANGE_EV[1])
+        self.uv_share = np.einsum("gte,ge->gt", W, in_uv.astype(float))
+        # the UV background: photon flux per eV at G0 = 1 (group_tables' normalisation)
+        from pycalima.models.tools.radiation_fields import Mathis83_radiation_field
+
+        u = np.array([Mathis83_radiation_field(e) for e in e_bg])
+        band = e_bg >= 6.0
+        u *= rg.HABING_FLUX / (rg.C_CGS * np.trapezoid(u[band], e_bg[band]))
+        f_bg = rg.C_CGS * u / (e_bg * EV_ERG)
+        tw = _trapz_weights(e_bg)
+        self._w_bg_power = tw * f_bg * e_bg * EV_ERG
+        self._w_bg_uv = tw * f_bg * ((e_bg >= UV_RANGE_EV[0]) & (e_bg <= UV_RANGE_EV[1]))
+        # Planck means: WB[t, l]
+        lam_cm = lam_ir * 1e-4
+        tw = _trapz_weights(lam_cm)
+        WB = np.array([tw * _planck_lambda(lam_cm, T) for T in self.planck_t])
+        self._WB = WB / WB.sum(axis=1, keepdims=True)
+        self.fixed = self._derive(pseudo_bin_tables(grid, lambda a: np.asarray(per_gram(a, lam), float), n, n_nodes))
+        self.gap = None
+        if self.gap_bins.size:
+            from .grid import MassGrid
+
+            i0, i1 = int(self.gap_bins[0]), int(self.gap_bins[-1]) + 1
+            sub = MassGrid(grid.m_edges[i0:i1 + 1], grid.rho)
+            self.gap = self._derive(pseudo_bin_tables(sub, lambda a, e: np.asarray(per_gram_gap(a, lam, e), float),
+                                                      n, n_nodes, self.gap_nodes))
+
+    def _derive(self, K):
+        """The stored quantities of per-gram tables K[..., lam] (``__init__``'s wavelength order)."""
+        sg, sb, si = self._slices
+        ng, _, ne = self._W.shape
+        kg = K[..., sg].reshape((*K.shape[:-1], ng, ne))
+        return {"group": np.einsum("...ge,gte->...gt", kg, self._W), "bg_power": K[..., sb] @ self._w_bg_power,
+                "bg_uv": K[..., sb] @ self._w_bg_uv, "planck": K[..., si] @ self._WB.T}
+
+    def _shape(self, egy):
+        """Bracket j and weight w of each group's in-group shape at mean energies egy [eV]."""
+        j = np.zeros(self.L0.size, int)
+        w = np.zeros(self.L0.size)
+        for g, e in enumerate(np.asarray(egy, float)):
+            row = self.egy[g]
+            x = min(max(e, row[0]), row[-1])
+            j[g] = int(np.clip(np.searchsorted(row, x) - 1, 0, row.size - 2))
+            w[g] = 0.0 if row[j[g] + 1] == row[j[g]] else (x - row[j[g]]) / (row[j[g] + 1] - row[j[g]])
+        return j, w
+
+    def _at_shape(self, tab, j, w):
+        g = np.arange(self.L0.size)
+        return (1.0 - w) * tab[..., g, j] + w * tab[..., g, j + 1]
+
+    def _flux(self, photons, c_red):
+        if photons is None:
+            return np.zeros(self.L0.size), np.sqrt(self.L0 * self.L1)
+        if not (np.allclose(photons.L0, self.L0) and np.allclose(photons.L1, self.L1)):
+            raise ValueError("the optics' photon groups differ from the cell's")
+        return c_red * np.asarray(photons.N, float), np.asarray(photons.egy, float)
+
+    def _blend(self, part, s, gap=None):
+        """part's tables at the bins' in-bin states s (and band gaps gap for the covalent bins)."""
+        if part is self.fixed:
+            return {k: pseudo_lookup(v, s) for k, v in part.items()}
+        sg = np.asarray(s, float)[self.gap_bins]
+        if gap is None:
+            return {k: pseudo_lookup(v, sg) for k, v in part.items()}          # [bin, gap node, ...]
+        return {k: pseudo_lookup(v, sg, np.asarray(gap, float), self.gap_nodes) for k, v in part.items()}
+
+    def absorption(self, s, photons, G0_bg, gap=None, c_red=2.99792458e10):
+        """Per bin, per gram: (kappa_g [bin, group] the group absorption [cm^2 g^-1] at the cell's in-group shapes,
+        the absorbed power [erg s^-1 g^-1], the absorbed 6.8-13.6 eV photons [s^-1 g^-1]) from the RT groups
+        (``charging.PhotonGroups``; flux c_red N_g) and the UV background G0_bg [Habing]; ``gap`` [eV] the band gaps
+        of the covalent bins (required if there are any)."""
+        F, egy = self._flux(photons, c_red)
+        j, w = self._shape(egy)
+        uvs = self._at_shape(self.uv_share[None], j, w)[0]
+        out = []
+        for part, g in ((self.fixed, None), (self.gap, gap)):
+            if part is None:
+                continue
+            if part is self.gap and g is None:
+                raise ValueError("the covalent bins need their band gaps")
+            b = self._blend(part, s, g)
+            kg = self._at_shape(b["group"], j, w)
+            out.append((kg, kg @ (F * egy * EV_ERG) + G0_bg * b["bg_power"], kg @ (F * uvs) + G0_bg * b["bg_uv"]))
+        kg, power, uv = (np.array(x, copy=True) for x in out[0])
+        if len(out) > 1:
+            kg[self.gap_bins], power[self.gap_bins], uv[self.gap_bins] = out[1]
+        return kg, power, uv
+
+    def uv_photons(self, s, photons, G0_bg, c_red=2.99792458e10):
+        """The covalent bins' absorbed 6.8-13.6 eV photons [s^-1 g^-1] at every band-gap node, [gap bin, node]."""
+        F, egy = self._flux(photons, c_red)
+        j, w = self._shape(egy)
+        uvs = self._at_shape(self.uv_share[None], j, w)[0]
+        b = self._blend(self.gap, s)
+        return self._at_shape(b["group"], j, w) @ (F * uvs) + G0_bg * b["bg_uv"]
+
+    def planck_mean(self, s, gap=None):
+        """kappa_P [bin, planck_t] per gram at the bins' states."""
+        kp = np.array(self._blend(self.fixed, s)["planck"], copy=True)
+        if self.gap is not None:
+            if gap is None:
+                raise ValueError("the covalent bins need their band gaps")
+            kp[self.gap_bins] = self._blend(self.gap, s, gap)["planck"]
+        return kp
+
+    def dust_temperature(self, s, power, gap=None):
+        """T_d [K] per bin with 4 sigma T^4 kappa_P(T) = the absorbed power per gram (log-linear between the
+        ``planck_t`` nodes, clamped to them)."""
+        kp = self.planck_mean(s, gap)
+        lt = np.log(self.planck_t)
+        out = np.empty(kp.shape[0])
+        for i in range(kp.shape[0]):
+            lg = np.log(4.0 * SIGMA_SB * self.planck_t ** 4 * np.maximum(kp[i], 1e-300))
+            out[i] = np.exp(np.interp(np.log(max(float(power[i]), 1e-300)), lg, lt))
+        return out
