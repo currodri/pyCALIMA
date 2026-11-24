@@ -53,7 +53,9 @@ class Composition:
     group tables their charge, heating and cooling in precool and S_eff in the pair rule; ``sublimation``: the
     ``sublimation_kinetics`` model of accretion and sublimation, or None; ``charging``: a
     ``charging.AreaNodeCharging`` (precool), or None for neutral grains; ``pair_rule``: carbon's ``pairs.PairRule``,
-    or None. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
+    or None; ``optics``: an ``optics.PseudoBinOptics`` on ``grid`` (precool then computes the dust temperature per
+    bin, which update uses, and the group absorption), and ``hydrogen`` the ``hydrogen.BinHydrogen`` of its covalent
+    bins (``optics.gap_bins``, in order) for their equilibrium band gap. ``overflow_M`` collects what leaves the top of the grid (past the overflow bin, if any)."""
 
     grid: MassGrid
     N: np.ndarray
@@ -69,6 +71,8 @@ class Composition:
     a_frag_min: float | None = None
     molecular_bins: int = 0
     molecular_tables: object = None
+    optics: object = None
+    hydrogen: list | None = None
     overflow_M: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
     _collision_model: object = field(default=None, repr=False)
@@ -89,10 +93,11 @@ class Composition:
 class CellInputs:
     """A cell's conditions over the substep: T [K], n(H) [cm^-3], n_e [cm^-3], ``gas`` the number densities of the
     compositions' key elements in the gas [cm^-3] (``update`` returns their new values); the dust temperature T_d
-    [K] (given until precool computes it); turbulence v_turb [cm/s] and its driving scale L [cm]; the RT photon
-    groups (``charging.PhotonGroups``), the UV background G0_bg [Habing] and the ions [(n, z, m)] for the charge;
-    ``neutral`` the neutral fraction of each key element in the gas (1 if absent): its ionised part accretes with
-    the grains' Coulomb factor from precool."""
+    [K] (for compositions without ``optics``; with them precool computes it per bin); turbulence v_turb [cm/s] and its
+    driving scale L [cm]; the RT photon groups (``charging.PhotonGroups``), the UV background G0_bg [Habing] and the
+    ions [(n, z, m)] for the charge; ``neutral`` the neutral fraction of each key element in the gas (1 if absent):
+    its ionised part accretes with the grains' Coulomb factor from precool; ``n_HI`` [cm^-3] the atomic hydrogen
+    that re-hydrogenates the covalent bins (None: n_H, all atomic, labelled)."""
 
     T: float
     n_H: float
@@ -105,6 +110,7 @@ class CellInputs:
     G0_bg: float = 0.0
     ions: list | None = None
     neutral: dict | None = None
+    n_HI: float | None = None
 
 
 @dataclass
@@ -147,6 +153,7 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
     for c in compositions:
         a_star, w = area_node(c.grid, c.N, c.M, c.method)
         out.area.append(np.pi * w * a_star ** 2)
+        t_d, kap, gap = _optics(c, inputs) if c.optics is not None else (None, None, None)
         if c.charging is None:
             st, expl = None, None
             heat, cool = np.zeros(c.grid.n_bins), np.zeros(c.grid.n_bins)
@@ -171,14 +178,15 @@ def precool(compositions, inputs: CellInputs, opt: Options | None = None) -> Pre
             heat[:mb] = c.N[:mb] * mol.gamma
             cool[:mb] = c.N[:mb] * mol.lam
             if c.pair_rule is not None:
-                S = _release(c, inputs, opt, st, mol, a_star)
+                S = _release(c, inputs, opt, st, mol, a_star, t_d)
         for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
-                       (out.explosion, expl), (out.molecular, mol), (out.release, S), (out.h2, h2)):
+                       (out.explosion, expl), (out.molecular, mol), (out.release, S), (out.h2, h2),
+                       (out.t_dust, t_d), (out.absorption, kap), (out.e_gap, gap)):
             lst.append(v)
     return out
 
 
-def _release(c, inputs, opt, state, mol, a_star):
+def _release(c, inputs, opt, state, mol, a_star, t_dust=None):
     """S_eff [molecular bins, larger bins] (``release``): 1 / (1 + release_rate t_bury) on every host bin above the
     molecular ones (photodesorption acts on the whole population, 2026-11-24), each molecular bin at its mean N_C,
     each host at its area node a*, t_bury from the host's growth by accretion in the cell (the
@@ -194,7 +202,7 @@ def _release(c, inputs, opt, state, mol, a_star):
         nc = np.where(c.N > 0, c.M / np.maximum(c.N, 1e-300), m_c) / M_CARBON
         a_h = np.where(np.isfinite(a_star) & (a_star > 0), a_star, g.a_centres)[hosts]
     if c.sublimation is not None and "accretion" in opt.processes and hosts:
-        pop = _grain_population(c, g, c.N, c.M, inputs, state)
+        pop = _grain_population(c, g, c.N, c.M, inputs, state, t_dust)
         t_bury = burial_time(np.maximum(pop.adot(inputs.gas[c.key], inputs.T)(a_h), 0.0))
     else:
         t_bury = np.full(len(hosts), np.inf)
@@ -207,17 +215,42 @@ def _release(c, inputs, opt, state, mol, a_star):
     return S
 
 
-def _grain_population(c, g, N, M, inputs, state):
+def _optics(c, inputs):
+    """(T_d per bin [K], group absorption [cm^-1] per group, the covalent bins' band gaps [eV] or None) of a
+    composition with optics: the band gap of each covalent bin from the equilibrium of its hydrogen
+    (``hydrogen.equilibrium_gap``: k_UV = Y_CH times the 6.8-13.6 eV photons absorbed per C atom at every band-gap
+    node, k_H from n(H I) and T), then the absorbed power at those gaps and the temperature that radiates it."""
+    from .hydrogen import Y_CH, equilibrium_gap, k_h
+    from .optics import state_s
+
+    po = c.optics
+    s = state_s(c.grid, c.N, c.M)
+    gap = None
+    if po.gap is not None:
+        if c.hydrogen is None or len(c.hydrogen) != po.gap_bins.size:
+            raise ValueError("a composition with covalent bins needs their BinHydrogen (Composition.hydrogen)")
+        uv = po.uv_photons(s, inputs.photons, inputs.G0_bg) * M_CARBON           # photons per C atom per s
+        n_hi = inputs.n_H if inputs.n_HI is None else inputs.n_HI
+        kh = k_h(n_hi, inputs.T)
+        gap = np.array([equilibrium_gap(bh, Y_CH * np.interp(bh.e_grid, po.gap_nodes, uv[j]), kh)[1]
+                        for j, bh in enumerate(c.hydrogen)])
+    kg, power, _ = po.absorption(s, inputs.photons, inputs.G0_bg, gap)
+    return po.dust_temperature(s, power, gap), c.M @ kg, gap
+
+
+def _grain_population(c, g, N, M, inputs, state, t_dust=None):
     """The grain bins (above the molecular ones) as an ``exchange.Population`` for accretion and sublimation: the
-    ionised share of the key element accretes with the grains' ion Coulomb factor from precool's ``state``."""
+    ionised share of the key element accretes with the grains' ion Coulomb factor from precool's ``state``; the
+    dust temperature per bin is precool's ``t_dust`` if given, else ``inputs.T_d``."""
     from .exchange import Population
 
     mb = c.molecular_bins
     gg = g if mb == 0 else MassGrid(g.m_edges[mb:], g.rho)
     x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
     focus = None if state is None or x_n >= 1.0 else state.ion_focusing_of()
+    T_d = inputs.T_d if t_dust is None else np.asarray(t_dust, float)[:g.n_bins]
     return Population(c.sublimation, gg, N[mb:].copy(), M[mb:].copy(),
-                      np.broadcast_to(np.asarray(inputs.T_d, float), (g.n_bins,))[mb:].copy(),
+                      np.broadcast_to(np.asarray(T_d, float), (g.n_bins,))[mb:].copy(),
                       nucleation=False, method=c.method, neutral_fraction=x_n, ion_focusing=focus)
 
 
@@ -228,7 +261,9 @@ class Precool:
     weights, the explosion rate per bin [s^-1] and the grain area per unit volume [cm^2 cm^-3]; with molecular group
     tables the molecular bins' state (``molecular.MolecularState``) and S_eff [molecular bins, larger bins]; with
     molecular tables the H2 the molecular bins release [cm^-3 s^-1] per bin (the hydrogen tables' 'h2', at the cell's
-    G0 = G0_bg + the groups' 6-13.6 eV); None otherwise, or when absent."""
+    G0 = G0_bg + the groups' 6-13.6 eV); with optics the dust temperature per bin [K], the group absorption
+    kappa_g = sum_i M_i kappa_g,i [cm^-1] per group, and with hydrogen the covalent bins' band gaps [eV]; None
+    otherwise, or when absent."""
 
     heating: list
     cooling: list
@@ -239,6 +274,9 @@ class Precool:
     molecular: list = field(default_factory=list)
     release: list = field(default_factory=list)
     h2: list = field(default_factory=list)
+    t_dust: list = field(default_factory=list)
+    absorption: list = field(default_factory=list)
+    e_gap: list = field(default_factory=list)
 
     @property
     def total_heating(self):
@@ -442,7 +480,8 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             N, M, dM = sputter(g, N, M, adot, dt, method=c.method, knots=knots)
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
-            pop = _grain_population(c, g, N, M, inputs, None if pre is None else pre.states[k])
+            pop = _grain_population(c, g, N, M, inputs, None if pre is None else pre.states[k],
+                                    None if pre is None else _at(pre.t_dust, k))
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
             N[mb:], M[mb:] = pop.N, pop.M

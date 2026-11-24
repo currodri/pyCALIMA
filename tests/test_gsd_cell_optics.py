@@ -1,6 +1,8 @@
 """The cell's pseudo-bin optics (``pycalima.gsd.optics.PseudoBinOptics``) on analytic per-gram absorption."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -15,9 +17,30 @@ C = 2.99792458e10
 EV = 1.602176634e-12
 
 
+def _jones_root():
+    from pycalima._datasets import get_dataset
+
+    found = get_dataset("optical-jones-2012-size").locate()
+    return None if found is None else Path(found).parents[1]
+
+
+_JONES_ROOT = _jones_root()
+
+
 @pytest.fixture(autouse=True)
 def _clean_env(isolated_env):
     yield
+
+
+@pytest.fixture
+def jones(monkeypatch):
+    """The Jones (2012) a-C(:H) tables (``hydrogen.BinHydrogen``'s optics) inside isolated_env, or skip."""
+    from pycalima._datasets import get_dataset
+
+    if _JONES_ROOT is not None:
+        monkeypatch.setenv("CALIMA_DATASETS", str(_JONES_ROOT))
+    if get_dataset("optical-jones-2012-size").locate() is None:
+        pytest.skip("Jones (2012) tables not fetched; run `calima-fetch-data fetch optical-jones-2012-size`")
 
 
 def grid():
@@ -91,3 +114,72 @@ def test_the_covalent_bins_take_their_band_gap():
         po.absorption(s, photons(), 1.0)
     with pytest.raises(ValueError):
         PseudoBinOptics(g, flat(), GROUPS, gap_bins=(1, 3), per_gram_gap=flat(), n_nodes=8)
+
+
+def optical_carbon(gap=False):
+    from dataclasses import replace
+
+    from test_gsd_cell import carbon
+
+    from pycalima.gsd.hydrogen import BinHydrogen
+
+    c = carbon(n_H=30.0)
+    g = c.grid
+    if not gap:
+        c.optics = PseudoBinOptics(g, flat(), GROUPS, n_nodes=8)
+        return c
+    c.optics = PseudoBinOptics(g, flat(), GROUPS, gap_bins=(4, 5, 6, 7), n_nodes=8,
+                               per_gram_gap=lambda a, lam, e: np.full((np.size(a), np.size(lam)), 1e4 * (1.0 + e)),
+                               gap_nodes=np.linspace(0.1, 2.5, 7))
+    c.hydrogen = [BinHydrogen(g, i, s=0.5, n_nodes=8, n_e=13) for i in range(4, 8)]
+    return replace(c)
+
+
+def test_precool_gives_the_dust_temperature_and_update_uses_it():
+    from dataclasses import replace
+
+    from test_gsd_cell import YR, carbon, inputs
+
+    from pycalima.gsd import cell
+
+    c = optical_carbon()
+    inp = replace(inputs(), photons=photons(3e6), G0_bg=1e2)           # ~1500 K: sublimation depends on T_d
+    pre = cell.precool([c], inp)
+    s = np.full(c.grid.n_bins, 0.5)
+    _, power, _ = c.optics.absorption(s, inp.photons, inp.G0_bg)
+    T = (power[0] / (4.0 * SIGMA_SB * 1e4)) ** 0.25
+    np.testing.assert_allclose(pre.t_dust[0], T, rtol=1e-10)
+    np.testing.assert_allclose(pre.absorption[0], c.M.sum() * 1e4, rtol=1e-12)
+    assert pre.e_gap == [None]
+    opt = cell.Options(processes=frozenset({"accretion"}))
+    cell.update([c], inp, pre, 1e5 * YR, opt)
+    ref = carbon(n_H=30.0)
+    cell.update([ref], replace(inp, T_d=T), None, 1e5 * YR, opt)
+    np.testing.assert_array_equal(c.M, ref.M)
+    hot = carbon(n_H=30.0)
+    cell.update([hot], inp, None, 1e5 * YR, opt)                     # inputs.T_d = 20 K: no sublimation
+    assert not np.array_equal(hot.M, ref.M)
+
+
+def test_the_covalent_band_gap_is_the_hydrogen_equilibrium(jones):
+    from dataclasses import replace
+
+    from test_gsd_cell import inputs
+
+    from pycalima.gsd import cell
+    from pycalima.gsd.hydrogen import E_FLOOR, E_PLATEAU, Y_CH, equilibrium_gap, k_h
+    from pycalima.gsd.optics import state_s
+
+    c = optical_carbon(gap=True)
+    dark = cell.precool([c], inputs()).e_gap[0]
+    np.testing.assert_allclose(dark, E_PLATEAU, atol=2e-3)                 # no UV: hydrogenated to the plateau
+    lit = replace(inputs(), photons=photons(1e-3), G0_bg=1e2)
+    np.testing.assert_allclose(cell.precool([c], replace(lit, n_HI=0.0)).e_gap[0], E_FLOOR, atol=2e-3)
+    gap = cell.precool([c], replace(lit, n_HI=10.0)).e_gap[0]
+    uv = c.optics.uv_photons(state_s(c.grid, c.N, c.M), lit.photons, lit.G0_bg) * 12.011 * 1.66053906660e-24
+    want = [equilibrium_gap(bh, Y_CH * np.interp(bh.e_grid, c.optics.gap_nodes, uv[j]), k_h(10.0, lit.T))[1]
+            for j, bh in enumerate(c.hydrogen)]
+    np.testing.assert_allclose(gap, want, rtol=1e-12)
+    assert np.all((gap > E_FLOOR) & (gap < E_PLATEAU))
+    with pytest.raises(ValueError):
+        cell.precool([replace(c, hydrogen=None)], lit)
