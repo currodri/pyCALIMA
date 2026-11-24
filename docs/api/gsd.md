@@ -246,6 +246,7 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.sinks
    pycalima.gsd.coagulation
    pycalima.gsd.shattering
+   pycalima.gsd.pairs
    pycalima.gsd.velocities
    pycalima.gsd.grain_motion
    pycalima.gsd.charging

@@ -172,12 +172,21 @@ class GrainCollisions:
     ``n_speed`` = 4 is converged to ~1% against 8 in a 10 Myr WIM run; 2
     costs ~3% and halves the time.
     ``a_frag_min`` [cm] is the smallest fragment (HK13: the grid minimum).
-    ``collector``: ``"remove"`` (HK13) or ``"smallest"`` (HY09)."""
+    ``collector``: ``"remove"`` (HK13) or ``"smallest"`` (HY09).
+    ``pair_rule``: a ``pairs.PairRule`` for carbon's molecules (no molecule-molecule outcome; molecule + larger
+    particle by impact speed); it needs a ``RelativeVelocity`` and ``collector="remove"``, and takes the generic
+    pair sum (the fused table paths have no destroy channel). None (default): every pair as grains."""
 
     def __init__(self, material, velocity, law="KT10", alpha_f=3.3, f_M=0.4,
                  a_frag_min=3e-8, collector="remove", coagulation=False, F_stick=10.0,
                  v_shat: Optional[float] = None, n_speed=4, table_ppd: Optional[float] = 24,
-                 threads: Optional[int] = None, prune: float = 1e-12):
+                 threads: Optional[int] = None, prune: float = 1e-12, pair_rule=None):
+        if pair_rule is not None:
+            if not isinstance(velocity, RelativeVelocity):
+                raise ValueError("pair_rule needs a RelativeVelocity")
+            if collector != "remove":
+                raise ValueError("pair_rule needs collector='remove' (destroyed molecules go to the gas)")
+        self.pair_rule = pair_rule
         self.material = MATERIALS[material] if isinstance(material, str) else material
         self.velocity = velocity
         self.law = law
@@ -312,8 +321,8 @@ class GrainCollisions:
 
     def pair_terms(self, grid, m_nodes, w, wid, a, m):
         """(F, L, H) of the collision operator from the fused, threaded pair
-        sum (``_shatter_rows``), with a pair table; None otherwise."""
-        if not (self.table_ppd and isinstance(self.velocity, RelativeVelocity)):
+        sum (``_shatter_rows``), with a pair table; None otherwise (also with a pair rule)."""
+        if self.pair_rule is not None or not (self.table_ppd and isinstance(self.velocity, RelativeVelocity)):
             return None
         t = self._ensure_table(a, m)
         la = np.log(t["a"])
@@ -365,8 +374,8 @@ class GrainCollisions:
     def stacked_channels(self, a, m):
         """Channel arrays (K, rem, frag, a_hi, a_lo) for the collision kernel
         directly, compiled, from the pair table (``table_ppd`` set); None
-        otherwise (``collisions`` then stacks ``channels``)."""
-        if not (self.table_ppd and isinstance(self.velocity, RelativeVelocity)):
+        otherwise (``collisions`` then stacks ``channels``), and with a pair rule."""
+        if self.pair_rule is not None or not (self.table_ppd and isinstance(self.velocity, RelativeVelocity)):
             return None
         self._fields(a[:2], m[:2]) if self._table is None else None
         t = self._table
@@ -405,6 +414,8 @@ class GrainCollisions:
             out.append(Channel(K_stick, rem1=M1 + M2))
         if not out:
             out.append(Channel(np.zeros(K_shat.shape)))
+        if self.pair_rule is not None:
+            out = self.pair_rule.apply(out, a, m, self.velocity, self.material.rho, self.a_frag_min)
         return out
 
 
