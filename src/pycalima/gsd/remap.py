@@ -98,6 +98,28 @@ def remap(grid, N, M, image, n_pieces=4, profile=None, method=None):
     return (*realisable(grid, N1, M1, tiny=1e-30 * max(N.sum(), 1e-300)), lost, oN, oM)
 
 
+def remap_hydrogen(grid, N, M, H, image, N_new, n_pieces=4, profile=None, method=None):
+    """The hydrogen H [g cm^-3] per bin carried by ``remap(grid, N, M, image, ...)``, at each bin's H/C (H / M): a
+    growing grain keeps its hydrogen, a shrinking one its H/C (``closures._remap_pieces_h``). ``N_new`` is that remap's
+    N: bins it emptied give their H to the gas. Returns (H_new, H to the gas, H carried above the grid). Not for the
+    'pl2m' closure (kept for comparison only)."""
+    from .closures import Pieces, pieces, remap_pieces_h, resolve
+
+    meth = resolve(method)
+    if meth.closure == "pl2m":
+        raise NotImplementedError("hydrogen is carried by the piecewise closures (not 'pl2m')")
+    M = np.asarray(M, float)
+    H = np.asarray(H, float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        x = np.where(M > 0, H / np.where(M > 0, M, 1.0), 0.0)
+    P = profile if isinstance(profile, Pieces) else pieces(grid, np.asarray(N, float), M, meth)
+    H1, gas, over = remap_pieces_h(grid, P, image, x, n_pieces)
+    empty = np.asarray(N_new, float) <= 0.0
+    gas += float(H1[empty].sum()) + float(np.sum(H[M <= 0]))
+    H1[empty] = 0.0
+    return H1, gas, over
+
+
 def realisable(grid, N, M, tiny=0.0):
     """Clip round-off: bins with N <= tiny are emptied, and the mean mass of
     the others is held inside the bin (the analytic pieces always land

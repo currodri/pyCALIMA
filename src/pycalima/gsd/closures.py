@@ -524,6 +524,96 @@ def _remap_pieces(a_e, rho, aL, n, A, lam, spike, nodes, X):
 
 
 @njit(cache=True)
+def _remap_pieces_h(a_e, rho, aL, n, A, lam, spike, nodes, X, x):
+    """The hydrogen of ``_remap_pieces``'s remap, at each source bin's H/C x[i] (H mass per grain mass): a grain that
+    grows keeps its hydrogen (it carries x times its mass before the move: accreted carbon brings none), a grain that
+    shrinks keeps its H/C (x times its mass after the move; the rest is released). Grown or shrunk is decided per
+    sub-piece by its mid-point. Returns (H_new per bin, H released and of grains lost below the grid, H carried above
+    the top). Walks the same pieces as ``_remap_pieces``, which it leaves untouched."""
+    nb = a_e.size - 1
+    mfac = 4.0 / 3.0 * math.pi * rho
+    H_new = np.zeros(nb)
+    gas = 0.0
+    over = 0.0
+    kp = n.shape[1]
+    npc = nodes.shape[2] - 1
+    for i in range(nb):
+        xi = x[i]
+        if xi == 0.0:
+            continue
+        a0 = aL[i]
+        a3 = mfac * a0 ** 3
+        for jj in range(kp):
+            if n[i, jj] == 0.0:
+                continue
+            if spike[i, jj]:
+                Xd = X[i, jj, 0]
+                src = n[i, jj] * mfac * nodes[i, jj, 0] ** 3
+                j = _bin_of(a_e, Xd)
+                if j < 0 or Xd <= 0.0:
+                    gas += xi * src
+                    continue
+                dep = n[i, jj] * mfac * Xd ** 3
+                h = xi * src if Xd >= nodes[i, jj, 0] else xi * dep
+                gas += xi * src - h
+                if j >= nb:
+                    over += h
+                else:
+                    H_new[j] += h
+                continue
+            Ai = A[i, jj]
+            li = lam[i, jj]
+            for k in range(npc):
+                p, q = nodes[i, jj, k], nodes[i, jj, k + 1]
+                if q <= p:
+                    continue
+                Xp, Xq = X[i, jj, k], X[i, jj, k + 1]
+                up_, uq_ = p / a0, q / a0
+                grows = Xp + Xq >= p + q
+                if Xq - Xp <= 1e-14 * max(Xq, 1e-300):
+                    src = a3 * Ai * _ip(li + 3.0, up_, uq_)
+                    j = _bin_of(a_e, Xp)
+                    if j < 0 or Xp <= 0.0:
+                        gas += xi * src
+                        continue
+                    h = xi * src if grows else xi * Ai * _ip(li, up_, uq_) * mfac * Xp ** 3
+                    gas += xi * src - h
+                    if j >= nb:
+                        over += h
+                    else:
+                        H_new[j] += h
+                    continue
+                s = (Xq - Xp) / (q - p)
+                d1 = s * a0
+                c0 = Xp - s * p
+                if Xp < a_e[0]:
+                    x_hi = min(Xq, a_e[0])
+                    u_hi = (p + (x_hi - Xp) / s) / a0
+                    gas += xi * a3 * Ai * _ip(li + 3.0, up_, u_hi)
+                if Xq > a_e[nb]:
+                    x_lo = max(Xp, a_e[nb])
+                    u_lo = (p + (x_lo - Xp) / s) / a0
+                    src = a3 * Ai * _ip(li + 3.0, u_lo, uq_)
+                    h = xi * src if grows else xi * mfac * _cubic_p(Ai, li, c0, d1, u_lo, uq_)
+                    gas += xi * src - h
+                    over += h
+                j0 = max(_bin_of(a_e, Xp), 0)
+                j1 = min(_bin_of(a_e, Xq), nb - 1)
+                for j in range(j0, j1 + 1):
+                    x1 = max(Xp, a_e[j])
+                    x2 = min(Xq, a_e[j + 1])
+                    if x2 <= x1:
+                        continue
+                    u1_ = (p + (x1 - Xp) / s) / a0
+                    u2_ = (p + (x2 - Xp) / s) / a0
+                    src = a3 * Ai * _ip(li + 3.0, u1_, u2_)
+                    h = xi * src if grows else xi * mfac * _cubic_p(Ai, li, c0, d1, u1_, u2_)
+                    gas += xi * src - h
+                    H_new[j] += h
+    return H_new, gas, over
+
+
+@njit(cache=True)
 def _cubic_p(A, lam, d0, d1, u1, u2):
     return A * (d0 ** 3 * _ip(lam, u1, u2) + 3.0 * d0 ** 2 * d1 * _ip(lam + 1.0, u1, u2)
                 + 3.0 * d0 * d1 ** 2 * _ip(lam + 2.0, u1, u2) + d1 ** 3 * _ip(lam + 3.0, u1, u2))
@@ -761,6 +851,20 @@ def remap_pieces(grid, P, image, n_pieces=4):
     nodes = lo[:, :, None] * ratio[:, :, None] ** t[None, None, :]
     X = np.asarray(image(nodes.ravel()), float).reshape(nodes.shape)
     return _remap_pieces(grid.a_edges, float(grid.rho), P.aL, P.n, P.A, P.lam, P.spike, nodes, X)
+
+
+def remap_pieces_h(grid, P, image, x, n_pieces=4):
+    """The hydrogen of ``remap_pieces``'s remap at the bins' H/C x (``_remap_pieces_h``): (H per bin, H to the gas,
+    H carried above the top)."""
+    t = np.linspace(0.0, 1.0, n_pieces + 1)
+    lo = P.aL[:, None] * P.u1
+    hi = P.aL[:, None] * P.u2
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(lo > 0, hi / np.where(lo > 0, lo, 1.0), 1.0)
+    nodes = lo[:, :, None] * ratio[:, :, None] ** t[None, None, :]
+    X = np.asarray(image(nodes.ravel()), float).reshape(nodes.shape)
+    return _remap_pieces_h(grid.a_edges, float(grid.rho), P.aL, P.n, P.A, P.lam, P.spike, nodes, X,
+                           np.asarray(x, float))
 
 
 def samples(grid, N, M, method=None, step=0.01):
