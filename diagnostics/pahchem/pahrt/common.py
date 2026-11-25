@@ -45,18 +45,11 @@ def bin_edges():
 
 
 def molecules(per_bin=5):
-    """{bin index: [molecules]}: ``per_bin`` per bin evenly in N_C rank (all of a bin with fewer)."""
-    from pycalima.pahchem import hydrogen_tables as HT
+    """{bin index: [molecules]}: ``per_bin`` per bin evenly in N_C rank (all of a bin with fewer), the PAHrt kernels'
+    choice (``pahrt_kernels.representatives``)."""
+    from pycalima.pahchem.pahrt_kernels import representatives
 
-    lib = sorted(HT.library(), key=lambda m: (m.nc, m.name))
-    e = bin_edges()
-    out = {}
-    for b in range(e.size - 1):
-        sel = [m for m in lib if e[b] <= m.nc < e[b + 1] * (1 + 1e-9)]
-        if len(sel) > per_bin:
-            sel = [sel[int(i)] for i in np.linspace(0, len(sel) - 1, per_bin)]
-        out[b] = sel
-    return out
+    return dict(enumerate(representatives(bin_edges(), per_bin)))
 
 
 @dataclass(frozen=True)
