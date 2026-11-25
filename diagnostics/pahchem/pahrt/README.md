@@ -130,6 +130,85 @@ the molecules' lumped rates and per-state outputs averaged state by state, as `g
 | the in-bin shape s | all bins | S5 (not run): kernels at the 5 pseudo-bin states, blended in s; the tables so far weight molecules equally |
 | the multiphoton cascade fails for C268H52 with old-star light at G0 0.01 | pahchem | report to the pahchem session |
 
+## S6: the per-cell equilibrium solver (from 24 November; `s6_solver.py`)
+
+After the decisions below, the solver was built on `feature/pahrt` (off feature/gsd-a3c with this study merged in):
+
+- **`pahchem/pahrt_kernels.py`.** Every rate of a molecule's joint chain and every per-state observable is read from
+  pahchem itself, on basis environments; nothing is re-implemented.
+  - Photon bases: one-group power laws, 7 in-group slopes per group, pahchem's 13 G0 nodes, per unit group photon
+    flux.
+  - Collision bases: one unit of n_e, n(H I) or each ion, on log T from 3 K.
+  - Each basis is a difference from a solvable regulariser (n_e = n(H I) = 1 at G0 1e-30).
+  - `Params.cosmic_rays` (at zeta = 0) makes every charge live in every basis; at zeta = 0 it adds no process and
+    changes no rate.
+- **`gsd/pahrt.py`.**
+  - `MoleculeSolver` folds the kernels with the cell's groups (slope from the group's mean photon energy), T, n_e,
+    n(H I) and ions, then solves the full (Z, N_H) steady state.
+  - `PAHrtBin` weights a bin's 5 molecules with the in-bin PL2M profile at s.
+- **Run.**
+  - Laptop, bins 1-2: `s6_solver.py kernels --molecules all --bins 0 1 --workers 3 --kdir results/pahrt_study/s6/kernels_cr`,
+    then `v1`, `v2`, `v5`, `sweeps` with the same `--bins/--kdir`.
+  - Bins 3-4 on megatron (a top-bin molecule needs 49 shapes at up to 13 min and 6.5 GB each): `--prepare` first
+    builds pahchem's bases per (molecule, shape) in parallel. Output in `~/pycalima_runs/pahrt/kernels_cr`.
+- **Figures** (`results/pahrt_study/s6/`):
+  - `v1_kernels.png`: per process and output, at S1's phases x field shapes;
+  - `v2_molecules_full.png`, `v2_molecules_full_power.png`, `v2_molecules_nested.png` (the last on the first
+    kernels): S1's 214 nodes;
+  - `v2_sweeps_PDR.png`: dnh and carbon loss along the PDR's G0 and n(H I) sweeps;
+  - `v5_cost.txt`.
+
+Findings, bins 1-2 (10 molecules, 25 November):
+
+- **Collision kernels are exact:** within 1e-3 of pahchem, and H addition within 2 % from the T interpolation.
+- **Fields exactly representable** (a power law at a slope node in every group): single-photon ionisation within
+  0.2 %, H loss within 0.5 %.
+  - Between slope nodes, the linear blend in mean energy costs H loss 9 %. A geometric blend doubles it.
+- **Multiphoton proxy.** Each group's multiphoton kappa can be read at its own flux ("self"), or where the group alone
+  would give the cell's absorbed "power" (or absorption rate).
+  - The truth lies between the two.
+  - "self" lags the stripping transitions of C43H17 and C50H18 by about one G0 step (0.25-0.5 dex): carbon there is
+    off by 2-2.6 dex at one node, and dnh by up to 9.6 H.
+  - "power" sits on those transitions, but overstates carbon by about x2-3 elsewhere.
+  - Default "self"; the choice is the user's (decision 3 of the plan).
+- **Full or nested steady state.** Nested (charge balance per N_H, then the ladder) fails where H addition is as fast
+  as charging. In shielded gas, H2 is off by up to 2.9 dex and H uptake by 2.1 dex, against 1.4 and 0.6 in full.
+  Default full.
+- **V2 (full, "self", every charge live), median and worst over S1's nodes:**
+
+  | output | median | worst |
+  |---|---|---|
+  | charge fractions, <Z> | <= 0.01 | 0.06-0.17 |
+  | heating, cooling | 1-5 % | 0.16-0.4 dex and 0.04-0.2 dex |
+  | H2 | 0.02-0.055 dex | 0.26-1.4 dex |
+  | dnh | | <= 2.3 H, except at the transitions above |
+
+  - Every worst heating case comes from the soft 10 kK star: a power law in each group cannot follow its Wien tail.
+    This is the in-group shape, which any group scheme has.
+  - Making every charge live and starting the T grid at 3 K fixed the absorption at low n_e (0.4 to 0.18 dex) and the
+    cooling at 4.5 K (0.39 to 0.2 dex).
+- **Cost (V5).** Per molecule, a lean fold takes 2e4-1.8e5 flops and a banded full solve 1.7e4-9e5 flops (bandwidth
+  13-39), with 0.7-5.8 MB of kernels. Over the 20 molecules of 4 bins that is several Mflop per cell, about 1000x
+  WDB06rt's budget. Candidate reductions:
+  - store only the distinct deep levels (pahchem maps them);
+  - skip the zero kernel entries;
+  - a block-banded or nested-plus-Gauss-Seidel solve;
+  - fewer molecules;
+  - recompute only when the inputs change.
+
+Open issues found in S6:
+
+- **pahchem's per-N_H threshold shifts are ratios per field shape** (`_threshold_factors`: "1 where the intact state
+  has none"). A band entirely below the intact threshold therefore loses the stripped states' ionisation. An absolute
+  shifted rate (a pahchem accessor) would make the band sums exact.
+- **Old-star fields at G0 < 1** lie below pahchem's k_H grid, where pahchem extrapolates its multiphoton tables. This
+  explains the H and H2 loss differences there.
+- **A hard 1-100 eV field at G0 >= 1e4** puts deposits and H2 off by up to 3 dex (EUV groups; unexplained).
+- **Not in the bases yet:**
+  - cosmic-ray passages (pahchem blends two spectra with zeta-dependent weights, so they need a zeta grid);
+  - hot gas (tier T3);
+  - C 1s fields (wait for pahchem's K-shell fix).
+
 ## Decisions (24 November 2026, the user)
 
 1. **Tracking first chosen, then shelved.** After S7, the user chose to track the 9 class populations in bins 1-2 only

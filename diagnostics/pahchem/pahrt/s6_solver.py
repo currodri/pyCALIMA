@@ -126,11 +126,15 @@ def kernels(workers, which, prepare=False):
             print(f"{name}: {s:.0f} s", flush=True)
 
 
+#: the multiphoton proxy scored (``--proxy``, ``gsd.pahrt.MoleculeSolver.PROXIES``)
+PROXY = "self"
+
+
 def load_solver(mol):
     from pycalima.gsd.pahrt import MoleculeSolver
     from pycalima.pahchem import pahrt_kernels as PK
 
-    return MoleculeSolver(PK.MoleculeKernels.load(KDIR / f"{PK.slug(mol)}.npz"))
+    return MoleculeSolver(PK.MoleculeKernels.load(KDIR / f"{PK.slug(mol)}.npz"), PROXY)
 
 
 # ---------------------------------------------------------------------------------------------------------------- V1
@@ -268,12 +272,12 @@ def fig_v1(res, envs):
         ax.set_title(f"{name}: kernels vs pahchem, log10 flow-weighted rate error", fontsize=8)
         fig.colorbar(im, ax=ax, fraction=0.03)
         ax = axes[r, 1]
-        D = np.array([[dev(o[1][k], o[3][k], k, nc) for o in outs] for k in SCORED])
+        D = np.array([[dev(o[1][k], o[2][k], k, nc) for o in outs] for k in SCORED])
         im = ax.imshow(np.clip(D, -1, 1), aspect="auto", cmap="RdBu_r", vmin=-1, vmax=1)
         ax.set_yticks(range(len(SCORED)), SCORED, fontsize=6)
         ax.set_xticks([])
         ax.set_xlabel("the same environments", fontsize=7)
-        ax.set_title("nested solver vs truth: log10 ratio (rates) or difference", fontsize=8)
+        ax.set_title("full solver vs truth: log10 ratio (rates) or difference", fontsize=8)
         fig.colorbar(im, ax=ax, fraction=0.04)
     fig.tight_layout()
     fig.savefig(OUT / "v1_kernels.png", dpi=150)
@@ -312,10 +316,11 @@ def v2(method="full"):
                                                  for j, k in enumerate(SCORED)))
     text = (f"median/max |log10 ratio| (rates) or |difference| over S1's nodes, {method} solver vs truth\n"
             + "\n".join(rep))
-    (OUT / f"v2_molecules_{method}.txt").write_text(text)
+    tag = method if PROXY == "self" else f"{method}_{PROXY}"
+    (OUT / f"v2_molecules_{tag}.txt").write_text(text)
     print(text)
-    np.save(OUT / f"v2_results_{method}.npy", res, allow_pickle=True)
-    fig_v2(res, nodes, method)
+    np.save(OUT / f"v2_results_{tag}.npy", res, allow_pickle=True)
+    fig_v2(res, nodes, tag)
 
 
 def fig_v2(res, nodes, method):
@@ -346,6 +351,57 @@ def fig_v2(res, nodes, method):
                  "shares and charge", fontsize=10)
     fig.tight_layout()
     fig.savefig(OUT / f"v2_molecules_{method}.png", dpi=150)
+    plt.close(fig)
+
+
+# ------------------------------------------------------------------------------------------------- sweeps (V2 figure)
+def sweeps(phase="PDR", inputs=("g0", "n_hi")):
+    """dnh and carbon loss along S1's one-at-a-time sweeps of ``phase``: pahchem against the solver with each
+    multiphoton proxy, per bin 1-2 molecule (where a stripping transition moves, and by how much)."""
+    import matplotlib.pyplot as plt
+    import plots
+    import s1_drivers as S1
+
+    from pycalima.gsd.pahrt import MoleculeSolver
+
+    L0, L1 = groups()
+    nodes = S1.design()
+    mols = [m for b, ms in C.molecules(5).items() if b in BINS for m in ms]
+    proxies = ("self", "power")
+    plots.setup()
+    fig, axes = plt.subplots(2 * len(inputs), len(mols), figsize=(2.6 * len(mols), 2.3 * 2 * len(inputs)),
+                             sharex="col", squeeze=False)
+    io = C.OUTPUTS.index
+    colours = {"self": "C0", "power": "C3"}
+    for c, mol in enumerate(mols):
+        try:
+            base = load_solver(mol)
+        except FileNotFoundError:
+            continue
+        sol = {p: MoleculeSolver(base.mk, p) for p in proxies}
+        truth = np.load(S1.OUT / f"{S1.safe(mol.name)}.npz")["res"]
+        floor = mol.nc / TEN_GYR_S
+        for r0, inp in enumerate(inputs):
+            idx = [i for i, n in enumerate(nodes) if n[0] == phase and n[1] == inp]
+            x = np.array([nodes[i][2] for i in idx], float)
+            o = {p: [solver_outputs(sol[p].solve(cell_of(nodes[i][3], L0, L1)[0])[1]) for i in idx] for p in proxies}
+            ax_d, ax_c = axes[2 * r0, c], axes[2 * r0 + 1, c]
+            ax_d.plot(x, truth[idx, io("dnh")], "k-", lw=2, label="pahchem")
+            ax_c.plot(x, np.maximum(truth[idx, io("carbon")], floor), "k-", lw=2)
+            for p in proxies:
+                ax_d.plot(x, [v["dnh"] for v in o[p]], "--", color=colours[p], lw=1.4, label=p)
+                ax_c.plot(x, [max(v["carbon"], floor) for v in o[p]], "--", color=colours[p], lw=1.4)
+            plots.style(ax_d, logx=True)
+            plots.style(ax_c, logx=True, logy=True)
+            if c == 0:
+                ax_d.set_ylabel(r"$\Delta N_{\rm H}$")
+                ax_c.set_ylabel(r"C lost [s$^{-1}$]")
+            ax_c.set_xlabel({"g0": r"$G_0$", "n_hi": r"$n({\rm H\,I})$ [cm$^{-3}$]"}[inp])
+        axes[0, c].set_title(mol.name.split()[0], fontsize=10)
+    axes[0, 0].legend(frameon=False, fontsize=8)
+    fig.suptitle(rf"PAHrt: the {phase} phase's sweeps; carbon floored at $N_{{\rm C}}$ per 10 Gyr", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(OUT / f"v2_sweeps_{phase}.png", dpi=200)
     plt.close(fig)
 
 
@@ -397,19 +453,21 @@ def v5():
 
 
 def main(argv=None):
-    global BINS, KDIR
+    global BINS, KDIR, PROXY
     os.environ.setdefault("CALIMA_WORKERS", "1")
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=("kernels", "v1", "v2", "v5"))
+    ap.add_argument("what", choices=("kernels", "v1", "v2", "v5", "sweeps"))
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--molecules", choices=("test", "all"), default="test")
     ap.add_argument("--bins", type=int, nargs="+", default=list(BINS))
     ap.add_argument("--method", choices=("full", "nested"), default="full")
     ap.add_argument("--kdir", type=Path, default=None, help="the kernels' directory (default s6/kernels)")
+    ap.add_argument("--proxy", choices=("self", "power", "rate"), default="self")
     ap.add_argument("--prepare", action="store_true", help="build pahchem's bases per (molecule, shape) in parallel "
                     "first (for the large molecules)")
     a = ap.parse_args(argv)
     BINS = tuple(a.bins)
+    PROXY = a.proxy
     if a.kdir is not None:
         KDIR = a.kdir
     OUT.mkdir(parents=True, exist_ok=True)
@@ -419,6 +477,8 @@ def main(argv=None):
         v1()
     elif a.what == "v5":
         v5()
+    elif a.what == "sweeps":
+        sweeps()
     else:
         v2(a.method)
 
