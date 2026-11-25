@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from pycalima.gsd.pahrt import MoleculeSolver, PAHrtBin, PAHrtCell
+from pycalima.gsd.pahrt import MoleculeSolver, PAHrtBin, PAHrtCell, electrons_per_event
 from pycalima.pahchem.pahrt_kernels import OBSERVABLES, MoleculeKernels
 
 pytestmark = pytest.mark.gsd_quick
@@ -75,6 +75,30 @@ def test_electron_source_balances_ion_recombination():
         _, o = MoleculeSolver(toy()).solve(cell(n_cp=n_cp), method)
         assert o["alpha(C+)"] > 0
         assert o["e_source"] == pytest.approx(-n_cp * o["alpha(C+)"], rel=1e-8)
+
+
+def test_electrons_per_event_is_the_named_charge_step():
+    """A proton emitted or lost takes no electron: the count is the step the name carries, not the process's dz."""
+    for name, dz, e in (("ionisation (dZ +1)", 1, 1), ("ionisation (dZ +3)", 3, 3),
+                        ("ionisation (dZ +2) past the top, 1 proton emitted", 1, 2),
+                        ("ionisation (dZ +3) past the top, 2 protons emitted", 1, 3),
+                        ("electron capture (dZ -1)", -1, -1), ("deposit dZ +1, an H lost", 1, 1),
+                        ("deposit dZ +2, H2 lost", 2, 2), ("deposit dZ +2, a proton lost", 1, 2),
+                        ("deposit dZ -1, a proton lost", -2, -1), ("deposit dZ +0, an H lost", 0, 0),
+                        ("associative detachment", 1, 1), ("proton loss", -1, 0), ("H addition", 0, 0)):
+        assert electrons_per_event(name, dz) == e, name
+
+
+def test_h2_counts_ion_driven_flows():
+    """H2 released in ion collisions (here C+ driving H2 loss) counts in the H2 output."""
+    mk = toy()
+    mk.photon_k[:, :, :, 4] = 0.0                                       # no photon-driven H2 loss
+    mk.coll_k[2, :, 4, :, 2] = 1e-9                                     # C+-driven H2 loss from N_H = 2
+    c = cell()
+    F, o = MoleculeSolver(mk).solve(c)
+    n_cp = dict(c.ions)["C+"]
+    assert o["h2"] > 0
+    assert o["h2"] == pytest.approx(n_cp * 1e-9 * F[:, 2].sum(), rel=1e-6)
 
 
 def test_bin_weights_and_outputs_linear_in_them():

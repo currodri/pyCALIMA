@@ -47,14 +47,12 @@ class PAHrtCell:
 
 
 def electrons_per_event(name, dz):
-    """Free electrons a photon- or collision-driven event makes (negative: captured)."""
-    if name.startswith("ionisation"):
-        return dz if "proton" not in name else dz + int(name.split("emitted")[0].split()[-2])
-    if name == "associative detachment" or name.startswith("deposit dZ +1"):
-        return 1
-    if name.startswith("deposit dZ -1") or name.startswith("electron capture"):
-        return -1
-    return 0
+    """Free electrons a photon- or collision-driven event makes (negative: captured): the charge step its name
+    carries ("ionisation (dZ +j)...", "electron capture (dZ -1)", "deposit dZ d, ..."; a proton emitted or lost takes
+    no electron, so it is the name's step, not the process's dz), 1 for associative detachment, else 0."""
+    if name.startswith(("ionisation (dZ", "electron capture (dZ", "deposit dZ")):
+        return int(name.split("dZ ")[1].split(")")[0].split(",")[0])
+    return 1 if name == "associative detachment" else 0
 
 
 def _loglog(x_nodes, y, x):
@@ -209,8 +207,9 @@ class MoleculeSolver:
         out["z_width"] = float(np.sqrt(max(fz @ self.z ** 2 - out["z_mean"] ** 2, 0.0)))
         for j, k in enumerate(mk.observables):
             out[k] = float((W[j] * F).sum())
-        flow = (Kp + Kc) * F[None]
-        out["h2"] = float(self.h2 @ flow.sum(axis=(1, 2)))
+        flow = (Kp + Kc) * F[None]                           # the ions' flows free no electron (the ion takes it)
+        ion_flow = sum((n * k for n, k in Ki.values()), np.zeros_like(Kp)) * F[None]
+        out["h2"] = float(self.h2 @ (flow + ion_flow).sum(axis=(1, 2)))
         out["e_source"] = float(self.per_e @ flow.sum(axis=(1, 2)))
         for ion, (_, k) in Ki.items():
             out[f"alpha({ion})"] = float((k * F[None]).sum())
