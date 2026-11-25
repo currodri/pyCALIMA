@@ -967,6 +967,16 @@ steady state by `network.gth_banded`. The default (`"charge_averaged"`) is uncha
     H addition (barriers 0.06 / 0.035 eV on the first and third extra H), and Eley–Rideal abstraction releasing H2 (counted
     in `hydrogenation_summary`).
   - **Emission.** The super-hydrogenated states emit as the parent.
+  - **Odd-N_H0 parents** (57 of v4.00's molecules, π radicals; since 2026-11-25, pahchem audit bug 4).
+    - The H-loss values follow the number of H lost from the parent (`population._h_values`): the first loss's
+      (4.41 eV, degeneracy N_H) after an even number, West+18's second-H values after an odd one. H2 loss and the
+      deeper states' N_H scaling follow the same count.
+    - The super-H barriers are an even parent's one step along: the radical's first extra H closes the shell without
+      a barrier.
+    - Before, these parents took the radical's values on the intact molecule. C27H13 lost an H after 41 % of 8 eV
+      deposits; it is now 2e-6, and 0.48 at 13 eV.
+    - Their super-H threshold shifts still come from the even parents' laws, which invert their sign. A ΔSCF ladder of
+      one odd parent is to replace them.
 
 **Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
 before quoting):

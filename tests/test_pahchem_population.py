@@ -1518,6 +1518,44 @@ def test_chain_kernel_balances_every_cut_and_matches_the_least_squares():
             assert fast == pytest.approx(slow, abs=1e-8)
 
 
+def test_h_loss_values_count_the_h_lost_from_the_parent():
+    """``_h_values``: the first loss's (E0, dS), degeneracy N_H, after an even number of H lost from the parent, the
+    radical's (degeneracy 1) after an odd one. N_H's parity for an even parent as before; an odd-N_H0 parent (a pi
+    radical) starts on the first loss (pahchem audit 2026-11-25, bug 4)."""
+    ev, od = (4.41, 12.0), (3.16, 10.0)
+    for nh0 in (12, 27):
+        for k in range(6):
+            nh = nh0 - k
+            assert population._h_values(nh, ev, od, nh0 % 2 == 1) == ((ev, nh) if k % 2 == 0 else (od, 1))
+    assert population._h_values(12, ev, od) == (ev, 12) and population._h_values(11, ev, od) == (od, 1)
+
+
+def test_odd_parents_alone_change_their_keys_and_shift_their_super_h_barriers():
+    """Only an odd-N_H0 parent carries ``parent_odd`` (basis inputs; response inputs after (weights, True)), so every even
+    parent keeps its stored bases and responses; its H2 channel follows the H lost from the parent; its super-H barriers
+    are an even parent's one step along, at every charge and in both chemistries."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    even = next(m for m in lib if m.nh % 2 == 0 and m.nc <= 30)
+    odd = next(m for m in lib if m.nh % 2 == 1 and m.nc <= 40)
+    p, e_max = Params(), 21.5 * population.dos.CM_PER_EV
+    ie = population._basis_inputs(even, 0, ("draine",), 100.0, e_max, p)
+    io = population._basis_inputs(odd, 0, ("draine",), 100.0, e_max, p)
+    assert "parent_odd" not in ie and io["parent_odd"] is True
+    assert all(not ok for k, (*_, ok) in enumerate(io["ladder"]) if k % 2 == 1)
+    for which in ("rec", "aug"):
+        re_ = population._response_inputs(even, 0, 100.0, e_max, p, which)
+        ro = population._response_inputs(odd, 0, 100.0, e_max, p, which)
+        assert len(re_) == 7 and len(ro) == 9 and ro[7] is None and ro[8] is True
+        assert population._response_rows(ro) == len(ro[6]) and population._response_rows(re_) == len(re_[6])
+    for q in (Params(hydrogen_chain="joint"), Params(hydrogen_chain="joint", superh_chemistry="deep", superh_levels=24)):
+        for z in (-1, 0, 1):
+            for j in range(20):
+                assert population.superh_addition_barrier(j, z, q, True) == population.superh_addition_barrier(j + 1, z, q)
+        assert population.superh_addition_barrier(0, 0, q, True) == 0.0        # the radical's first extra H: no barrier
+
+
 def _ladder_molecules():
     """A cation-only molecule and one with its anion (N_C >= 50): both take LADDER_STEP_FIT's +1 -> +2 step."""
     return [_library()[0], next(m for m in _library() if -1 in m.charges and m.nc >= 50)]
