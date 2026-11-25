@@ -1,5 +1,5 @@
 (physics-pahchem-status)=
-# PAHchem: current state (2026-11-24)
+# PAHchem: current state (2026-11-25)
 
 This page is the entry point to the state of `pycalima.pahchem`. It says where
 each kind of information lives, which pages and figures are dated snapshots,
@@ -29,9 +29,9 @@ folder there is labelled in `results/pahchem/README.md` and
 | Uncertainties still to model, decisions still open | this page, §6 | |
 | Data we need and cannot get | {doc}`pahchem-data-requests` | summary in §7 |
 | UV cross sections | {doc}`pahchem-uv-absorption` | band positions still an open decision (§5) |
-| Carrying the physics into RAMSES | `diagnostics/pahchem/pahrt/README.md`, branch `feature/pahrt` | 2026-11-24 |
+| Carrying the physics into RAMSES | `diagnostics/pahchem/pahrt/README.md`, branch `feature/pahrt` | 2026-11-24; frozen 2026-11-25, when the GSD line restarted from main (§3) |
 | Audits after 2026-10-20 | `results/pahchem/audit_2026-11-04/REPORT.md`, `results/pahchem/audit_open_2026-11-06/README.md` | the fixes are on main (PRs #11 and #12) |
-| The external audit of 2026-11-25 | its claims were checked against the code; the verified fixes are PRs #18 (cache format), #24 (C 1s live states), #25–#28 | its spin-degeneracy, attachment-temperature and solver-trap claims did not hold |
+| The external audit of 2026-11-25 | its claims were checked against the code; the verified fixes are PRs #18 (cache format), #24 (C 1s live states) and #25–#29, all on main since 2026-11-25 (§2) | its spin-degeneracy, attachment-temperature and solver-trap claims did not hold |
 
 To list the open benchmarks with their cause and what they need:
 
@@ -57,21 +57,23 @@ that can move it. The figure dates of §8 are read against this table.
 | 2026-11-05/06 | the fixes of the 2026-11-04 audit: collisions, hot gas, the CR-induced UV, the ladder top | the audit reports of §1 |
 | 2026-11-11 | `threshold_shifts = "dft_ladder"`, `threshold_calibration = "measured"` | §2.2h, §2.2i |
 | 2026-11-25 | every present charge live in fields reaching the C K edge (PR #24; before, C 1s Auger steps out of the top live state were booked as Coulomb explosions); stored super-H tables rebuilt (`SUPERH_VERSION` 2, PR #18) | §2.2c, §2.2h |
+| 2026-11-25 | the audit's fixes. The charge ladder repeats a computed step only within 25 % of the conductor fit, else it takes the fit (PR #25; 28 molecules, of which C$_{115}$H$_{29}$ reached +16 below 13.6 eV). Odd-N$_{
+m H0}$ parents (57 π radicals) count H-loss values and super-H barriers from the parent (PR #26; their intact H loss was far too fast). Cells with old-star light above their G$_0$ (`optical_isrf` > G$_0$) get multiphoton tables on G$_0$ nodes that follow their field shape (PR #29; before, the old stars were scaled with every node, and cells below G$_0$ = 1 were extrapolated). The group tables' anion absorbs with `state_sigma` (PR #27; +0.04 % on the bin K) | §2.2c, §2.2h, §4d |
 
 Off by default (opt-in): `cosmic_rays`, `hot_gas`, `coulomb_escape`,
 `double_ionisation`, `hydrogen_chain = "joint"`, the deep super-hydrogenated chain (`superh_chemistry = "deep"`,
 PR #18; molecules with N$_{\rm C}$ ≳ 100 still reach its +24 cap in shielded and dense gas), and every band convention
-other than `legacy` (`Population(band_convention=...)`).
+other than `legacy` (`Population(band_convention=...)`). Two brackets of PR #28: anions with the cations' super-H
+barriers (`superh_anion_barriers = "cation"`), and `associative_detachment = "all"`, now weighed by its
+thermochemistry (EA < D).
 
 ## 3. Work that is not on main
 
 | Where | What | State |
 |---|---|---|
-| PR #25, `fix/pahchem-ladder-step` | the charge ladder repeats a computed step only within 25 % of the conductor fit (28 molecules; C115H29 reached +16 below 13.6 eV) | open since 2026-11-25 |
-| PR #26, `fix/pahchem-odd-parents` | odd-N$_{\rm H0}$ parents (57 π radicals): H-loss values and super-H barriers count the H lost from the parent (their intact H loss was far too fast) | open since 2026-11-25; their super-H threshold shifts wait for a ΔSCF ladder of one odd parent |
-| PR #27, `fix/pahchem-group-tables-sigma` | group tables: the anion absorbs with `state_sigma` (the earlier audit's m8; +0.04 % on the bin K) | open since 2026-11-25 |
-| PR #28, `feature/pahchem-superh-brackets`, stacked on #26 | opt-in brackets: anions with the cations' super-H barriers (`superh_anion_barriers = "cation"`); `associative_detachment = "all"` weighed by its thermochemistry | open since 2026-11-25 |
-| `feature/pahrt` (holds `study/pahrt` and the GSD branch `feature/gsd-a3c`) | how much of pahchem can enter RAMSES as bin-averaged kernels with a per-cell solver | decided 2026-11-24: equilibrium per cell for every PAH bin, nothing tracked; the per-cell solver (S6) is being built |
+| `feature/pahchem-odd-parent-dscf`, on DIaL3 | a ΔSCF IP/EA ladder of one odd parent (C$_{31}$H$_{15}$), for the super-H threshold shifts of odd parents, which still use the even-parent laws | first 29 states converged 2026-11-25; the shifts with the extra H on sites without SOMO density are probably restricted-singlet artefacts of a diradical, so a follow-up with triplet checks and H on the radical sites was submitted the same day |
+| `feature/gsd` | the GSD implementation, restarted from main on 2026-11-25 | its design is to be set first |
+| `feature/pahrt` (holds `study/pahrt` and the GSD branch `feature/gsd-a3c`) | how much of pahchem can enter RAMSES as bin-averaged kernels with a per-cell solver | frozen at the restart (5ff3c12), kept as the record. It had decided, on 2026-11-24, equilibrium per cell for every PAH bin with nothing tracked |
 
 ## 4. What passes
 
@@ -220,7 +222,7 @@ state; each has an author question in {doc}`pahchem-data-requests`.
 
 **Not done yet.**
 - M6: the end-to-end check of the RAMSES tables. It is now part of the
-  per-cell solver of `feature/pahrt`, whose README lists its own open issues:
+  per-cell solver of `feature/pahrt`, frozen on 2026-11-25. Its README lists the open issues:
   - the averaged hydrogenation of bins 1–2;
   - fast fluctuations;
   - charges above +2;
@@ -275,9 +277,9 @@ The literature still to be supplied is in {doc}`pahchem-gas-coupling` §5.
 | `results/plots/pahchem/pahchem_*.png`, the gas-coupling checks | 2026-10-24 to 11-05 | the latest output of each check script, newer than the briefing's E copies; they predate the threshold calibration (2026-11-11) |
 | `results/plots/pahchem/cr_impact_*.png` | 2026-11-01 | predate the audit fixes, which made the CR lifetimes 2–5× longer; to be rerun |
 | `results/plots/pahchem/pahchem_hot_gas_*.png` | 2026-11-05 | the day of the audit fixes; to be rerun with the CR figures |
-| `results/plots/pahchem/pahchem_kshell_auger.png` | 2026-11-03 | X-ray fields: predates the live-state fix of `fix/pahchem-kshell-live` |
+| `results/plots/pahchem/pahchem_kshell_auger.png` | 2026-11-03 | X-ray fields: predates the live-state fix (PR #24, on main 2026-11-25) |
 | `results/plots/pahchem/` reproductions (`demyk2026_reproduction`, `sidegroups_34um*`, `sizelaw_33um`, `saykally_pyrene`, ...) | 2026-10-19/21 | each paper's own inputs; not rerun since |
-| the PAHrt study (`results/pahrt_study/` of the GSD worktree, branch `feature/pahrt`) | 2026-11-24 | current |
+| the PAHrt study (`results/pahrt_study/`, made on `feature/pahrt`) | 2026-11-24 | the record of the frozen `feature/pahrt`; predates the audit's fixes of 2026-11-25 |
 
 Nothing has rebuilt the briefing set since 2026-10-26. Doing so takes
 `diagnostics/pahchem/make_briefing.sh` about 3 h with 4 workers, and any
