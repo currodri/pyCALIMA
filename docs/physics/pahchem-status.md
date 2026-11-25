@@ -66,7 +66,7 @@ other than `legacy` (`Population(band_convention=...)`).
 |---|---|---|
 | PR #17, `feature/pahchem-joint-observables` | `Population.joint_state_observables`: heating, cooling, H$_2$ and destruction per (Z, N$_{\rm H}$) state of the joint chain | open since 2026-11-15 |
 | PR #18, `feature/pahchem-deep-superh`, stacked on #17 | the deep super-hydrogenated chain (`superh_chemistry = "deep"`, opt-in) | open; molecules with N$_{\rm C}$ ≳ 100 still reach the +24 cap in shielded and dense gas |
-| `fix/pahchem-kshell-live` | `Environment.field_sum` (sums of field shapes); a fix to `Population._live` in fields that reach the C K edge | committed 2026-11-19, PR pending. **X-ray destruction numbers computed before this fix carry an artefact:** C 1s Auger steps out of the top live state were booked as Coulomb explosions |
+| PR #24, `fix/pahchem-kshell-live` | `Environment.field_sum` (sums of field shapes); a fix to `Population._live` in fields that reach the C K edge | committed 2026-11-19, PR open since 2026-11-25. **X-ray destruction numbers computed before this fix carry an artefact:** C 1s Auger steps out of the top live state were booked as Coulomb explosions |
 | `feature/pahrt` (holds `study/pahrt` and the GSD branch `feature/gsd-a3c`) | how much of pahchem can enter RAMSES as bin-averaged kernels with a per-cell solver | decided 2026-11-24: equilibrium per cell for every PAH bin, nothing tracked; the per-cell solver (S6) is being built |
 
 ## 4. What passes
