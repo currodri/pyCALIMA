@@ -23,6 +23,11 @@ G0 = 1e-30 under the basis's shape, at its T. pahchem's per-state weights solve 
 shape only), and without electrons or H a photon-only network has no unique one. The rates add up across inputs, so
 the difference holds the basis's input alone.
 
+Every basis is built with ``Params.cosmic_rays`` (zeta_cr = 0): it makes every charge live (pahchem's live set is
+otherwise the charges a shape can reach, so a soft group's basis would hold no rates out of the high charges) and
+changes nothing else. Cosmic-ray passages themselves (zeta_cr > 0) are not in the bases yet: pahchem blends two spectra
+with weights that depend on zeta, so they need a zeta grid (tier T3).
+
 Groups below pahchem's lowest photon energy (``population.E_PH_MIN_EV``) or above ``E_VALENCE_MAX_EV`` get no bases
 (``valid`` False): C 1s fields wait for pahchem's K-shell fix (feature/pahchem-agn-xray, 2026-11-19), and the hot-gas
 passages (``Params.hot_gas``) are not in the collision bases yet (tier T3 of the plan).
@@ -47,8 +52,8 @@ FORMAT_VERSION = 1
 ALPHAS = (-3.0, -1.0, 1.0, 3.0, 5.0, 8.0, 12.0)
 #: the per-state observables kept (``hydrogen_observables.OBSERVABLES``; H2 comes from the processes)
 OBSERVABLES = ("carbon", "heating", "cooling", "h_uptake", "absorbed")
-#: log10 T [K] of the collision bases
-LT = np.round(np.arange(1.0, 8.0 + 1e-9, 0.1), 6)
+#: log10 T [K] of the collision bases (from 3 K: the cold dense phases of the study reach 4.5 K)
+LT = np.round(np.arange(0.5, 8.0 + 1e-9, 0.1), 6)
 #: the highest group edge with photon bases [eV]: valence only, below the C 1s edge
 E_VALENCE_MAX_EV = 100.0
 #: the temperature of the photon bases [K] (they hold no collisions; no photon rate depends on T)
@@ -169,7 +174,10 @@ def build_molecule(mol, L0, L1, params_kw=None, alphas=ALPHAS, lt=LT, ions=None,
     from pycalima.pahchem.baseline import Environment
 
     ions = GT.ION_NAMES if ions is None else tuple(ions)
-    params = P.Params(hydrogen_chain="joint", **(params_kw or {}))
+    # cosmic_rays makes every charge live in every basis (population._live: "passages reach every charge"), so that
+    # each group's rates out of the high charges are there; with zeta_cr = 0 it adds no process and changes no rate
+    # (checked on C22H12, PDR phase: identical to the bit on the common states, 2026-11-25)
+    params = P.Params(hydrogen_chain="joint", **{"cosmic_rays": True, **(params_kw or {})})
     cache = _paths.get_model_data_dir() / "pahchem_population_basis" if cache_dir is None else Path(cache_dir)
     pop = P.Population([mol], {"all": (1.0, 1e4)}, params=params, cache_dir=cache)
     L0, L1 = np.asarray(L0, float), np.asarray(L1, float)
