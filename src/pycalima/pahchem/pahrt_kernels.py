@@ -23,6 +23,9 @@ G0 = 1e-30 under the basis's shape, at its T. pahchem's per-state weights solve 
 shape only), and without electrons or H a photon-only network has no unique one. The rates add up across inputs, so
 the difference holds the basis's input alone.
 
+Charges are capped at ``Z_MAX`` (``cap_charges``; provisional, to revisit with hot gas and X-rays): every charge live
+would otherwise bring pahchem's whole ladder to the cold limit (-1 ... +17 for C89H27).
+
 Every basis is built with ``Params.cosmic_rays`` (zeta_cr = 0): it makes every charge live (pahchem's live set is
 otherwise the charges a shape can reach, so a soft group's basis would hold no rates out of the high charges) and
 changes nothing else. Cosmic-ray passages themselves (zeta_cr > 0) are not in the bases yet: pahchem blends two spectra
@@ -50,8 +53,13 @@ FORMAT_VERSION = 1
 #: (a hot star's Rayleigh-Jeans side) to a Wien-like E^-13 (a 10 kK star across 5.6-11.2 eV); the solver interpolates
 #: in the group's mean photon energy
 ALPHAS = (-3.0, -1.0, 1.0, 3.0, 5.0, 8.0, 12.0)
-#: the per-state observables kept (``hydrogen_observables.OBSERVABLES``; H2 comes from the processes)
-OBSERVABLES = ("carbon", "heating", "cooling", "h_uptake", "absorbed")
+#: the per-state observables kept (``hydrogen_observables.OBSERVABLES``; H2 comes from the processes), and
+#: "overflow": the ionisations past the top charge per molecule per s (Coulomb explosions at the molecule's own top,
+#: the cap's overflow below it)
+OBSERVABLES = ("carbon", "heating", "cooling", "h_uptake", "absorbed", "overflow")
+#: the top charge kept (provisional, 2026-11-25; to revisit with hot gas and X-rays). With every charge live, pahchem's
+#: ladder to the cold limit gave C89H27 the charges -1 ... +17 (19 x 32 states); S1's populations reach about +5
+Z_MAX = 5
 #: log10 T [K] of the collision bases (from 3 K: the cold dense phases of the study reach 4.5 K)
 LT = np.round(np.arange(0.5, 8.0 + 1e-9, 0.1), 6)
 #: the highest group edge with photon bases [eV]: valence only, below the C 1s edge
@@ -81,6 +89,41 @@ def representatives(nc_edges, per_bin=5):
 def slug(mol):
     """A file name for ``mol`` ("C43H17 (3235)" -> "C43H17_3235")."""
     return mol.name.replace(" (", "_").replace(")", "").replace(" ", "_")
+
+
+def cap_charges(mol, z_max=Z_MAX):
+    """``mol`` with its charge states above ``z_max`` removed (as ``group_tables._chain``): the top then ionises only
+    above ``population.Y_UNITY_EV``, and pahchem drops those steps (its "explosions")."""
+    from dataclasses import replace
+
+    if max(mol.charges) <= z_max:
+        return mol
+    keep = [z for z in mol.charges if z <= z_max]
+    return replace(mol, species={z: mol.species[z] for z in keep}, uids={z: mol.uids[z] for z in keep if z in mol.uids},
+                   ionisation_ev={z: v for z, v in mol.ionisation_ev.items() if z < z_max}, _cache={})
+
+
+def population(mol, params_kw=None, z_max=Z_MAX, cache_dir=None):
+    """(``population.Population`` of ``mol`` for the kernels, the molecule it holds, True if capped).
+
+    The joint chain with ``Params.cosmic_rays`` (every charge live; at zeta_cr = 0 no process added and no rate
+    changed). pahchem's default ladder runs to the cold Coulomb limit floor(0.2 N_C) with stand-ins
+    (``population.extend_ladder``). Here the molecule is calibrated and extended as ``Population`` does, then capped
+    at ``z_max`` (``cap_charges``) and given with ``charge_ladder = "library"``, so that pahchem keeps the cap. The
+    calibration is a no-op for molecules already shifted, as the library's are."""
+    from dataclasses import replace
+
+    from pycalima import _paths
+    from pycalima.pahchem import population as P
+
+    params = P.Params(hydrogen_chain="joint", **{"cosmic_rays": True, **(params_kw or {})})
+    ext = P.extend_ladder(P.calibrate_thresholds([mol], params)[0])
+    capped = cap_charges(ext, z_max)
+    truncated = capped is not ext
+    if truncated:
+        params = replace(params, charge_ladder="library")
+    cache = _paths.get_model_data_dir() / "pahchem_population_basis" if cache_dir is None else Path(cache_dir)
+    return P.Population([capped], {"all": (1.0, 1e4)}, params=params, cache_dir=cache), capped, truncated
 
 
 @dataclass
@@ -118,7 +161,7 @@ class MoleculeKernels:
         meta = {"version": FORMAT_VERSION, "name": self.name, "nc": int(self.nc), "nh0": int(self.nh0),
                 "charges": list(self.charges), "nh_values": list(self.nh_values),
                 "procs": [list(p) for p in self.procs], "coll_kinds": list(self.coll_kinds),
-                "observables": list(self.observables)}
+                "observables": list(self.observables), "z_max": int(max(self.charges))}
         np.savez_compressed(path, meta=json.dumps(meta), L0=self.L0, L1=self.L1, valid=self.valid,
                             alphas=self.alphas, g0=self.g0, e_mean=self.e_mean, f_unit=self.f_unit,
                             photon_k=self.photon_k, photon_w=self.photon_w, lt=self.lt, coll_k=self.coll_k,
@@ -165,21 +208,18 @@ def _read(net, W, procs, charges, nh_values):
     return rates, obs
 
 
-def build_molecule(mol, L0, L1, params_kw=None, alphas=ALPHAS, lt=LT, ions=None, cache_dir=None):
-    """``MoleculeKernels`` of ``mol`` on the groups [L0, L1] (``params_kw``: extra ``Params``, joint chain always)."""
-    from pycalima import _paths
+def build_molecule(mol, L0, L1, params_kw=None, alphas=ALPHAS, lt=LT, ions=None, cache_dir=None, z_max=Z_MAX):
+    """``MoleculeKernels`` of ``mol`` on the groups [L0, L1] (``params_kw``: extra ``Params``, joint chain always),
+    its charges capped at ``z_max`` (``cap_charges``). Below the molecule's own top the cap's overflow is not a
+    Coulomb explosion: it is taken out of "carbon" and kept as "overflow" (the steady state treats the cap as
+    reflecting, as pahchem treats its top)."""
     from pycalima.pahchem import group_tables as GT
     from pycalima.pahchem import hydrogen_observables as HO
     from pycalima.pahchem import population as P
     from pycalima.pahchem.baseline import Environment
 
     ions = GT.ION_NAMES if ions is None else tuple(ions)
-    # cosmic_rays makes every charge live in every basis (population._live: "passages reach every charge"), so that
-    # each group's rates out of the high charges are there; with zeta_cr = 0 it adds no process and changes no rate
-    # (checked on C22H12, PDR phase: identical to the bit on the common states, 2026-11-25)
-    params = P.Params(hydrogen_chain="joint", **{"cosmic_rays": True, **(params_kw or {})})
-    cache = _paths.get_model_data_dir() / "pahchem_population_basis" if cache_dir is None else Path(cache_dir)
-    pop = P.Population([mol], {"all": (1.0, 1e4)}, params=params, cache_dir=cache)
+    pop, capped, truncated = population(mol, params_kw, z_max, cache_dir)
     L0, L1 = np.asarray(L0, float), np.asarray(L1, float)
     g0s = np.asarray(P.K_H_G0_GRID, float)
     valid = (L1 > P.E_PH_MIN_EV) & (L1 <= E_VALENCE_MAX_EV * (1 + 1e-9))
@@ -190,7 +230,11 @@ def build_molecule(mol, L0, L1, params_kw=None, alphas=ALPHAS, lt=LT, ions=None,
 
     def run(env):
         net = pop.joint_networks(env)
-        return net[0], HO.state_weights(pop, env, net)[0]
+        W = dict(HO.state_weights(pop, env, net)[0])
+        W["overflow"] = np.asarray(pop.joint_state_observables(env)[0]["explosions"], float)
+        if truncated:
+            W["carbon"] = np.maximum(W["carbon"] - capped.nc * W["overflow"], 0.0)
+        return net[0], W
 
     nets = []                                    # (kind, (g, a, i) or (k, t), network, weights, regulariser's)
     e_mean = np.zeros((L0.size, len(alphas)))
@@ -254,15 +298,11 @@ def _prepare(job):
     """Build and cache pahchem's bases and responses of one molecule under one photon basis shape."""
     import time
 
-    from pycalima import _paths
-    from pycalima.pahchem import population as P
     from pycalima.pahchem.baseline import Environment
 
     mol, alpha, lo, hi, params_kw = job
     t = time.time()
-    params = P.Params(hydrogen_chain="joint", **{"cosmic_rays": True, **(params_kw or {})})
-    pop = P.Population([mol], {"all": (1.0, 1e4)}, params=params,
-                       cache_dir=_paths.get_model_data_dir() / "pahchem_population_basis")
+    pop = population(mol, params_kw)[0]
     pop.joint_networks(Environment("pahrt", 1.0, N_REG, N_REG, T_PHOTON_K, teff_k=None, ions=(), optical_isrf=0.0,
                                    field_powerlaw=float(alpha), field_e_min_ev=float(lo), field_e_max_ev=float(hi)))
     return mol.name, alpha, lo, hi, time.time() - t
