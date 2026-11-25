@@ -28,6 +28,11 @@ import common as C
 
 OUT = Path("results/pahrt_study/s6")
 KDIR = OUT / "kernels"
+
+
+def tag(base):
+    """``base`` with the kernels' directory when it is not the default (``--kdir``), so runs do not overwrite."""
+    return base if KDIR == OUT / "kernels" else f"{base}_{Path(KDIR).name}"
 #: V1's environments: every S1 phase under every S1 field shape, at the phase's G0 and at 10^2 x it; the power laws
 #: (1-13.6 eV, slopes on the bases' nodes) are exactly representable, so their errors are the kernels' alone
 V1_FIELDS = ("draine", "draine+old", "kurucz10000", "kurucz20000", "kurucz40000", "powerlaw1.0", "powerlaw3.0")
@@ -103,11 +108,13 @@ def _build(job):
     return mol_name, time.time() - t
 
 
-def kernels(workers, which, prepare=False):
+def kernels(workers, which, prepare=False, only=None):
     from concurrent.futures import ProcessPoolExecutor
 
     KDIR.mkdir(parents=True, exist_ok=True)
     mols = test_molecules() if which == "test" else [m for b, ms in C.molecules(5).items() if b in BINS for m in ms]
+    if only:
+        mols = [m for m in mols if m.name.split()[0] in only]
     if prepare:                                   # pahchem's bases per (molecule, shape) first, in parallel
         from pycalima.pahchem import pahrt_kernels as PK
 
@@ -208,9 +215,9 @@ def v1():
                 rep.append(f"  {k:10s} {m:6s} median {np.nanmedian(np.abs(d)):9.3g}  worst {d[i]:+9.3g} "
                            f"({outs[i][0]})")
     text = "\n".join(rep)
-    (OUT / "v1_kernels.txt").write_text(text)
+    (OUT / f"{tag('v1_kernels')}.txt").write_text(text)
     print(text)
-    np.save(OUT / "v1_results.npy", dict(res), allow_pickle=True)
+    np.save(OUT / f"{tag('v1_results')}.npy", dict(res), allow_pickle=True)
     fig_v1(res, envs)
 
 
@@ -280,7 +287,7 @@ def fig_v1(res, envs):
         ax.set_title("full solver vs truth: log10 ratio (rates) or difference", fontsize=8)
         fig.colorbar(im, ax=ax, fraction=0.04)
     fig.tight_layout()
-    fig.savefig(OUT / "v1_kernels.png", dpi=150)
+    fig.savefig(OUT / f"{tag('v1_kernels')}.png", dpi=150)
     plt.close(fig)
 
 
@@ -316,11 +323,11 @@ def v2(method="full"):
                                                  for j, k in enumerate(SCORED)))
     text = (f"median/max |log10 ratio| (rates) or |difference| over S1's nodes, {method} solver vs truth\n"
             + "\n".join(rep))
-    tag = method if PROXY == "self" else f"{method}_{PROXY}"
-    (OUT / f"v2_molecules_{tag}.txt").write_text(text)
+    name = tag(method if PROXY == "self" else f"{method}_{PROXY}")
+    (OUT / f"v2_molecules_{name}.txt").write_text(text)
     print(text)
-    np.save(OUT / f"v2_results_{tag}.npy", res, allow_pickle=True)
-    fig_v2(res, nodes, tag)
+    np.save(OUT / f"v2_results_{name}.npy", res, allow_pickle=True)
+    fig_v2(res, nodes, name)
 
 
 def fig_v2(res, nodes, method):
@@ -401,7 +408,7 @@ def sweeps(phase="PDR", inputs=("g0", "n_hi")):
     axes[0, 0].legend(frameon=False, fontsize=8)
     fig.suptitle(rf"PAHrt: the {phase} phase's sweeps; carbon floored at $N_{{\rm C}}$ per 10 Gyr", fontsize=11)
     fig.tight_layout()
-    fig.savefig(OUT / f"v2_sweeps_{phase}.png", dpi=200)
+    fig.savefig(OUT / f"{tag(f'v2_sweeps_{phase}')}.png", dpi=200)
     plt.close(fig)
 
 
@@ -447,7 +454,7 @@ def v5():
         rep.append(f"{mol.name:16s} {n_states:6d}  {n_lin:8d}/{n_mp:<8d} {n_coll:8d}  {band:4d}  {fold:10.3g}  "
                    f"{solve:8.3g}  {mem:10.0f}  {py:10.1f}")
     text = "\n".join(rep)
-    (OUT / "v5_cost.txt").write_text(text)
+    (OUT / f"{tag('v5_cost')}.txt").write_text(text)
     print(text)
     return rows
 
@@ -459,6 +466,7 @@ def main(argv=None):
     ap.add_argument("what", choices=("kernels", "v1", "v2", "v5", "sweeps"))
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--molecules", choices=("test", "all"), default="test")
+    ap.add_argument("--only", nargs="+", default=None, help="molecule formulas (e.g. C89H27) to build, of --bins")
     ap.add_argument("--bins", type=int, nargs="+", default=list(BINS))
     ap.add_argument("--method", choices=("full", "nested"), default="full")
     ap.add_argument("--kdir", type=Path, default=None, help="the kernels' directory (default s6/kernels)")
@@ -472,7 +480,7 @@ def main(argv=None):
         KDIR = a.kdir
     OUT.mkdir(parents=True, exist_ok=True)
     if a.what == "kernels":
-        kernels(a.workers, a.molecules, a.prepare)
+        kernels(a.workers, a.molecules, a.prepare, a.only)
     elif a.what == "v1":
         v1()
     elif a.what == "v5":

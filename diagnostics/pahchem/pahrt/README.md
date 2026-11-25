@@ -196,6 +196,38 @@ Findings, bins 1-2 (10 molecules, 25 November):
   - fewer molecules;
   - recompute only when the inputs change.
 
+Why the kernel build was expensive, and the cap (25 November): the bins 3-4 build on megatron was stopped
+(about 5 h on 24 cores) and profiled.
+
+- **Every charge live brought pahchem's whole ladder,** up to the cold Coulomb limit floor(0.2 N_C): C89H27 had
+  charges -1 ... +17, so 19 x 32 = 608 states. pahchem builds bases and multiphoton tables for each of them in every
+  field shape, and the per-cell fold and solve grow with them.
+- **49 field shapes per molecule** (7 groups x 7 slopes), each rerunning pahchem's per-shape work: state bases,
+  multiphoton tables on 13 G0 nodes up to 1e6, ionisation responses.
+- **One new shape for C60H26 from a cold cache takes 48 s:**
+  - deposit responses, 22 s, of which `dos.beyer_swinehart` takes 20.5 s in 808 calls, recomputed again and again;
+  - multiphoton loss tables, 18 s;
+  - super-H stack, 5 s.
+
+  For C268H52, 17-19 min per hard shape.
+
+Done, as the user's provisional choice (to revisit): **charges capped at +5** (`pahrt_kernels.Z_MAX`; molecule
+extended as pahchem does, then truncated, with `charge_ladder = "library"`).
+
+- At the capped top, ionisation is pahchem's overflow, not a Coulomb explosion. It is taken out of carbon and kept as
+  the "overflow" output, to flag cells where the cap binds.
+- C89H27 drops to 224 states, and a new shape builds in 16-26 s instead of 51-68 s.
+- The banded solve's bandwidth drops from 39 to about 15, so about 18x fewer flops.
+
+Further optimisations proposed (not done):
+- per-energy single-photon kernels instead of field shapes;
+- multiphoton from about 5 reference shapes;
+- a density-of-states memo in pahchem;
+- folding only the charges a cell can reach, and a sparse linear/multiphoton split;
+- a block solve along N_H;
+- a cheap charge-only balance every substep, with the full solve at a lower cadence;
+- 2-3 molecules per bin.
+
 Open issues found in S6:
 
 - **pahchem's per-N_H threshold shifts are ratios per field shape** (`_threshold_factors`: "1 where the intact state
