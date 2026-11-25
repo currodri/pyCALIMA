@@ -17,7 +17,18 @@ those shifts on one odd parent.
   - the neutral N_H0 - 1, a sigma + pi pair.
 - **Single points.** 6-31+G* for Z = -1 and 0, the EA pairs, as in the other ladders.
 
-Usage: make_odd_parent.py OUT_DIR [--uid 3226] [--name C31] [--edge-sites] [--xml PATH]
+The first run (2026-11-25) showed that the extra H's site decides the state. An odd alternant radical's singly
+occupied orbital is nonbonding (Hueckel) and lives on alternate carbons:
+- On a carbon where it has density, H closes the shell. C31H15 + H at its trio site: IP0 +0.01, EA -0.26 eV.
+- On one where it has a node, H leaves a pi diradical. C31H15's duo and solo sites, whose restricted-singlet energies
+  then fake IP0 -0.88, EA +0.5-0.7 eV.
+
+``--radical-site`` puts N_H0 + 1 (and N_H0 + 2, with the next H on the neighbouring CH carbon of most density) on the
+CH carbon of most density, where H adds. ``--triplet-checks STATE ...`` adds the neutral's triplet of those states, to
+show which are diradicals.
+
+Usage: make_odd_parent.py OUT_DIR [--uid 3226] [--name C31] [--edge-sites] [--radical-site]
+       [--triplet-checks H16 H16_solo] [--jobs jobs.txt] [--xml PATH]
 
 It writes OUT_DIR/<name>/<state>/start.xyz and OUT_DIR/jobs.txt, in ``make_slurm.py``'s format (pass
 ``--per-node <name>=... --layout <name>=...``). The default parent, C31H15 (UID 3226), is small and odd. PAHdb computed
@@ -39,7 +50,30 @@ def spins(n_elec, kind):
     """2S of the jobs of one (state, charge) of an odd-N_H0 parent (module docstring)."""
     if n_elec % 2:
         return (1,)
-    return (0, 2) if kind in ("parent", "sigma") else (0,)
+    return (0, 2) if kind in ("parent", "sigma", "radsuperh") else (0,)
+
+
+def somo_density(types, xyz):
+    """{carbon index: c^2}: the Hueckel singly occupied orbital of the carbon skeleton (nonbonding for an odd alternant
+    radical), on each carbon."""
+    C = np.nonzero(types == 6)[0]
+    D = np.linalg.norm(xyz[C][:, None] - xyz[C][None], axis=2)
+    w, v = np.linalg.eigh(-((D > 0.5) & (D < 1.75)).astype(float))
+    somo = v[:, C.size // 2]
+    return {int(c): float(somo[i] ** 2) for i, c in enumerate(C)}
+
+
+def radical_sites(types, xyz):
+    """(h1, c1, h2, c2): the CH carbon of most singly-occupied density (c1, its H h1), and the next one (c2, h2): its CH
+    neighbour of most density, else the CH carbon of most density elsewhere. Past N_H0 + 1 (a closed shell) any site
+    makes a radical, as an even parent's first extra H does."""
+    C, H = np.nonzero(types == 6)[0], np.nonzero(types == 1)[0]
+    host = {int(h): int(C[np.argmin(np.linalg.norm(xyz[C] - xyz[h], axis=1))]) for h in H}
+    dens = somo_density(types, xyz)
+    h1 = max(host, key=lambda h: dens[host[h]])
+    near = [h for h in host if h != h1 and np.linalg.norm(xyz[host[h]] - xyz[host[h1]]) < 1.75]
+    h2 = max(near or [h for h in host if h != h1], key=lambda h: dens[host[h]])
+    return h1, host[h1], h2, host[h2]
 
 
 def main():
@@ -48,6 +82,11 @@ def main():
     ap.add_argument("--uid", type=int, default=3226)
     ap.add_argument("--name", default="C31", help="the parent's directory, make_slurm.py's key")
     ap.add_argument("--edge-sites", action="store_true", help="also N_H0 -/+ 1 on the other edge classes")
+    ap.add_argument("--radical-site", action="store_true",
+                    help="N_H0 + 1 and + 2 on the CH carbons of most singly-occupied density (H<n>_rad)")
+    ap.add_argument("--triplet-checks", nargs="*", default=[], help="states whose neutral also gets its triplet")
+    ap.add_argument("--jobs", default="jobs.txt", help="the job file's name in OUT_DIR")
+    ap.add_argument("--only-new", action="store_true", help="only the --radical-site and --triplet-checks jobs")
     ap.add_argument("--xml", type=Path, default=None, help="PAHdb v4.00 XML (default: $CALIMA_PAHDB_DIR's)")
     args = ap.parse_args()
     if args.xml is None:
@@ -70,7 +109,18 @@ def main():
             keep = np.setdiff1d(np.arange(types.size), [h])
             st[f"H{nh0 - 1}_{cls}"] = (types[keep], xyz[keep], "sigma")
             st[f"H{nh0 + 1}_{cls}"] = (*add_ch2(types, xyz, h, host[h]), "superh")
+    if args.radical_site:
+        h1, c1, h2, c2 = radical_sites(types, xyz)
+        dens = somo_density(types, xyz)
+        print(f"radical site: C{c1} (density {dens[c1]:.3f}); the second extra H on C{c2} ({dens[c2]:.3f})")
+        t1, x1 = add_ch2(types, xyz, h1, c1)
+        st[f"H{nh0 + 1}_rad"] = (t1, x1, "radsuperh")
+        st[f"H{nh0 + 2}_rad"] = (*add_ch2(t1, x1, h2, c2), "superh")
+    if args.only_new:
+        st = {k: v for k, v in st.items() if k.endswith("_rad")}
     jobs = []
+    for name in args.triplet_checks:                       # the neutral's triplet of a state already run
+        jobs.append(f"{args.name}/{name} 0 2 1\n")
     for name, (t, x, kind) in st.items():
         d = args.out_dir / args.name / name
         d.mkdir(parents=True, exist_ok=True)
@@ -79,8 +129,8 @@ def main():
         for z in CHARGES:
             for two_s in spins(6 * nc + nh - z, kind):
                 jobs.append(f"{args.name}/{name} {z} {two_s} {int(z in (-1, 0))}\n")
-    (args.out_dir / "jobs.txt").write_text("".join(jobs))
-    print(f"{len(jobs)} jobs in {args.out_dir / 'jobs.txt'}")
+    (args.out_dir / args.jobs).write_text("".join(jobs))
+    print(f"{len(jobs)} jobs in {args.out_dir / args.jobs}")
 
 
 if __name__ == "__main__":
