@@ -11,6 +11,14 @@ The subpackage's two export stages, `dust_charging_rtgroups` and
 See {doc}`/cli/calima-export` for what they cost.
 :::
 
+The WDB06 tables (`wdb06_yields`, `rt_group_charging`, `charging_isrf_tables`)
+take three materials: `graphite`, `silicate` and `cm20`, THEMIS amorphous
+carbon charged as DustEM v4.3 charges it (Kimura 2016 band yield, DustEM's
+aromatic correction and size-dependent band gap; WDB06's channels above
+20 eV). `cm20` tables are format 4: format 3 plus the electron sticking
+coefficient. See {doc}`/physics/charging-cm20` for the model and its check
+against DustEM.
+
 ## Modules
 
 ```{eval-rst}

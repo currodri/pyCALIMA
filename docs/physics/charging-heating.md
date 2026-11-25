@@ -131,6 +131,9 @@ $\langle Z\rangle=\sum ZP$ and $\sigma_Z=[\sum(Z-\langle Z\rangle)^2P]^{1/2}$
 The uniform-ISRF charging
 tables below use the WDB06 charge balance of `rt_group_charging` instead, with
 H$^+$ at $n({\rm H^+})=n_e$ (`models/dust_charge/charging_isrf_tables.py:66`).
+Those tables also exist for THEMIS amorphous carbon (material `cm20`), charged
+as DustEM charges it; see {doc}`charging-cm20`, which also describes the energy
+threshold of the gas-electron secondaries shared by every material.
 
 ## Dust photoelectric heating and recombination cooling
 

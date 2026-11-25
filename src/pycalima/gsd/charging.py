@@ -26,8 +26,10 @@ functions of radius:
 * the Coulomb explosion rate of grains whose charge reaches the
   electrostatic disruption limit (``coulomb_explosion_rate``).
 
-WDB06 yields exist for graphite and silicate only: carbonaceous materials
-are charged as graphite and all others as silicate (``charging_material``),
+WDB06 yields exist for graphite and silicate, and for amorphous carbon
+(``wdb06_yields``): THEMIS carbon ('themis_ac') is charged as 'ac', pyCALIMA's
+a-C, and 'cm20' as DustEM charges it (the benchmark); other carbonaceous
+materials as graphite and all others as silicate (``charging_material``),
 which should be revisited for metallic iron or SiC.
 """
 
@@ -58,7 +60,11 @@ _CARBON = ("graphite", "amorphous_carbon", "carbon", "diamond", "PAH", "SiC")
 
 
 def charging_material(material: str) -> str:
-    """WDB06 material used to charge ``material``: graphite or silicate."""
+    """WDB06 material used to charge ``material``: cm20, graphite or silicate."""
+    if material in ("themis_ac", "ac"):
+        return "ac"
+    if material == "cm20":                     # the DustEM benchmark
+        return "cm20"
     return "graphite" if any(material.startswith(c) for c in _CARBON[:5]) else "silicate"
 
 
@@ -160,10 +166,17 @@ def bin_table(material, a, L0=AGN_GROUP_L0, L1=AGN_GROUP_L1, cache=True):
 
 
 class ChargingModel:
-    """Charge solves for one material on a grid of radii [cm]."""
+    """Charge solves for one material on a grid of radii [cm].
 
-    def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True):
+    lattice: the solver of ``rt_group_charging.GroupChargingTable.solve``. True (default): LG5 (RAMSES
+    rtg_lattice), the rates at the 5 (7) integer charges around the mode of P(Z), 2-4x cheaper than the full solve
+    and within the documented charging-parameter uncertainties of the exact P(Z) (95th percentile of the error in <Z>:
+    0.11 charges in diffuse gas, against the full solve's 0.03). False: the full WDB06rt solve (root, width, a window grown
+    to its tails), RAMSES's default."""
+
+    def __init__(self, material, a_grid, groups=AGN_GROUPS, cache=True, lattice=True):
         self.material = material
+        self.lattice = bool(lattice)
         self.wdb06_material = charging_material(material)
         self.a = np.asarray(a_grid, float)
         self.L0, self.L1 = (np.asarray(g, float) for g in groups)
@@ -176,7 +189,9 @@ class ChargingModel:
     def solve(self, photons: PhotonGroups, T, n_e, ions: Sequence = None, G0_bg=0.0,
               c_red=C_CGS) -> "ChargeState":
         """Equilibrium P(Z) at every radius. ``ions``: (n [cm^-3], charge,
-        mass [g]) of the ions captured by grains; default H+ with n = n_e."""
+        mass [g]) of the ions captured by grains; default H+ with n = n_e. Each radius starts from its last
+        solve, or else from the previous radius's Z* scaled by the size ratio, as RAMSES's dust_interface (the
+        result does not depend on the start; it saves the search over the whole charge range)."""
         if not (np.allclose(photons.L0, self.L0) and np.allclose(photons.L1, self.L1)):
             raise ValueError("photon groups differ from the tables' groups")
         if self._egy is None or not np.allclose(self._egy, photons.egy):
@@ -186,8 +201,9 @@ class ChargingModel:
         ions = [(n_e, 1.0, M_H)] if ions is None else list(ions)
         res = []
         for k, gt in enumerate(self.tables):
-            r = gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None,
-                         warm=self._warm[k])
+            zg = res[-1]["Zstar"] * self.a[k] / self.a[k - 1] if res else None
+            r = gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None, Z_guess=zg,
+                         warm=self._warm[k], lattice=self.lattice)
             self._warm[k] = r
             res.append(r)
         return ChargeState(self, res, dict(T=float(T), n_e=float(n_e), ions=ions,
@@ -232,10 +248,11 @@ class ChargeState:
         return mu[..., None] + sg[..., None] * off, np.array([1.0, 4.0, 1.0]) / 6.0
 
     def exact_distribution(self, k):
-        """Integer charges and exact P(Z) at grid radius k."""
+        """Integer charges and exact P(Z) at grid radius k: the window of a discrete P(Z) from the full solve, else
+        P(Z) on every integer charge within 8 sigma + 10 of Z* (LG5's tails are a model of g)."""
         r = self.results[k]
         gt = self.model.tables[k]
-        if r["discrete"]:
+        if r["discrete"] and not self.model.lattice:
             return np.asarray(r["nodes"], float), np.asarray(r["weights"], float)
         self._set(k)
         return gt.exact_distribution(r["Zstar"], r["Zsigma"])
@@ -299,12 +316,16 @@ class ChargeState:
         return out
 
 
-def destroy(grid, N, M, rate, dt):
+def destroy(grid, N, M, rate, dt, method=None):
     """Remove grains at rate(a) [s^-1] over dt, exactly per bin node
-    (``collisions.bin_nodes``): returns (N, M, removed mass)."""
+    (``collisions.bin_nodes`` with the rate nodes of ``method``,
+    ``closures``; default Gauss in radius, 'pl2m' the median split): returns
+    (N, M, removed mass)."""
+    from .closures import resolve
     from .collisions import bin_nodes
 
-    m, w = bin_nodes(grid, N, M)
+    meth = resolve(method)
+    m, w = bin_nodes(grid, N, M, method=meth, rule=meth.rate_nodes)
     lam = np.asarray(rate(grid.radius(m)), float)
     keep = np.exp(-np.maximum(lam, 0.0) * dt)
     N1 = (w * keep).sum(axis=1)

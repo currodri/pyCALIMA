@@ -6,7 +6,7 @@ relative speed dV and a systematic relative drift mu:
 
 * dV adds in quadrature Brownian motion, (3 k T / m_red)^1/2, and turbulence
   from the full closed form of Ormel & Cuzzi (2007, eqs. 16-18;
-  ``collapse.velocities.ormel_cuzzi_dv``), continuous across the tightly
+  ``grain_motion.ormel_cuzzi_dv``), continuous across the tightly
   coupled, intermediate and heavy regimes, with Epstein stopping times;
 * mu = ``|v_d(a1) - v_d(a2)|`` for a drift velocity v_d(a) of each grain along a
   common direction (e.g. radiation pressure; ``drift``), 0 by default.
@@ -43,8 +43,8 @@ from typing import Callable, Optional
 import numpy as np
 from scipy.special import erfcx
 
-from pycalima.collapse import velocities as cvel
-from pycalima.collapse._jit import njit
+from pycalima.gsd import grain_motion as cvel
+from pycalima.gsd._jit import njit
 
 _SQPI = math.sqrt(math.pi)
 

@@ -56,9 +56,10 @@ import math
 
 import numpy as np
 
-from pycalima.collapse._jit import njit
+from pycalima.gsd._jit import njit
 
-from .collisions import Channel, _deposit_segment, _fragments, run_rows, threads_for
+from .collisions import (Channel, _bounded_hw, _deposit_segment, _fragments, _node_lo, run_rows,
+                         threads_for)
 from .velocities import RelativeVelocity, coulomb_rate_factor, flux_quantile, log_flux_above
 
 _E2 = 4.80320471e-10 ** 2
@@ -257,7 +258,7 @@ class GrainCollisions:
                     f_shat += wi * wj * coulomb_rate_factor(alpha, s, vC2, self.v_shat)
                     if self.coagulation:
                         # sticking on the relative speed at infinity, v < v_coag (as
-                        # collapse.velocities / Guillet+20), with the Coulomb factor:
+                        # grain_motion / Guillet+20), with the Coulomb factor:
                         # the impact-speed window of v in [0, v_coag]
                         lo_i = np.sqrt(np.maximum(-vC2, 0.0))
                         hi_i = np.sqrt(np.maximum(v_c ** 2 - vC2, 0.0))
@@ -511,12 +512,14 @@ def _shatter_rows(t, T, P, m, w, wid, a, f, lK, V, lKc, law, Q_D, jth_A, c0, s_,
         if wp <= 0.0:
             continue
         mp, ap, wdp = m[i, ia], a[p], wid[i, ia]
+        lop = _node_lo(m_edges, wid, i, ia)
         for q in range(p, P):
             j, jb = q // 2, q % 2
             wq = w[j, jb]
             if wq <= 0.0:
                 continue
             mq, aq, wdq = m[j, jb], a[q], wid[j, jb]
+            loq = _node_lo(m_edges, wid, j, jb)
             x, y = f[p], f[q]
             ii, jj = int(x), int(y)
             u, v_ = x - ii, y - jj
@@ -548,10 +551,12 @@ def _shatter_rows(t, T, P, m, w, wid, a, f, lK, V, lKc, law, Q_D, jth_A, c0, s_,
                     L[j] += r
                     r1, r2 = mp - e1, mq - e2
                     if r1 > 0.0:
-                        hw = 0.5 * wdp * min(r1 / mp, 1.0)
+                        s1 = min(r1 / mp, 1.0)
+                        hw = _bounded_hw(0.5 * wdp * s1, r1, lop * s1, (lop + wdp) * s1)
                         _deposit_segment(F, H, i, j, fp, fq, r, r1, hw, m_edges, keep_small, geo_m)
                     if r2 > 0.0:
-                        hw = 0.5 * wdq * min(r2 / mq, 1.0)
+                        s2 = min(r2 / mq, 1.0)
+                        hw = _bounded_hw(0.5 * wdq * s2, r2, loq * s2, (loq + wdq) * s2)
                         _deposit_segment(F, H, i, j, fp, fq, r, r2, hw, m_edges, keep_small, geo_m)
                     if e1 > 0.0:
                         h1 = (0.0204 * min(e1 / mp, 1.0)) ** (1.0 / 3.0) * ap
@@ -568,7 +573,7 @@ def _shatter_rows(t, T, P, m, w, wid, a, f, lK, V, lKc, law, Q_D, jth_A, c0, s_,
                     L[i] += r
                     L[j] += r
                     mr = mp + mq
-                    hw = 0.5 * (wdp + wdq)
+                    hw = _bounded_hw(0.5 * (wdp + wdq), mr, lop + loq, lop + wdp + loq + wdq)
                     _deposit_segment(F, H, i, j, fp, fq, r, mr, hw, m_edges, keep_small, geo_m)
 
 

@@ -80,6 +80,7 @@ them; {doc}`/cli/calima-export` lists every export stage and what it writes.
 dust-growth-destruction
 grain-collisions
 charging-heating
+charging-cm20
 pah
 radiation
 pahchem-spec
@@ -90,4 +91,7 @@ pahchem-gas-coupling
 pahchem-gas-coupling-literature
 pahchem-uv-absorption
 pahchem-data-requests
+carbon-optics
+grain-hydrogen
+pah-hydrogen
 ```

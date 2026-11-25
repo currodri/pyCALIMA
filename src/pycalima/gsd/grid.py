@@ -1,4 +1,4 @@
-"""Fixed grain-size grid, geometric in grain mass."""
+"""Fixed grain-size grid, geometric in grain mass (or graded: geometric per segment)."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ import numpy as np
 
 @dataclass(frozen=True)
 class MassGrid:
-    """Bins geometric in grain mass for one material of bulk density ``rho``.
+    """Bins in grain mass for one material of bulk density ``rho``.
 
-    ``m_edges`` [g] has n_bins + 1 entries with a constant ratio
-    eta = m_edges[i+1] / m_edges[i]; ``a_edges`` [cm] are the matching radii.
+    ``m_edges`` [g] has n_bins + 1 entries; ``a_edges`` [cm] are the matching
+    radii. A uniform grid has one ratio eta = m_edges[i+1] / m_edges[i]; a
+    graded one (``graded``) has a ratio per bin, ``etas``, and ``eta`` raises.
     """
 
     m_edges: np.ndarray
@@ -28,13 +29,40 @@ class MassGrid:
         n = int(np.ceil(np.log10(m_hi / m_lo) * bins_per_mass_decade))
         return cls(np.geomspace(m_lo, m_hi, n + 1), float(rho))
 
+    @classmethod
+    def graded(cls, m_breaks, n_bins, rho: float) -> "MassGrid":
+        """Grid geometric within each segment [m_breaks[k], m_breaks[k+1]] [g],
+        with ``n_bins[k]`` bins in segment k."""
+        m_breaks = np.asarray(m_breaks, float)
+        if m_breaks.size != len(n_bins) + 1 or np.any(np.diff(m_breaks) <= 0):
+            raise ValueError("m_breaks must be increasing, one more than n_bins")
+        edges = [np.geomspace(m_breaks[k], m_breaks[k + 1], int(n) + 1)[:-1]
+                 for k, n in enumerate(n_bins)]
+        return cls(np.concatenate(edges + [m_breaks[-1:]]), float(rho))
+
     @property
     def n_bins(self) -> int:
         return self.m_edges.size - 1
 
     @property
+    def uniform(self) -> bool:
+        """True if every bin has the same mass ratio."""
+        r = self.m_edges[1:] / self.m_edges[:-1]
+        return bool(np.allclose(r, r[0], rtol=1e-9, atol=0.0))
+
+    @property
     def eta(self) -> float:
+        """The mass ratio of every bin (uniform grids only)."""
+        if not self.uniform:
+            raise ValueError("graded grid: bins differ in mass ratio, use etas")
         return float(self.m_edges[1] / self.m_edges[0])
+
+    @property
+    def etas(self) -> np.ndarray:
+        """Mass ratio of each bin; on a uniform grid every entry is ``eta``."""
+        if self.uniform:
+            return np.full(self.n_bins, self.eta)
+        return self.m_edges[1:] / self.m_edges[:-1]
 
     @property
     def a_edges(self) -> np.ndarray:

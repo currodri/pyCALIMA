@@ -17,7 +17,7 @@ import math
 
 import numpy as np
 
-from pycalima.collapse._jit import njit
+from pycalima.gsd._jit import njit
 
 
 @njit(cache=True)

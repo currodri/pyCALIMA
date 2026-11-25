@@ -357,6 +357,37 @@ RRKM k(E) of their iPEPICO fits.
          calima-fetch-data import west2018-esi /path/to/c7cp07369k2_suppl.xlsx
 
 Only the pahchem RRKM laboratory tests read it; they are skipped without it."""
+[datasets.dustem-themis-cm20]
+kind = "manual"
+dest = "dustem"
+files = ["oprop/Q_CM20.DAT", "oprop/G_CM20.DAT", "oprop/LAMBDA.DAT",
+         "data/GRAIN_J13.DAT", "out/EXT_J13.RES",
+         "data/CHRG_CM20.DAT", "data/ISRF.DAT", "out/ZDIST.RES", "hcap/C_CM20.DAT"]
+size_bytes = 70_363_342
+citation = "DustEM v4.3 (Compiegne et al. 2011); THEMIS CM20 a-C(:H) grains (Jones et al. 2013; Koehler et al. 2014; Ysard et al. 2015)"
+url = "http://web.archive.org/web/20250322173259id_/https://www.ias.u-psud.fr/DUSTEM/dustem4.3_web.tar.gz"
+url_status = "unconfirmed"
+env_override = "CALIMA_DUSTEM_DIR"
+instructions = """THEMIS a-C(:H) optics (Q_CM20, G_CM20 on the DustEM wavelength grid),
+the J13 size distribution and its extinction curve, all from the DustEM v4.3
+release. The official download (https://www.ias.u-psud.fr/DUSTEM/) now
+answers HTTP 410; an Internet Archive capture of the same tarball exists:
+
+    http://web.archive.org/web/20250322173259id_/https://www.ias.u-psud.fr/DUSTEM/dustem4.3_web.tar.gz
+    (70363342 bytes, sha256 85c772a3478fe0ec7b10c120342e5ee19eae495487780f3b648b5c7a4e2e78d2)
+
+No licence is stated; DustEM asks to cite Compiegne et al. (2011).
+
+  1. Extract the tarball (it unpacks data/, oprop/, out/, ...).
+  2. Point pyCALIMA at the extracted directory:
+         export CALIMA_DUSTEM_DIR=/path/to/dustem
+     or extract it into the dataset cache as <cache>/dustem/ (see
+     `calima-paths`). `calima-fetch-data import` copies only top-level
+     files, so it cannot register this nested layout.
+
+Only the a-C(:H) grain optics and heat capacity (pycalima.models.dust_radiation.themis_optics),
+and through them the 'cm20' grain charging (wdb06_yields; its constants and
+the DustEM charge distributions it is checked against), need it."""
 
 # ----------------------------------------------------------------- fetch ---
 
@@ -477,8 +508,9 @@ database, as anion, neutral, cation and dication where computed. No licence is s
 so they are fetched, never bundled. Read with pycalima.pahchem.malloci2007."""
 
 # Optical constants of three Pop III supernova dust species that the bundled
-# Kitzmann & Heng (2018) compilation lacks; used by pycalima.collapse.optics
-# (data/external_data/collapse_materials.toml). One entry per file, so that
+# Kitzmann & Heng (2018) compilation lacks; used by
+# pycalima.models.dust_radiation.material_optics
+# (data/external_data/material_optics.toml). One entry per file, so that
 # each is checksummed. Fetched rather than bundled: none carries a
 # redistribution licence except the CC0 refractiveindex.info file.
 
@@ -494,6 +526,24 @@ citation = "Zubko, Mennella, Colangeli & Bussoletti (1996), MNRAS 282, 1321: amo
 notes = """Columns: wavelength [um], n, k; 0.040-1984 um. The author's page
 (physics.technion.ac.il/~zubko/nk.html) no longer answers; this is its Wayback
 Machine copy (raw bytes, 'id_'). Copyright V. Zubko 1996-1999; cite the paper."""
+
+[datasets.optical-jones-2012-size]
+kind = "fetch"
+dest = "optical_props/jones_2012_size"
+files = ["ReadMe",
+         "n0_33nm.dat.gz", "n0_5nm.dat.gz", "n1nm.dat.gz", "n3nm.dat.gz", "n10nm.dat.gz", "n30nm.dat.gz", "n100nm.dat.gz",
+         "k0_33nm.dat.gz", "k0_5nm.dat.gz", "k1nm.dat.gz", "k3nm.dat.gz", "k10nm.dat.gz", "k30nm.dat.gz", "k100nm.dat.gz"]
+url = "https://cdsarc.cds.unistra.fr/ftp/J/A+A/542/A98"
+url_status = "confirmed"
+size_bytes = 480_000
+citation = "Jones (2012), A&A 542, A98, corrigendum A&A 545, C3 (CDS J/A+A/542/A98, doi:10.26093/cds/vizier.35420098): a-C(:H) optEC(s)(a) n, k"
+notes = """Size-dependent n and k of hydrogenated amorphous carbon (the optEC(s)(a)
+model) for radii 0.33, 0.5, 1, 3, 10, 30 and 100 nm: 1000 wavelengths from 0.02 to
+1e6 um; columns lambda [um], E [eV], then 14 band gaps. The ReadMe labels columns 7
+and 8 as E_g = 1.5 and 1.15 eV; they are 1.25 and 1.5 eV (Paper II Table 1, and k
+is monotonic in E_g in that order). Served as of the 15-Aug-2012 corrected version.
+THEMIS (Jones et al. 2013, App. C) used slightly modified, unpublished constants.
+Used by pycalima.models.dust_radiation.jones2012_optics."""
 
 [datasets.optical-franta-2017-si]
 kind = "fetch"
