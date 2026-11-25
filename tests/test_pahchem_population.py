@@ -486,6 +486,26 @@ def test_draine_cells_below_their_old_star_light_get_nodes_about_them():
         pop._interp_g0(tab, 1e3, shape)
 
 
+def test_an_odd_parent_under_old_star_light_gets_both_its_parity_and_its_nodes(monkeypatch):
+    """#26 and #29 together: an odd-N_H0 parent's basis under an old-star Draine shape below G0 = 1 hands both its parity
+    (``parent_odd``) and its shape's nodes (``g0_nodes``) to every ladder table (keyword-only in ``_loss_tables``, so a
+    positional mix-up cannot pass one for the other): changing either changes the tables."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.nh % 2 == 1 and m.nc <= 30)
+    shape = population.field_shape(Environment("dense", 1e-2, 1e4, 1e-1, 100.0, None))
+    inp = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV, Params())
+    assert inp["parent_odd"] is True and population.g0_nodes(shape) is not population.K_H_G0_GRID
+    both = population.build_state_basis(**inp).ladder_h
+    even = population.build_state_basis(**{k: v for k, v in inp.items() if k != "parent_odd"}).ladder_h
+    nodes = population.g0_nodes
+    monkeypatch.setattr(population, "g0_nodes", lambda sh: nodes(sh) * 1.5)
+    moved = population.build_state_basis(**inp).ladder_h
+    assert np.isfinite(both).all()
+    assert not np.allclose(both, even, rtol=1e-6) and not np.allclose(both, moved, rtol=1e-6)
+
+
 def test_a_large_pah_in_shielded_gas_with_old_stars_gets_its_basis():
     """C268H52 at G0 0.01 with the old stars (optical_isrf 1): on K_H_G0_GRID its top node held 1e6 x Draine and 1e8 x
     the old stars, and the multiphoton cascade did not converge at LOSS_E_CAP_EV; on ``g0_nodes`` it builds, finite."""
@@ -1594,6 +1614,44 @@ def test_chain_kernel_balances_every_cut_and_matches_the_least_squares():
                 down = fast[m + 1] * (kH[m + 1] + kH2[m + 1]) + (fast[m + 2] * kH2[m + 2] if m + 2 <= nh0 else 0.0)
                 assert fast[m] * k_add == pytest.approx(down, rel=1e-10)
             assert fast == pytest.approx(slow, abs=1e-8)
+
+
+def test_h_loss_values_count_the_h_lost_from_the_parent():
+    """``_h_values``: the first loss's (E0, dS), degeneracy N_H, after an even number of H lost from the parent, the
+    radical's (degeneracy 1) after an odd one. N_H's parity for an even parent as before; an odd-N_H0 parent (a pi
+    radical) starts on the first loss (pahchem audit 2026-11-25, bug 4)."""
+    ev, od = (4.41, 12.0), (3.16, 10.0)
+    for nh0 in (12, 27):
+        for k in range(6):
+            nh = nh0 - k
+            assert population._h_values(nh, ev, od, nh0 % 2 == 1) == ((ev, nh) if k % 2 == 0 else (od, 1))
+    assert population._h_values(12, ev, od) == (ev, 12) and population._h_values(11, ev, od) == (od, 1)
+
+
+def test_odd_parents_alone_change_their_keys_and_shift_their_super_h_barriers():
+    """Only an odd-N_H0 parent carries ``parent_odd`` (basis inputs; response inputs after (weights, True)), so every even
+    parent keeps its stored bases and responses; its H2 channel follows the H lost from the parent; its super-H barriers
+    are an even parent's one step along, at every charge and in both chemistries."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    even = next(m for m in lib if m.nh % 2 == 0 and m.nc <= 30)
+    odd = next(m for m in lib if m.nh % 2 == 1 and m.nc <= 40)
+    p, e_max = Params(), 21.5 * population.dos.CM_PER_EV
+    ie = population._basis_inputs(even, 0, ("draine",), 100.0, e_max, p)
+    io = population._basis_inputs(odd, 0, ("draine",), 100.0, e_max, p)
+    assert "parent_odd" not in ie and io["parent_odd"] is True
+    assert all(not ok for k, (*_, ok) in enumerate(io["ladder"]) if k % 2 == 1)
+    for which in ("rec", "aug"):
+        re_ = population._response_inputs(even, 0, 100.0, e_max, p, which)
+        ro = population._response_inputs(odd, 0, 100.0, e_max, p, which)
+        assert len(re_) == 7 and len(ro) == 9 and ro[7] is None and ro[8] is True
+        assert population._response_rows(ro) == len(ro[6]) and population._response_rows(re_) == len(re_[6])
+    for q in (Params(hydrogen_chain="joint"), Params(hydrogen_chain="joint", superh_chemistry="deep", superh_levels=24)):
+        for z in (-1, 0, 1):
+            for j in range(20):
+                assert population.superh_addition_barrier(j, z, q, True) == population.superh_addition_barrier(j + 1, z, q)
+        assert population.superh_addition_barrier(0, 0, q, True) == 0.0        # the radical's first extra H: no barrier
 
 
 def _ladder_molecules():
