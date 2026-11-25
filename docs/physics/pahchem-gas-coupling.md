@@ -1651,9 +1651,16 @@ The extrapolated Draine polynomial gives 10–170× fewer 1–5 eV photons than 
     - At G₀ 0.01 the top node held 1e8 × the old stars, and C268H52's cascade did not converge.
 
     Such shapes (old stars r > 1 per unit G₀) now have their own nodes, `population.g0_nodes`. These are
-    `K_H_G0_GRID` scaled so that the top node holds `OLD_STARS_NODE_MAX` (1000) × the solar circle, which puts a cell
-    with `optical_isrf` 1 on the middle node. Every other shape, the cells at G₀ ≥ `optical_isrf` included, keeps its
-    nodes, results and stored tables. Found by an external audit of 2026-11-25 (bug 2).
+    `K_H_G0_GRID` scaled so that the top node holds `OLD_STARS_NODE_MAX` (1e5) × the solar circle, where C268H52's
+    cascade converges.
+    - The shape holds only r, so its cells are every (G₀, `optical_isrf` = r G₀). They lie on the grid for
+      `optical_isrf` 0.1 … 1e5. A dusty cell at G₀ 20 with `optical_isrf` 2000 shares r = 100 with G₀ 0.01 at 1.
+    - A cell with `optical_isrf` 1 sits exactly on a node.
+    - Every other shape, the cells at G₀ ≥ `optical_isrf` included, keeps its nodes, results and stored tables.
+    - Found by an external audit of 2026-11-25 (bug 2). A first cap of 1e3 left `optical_isrf` > 1000 off the grid, a
+      review catch.
+    - One basis set per G₀ for these cells is the design of the shapes themselves. Holding the old stars fixed across
+      the nodes would need every linear rate split into its FUV and old-star parts; it is a possible later refactor.
 - **Kurucz fields** keep the star's whole spectrum, now from 1 eV.
 
 **ε** is now the heating over all the power absorbed (1–13.6 eV, or up to 500 eV with the EUV). That is Berné+22's

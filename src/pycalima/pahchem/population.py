@@ -1564,8 +1564,9 @@ def field_shape(env):
 #: G0 at which ``StateBasis.k_h`` is tabulated (the multiphoton steady state at each); a Draine shape with old-star
 #: light has its own nodes (``g0_nodes``)
 K_H_G0_GRID = np.geomspace(1.0, 1e6, 13)
-#: the old-star light (``Environment.optical_isrf``, solar-circle units) at the top node of a Draine shape's tables
-OLD_STARS_NODE_MAX = 1e3
+#: the old-star light (``Environment.optical_isrf``, solar-circle units) at the top node of a Draine shape's tables: the
+#: shape's cells are on its grid for optical_isrf 0.1 ... OLD_STARS_NODE_MAX; C268H52's cascade converges there
+OLD_STARS_NODE_MAX = 1e5
 
 
 def g0_nodes(shape):
@@ -1578,8 +1579,10 @@ def g0_nodes(shape):
     every node, each at >= optical_isrf / G0 times its old-star light, and its rates were extrapolated down from the
     multiphoton regime (C96H24+ super-H loss 8.7x low at G0 1e-3); at G0 0.01 the top node held 1e8 x the old stars and
     C268H52's cascade did not converge. With these nodes the old stars at the top stay at OLD_STARS_NODE_MAX x the solar
-    circle, and a cell with optical_isrf 1 sits on the middle node (pahchem audit 2026-11-25, bug 2). Every other shape,
-    the cells at G0 >= optical_isrf included, keeps K_H_G0_GRID, its results and its stored tables."""
+    circle. The shape holds only r, so its cells are every (G0, optical_isrf) with optical_isrf = r G0; they lie on the
+    grid for optical_isrf 0.1 ... OLD_STARS_NODE_MAX, those with optical_isrf 10^(m/2) / 10 exactly on node m (1: the
+    third). (pahchem audit 2026-11-25, bug 2.) Every other shape, the cells at G0 >= optical_isrf included, keeps
+    K_H_G0_GRID, its results and its stored tables."""
     if shape[0] == "draine" and len(shape) > 1 and float(shape[1]) > 1.0:
         return K_H_G0_GRID * (OLD_STARS_NODE_MAX / float(shape[1]) / K_H_G0_GRID[-1])
     return K_H_G0_GRID
@@ -4114,7 +4117,9 @@ class Population:
         cells' G0 (``g0_nodes``), so they need no extrapolation."""
         nodes = K_H_G0_GRID if shape is None else g0_nodes(shape)
         if not 0.0 < g0 <= nodes[-1]:
-            raise ValueError(f"G0 {g0:g} outside (0, {nodes[-1]:g}] of the k_H table")
+            why = "" if nodes is K_H_G0_GRID else (f": this Draine shape's nodes hold its cells with optical_isrf <= "
+                                                   f"OLD_STARS_NODE_MAX ({OLD_STARS_NODE_MAX:g}), not {shape[1] * g0:g}")
+            raise ValueError(f"G0 {g0:g} outside (0, {nodes[-1]:g}] of the k_H table{why}")
         lt = np.log(np.maximum(table, 1e-300))
         if g0 < nodes[0]:
             slope = (lt[..., 1] - lt[..., 0]) / (np.log(nodes[1]) - np.log(nodes[0]))

@@ -459,8 +459,11 @@ def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
 def test_draine_cells_below_their_old_star_light_get_nodes_about_them():
     """``g0_nodes`` (audit 2026-11-25, bug 2): K_H_G0_GRID, the same object, for every shape but a Draine one with more
     old-star light per unit G0 than at G0 = optical_isrf (r > 1). There: 13 increasing nodes whose top holds
-    OLD_STARS_NODE_MAX x the old stars, a cell with optical_isrf 1 on the middle node, read by ``_interp_g0`` with no
-    extrapolation."""
+    OLD_STARS_NODE_MAX x the old stars; a cell with optical_isrf 1 on node 2; every cell of the shape (optical_isrf =
+    r G0) with optical_isrf 0.1 ... OLD_STARS_NODE_MAX on the grid, a dusty cell with optical_isrf 2000 at G0 20 too
+    (it shares r = 100 with G0 0.01, optical_isrf 1); read by ``_interp_g0`` with no extrapolation."""
+    from dataclasses import replace
+
     K = population.K_H_G0_GRID
     for shape in (("draine",), ("draine", 1.0), ("draine", 1e-2), ("kurucz", 30000), ("powerlaw", 1.0, 13.6, 1.0)):
         assert population.g0_nodes(shape) is K
@@ -469,12 +472,18 @@ def test_draine_cells_below_their_old_star_light_get_nodes_about_them():
         nodes = population.g0_nodes(shape)
         assert nodes.size == K.size and np.all(np.diff(nodes) > 0)
         assert nodes[-1] * shape[1] == pytest.approx(population.OLD_STARS_NODE_MAX, rel=1e-12)
-        assert nodes[K.size // 2] == pytest.approx(g0, rel=1e-12)
+        assert nodes[2] == pytest.approx(g0, rel=1e-12)
+    for g0, optical in ((0.01, 1.0), (20.0, 2000.0), (1e3, 1e4), (0.05, 0.12), (1e-2, 0.99e5)):     # all r > 1
+        shape = population.field_shape(replace(Environment("cell", g0, 1e2, 1e-2, 100.0, None), optical_isrf=optical))
+        nodes = population.g0_nodes(shape)
+        assert nodes[0] <= g0 <= nodes[-1]
     pop = population.Population(_library()[:1], WINDOWS)
     shape = population.field_shape(Environment("cell", 1e-3, 1e2, 1e-2, 100.0, None))
     nodes = population.g0_nodes(shape)
     tab = np.stack([nodes, nodes ** 2])                               # power laws: log-log exact between nodes
     assert pop._interp_g0(tab, 3e-3, shape) == pytest.approx([3e-3, 9e-6], rel=1e-12)
+    with pytest.raises(ValueError, match="optical_isrf <= OLD_STARS_NODE_MAX"):     # optical_isrf 1e6, off the grid
+        pop._interp_g0(tab, 1e3, shape)
 
 
 def test_a_large_pah_in_shielded_gas_with_old_stars_gets_its_basis():
