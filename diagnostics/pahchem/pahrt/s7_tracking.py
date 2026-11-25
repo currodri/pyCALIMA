@@ -331,14 +331,14 @@ def bin_sum(arrs):
 
 
 def score(a, durs, nc_tot):
-    """{output: (worst, time-weighted mean)} for each scheme of one bin history a[seg, 1 + scheme, out]."""
+    """{output: [(worst, time-weighted mean)] for each scheme} of one bin history a[seg, 1 + scheme, out]."""
     oi = {k: i for i, k in enumerate(C.OUTPUTS)}
     w = np.asarray(durs, float) / np.sum(durs)
     out = {}
     for k in SCORED:
         t = a[:, 0, oi[k]]
         res = []
-        for s in range(len(SCHEMES)):
+        for s in range(a.shape[1] - 1):
             x = a[:, 1 + s, oi[k]]
             if k in C.RATES:
                 ok = np.isfinite(t) & np.isfinite(x) & (t > 1e-3 * np.nanmax(t)) & (t > 0) & (x > 0)
