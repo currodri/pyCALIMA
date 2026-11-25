@@ -233,8 +233,15 @@ class Environment:
     field_cr_uv: str | None = None            # the cosmic-ray-induced field of pahchem.cr_uv (a source name) instead of a star;
     #                                           g0 is then zeta(H2) / 1e-16 (cr_uv.scale; build with cr_uv.environment)
     cr_uv_x_h2: float = 0.5                   # n(H2) / n_H of that field (cr_uv.X_H2_REF)
+    field_sum: tuple = ()                     # ((shape, w), ...): a sum of population field shapes (population.field_shape keys)
+    #                                           instead of a star, w = that part's intensity per unit g0 (e.g. an AGN's far UV
+    #                                           at w = 1 plus its column-cut X-rays at w = F_X / G0; population)
 
     def field(self):
+        if self.field_sum:
+            from pycalima.pahchem import population
+
+            return population.env_field(self)
         if self.field_cr_uv is not None:
             from pycalima.pahchem import cr_uv
 
