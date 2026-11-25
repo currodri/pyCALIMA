@@ -491,7 +491,7 @@ def loss_extras(mol, z, n_h, params):
     if params.c2h2_loss is not None and quartets > 0 and n_h >= 2 and z >= 1:
         out.append(("C2H2", float(params.c2h2_loss[0]), float(params.c2h2_loss[1]), 0.5 * quartets, 1600.0))
     if params.fission and z >= 1 and n_h >= 1:
-        (e0_h, ds_h), deg = (params.h_even, n_h) if n_h % 2 == 0 else (params.h_odd, 1)
+        (e0_h, ds_h), deg = _h_values(n_h, params.h_even, params.h_odd, mol.nh % 2 == 1)
         d_hp = e0_h + IE_H_EV - float(state_threshold(mol, z - 1))
         out.append(("Hp", max(d_hp, float(impact.fission_barrier(mol.nc, z)), 0.0), float(ds_h), float(deg), 3050.0))
     return tuple(out)
@@ -1669,7 +1669,7 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
         if n < 1:
             break
         s_ = sp if k == 0 else sp.stripped(n)
-        ladder.append((s_.freqs_cm, _einstein_a(s_, params), n, bool(n % 2 == 0 and n > mol.edges.get("solo", 0))))
+        ladder.append((s_.freqs_cm, _einstein_a(s_, params), n, bool(k % 2 == 0 and n > mol.edges.get("solo", 0))))
         extras.append(loss_extras(mol, z, n, params))
     return dict(freqs=sp.freqs_cm, einstein_a=_einstein_a(sp, params), nc=mol.nc, nh=mol.nh, z=z, yield_=_yield(mol, z, params),
                 shape=shape, de_cm=de_cm, e_max_cm=e_max_cm, h_even=tuple(params.h_even),
@@ -1681,7 +1681,9 @@ def _basis_inputs(mol, z, shape, de_cm, e_max_cm, params):
                 # the anion's absorption raised to its photodetachment (``absorption_sigma``; enters the key only then)
                 **({"detach_ea": _detach_ea(mol, z, params)} if _detach_ea(mol, z, params) is not None else {}),
                 # only then does the electron's share enter the basis (and its key)
-                **({"electron_ev": electron_energy(mol, z, params)} if params.ionising_photons_heat else {}))
+                **({"electron_ev": electron_energy(mol, z, params)} if params.ionising_photons_heat else {}),
+                # an odd-N_H0 parent (a pi radical; ``_h_values``): enters the key only then
+                **({"parent_odd": True} if mol.nh % 2 == 1 else {}))
 
 
 #: bump when build_state_basis changes, so stored bases are rebuilt (with the grids, part of every key).
@@ -1872,14 +1874,24 @@ def _loss_grid(freqs, einstein_a, e_max_ev=LOSS_E_MAX_EV):
     return cm, E, counts, beta
 
 
-def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta=0.0):
-    """RRKM H loss on the loss grid: even-H (E0, dS) with degeneracy N_H, odd-H radical values with 1."""
-    (e0, ds), deg = (h_even, nh) if nh % 2 == 0 else (h_odd, 1)
+def _h_values(nh, h_even, h_odd, parent_odd=False):
+    """((E0, dS), degeneracy) of the loss of one H from the member with ``nh`` H: the first loss's (``h_even``, degeneracy
+    N_H) after an even number of H lost from the parent, the radical's (``h_odd``, West+18's second H, degeneracy 1)
+    after an odd one. For an even-N_H0 parent that is N_H's parity; an odd-N_H0 parent (``parent_odd``) is a pi radical
+    whose C-H bonds are the aromatic ones, so it starts on the first loss (until 2026-11-25 it took the radical's values,
+    and its N_H0 - 1 the first loss's: pahchem audit, bug 4)."""
+    return (h_even, nh) if (nh + int(parent_odd)) % 2 == 0 else (h_odd, 1)
+
+
+def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta=0.0, parent_odd=False):
+    """RRKM H loss on the loss grid, with ``_h_values``' (E0, dS) and degeneracy."""
+    (e0, ds), deg = _h_values(nh, h_even, h_odd, parent_odd)
     return rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5),
                       e0 * dos.CM_PER_EV, degeneracy=deg, beta=beta)[pick]
 
 
-def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None, extra=()):
+def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None, extra=(),
+                 parent_odd=False):
     """(k_H, k_H2, {name: k}) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade,
     with the channels ``extra`` of ``loss_extras``.
     ``grid``: this state's ``_loss_grid`` (to ``e_max_ev``) and H-loss rate, if already built ((cm, E, counts, beta),
@@ -1891,7 +1903,7 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, 
         if grid is None:
             cm, E, counts, beta = _loss_grid(freqs, einstein_a, e_max)
             pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
-            k_h = _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta)
+            k_h = _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta, parent_odd)
         else:
             (cm, E, counts, beta), k_h = grid
             pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
@@ -2077,12 +2089,15 @@ def superh_e0(params, z):
     return float(params.h_superh_e0[1 if z > 0 else 0])
 
 
-def superh_addition_barrier(j, z, params):
+def superh_addition_barrier(j, z, params, parent_odd=False):
     """The barrier [eV] of the H addition N_H0 + j -> N_H0 + j + 1 at charge z (anions as neutrals), by
     ``Params.superh_chemistry``: "andrews16", BaselineModel's (0.06 / 0.035 eV on the neutral's first and third extra H,
     none on the cation's); "deep", those below SUPERH_KEPT_STEPS and above them Boschman+15's alternation
     (BOSCHMAN15_BARRIERS_EV), the cation's magic-number steps at ``Params.superh_magic_barriers``' ("cazaux16":
-    CAZAUX16_MAGIC_EV; "boschman15": the table's)."""
+    CAZAUX16_MAGIC_EV; "boschman15": the table's). The pattern follows the electron count: an odd-N_H0 parent
+    (``parent_odd``, a pi radical) is one step along it, so its first extra H closes the shell without a barrier
+    (since 2026-11-25; pahchem audit, bug 4)."""
+    j = j + int(parent_odd)
     _check_superh(params)
     if params.superh_chemistry == "andrews16" or j < SUPERH_KEPT_STEPS:
         return 0.0 if z > 0 else {0: 0.06, 2: 0.035}.get(j, 0.0)
@@ -2294,7 +2309,7 @@ def emission_temperature_shares(freqs, einstein_a, nc, z, yield_, shape, de_cm, 
 
 def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_cm, h_even, sigma_scale, recomb_ev=0.0,
                       ladder=(), h_odd=(3.16, 10.0), h2=(4.58, 40.0), threshold_ev=0.0, ionising_heat=False,
-                      electron_ev=None, uv_cross_section="li_draine", extras=(), detach_ea=None):
+                      electron_ev=None, uv_cross_section="li_draine", extras=(), detach_ea=None, parent_odd=False):
     """``StateBasis`` of one charge state (module docstring); top-level, so it runs in worker processes.
 
     ``recomb_ev`` is the energy each recombination (attachment) into this state
@@ -2339,9 +2354,10 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
         grid = None
         if i == 0 and n_ == nh and np.array_equal(f_, freqs) and np.array_equal(a_, einstein_a):
             grid = ((cl, E, counts, beta),
-                    k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta))
+                    k if (nh + int(parent_odd)) % 2 == 0
+                    else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta, parent_odd))
         lh[i], lh2[i], kx = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid, e_dep, e_loss,
-                                         extras[i] if extras else ())
+                                         extras[i] if extras else (), parent_odd)
         for c, v in kx.items():
             lx[c][i] = v
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
@@ -2393,7 +2409,7 @@ def _emission_many(model, starts):
     return X
 
 
-def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weights=None):
+def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weights=None, parent_odd=False):
     """What one deposit of each of ``energies_ev`` does to a state, per molecule placed there: for each member of its
     hydrogenation ladder (``_basis_inputs``' ``ladder``: N_H0, N_H0-1, ..., with ``extras``' channels), (IR power per mode
     [cm^-1 per deposit], P(H loss), P(H2 loss), P(C2H2 loss), P(proton emission)), as [[(emitted, p_h, p_h2, p_c2h2, p_hp)
@@ -2421,7 +2437,7 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weig
         starts[np.arange(energies_ev.size), i0 + 1] += x - i0
         emitted = f_[None, :] * _emission_many(cm, starts if W is None else W @ starts)
         e_cl, Y = _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, max(LOSS_E_MAX_EV, top + 5.0),
-                                       extras[m] if extras else ())
+                                       extras[m] if extras else (), parent_odd)
         p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit")
              for c, y in Y.items()}
         if W is not None:
@@ -2438,19 +2454,19 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weig
 _YIELD_MEMO = {}
 
 
-def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev, extra=()):
+def _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, e_max_ev, extra=(), parent_odd=False):
     """(loss-grid energies [cm^-1], {"H": P(E), "H2": P(E), and those of ``extra``}): the single-event loss yields of one
     ladder member (``CascadeModel.photon_yields`` with the RRKM rates of the basis's ``_loss_tables``) on its loss grid to
     ``e_max_ev``."""
     h = hashlib.sha1()
     for v in (f_, np.asarray(a_, dtype=float), n_, h2_ok, tuple(h_even), tuple(h_odd), tuple(h2), float(e_max_ev),
-              tuple(extra), LOSS_DE_CM):
+              tuple(extra), LOSS_DE_CM) + ((True,) if parent_odd else ()):
         _feed(h, v)
     key = h.hexdigest()
     if key not in _YIELD_MEMO:
         cl, E, counts, beta = _loss_grid(f_, a_, e_max_ev)
         pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
-        ch = {"H": _h_loss_rate(f_, E, counts, pick, n_, h_even, h_odd, beta)}
+        ch = {"H": _h_loss_rate(f_, E, counts, pick, n_, h_even, h_odd, beta, parent_odd)}
         if h2_ok:
             ch["H2"] = rates.rrkm(E, counts, rates.transition_state_for_entropy(f_, 3050.0, h2[1], n_scaled=5),
                                   h2[0] * dos.CM_PER_EV, degeneracy=2, beta=beta)[pick]
@@ -2474,23 +2490,31 @@ RESPONSE_SETS = ("rec", "aug")
 
 
 def _response_inputs(mol, z, de_cm, e_max_cm, params, which):
-    """(ladder, de_cm, h_even, h_odd, h2, extras, energies[, weights]) of ``deposit_response`` for set ``which`` of state z."""
+    """(ladder, de_cm, h_even, h_odd, h2, extras, energies[, weights[, parent_odd]]) of ``deposit_response`` for set
+    ``which`` of state z: an odd-N_H0 parent appends (weights, True), so the other keys stay as they were."""
     inp = _basis_inputs(mol, z, ("draine",), de_cm, e_max_cm, params)
     head = (inp["ladder"], de_cm, tuple(params.h_even), tuple(params.h_odd), tuple(params.h2), inp["extras"])
+    odd = (True,) if inp.get("parent_odd") else ()
     if which == "rec":
         ip = float(state_threshold(mol, z)) if z < max(mol.charges) else 0.0
-        return head + (tuple(ip + REC_KE_NODES_EV),)
+        return head + (tuple(ip + REC_KE_NODES_EV),) + ((None,) + odd if odd else ())
     if which == "aug":
-        return head + (tuple(K_AUGER_EXCITATION_EV + HEAT_NODES_EV),)
+        return head + (tuple(K_AUGER_EXCITATION_EV + HEAT_NODES_EV),) + ((None,) + odd if odd else ())
     if which == "heat":
-        return head + (tuple(HEAT_NODES_EV),)
+        return head + (tuple(HEAT_NODES_EV),) + ((None,) + odd if odd else ())
     rows = ionisation_products(mol, z, params, which[1])
     energies = np.concatenate([e for _, _, e, _ in rows])
     W = np.zeros((len(rows), energies.size))
     at = np.cumsum([0] + [e.size for _, _, e, _ in rows])
     for r, (_, _, _, w) in enumerate(rows):
         W[r, at[r]:at[r + 1]] = w
-    return head + (energies, W)
+    return head + (energies, W) + odd
+
+
+def _response_rows(inp):
+    """The rows of ``deposit_response``'s result for ``_response_inputs``' ``inp``: the weights' rows, else the energies."""
+    w = inp[7] if len(inp) > 7 else None
+    return len(inp[6]) if w is None else int(np.asarray(w).shape[0])
 
 
 def _response_key(inp):
@@ -3145,7 +3169,7 @@ class Population:
             elif path is not None and path.exists():
                 with np.load(path) as d:
                     r = [[(d[f"e_{i}_{m}"], float(d["ph"][i, m]), float(d["ph2"][i, m]), float(d["pc"][i, m]),
-                           float(d["php"][i, m])) for m in range(len(inp[0]))] for i in range(len(inp[-1]))]
+                           float(d["php"][i, m])) for m in range(len(inp[0]))] for i in range(_response_rows(inp))]
             else:
                 r = _build_response(inp)
                 self._save_response(path, r)
@@ -4467,7 +4491,7 @@ class Population:
                 cation = p.addition_cation if p.addition_cation_superh is None else p.addition_cation_superh
                 for j in range(K):                                 # N_H0 + j -> N_H0 + j + 1
                     for a, z in enumerate(zc):
-                        b = superh_addition_barrier(j, int(z), p)
+                        b = superh_addition_barrier(j, int(z), p, mol.nh % 2 == 1)
                         if z > 0:
                             A[a, nh0 + j] = cation * np.exp(-b / (chemistry.KB_EV * T)) * n_h
                         elif z < 0 and p.anion_h_addition == "none":
@@ -4797,8 +4821,8 @@ class Population:
 
 def _chain_rates(nh0, n_solo, lh, lh2, per_mol=0.0, per_h=0.0):
     """(kH[m], kH2[m]), m = N_H = 0 ... N_H0, of the chain. ``lh``, ``lh2``: H and H2 loss rates of N_H0 ... N_H0-3.
-    Deeper states: even (odd) N_H take the N_H0-2 (N_H0-3) rates, H loss scaled by N_H when even (degeneracy N_H). H2
-    loss only for even N_H above the solo count. ``per_mol`` adds to every H-bearing state's H loss as it is (protons
+    Deeper states take the N_H0-2 (N_H0-3) rates after an even (odd) number of H lost, H loss scaled by N_H in N_H0-2's
+    class (degeneracy N_H, ``_h_values``). H2 loss only in that class, above the solo count. ``per_mol`` adds to every H-bearing state's H loss as it is (protons
     from past the ladder top, one per event), ``per_h`` times N_H (knock-outs, one per H atom)."""
     n = nh0 + 1
     kH, kH2 = np.zeros(n), np.zeros(n)
@@ -4809,8 +4833,8 @@ def _chain_rates(nh0, n_solo, lh, lh2, per_mol=0.0, per_h=0.0):
         else:
             ref = 2 if (nh0 - 2) % 2 == m % 2 else 3
             ref_n = nh0 - ref
-            kH[m] = lh[ref] * (m / ref_n if m % 2 == 0 and ref_n > 0 else 1.0)
-            kH2[m] = lh2[ref] if (m % 2 == 0 and m > n_solo) else 0.0
+            kH[m] = lh[ref] * (m / ref_n if ref == 2 and ref_n > 0 else 1.0)
+            kH2[m] = lh2[ref] if (ref == 2 and m > n_solo) else 0.0
         if m >= 1:
             kH[m] += per_mol + per_h * m
     kH[0] = kH2[0] = 0.0
@@ -4870,8 +4894,8 @@ if HAVE_NUMBA:
             else:
                 ref = 2 if (nh0 - 2) % 2 == m % 2 else 3
                 ref_n = nh0 - ref
-                kH[m] = lh[ref] * (m / ref_n if m % 2 == 0 and ref_n > 0 else 1.0)
-                kH2[m] = lh2[ref] if (m % 2 == 0 and m > n_solo) else 0.0
+                kH[m] = lh[ref] * (m / ref_n if ref == 2 and ref_n > 0 else 1.0)
+                kH2[m] = lh2[ref] if (ref == 2 and m > n_solo) else 0.0
             if m >= 1:
                 kH[m] += per_mol + per_h * m
         kH[0] = kH2[0] = 0.0
@@ -4934,7 +4958,7 @@ def _anderson(g, x0, tol, it_max, what, m=5):
 
 def _deep_rates(nh0, rates4):
     """k[N_H], N_H = 0 ... N_H0, of a rate given for N_H0 ... N_H0-3 (``rates4``), with the chain's mapping of the deeper
-    states (``_chain_distribution_numpy``: the N_H0-2 or N_H0-3 rate of the same parity, scaled by N_H when even); none
+    states (``_chain_distribution_numpy``: the N_H0-2 or N_H0-3 rate of the same parity, scaled by N_H in N_H0-2's class); none
     for the bare skeleton."""
     k = np.zeros(nh0 + 1)
     for m in range(1, nh0 + 1):
@@ -4944,7 +4968,7 @@ def _deep_rates(nh0, rates4):
         else:
             ref = 2 if (nh0 - 2) % 2 == m % 2 else 3
             ref_n = nh0 - ref
-            k[m] = rates4[ref] * (m / ref_n if m % 2 == 0 and ref_n > 0 else 1.0)
+            k[m] = rates4[ref] * (m / ref_n if ref == 2 and ref_n > 0 else 1.0)
     return k
 
 
