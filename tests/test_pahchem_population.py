@@ -1543,11 +1543,41 @@ def test_extend_ladder_reaches_the_cold_limit_with_stand_ins_and_constant_steps(
         assert np.allclose(steps, a + b / np.sqrt(mol.nc))
         assert population.top_threshold(ext) == pytest.approx(ext.ionisation_ev[z_top - 1] + steps[-1])
         assert population.extend_ladder(ext) is ext
-    mol = _library()[0]
-    dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: 9.3}, _cache={})
-    ext = population.extend_ladder(dication)
-    assert ext.stand_ins[0] == 3
-    assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(0, max(ext.charges))]), 2.8)
+    mol = _library()[0]                                    # C22H14: the fit's step is 4.07 eV
+    fit = a + b / np.sqrt(mol.nc)
+    for ip1, step in ((10.1, 3.6), (9.3, fit)):            # a computed step within LADDER_STEP_TOL, one 31 % off
+        dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: ip1}, _cache={})
+        ext = population.extend_ladder(dication)
+        assert ext.stand_ins[0] == 3
+        assert ext.ionisation_ev[1] == ip1
+        assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(1, max(ext.charges))]), step)
+        anion = replace(dication, ionisation_ev={-1: 0.5} | dication.ionisation_ev)    # one step down, the same rule
+        assert population.anion_valence_threshold(anion) == pytest.approx(6.5 - step)
+
+
+def test_extended_ladders_repeat_only_steps_near_the_conductor_fit():
+    """Over PAHdb v4.00 every step ``extend_ladder`` repeats lies within LADDER_STEP_TOL of LADDER_STEP_FIT: a molecule's
+    computed step where it does (unchanged), the fit's where it does not (audit 2026-11-25, bug 1: C115H29's 0.48 eV
+    step reached +16 below 13.6 eV)."""
+    from pycalima.pahchem import impact
+
+    _, lib = _v400()
+    a, b = population.LADDER_STEP_FIT
+    replaced = 0
+    for mol in lib:
+        top, z_top = max(mol.charges), impact.coulomb_limit(mol.nc)
+        if top < 2 or z_top <= top:
+            continue
+        ext = population.extend_ladder(mol)
+        fit = a + b / np.sqrt(mol.nc)
+        computed = mol.ionisation_ev[top - 1] - mol.ionisation_ev[top - 2]
+        steps = np.diff([ext.ionisation_ev[z] for z in range(top - 1, z_top)])
+        assert np.all(np.abs(steps / fit - 1.0) <= population.LADDER_STEP_TOL + 1e-12)
+        if abs(computed / fit - 1.0) <= population.LADDER_STEP_TOL:
+            assert np.allclose(steps, computed, rtol=1e-12)
+        else:
+            replaced += 1
+    assert replaced > 0
 
 
 def test_cold_limit_ladder_gives_no_basis_to_states_the_field_cannot_reach():
@@ -1669,8 +1699,11 @@ def test_anion_valence_threshold_is_one_coulomb_step_down_the_ladder():
     assert population.anion_valence_threshold(mol) == pytest.approx(max(th[0] - (a + b / np.sqrt(mol.nc)), th[-1]))
     assert population.anion_valence_threshold(population.extend_ladder(mol)) == pytest.approx(
         population.anion_valence_threshold(mol))
-    computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + 2.0}, _cache={})
-    assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - 2.0, th[-1]))
+    fit = a + b / np.sqrt(mol.nc)
+    for step, used in ((0.9 * fit, 0.9 * fit), (0.6 * fit, fit)):     # its own step, unless LADDER_STEP_TOL off the fit
+        computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + step},
+                           _cache={})
+        assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - used, th[-1]))
 
 
 # -- the joint (Z, N_H) chain (Params.hydrogen_chain = "joint") -------------------------------------------------------------

@@ -232,6 +232,14 @@ higher charges, as before). In the population every molecule runs from its lowes
   (676 of v4.00's 1424) takes its +1 → +2 step from a fit to the 743 that have one: 0.464 + 16.91/√N_C eV (rms
   0.24 eV). The reach of a field cut at 13.6 eV is WD01's (their eq. 22) and Andrews+16's (Fig. 4): +2, +3 and +4
   for C24, C54 and C96.
+  - **Guard (2026-11-25).** A computed step more than 25 % off that fit (`LADDER_STEP_TOL`, `population.ladder_step`)
+    is not taken for e²/C, and the fit's step is used instead, also one step down for the anion's valence threshold.
+    This applies to 28 molecules: 9 of the 688 even-N_H0 ones with a dication, and 19 of the 55 odd ones.
+    - For several large radicals PAHdb computed the cation with RB3LYP and the neutral and dication with UB3LYP,
+      which gives steps as low as 0.48 eV (C115H29), against the fit's 2.04.
+    - Repeated, such a step put +16 of C115H29, +13 of C145H37 and +9 of C89H27 below 13.6 eV. With the guard no
+      molecule goes beyond +6 (C216H36, C268H52) below 13.6 eV.
+    - Found by an external audit of 2026-11-25 (bug 1).
 - **Stand-ins.** The states above the highest computed charge take its modes. Their UV cross section is +2's.
   - The literature (search of 2026-11-02, quotes checked against the full texts): computed IR spectra exist at +3
     for only two molecules in print (Bakes, Tielens & Bauschlicher 2001, Table 1) and the 7 of PAHdb v4.00. There
