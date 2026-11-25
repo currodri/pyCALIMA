@@ -83,6 +83,7 @@ charging-heating
 charging-cm20
 pah
 radiation
+pahchem-status
 pahchem-spec
 pahchem-briefing
 pahchem-audit

@@ -1,5 +1,9 @@
 # PAHchem: audit of the failed benchmarks (2026-10-20)
 
+```{important}
+A dated record of the audit of 2026-10-20. The later audits (2026-11-04 and its open items of 2026-11-06) and the current state are in {doc}`pahchem-status`.
+```
+
 The question was: before asking collaborators and authors for missing inputs,
 does pahchem itself contain bugs or physical errors behind the benchmarks that
 fail ({doc}`pahchem-spec`; 33 open and 24 partial before the fixes in
