@@ -133,7 +133,10 @@ class Params:
     fission: bool = True
     sticking_neutral: float | str = "statistical"   # or a fixed s_e
     # PAH- + H -> PAH(0, N_H+1) + e (Demarais+12, measured on dehydrogenated anions): "dehydrogenated" (N_H < N_H0
-    # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26)
+    # only; none in the population's charge chain, which holds N_H0) or "all" (every anion: Andrews+16; before 2026-10-26).
+    # In the population's joint chain "all" weighs the intact and super-hydrogenated anions by exp(-max(EA - D, 0) / kT),
+    # D the extra H's binding (h_superh_e0, Z <= 0), since 2026-11-25: endothermic for EA > 1.40 eV (C54H18 and up).
+    # BaselineModel keeps Andrews+16's rule (their EAs made it exothermic)
     associative_detachment: str = "dehydrogenated"
     # f with attachment_model "constant": share of classical captures on a neutral that form the anion
     # (``attachment.Attachment.capture_fraction``; autodetachment scales with it by detailed balance). 1 is the classical limit
@@ -183,6 +186,12 @@ class Params:
     # "deep" only: the cation's closed-shell steps +5 -> +6, +11 -> +12, +17 -> +18: "cazaux16" (DFT, 0.11 / 0.17 / 0.32 eV,
     # the user's choice of 2026-11-15) or "boschman15" (Table A.1, 0.064 / 0.052 / 0.039 eV), a bracket
     superh_magic_barriers: str = "cazaux16"
+    # population "joint" only: the super-H addition barriers of anions, "neutral" (the default: the neutral's, as
+    # anion_h_addition "as_neutral") or "cation" (opt-in, a labelled bracket, 2026-11-25): an anion has the cation's
+    # electron parity at every N_H, so it takes the cations' pattern, the magic steps of superh_magic_barriers included,
+    # which stops the "deep" chain's anions at +17. Nothing is measured for H on an intact PAH anion; only the barrier
+    # changes, the rate stays the neutral's geometric one
+    superh_anion_barriers: str = "neutral"
     # population "joint" only: carbon loss of the super-hydrogenated states, "none" (the default: no RRKM parameters
     # exist for large PAHs) or "murga22" (opt-in, a labelled bracket: Murga+22's fitted C2H2 E0(N_H / N_H0), dS 10 cal)
     superh_carbon_loss: str = "none"
