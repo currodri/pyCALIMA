@@ -1645,6 +1645,15 @@ The extrapolated Draine polynomial gives 10–170× fewer 1–5 eV photons than 
   - The shape key carries `optical_isrf / G0`, so each G₀ is its own shape, with exact bases.
   - Between the nodes of the multiphoton k_H table, the old stars scale with the node's G₀. They add little energy
     per photon, so the H loss barely feels this.
+  - **Below G₀ = `optical_isrf` (2026-11-25).** Here the cell lies under every node of `K_H_G0_GRID` (1 … 1e6), and
+    each node holds at least `optical_isrf / G₀` times the cell's old-star light. Two things went wrong:
+    - The rates were extrapolated down from the multiphoton regime: C96H24⁺ super-H loss was 8.7× low at G₀ 1e-3.
+    - At G₀ 0.01 the top node held 1e8 × the old stars, and C268H52's cascade did not converge.
+
+    Such shapes (old stars r > 1 per unit G₀) now have their own nodes, `population.g0_nodes`. These are
+    `K_H_G0_GRID` scaled so that the top node holds `OLD_STARS_NODE_MAX` (1000) × the solar circle, which puts a cell
+    with `optical_isrf` 1 on the middle node. Every other shape, the cells at G₀ ≥ `optical_isrf` included, keeps its
+    nodes, results and stored tables. Found by an external audit of 2026-11-25 (bug 2).
 - **Kurucz fields** keep the star's whole spectrum, now from 1 eV.
 
 **ε** is now the heating over all the power absorbed (1–13.6 eV, or up to 500 eV with the EUV). That is Berné+22's

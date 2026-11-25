@@ -1561,8 +1561,28 @@ def field_shape(env):
     return ("kurucz", int(env.teff_k)) if e_max == fields.LYMAN_EV else ("kurucz", int(env.teff_k), e_max)
 
 
-#: G0 at which ``StateBasis.k_h`` is tabulated (the multiphoton steady state at each)
+#: G0 at which ``StateBasis.k_h`` is tabulated (the multiphoton steady state at each); a Draine shape with old-star
+#: light has its own nodes (``g0_nodes``)
 K_H_G0_GRID = np.geomspace(1.0, 1e6, 13)
+#: the old-star light (``Environment.optical_isrf``, solar-circle units) at the top node of a Draine shape's tables
+OLD_STARS_NODE_MAX = 1e3
+
+
+def g0_nodes(shape):
+    """The G0 nodes of ``shape``'s multiphoton tables, K_H_G0_GRID.size of them: K_H_G0_GRID, except for a Draine shape
+    with more old-star light per unit G0 than a cell at G0 = ``optical_isrf`` has (("draine", r[, e_min]) with r > 1,
+    ``field_shape``): its nodes are K_H_G0_GRID scaled to end at OLD_STARS_NODE_MAX / r.
+
+    The tables multiply the whole unit field by each node, the old stars too, which is exact at the cell's own G0 (where
+    they are the cell's ``optical_isrf``). On K_H_G0_GRID a cell below G0 = optical_isrf (G0 < 1 by default) lay below
+    every node, each at >= optical_isrf / G0 times its old-star light, and its rates were extrapolated down from the
+    multiphoton regime (C96H24+ super-H loss 8.7x low at G0 1e-3); at G0 0.01 the top node held 1e8 x the old stars and
+    C268H52's cascade did not converge. With these nodes the old stars at the top stay at OLD_STARS_NODE_MAX x the solar
+    circle, and a cell with optical_isrf 1 sits on the middle node (pahchem audit 2026-11-25, bug 2). Every other shape,
+    the cells at G0 >= optical_isrf included, keeps K_H_G0_GRID, its results and its stored tables."""
+    if shape[0] == "draine" and len(shape) > 1 and float(shape[1]) > 1.0:
+        return K_H_G0_GRID * (OLD_STARS_NODE_MAX / float(shape[1]) / K_H_G0_GRID[-1])
+    return K_H_G0_GRID
 
 
 @dataclass(frozen=True)
@@ -1584,13 +1604,14 @@ class StateBasis:
     ladder_c2h2: np.ndarray | None = None   # (4, K_H_G0_GRID): C2H2-loss rates of N_H0 ... N_H0-3 [s^-1] (``loss_extras``)
     ladder_hp: np.ndarray | None = None     # (4, K_H_G0_GRID): proton-emission rates of the same states [s^-1]
 
-    def k_h_at(self, g0):
-        """k_H [s^-1] at ``g0`` (array), log-log interpolated; rates below 1e-300 s^-1 count as zero."""
+    def k_h_at(self, g0, nodes=K_H_G0_GRID):
+        """k_H [s^-1] at ``g0`` (array), log-log interpolated on ``nodes`` (``g0_nodes`` of the basis's shape); rates below
+        1e-300 s^-1 count as zero."""
         g = np.asarray(g0, dtype=float)
-        if (g < K_H_G0_GRID[0]).any() or (g > K_H_G0_GRID[-1]).any():
-            raise ValueError(f"G0 outside the k_H table {K_H_G0_GRID[0]:g}-{K_H_G0_GRID[-1]:g}")
+        if (g < nodes[0]).any() or (g > nodes[-1]).any():
+            raise ValueError(f"G0 outside the k_H table {nodes[0]:g}-{nodes[-1]:g}")
         lk = np.log(np.maximum(self.k_h, 1e-300))
-        return np.exp(np.interp(np.log(g), np.log(K_H_G0_GRID), lk))
+        return np.exp(np.interp(np.log(g), np.log(nodes), lk))
 
 
 #: the CH-stretch scale and its window live in ``baseline`` (every cascade applies them; pahchem-audit C7)
@@ -1698,7 +1719,7 @@ def _basis_key(inp, legacy=False):
     h = hashlib.sha1()
     h.update(f"v{BASIS_VERSION}".encode())
     h.update(np.ascontiguousarray(E_PH).tobytes())
-    h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
+    h.update(np.ascontiguousarray(g0_nodes(inp["shape"])).tobytes())
     if not legacy:                     # every grid of build_state_basis, not only the photon grid
         h.update(np.ascontiguousarray(E_DEP).tobytes())
         h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV,
@@ -1864,7 +1885,8 @@ def _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta=0.0):
                       e0 * dos.CM_PER_EV, degeneracy=deg, beta=beta)[pick]
 
 
-def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None, extra=()):
+def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, e_dep=None, e_max_ev=None, extra=(),
+                 nodes=K_H_G0_GRID):
     """(k_H, k_H2, {name: k}) on K_H_G0_GRID for one hydrogenation state: RRKM sinks competing in its multiphoton cascade,
     with the channels ``extra`` of ``loss_extras``.
     ``grid``: this state's ``_loss_grid`` (to ``e_max_ev``) and H-loss rate, if already built ((cm, E, counts, beta),
@@ -1887,7 +1909,7 @@ def _loss_tables(freqs, einstein_a, nh, h2_ok, h, h_even, h_odd, h2, grid=None, 
                                   h2[0] * dos.CM_PER_EV, degeneracy=2, beta=beta)[pick]
         ch |= _extra_rates(freqs, E, counts, pick, beta, extra)
         out = {c: [] for c in ch}
-        for g in K_H_G0_GRID:
+        for g in nodes:
             s = cm.steady_state(e_dep, g * h, ch)
             for c in ch:
                 out[c].append(s.rates[c])
@@ -1966,7 +1988,7 @@ def bare_loss_table(freqs, einstein_a, channels, nc, z, yield_, shape, sigma_sca
         pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
         ch = _bare_rates(f_, E, counts, pick, beta, channels)
         out = {c: [] for c in ch}
-        for g in K_H_G0_GRID:
+        for g in g0_nodes(shape):
             s = cm.steady_state(e_dep, g * h, ch)
             for c in ch:
                 out[c].append(s.rates[c])
@@ -1990,7 +2012,7 @@ def _bare_key(inp):
     h = hashlib.sha1(f"bare{BARE_VERSION}".encode())
     h.update(np.ascontiguousarray(E_PH).tobytes())
     h.update(np.ascontiguousarray(E_DEP).tobytes())
-    h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
+    h.update(np.ascontiguousarray(g0_nodes(inp["shape"])).tobytes())
     h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV, photo.PARTITION_NODES,
                    photo.PHOTOELECTRON_PARTITION)).encode())
     for k in sorted(inp):
@@ -2160,7 +2182,7 @@ def superh_loss_table(freqs, einstein_a, nc, z, yield_, shape, sigma_scale, thre
             prev = None
             if Q is not None:
                 prev = np.array([np.interp(e_after, cm.energy_cm, q, left=q[0]) for q in Q[j - 1]])
-            for g, gi in enumerate(K_H_G0_GRID):
+            for g, gi in enumerate(g0_nodes(shape)):
                 s = cm.steady_state(e_dep, gi * h, sinks)
                 if prev is None:
                     out["H"][j - 1, 0, g] = s.rates["H"]
@@ -2196,7 +2218,7 @@ def _superh_key(inp):
     h = hashlib.sha1(f"superh{SUPERH_VERSION}".encode())
     h.update(np.ascontiguousarray(E_PH).tobytes())
     h.update(np.ascontiguousarray(E_DEP).tobytes())
-    h.update(np.ascontiguousarray(K_H_G0_GRID).tobytes())
+    h.update(np.ascontiguousarray(g0_nodes(inp["shape"])).tobytes())
     h.update(repr((LOSS_E_MAX_EV, LOSS_DE_CM, LOSS_OVERFLOW_TOL, LOSS_STEP_EV, LOSS_E_CAP_EV, photo.PARTITION_NODES,
                    photo.PHOTOELECTRON_PARTITION)).encode())
     for k in sorted(inp):
@@ -2313,7 +2335,7 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
         # ladder[0] the odd-H ones for odd N_H, so it shares this rate only for even N_H
         k = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, h_even[1], n_scaled=5),
                        h_even[0] * dos.CM_PER_EV, degeneracy=nh, beta=beta)[pick]
-        states = [cl.steady_state(e_dep, g * h, {"H": k}) for g in K_H_G0_GRID]
+        states = [cl.steady_state(e_dep, g * h, {"H": k}) for g in g0_nodes(shape)]
         if _loss_converged(states[-1], e_loss):
             break
         e_loss = min(e_loss + LOSS_STEP_EV, LOSS_E_CAP_EV)
@@ -2326,7 +2348,7 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
             grid = ((cl, E, counts, beta),
                     k if nh % 2 == 0 else _h_loss_rate(freqs, E, counts, pick, nh, h_even, h_odd, beta))
         lh[i], lh2[i], kx = _loss_tables(f_, a_, n_, ok_, h, h_even, h_odd, h2, grid, e_dep, e_loss,
-                                         extras[i] if extras else ())
+                                         extras[i] if extras else (), g0_nodes(shape))
         for c, v in kx.items():
             lx[c][i] = v
     out = StateBasis(np.asarray(freqs, dtype=float), emitted, k_up, k_h,
@@ -3529,7 +3551,7 @@ class Population:
         (``_chain_distributions`` at ``f``; the states past N_H0-3 take its mapping, the bare skeleton none). ``with_p0``:
         (down, the bare share f(N_H = 0) of each molecule's chain)."""
         shape = field_shape(env)
-        tab = self._interp_g0(self._ladders(shape)[3], env.g0)                       # [s, slot, k]
+        tab = self._interp_g0(self._ladders(shape)[3], env.g0, shape)                       # [s, slot, k]
         losses = self._deposit_losses(env, f, by_state=True)                         # one pass over the flows
         dep = losses[3]                                                              # [s, slot, k], per molecule
         per = tab + np.divide(dep, f[:, :, None], out=np.zeros_like(dep), where=f[:, :, None] > 0.0)
@@ -3957,7 +3979,7 @@ class Population:
         p0 = np.array([float(c[0]) for c in self._chain_distributions(env)])
         out = {}
         for c, tab in self._bare_stack(shape).items():
-            out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0))
+            out[c] = p0 * np.einsum("sz,sz->s", f, self._interp_g0(tab, env.g0, shape))
         flows = [fl for fl in self._deposit_flows(env)
                  if p0[fl[0]] > 0.0 and (fl[2] != "rec" or self.p.recombination_dissociation)]
         top = {}       # one loss grid per molecule, to its largest deposit: a yield depends on the bins below it only
@@ -3996,11 +4018,12 @@ class Population:
         if self._joint_on():
             return self._joint_sums(self._joint_weights(env, bare=False), env, ("C2H2", "Hp"))
         W = self.emission_weights(env)
-        _, _, tab_c, tab_hp = self._ladders(field_shape(env))
+        shape = field_shape(env)
+        _, _, tab_c, tab_hp = self._ladders(shape)
         _, _, dlc, dlhp = self._deposit_losses(env)
         h = W.sum(axis=1)
-        return {"C2H2": np.einsum("szk,szk->s", W, self._interp_g0(tab_c, env.g0)) + (h * dlc).sum(axis=1),
-                "Hp": np.einsum("szk,szk->s", W, self._interp_g0(tab_hp, env.g0)) + (h * dlhp).sum(axis=1)}
+        return {"C2H2": np.einsum("szk,szk->s", W, self._interp_g0(tab_c, env.g0, shape)) + (h * dlc).sum(axis=1),
+                "Hp": np.einsum("szk,szk->s", W, self._interp_g0(tab_hp, env.g0, shape)) + (h * dlhp).sum(axis=1)}
 
     def chain_overflow(self, env):
         """Steps out of each molecule's ladder that the chain does not hold [s^-1 per molecule]: the ionisations, and the
@@ -4083,21 +4106,23 @@ class Population:
         b = self.basis(mol, z, field_shape(env))
         return env.g0 * (b.emitted @ self._window_matrix(mol, z, field_shape(env), b.freqs_cm))
 
-    def _interp_g0(self, table, g0):
-        """Log-log interpolation of rate tables (..., K_H_G0_GRID) at ``g0``. Below the grid (shielded and dark gas, where
-        cosmic rays matter) each rate continues its first interval's log-log slope: 1 where single photons dominate at
-        G0 = 1, up to 2.02 where two photons do (large PAHs, 2026-11-04 tables), whose single-photon floor below is then
-        not followed."""
-        if not 0.0 < g0 <= K_H_G0_GRID[-1]:
-            raise ValueError(f"G0 {g0:g} outside (0, {K_H_G0_GRID[-1]:g}] of the k_H table")
+    def _interp_g0(self, table, g0, shape=None):
+        """Log-log interpolation of rate tables (..., nodes) at ``g0``, the nodes ``g0_nodes(shape)`` (K_H_G0_GRID without a
+        shape). Below the grid (shielded and dark gas, where cosmic rays matter) each rate continues its first interval's
+        log-log slope: 1 where single photons dominate at G0 = 1, up to 2.02 where two photons do (large PAHs, 2026-11-04
+        tables), whose single-photon floor below is then not followed. A Draine shape with old stars has nodes around its
+        cells' G0 (``g0_nodes``), so they need no extrapolation."""
+        nodes = K_H_G0_GRID if shape is None else g0_nodes(shape)
+        if not 0.0 < g0 <= nodes[-1]:
+            raise ValueError(f"G0 {g0:g} outside (0, {nodes[-1]:g}] of the k_H table")
         lt = np.log(np.maximum(table, 1e-300))
-        if g0 < K_H_G0_GRID[0]:
-            slope = (lt[..., 1] - lt[..., 0]) / (np.log(K_H_G0_GRID[1]) - np.log(K_H_G0_GRID[0]))
-            out = np.exp(lt[..., 0] + slope * (np.log(g0) - np.log(K_H_G0_GRID[0])))
+        if g0 < nodes[0]:
+            slope = (lt[..., 1] - lt[..., 0]) / (np.log(nodes[1]) - np.log(nodes[0]))
+            out = np.exp(lt[..., 0] + slope * (np.log(g0) - np.log(nodes[0])))
             return np.where(table[..., 0] == 0.0, 0.0, out)
         x = np.log(g0)
-        i = max(min(np.searchsorted(np.log(K_H_G0_GRID), x), K_H_G0_GRID.size - 1), 1)
-        lo, hi = np.log(K_H_G0_GRID[i - 1]), np.log(K_H_G0_GRID[i])
+        i = max(min(np.searchsorted(np.log(nodes), x), nodes.size - 1), 1)
+        lo, hi = np.log(nodes[i - 1]), np.log(nodes[i])
         out = np.exp(lt[..., i - 1] + (lt[..., i] - lt[..., i - 1]) * (x - lo) / (hi - lo))
         # a rate that is 0 at both nodes stays 0, not 1e-300: no photon deposits (X-rays only), whose tiny floor would
         # make the hydrogenation chain's rate ratios overflow
@@ -4110,8 +4135,9 @@ class Population:
         """
         if method == "single":
             f = self.charge_matrix(env)
-            _, lkh, _ = self._stack(field_shape(env))
-            k_h = self._interp_g0(np.exp(lkh), env.g0)
+            shape = field_shape(env)
+            _, lkh, _ = self._stack(shape)
+            k_h = self._interp_g0(np.exp(lkh), env.g0, shape)
             k_add_z = self._addition_rates(env)
             return np.sum(f * k_add_z / (k_add_z + k_h), axis=1)
         if method != "chain":
@@ -4140,10 +4166,11 @@ class Population:
         if not given and env in self._chains:
             return self._chains[env]
         f = self.charge_matrix(env) if not given else f
-        tab_h, tab_h2, _, tab_hp = self._ladders(field_shape(env))
+        shape = field_shape(env)
+        tab_h, tab_h2, _, tab_hp = self._ladders(shape)
         # charge-averaged loss rates; a proton emitted is an H lost (its charge step is the charge chain's)
-        lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0) + self._interp_g0(tab_hp, env.g0))
-        lh2 = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h2, env.g0))
+        lh = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h, env.g0, shape) + self._interp_g0(tab_hp, env.g0, shape))
+        lh2 = np.einsum("sz,szk->sk", f, self._interp_g0(tab_h2, env.g0, shape))
         dlh, dlh2, _, dlhp = self._deposit_losses(env, f) if deposit_losses is None else deposit_losses   # the deposits
         lh, lh2 = lh + dlh + dlhp, lh2 + dlh2
         k_add = np.einsum("sz,sz->s", f, self._addition_rates(env))
@@ -4392,9 +4419,9 @@ class Population:
         vps = np.maximum(g0 * (k_up - (ks["over"] if ks is not None else 0.0) - self._double_stack(shape)), 0.0)
         down = self._capture_rates(T) * env.n_e
         tab_h, tab_h2, _, tab_hp = self._ladders(shape)
-        lh, lh2, lhp = (self._interp_g0(t, g0) for t in (tab_h, tab_h2, tab_hp))
+        lh, lh2, lhp = (self._interp_g0(t, g0, shape) for t in (tab_h, tab_h2, tab_hp))
         if K:
-            SH, SC = (self._interp_g0(t, g0) for t in self._superh_stack(shape))
+            SH, SC = (self._interp_g0(t, g0, shape) for t in self._superh_stack(shape))
         k_add = self._addition_rates(env)
         hot = self._hot_rates(env)
         per_h = hot["knockout_h"] if hot is not None else np.zeros_like(k_add)
@@ -4686,11 +4713,11 @@ class Population:
             return self._joint_wts[key]
         shape = field_shape(env)
         _, _, tab_c, tab_hp = self._ladders(shape)
-        lc, lhp = self._interp_g0(tab_c, env.g0), self._interp_g0(tab_hp, env.g0)
+        lc, lhp = self._interp_g0(tab_c, env.g0, shape), self._interp_g0(tab_hp, env.g0, shape)
         cr, hot = self._cr_rates(env), self._hot_rates(env)
-        tabs = {c: self._interp_g0(t, env.g0) for c, t in self._bare_stack(shape).items()} if bare else {}
+        tabs = {c: self._interp_g0(t, env.g0, shape) for c, t in self._bare_stack(shape).items()} if bare else {}
         K = int(self.p.superh_levels)
-        sc = self._interp_g0(self._superh_stack(shape)[1], env.g0) if K else None
+        sc = self._interp_g0(self._superh_stack(shape)[1], env.g0, shape) if K else None
         nc_lost = {name: n for m in self.library for name, n, *_ in bare_channels(m, self.p)}
         out = []
         for s, ((lo, net, dropped, deposits), mol) in enumerate(zip(self._joint_build(env), self.library)):

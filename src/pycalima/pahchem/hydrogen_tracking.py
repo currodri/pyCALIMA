@@ -162,9 +162,10 @@ def population_chains(pop, env):
     from pycalima.pahchem import population as P
 
     f = pop.charge_matrix(env)
-    tab_h, tab_h2, _, tab_hp = pop._ladders(P.field_shape(env))
-    lh = np.einsum("sz,szk->sk", f, pop._interp_g0(tab_h, env.g0) + pop._interp_g0(tab_hp, env.g0))
-    lh2 = np.einsum("sz,szk->sk", f, pop._interp_g0(tab_h2, env.g0))
+    shape = P.field_shape(env)
+    tab_h, tab_h2, _, tab_hp = pop._ladders(shape)
+    lh = np.einsum("sz,szk->sk", f, pop._interp_g0(tab_h, env.g0, shape) + pop._interp_g0(tab_hp, env.g0, shape))
+    lh2 = np.einsum("sz,szk->sk", f, pop._interp_g0(tab_h2, env.g0, shape))
     dlh, dlh2, _, dlhp = pop._deposit_losses(env, f)
     lh, lh2 = lh + dlh + dlhp, lh2 + dlh2
     k_add = np.einsum("sz,sz->s", f, pop._addition_rates(env))

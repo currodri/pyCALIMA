@@ -456,6 +456,40 @@ def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
     assert pop._interp_g0(tab, g[0]) == pytest.approx([2.0, 3.0])
 
 
+def test_draine_cells_below_their_old_star_light_get_nodes_about_them():
+    """``g0_nodes`` (audit 2026-11-25, bug 2): K_H_G0_GRID, the same object, for every shape but a Draine one with more
+    old-star light per unit G0 than at G0 = optical_isrf (r > 1). There: 13 increasing nodes whose top holds
+    OLD_STARS_NODE_MAX x the old stars, a cell with optical_isrf 1 on the middle node, read by ``_interp_g0`` with no
+    extrapolation."""
+    K = population.K_H_G0_GRID
+    for shape in (("draine",), ("draine", 1.0), ("draine", 1e-2), ("kurucz", 30000), ("powerlaw", 1.0, 13.6, 1.0)):
+        assert population.g0_nodes(shape) is K
+    for g0 in (0.9, 0.1, 1e-2, 1e-3, 1e-4):
+        shape = population.field_shape(Environment("cell", g0, 1e2, 1e-2, 100.0, None))      # optical_isrf 1
+        nodes = population.g0_nodes(shape)
+        assert nodes.size == K.size and np.all(np.diff(nodes) > 0)
+        assert nodes[-1] * shape[1] == pytest.approx(population.OLD_STARS_NODE_MAX, rel=1e-12)
+        assert nodes[K.size // 2] == pytest.approx(g0, rel=1e-12)
+    pop = population.Population(_library()[:1], WINDOWS)
+    shape = population.field_shape(Environment("cell", 1e-3, 1e2, 1e-2, 100.0, None))
+    nodes = population.g0_nodes(shape)
+    tab = np.stack([nodes, nodes ** 2])                               # power laws: log-log exact between nodes
+    assert pop._interp_g0(tab, 3e-3, shape) == pytest.approx([3e-3, 9e-6], rel=1e-12)
+
+
+def test_a_large_pah_in_shielded_gas_with_old_stars_gets_its_basis():
+    """C268H52 at G0 0.01 with the old stars (optical_isrf 1): on K_H_G0_GRID its top node held 1e6 x Draine and 1e8 x
+    the old stars, and the multiphoton cascade did not converge at LOSS_E_CAP_EV; on ``g0_nodes`` it builds, finite."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.name == "C268H52 (6432)")
+    shape = population.field_shape(Environment("dense", 1e-2, 1e5, 1e-1, 100.0, None))
+    b = population.build_state_basis(**population._basis_inputs(mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV,
+                                                                 Params()))
+    assert np.isfinite(b.k_h).all() and np.isfinite(b.ladder_h).all()
+
+
 def test_c2h2_loss_and_proton_emission_open_where_their_physics_allows():
     """``population.loss_extras``: C2H2 loss only for skeletons with catacondensed end rings (quartet H) and only from
     Z >= +1, where it was measured (pahchem audit m9), proton emission only from Z >= +1 over max(the ladder's H+ dissociation energy, ``impact.fission_barrier``). For a compact closed-shell PAH
