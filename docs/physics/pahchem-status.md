@@ -31,6 +31,7 @@ folder there is labelled in `results/pahchem/README.md` and
 | UV cross sections | {doc}`pahchem-uv-absorption` | band positions still an open decision (§5) |
 | Carrying the physics into RAMSES | `diagnostics/pahchem/pahrt/README.md`, branch `feature/pahrt` | 2026-11-24 |
 | Audits after 2026-10-20 | `results/pahchem/audit_2026-11-04/REPORT.md`, `results/pahchem/audit_open_2026-11-06/README.md` | the fixes are on main (PRs #11 and #12) |
+| The external audit of 2026-11-25 | its claims were checked against the code; the verified fixes are PRs #18 (cache format), #24 (C 1s live states), #25–#28 | its spin-degeneracy, attachment-temperature and solver-trap claims did not hold |
 
 To list the open benchmarks with their cause and what they need:
 
@@ -55,18 +56,21 @@ that can move it. The figure dates of §8 are read against this table.
 | 2026-11-04 | `photoelectron_reference = "neutral"`; proton emission, C$_2$H$_2$ loss and the destruction of bare skeletons | §2.2c, §2.2e, §2.2f |
 | 2026-11-05/06 | the fixes of the 2026-11-04 audit: collisions, hot gas, the CR-induced UV, the ladder top | the audit reports of §1 |
 | 2026-11-11 | `threshold_shifts = "dft_ladder"`, `threshold_calibration = "measured"` | §2.2h, §2.2i |
+| 2026-11-25 | every present charge live in fields reaching the C K edge (PR #24; before, C 1s Auger steps out of the top live state were booked as Coulomb explosions); stored super-H tables rebuilt (`SUPERH_VERSION` 2, PR #18) | §2.2c, §2.2h |
 
 Off by default (opt-in): `cosmic_rays`, `hot_gas`, `coulomb_escape`,
-`double_ionisation`, `hydrogen_chain = "joint"`, and every band convention
+`double_ionisation`, `hydrogen_chain = "joint"`, the deep super-hydrogenated chain (`superh_chemistry = "deep"`,
+PR #18; molecules with N$_{\rm C}$ ≳ 100 still reach its +24 cap in shielded and dense gas), and every band convention
 other than `legacy` (`Population(band_convention=...)`).
 
 ## 3. Work that is not on main
 
 | Where | What | State |
 |---|---|---|
-| PR #17, `feature/pahchem-joint-observables` | `Population.joint_state_observables`: heating, cooling, H$_2$ and destruction per (Z, N$_{\rm H}$) state of the joint chain | open since 2026-11-15 |
-| PR #18, `feature/pahchem-deep-superh`, stacked on #17 | the deep super-hydrogenated chain (`superh_chemistry = "deep"`, opt-in) | open; molecules with N$_{\rm C}$ ≳ 100 still reach the +24 cap in shielded and dense gas |
-| PR #24, `fix/pahchem-kshell-live` | `Environment.field_sum` (sums of field shapes); a fix to `Population._live` in fields that reach the C K edge | committed 2026-11-19, PR open since 2026-11-25. **X-ray destruction numbers computed before this fix carry an artefact:** C 1s Auger steps out of the top live state were booked as Coulomb explosions |
+| PR #25, `fix/pahchem-ladder-step` | the charge ladder repeats a computed step only within 25 % of the conductor fit (28 molecules; C115H29 reached +16 below 13.6 eV) | open since 2026-11-25 |
+| PR #26, `fix/pahchem-odd-parents` | odd-N$_{\rm H0}$ parents (57 π radicals): H-loss values and super-H barriers count the H lost from the parent (their intact H loss was far too fast) | open since 2026-11-25; their super-H threshold shifts wait for a ΔSCF ladder of one odd parent |
+| PR #27, `fix/pahchem-group-tables-sigma` | group tables: the anion absorbs with `state_sigma` (the earlier audit's m8; +0.04 % on the bin K) | open since 2026-11-25 |
+| PR #28, `feature/pahchem-superh-brackets`, stacked on #26 | opt-in brackets: anions with the cations' super-H barriers (`superh_anion_barriers = "cation"`); `associative_detachment = "all"` weighed by its thermochemistry | open since 2026-11-25 |
 | `feature/pahrt` (holds `study/pahrt` and the GSD branch `feature/gsd-a3c`) | how much of pahchem can enter RAMSES as bin-averaged kernels with a per-cell solver | decided 2026-11-24: equilibrium per cell for every PAH bin, nothing tracked; the per-cell solver (S6) is being built |
 
 ## 4. What passes
