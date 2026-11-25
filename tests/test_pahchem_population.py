@@ -1959,6 +1959,31 @@ def test_super_h_loss_rises_with_the_extra_h_and_stays_below_absorption():
     assert np.all(k <= population.K_H_G0_GRID[None, :] * r_abs * (1.0 + 1e-6))
 
 
+def test_super_h_tables_round_trip_through_the_disk_cache(tmp_path, monkeypatch):
+    """``prepare_superh`` stores each live state's {"H", "C2H2"} table under ``_superh_key`` (SUPERH_VERSION 2: arrays h
+    and c, never the one-H k that older code reads from its own v1 files); a fresh population reads them back unchanged
+    instead of rebuilding them."""
+    from pycalima.pahchem.baseline import Params
+
+    p = Params(hydrogen_chain="joint", superh_levels=2)
+    shape = population.field_shape(Environment("ism", 1.0, 30.0, 0.0042, 100.0, None))
+    fresh = lambda: next(m for m in population.library_m20(_ascii()) if m.nc <= 24)     # noqa: E731  (no memory cache)
+    first = population.Population([fresh()], WINDOWS, params=p, cache_dir=tmp_path)
+    first.prepare_superh(shape, workers=1)
+    ref = {k: v for k, v in first.library[0]._cache.items() if k[0] == "superh"}
+    files = sorted((tmp_path / "superh").glob("*.npz"))
+    assert ref and len(files) == len(ref)
+    for f in files:
+        with np.load(f) as d:
+            assert sorted(d.files) == ["c", "h"]
+    monkeypatch.setattr(population, "superh_loss_table", lambda **kw: pytest.fail("rebuilt a stored table"))
+    second = population.Population([fresh()], WINDOWS, params=p, cache_dir=tmp_path)
+    second.prepare_superh(shape, workers=1)
+    for k, v in ref.items():
+        w = second.library[0]._cache[k]
+        assert np.array_equal(v["H"], w["H"]) and np.array_equal(v["C2H2"], w["C2H2"])
+
+
 def test_deep_super_h_losses_split_each_first_loss_into_its_outcomes():
     """``superh_chemistry = "deep"``: each loss of an extra H leaves its product at E - E0, which may lose again, so a photon
     removes n = 1 ... j of the j extra H. The events' rates sum to the first loss's (BaselineModel's one-H table) at every

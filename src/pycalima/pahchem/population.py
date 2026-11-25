@@ -2011,9 +2011,9 @@ def bare_event_yields(freqs, einstein_a, channels, e_max_ev):
 
 
 # -- super-hydrogenated states (Params.hydrogen_chain = "joint", 2026-11-08) ---------------------------------------------
-#: bump when ``superh_loss_table`` changes, so stored tables are rebuilt (BaselineModel's chemistry, "andrews16", keeps
-#: its keys and its stored one-H tables: they are read as the one-H outcome)
-SUPERH_VERSION = 1
+#: bump when ``superh_loss_table`` or its stored format changes, so stored tables are rebuilt. 2: the {"H", "C2H2"}
+#: outcome tables (stored as h, c) replaced the one-H k; older code sharing a cache_dir keeps reading its own v1 files
+SUPERH_VERSION = 2
 
 #: Boschman+15 (arXiv 1504.08276) Table A.1: coronene's H-addition barriers [eV] above N_H0, on the neutral's step
 #: N_H0 + j -> N_H0 + j + 1 (from its closed-shell states, j even); the cation's are the same one H later (j odd), and
@@ -4212,13 +4212,7 @@ class Population:
                 f = None if self.cache_dir is None else self.cache_dir / "superh" / f"{_superh_key(inp)}.npz"
                 if f is not None and f.exists():
                     with np.load(f) as d:
-                        if "k" in d:            # stored before the outcomes (2026-11-15): one H per event, no C2H2
-                            k = d["k"]
-                            h = np.zeros((k.shape[0], k.shape[0], k.shape[1]))
-                            h[:, 0] = k
-                            mol._cache[ck] = {"H": h, "C2H2": np.zeros_like(k)}
-                        else:
-                            mol._cache[ck] = {"H": d["h"], "C2H2": d["c"]}
+                        mol._cache[ck] = {"H": d["h"], "C2H2": d["c"]}
                 else:
                     todo.append((mol, ck, f, inp))
 
