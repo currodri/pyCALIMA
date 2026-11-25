@@ -2100,7 +2100,7 @@ MURGA22_X_TOP = 1.74
 
 def _check_superh(params):
     for name, ok in (("superh_chemistry", ("andrews16", "deep")), ("superh_magic_barriers", ("cazaux16", "boschman15")),
-                     ("superh_carbon_loss", ("none", "murga22"))):
+                     ("superh_carbon_loss", ("none", "murga22")), ("superh_anion_barriers", ("neutral", "cation"))):
         if getattr(params, name) not in ok:
             raise ValueError(f"{name} must be one of {ok}, not {getattr(params, name)!r}")
     if params.superh_chemistry == "deep" and int(params.superh_levels) > SUPERH_DEEP_MAX:
@@ -2114,7 +2114,8 @@ def superh_e0(params, z):
 
 
 def superh_addition_barrier(j, z, params, parent_odd=False):
-    """The barrier [eV] of the H addition N_H0 + j -> N_H0 + j + 1 at charge z (anions as neutrals), by
+    """The barrier [eV] of the H addition N_H0 + j -> N_H0 + j + 1 at charge z (anions as neutrals, or as cations with
+    ``Params.superh_anion_barriers = "cation"``), by
     ``Params.superh_chemistry``: "andrews16", BaselineModel's (0.06 / 0.035 eV on the neutral's first and third extra H,
     none on the cation's); "deep", those below SUPERH_KEPT_STEPS and above them Boschman+15's alternation
     (BOSCHMAN15_BARRIERS_EV), the cation's magic-number steps at ``Params.superh_magic_barriers``' ("cazaux16":
@@ -2123,6 +2124,8 @@ def superh_addition_barrier(j, z, params, parent_odd=False):
     (since 2026-11-25; pahchem audit, bug 4)."""
     j = j + int(parent_odd)
     _check_superh(params)
+    if z < 0 and params.superh_anion_barriers == "cation":
+        z = 1
     if params.superh_chemistry == "andrews16" or j < SUPERH_KEPT_STEPS:
         return 0.0 if z > 0 else {0: 0.06, 2: 0.035}.get(j, 0.0)
     if z > 0:
@@ -4349,6 +4352,16 @@ class Population:
             return 0.0
         raise ValueError(f"threshold_shifts must be 'dft_ladder', 'andrews16' or 'none', not {mode!r}")
 
+    def _ad_thermo(self, mol, nh0, top_m, T):
+        """exp(-max(dH, 0) / kT) of PAH(N_H)- + H -> PAH(N_H + 1) + e-, N_H = N_H0 ... top_m - 1: dH = EA(N_H) - D, the EA
+        of ``_threshold_shift`` and D the extra H's binding in the neutral product (``superh_e0``, Z = 0, 1.40 eV by
+        default). Endothermic from EA > D: C54H18 +0.12, C96H24 +0.74, C150H30 +1.17 eV, most molecules from N_C ~ 20
+        (pahchem audit 2026-11-25). The dehydrogenated anions Demarais+12 measured bind the H by ~4.7 eV and are not
+        weighed."""
+        d = superh_e0(self.p, 0)
+        ea = float(mol.ionisation_ev[-1]) + np.array([self._threshold_shift(mol, m, -1) for m in range(nh0, top_m)])
+        return np.exp(-np.maximum(ea - d, 0.0) / (chemistry.KB_EV * T))
+
     def _threshold_factors(self, shape):
         """{s: r[slot, m]}, m = N_H = 0 ... N_H0 + superh_levels: each live state's valence photoionisation rate (the
         anion's detachment) at N_H = m over the intact state's, with the thresholds of ``_threshold_shift``. 1 where the
@@ -4536,6 +4549,8 @@ class Population:
             if zc[0] == -1 and nz > 1:
                 top_m = nh0 if p.associative_detachment == "dehydrogenated" else nn - 1
                 AD[0, :top_m] = ad_all
+                if top_m > nh0:                    # "all": the intact and super-H anions, by their thermochemistry
+                    AD[0, nh0:top_m] *= self._ad_thermo(mol, nh0, top_m, T)
             if (HP[0] > 0.0).any():
                 raise ValueError(f"{mol.name}: proton emission out of its lowest live charge")
             # deposits: a share of each event's charge step lands with H, H2 or a proton less

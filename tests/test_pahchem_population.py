@@ -1945,6 +1945,47 @@ def test_joint_networks_are_the_joint_chains_own():
         population.Population(lib, WINDOWS).joint_networks(env)
 
 
+def test_anion_super_h_barriers_are_the_neutrals_or_with_the_bracket_the_cations():
+    """``Params.superh_anion_barriers``: "neutral" (default) gives an anion the neutral's barrier, "cation" (a bracket) the
+    cation's, at every step, in both chemistries and for odd parents too; other values are refused."""
+    from pycalima.pahchem.baseline import Params
+
+    for chem in ({}, {"superh_chemistry": "deep", "superh_levels": 24}):
+        base = Params(hydrogen_chain="joint", **chem)
+        bracket = Params(hydrogen_chain="joint", superh_anion_barriers="cation", **chem)
+        for odd in (False, True):
+            for j in range(20):
+                b = lambda q, z: population.superh_addition_barrier(j, z, q, odd)        # noqa: E731
+                assert b(base, -1) == b(base, 0) and b(bracket, -1) == b(base, 1) and b(bracket, 0) == b(base, 0)
+    with pytest.raises(ValueError, match="superh_anion_barriers"):
+        population.superh_addition_barrier(0, -1, Params(hydrogen_chain="joint", superh_anion_barriers="anion"))
+
+
+def test_associative_detachment_all_follows_the_thermochemistry():
+    """With "all" the intact and super-H anions detach by H as exp(-max(EA - D, 0) / kT), D the extra H's binding
+    (``superh_e0``, Z = 0): C24H12's (EA 0.5 eV) unchanged, C54H18's (EA ~1.5 eV) endothermic, ~1e-6 at 100 K; the
+    dehydrogenated anions (Demarais+12) keep the measured rate."""
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.baseline import Params
+
+    lib = _v400_parents()
+    pop = _joint(lib, associative_detachment="all")
+    env = Environment("shielded", 1e-2, 1e2, 1.4e-2, 100.0, None)
+    ad = population.ASSOCIATIVE_DETACHMENT * env.n_h
+    d = population.superh_e0(Params(), 0)
+    for mol, net in zip(pop.library, pop.joint_networks(env)):
+        rate = next(p for p in net.processes if p.name == "associative detachment").rate[net.charges.index(-1)]
+        nh0 = mol.nh
+        assert np.allclose(rate[:nh0], ad, rtol=1e-12)
+        ea = mol.ionisation_ev[-1] + np.array([pop._threshold_shift(mol, m, -1) for m in range(nh0, rate.size - 1)])
+        want = ad * np.exp(-np.maximum(ea - d, 0.0) / (chemistry.KB_EV * env.temperature_k))
+        assert np.allclose(rate[nh0:-1], want, rtol=1e-12, atol=0.0)
+        if mol.ionisation_ev[-1] > d:
+            assert rate[nh0] < 1e-3 * ad
+        else:
+            assert rate[nh0] == pytest.approx(ad, rel=1e-12)
+
+
 def test_joint_state_observables_sum_to_the_steady_state_functions():
     """``joint_state_observables`` (for the GSD scoring): one weight per (Z, N_H) state of ``joint_networks``' grid, and
     at F = ``joint_fractions`` sum(W F) is photoelectric_heating, its eps (over "absorbed"), recombination_cooling,
