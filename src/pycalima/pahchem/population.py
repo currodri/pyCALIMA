@@ -969,6 +969,22 @@ CR_SHAPES = ("L", "H")
 #: a molecule with no computed dication (``extend_ladder``)
 LADDER_STEP_FIT = (0.4640, 16.9086)
 
+#: a computed step further than this (relative) from LADDER_STEP_FIT is not a conductor's e^2/C (``ladder_step``): 1.3 %
+#: of the even-N_H0 molecules with a dication but 35 % of the odd ones, whose charge states PAHdb computed partly with
+#: RB3LYP, partly with UB3LYP (C89H27: 0.91 eV against the fit's 2.26, which put +9 below 13.6 eV; pahchem audit
+#: 2026-11-25, bug 1)
+LADDER_STEP_TOL = 0.25
+
+
+def ladder_step(mol, computed=None):
+    """The Coulomb step [eV] the ladder repeats beyond (and below) the computed charges: ``computed``, a step of the
+    molecule's own thresholds, when it lies within LADDER_STEP_TOL of LADDER_STEP_FIT, else the fit (also with no
+    computed step)."""
+    fit = LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc)
+    if computed is None or abs(computed / fit - 1.0) > LADDER_STEP_TOL:
+        return float(fit)
+    return float(computed)
+
 
 def extend_ladder(mol):
     """``mol`` with its charges up to the cold Coulomb limit floor(0.2 N_C) (``impact.coulomb_limit``;
@@ -978,7 +994,8 @@ def extend_ladder(mol):
       ``top_threshold`` assumed: they reproduce PAHdb's +2 -> +3 of C54H18 and C96H24 to 0.07 eV, and with the
       calibrated shifts of the PDRs4All fits give 13.4-14.1 eV for the isomers of C30H14, C32H14 and C36H18 against
       Wenzel+20's measured 13.9-14.1 eV. A molecule with no computed dication takes its +1 -> +2 step from
-      LADDER_STEP_FIT.
+      LADDER_STEP_FIT, and so does one whose computed step is more than LADDER_STEP_TOL off the fit (``ladder_step``;
+      28 of v4.00's molecules, mostly odd-N_H0 radicals, since 2026-11-25).
     - **Stand-ins:** the states above the highest computed charge take its modes (``Molecule.stand_ins``):
       multiply charged spectra are cation-like (Bakes+01, Malloci+07, Banhatti+21) and no prescription for their
       change beyond +2 is published. Their UV cross section is +2's (``photo.sigma_uv``), as WD01 and Draine & Li 2007
@@ -993,10 +1010,10 @@ def extend_ladder(mol):
         raise ValueError(f"{mol.name}: extend_ladder needs a computed cation")
     th = dict(mol.ionisation_ev)
     if top == 1:
-        step = LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc)
+        step = ladder_step(mol)
         th[1] = th[0] + step
     else:
-        step = th[top - 1] - th[top - 2]
+        step = ladder_step(mol, th[top - 1] - th[top - 2])
     for z in range(max(top, 2), z_top):
         th[z] = th[z - 1] + step
     species = mol.species | {z: mol.species[top] for z in range(top + 1, z_top + 1)}
@@ -1128,15 +1145,13 @@ def ionisation_products(mol, z, params, shape):
 def anion_valence_threshold(mol):
     """Threshold [eV] for removing a valence electron (not the extra one) from the anion, which leaves the neutral
     excited: the molecule's own ladder one Coulomb step down, 2 IP(0) - IP(+1), as WD01 eq. 2 steps IP_V(Z) with
-    the charge. Without an IP(+1) (no computed dication, the "library" ladder) the step is LADDER_STEP_FIT's, the one
-    ``extend_ladder`` gives such a molecule, so both ladders agree. At least the EA. C24H12 3.55, C54H18 3.75, C96H24
-    3.88 eV with the calibrated shifts. Until 2026-11-02 the step without an IP(+1) was WD01's e^2/a (1 + 0.3 A/a) at
-    the disc radius, which is 0.78x (0.73-0.85x) the DFT steps: the threshold was ~0.5 eV higher."""
+    the charge. Without an IP(+1) (no computed dication, the "library" ladder), or with one whose step is more than
+    LADDER_STEP_TOL off the fit, the step is LADDER_STEP_FIT's (``ladder_step``), the one ``extend_ladder`` gives such
+    a molecule, so both ladders agree. At least the EA. C24H12 3.55, C54H18 3.75, C96H24 3.88 eV with the calibrated
+    shifts. Until 2026-11-02 the step without an IP(+1) was WD01's e^2/a (1 + 0.3 A/a) at the disc radius, which is
+    0.78x (0.73-0.85x) the DFT steps: the threshold was ~0.5 eV higher."""
     th = mol.ionisation_ev
-    if 1 in th:
-        ipv = 2.0 * th[0] - th[1]
-    else:
-        ipv = th[0] - (LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc))
+    ipv = th[0] - ladder_step(mol, th[1] - th[0] if 1 in th else None)
     return max(float(ipv), float(th[-1]))
 
 

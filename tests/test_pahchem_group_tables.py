@@ -105,9 +105,25 @@ def test_group_photo_rate_is_the_blackbody_integral():
     for i, z in enumerate(G.CHARGES):
         for g, (lo, hi) in enumerate(zip(L0, L1)):
             E = np.geomspace(lo, hi, 4001)
-            direct = np.trapezoid(photo.sigma_uv(mol.nc, z, E) * population._yield(mol, z, p, energy_ev=E)
+            direct = np.trapezoid(population.state_sigma(mol, z, p, energy_ev=E) * population._yield(mol, z, p, energy_ev=E)
                                   * bb.flux_at(E), E)
             assert gt.Kg[i, g] * F[g] == pytest.approx(direct, rel=2e-3, abs=1e-30)
+
+
+def test_anion_absorption_is_the_populations_and_holds_the_photodetachment():
+    """Audit m8 in the tables: the anion absorbs with ``population.state_sigma``, so at least WD01's photodetachment cross
+    section, also where that lies above ``photo.sigma_uv`` (C24H12-, a few eV)."""
+    from pycalima.models.dust_charge.shared_physics import photodetachment_cross_section_vec
+
+    mol = G._chain(_molecule(24))
+    p = Params()
+    k = G.molecule_kernels((mol, p, 0.46, (1.0,), (5.6,), G.N_E_PER_GROUP, G.LT[::10]))
+    E = np.concatenate(G._group_nodes((1.0,), (5.6,), G.N_E_PER_GROUP))
+    pdt = photodetachment_cross_section_vec(E, float(mol.ionisation_ev[-1]), -1)
+    assert np.any(pdt > photo.sigma_uv(mol.nc, -1, E, p.uv_cross_section) * p.sigma_scale)     # the floor matters here
+    a = k["A"][G.CHARGES.index(-1)].ravel()
+    assert np.allclose(a, population.state_sigma(mol, -1, p, energy_ev=E), rtol=1e-12, atol=0.0)
+    assert np.all(a >= pdt * (1.0 - 1e-12))
 
 
 def test_steady_state_passes_the_ions_charge_to_the_electrons():

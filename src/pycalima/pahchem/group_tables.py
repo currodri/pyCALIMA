@@ -13,7 +13,8 @@ blackbody photon spectrum n_E ~ E^2 / (exp(E/kT_s) - 1) for each T_s of ``TS_GRI
     H_g(z) = < sigma Y <E_k> >_g      [cm^2 eV per PAH]    kinetic energy given to the gas
     A_g(z) = < sigma >_g              [cm^2 per PAH]       absorption
 
-with sigma, Y and <E_k> of ``population`` (``photo.sigma_uv`` under ``Params.uv_cross_section``, ``population._yield``,
+with sigma, Y and <E_k> of ``population`` (``population.state_sigma``: ``photo.sigma_uv`` under
+``Params.uv_cross_section``, an anion's at least WD01's photodetachment cross section; ``population._yield``,
 ``population.electron_energy``) on a grid from the lowest group edge: photons below 5 eV detach anions too (the
 population's grid starts at 1 eV). The same three are given for the UV background (``K_bg`` etc.,
 rates per PAH in the Mathis ISRF at G0 = 1 Habing, 1-13.6 eV, as WDB06rt). Collisions are tabulated in T:
@@ -130,7 +131,7 @@ def molecule_kernels(job):
     nz, ng = len(CHARGES), len(nodes)
     A, K, H = (np.zeros((nz, E.size)) for _ in range(3))
     for i, z in enumerate(CHARGES):
-        sigma = photo.sigma_uv(mol.nc, z, E, params.uv_cross_section) * params.sigma_scale
+        sigma = pop.state_sigma(mol, z, params, energy_ev=E)
         y = pop._yield(mol, z, params, energy_ev=E)
         A[i], K[i] = sigma, sigma * y
         H[i] = K[i] * pop.electron_energy(mol, z, params, partition, energy_ev=E)
