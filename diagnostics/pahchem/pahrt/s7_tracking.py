@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import traceback
@@ -60,7 +61,9 @@ import s3_states as S3  # noqa: E402
 
 OUT = Path("results/pahrt_study/s7")
 YR = 3.15576e7
-MURGA_ROOT = Path.home() / "Documents/GitHub/pyCALIMA/reference_data/pahchem/murga2020"
+#: the murga2020-figshare folder: --murga2020 DIR (passed to the workers through $PAHRT_MURGA2020), else pahchem's
+#: dataset lookup (``murga_data.read_profile_2020`` with root None)
+MURGA_ROOT = Path(os.environ["PAHRT_MURGA2020"]) if os.environ.get("PAHRT_MURGA2020") else None
 SCHEMES = ("E", "TC", "TN")
 SCORED = ("heating", "cooling", "carbon", "h2", "e_source", "alpha_Cp", "z_mean", "bare", "dnh")
 TAUS = (1e2, 1e3, 1e4, 1e5)
@@ -532,7 +535,12 @@ def main(argv=None):
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--per-bin", type=int, default=5)
     ap.add_argument("--analyse", action="store_true")
+    ap.add_argument("--murga2020", type=Path, default=None, help="the Murga et al. (2020) figshare folder")
     a = ap.parse_args(argv)
+    global MURGA_ROOT
+    if a.murga2020 is not None:
+        os.environ["PAHRT_MURGA2020"] = str(a.murga2020)
+        MURGA_ROOT = a.murga2020
     S1._init(a.per_bin)
     if a.analyse:
         analyse(a.per_bin)
