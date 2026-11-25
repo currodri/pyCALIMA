@@ -7,9 +7,10 @@ exactly for a velocity linear between table points (``_kernels.advance``):
 no time steps, no stiffness limit, and equilibrium radii (roots of adot) are
 approached but never crossed.
 
-``remap`` takes the two-moment power-law profile of each source bin
-(``pl2m``), splits it into sub-intervals whose images are interpolated
-linearly in a (exact when adot is constant), cuts the images at the fixed
+``remap`` takes the in-bin profile of each source bin (the closure of the
+``method``, ``closures``; PL2M's power law for 'pl2m'), splits it into
+sub-intervals whose images are interpolated linearly in a (exact when adot
+is constant), cuts the images at the fixed
 bin edges and integrates number and mass of each piece analytically. Number
 moves along characteristics exactly; mass is the grains' new mass. Grains
 whose image falls below the smallest edge are removed (their mass goes back
@@ -64,17 +65,27 @@ def trajectory(adot, a0, dt, n_nodes=33, table=None):
     return s, np.array([K.advance_one(ta, tf, float(a0), float(si)) for si in s])
 
 
-def remap(grid, N, M, image, n_pieces=4, profile=None):
+def remap(grid, N, M, image, n_pieces=4, profile=None, method=None):
     """Remap (N, M) per bin along the flow map ``image(a) -> X(a)``.
 
     ``image`` is a vectorised callable giving the new radius of grains now at
     radius a; it must be monotone non-decreasing. Returns (N_new, M_new,
     lost_N, overflow_N, overflow_M): the number of grains that vanished below
-    the grid, and the number and mass carried above it. ``profile`` reuses a
-    ``BinProfile`` of (N, M) already built (e.g. across root-finding calls).
+    the grid, and the number and mass carried above it. ``method`` selects the
+    in-bin closure (``closures.GSDMethod`` or a name; default
+    ``closures.DEFAULT_METHOD``). ``profile`` reuses a reconstruction of
+    (N, M) already built (e.g. across root-finding calls): a ``BinProfile``
+    for 'pl2m', the ``closures.Pieces`` of the method otherwise.
     """
+    from .closures import Pieces, pieces, remap_pieces, resolve
+
     N = np.asarray(N, float)
     M = np.asarray(M, float)
+    meth = resolve(method)
+    if meth.closure != "pl2m":
+        P = profile if isinstance(profile, Pieces) else pieces(grid, N, M, meth)
+        N1, M1, lost, oN, oM = remap_pieces(grid, P, image, n_pieces)
+        return (*realisable(grid, N1, M1, tiny=1e-30 * max(N.sum(), 1e-300)), lost, oN, oM)
     prof = profile if profile is not None else BinProfile(grid, N, M)
     a_e = grid.a_edges
     t = np.linspace(0.0, 1.0, n_pieces + 1)

@@ -17,6 +17,7 @@ simulation output.
 
    pycalima.models.tools.radiation_fields
    pycalima.models.tools.mie_theory
+   pycalima.models.tools.coated_mie
    pycalima.models.tools.henke_extension
    pycalima.models.tools.read_ramses_sed
    pycalima.models.tools.utils
