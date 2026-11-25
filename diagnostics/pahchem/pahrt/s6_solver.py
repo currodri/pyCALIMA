@@ -103,11 +103,18 @@ def _build(job):
     return mol_name, time.time() - t
 
 
-def kernels(workers, which):
+def kernels(workers, which, prepare=False):
     from concurrent.futures import ProcessPoolExecutor
 
     KDIR.mkdir(parents=True, exist_ok=True)
     mols = test_molecules() if which == "test" else [m for b, ms in C.molecules(5).items() if b in BINS for m in ms]
+    if prepare:                                   # pahchem's bases per (molecule, shape) first, in parallel
+        from pycalima.pahchem import pahrt_kernels as PK
+
+        L0, L1 = groups()
+        for name, a, lo, hi, sec in PK.prepare_bases(mols, L0, L1, workers=workers):
+            print(f"prepared {name} alpha {a:g} [{lo:g}, {hi:g}] eV: {sec:.0f} s", flush=True)
+        workers = min(workers, len(mols))
     jobs = [(m.name, str(KDIR)) for m in sorted(mols, key=lambda m: -m.nc)]
     if workers > 1:
         with ProcessPoolExecutor(workers) as ex:
@@ -342,25 +349,76 @@ def fig_v2(res, nodes, method):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------------------------------------------- V5
+def v5():
+    """What a lean per-cell solver would cost per molecule: non-zero kernel entries (photon per group and slope;
+    multiphoton ones, whose kappa varies over the G0 nodes by > 1 %, keep their G0 table), collision entries per
+    kind, the full network's bandwidth (N_H-major ordering) and the flops of fold + banded solve; and the Python time
+    of one solve for reference."""
+    import time as _t
+
+    L0, L1 = groups()
+    rep = ["molecule        states  photon nz (lin/mp)  coll nz  band  flops: fold  solve   memory [kB]  python [ms]"]
+    rows = []
+    for mol in [m for b, ms in C.molecules(5).items() if b in BINS for m in ms]:
+        try:
+            ms = load_solver(mol)
+        except FileNotFoundError:
+            continue
+        mk = ms.mk
+        nz, nn = len(mk.charges), len(mk.nh_values)
+        pk = mk.photon_k[mk.valid]                       # [G, A, N0, P, Z, N]
+        nzmask = (pk != 0).any(axis=2)                   # [G, A, P, Z, N]
+        hi, lo = pk.max(axis=2), pk.min(axis=2)
+        mp = nzmask & (hi > 1.01 * np.where(lo > 0, lo, hi))
+        n_lin, n_mp = int((nzmask & ~mp).sum()), int(mp.sum())
+        n_coll = int((mk.coll_k != 0).any(axis=1).sum())
+        # bandwidth of the generator in N_H-major order (state = n * nz + z)
+        offs = [abs(dnh * nz + dz) for (_, dz, dnh, _) in mk.procs]
+        band = max(offs)
+        n_states = nz * nn
+        # fold: per slope pair one multiply-add per linear entry (2 slopes blended), multiphoton entries also a
+        # log-log interpolation (~10 flops); collisions: 2 (T interpolation) + 1 (density) per entry
+        fold = 2 * 2 * n_lin / mk.alphas.size * 2 + 12 * n_mp / mk.alphas.size * 2 + 3 * n_coll
+        solve = n_states * band ** 2
+        mem = 8 * (n_lin + n_mp * mk.g0.size + n_coll * mk.lt.size) / 1e3
+        cell, _ = cell_of(C.PHASES["PDR"], L0, L1)
+        t = _t.perf_counter()
+        for _ in range(3):
+            ms.solve(cell)
+        py = (_t.perf_counter() - t) / 3 * 1e3
+        rows.append((mol.name, n_states, n_lin, n_mp, n_coll, band, fold, solve, mem, py))
+        rep.append(f"{mol.name:16s} {n_states:6d}  {n_lin:8d}/{n_mp:<8d} {n_coll:8d}  {band:4d}  {fold:10.3g}  "
+                   f"{solve:8.3g}  {mem:10.0f}  {py:10.1f}")
+    text = "\n".join(rep)
+    (OUT / "v5_cost.txt").write_text(text)
+    print(text)
+    return rows
+
+
 def main(argv=None):
     global BINS, KDIR
     os.environ.setdefault("CALIMA_WORKERS", "1")
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=("kernels", "v1", "v2"))
+    ap.add_argument("what", choices=("kernels", "v1", "v2", "v5"))
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--molecules", choices=("test", "all"), default="test")
     ap.add_argument("--bins", type=int, nargs="+", default=list(BINS))
     ap.add_argument("--method", choices=("full", "nested"), default="full")
     ap.add_argument("--kdir", type=Path, default=None, help="the kernels' directory (default s6/kernels)")
+    ap.add_argument("--prepare", action="store_true", help="build pahchem's bases per (molecule, shape) in parallel "
+                    "first (for the large molecules)")
     a = ap.parse_args(argv)
     BINS = tuple(a.bins)
     if a.kdir is not None:
         KDIR = a.kdir
     OUT.mkdir(parents=True, exist_ok=True)
     if a.what == "kernels":
-        kernels(a.workers, a.molecules)
+        kernels(a.workers, a.molecules, a.prepare)
     elif a.what == "v1":
         v1()
+    elif a.what == "v5":
+        v5()
     else:
         v2(a.method)
 

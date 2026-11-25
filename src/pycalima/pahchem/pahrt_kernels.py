@@ -250,6 +250,42 @@ def build_molecule(mol, L0, L1, params_kw=None, alphas=ALPHAS, lt=LT, ions=None,
                            ck, cw)
 
 
+def _prepare(job):
+    """Build and cache pahchem's bases and responses of one molecule under one photon basis shape."""
+    import time
+
+    from pycalima import _paths
+    from pycalima.pahchem import population as P
+    from pycalima.pahchem.baseline import Environment
+
+    mol, alpha, lo, hi, params_kw = job
+    t = time.time()
+    params = P.Params(hydrogen_chain="joint", **{"cosmic_rays": True, **(params_kw or {})})
+    pop = P.Population([mol], {"all": (1.0, 1e4)}, params=params,
+                       cache_dir=_paths.get_model_data_dir() / "pahchem_population_basis")
+    pop.joint_networks(Environment("pahrt", 1.0, N_REG, N_REG, T_PHOTON_K, teff_k=None, ions=(), optical_isrf=0.0,
+                                   field_powerlaw=float(alpha), field_e_min_ev=float(lo), field_e_max_ev=float(hi)))
+    return mol.name, alpha, lo, hi, time.time() - t
+
+
+def prepare_bases(mols, L0, L1, params_kw=None, alphas=ALPHAS, workers=1):
+    """Build pahchem's bases of every (molecule, photon basis shape) in parallel, the largest molecules and hardest
+    groups first (they are cached on disk, so ``build_molecule`` then only evaluates); yields each job's
+    (name, alpha, lo, hi, seconds)."""
+    from pycalima.pahchem import population as P
+
+    L0, L1 = np.asarray(L0, float), np.asarray(L1, float)
+    valid = (L1 > P.E_PH_MIN_EV) & (L1 <= E_VALENCE_MAX_EV * (1 + 1e-9))
+    jobs = [(m, a, max(L0[g], P.E_PH_MIN_EV), L1[g], params_kw) for m in mols for g in np.nonzero(valid)[0][::-1]
+            for a in alphas]
+    jobs.sort(key=lambda j: (-j[0].nc, -j[3]))
+    if workers > 1:
+        with ProcessPoolExecutor(workers) as ex:
+            yield from ex.map(_prepare, jobs)
+    else:
+        yield from map(_prepare, jobs)
+
+
 def _job(job):
     mol, L0, L1, params_kw, out = job
     path = Path(out) / f"{slug(mol)}.npz"
