@@ -88,12 +88,13 @@ def test_molecules():
 
 
 # ---------------------------------------------------------------------------------------------------------- kernels
-def _build(mol_name):
+def _build(job):
     from pycalima.pahchem import pahrt_kernels as PK
 
+    mol_name, kdir = job
     mols = {m.name: m for ms in C.molecules(5).values() for m in ms}
     mol = mols[mol_name]
-    path = KDIR / f"{PK.slug(mol)}.npz"
+    path = Path(kdir) / f"{PK.slug(mol)}.npz"
     if path.exists():
         return mol_name, 0.0
     t = time.time()
@@ -107,14 +108,15 @@ def kernels(workers, which):
 
     KDIR.mkdir(parents=True, exist_ok=True)
     mols = test_molecules() if which == "test" else [m for b, ms in C.molecules(5).items() if b in BINS for m in ms]
-    names = [m.name for m in sorted(mols, key=lambda m: -m.nc)]
+    jobs = [(m.name, str(KDIR)) for m in sorted(mols, key=lambda m: -m.nc)]
     if workers > 1:
         with ProcessPoolExecutor(workers) as ex:
-            for name, s in ex.map(_build, names):
+            for name, s in ex.map(_build, jobs):
                 print(f"{name}: {s:.0f} s", flush=True)
     else:
-        for name in names:
-            print(f"{_build(name)[0]}: done", flush=True)
+        for job in jobs:
+            name, s = _build(job)
+            print(f"{name}: {s:.0f} s", flush=True)
 
 
 def load_solver(mol):
@@ -206,7 +208,14 @@ def v1():
 TEN_GYR_S = 3.156e17
 
 
+#: the net electron source per molecule below which it is round-off around zero (ion-free cells); 1e-12 s^-1 per
+#: molecule at x_PAH ~ 1e-7 is 1e-19 per H, far below cosmic-ray ionisation
+E_SOURCE_FLOOR = 1e-12
+
+
 def floor_of(k, nc):
+    if k == "e_source":
+        return E_SOURCE_FLOOR
     if k == "carbon":
         return nc / TEN_GYR_S
     if k in ("h2", "h_uptake"):
@@ -215,8 +224,11 @@ def floor_of(k, nc):
 
 
 def dev(t, s, k, nc=0):
-    """log10(s / t) for ratio outputs (floored, ``floor_of``; 0 where both vanish), s - t otherwise."""
-    if k in IN_RATIO:
+    """log10(s / t) for ratio outputs (floored, ``floor_of``; 0 where both vanish; the electron source in magnitude),
+    s - t otherwise."""
+    if k == "e_source":
+        t, s = abs(t), abs(s)
+    if k in IN_RATIO or k == "e_source":
         f = max(floor_of(k, nc), 1e-300)
         if t <= f and s <= f:
             return 0.0
@@ -262,7 +274,7 @@ def fig_v1(res, envs):
 
 
 # ---------------------------------------------------------------------------------------------------------------- V2
-def v2():
+def v2(method="full"):
     import s1_drivers as S1
 
     L0, L1 = groups()
@@ -281,7 +293,7 @@ def v2():
                 continue
             cell, _ = cell_of(ph, L0, L1)
             try:
-                _, o = ms.solve(cell, "nested")
+                _, o = ms.solve(cell, method)
             except Exception as exc:                       # one node, not the run
                 print(f"{mol.name} node {i}: {exc}")
                 continue
@@ -291,14 +303,15 @@ def v2():
         res[mol.name] = D
         rep.append(f"{mol.name:16s} " + " ".join(f"{k}:{np.nanmedian(np.abs(D[:, j])):.2g}/{np.nanmax(np.abs(D[:, j])):.2g}"
                                                  for j, k in enumerate(SCORED)))
-    text = "median/max |log10 ratio| (rates) or |difference| over S1's nodes, nested solver vs truth\n" + "\n".join(rep)
-    (OUT / "v2_molecules.txt").write_text(text)
+    text = (f"median/max |log10 ratio| (rates) or |difference| over S1's nodes, {method} solver vs truth\n"
+            + "\n".join(rep))
+    (OUT / f"v2_molecules_{method}.txt").write_text(text)
     print(text)
-    np.save(OUT / "v2_results.npy", res, allow_pickle=True)
-    fig_v2(res, nodes)
+    np.save(OUT / f"v2_results_{method}.npy", res, allow_pickle=True)
+    fig_v2(res, nodes, method)
 
 
-def fig_v2(res, nodes):
+def fig_v2(res, nodes, method):
     """Median and worst |deviation| per molecule and output, and the worst per S1 input swept."""
     import matplotlib.pyplot as plt
     import plots
@@ -312,7 +325,7 @@ def fig_v2(res, nodes):
         im = ax.imshow(np.log10(np.maximum(M, 1e-4)), aspect="auto", cmap="magma_r", vmin=-4, vmax=1)
         ax.set_xticks(range(len(SCORED)), SCORED, rotation=70, fontsize=7)
         ax.set_yticks(range(len(names)), names, fontsize=7)
-        ax.set_title(f"{title} |dev| over S1's nodes (log10)", fontsize=9)
+        ax.set_title(f"{title} $|$dev$|$ over S1's nodes (log10)", fontsize=9)
         fig.colorbar(im, ax=ax, fraction=0.04)
     M = np.array([[np.nanmax(np.abs(np.concatenate([res[n][i:i + 1, :] for n in names
                                                      for i in range(len(nodes)) if nodes[i][1] == inp])[:, j]))
@@ -320,32 +333,36 @@ def fig_v2(res, nodes):
     im = axes[2].imshow(np.log10(np.maximum(M, 1e-4)), aspect="auto", cmap="magma_r", vmin=-4, vmax=1)
     axes[2].set_xticks(range(len(SCORED)), SCORED, rotation=70, fontsize=7)
     axes[2].set_yticks(range(len(inputs)), inputs, fontsize=8)
-    axes[2].set_title("worst |dev| per input swept (all molecules)", fontsize=9)
+    axes[2].set_title("worst $|$dev$|$ per input swept (all molecules)", fontsize=9)
     fig.colorbar(im, ax=axes[2], fraction=0.04)
-    fig.suptitle("PAHrt V2: nested solver vs pahchem; log10 ratio for rates, difference for shares and charge",
-                 fontsize=10)
+    fig.suptitle(f"PAHrt V2: {method} solver vs pahchem; log10 ratio for rates (and $|$e source$|$), difference for "
+                 "shares and charge", fontsize=10)
     fig.tight_layout()
-    fig.savefig(OUT / "v2_molecules.png", dpi=150)
+    fig.savefig(OUT / f"v2_molecules_{method}.png", dpi=150)
     plt.close(fig)
 
 
 def main(argv=None):
-    global BINS
+    global BINS, KDIR
     os.environ.setdefault("CALIMA_WORKERS", "1")
     ap = argparse.ArgumentParser()
     ap.add_argument("what", choices=("kernels", "v1", "v2"))
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--molecules", choices=("test", "all"), default="test")
     ap.add_argument("--bins", type=int, nargs="+", default=list(BINS))
+    ap.add_argument("--method", choices=("full", "nested"), default="full")
+    ap.add_argument("--kdir", type=Path, default=None, help="the kernels' directory (default s6/kernels)")
     a = ap.parse_args(argv)
     BINS = tuple(a.bins)
+    if a.kdir is not None:
+        KDIR = a.kdir
     OUT.mkdir(parents=True, exist_ok=True)
     if a.what == "kernels":
         kernels(a.workers, a.molecules)
     elif a.what == "v1":
         v1()
     else:
-        v2()
+        v2(a.method)
 
 
 if __name__ == "__main__":

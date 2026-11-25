@@ -15,9 +15,11 @@ Per molecule (``MoleculeSolver``):
    1-2, 2026-11-25). Reading it where the group alone would give the cell's absorbed power or rate overstates the
    cross-group heating (``PROXIES``).
 2. **Collision rates.** Per unit density on log T (linear in log T), times n_e, n(H I) and each ion.
-3. **The steady state.** Either "full", the whole (Z, N_H) network (``network.PAHNetwork.steady_state_closed``), or
-   "nested", RAMSES' algorithm with charge fast against hydrogenation (study S7). Nested takes the charge balance at
-   each N_H, then the N_H ladder with charge-averaged rates.
+3. **The steady state.** "full" (the default), the whole (Z, N_H) network (``network.PAHNetwork.steady_state_closed``),
+   or "nested", a cheaper scheme with charge fast against hydrogenation (study S7): the charge balance at each N_H,
+   then the N_H ladder with charge-averaged rates. Nested fails where H addition is as fast as charging (shielded
+   gas: H2 up to 2.9 dex and H uptake 2 dex off on S1's nodes against 1.4 and 0.6 dex in full, bins 1-2,
+   2026-11-25).
 4. **Outputs.** Sums over states of f times the per-state rates. The net electron source counts the photon- and
    collision-driven steps; ion-driven charge steps free no electron. alpha[ion] is the rate of the ion-driven steps
    per unit n(ion).
@@ -190,7 +192,7 @@ class MoleculeSolver:
                 lad.add(name, r[None, :], 0, dnh, h2)
         return fz * lad.steady_state_closed()[0][None, :]
 
-    def solve(self, cell, method="nested"):
+    def solve(self, cell, method="full"):
         """(F[Z, N], outputs) of the cell."""
         Kp, Wp = self.photon(cell)
         Kc, Ki, Wc = self.collisions(cell)
@@ -251,7 +253,7 @@ class PAHrtBin:
         w = W / self.mass
         return w / w.sum()
 
-    def solve(self, cell, s=0.5, method="nested"):
+    def solve(self, cell, s=0.5, method="full"):
         """({output: number-weighted mean per molecule}, [per-molecule outputs], weights)."""
         outs = [m.solve(cell, method)[1] for m in self.solvers]
         w = self.weights(s)
