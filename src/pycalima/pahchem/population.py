@@ -969,6 +969,22 @@ CR_SHAPES = ("L", "H")
 #: a molecule with no computed dication (``extend_ladder``)
 LADDER_STEP_FIT = (0.4640, 16.9086)
 
+#: a computed step further than this (relative) from LADDER_STEP_FIT is not a conductor's e^2/C (``ladder_step``): 1.3 %
+#: of the even-N_H0 molecules with a dication but 35 % of the odd ones, whose charge states PAHdb computed partly with
+#: RB3LYP, partly with UB3LYP (C89H27: 0.91 eV against the fit's 2.26, which put +9 below 13.6 eV; pahchem audit
+#: 2026-11-25, bug 1)
+LADDER_STEP_TOL = 0.25
+
+
+def ladder_step(mol, computed=None):
+    """The Coulomb step [eV] the ladder repeats beyond (and below) the computed charges: ``computed``, a step of the
+    molecule's own thresholds, when it lies within LADDER_STEP_TOL of LADDER_STEP_FIT, else the fit (also with no
+    computed step)."""
+    fit = LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc)
+    if computed is None or abs(computed / fit - 1.0) > LADDER_STEP_TOL:
+        return float(fit)
+    return float(computed)
+
 
 def extend_ladder(mol):
     """``mol`` with its charges up to the cold Coulomb limit floor(0.2 N_C) (``impact.coulomb_limit``;
@@ -978,7 +994,8 @@ def extend_ladder(mol):
       ``top_threshold`` assumed: they reproduce PAHdb's +2 -> +3 of C54H18 and C96H24 to 0.07 eV, and with the
       calibrated shifts of the PDRs4All fits give 13.4-14.1 eV for the isomers of C30H14, C32H14 and C36H18 against
       Wenzel+20's measured 13.9-14.1 eV. A molecule with no computed dication takes its +1 -> +2 step from
-      LADDER_STEP_FIT.
+      LADDER_STEP_FIT, and so does one whose computed step is more than LADDER_STEP_TOL off the fit (``ladder_step``;
+      28 of v4.00's molecules, mostly odd-N_H0 radicals, since 2026-11-25).
     - **Stand-ins:** the states above the highest computed charge take its modes (``Molecule.stand_ins``):
       multiply charged spectra are cation-like (Bakes+01, Malloci+07, Banhatti+21) and no prescription for their
       change beyond +2 is published. Their UV cross section is +2's (``photo.sigma_uv``), as WD01 and Draine & Li 2007
@@ -993,10 +1010,10 @@ def extend_ladder(mol):
         raise ValueError(f"{mol.name}: extend_ladder needs a computed cation")
     th = dict(mol.ionisation_ev)
     if top == 1:
-        step = LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc)
+        step = ladder_step(mol)
         th[1] = th[0] + step
     else:
-        step = th[top - 1] - th[top - 2]
+        step = ladder_step(mol, th[top - 1] - th[top - 2])
     for z in range(max(top, 2), z_top):
         th[z] = th[z - 1] + step
     species = mol.species | {z: mol.species[top] for z in range(top + 1, z_top + 1)}
@@ -1128,15 +1145,13 @@ def ionisation_products(mol, z, params, shape):
 def anion_valence_threshold(mol):
     """Threshold [eV] for removing a valence electron (not the extra one) from the anion, which leaves the neutral
     excited: the molecule's own ladder one Coulomb step down, 2 IP(0) - IP(+1), as WD01 eq. 2 steps IP_V(Z) with
-    the charge. Without an IP(+1) (no computed dication, the "library" ladder) the step is LADDER_STEP_FIT's, the one
-    ``extend_ladder`` gives such a molecule, so both ladders agree. At least the EA. C24H12 3.55, C54H18 3.75, C96H24
-    3.88 eV with the calibrated shifts. Until 2026-11-02 the step without an IP(+1) was WD01's e^2/a (1 + 0.3 A/a) at
-    the disc radius, which is 0.78x (0.73-0.85x) the DFT steps: the threshold was ~0.5 eV higher."""
+    the charge. Without an IP(+1) (no computed dication, the "library" ladder), or with one whose step is more than
+    LADDER_STEP_TOL off the fit, the step is LADDER_STEP_FIT's (``ladder_step``), the one ``extend_ladder`` gives such
+    a molecule, so both ladders agree. At least the EA. C24H12 3.55, C54H18 3.75, C96H24 3.88 eV with the calibrated
+    shifts. Until 2026-11-02 the step without an IP(+1) was WD01's e^2/a (1 + 0.3 A/a) at the disc radius, which is
+    0.78x (0.73-0.85x) the DFT steps: the threshold was ~0.5 eV higher."""
     th = mol.ionisation_ev
-    if 1 in th:
-        ipv = 2.0 * th[0] - th[1]
-    else:
-        ipv = th[0] - (LADDER_STEP_FIT[0] + LADDER_STEP_FIT[1] / np.sqrt(mol.nc))
+    ipv = th[0] - ladder_step(mol, th[1] - th[0] if 1 in th else None)
     return max(float(ipv), float(th[-1]))
 
 
@@ -1508,12 +1523,19 @@ def _unit_field(shape):
     - ("draine", r[, e_min_ev]): the same plus r x the solar-circle old-star light below 5 eV (``fields.old_stars_flux``),
       r = ``Environment.optical_isrf`` / G0, so that G0 times this field leaves the old stars unscaled;
     - ("cr_uv", source, x_h2, signature): the cosmic-ray-induced field at zeta(H2) = ``cr_uv.ZETA_REF`` (``cr_uv.field``
-      on E_PH), so that "G0" is zeta(H2) / 1e-16, RTZ's scale factor; ``cr_uv.signature`` keys the cached bases.
+      on E_PH), so that "G0" is zeta(H2) / 1e-16, RTZ's scale factor; ``cr_uv.signature`` keys the cached bases;
+    - ("sum", ((shape, w), ...)): sum_i w_i x the unit field of shape i (``Environment.field_sum``), zero between the
+      parts (an AGN's far UV, cut at 13.6 eV, and its X-rays above a column's cut leave the EUV out).
     """
     if shape[0] == "cr_uv":
         from pycalima.pahchem import cr_uv
 
         return cr_uv.field(cr_uv.ZETA_REF, shape[2], shape[1], energy_ev=E_PH)
+    if shape[0] == "sum":                      # ("sum", ((shape, w), ...)): zero nodes just outside each part's edges
+        parts = [(_unit_field(s), w) for s, w in shape[1]]
+        E = np.unique(np.concatenate([np.concatenate([f.energy_ev, f.energy_ev[[0, -1]] * (1.0 + np.array([-1e-9, 1e-9]))])
+                                      for f, _ in parts]))
+        return fields.RadiationField(E, sum(w * f.flux_at(E) for f, w in parts), "sum")
     if shape[0] == "kurucz":
         e_max = shape[2] if len(shape) > 2 else fields.LYMAN_EV
         e_min = shape[3] if len(shape) > 3 else E_PH_MIN_EV
@@ -1537,6 +1559,8 @@ def field_shape(env):
         from pycalima.pahchem import cr_uv
 
         return ("cr_uv", str(env.field_cr_uv), float(getattr(env, "cr_uv_x_h2", 0.5)), cr_uv.signature(env.field_cr_uv))
+    if getattr(env, "field_sum", ()):
+        return ("sum", tuple((tuple(sh), float(w)) for sh, w in env.field_sum))
     e_min = float(getattr(env, "field_e_min_ev", E_PH_MIN_EV))
     if getattr(env, "field_powerlaw", None) is not None:
         return ("powerlaw", float(env.field_powerlaw), float(env.field_e_max_ev), e_min)
@@ -2594,10 +2618,12 @@ class Population:
         charge (ions and associative detachment act on -1 and 0), so a state is live if the one below is and ionises in
         this field shape (k_up > 0); the others have f = 0 at every G0 and get no basis. A ladder to the cold limit then
         costs only the states the field reaches (in a field cut at 13.6 eV, those whose threshold from below is under
-        13.6 eV, as WD01 eq. 22)."""
+        13.6 eV, as WD01 eq. 22). Where C 1s absorption has its own branching (``_kshell_on``), every state is live: its
+        +2 and +3 steps reach past the states the valence photons reach, and were counted as Coulomb explosions before
+        2026-11-19 (an X-ray field's whole K-shell rate out of the live top)."""
         key = ("live", shape)
-        if key not in self._arrays and (self.p.cosmic_rays or self.p.hot_gas):
-            self._arrays[key] = self.present.copy()        # passages reach every charge (+1 ... +CR_DZ_MAX steps)
+        if key not in self._arrays and (self.p.cosmic_rays or self.p.hot_gas or self._kshell_on(shape)):
+            self._arrays[key] = self.present.copy()        # passages and C 1s Auger steps (+1 ... +3) reach every charge
         if key not in self._arrays:
             field1 = _unit_field(shape)
             live = self.present.copy()

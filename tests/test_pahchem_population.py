@@ -926,6 +926,41 @@ def test_kshell_auger_raises_the_charge_in_x_rays_and_conserves_electrons():
     assert r["gamma_pe"] > single.gas_rates(xray, x)["gamma_pe"]          # the ~250 eV Auger electrons heat
 
 
+def test_a_summed_field_is_its_parts_with_nothing_between_them():
+    """``Environment.field_sum``: the unit field of ("sum", ...) is the weighted sum of its parts' unit fields, with no
+    flux between them (an AGN's far UV cut at 13.6 eV and its X-rays above a column's cut leave the EUV out); G0 is the
+    far-UV part's and the X-rays carry w times it as energy flux. ``Environment.field`` gives the same field."""
+    from pycalima.pahchem import fields
+
+    uv, xr = ("powerlaw", 0.5, 13.6, 1.0), ("powerlaw", 0.9, 1e4, 1400.0)
+    env = Environment("agn", 1e4, 1e4, 10.0, 300.0, None, field_sum=((uv, 1.0), (xr, 0.3)))
+    f = population.env_field(env)
+    assert f.g0() == pytest.approx(1e4, rel=1e-9)
+    E, F = f.energy_ev, f.photon_flux
+    hi = E > 1e3
+    assert np.trapezoid(E[hi] * F[hi], E[hi]) * fields.EV_ERG / fields.HABING_FLUX == pytest.approx(0.3e4, rel=1e-6)
+    assert not f.flux_at(np.geomspace(14.0, 1390.0, 50)).any()
+    parts = population._unit_field(uv).flux_at(E) + 0.3 * population._unit_field(xr).flux_at(E)
+    assert F == pytest.approx(1e4 * parts, rel=1e-12)
+    assert env.field().photon_flux == pytest.approx(F, rel=1e-12)
+
+
+def test_kshell_steps_keep_every_charge_live_so_x_rays_explode_only_past_the_ladder_top():
+    """In a field that reaches the C K edge every charge is live: the Auger steps (+2, +3) reach past the states the
+    valence photons reach. Before 2026-11-19 an X-ray-only field's live ladder stopped at +1, and every C 1s absorption
+    landed past it as a Coulomb explosion; with n_e = 10 cm^-3 the molecule stays near neutral, far below its cold
+    limit, and explodes at a small fraction of its C 1s absorption rate."""
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    pop = population.Population([mol], WINDOWS)
+    xray = Environment("xr", 1e3, 1e4, 10.0, 300.0, None, field_powerlaw=0.9, field_e_min_ev=1400.0, field_e_max_ev=1e4)
+    shape = population.field_shape(xray)
+    own = pop.library[0]
+    assert pop._kshell_on(shape) and pop._live_charges(own, shape) == own.charges
+    f = pop.charge_matrix(xray)
+    k_c1s = xray.g0 * float((pop._kshell_stack(shape)["k"].sum(axis=0) * f).sum())
+    assert k_c1s > 0.0 and pop.chain_overflow(xray)[0] < 1e-3 * k_c1s
+
+
 def test_dissociative_recombination_strips_in_x_rays_and_leaves_plain_chains_alone(monkeypatch):
     """X-rays only: no photon deposits (the loss tables are 0 and stay 0), so captures and Auger decays are the H loss,
     and dissociative recombination lowers f(N_H0). A plain chain (no C 1s, no ions, no ionisation heating) keeps its
@@ -1581,11 +1616,41 @@ def test_extend_ladder_reaches_the_cold_limit_with_stand_ins_and_constant_steps(
         assert np.allclose(steps, a + b / np.sqrt(mol.nc))
         assert population.top_threshold(ext) == pytest.approx(ext.ionisation_ev[z_top - 1] + steps[-1])
         assert population.extend_ladder(ext) is ext
-    mol = _library()[0]
-    dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: 9.3}, _cache={})
-    ext = population.extend_ladder(dication)
-    assert ext.stand_ins[0] == 3
-    assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(0, max(ext.charges))]), 2.8)
+    mol = _library()[0]                                    # C22H14: the fit's step is 4.07 eV
+    fit = a + b / np.sqrt(mol.nc)
+    for ip1, step in ((10.1, 3.6), (9.3, fit)):            # a computed step within LADDER_STEP_TOL, one 31 % off
+        dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: ip1}, _cache={})
+        ext = population.extend_ladder(dication)
+        assert ext.stand_ins[0] == 3
+        assert ext.ionisation_ev[1] == ip1
+        assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(1, max(ext.charges))]), step)
+        anion = replace(dication, ionisation_ev={-1: 0.5} | dication.ionisation_ev)    # one step down, the same rule
+        assert population.anion_valence_threshold(anion) == pytest.approx(6.5 - step)
+
+
+def test_extended_ladders_repeat_only_steps_near_the_conductor_fit():
+    """Over PAHdb v4.00 every step ``extend_ladder`` repeats lies within LADDER_STEP_TOL of LADDER_STEP_FIT: a molecule's
+    computed step where it does (unchanged), the fit's where it does not (audit 2026-11-25, bug 1: C115H29's 0.48 eV
+    step reached +16 below 13.6 eV)."""
+    from pycalima.pahchem import impact
+
+    _, lib = _v400()
+    a, b = population.LADDER_STEP_FIT
+    replaced = 0
+    for mol in lib:
+        top, z_top = max(mol.charges), impact.coulomb_limit(mol.nc)
+        if top < 2 or z_top <= top:
+            continue
+        ext = population.extend_ladder(mol)
+        fit = a + b / np.sqrt(mol.nc)
+        computed = mol.ionisation_ev[top - 1] - mol.ionisation_ev[top - 2]
+        steps = np.diff([ext.ionisation_ev[z] for z in range(top - 1, z_top)])
+        assert np.all(np.abs(steps / fit - 1.0) <= population.LADDER_STEP_TOL + 1e-12)
+        if abs(computed / fit - 1.0) <= population.LADDER_STEP_TOL:
+            assert np.allclose(steps, computed, rtol=1e-12)
+        else:
+            replaced += 1
+    assert replaced > 0
 
 
 def test_cold_limit_ladder_gives_no_basis_to_states_the_field_cannot_reach():
@@ -1707,8 +1772,11 @@ def test_anion_valence_threshold_is_one_coulomb_step_down_the_ladder():
     assert population.anion_valence_threshold(mol) == pytest.approx(max(th[0] - (a + b / np.sqrt(mol.nc)), th[-1]))
     assert population.anion_valence_threshold(population.extend_ladder(mol)) == pytest.approx(
         population.anion_valence_threshold(mol))
-    computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + 2.0}, _cache={})
-    assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - 2.0, th[-1]))
+    fit = a + b / np.sqrt(mol.nc)
+    for step, used in ((0.9 * fit, 0.9 * fit), (0.6 * fit, fit)):     # its own step, unless LADDER_STEP_TOL off the fit
+        computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + step},
+                           _cache={})
+        assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - used, th[-1]))
 
 
 # -- the joint (Z, N_H) chain (Params.hydrogen_chain = "joint") -------------------------------------------------------------

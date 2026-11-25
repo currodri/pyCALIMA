@@ -1,5 +1,9 @@
 # PAHchem against the PDRs4All methods: what we fit, what they fit (2026-10-21)
 
+```{important}
+A dated snapshot of 2026-10-21. The fit it quotes predates the default changes from 2026-11-01, and no PDRs4All refit has been made since. The current state is in {doc}`pahchem-status`.
+```
+
 This page compares how the PDRs4All papers model the Orion Bar PAH emission
 with how pahchem fits it. It lists every degree of freedom in our fit, and it
 proposes how to produce profiles along the PDR (population, charge,

@@ -1,5 +1,9 @@
 # PAHchem: briefing figures (2026-10-20)
 
+```{important}
+A dated snapshot: the text is of 2026-10-20 to 2026-10-26, and its figures were last rebuilt on 2026-10-26, before every default change from 2026-11-01. The current state is in {doc}`pahchem-status`.
+```
+
 ```{note}
 Updated after the code audit of 2026-10-20 ({doc}`pahchem-audit`):
 - **Fixes applied.** Seven bugs were fixed (C1–C7), and the figures and
