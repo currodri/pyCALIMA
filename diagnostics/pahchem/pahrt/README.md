@@ -124,11 +124,11 @@ the molecules' lumped rates and per-state outputs averaged state by state, as `g
 | hydrogenation smeared by averaging rates | bins 1-2 (carbon loss, H2, <N_H>) | split each bin into 2-3 response groups (by the G0/n(H I) where each molecule strips, or by structure: C2H2-capable or not), each with its own averaged network; test at equal cost (e.g. 2 groups x 4-5 classes); or a few representative molecules solved per cell (cost x K) |
 | equilibrium misses fast fluctuations | bins 1-2 (H2, carbon, e source); H2 everywhere | track 9 class populations in bins 1-2 (18 scalars; bin 1's deep class split for H2) |
 | charges above +2 | bins 2-4 at gamma >~ 1e4-1e5 | a top charge per bin, or one lumped ">= +3" state with its own kernels |
-| C89H27 at <Z> +6.8 | pahchem's ladder above its top computed charge | check with the pahchem session |
+| C89H27 at <Z> +6.8 | pahchem's ladder above its top computed charge. The pahchem audit of 25 November traced it: `extend_ladder` repeats the last computed step, and PAHdb mixes RB3LYP and UB3LYP between charge states, so C89H27 reaches +9 below 13.6 eV (C115H29 and C121H29 +15/+16) | pahchem's proposed fix (the fitted step where the last one is more than 25 % off it; 28 molecules), the user's decision; then revisit S6's +5 cap |
 | super-H cap (+4) binds for H2 | bins 3-4 in shielded gas | the deep super-H chain (PRs #17/#18) and decision 4 |
 | multiphoton heating (G0^2 dehydrogenation for N_C >~ 50, G0^2-3 bare carbon loss), tabulated for one shape only | all bins, strong fields | S4 (not run): a field proxy (absorption rate and mean absorbed energy, or two-photon group kernels) tested on other shapes |
 | the in-bin shape s | all bins | S5 (not run): kernels at the 5 pseudo-bin states, blended in s; the tables so far weight molecules equally |
-| the multiphoton cascade fails for C268H52 with old-star light at G0 0.01 | pahchem | report to the pahchem session |
+| the multiphoton cascade fails for C268H52 with old-star light at G0 0.01 | pahchem (audit, 25 November): the old-star optical light is scaled with every G0 node of the multiphoton tables, which extrapolate below G0 1 | pahchem's fix, the user's decision. S6's kernel bases carry no old-star light (`optical_isrf=0`); only the truth's "draine+old" fields are affected |
 
 ## S6: the per-cell equilibrium solver (from 24 November; `s6_solver.py`)
 
@@ -256,6 +256,16 @@ Open issues found in S6:
 - **Old-star fields at G0 < 1** lie below pahchem's k_H grid, where pahchem extrapolates its multiphoton tables. This
   explains the H and H2 loss differences there.
 - **A hard 1-100 eV field at G0 >= 1e4** puts deposits and H2 off by up to 3 dex (EUV groups; unexplained).
+- **The bin's structural mix is fixed.** `representatives` picks the molecules by N_C rank, blind to structure, and
+  the PL2M weights do not move. The C2H2-capable (quartet-H) ones are C42H24 (bin 1), C60H26 and C72H26 (bin 2),
+  C144H36 (bin 3) and C268H52 (bin 4). Each molecule is solved on its own, so the instantaneous mean is exact, but
+  selective C2H2 loss never depletes the fragile share: coupled as is, a bin would lose carbon at about the
+  catacondensed rate for ever. To decide (the user): a per-structure carbon output with a tracked catacondensed share
+  per bin, or compact-only bins.
+- **Two latent solver defects, fixed 25 November** (found by the pahchem audit). The free-electron count read only
+  "deposit dZ ±1", and the H2 output left out the ions' flows. No stored kernel has a dZ >= +2 deposit or an
+  ion-driven H2 process, so no result above changes. Both would have mattered once double ionisation, C 1s, cosmic
+  rays or hot gas enter the bases.
 - **Not in the bases yet:**
   - cosmic-ray passages (pahchem blends two spectra with zeta-dependent weights, so they need a zeta grid);
   - hot gas (tier T3);

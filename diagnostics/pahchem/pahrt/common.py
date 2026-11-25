@@ -29,6 +29,8 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from pycalima.gsd.pahrt import electrons_per_event
+
 os.environ.setdefault("CALIMA_WORKERS", "1")
 
 OUTPUTS = ("f_m1", "f_0", "f_p1", "f_p2", "z_mean", "heating", "cooling", "absorbed", "carbon", "h2", "h_uptake",
@@ -127,19 +129,6 @@ class Truth:
         if net is None:
             net, W = self.network(env)
         return outputs(net, W, self.mol.nh, self.ion_rates(env), env, F)
-
-
-def electrons_per_event(name, dz):
-    """Free electrons a process makes per event (negative: captured); ion-driven steps are handled by the caller."""
-    if name.startswith("ionisation"):
-        return dz if "proton" not in name else dz + int(name.split("emitted")[0].split()[-2])
-    if name == "associative detachment":
-        return 1
-    if name.startswith("deposit dZ +1"):
-        return 1
-    if name.startswith("deposit dZ -1") or name.startswith("electron capture"):
-        return -1
-    return 0                 # H, H2, proton loss, H addition, Eley-Rideal
 
 
 def outputs(net, W, nh0, ion_rates, env, F=None):
