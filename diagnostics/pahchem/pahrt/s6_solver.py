@@ -459,11 +459,80 @@ def v5():
     return rows
 
 
+def _q(R, c):
+    """median / p90 / max of column c."""
+    return f"{np.median(R[:, c]):.3g}/{np.percentile(R[:, c], 90):.3g}/{R[:, c].max():.3g}"
+
+
+def v5b():
+    """The per-cell work a lean solver would do on S1's nodes, per molecule (median / 90 % / max over the nodes):
+    linear kernel entries in the live states (one multiply-add each, at the run's slope), multiphoton entries past
+    their linear range ("self": each group's G0 is its own flux, so an entry is linear below the G0 where its kappa
+    leaves its first node's by 1 %), collision entries, and a banded solve on the live states (charges with
+    f(Z) > 1e-10 and N_H levels with p > 1e-12 of the full solution, the set a nested predictor would give)."""
+    import s1_drivers as S1
+
+    L0, L1 = groups()
+    nodes = S1.design()
+    rep = ["per cell (median / p90 / max over S1's nodes): live states, flops of fold and solve, total"]
+    out = {}
+    for mol in [m for b, ms in C.molecules(5).items() if b in BINS for m in ms]:
+        try:
+            ms = load_solver(mol)
+        except FileNotFoundError:
+            continue
+        mk = ms.mk
+        nz, nn = len(mk.charges), len(mk.nh_values)
+        pk = mk.photon_k                                            # [G, A, N0, P, Z, N]
+        k0 = pk[:, :, :1]
+        dev = np.abs(pk - k0) > 0.01 * np.abs(k0) + 1e-300
+        # the first G0 node at which each entry leaves its linear value (inf: never)
+        first = np.where(dev.any(axis=2), mk.g0[np.argmax(dev, axis=2)], np.inf)     # [G, A, P, Z, N]
+        nonzero = (pk != 0).any(axis=2)
+        coll_nz = (mk.coll_k != 0).any(axis=(0, 1))                  # [P, Z, N]
+        offs = np.array([dnh * 1 for (_, _, dnh, _) in mk.procs])
+        dzs = np.array([dz for (_, dz, _, _) in mk.procs])
+        rows = []
+        for _, _, _, ph in nodes:
+            cell, _ = cell_of(ph, L0, L1)
+            try:
+                F, _ = ms.solve(cell)
+            except Exception:                                         # one node, not the run
+                continue
+            fz, fn = F.sum(axis=1), F.sum(axis=0)
+            zl = np.nonzero(fz > 1e-10)[0]
+            nl = np.nonzero(fn > 1e-12)[0]
+            z0, z1, n0, n1 = zl.min(), zl.max(), nl.min(), nl.max()
+            live = np.zeros((nz, nn), bool)
+            live[z0:z1 + 1, n0:n1 + 1] = True
+            nze, nne = z1 - z0 + 1, n1 - n0 + 1
+            lin = mp = 0
+            for g in np.nonzero(mk.valid & (cell.F > 0))[0]:
+                a = int(np.argmin(np.abs(mk.e_mean[g] - cell.egy[g])))
+                g0s = cell.F[g] / mk.f_unit[g, a]
+                ent = nonzero[g, a] & live[None]
+                act = ent & (first[g, a] <= g0s)
+                mp += int(act.sum())
+                lin += int((ent & ~act).sum())
+            coll = int((coll_nz & live[None]).sum()) * (len(mk.coll_kinds))
+            band = max(abs(int(dnh) * nze + int(dz)) for dz, dnh in zip(dzs, offs, strict=True))
+            solve = nze * nne * band ** 2
+            fold = 2 * lin + 25 * mp + 3 * coll
+            rows.append((nze * nne, fold, solve, fold + solve))
+        R = np.array(rows, float)
+        out[mol.name] = R
+        rep.append(f"{mol.name:16s} states {_q(R, 0)}  fold {_q(R, 1)}  solve {_q(R, 2)}  total {_q(R, 3)}")
+    text = "\n".join(rep)
+    (OUT / f"{tag('v5b_cell_work')}.txt").write_text(text)
+    print(text)
+    return out
+
+
 def main(argv=None):
     global BINS, KDIR, PROXY
     os.environ.setdefault("CALIMA_WORKERS", "1")
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=("kernels", "v1", "v2", "v5", "sweeps"))
+    ap.add_argument("what", choices=("kernels", "v1", "v2", "v5", "v5b", "sweeps"))
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--molecules", choices=("test", "all"), default="test")
     ap.add_argument("--only", nargs="+", default=None, help="molecule formulas (e.g. C89H27) to build, of --bins")
@@ -487,6 +556,8 @@ def main(argv=None):
         v5()
     elif a.what == "sweeps":
         sweeps()
+    elif a.what == "v5b":
+        v5b()
     else:
         v2(a.method)
 

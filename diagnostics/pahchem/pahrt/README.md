@@ -225,6 +225,20 @@ extended as pahchem does, then truncated, with `charge_ladder = "library"`).
   - Cost per molecule: fold 3.6-6.6e4 and solve 3.3-5.0e4 flops, 1.3-2.3 MB (C89H27 was 1.8e5 + 9.3e5 flops and
     5.8 MB).
 
+Measured after the cap (25 November):
+
+- **Bins 3-4 offline.** The largest molecule, C268H52 capped, builds a new shape on megatron in 42 s (54-100 eV)
+  and 79 s (5.6-11.2 eV), against 797-1150 s uncapped. Bins 3-4 would take about 5-6 CPU-hours, roughly 30 min on 12
+  workers.
+- **Per cell (V5b, `v5b_cell_work_kernels_cap5.txt`).** The work a lean solver would do on S1's nodes:
+  - only the live states (charges with f > 1e-10 and N_H levels with p > 1e-12, which a nested predictor would give);
+  - one multiply-add per linear kernel entry at the run's slope;
+  - multiphoton entries only past their linear range (with "self", each group's G0 is its own flux).
+
+  For bins 1-2 this comes to 35-85 live states and about 1.0-2.3e4 flops per molecule (median; worst 2-5.5e4),
+  against 1.1e5 for the capped full solve and 1e6 before the cap. Over 20 molecules that is still about 4e5 flops per
+  cell, about 0.2 ms, against WDB06rt's ~1 us.
+
 Further optimisations proposed (not done):
 - per-energy single-photon kernels instead of field shapes;
 - multiphoton from about 5 reference shapes;
