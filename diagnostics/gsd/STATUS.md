@@ -18,6 +18,10 @@ operator (A3c)"; the list below is in section 3. Working rules (user, 2026-11-23
 each push (with `CALIMA_MODEL_DATA` pointing at a complete model_data: a partial `model_data/` in a worktree makes
 two legacy solver tests fail instead of skipping).
 
+**Restart (2026-11-25).** The user decided to restart the whole GSD implementation. This list is frozen as it
+stood then. The state of the line, what is open, the known bugs and the lessons are in `RESTART_2026-11-25.md` (next
+to this file); start there.
+
 **Where the work lives (since the cleanup of 2026-11-25).** The GSD line is the branch `feature/pahrt`, pushed:
 - It holds `feature/gsd-a3c`, this status branch and `study/pahrt`, all three deleted as branches since then.
 - Its worktree is `../pyCALIMA-pahrt`, to be renamed `../pyCALIMA-gsd`. The ignored `results/` there holds the

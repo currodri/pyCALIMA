@@ -5,6 +5,10 @@ the way WDB06rt carries the grain charge. The PAH bins are the GSD's molecular b
 N_C 20-42, 42-89, 89-189, 189-400). This note records what was measured, the issues found, how they could be fixed,
 and what was decided. It ends with the decisions of 24 November.
 
+> **Frozen on 25 November 2026.** The user decided to restart the whole GSD implementation. This study and the S6
+> solver stop where they are described below. The state of the whole line, what is open, the known bugs and the
+> lessons are in `diagnostics/gsd/RESTART_2026-11-25.md`.
+
 ## Setup and reproduction
 
 - **Branch:** `study/pahrt`, off main, with pahchem's open PR #17 (`Population.joint_state_observables`) merged in.
