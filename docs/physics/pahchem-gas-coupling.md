@@ -998,6 +998,17 @@ What the joint chain does with these:
   that is now `"andrews16"`, and `"none"` shifts nothing.
 - **Anion H addition.** Anions add H as neutrals (`anion_h_addition = "as_neutral"`, Population's convention). `"none"`
   (BaselineModel) and `associative_detachment = "all"` (Andrews+16) are the brackets.
+  - **"all" by thermochemistry (2026-11-25).** In the joint chain, PAH(N_H)⁻ + H → PAH(N_H + 1) + e⁻ costs EA(N_H) − D,
+    with D the extra H's binding in the neutral product (`h_superh_e0`, 1.40 eV). It is endothermic for C54H18 (+0.12
+    eV), C96H24 (+0.74) and C150H30 (+1.17), and for 62–73 % of the molecules of N_C 21–100. Andrews+16's own EAs (C96
+    0.56 eV) made it exothermic.
+    - Since 2026-11-25 the intact and super-hydrogenated anions detach at exp(−max(EA − D, 0)/kT) times the measured rate
+      (`Population._ad_thermo`, the chain's own per-N_H EAs). The dehydrogenated anions keep the measured rate: they bind
+      the H by ~4.7 eV.
+    - Measured with `check_joint_hydrogenation.py` on 2026-11-25 (100 K): for C54H18 and C96H24 the bracket now gives the
+      default's super-H shares. C54 at n_H 1e2, G0 1e-3: 0.65 → 0.01; C96 at n_H 1e2, G0 1: 0.72 → 0.02. C24H12 (EA 0.5
+      eV, below D) is unchanged. The other brackets are bit-identical.
+    - BaselineModel keeps Andrews+16's rule. Found by an external audit of 2026-11-25 (bug 3c).
 - **The ΔSCF ladders (2026-11-10).** These ran for C24, C54 and C96 (`diagnostics/pahchem/dft_ladders/`). They used
   B3LYP adiabatic ΔSCF, with 6-31G* IPs and 6-31+G* EAs, over N_H0 − 4 … N_H0 + 2. The shifts over the parent (eV), for
   C24 / C54 / C96:
@@ -1115,6 +1126,15 @@ above. It follows the user's choices of 2026-11-08 and 2026-11-15. The literatur
   - These are coronene's barriers, used for every molecule, up to +24, where the table ends (`SUPERH_DEEP_MAX`).
   - The cation rate is `addition_cation` × exp(−E_a/kT). The neutral's is the geometric rate over the barrier. Anions
     take the neutral's rate.
+  - **Anion barriers.** By default anions take the neutral's barriers (`superh_anion_barriers = "neutral"`). An anion
+    at N_H0 + j has the cation's electron parity, though, so its closed-shell states are the cation's.
+    - `"cation"` (opt-in, a labelled bracket, 2026-11-25) gives anions the cations' pattern, the magic steps included,
+      while keeping the neutral's geometric rate. Cazaux+16's 0.32 eV step at +17 then stops the anions there, P(+24) /
+      P(+17) ~ 1e-8 at 100 K.
+    - Neutrals still climb past it, so the runaway of N_C ≳ 100 to +24 in shielded and dense gas stays open.
+    - Nothing is measured for H on an intact PAH anion: the cations' barriers are an extrapolation.
+    - A check of 2026-11-25 found that the other proposed causes would not stop the climb. Scaling the addition cross
+      section with N_H0 instead of N_C still gives C150 log P(+24)/P(0) +26.5, against +36 as coded.
 - **Abstraction per CH₂ site.** Eley–Rideal runs once per extra H, j × σ_ER v n(H). Boschman+15 and Mennella+12 normalise
   σ_ER per reactive C. Counting both H of each CH₂ (2j) is the same as doubling `eley_rideal_a2`, which with Foley+18's
   ≥ 0.45 Å² is the ER : addition bracket.
