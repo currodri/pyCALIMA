@@ -366,29 +366,46 @@ def figures(allres, nodes):
     ccols = plt.get_cmap("tab10")(np.arange(len(CLASSES)))
     # 1. where the population and the outputs sit, along each phase's G0 sweep (bin means)
     whats = ("population", "heating", "carbon", "h2")
+    row_label = {"population": "share of molecules", "heating": r"share of $\Gamma_{\rm PE}$",
+                 "carbon": "share of C-loss rate", "h2": r"share of H$_2$ formation"}
+    oi = {k: i for i, k in enumerate(C.OUTPUTS)}
+    yr = 3.15576e7
     for b, res in allres.items():
-        sh = np.nanmean(np.array([r["shares"] for r in res]), axis=0)          # [node, what, class]
+        # the bin's totals (molecules summed, i.e. equal numbers of each), split by class: rate-weighted shares
+        tot = {w: np.zeros((len(nodes), len(CLASSES))) for w in whats}
+        for r in res:
+            for w in whats:
+                scale = 1.0 if w == "population" else np.nan_to_num(r["full"][:, oi[w]])[:, None]
+                tot[w] += np.nan_to_num(r["shares"][:, SHARE_OF.index(w), :]) * scale
+        sh = np.stack([tot[w] / np.maximum(tot[w].sum(axis=1, keepdims=True), 1e-300) for w in whats], axis=1)
+        c_rate = sum(np.nan_to_num(r["full"][:, oi["carbon"]]) for r in res)
+        t_loss = sum(float(r["nc"]) for r in res) / np.maximum(c_rate, 1e-300) / yr      # [node]
         fig, axes = plt.subplots(len(whats), len(C.PHASES), figsize=(16, 10), sharex="col", sharey=True)
         for j, ph in enumerate(C.PHASES):
             rows = [i for i, kk in enumerate(key) if kk == (ph, "g0")]
             x = np.array([nodes[i][2] for i in rows], float)
             for i, what in enumerate(whats):
                 ax = axes[i, j]
-                y = np.nan_to_num(sh[rows, SHARE_OF.index(what), :])
+                y = np.nan_to_num(sh[rows, i, :])
                 ax.stackplot(x, y.T, colors=ccols, labels=CLASS_LABELS if (i == 0 and j == 0) else (),
                              alpha=0.9)
+                if what == "carbon":                    # grey: the bin loses no carbon that matters (> 10 Gyr)
+                    neg = t_loss[rows] > 1e10
+                    for xa, xb, n_ in zip(x[:-1], x[1:], neg[:-1] & neg[1:], strict=True):
+                        if n_:
+                            ax.axvspan(xa, xb, color="0.85", zorder=3, lw=0)
                 PL.style(ax, logx=True)
                 ax.set_ylim(0, 1)
                 if i == 0:
                     ax.set_title(ph, fontsize=12)
                 if j == 0:
-                    ax.set_ylabel(f"share of {what}", fontsize=11)
+                    ax.set_ylabel(row_label[what], fontsize=11)
                 if i == len(whats) - 1:
                     ax.set_xlabel(r"$G_0$", fontsize=12)
         fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="lower center", ncol=len(CLASSES), frameon=False,
                    fontsize=9, title="state class (N_H relative to the intact molecule)", title_fontsize=9)
-        fig.suptitle(PL.BIN_LABELS[b] + ": where the population and the outputs sit (G0 sweeps; each molecule's shares,"
-                     " averaged over the bin's molecules)", fontsize=12)
+        fig.suptitle(PL.BIN_LABELS[b] + ": where the molecules and the outputs sit (G0 sweeps; shares of the bin's totals,"
+                     " its molecules summed; grey: carbon loss slower than 10 Gyr)", fontsize=12)
         fig.tight_layout(rect=(0, 0.06, 1, 0.97))
         fig.savefig(OUT.parent / f"s3_classes_bin{b + 1}.png", dpi=200)
         plt.close(fig)

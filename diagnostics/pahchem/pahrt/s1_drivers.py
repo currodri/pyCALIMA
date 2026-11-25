@@ -17,7 +17,8 @@ per bin (molecules equally weighted; the in-bin shape is S5's question), the ran
 its logarithmic slope at the base, and two scaling checks: the charge against gamma = G0 sqrt(T) / n_e (the G0 and n_e
 sweeps should fall on one curve if gamma is the charge's variable) and the hydrogenation against G0 / n(H I).
 Figures: ``s1_<phase>.png`` (every sweep of the phase, per bin), ``s1_scaling.png`` (the scaling collapses),
-``s1_fields.png`` (the field shapes against the Draine far-UV at the base G0).
+``s1_fields.png`` (the field shapes against the Draine far-UV at the base G0), ``s1_high_charges.png`` (the share
+above +2 and <Z> against gamma, per molecule).
 
     python diagnostics/pahchem/pahrt/s1_drivers.py --workers 4 [--per-bin 5]
     python diagnostics/pahchem/pahrt/s1_drivers.py --analyse
@@ -179,6 +180,7 @@ def analyse(per_bin):
     figures(nodes, data, idx)
     fig_scaling(nodes, data, idx)
     fig_fields(nodes, data, idx)
+    fig_high_charges(nodes, per_bin)
 
 
 def summary(nodes, data, idx):
@@ -417,6 +419,54 @@ def fig_fields(nodes, data, idx):
     fig.tight_layout()
     fig.savefig(OUT.parent / "s1_fields.png", dpi=200)
     plt.close(fig)
+
+
+def fig_high_charges(nodes, per_bin):
+    """s1_high_charges.png: the share of molecules above +2 (1 - f(-1 ... +2)) against gamma = G0 sqrt(T)/n_e, for
+    every molecule (coloured by N_C), from the G0 (solid) and n_e (dashed) sweeps of the WNM and PDR phases; and <Z>."""
+    import plots as PL
+
+    plt = PL.setup()
+    key = [(n[0], n[1]) for n in nodes]
+    idx = {k: i for i, k in enumerate(C.OUTPUTS)}
+    mols = [m for ms in C.molecules(per_bin).values() for m in ms]
+    norm = matplotlib_norm(min(m.nc for m in mols), max(m.nc for m in mols))
+    cmap = plt.get_cmap("viridis")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9), sharex=True)
+    for j, ph_name in enumerate(("WNM", "PDR")):
+        ph = C.PHASES[ph_name]
+        for m in mols:
+            p = OUT / f"{safe(m.name)}.npz"
+            if not p.exists():
+                continue
+            r = np.load(p)["res"]
+            for inp, ls in (("g0", "-"), ("n_e", "--")):
+                rows = [i for i, kk in enumerate(key) if kk == (ph_name, inp)]
+                v = np.array([nodes[i][2] for i in rows], float)
+                g0 = v if inp == "g0" else np.full(v.size, ph.g0)
+                ne = v if inp == "n_e" else np.full(v.size, ph.n_e)
+                gam = np.log10(g0 * np.sqrt(ph.T) / ne)
+                above = 1.0 - r[rows][:, [idx["f_m1"], idx["f_0"], idx["f_p1"], idx["f_p2"]]].sum(axis=1)
+                col = cmap(norm(m.nc))
+                axes[0, j].plot(gam, np.clip(above, 1e-6, 1), ls, color=col, lw=1.0)
+                axes[1, j].plot(gam, r[rows, idx["z_mean"]], ls, color=col, lw=1.0)
+        axes[0, j].set_title(f"{ph_name} (solid: G0 sweep, dashed: n_e sweep)", fontsize=11)
+        PL.style(axes[0, j], logy=True)
+        PL.style(axes[1, j])
+        axes[0, j].set_ylim(1e-6, 1.5)
+        axes[1, j].set_xlabel(r"$\log_{10}\,G_0\sqrt{T}/n_e$", fontsize=12)
+    axes[0, 0].set_ylabel(r"share above $+2$", fontsize=12)
+    axes[1, 0].set_ylabel(r"$\langle Z\rangle$", fontsize=12)
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    fig.colorbar(sm, ax=axes, label=r"$N_{\rm C}$", shrink=0.8)
+    fig.savefig(OUT.parent / "s1_high_charges.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def matplotlib_norm(lo, hi):
+    import matplotlib.colors as mc
+
+    return mc.Normalize(lo, hi)
 
 
 def main(argv=None):
