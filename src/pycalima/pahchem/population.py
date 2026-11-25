@@ -2011,8 +2011,41 @@ def bare_event_yields(freqs, einstein_a, channels, e_max_ev):
 
 
 # -- super-hydrogenated states (Params.hydrogen_chain = "joint", 2026-11-08) ---------------------------------------------
-#: bump when ``superh_loss_table`` changes, so stored tables are rebuilt
-SUPERH_VERSION = 1
+#: bump when ``superh_loss_table`` or its stored format changes, so stored tables are rebuilt. 2: the {"H", "C2H2"}
+#: outcome tables (stored as h, c) replaced the one-H k; older code sharing a cache_dir keeps reading its own v1 files
+SUPERH_VERSION = 2
+
+#: Boschman+15 (arXiv 1504.08276) Table A.1: coronene's H-addition barriers [eV] above N_H0, on the neutral's step
+#: N_H0 + j -> N_H0 + j + 1 (from its closed-shell states, j even); the cation's are the same one H later (j odd), and
+#: the other steps have none. ``Params.superh_chemistry = "deep"`` takes them from j = SUPERH_KEPT_STEPS on, for every
+#: molecule (they are coronene's; the user's choice of 2026-11-15)
+BOSCHMAN15_BARRIERS_EV = {0: 0.028, 2: 0.046, 4: 0.064, 6: 0.035, 8: 0.030, 10: 0.052, 12: 0.033, 14: 0.033, 16: 0.039,
+                          18: 0.034, 20: 0.049, 22: 0.049}
+#: Cazaux+16 (Sci. Rep. 6, 19835, p. 4) MPW1K barriers [eV] of coronene's cation on its closed-shell (magic-number) steps
+#: +5 -> +6, +11 -> +12, +17 -> +18, 2-8x Boschman+15's there (``Params.superh_magic_barriers``)
+CAZAUX16_MAGIC_EV = {5: 0.11, 11: 0.17, 17: 0.32}
+#: the steps N_H0 + j -> N_H0 + j + 1 with j below this that "deep" keeps as BaselineModel has them (the user's choice
+#: of 2026-11-15): 0.06 / 0.035 eV on the neutral's first and third, none on the cation's
+SUPERH_KEPT_STEPS = 4
+#: the deepest ladder of "deep": Boschman+15's table ends at +24 (coronene fully hydrogenated)
+SUPERH_DEEP_MAX = 24
+#: Murga+22 (arXiv 2111.05583) Table 3: E0 = a + b x [eV] of the C2H2 loss of a super-hydrogenated state, x = N_H / N_H0,
+#: for Z < 0, Z = 0, Z > 0, with dS 10.0 cal K^-1 mol^-1. Fitted to Rapacioli+18's fragmentation of hydrogenated coronene:
+#: "a parameter describing the yield of destruction rather than the activation energy". Their ladder's top bin is
+#: centred on x = 1.74, which holds E0 above it (``Params.superh_carbon_loss = "murga22"``, a labelled bracket)
+MURGA22_C2H2_E0 = {-1: (7.3, -2.7), 0: (7.5, -2.9), 1: (7.2, -2.6)}
+MURGA22_C2H2_DS = 10.0 * 4.184
+MURGA22_X_TOP = 1.74
+
+
+def _check_superh(params):
+    for name, ok in (("superh_chemistry", ("andrews16", "deep")), ("superh_magic_barriers", ("cazaux16", "boschman15")),
+                     ("superh_carbon_loss", ("none", "murga22"))):
+        if getattr(params, name) not in ok:
+            raise ValueError(f"{name} must be one of {ok}, not {getattr(params, name)!r}")
+    if params.superh_chemistry == "deep" and int(params.superh_levels) > SUPERH_DEEP_MAX:
+        raise ValueError(f'superh_chemistry "deep" holds at most {SUPERH_DEEP_MAX} extra H (Boschman+15), '
+                         f"not superh_levels = {params.superh_levels}")
 
 
 def superh_e0(params, z):
@@ -2020,26 +2053,88 @@ def superh_e0(params, z):
     return float(params.h_superh_e0[1 if z > 0 else 0])
 
 
-def _superh_rates(freqs, E, counts, pick, beta, levels, e0_ev, ds):
-    """[k_j(E) on the loss grid], j = 1 ... ``levels``: the loss of one of the j extra H of state N_H0 + j. RRKM with E0
-    ``e0_ev`` and dS(1000 K) ``ds``, its transition state built as the aromatic H loss's, path degeneracy j (as
-    BaselineModel), on the parent's modes: the extra H's own (CH2 groups) are not computed."""
+def superh_addition_barrier(j, z, params):
+    """The barrier [eV] of the H addition N_H0 + j -> N_H0 + j + 1 at charge z (anions as neutrals), by
+    ``Params.superh_chemistry``: "andrews16", BaselineModel's (0.06 / 0.035 eV on the neutral's first and third extra H,
+    none on the cation's); "deep", those below SUPERH_KEPT_STEPS and above them Boschman+15's alternation
+    (BOSCHMAN15_BARRIERS_EV), the cation's magic-number steps at ``Params.superh_magic_barriers``' ("cazaux16":
+    CAZAUX16_MAGIC_EV; "boschman15": the table's)."""
+    _check_superh(params)
+    if params.superh_chemistry == "andrews16" or j < SUPERH_KEPT_STEPS:
+        return 0.0 if z > 0 else {0: 0.06, 2: 0.035}.get(j, 0.0)
+    if z > 0:
+        if params.superh_magic_barriers == "cazaux16" and j in CAZAUX16_MAGIC_EV:
+            return CAZAUX16_MAGIC_EV[j]
+        return BOSCHMAN15_BARRIERS_EV.get(j - 1, 0.0)
+    return BOSCHMAN15_BARRIERS_EV.get(j, 0.0)
+
+
+def superh_c2h2_e0(nh0, levels, z):
+    """[E0 [eV]] of ``MURGA22_C2H2_E0``'s C2H2 loss of N_H0 + j, j = 1 ... ``levels``, at charge z (x held at
+    MURGA22_X_TOP above it)."""
+    a, b = MURGA22_C2H2_E0[int(np.sign(z))]
+    return [a + b * min((nh0 + j) / nh0, MURGA22_X_TOP) for j in range(1, levels + 1)]
+
+
+def _superh_rates(freqs, E, counts, pick, beta, levels, e0_ev, ds, c2h2_e0=None):
+    """([k_j(E)], [k_C,j(E)] or None) on the loss grid, j = 1 ... ``levels``: the loss of one of the j extra H of state
+    N_H0 + j, RRKM with E0 ``e0_ev`` and dS(1000 K) ``ds``, its transition state built as the aromatic H loss's, path
+    degeneracy j (as BaselineModel), on the parent's modes (the extra H's own, CH2 groups, are not computed); with
+    ``c2h2_e0`` (one E0 per level, ``superh_c2h2_e0``) the C2H2 loss, dS MURGA22_C2H2_DS, the C-C stretch as reaction
+    coordinate and one path (as ``loss_extras``' end-ring channel)."""
     k1 = rates.rrkm(E, counts, rates.transition_state_for_entropy(freqs, 3050.0, ds, n_scaled=5), e0_ev * dos.CM_PER_EV,
                     degeneracy=1, beta=beta)[pick]
-    return [j * k1 for j in range(1, levels + 1)]
+    kc = None
+    if c2h2_e0 is not None:
+        kc = [_extra_rates(freqs, E, counts, pick, beta, (("C2H2", e0, MURGA22_C2H2_DS, 1.0, 1600.0),))["C2H2"]
+              for e0 in c2h2_e0]
+    return [j * k1 for j in range(1, levels + 1)], kc
+
+
+def _superh_outcomes(cm, kh, kc, e0_ev, chain):
+    """[Q_j], j = 0 ... levels: Q_j[n, bin] (n = 0 ... j, and j + 1 for "C") the outcome of one heating event of N_H0 + j
+    started in a bin of ``cm``'s grid, cooling with no further photon: n extra H lost and the molecule left intact, or
+    (row j + 1) lost to C2H2 (``kc``). With ``chain`` each H loss leaves its product N_H0 + j - 1 at E - E0 (the kinetic
+    energy release, ~0.1-0.2 eV, neglected: a slight overestimate of the losses), which may lose again
+    (``CascadeModel.photon_yields`` with the product's outcomes as channels: exact on the grid); without, one H at most
+    (the product is not followed)."""
+    Q = [np.vstack([np.ones(cm.n), np.zeros(cm.n)])]
+    e_after = cm.energy_cm - e0_ev * dos.CM_PER_EV
+    for j in range(1, len(kh) + 1):
+        k_h = kh[j - 1]
+        k_c = kc[j - 1] if kc is not None else np.zeros(cm.n)
+        if chain:     # the product's outcomes at E - E0 (cold, Q[0] = no loss, below the grid)
+            prev = np.array([np.interp(e_after, cm.energy_cm, q, left=q[0]) for q in Q[j - 1]])
+        else:
+            prev = np.zeros((j + 1, cm.n))
+            prev[0] = 1.0
+        ch = {n: k_h * prev[n - 1] for n in range(1, j + 1)}
+        ch["C"] = k_c + k_h * prev[j]
+        Y = cm.photon_yields(ch)
+        q = np.zeros((j + 2, cm.n))
+        for n in range(1, j + 1):
+            q[n] = Y[n]
+        q[j + 1] = Y["C"]
+        q[0] = np.clip(1.0 - q[1:].sum(axis=0), 0.0, 1.0)
+        Q.append(q)
+    return Q
 
 
 def superh_loss_table(freqs, einstein_a, nc, z, yield_, shape, sigma_scale, threshold_ev, levels, e0_ev, ds,
-                      ionising_heat=False, electron_ev=None, uv_cross_section="li_draine", detach_ea=None):
-    """k[j - 1, K_H_G0_GRID] [s^-1]: the photon-driven loss of an extra H of the super-hydrogenated states N_H0 + j,
-    j = 1 ... ``levels``, of charge z under ``shape`` (``_superh_rates`` in the state's multiphoton cascade, heated as the
-    state: its sigma, yield and deposits); the ceiling rises as ``_loss_tables``' does. Top-level, so it runs in worker
+                      ionising_heat=False, electron_ev=None, uv_cross_section="li_draine", detach_ea=None, chain=False,
+                      c2h2_e0=None):
+    """{"H": k[j - 1, n - 1, K_H_G0_GRID], "C2H2": k[j - 1, K_H_G0_GRID]} [s^-1]: the photon-driven losses of the
+    super-hydrogenated states N_H0 + j, j = 1 ... ``levels``, of charge z under ``shape``: the events that remove n of its
+    extra H (n = 1 ... j), and those that end in C2H2 loss (``c2h2_e0``, else 0). ``_superh_rates`` in the state's
+    multiphoton cascade, heated as the state (its sigma, yield and deposits); each H loss at energy E followed by its
+    product's single event from E - E0 with ``chain`` (``_superh_outcomes``), else one H per event. The events' rates
+    sum to the first loss's at every level. The ceiling rises as ``_loss_tables``' does. Top-level, so it runs in worker
     processes."""
     field1 = _unit_field(shape)
     sigma = absorption_sigma(nc, z, E_PH, uv_cross_section, sigma_scale, detach_ea)
     e_dep = deposit_grid(field1, sigma, yield_)
     h = deposit_spectrum(field1, sigma, yield_, threshold_ev, ionising_heat, electron_ev, e_dep)
-    out = np.zeros((levels, K_H_G0_GRID.size))
+    out = {"H": np.zeros((levels, levels, K_H_G0_GRID.size)), "C2H2": np.zeros((levels, K_H_G0_GRID.size))}
     if levels == 0 or not np.any(h > 0.0):           # no photon deposits (X-rays only): no photon-driven loss
         return out
     f_ = np.asarray(freqs, dtype=float)
@@ -2047,11 +2142,24 @@ def superh_loss_table(freqs, einstein_a, nc, z, yield_, shape, sigma_scale, thre
     while True:
         cm, E, counts, beta = _loss_grid(f_, einstein_a, e_max)
         pick = np.rint(cm.energy_cm / (E[1] - E[0])).astype(int)
+        kh, kc = _superh_rates(f_, E, counts, pick, beta, levels, e0_ev, ds, c2h2_e0)
+        Q = _superh_outcomes(cm, kh, kc, e0_ev, chain) if chain else None
+        e_after = cm.energy_cm - e0_ev * dos.CM_PER_EV
         done = True
-        for j, k in enumerate(_superh_rates(f_, E, counts, pick, beta, levels, e0_ev, ds)):
+        for j, k in enumerate(kh, start=1):
+            sinks = {"H": k} if kc is None else {"H": k, "C2H2": kc[j - 1]}
+            prev = None
+            if Q is not None:
+                prev = np.array([np.interp(e_after, cm.energy_cm, q, left=q[0]) for q in Q[j - 1]])
             for g, gi in enumerate(K_H_G0_GRID):
-                s = cm.steady_state(e_dep, gi * h, {"H": k})
-                out[j, g] = s.rates["H"]
+                s = cm.steady_state(e_dep, gi * h, sinks)
+                if prev is None:
+                    out["H"][j - 1, 0, g] = s.rates["H"]
+                    out["C2H2"][j - 1, g] = s.rates.get("C2H2", 0.0)
+                else:                                 # the first loss's flux at each E, split by its product's outcome
+                    flux = s.probability * k
+                    out["H"][j - 1, :j, g] = prev[:j] @ flux
+                    out["C2H2"][j - 1, g] = s.rates.get("C2H2", 0.0) + prev[j] @ flux
             done = done and _loss_converged(s, e_max)
         if done:
             return out
@@ -2059,12 +2167,20 @@ def superh_loss_table(freqs, einstein_a, nc, z, yield_, shape, sigma_scale, thre
 
 
 def _superh_inputs(mol, z, shape, de_cm, e_max_cm, params):
-    """``superh_loss_table``'s inputs for state z of ``mol`` under ``shape``: the state's own (parent) modes."""
+    """``superh_loss_table``'s inputs for state z of ``mol`` under ``shape``: the state's own (parent) modes; "deep"
+    (``Params.superh_chemistry``) adds the chain, "murga22" (``Params.superh_carbon_loss``) the C2H2 loss's E0s (each only
+    when set, so the stored tables of the default keep their keys)."""
+    _check_superh(params)
     inp = _basis_inputs(mol, z, shape, de_cm, e_max_cm, params)
     keep = ("nc", "z", "yield_", "shape", "sigma_scale", "threshold_ev", "ionising_heat", "electron_ev", "uv_cross_section",
             "detach_ea", "freqs", "einstein_a")
-    return {k: inp[k] for k in keep if k in inp} | dict(levels=int(params.superh_levels), e0_ev=superh_e0(params, z),
-                                                        ds=float(params.h_superh_ds))
+    out = {k: inp[k] for k in keep if k in inp} | dict(levels=int(params.superh_levels), e0_ev=superh_e0(params, z),
+                                                       ds=float(params.h_superh_ds))
+    if params.superh_chemistry == "deep":
+        out["chain"] = True
+    if params.superh_carbon_loss == "murga22":
+        out["c2h2_e0"] = tuple(superh_c2h2_e0(mol.nh, int(params.superh_levels), z))
+    return out
 
 
 def _superh_key(inp):
@@ -2084,20 +2200,20 @@ def _build_superh(inp):
     return superh_loss_table(**inp)
 
 
-def superh_event_yields(freqs, einstein_a, levels, e0_ev, ds, e_max_ev):
-    """(loss-grid energies [cm^-1], [P_j(E)], j = 1 ... levels): the single-event yields of the loss of an extra H after a
-    deposit E (``CascadeModel.photon_yields``), for the deposits the tables do not hold (``Population._deposit_flows``)."""
+def superh_event_yields(freqs, einstein_a, levels, e0_ev, ds, e_max_ev, chain=False, c2h2_e0=None):
+    """(loss-grid energies [cm^-1], [Q_j]): ``_superh_outcomes`` of N_H0 + j, j = 0 ... levels, after a deposit E
+    (Q_j[n] n extra H lost, Q_j[j + 1] C2H2), for the deposits the tables do not hold (``Population._deposit_flows``)."""
     h = hashlib.sha1(b"superh-yields")
     for v in (np.asarray(freqs, dtype=float), np.asarray(einstein_a, dtype=float), int(levels), float(e0_ev), float(ds),
-              float(e_max_ev), LOSS_DE_CM):
+              float(e_max_ev), LOSS_DE_CM, bool(chain), () if c2h2_e0 is None else tuple(c2h2_e0)):
         _feed(h, v)
     key = h.hexdigest()
     if key not in _YIELD_MEMO:
         f_ = np.asarray(freqs, dtype=float)
         cl, E, counts, beta = _loss_grid(f_, einstein_a, e_max_ev)
         pick = np.rint(cl.energy_cm / (E[1] - E[0])).astype(int)
-        ks = _superh_rates(f_, E, counts, pick, beta, levels, e0_ev, ds)
-        _YIELD_MEMO[key] = (cl.energy_cm, [cl.photon_yields({"H": k})["H"] for k in ks])
+        kh, kc = _superh_rates(f_, E, counts, pick, beta, levels, e0_ev, ds, c2h2_e0)
+        _YIELD_MEMO[key] = (cl.energy_cm, _superh_outcomes(cl, kh, kc, e0_ev, chain))
     return _YIELD_MEMO[key]
 
 
@@ -4096,7 +4212,7 @@ class Population:
                 f = None if self.cache_dir is None else self.cache_dir / "superh" / f"{_superh_key(inp)}.npz"
                 if f is not None and f.exists():
                     with np.load(f) as d:
-                        mol._cache[ck] = d["k"]
+                        mol._cache[ck] = {"H": d["h"], "C2H2": d["c"]}
                 else:
                     todo.append((mol, ck, f, inp))
 
@@ -4106,7 +4222,7 @@ class Population:
             if f is not None:
                 f.parent.mkdir(parents=True, exist_ok=True)
                 tmp = f.with_suffix(f".{os.getpid()}.tmp.npz")
-                np.savez(tmp, k=r)
+                np.savez(tmp, h=r["H"], c=r["C2H2"])
                 os.replace(tmp, f)
         workers = default_workers(workers)
         if workers > 1 and len(todo) > 2:
@@ -4120,16 +4236,20 @@ class Population:
                 keep(t, superh_loss_table(**t[3]))
 
     def _superh_stack(self, shape):
-        """S[s, slot, j - 1, K_H_G0_GRID]: the photon-driven loss of an extra H of N_H0 + j, j = 1 ... superh_levels
-        (``superh_loss_table``); 0 where the state is not live."""
+        """(S[s, slot, j - 1, n - 1, K_H_G0_GRID], C[s, slot, j - 1, K_H_G0_GRID]): the photon-driven events of N_H0 + j,
+        j = 1 ... superh_levels, that remove n of its extra H, and those that end in C2H2 loss (``superh_loss_table``); 0
+        where the state is not live."""
         key = ("superh", shape)
         if key not in self._arrays:
             self.prepare_superh(shape)
-            S = np.zeros((len(self.library), len(self.zs), int(self.p.superh_levels), K_H_G0_GRID.size))
+            K = int(self.p.superh_levels)
+            S = np.zeros((len(self.library), len(self.zs), K, K, K_H_G0_GRID.size))
+            C = np.zeros((len(self.library), len(self.zs), K, K_H_G0_GRID.size))
             for s, mol in enumerate(self.library):
                 for z in self._live_charges(mol, shape):
-                    S[s, z - self.zmin] = mol._cache[("superh", shape, z, self.de_cm, self.e_max_cm, self.p)]
-            self._arrays[key] = S
+                    t = mol._cache[("superh", shape, z, self.de_cm, self.e_max_cm, self.p)]
+                    S[s, z - self.zmin], C[s, z - self.zmin] = t["H"], t["C2H2"]
+            self._arrays[key] = (S, C)
         return self._arrays[key]
 
     def _threshold_shift(self, mol, m, z):
@@ -4234,15 +4354,16 @@ class Population:
           or past a barrier-limited top (``_routed``) land on it with an H less per charge carried past.
         - **H steps** per charge: the ladders' photon-driven H, H2 loss and protons (dZ = -1, dN_H = -1) of N_H0 ...
           N_H0-3, deeper states by ``_chain_rates``' mapping; the thermal ions' H knock-outs; H addition as
-          ``_addition_rates`` below N_H0. Above it the super-hydrogenated states (BaselineModel's chemistry): the loss of an
-          extra H (``_superh_stack``), H addition (cations ``Params.addition_cation``, the others the geometric rate
-          with barriers of 0.06 eV at N_H0 and 0.035 eV at N_H0 + 2), Eley-Rideal abstraction (``Params.eley_rideal_a2``,
-          one H2 each); associative detachment of anions below N_H0 (``Params.associative_detachment``: every anion
-          below the top with "all").
+          ``_addition_rates`` below N_H0. Above it the super-hydrogenated states, by ``Params.superh_chemistry``: the
+          photon-driven loss of their extra H (``_superh_stack``: one per photon, or with "deep" n = 1 ... j of them),
+          H addition (cations ``Params.addition_cation``, the others the geometric rate, each over the barrier of
+          ``superh_addition_barrier``), Eley-Rideal abstraction (``Params.eley_rideal_a2``, one H2 each; once per
+          molecule, or per extra H with "deep"); associative detachment of anions below N_H0
+          (``Params.associative_detachment``: every anion below the top with "all").
         - **Deposits** (``_flow_terms``: recombination, photoionisation products, C 1s products, passages): each event
           lands as its charge step does, and with its product's loss probabilities (``_response``; super-H states
-          ``superh_event_yields``) one or two H less, or a proton less: those shares of its charge step are moved, not
-          added.
+          ``superh_event_yields``, n extra H with "deep") one or two H less, or a proton less: those shares of its
+          charge step are moved, not added.
         """
         from pycalima.pahchem.network import PAHNetwork
 
@@ -4261,7 +4382,8 @@ class Population:
         down = self._capture_rates(T) * env.n_e
         tab_h, tab_h2, _, tab_hp = self._ladders(shape)
         lh, lh2, lhp = (self._interp_g0(t, g0) for t in (tab_h, tab_h2, tab_hp))
-        S = self._interp_g0(self._superh_stack(shape), g0) if K else None
+        if K:
+            SH, SC = (self._interp_g0(t, g0) for t in self._superh_stack(shape))
         k_add = self._addition_rates(env)
         hot = self._hot_rates(env)
         per_h = hot["knockout_h"] if hot is not None else np.zeros_like(k_add)
@@ -4269,6 +4391,7 @@ class Population:
         r_ip = self._threshold_factors(shape)
         r_att = self._attachment_factors(T)
         er = chemistry.cross_section_rate(T, p.eley_rideal_a2) * n_h
+        deep = p.superh_chemistry == "deep"
         ad_all = anion_associative_detachment(replace(p, associative_detachment="all")) * n_h
         terms = self._flow_terms(env)
         use = lambda which: which != "rec" or p.recombination_dissociation      # noqa: E731
@@ -4308,16 +4431,26 @@ class Population:
                 HP[a, :nh0 + 1] = _deep_rates(nh0, lhp[s, lo + a])
                 A[a, :nh0] = k_add[s, lo + a]
             HL += per_h[s, sl][:, None] * np.arange(nn)[None, :]
+            XH = {}                                    # n -> the photon-driven events that remove n >= 2 extra H
             if K:
-                HL[:, nh0 + 1:] += S[s, sl]
+                HL[:, nh0 + 1:] += SH[s, sl, :, 0]
+                for n in range(2, K + 1):
+                    XH[n] = np.zeros((nz, nn))
+                    XH[n][:, nh0 + n:] = SH[s, sl, n - 1:, n - 1]
                 sigma_geo = CORONENE_GEOMETRIC_A2 * mol.nc / 24.0
+                cation = p.addition_cation if p.addition_cation_superh is None else p.addition_cation_superh
                 for j in range(K):                                 # N_H0 + j -> N_H0 + j + 1
-                    barrier = {0: 0.06, 2: 0.035}.get(j, 0.0)
-                    neutral = p.addition_neutral_scale * chemistry.cross_section_rate(T, sigma_geo, barrier) * n_h
-                    cation = p.addition_cation if p.addition_cation_superh is None else p.addition_cation_superh
-                    A[:, nh0 + j] = np.where(zc > 0, cation * n_h,
-                                             np.where((zc < 0) & (p.anion_h_addition == "none"), 0.0, neutral))
-            ER = np.where(np.arange(nn)[None, :] > nh0, er, 0.0) * np.ones((nz, 1))
+                    for a, z in enumerate(zc):
+                        b = superh_addition_barrier(j, int(z), p)
+                        if z > 0:
+                            A[a, nh0 + j] = cation * np.exp(-b / (chemistry.KB_EV * T)) * n_h
+                        elif z < 0 and p.anion_h_addition == "none":
+                            A[a, nh0 + j] = 0.0
+                        else:
+                            A[a, nh0 + j] = p.addition_neutral_scale * chemistry.cross_section_rate(T, sigma_geo, b) * n_h
+            # Eley-Rideal: once per molecule ("andrews16"), or per extra H ("deep": abstraction per CH2 site)
+            extra = np.maximum(np.arange(nn) - nh0, 0)
+            ER = np.where(extra > 0, er * (extra if deep else 1.0), 0.0)[None, :] * np.ones((nz, 1))
             AD = np.zeros((nz, nn))
             if zc[0] == -1 and nz > 1:
                 top_m = nh0 if p.associative_detachment == "dehydrogenated" else nn - 1
@@ -4330,7 +4463,8 @@ class Population:
             for z_prod, which, idx, i_src, c, pe, _ in deposits:
                 a, b = i_src - lo, (z_prod - self.zmin) - lo
                 dz = b - a
-                moved = c * (pe["H"] + pe["H2"] + pe["Hp"])
+                multi = [k for k in pe if isinstance(k, tuple)]          # ("xH", n): n >= 2 extra H in one event
+                moved = c * (pe["H"] + pe["H2"] + pe["Hp"] + sum((pe[k] for k in multi), np.zeros(nn)))
                 if dz != 0:
                     if dz not in C:
                         raise ValueError(f"{mol.name}: a deposit of dZ {dz} has no charge step to move")
@@ -4338,14 +4472,19 @@ class Population:
                     if np.any(short > ROUND_OFF * np.maximum(C[dz][a], 1e-300)):
                         raise ValueError(f"{mol.name}: deposits of dZ {dz} exceed the charge step they ride on")
                     C[dz][a] = np.maximum(C[dz][a] - moved, 0.0)
-                for key, dnh, dzz, h2 in (("H", -1, 0, 0), ("H2", -2, 0, 1), ("Hp", -1, -1, 0)):
+                for key, dnh, dzz, h2 in (("H", -1, 0, 0), ("H2", -2, 0, 1), ("Hp", -1, -1, 0),
+                                          *[(k, -k[1], 0, 0) for k in multi]):
                     r = c * pe[key]
                     if r.any():
                         rate = dep.setdefault((dz, key), (np.zeros((nz, nn)), dz + dzz, dnh, h2))[0]
                         rate[a] += r
             for (dz, key), (rate, dz_, dnh, h2) in dep.items():
-                add(f"deposit dZ {dz:+d}, {JOINT_DEPOSIT_LOSS[key]} lost", rate, dz_, dnh, h2)
+                lost = JOINT_DEPOSIT_LOSS[key] if isinstance(key, str) else f"{key[1]} extra H"
+                add(f"deposit dZ {dz:+d}, {lost} lost", rate, dz_, dnh, h2)
             add("H loss", HL, 0, -1)
+            for n, rate in XH.items():
+                if rate.any():
+                    add(f"photo-loss of {n} extra H", rate, 0, -n)
             add("H2 loss", H2L, 0, -2, h2=1)
             add("proton loss", HP, -1, -1)
             add("Eley-Rideal abstraction", ER, 0, -1, h2=1)
@@ -4413,15 +4552,24 @@ class Population:
             P = np.array([m_[1:] for m_ in members[:N_EMITTING]], dtype=float).reshape(-1, 4).T   # H, H2, C2H2, Hp
             P4[:, :P.shape[1]] = P[[0, 1, 3]]
             pH, pH2 = _chain_rates(nh0, solo, P4[0], P4[1])
-            pe = {"H": np.zeros(nn), "H2": np.zeros(nn), "Hp": np.zeros(nn)}
+            pe = {"H": np.zeros(nn), "H2": np.zeros(nn), "Hp": np.zeros(nn), "C": np.zeros(nn)}
             pe["H"][:nh0 + 1], pe["H2"][:nh0 + 1], pe["Hp"][:nh0 + 1] = pH, pH2, _deep_rates(nh0, P4[2])
             if K:
                 sp = mol.species[z]
-                e_cl, Y = superh_event_yields(sp.freqs_cm, _einstein_a(sp, p), K, superh_e0(p, z), p.h_superh_ds, top)
+                c2 = tuple(superh_c2h2_e0(nh0, K, z)) if p.superh_carbon_loss == "murga22" else None
+                e_cl, Q = superh_event_yields(sp.freqs_cm, _einstein_a(sp, p), K, superh_e0(p, z), p.h_superh_ds, top,
+                                              p.superh_chemistry == "deep", c2)
                 energies, W = self._flow_energies(mol, z, which)
                 for j in range(1, K + 1):
-                    y = np.interp(energies * dos.CM_PER_EV, e_cl, Y[j - 1])
-                    pe["H"][nh0 + j] = float(W[idx] @ y) if W is not None else float(y[idx])
+                    for row in range(1, j + 2):                    # n = 1 ... j extra H lost, then C2H2
+                        y = np.interp(energies * dos.CM_PER_EV, e_cl, Q[j][row])
+                        v = float(W[idx] @ y) if W is not None else float(y[idx])
+                        if row > j:
+                            pe["C"][nh0 + j] = v
+                        elif row == 1:
+                            pe["H"][nh0 + j] = v
+                        elif v > 0.0:
+                            pe.setdefault(("xH", row), np.zeros(nn))[nh0 + j] = v
             dz = (z - self.zmin) - i
             photo_single = isinstance(which, tuple) and which[0] == "ion" and dz == 1
             if photo_single:
@@ -4453,11 +4601,12 @@ class Population:
         - "ionisation (dZ +j) past the top, k proton(s) emitted" (j - k, -k): past a barrier-limited top (``_routed``),
           the landing on the top with k H less;
         - "H loss" (0, -1: photo-loss, the extra H of super-H states, hot ions' knock-outs), "H2 loss" (0, -2; 1),
-          "proton loss" (-1, -1);
+          "proton loss" (-1, -1); with ``Params.superh_chemistry = "deep"`` also "photo-loss of n extra H" (0, -n),
+          n >= 2, the photons that remove several;
         - "Eley-Rideal abstraction" (0, -1; 1), "H addition" (0, +1), "associative detachment" (+1, +1);
         - "deposit dZ d, an H lost" (d, -1), "..., H2 lost" (d, -2; 1), "..., a proton lost" (d - 1, -1): the share of
           charge step d (-1: recombination; 0: a cosmic-ray passage that only heats; > 0: ionisation) whose product loses
-          H, summed over its flows.
+          H, summed over its flows; with "deep" also "..., n extra H lost" (d, -n).
 
         The only processes with dN_H > 0 are "H addition" and "associative detachment". States that are left but never
         re-entered are transient and hold 0 in the steady state; ``steady_state_closed`` handles them, ``steady_state``
@@ -4529,6 +4678,8 @@ class Population:
         lc, lhp = self._interp_g0(tab_c, env.g0), self._interp_g0(tab_hp, env.g0)
         cr, hot = self._cr_rates(env), self._hot_rates(env)
         tabs = {c: self._interp_g0(t, env.g0) for c, t in self._bare_stack(shape).items()} if bare else {}
+        K = int(self.p.superh_levels)
+        sc = self._interp_g0(self._superh_stack(shape)[1], env.g0) if K else None
         nc_lost = {name: n for m in self.library for name, n, *_ in bare_channels(m, self.p)}
         out = []
         for s, ((lo, net, dropped, deposits), mol) in enumerate(zip(self._joint_build(env), self.library)):
@@ -4545,10 +4696,14 @@ class Population:
             for name, tab, row in (("C2H2", lc, 2), ("Hp", lhp, 3)):
                 w = np.zeros((nz, nn))
                 w[:, on] = tab[s, sl][:, kmap[on]]
-                for _, _, _, i_src, cm, _, P in deposits:
+                for _, _, _, i_src, cm, pe, P in deposits:
                     ok = on & (kmap < P.shape[1])
                     w[i_src - lo, ok] += cm[ok] * P[row, kmap[ok]]
+                    if name == "C2H2":                 # the super-hydrogenated states' own (Params.superh_carbon_loss)
+                        w[i_src - lo] += cm * pe["C"]
                 W[name] = w
+            if K:
+                W["C2H2"][:, nh0 + 1:] += sc[s, sl]
             W["explosions"] = dropped
             zero = np.zeros((nz, nn))
             W["cr_beyond"] = per_slot(cr["beyond"]) if cr is not None else zero

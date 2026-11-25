@@ -1949,9 +1949,110 @@ def test_super_h_loss_rises_with_the_extra_h_and_stays_below_absorption():
     p = Params(hydrogen_chain="joint")
     shape = population.field_shape(Environment("ism", 1.0, 30.0, 0.0042, 100.0, None))
     inp = population._superh_inputs(mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV, p)
-    k = population.superh_loss_table(**inp)
-    assert k.shape == (p.superh_levels, population.K_H_G0_GRID.size)
+    t = population.superh_loss_table(**inp)
+    k = t["H"][:, 0]
+    assert t["H"].shape == (p.superh_levels, p.superh_levels, population.K_H_G0_GRID.size)
+    assert not t["H"][:, 1:].any() and not t["C2H2"].any()            # BaselineModel's: one extra H per photon
     assert np.all(np.diff(k, axis=0) >= 0.0)
     field1 = population._unit_field(shape)
     r_abs = np.trapezoid(population.state_sigma(mol, 0, p) * field1.flux_at(population.E_PH), population.E_PH)
     assert np.all(k <= population.K_H_G0_GRID[None, :] * r_abs * (1.0 + 1e-6))
+
+
+def test_super_h_tables_round_trip_through_the_disk_cache(tmp_path, monkeypatch):
+    """``prepare_superh`` stores each live state's {"H", "C2H2"} table under ``_superh_key`` (SUPERH_VERSION 2: arrays h
+    and c, never the one-H k that older code reads from its own v1 files); a fresh population reads them back unchanged
+    instead of rebuilding them."""
+    from pycalima.pahchem.baseline import Params
+
+    p = Params(hydrogen_chain="joint", superh_levels=2)
+    shape = population.field_shape(Environment("ism", 1.0, 30.0, 0.0042, 100.0, None))
+    fresh = lambda: next(m for m in population.library_m20(_ascii()) if m.nc <= 24)     # noqa: E731  (no memory cache)
+    first = population.Population([fresh()], WINDOWS, params=p, cache_dir=tmp_path)
+    first.prepare_superh(shape, workers=1)
+    ref = {k: v for k, v in first.library[0]._cache.items() if k[0] == "superh"}
+    files = sorted((tmp_path / "superh").glob("*.npz"))
+    assert ref and len(files) == len(ref)
+    for f in files:
+        with np.load(f) as d:
+            assert sorted(d.files) == ["c", "h"]
+    monkeypatch.setattr(population, "superh_loss_table", lambda **kw: pytest.fail("rebuilt a stored table"))
+    second = population.Population([fresh()], WINDOWS, params=p, cache_dir=tmp_path)
+    second.prepare_superh(shape, workers=1)
+    for k, v in ref.items():
+        w = second.library[0]._cache[k]
+        assert np.array_equal(v["H"], w["H"]) and np.array_equal(v["C2H2"], w["C2H2"])
+
+
+def test_deep_super_h_losses_split_each_first_loss_into_its_outcomes():
+    """``superh_chemistry = "deep"``: each loss of an extra H leaves its product at E - E0, which may lose again, so a photon
+    removes n = 1 ... j of the j extra H. The events' rates sum to the first loss's (BaselineModel's one-H table) at every
+    level and G0, and the deeper states lose several per photon; the single-event outcomes of a deposit are a
+    distribution. Murga+22's C2H2 channel is off by default and, opt-in, takes its share of the events."""
+    from pycalima.pahchem.baseline import Params
+
+    mol, = _v400_parents(("C24H12 (18)",))
+    shape = population.field_shape(Environment("ism", 1.0, 30.0, 0.0042, 100.0, None))
+    table = lambda **over: population.superh_loss_table(**population._superh_inputs(                # noqa: E731
+        mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV, Params(hydrogen_chain="joint", superh_levels=6, **over)))
+    one, deep = table(), table(superh_chemistry="deep")
+    assert np.allclose(deep["H"].sum(axis=1), one["H"][:, 0], rtol=1e-9, atol=0.0)
+    assert not deep["C2H2"].any()
+    g = -1
+    assert deep["H"][0, 0, g] > 0.0 and np.all(deep["H"][1:, 1:, g].sum(axis=1) > deep["H"][1:, 0, g])
+    mean_n = (deep["H"][:, :, g] @ np.arange(1, 7)) / deep["H"][:, :, g].sum(axis=1)
+    assert np.all(np.diff(mean_n) > 0.0) and mean_n[-1] > 2.0
+    sp = mol.species[0]
+    e_cl, Q = population.superh_event_yields(sp.freqs_cm, sp.einstein_a, 6, 1.4, 12.0, population.LOSS_E_MAX_EV, True)
+    for j, q in enumerate(Q):
+        assert q.shape == (j + 2, e_cl.size) and np.all(q >= 0.0) and np.allclose(q.sum(axis=0), 1.0, atol=1e-12)
+    c = table(superh_chemistry="deep", superh_carbon_loss="murga22")
+    assert np.all(c["C2H2"][:, g] > 0.0) and np.all(np.diff(c["C2H2"][:, g]) > 0.0)
+
+
+def test_deep_super_h_barriers_alternate_with_the_cation_magic_numbers():
+    """``superh_addition_barrier``: "andrews16" and the first four steps of "deep" are BaselineModel's (0.06 / 0.035 eV on
+    the neutral's first and third extra H, none for the cation); above, Boschman+15's alternation, the neutral's on even
+    steps and the cation's one H later, with Cazaux+16's DFT on the cation's closed-shell steps +5, +11, +17 (or
+    Boschman's there with "boschman15"). Unknown choices and ladders past +24 are refused."""
+    from pycalima.pahchem.baseline import Params
+
+    a, d = Params(), Params(superh_chemistry="deep")
+    b = Params(superh_chemistry="deep", superh_magic_barriers="boschman15")
+    bar = population.superh_addition_barrier
+    for j in range(population.SUPERH_KEPT_STEPS):
+        for z in (-1, 0, 1):
+            assert bar(j, z, d) == bar(j, z, a)
+    assert [bar(j, 0, a) for j in range(4)] == [0.06, 0.0, 0.035, 0.0] and bar(6, 0, a) == 0.0
+    for j in range(4, 24):
+        assert (bar(j, 0, d) > 0.0) == (j % 2 == 0) and bar(j, -1, d) == bar(j, 0, d)
+        assert (bar(j, 1, b) > 0.0) == (j % 2 == 1) and bar(j, 2, b) == bar(j, 1, b)
+        if j % 2 == 1:
+            assert bar(j, 1, b) == bar(j - 1, 0, d)
+    assert [bar(j, 1, d) for j in (5, 11, 17)] == [0.11, 0.17, 0.32] and bar(7, 1, d) == bar(7, 1, b)
+    with pytest.raises(ValueError, match="superh_chemistry"):
+        bar(5, 0, Params(superh_chemistry="boschman"))
+    with pytest.raises(ValueError, match="at most 24"):
+        population._check_superh(Params(superh_chemistry="deep", superh_levels=25))
+
+
+def test_deep_super_h_chain_holds_fewer_extra_h_and_its_observables_sum():
+    """At the same cap, the deep chemistry (several extra H per photon, Eley-Rideal per extra H) holds coronene and
+    circumcoronene less super-hydrogenated in shielded gas than BaselineModel's; its networks carry the multi-H events,
+    and ``joint_state_observables`` still sum to the steady-state functions. Murga+22's C2H2 adds to the carbon loss."""
+    lib = _v400_parents()
+    env = Environment("shielded", 1e-2, 1e2, 1.4e-2, 100.0, None)
+    one, deep = _joint(lib), _joint(lib, superh_chemistry="deep")
+    x1, xd = one.hydrogenation_summary(env)["x"], deep.hydrogenation_summary(env)["x"]
+    assert np.all(xd < x1)
+    names = {p.name for p in deep.joint_networks(env)[0].processes}
+    assert "photo-loss of 2 extra H" in names and not any("extra H" in p.name for p in one.joint_networks(env)[0].processes)
+    murga = _joint(lib, superh_chemistry="deep", superh_carbon_loss="murga22")
+    d, dm = deep.destruction_rates(env), murga.destruction_rates(env)
+    assert np.all(dm["C2H2"] > d["C2H2"]) and np.all(dm["carbon"] > d["carbon"])
+    for pop in (deep, murga):
+        ref = {"heating": pop.photoelectric_heating(env)[0], "h2": pop.hydrogenation_summary(env)["h2"],
+               **pop.destruction_rates(env)}
+        for s, (w, (_, F)) in enumerate(zip(pop.joint_state_observables(env), pop.joint_fractions(env))):
+            for name, r in ref.items():
+                assert (w[name] * F).sum() == pytest.approx(r[s], rel=1e-12, abs=1e-300), name
