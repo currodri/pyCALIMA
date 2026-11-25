@@ -5,13 +5,16 @@ PySCF B3LYP (Gaussian's VWN3 flavour, "b3lypg", as PAHdb's Gaussian runs) / 6-31
 fitting; geometry by geomeTRIC from the state's start geometry. With ``--diffuse`` (anions and neutrals: the EA pairs),
 a 6-31+G* single point at the optimised geometry. Writes ``<state>/q<z>_s<2S>.json`` (energies [hartree], <S^2>,
 convergence, timings) and the optimised (or last reached) geometry ``.xyz``; skips a job whose json says the optimisation
-and the final SCF converged, and restarts any other from its ``.xyz`` if there is one. PYSCF_TMPDIR sets where density
+and the final SCF converged, and restarts any other from its ``.xyz`` if there is one; skips one running elsewhere
+(its ``<tag>.lock``), so more nodes can share a job list. PYSCF_TMPDIR sets where density
 fitting spills out of core (node-local /tmp filled up with four C96 jobs on a node).
 
 Usage: run_state.py ROOT REL Z TWO_S DIFFUSE [--threads N] [--maxsteps N] [--max-memory MB] [--sp-only]
 """
 import argparse
+import atexit
 import json
+import os
 import time
 from pathlib import Path
 
@@ -116,6 +119,17 @@ def main():
         if old.get("opt_converged") and old.get("scf_converged"):
             print(f"{args.rel} {tag}: done")
             return
+    # one run per job, so that more nodes can work the same job list: a job running elsewhere (its <tag>.lock, created
+    # atomically) is skipped; the lock goes when this run exits (not after a kill: delete a stale one by hand)
+    lock = d / f"{tag}.lock"
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        print(f"{args.rel} {tag}: running elsewhere ({lock.read_text().strip() if lock.exists() else lock.name})")
+        return
+    os.write(fd, f"{os.uname().nodename} {os.getpid()}\n".encode())
+    os.close(fd)
+    atexit.register(lock.unlink, missing_ok=True)
     # a rerun starts where the last run stopped (its .xyz: the last geometry reached), else from the state's start
     start = d / f"{tag}.xyz" if (d / f"{tag}.xyz").exists() else d / "start.xyz"
     rec = {"state": args.rel, "charge": args.z, "two_s": args.two_s, "xc": "b3lypg", "basis": "6-31g*", "df": True,
