@@ -18,6 +18,15 @@ operator (A3c)"; the list below is in section 3. Working rules (user, 2026-11-23
 each push (with `CALIMA_MODEL_DATA` pointing at a complete model_data: a partial `model_data/` in a worktree makes
 two legacy solver tests fail instead of skipping).
 
+**Where the work lives (since the cleanup of 2026-11-25).** The GSD line is the branch `feature/pahrt`, pushed:
+- It holds `feature/gsd-a3c`, this status branch and `study/pahrt`, all three deleted as branches since then.
+- Its worktree is `../pyCALIMA-pahrt`, to be renamed `../pyCALIMA-gsd`. The ignored `results/` there holds the
+  outputs of every earlier GSD worktree.
+- `reference_data/` is a single link to the main checkout's.
+
+pahchem changes are made in `../pyCALIMA-pahchem` and reach this line only through main. After each merge of main,
+rerun the GSD checks that read pahchem.
+
 **Where the detail lives:**
 - the status report: `overview/gsd_overview.tex` (its figures and the PDF are built in the git-ignored
   `results/gsd_overview/`; see `overview/README.md`), and the variant study `overview/variants/REPORT.md`;
