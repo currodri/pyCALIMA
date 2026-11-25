@@ -218,6 +218,12 @@ extended as pahchem does, then truncated, with `charge_ladder = "library"`).
   the "overflow" output, to flag cells where the cap binds.
 - C89H27 drops to 224 states, and a new shape builds in 16-26 s instead of 51-68 s.
 - The banded solve's bandwidth drops from 39 to about 15, so about 18x fewer flops.
+- V2 (`v2_molecules_full_kernels_cap5.txt`, `v5_cost_kernels_cap5.txt`):
+  - C36H16 and C60H26 are unchanged.
+  - C89H27 is unchanged except where pahchem's own ladder puts it at <Z> +3.7 ... +6.8: the WNM at n_e / 100, and the
+    PDR at G0 >= 2e5 or n_e / 10-100. There the capped solver saturates near +5 (<Z> -0.5 to -1.9).
+  - Cost per molecule: fold 3.6-6.6e4 and solve 3.3-5.0e4 flops, 1.3-2.3 MB (C89H27 was 1.8e5 + 9.3e5 flops and
+    5.8 MB).
 
 Further optimisations proposed (not done):
 - per-energy single-photon kernels instead of field shapes;
