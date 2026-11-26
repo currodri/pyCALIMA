@@ -73,7 +73,7 @@ def _carbon_slots(pop, env):
     nc_lost = {name: k for mol in pop.library for name, k, *_ in P.bare_channels(mol, pop.p)}
     bare = np.zeros((n, m))
     for c, tab in pop._bare_stack(shape).items():
-        bare += nc_lost.get(c, 0) * pop._interp_g0(tab, env.g0)
+        bare += nc_lost.get(c, 0) * pop._interp_g0(tab, env.g0, shape)
     use = lambda fl: fl[2] != "rec" or pop.p.recombination_dissociation      # noqa: E731
     flows = {i: [fl for fl in pop._deposit_flows(env, _unit_slots(pop, i)) if use(fl)] for i in range(m)}
     top = {}                     # one loss grid per molecule, as destruction_rates (a yield depends on the bins below it)
@@ -102,7 +102,7 @@ def _carbon_slots(pop, env):
         every += nc * cr["beyond"]
     if hot is not None:
         every += nc * hot["beyond"] + hot["knockout_c"]
-    c2h2 = pop._interp_g0(pop._ladders(shape)[2], env.g0)
+    c2h2 = pop._interp_g0(pop._ladders(shape)[2], env.g0, shape)
     c2h2_dep = np.zeros_like(c2h2)
     for i in range(m):
         c2h2_dep[:, i] = pop._deposit_losses(env, _unit_slots(pop, i), by_state=True)[2].sum(axis=1)
