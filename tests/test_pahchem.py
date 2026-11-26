@@ -114,6 +114,28 @@ def test_beyer_swinehart_equals_direct_count(freqs):
     assert np.array_equal(c_bs, c_dc)
 
 
+@pytest.mark.parametrize("beta", [0.0, 1e-4])
+def test_beyer_swinehart_memo_gives_the_fresh_count(monkeypatch, beta):
+    """The memo's counts (any grid from the longest computed: a shorter grid is its exact prefix) equal a fresh count
+    bit for bit, with and without the tilt; what it returns is a copy, and it stays within BS_MEMO_BYTES."""
+    from collections import OrderedDict
+
+    monkeypatch.setattr(dos, "_BS_MEMO", OrderedDict())
+    f = _random_modes(40)
+    long_e, long_c = dos.beyer_swinehart(f, 30000.0, 2.0, beta)
+    for e_max in (30000.0, 12345.0, 3001.0):
+        e, c = dos.beyer_swinehart(f, e_max, 2.0, beta)
+        n = c.size
+        assert n == int(np.floor(e_max / 2.0)) + 1 and np.array_equal(e, long_e[:n])
+        assert np.array_equal(c, dos._bs_counts(dos._frequencies(f), n, 2.0, beta))
+    c[:] = -1.0                                                       # a caller's change does not reach the memo
+    assert np.array_equal(dos.beyer_swinehart(f, 30000.0, 2.0, beta)[1], long_c)
+    assert len(dos._BS_MEMO) == 1
+    monkeypatch.setattr(dos, "BS_MEMO_BYTES", long_c.nbytes + 1)
+    dos.beyer_swinehart(f + 1.0, 30000.0, 2.0, beta)                  # another state: the oldest goes
+    assert len(dos._BS_MEMO) == 1 and sum(v.nbytes for v in dos._BS_MEMO.values()) <= dos.BS_MEMO_BYTES
+
+
 def test_whitten_rabinovitch_density_is_derivative_of_sum():
     """Holds to 3 %: the published piecewise w(E') has a derivative jump at
     E' = 1 (measured 2.6 % there), and is smooth elsewhere."""

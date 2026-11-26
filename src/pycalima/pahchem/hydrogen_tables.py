@@ -15,7 +15,8 @@ of ``hydrogen_observables`` are averaged over the bin with the weights, per mole
   erg s^-1, shares), the axes, the weights' mean N_C and N_H0, and the build settings.
 
 The field is the Draine (1978) shape scaled by G0, plus ``optical_isrf`` times the solar circle's old-star light
-(unscaled; 0 by default, as in ``check_pah_bins_hydrogen.py``). n(H) is the atomic H density. The tables hold
+(unscaled; ``OPTICAL_ISRF`` = 1 by default, ``Environment``'s, docs/physics/pahchem-gas-coupling.md §4d, since
+2026-11-25; until then 0, as ``check_pah_bins_hydrogen.py`` still has: ``--optical-isrf 0`` gives those tables). n(H) is the atomic H density. The tables hold
 what the chain holds: super-hydrogenation to N_H0 + ``Params.superh_levels``, with ``Params.superh_chemistry``. The npz's
 at_cap share flags the nodes where that cap, not the chemistry, sets the super-hydrogenated share.
 
@@ -33,6 +34,8 @@ from pycalima.pahchem import hydrogen_observables as ho
 
 AXES = ("log_g0", "log_nh", "log_t", "log_xe")
 FLOOR = -100.0
+#: the old-star light below 5 eV, x the solar circle's: ``Environment.optical_isrf``'s default (pahchem audit 2026-11-25)
+OPTICAL_ISRF = 1.0
 
 
 def default_axes():
@@ -42,7 +45,7 @@ def default_axes():
     return {k: np.round(np.arange(lo, hi + 0.5 * step, step), 10) for k, (lo, hi, step) in DEFAULT_AXES.items()}
 
 
-def environment(lg0, lnh, lt, lxe, optical_isrf=0.0):
+def environment(lg0, lnh, lt, lxe, optical_isrf=OPTICAL_ISRF):
     from pycalima.pahchem.baseline import Environment
 
     return Environment("table", 10.0 ** lg0, 10.0 ** lnh, 10.0 ** (lnh + lxe), 10.0 ** lt, None,
@@ -123,7 +126,8 @@ def main(argv=None):
                     help="a bin's N_C range [min, max), repeatable")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--per-bin", type=int, default=None, help="molecules per bin, spread in N_C (a test)")
-    ap.add_argument("--optical-isrf", type=float, default=0.0)
+    ap.add_argument("--optical-isrf", type=float, default=OPTICAL_ISRF,
+                    help="old-star light x the solar circle's (default: Environment's, 1)")
     ap.add_argument("--superh-levels", type=int, default=None, help="Params.superh_levels (default: Params')")
     ap.add_argument("--superh-chemistry", default=None, help="Params.superh_chemistry (default: Params')")
     ap.add_argument("--axes", default=None, help="'lo:hi:step' for each of log_g0, log_nh, log_t, log_xe, comma-separated")
