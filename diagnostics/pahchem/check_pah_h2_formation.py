@@ -21,10 +21,14 @@ Definitions used here (all explicit, per target):
 - Le Bourlot+12 k_ER(T) = 2.8e-17 T^1/2 a e^(-300/T) / (1 + a e^(-300/T)), a = 1/(1 + (T/464)^1.5) [cm^3 s^-1];
 - Thi+20 eq. C.2, R_max ~ 1e-16 f_PAH (sigma/10 A^2)(T/100)^1/2 (xbar/10) "s^-1", from sigma v_th x_PAH xbar with
   x_PAH = 3e-7 f_PAH (50/N_C);
-- D3 bound (h2_formation.md): every H2 needs two added H, 2 h2 <= H-addition flux (incl. associative detachment).
+- D3 bound (h2_formation.md): every H2 needs two H from the gas, 2 h2 <= H-addition flux (incl. associative detachment)
+  + Eley-Rideal flux (each abstraction takes one gas H; the H it removes comes back by addition). Before 2026-11-26
+  the Eley-Rideal term was missing, so the ratio passed 1 wherever abstraction outran photo-H loss (1.015 at C54,
+  500 K, G0 1e3, n(H) 1e7).
 
 Result (2026-10-25; R_PAH at x_PAH = 2.5e-5/N_C, n(H) = n_H, x_e = 1.6e-4; ~1 min, 1 core):
-- ER constant: 0.9995 x 8.7e-13 (T/100)^1/2 (passes). D3: 2 h2 / H-addition flux <= 0.974 (passes).
+- ER constant: 0.9995 x 8.7e-13 (T/100)^1/2 (passes). D3: 2 h2 / H-addition flux <= 0.974 (passes); with the
+  Eley-Rideal gas H (2026-11-26, main 114fa26) <= 0.673.
 - Andrews+16 Fig. 10: xi_ER plateaus at 1.5e-3 (C54) / 8.4e-4 (C96) for neutrals and 5.0e-3 (500 K) / 1.6e-3
   (50 K) for anions, size-independent: < 1 % (passes), and identical to ``Andrews16Model`` at G0/n(H) <= 1e-2.
   Super-H sets in at a ~3x higher G0/n(H) than theirs (f(super-H) 0.5-1.0 at 1e-2). xi_photo of normal C54 <
@@ -129,7 +133,8 @@ def state(model, pr, env):
         out["xi_er"][z] = 2.0 * er / (fz * kc) if fz > 0 else np.nan
         out["xi_photo"][z] = 2.0 * ph / (fz * kc) if fz > 0 else np.nan
     flux = net.fluxes(f)
-    added = flux["H addition, cations"] + flux["H addition, neutrals"] + flux["associative detachment"]
+    added = (flux["H addition, cations"] + flux["H addition, neutrals"] + flux["associative detachment"]
+             + flux["Eley-Rideal"])                                       # the gas H each abstraction takes
     out["d3"] = 2.0 * out["h2"] / added if added > 0 else 0.0
     out["er_share"] = flux["Eley-Rideal"] / out["h2"] if out["h2"] > 0 else np.nan
     return out
@@ -288,7 +293,7 @@ def main():
     print(f"  pahchem's ER ceiling (once per molecule, every PAH super-H) x_PAH 0.06 A^2 v_H = {er_cap:.2e}; reached "
           f"share f(super-H) <= {max(s['f_superh'] for s in fig10.values()):.2f} on the Fig. 10 grid")
 
-    print(f"\nD3 bound 2 h2 / (H-addition flux): max {d3_max:.3f} over the Fig. 10 grid (must be <= 1)")
+    print(f"\nD3 bound 2 h2 / (H-addition + Eley-Rideal flux): max {d3_max:.3f} over the Fig. 10 grid (must be <= 1)")
     print("Max R_PAH on the Fig. 10 grid: " + ", ".join(f"{p} {t:g} K {v:.1e}" for (p, t), v in rmax_all.items())
           + " (Mennella+12 upper limit 1.2e-16 at 330 K; Habart 3e-17-1.5e-16)")
 
