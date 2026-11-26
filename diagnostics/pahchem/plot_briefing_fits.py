@@ -319,7 +319,7 @@ def fig_summary(data, lib, out_dir):
     ax.vlines(x, lo, hi, color="#e4e3df", lw=12, zorder=1, label="scanned (stated conditions)")
     panel(ax, [c["gamma"] for c in b], "Ionisation parameter", r"$\gamma = G_0 T^{1/2}/n_e$ [K$^{1/2}$ cm$^3$]",
           lohi=rng("gamma"), logy=True)
-    ax.set_ylim(2e3, 8e5)
+    ax.set_ylim(0.5 * lo.min(), 3.0 * hi.max())          # the scans: the cards' n_e put the DFs near 3e2 (2026-11-26)
     ax.legend(fontsize=10.5, loc="upper left")
     panel(axes[0, 2], [c["e_cation"] for c in b], "Cations in the PAH emission",
           r"share of emitted power ($Z \geq +1$)", lohi=rng("e_cation"))
