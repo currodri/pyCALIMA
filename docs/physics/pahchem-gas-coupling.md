@@ -309,8 +309,9 @@ higher charges, as before). In the population every molecule runs from its lowes
     C 1s is ~97 % of the absorption) need a normalisation other than G0.
   - *Check* (`check_kshell_auger.py`; C24–C216, F_ν ∝ ν⁻¹ and ν⁻¹·⁵ from 1 eV to 10 keV, G0 = 10⁴, T = 10⁴ K, against
     one electron per absorption and WDB06 graphite): with the far UV present, C 1s makes 0.2–0.5 % of the ionisation
-    electrons at ψ ≤ 10⁴ and 1.3–6.4 % at ψ = 10⁶. ⟨Z⟩ rises by ≤ 0.24 (C150 at ψ = 10⁶, 19.55 against 19.30); Γ_PE by
-    0.5 % at low ψ, and by −1.9 % (C150) to +1.2 % (C24) at ψ = 10⁶, where the outgoing electrons leave part of their
+    electrons at ψ ≤ 10⁴ and 1.2–6.1 % at ψ = 10⁶. ⟨Z⟩ rises by ≤ 0.26 (C216 at ψ = 10⁶, 22.90 against 22.65); Γ_PE by
+    0.5–0.7 % at low ψ, and by −1.3 % (C216) to +1.4 % (C24) at ψ = 10⁶ (rerun 2026-11-25 on main 839612d, after the
+    live-state fix of PR #24; 2026-11-04: 1.3–6.4 %, ≤ 0.24 for C150, −1.9 to +1.2 %), where the outgoing electrons leave part of their
     energy in the molecule (−2.7 to +0.7 % before the measured partition and the "neutral" reading, 2026-11-04). The ion's
     excitation after the decay is 1–7×10⁻⁴ of the power a state absorbs. So C 1s matters where the far and extreme UV
     are gone.
@@ -869,7 +870,8 @@ higher charges, as before). In the population every molecule runs from its lowes
     to infinity. `population.capture_stopping` gives the chance from `impact`'s collisions (`impact.stopping_probability`):
     Poisson-many collisions on each chord, a distant one losing W, a close one its mean Q, summed to ≥ the energy at
     infinity (all the energy at the surface on an anion), at the Coulomb-focused impact energy.
-    - The chance peaks at 0.41–0.59 near 18–24 eV (C24–C216) and is 0.03 at 100 eV and 0 from 300 eV.
+    - The chance peaks at 0.33–0.48 at 24 eV (C24–C96), and C216H36's at 0.60 at 6 eV. It is 0.03 at 100 eV and 0 from
+      300 eV (rerun 2026-11-25 on main 839612d; 2026-11-05: 0.41–0.59 near 18–24 eV for all four).
     - Below ~3 eV the collisions vanish: the model lacks the channels that capture slow electrons (vibrations,
       resonances; Geelen+19 find phonon and intraband losses dominate in graphene there).
     - So `capture_stop_factors` keeps the measured sticking s (`attachment_sticking` × `_capture_factor`) up to the
@@ -880,8 +882,9 @@ higher charges, as before). In the population every molecule runs from its lowes
     - Geelen+19's single-layer graphene inelastic mean free paths, ~10 Å near 0 eV to ~3 Å at 25 eV, give a 0.3–0.6
       chance of an inelastic collision for one layer, consistent with the peak.
     - Impact's stopping is 1.35–2.3× Joy's carbon at 30–50 eV, so the bound is an upper one there.
-    - **The capture factor** (Z = 1) is 1 at 10⁴ K, 0.86–0.89 at 10⁵ K, 0.10–0.12 at 10⁶ K, 1.5–2.2×10⁻³ at 10⁷ K
-      and 1.6–2.3×10⁻⁵ at 10⁸ K. The captured electrons' mean energy (`_capture_energy`) is that of the stopped ones.
+    - **The capture factor** (Z = 1) is 1 at 10⁴ K, 0.87–0.89 at 10⁵ K (C216H36 0.61), 0.090–0.098 at 10⁶ K,
+      1.4–1.8×10⁻³ at 10⁷ K and 1.5–1.9×10⁻⁵ at 10⁸ K (rerun 2026-11-25; 2026-11-05: 0.86–0.89, 0.10–0.12,
+      1.5–2.2×10⁻³, 1.6–2.3×10⁻⁵). The captured electrons' mean energy (`_capture_energy`) is that of the stopped ones.
     - The RAMSES group tables (`group_tables`) hold neither this bound nor the hot-gas collisions. They are valid to
       `T_VALID_MAX_K` = 10⁵ K, written in each file's first line and returned by `solve` (pahchem audit m12).
   - **Ions take electrons from cations** (`chemistry.ion_cation_transfer`, `ion_up_rate`), where it is exothermic: the
@@ -927,25 +930,28 @@ higher charges, as before). In the population every molecule runs from its lowes
     already in the passages. A capture's "rec" deposit now holds the captured electron's kinetic energy too, IP +
     `_capture_energy` on `REC_KE_NODES_EV` (0–32 eV), in cold gas as well: Λ_rec took it from the gas while the
     molecule received the IP alone, a leak of 10–25 % of the deposit at 10⁴ K.
-  - **Result** (2026-11-05, with the audit's fixes C1, M1, A2 and the ions' capture on C₆₀'s; n_H = n_e = 1,
-    Micelotta's ions). **To be rerun:** it predates m6, the library's ringing fix and the endothermic ion transfers
-    (2026-11-06). Per state, m6 lowers the 10⁶ K electrons' ionising passages by 4–7 % and their heat by 6–13 %
-    (`results/pahchem/audit_open_2026-11-06/m6_effect.txt`):
-    - ⟨Z⟩ at 3.2×10⁵ / 10⁶ / 3.2×10⁶ K: C54H18 +2.7 / +8.0 / +9.8, C96H24 +3.1 / +10.6 / +18.2, C216H36 +4.1 /
-      +14.7 / +30.3. The tops (+10, +19, +32) are reached from ~3×10⁶ K. Without the bound ⟨Z⟩ was 0–2.
+  - **Result** (rerun 2026-11-25 on main 839612d, with m6, the library's ringing fix, the endothermic ion transfers
+    and the audit fixes of 2026-11-25; n_H = n_e = 1, Micelotta's ions;
+    `results/plots/pahchem/briefing_megatron_2026-11-25.log`). The 2026-11-05 values, before those, are in brackets:
+    - ⟨Z⟩ at 3.2×10⁵ / 10⁶ / 3.2×10⁶ K:
+      - C54H18 +3.2 / +8.6 / +9.8 (+2.7 / +8.0 / +9.8);
+      - C96H24 +3.7 / +12.4 / +18.6 (+3.1 / +10.6 / +18.2);
+      - C216H36 +4.7 / +17.0 / +31.2 (+4.1 / +14.7 / +30.3).
+      The tops (+10, +19, +32) are reached from ~3×10⁶ K. Without the bound ⟨Z⟩ is 0.2–1.2.
     - Before the fixes (2026-11-04) they were at their tops from 10⁶ K (C216H36 +26.7 at 10⁶ K, C54H18 +3.8 at
       3.2×10⁵ K). The audit, fixing C1 alone, predicted +14.8 and +2.96: C1 is most of the change.
     - The repo's WDB06 charging of graphite grains of the same radii (`dust_charge`: range transmission, secondary
       electrons) climbs to its cap, ion field emission's +4 and +8, from 10⁶ K. Where neither is capped C54H18 and its
-      grain agree, 3.2×10⁵ K +2.7 vs +3.0 and 10⁵ K +0.1 vs +0.5; C216H36 stays below its grain, +4.1 vs +6.9 and −0.4
-      vs +3.4.
-    - Destroyed as a PAH (1/events) in 0.006–0.025 yr at n_e = 1 from 10⁶ K, and 0.02–0.09 yr at 3×10⁵ K. Below the
+      grain agree, 3.2×10⁵ K +3.2 vs +3.0 and 10⁵ K +0.15 vs +0.47; C216H36 stays below its grain, +4.7 vs +6.9 and
+      −0.26 vs +3.4.
+    - Destroyed as a PAH (1/events) in 0.006–0.031 yr at n_e = 1 from 10⁶ K, and 0.02–0.11 yr at 3×10⁵ K (0.006–0.025
+      and 0.02–0.09). Below the
       tops that is stripping and the bare skeleton's carbon loss or folding; at the tops the bare skeletons explode.
     - Against Micelotta+10b (`check_hot_gas_micelotta.py`), whose PAHs stay neutral: the carbon loss of N_C 50 is
-      0.86–1.4× their electrons + ions at 3×10⁵–10⁶ K and 3.5–12× above; that of N_C 100–200 is 0.3–1.3 % of theirs
-      at 3×10⁵–10⁶ K (the stripped skeletons fold, keeping the carbon) and 6–340× from 3×10⁶ K. Their carbon-loss
-      lifetimes are 10–400× pahchem's destruction lifetimes from 10⁶ K. Before the fixes the carbon loss was 5–850×
-      theirs from 10⁶ K.
+      0.80–2.2× their electrons + ions at 3×10⁵–10⁶ K and 4.6–18× above (0.86–1.4×, 3.5–12×). That of N_C 100–200 is
+      0.3–8.5 % of theirs at 3×10⁵–10⁶ K (the stripped skeletons fold, keeping the carbon; 0.3–1.3 %), and 11–590×
+      from 3×10⁶ K (6–340×). Their carbon-loss lifetimes are 11–640× pahchem's destruction lifetimes from 10⁶ K
+      (10–400×). Before the fixes the carbon loss was 5–850× theirs from 10⁶ K.
     - The step-2 comparison above stands for the passages; its ⟨Z⟩ and lifetimes are superseded.
     - The ladder top (`impact.coulomb_limit`, min(0.2 N_C, the proton-emission barrier)) sets the hot-gas lifetimes
       from ~3×10⁶ K, and that top is an extrapolation beyond N_C ~ 24. Past a barrier-limited top (C150, C216) a step
@@ -1421,6 +1427,19 @@ larger than the PAHs:
 ## 4. Validation
 
 The exact numbers are in the literature page, section 8.
+
+**Rerun on 2026-11-25/26** (the briefing rebuild: main 839612d, the dense-cloud check on 114fa26; the printed output
+in `results/plots/pahchem/briefing_megatron_2026-11-25.log`). Against the 2026-11-02 table and notes below:
+- **Unchanged:** the table's rows, except V9's Γ/Berné+22 for the diffuse ISM, now 1.57 (1.54). V4's notes hold
+  (C⁺ 1.38–1.55 at 100 K, 0.88–1.18 at 1000 K, 6.9–11 at ψ ≥ 10⁵).
+- **V11, the D3 bound.** `check_pah_h2_formation.py` left out the gas H that each Eley-Rideal abstraction takes (the H
+  it removes comes back by addition). So 2 h₂ / H-addition passed 1 wherever abstraction outran photo-H loss: 1.015 at
+  C54, 500 K, G0 10³, n(H) 10⁷. With that H the bound is ≤ 0.673 over the grid (fixed 2026-11-26).
+- **V11, ξ_photo.** C54's ξ_photo(0) reaches 1.8×10⁻⁴ at 50 K, G0 10³ and G0/n(H) 10, against Andrews+16's
+  "< 10⁻⁴" for normal C54. That is a disagreement with their model, ×1.8 at that corner of the grid.
+- **V11, NGC 7023.** R_PAH is 7.8×10⁻²⁰ (C54) and 5.0×10⁻²⁰ (C96), against 7.5 and 4.9×10⁻²⁰ before.
+- **V15.** The figure is the same. Its G0 = 0 cross-check had raised since fission became a default (2026-11-05),
+  fixed in PR #33; the population's charges now match the check's chain to ≤ 7×10⁻¹⁶.
 
 **Rerun on 2026-11-02 with the current defaults** (`results/pahchem/validation_2026-11-02/`; the table below
 keeps each row's earlier text, the current verdicts are in `briefing_benchmarks.csv`). The rows were last measured

@@ -59,6 +59,8 @@ that can move it. The figure dates of §8 are read against this table.
 | 2026-11-25 | every present charge live in fields reaching the C K edge (PR #24; before, C 1s Auger steps out of the top live state were booked as Coulomb explosions); stored super-H tables rebuilt (`SUPERH_VERSION` 2, PR #18) | §2.2c, §2.2h |
 | 2026-11-25 | the audit's fixes. The charge ladder repeats a computed step only within 25 % of the conductor fit, else it takes the fit (PR #25; 28 molecules, of which C$_{115}$H$_{29}$ reached +16 below 13.6 eV). Odd-N$_{
 m H0}$ parents (57 π radicals) count H-loss values and super-H barriers from the parent (PR #26; their intact H loss was far too fast). Cells with old-star light above their G$_0$ (`optical_isrf` > G$_0$) get multiphoton tables on G$_0$ nodes that follow their field shape (PR #29; before, the old stars were scaled with every node, and cells below G$_0$ = 1 were extrapolated). The group tables' anion absorbs with `state_sigma` (PR #27; +0.04 % on the bin K) | §2.2c, §2.2h, §4d |
+| 2026-11-25 | PR #32: in a field band below a state's intact threshold, the states of lower threshold keep their own ionisation (`valence_ionisation_rates`; full fields unchanged); `hydrogen_tables` takes `Environment`'s old-star light (`optical_isrf` 1, was 0); `calima-export` runs the legacy `pahchem_dissociation_tables` only on request (`--stages`); the loss yields' round-off guard allows ~n ulp over n bins (the hot-gas grids) | §2.2h, {doc}`/cli/calima-export` |
+| 2026-11-26 | PR #33: dark clouds at G0 = 0 solve again with the fission default (`_interp_g0` gives the photon rates their limit, 0; they had raised since 2026-11-05). PR #35, opt-in joint chain: an odd parent's first super-H IP0 is fitted to the ΔSCF of C$_{27}$H$_{13}$, C$_{31}$H$_{15}$ and C$_{43}$H$_{17}$ (0.20 eV below the ladder's law; effect ≤ 0.008) |
 
 Off by default (opt-in): `cosmic_rays`, `hot_gas`, `coulomb_escape`,
 `double_ionisation`, `hydrogen_chain = "joint"` (since 2026-11-25 an odd-N$_{\rm H0}$ parent's super-H thresholds take
@@ -73,6 +75,7 @@ thermochemistry (EA < D).
 | Where | What | State |
 |---|---|---|
 | `feature/gsd` | the GSD implementation, restarted from main on 2026-11-25 | its design is to be set first |
+| `feature/pahchem-even-superh-34` | ΔSCF +3/+4 H of the even ladder parents (C24H12, C54H18, C96H24; `make_ladder.py --superh 4`), to test the threshold laws' "+3 = +1, +4 = +2" extension, under which the odd parents' EA drifts 0.14–0.50 eV low ({doc}`pahchem-gas-coupling` §2.2h) | DIaL3 686526–686530, submitted 2026-11-26; a drift term for every parent waits on the results |
 | `feature/pahrt` (holds `study/pahrt` and the GSD branch `feature/gsd-a3c`) | how much of pahchem can enter RAMSES as bin-averaged kernels with a per-cell solver | frozen at the restart (5ff3c12), kept as the record. It had decided, on 2026-11-24, equilibrium per cell for every PAH bin with nothing tracked |
 
 ## 4. What passes
@@ -273,14 +276,16 @@ The literature still to be supplied is in {doc}`pahchem-gas-coupling` §5.
 
 | Figures | Made | Status |
 |---|---|---|
-| `results/plots/pahchem/briefing/` (sets A–E) | 2026-10-20/26 | the snapshot {doc}`pahchem-briefing` describes; it predates every default change from 2026-11-01. Its scorecard A1 is older than the benchmark file |
-| `results/plots/pahchem/pahchem_*.png`, the gas-coupling checks | 2026-10-24 to 11-05 | the latest output of each check script, newer than the briefing's E copies; they predate the threshold calibration (2026-11-11) |
-| `results/plots/pahchem/cr_impact_*.png` | 2026-11-01 | predate the audit fixes, which made the CR lifetimes 2–5× longer; to be rerun |
-| `results/plots/pahchem/pahchem_hot_gas_*.png` | 2026-11-05 | the day of the audit fixes; to be rerun with the CR figures |
-| `results/plots/pahchem/pahchem_kshell_auger.png` | 2026-11-03 | X-ray fields: predates the live-state fix (PR #24, on main 2026-11-25) |
+| `results/plots/pahchem/briefing/` (sets A–E) | 2026-11-25/26 | rebuilt from main 839612d on megatron (`results/plots/pahchem/briefing_megatron_2026-11-25.log`). The last steps are still running there: the spectral fits B1–B7 are being refitted (the 2026-11-02 fit no longer adds up under the current code) with its own arguments, and steps 3–4 then assemble the set. Until they finish the folder is empty, and the 10-20/26 set is in `archive_2026-11-25_before_rebuild/`. The scorecards A1 and E00 come from the fixed verdict table `briefing_benchmarks.csv` (2026-10-19/25), not from the rerun. E10 (Berné+22 step by step) and D08 (the 3.4 µm survey) cannot be regenerated here and stay the old figures. The fits' numbers in {doc}`pahchem-briefing` §B are not yet rechecked |
+| `results/plots/pahchem/pahchem_*.png`, the gas-coupling checks | 2026-11-25/26 | current: rerun with the briefing, the dense cloud on 114fa26 (PR #33). What moved is in {doc}`pahchem-gas-coupling` §4 |
+| `results/plots/pahchem/cr_impact_*.png` | 2026-11-25 | current. The lifetimes are 1.2–2.6× those of 2026-11-01, and the hot-cation 3.3 µm signature has been gone since f35e199 (2026-11-04; {doc}`pahchem-spec`) |
+| `results/plots/pahchem/pahchem_hot_gas_*.png` | 2026-11-25 | current. Above 10⁶ K the carbon loss is 1.3–2.5× that of 2026-11-04 ({doc}`pahchem-gas-coupling`, hot gas, "Result") |
+| `results/plots/pahchem/pahchem_kshell_auger.png` | 2026-11-25 | current, after the live-state fix (PR #24). Barely moved: C150's ⟨Z⟩ at ψ = 10⁶ is 19.49, against 19.55 on 2026-11-03 |
+| `results/plots/pahchem/dft_oddparent_2026-11-25/`, `odd_parent_thresholds/` | 2026-11-25/26 | current: the odd-parent law, its three-size test (`odd_parent_overnight.png`), and its effect on the chemistry |
 | `results/plots/pahchem/` reproductions (`demyk2026_reproduction`, `sidegroups_34um*`, `sizelaw_33um`, `saykally_pyrene`, ...) | 2026-10-19/21 | each paper's own inputs; not rerun since |
 | the PAHrt study (`results/pahrt_study/`, made on `feature/pahrt`) | 2026-11-24 | the record of the frozen `feature/pahrt`; predates the audit's fixes of 2026-11-25 |
 
-Nothing has rebuilt the briefing set since 2026-10-26. Doing so takes
-`diagnostics/pahchem/make_briefing.sh` about 3 h with 4 workers, and any
-numbers that move would then need checking in the pages that quote them.
+The briefing set was rebuilt on 2026-11-25/26 (steps 1–2b on megatron, 16 workers, ~3 h). The numbers that moved
+are corrected where the pages quote them: {doc}`pahchem-gas-coupling` §4 and its hot-gas "Result", the cosmic-ray
+section of {doc}`pahchem-spec`, and {doc}`pahchem-briefing`'s C12/C13. The briefing page's text is otherwise still the
+10-20/26 snapshot.
