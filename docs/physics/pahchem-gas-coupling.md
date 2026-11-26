@@ -1071,6 +1071,11 @@ What the joint chain does with these:
     `attachment.Attachment`. f stays the size logistic of §2.2b at every N_H. The anion's valence-detachment threshold
     and the deposits' energies keep the intact IPs.
 
+    The shifted ionisation rates scale the intact state's where it ionises. In a field band below the intact
+    threshold, a state of lower threshold (a super-H neutral or cation) takes its own absolute rate instead
+    (`Population.valence_ionisation_rates`, since 2026-11-25). Before, it took the intact state's zero, so a
+    band-split field lost that ionisation; full fields are unchanged.
+
 **Validity.** It holds in PDR and diffuse gas. There the super-H share is ≤ 1 % at caps of 4, 8 and 12, and none of the
 choices above moves the results. In UV-shielded gas (G0 ≲ 10⁻², n ≳ 100) H addition outruns the photo-loss, and the
 molecules climb to the ladder's top:

@@ -2399,16 +2399,22 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
 
 #: how far a quantity bounded by construction may stray past its bound by round-off before it is an error (``_round_off``)
 ROUND_OFF = 1e-12
+#: a recursion over n grid bins gathers up to ~n ulp: each bin's single-event yield is a weighted mean of lower bins' plus
+#: its own few ulp. Its guard allows RECURSION_ULPS x n x eps (at least ROUND_OFF): the 325 eV loss grid of the hot-gas
+#: responses has 13107 bins, n eps = 2.9e-12, and C268H52 / C185H37 reached P = 1 + 2.3e-12 / 1.3e-12 there, which
+#: ROUND_OFF alone turned into the error that stopped the GSD line's hot_k8 run (pahchem 2026-11-25)
+RECURSION_ULPS = 4.0
 
 
-def _round_off(x, lo, hi, what):
-    """``x`` clipped to [lo, hi] (None: open) after checking it strays past them by round-off only (ROUND_OFF, relative to
-    the bound's scale), so that a clip never hides an error. The recursions behind the probabilities and rates it guards
-    sum the same terms in different orders: 1-2 ulp past their bounds (audit of 2026-11-03)."""
+def _round_off(x, lo, hi, what, tol=ROUND_OFF):
+    """``x`` clipped to [lo, hi] (None: open) after checking it strays past them by round-off only (``tol``, ROUND_OFF by
+    default, relative to the bound's scale), so that a clip never hides an error. The recursions behind the probabilities
+    and rates it guards sum the same terms in different orders: 1-2 ulp past their bounds (audit of 2026-11-03), and up
+    to ~n ulp over a recursion of n bins (``RECURSION_ULPS``)."""
     x = np.asarray(x, dtype=float)
     scale = max(abs(lo) if lo is not None else 0.0, abs(hi) if hi is not None else 0.0, 1.0)
-    if (not np.all(np.isfinite(x)) or (lo is not None and np.any(x < lo - ROUND_OFF * scale))
-            or (hi is not None and np.any(x > hi + ROUND_OFF * scale))):
+    if (not np.all(np.isfinite(x)) or (lo is not None and np.any(x < lo - tol * scale))
+            or (hi is not None and np.any(x > hi + tol * scale))):
         raise ValueError(f"{what} outside [{lo}, {hi}] by more than round-off: {x.min():.17g} .. {x.max():.17g}")
     return np.clip(x, lo, hi)
 
@@ -2465,7 +2471,8 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weig
         emitted = f_[None, :] * _emission_many(cm, starts if W is None else W @ starts)
         e_cl, Y = _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, max(LOSS_E_MAX_EV, top + 5.0),
                                        extras[m] if extras else (), parent_odd)
-        p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit")
+        tol = max(ROUND_OFF, RECURSION_ULPS * np.finfo(float).eps * e_cl.size)   # the yields' recursion up e_cl
+        p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit", tol)
              for c, y in Y.items()}
         if W is not None:
             p = {c: _round_off(W @ v, 0.0, 1.0, f"P({c}) per event") for c, v in p.items()}
@@ -4364,9 +4371,13 @@ class Population:
         return np.exp(-np.maximum(ea - d, 0.0) / (chemistry.KB_EV * T))
 
     def _threshold_factors(self, shape):
-        """{s: r[slot, m]}, m = N_H = 0 ... N_H0 + superh_levels: each live state's valence photoionisation rate (the
-        anion's detachment) at N_H = m over the intact state's, with the thresholds of ``_threshold_shift``. 1 where the
-        intact state has none, or with no shift.
+        """({s: r[slot, m]}, {s: a[slot, m]}), m = N_H = 0 ... N_H0 + superh_levels: each live state's valence
+        photoionisation rate (the anion's detachment) at N_H = m with the thresholds of ``_threshold_shift``,
+        - r: over the intact state's, where the intact state has one (1 with no shift);
+        - a: absolute, per unit G0 [s^-1], where it has none: a field band below the intact threshold that a state of
+          lower threshold still ionises (a super-H neutral or cation in a band-split field; 0 elsewhere). Until
+          2026-11-25 those states took r = 1 times the intact state's zero (GSD restart note: "an absolute accessor is
+          needed").
 
         - Z >= 0: the intact state's yield on E_PH moved rigidly (its yield at E - shift), with the same sigma and field
           (exact for the threshold laws, Jochims and Wenzel).
@@ -4377,10 +4388,10 @@ class Population:
         if key not in self._arrays:
             field1 = _unit_field(shape)
             K = int(self.p.superh_levels)
-            out = {}
+            out, absolute = {}, {}
             for s, mol in enumerate(self.library):
                 m = np.arange(mol.nh + K + 1)
-                r = np.ones((len(self.zs), m.size))
+                r, a = np.ones((len(self.zs), m.size)), np.zeros((len(self.zs), m.size))
                 for z in self._live_charges(mol, shape):
                     d = [self._threshold_shift(mol, mm, z) for mm in m]
                     if not any(d):
@@ -4388,24 +4399,41 @@ class Population:
                     sigma = self._valence_sigma(mol, z, shape)
                     y = _yield(mol, z, self.p)
                     base = photo.ionisation_rate(field1, sigma, y, E_PH)
-                    if base <= 0.0:
-                        continue
                     if z >= 0:
-                        r[z - self.zmin] = [photo.ionisation_rate(field1, sigma, np.interp(E_PH - dd, E_PH, y, left=0.0,
-                                                                                           right=y[-1]), E_PH) / base
-                                            for dd in d]
-                        continue
-                    memo = {}
-                    for j, dd in enumerate(d):
-                        if dd != 0.0:
+                        k = np.array([photo.ionisation_rate(field1, sigma, np.interp(E_PH - dd, E_PH, y, left=0.0,
+                                                                                     right=y[-1]), E_PH) for dd in d])
+                    else:
+                        memo = {0.0: base}
+                        for dd in d:
                             if dd not in memo:
                                 c = _with_ea(mol, dd)
                                 memo[dd] = photo.ionisation_rate(field1, self._valence_sigma(c, z, shape),
-                                                                 _yield(c, z, self.p), E_PH) / base
-                            r[z - self.zmin, j] = memo[dd]
-                out[s] = r
-            self._arrays[key] = out
+                                                                 _yield(c, z, self.p), E_PH)
+                        k = np.array([memo[dd] for dd in d])
+                    if base > 0.0:
+                        r[z - self.zmin] = k / base
+                    else:
+                        a[z - self.zmin] = k
+                out[s], absolute[s] = r, a
+            self._arrays[key] = (out, absolute)
         return self._arrays[key]
+
+    def valence_ionisation_rates(self, shape):
+        """{s: k[slot, m]} [s^-1 per unit G0], m = N_H = 0 ... N_H0 + superh_levels: each live state's valence
+        photoionisation (the anion's detachment) in ``shape`` at every N_H, absolute: sigma x yield x the unit field, with
+        the thresholds of ``_threshold_shift`` (``_threshold_factors``); 0 for the charges the field cannot reach. Linear in
+        the field, so a band-split field's rates are the sum of its bands' (each band's own normalisation aside)."""
+        field1 = _unit_field(shape)
+        r, a = self._threshold_factors(shape)
+        out = {}
+        for s, mol in enumerate(self.library):
+            k = np.zeros_like(r[s])
+            for z in self._live_charges(mol, shape):
+                i = z - self.zmin
+                base = photo.ionisation_rate(field1, self._valence_sigma(mol, z, shape), _yield(mol, z, self.p), E_PH)
+                k[i] = base * r[s][i] + a[s][i]
+            out[s] = k
+        return out
 
     def _attachment_factors(self, temperature_k):
         """{s: r[m]}, m = N_H = 0 ... N_H0 + superh_levels: the neutral's electron attachment at N_H = m over the intact
@@ -4483,7 +4511,7 @@ class Population:
         hot = self._hot_rates(env)
         per_h = hot["knockout_h"] if hot is not None else np.zeros_like(k_add)
         routed = self._routed()
-        r_ip = self._threshold_factors(shape)
+        r_ip, a_ip = self._threshold_factors(shape)
         r_att = self._attachment_factors(T)
         er = chemistry.cross_section_rate(T, p.eley_rideal_a2) * n_h
         deep = p.superh_chemistry == "deep"
@@ -4512,7 +4540,7 @@ class Population:
 
             # charge steps, per dZ, before the deposits move their shares
             C = {j: np.repeat(k[s, sl][:, None], nn, axis=1) for j, k in enumerate(steps, start=1)}
-            C[1] = np.maximum(C[1] + (r_ip[s][sl] - 1.0) * vps[s, sl][:, None], 0.0)
+            C[1] = np.maximum(C[1] + (r_ip[s][sl] - 1.0) * vps[s, sl][:, None] + g0 * a_ip[s][sl], 0.0)
             C[-1] = np.repeat(down[s, sl][:, None], nn, axis=1)
             a0 = -self.zmin - lo                                 # the neutral's slot: its attachment shifts with the EA
             r_cap = r_att.get(s) if 1 <= a0 < nz else None

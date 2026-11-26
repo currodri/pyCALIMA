@@ -353,7 +353,8 @@ feature/pahchem-joint-observables, answering the GSD request of 2026-11-15).
 
 **Tables** (`pahchem.hydrogen_tables`). Per bin, the number-weighted mean over its PAHdb v4.00 molecules, on the
 pahchem-nd v1 axes of `export_pah_tables`:
-- log G0 −1 … 6 (Draine 1978 shape, no old-star light by default);
+- log G0 −1 … 6 (Draine 1978 shape, with the solar circle's old-star light by default since 2026-11-25, `optical_isrf` 1
+  as `Environment` and {doc}`pahchem-gas-coupling` §4d; `--optical-isrf 0` drops it);
 - log n(H) −1 … 6;
 - log T 1 … 4;
 - log x_e −5 … −1.

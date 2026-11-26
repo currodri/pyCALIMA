@@ -25,6 +25,8 @@ zero-point level, so E = 0 is the vibrational ground state.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import numpy as np
 from scipy.special import gammaln
 
@@ -61,6 +63,14 @@ def _frequencies(freqs_cm):
     return freqs
 
 
+#: ``beyer_swinehart``'s counts by (frequencies, grain, tilt), each on the longest grid asked for: a shorter grid's counts
+#: are its exact prefix (the recursion only looks back), so every grid of one state comes from one count. A basis build
+#: asks for the same counts again and again (C54H18: 256 calls, 72 states, half the 4.6 s; PAHrt saw ~800 per field
+#: shape). Per process, least recently used out first past BS_MEMO_BYTES.
+_BS_MEMO: OrderedDict = OrderedDict()
+BS_MEMO_BYTES = 256 * 2**20
+
+
 def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0, beta=0.0):
     """Exact harmonic state count on a grid.
 
@@ -95,6 +105,25 @@ def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0, beta=0.0):
     """
     freqs = _frequencies(freqs_cm)
     n = int(np.floor(e_max_cm / grain_cm)) + 1
+    key = (freqs.tobytes(), float(grain_cm), float(beta))
+    full = _BS_MEMO.get(key)
+    if full is not None and full.size >= n:
+        _BS_MEMO.move_to_end(key)
+    else:
+        full = _bs_counts(freqs, n, grain_cm, beta)
+        _BS_MEMO[key] = full
+        _BS_MEMO.move_to_end(key)
+        size = sum(v.nbytes for v in _BS_MEMO.values())
+        while size > BS_MEMO_BYTES and len(_BS_MEMO) > 1:
+            size -= _BS_MEMO.popitem(last=False)[1].nbytes
+    counts = full[:n].copy()
+    if beta and not counts[-1] > 0.0:
+        raise OverflowError("tilted state count underflowed at the top of the grid: beta too large")
+    return np.arange(n) * grain_cm, counts
+
+
+def _bs_counts(freqs, n, grain_cm, beta):
+    """The Beyer-Swinehart recursion of ``beyer_swinehart`` on n grid points (raises if the count overflows)."""
     counts = np.zeros(n)
     counts[0] = 1.0
     steps = np.maximum(np.rint(freqs / grain_cm).astype(np.int64), 1)
@@ -116,9 +145,7 @@ def beyer_swinehart(freqs_cm, e_max_cm, grain_cm=1.0, beta=0.0):
                     counts[start:stop] += counts[start - f:stop - f]
     if not np.all(np.isfinite(counts)):
         raise OverflowError("state count overflowed float64; lower e_max_cm, or tilt it (count_tilt)")
-    if beta and not counts[-1] > 0.0:
-        raise OverflowError("tilted state count underflowed at the top of the grid: beta too large")
-    return np.arange(n) * grain_cm, counts
+    return counts
 
 
 #: the highest ln(count) ``count_tilt`` lets an untilted count reach (float64 overflows at ln 709.8)

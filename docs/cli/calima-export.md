@@ -34,7 +34,13 @@ Of the stages measured, two take most of the time:
 
 It scales per dust bin, so the default configuration — 4 dust and 2 PAH bins —
 is very much faster than this. Use `--stages` or `--skip-stages` to regenerate
-only what you need:
+only what you need.
+
+`pahchem_dissociation_tables` is opt-in since 2026-11-25: a plain run, and
+`--skip-stages`, leave it out, and it runs only when named in `--stages`. Its
+tables come from the legacy pahchem `BaselineModel` network of one parent per
+bin, and only `models.photolysis_model = "pahchem"` reads them (the default is
+`"RM2026"`). Set that key, and add the stage:
 
 ```bash
 # Everything (roughly a quarter of an hour at 25 bins, minutes at the default 6)
@@ -45,6 +51,9 @@ calima-export --skip-stages dust_band_luminosities
 
 # Only the PAH tables
 calima-export --stages pah_optical_properties,pah_sputtering_rates,pah_dissociation_tables
+
+# The pahchem carbon-loss tables (opt-in), for models.photolysis_model = "pahchem"
+calima-export --stages pahchem_dissociation_tables
 
 calima-export --list-stages
 ```

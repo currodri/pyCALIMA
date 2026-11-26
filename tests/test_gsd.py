@@ -936,6 +936,26 @@ def _agn_photons(L_bol, r_pc, xray=True):
     return ph
 
 
+def test_charging_table_cache_key_follows_the_physics(isolated_env, monkeypatch):
+    """A cached table's name carries ``physics_hash``, the bytes of the charge modules and of their bundled data, so a
+    change to the physics builds a new table rather than reading a stale one (until 2026-11-25 the key held only the
+    groups and U_GRID, and shared caches held tables of different physics under one name)."""
+    from pycalima.gsd import charging as C
+
+    h = C.physics_hash()
+    p = C._table_path("silicate", 1e-6, C.AGN_GROUP_L0, C.AGN_GROUP_L1)
+    assert len(h) == 10 and f"_{h}_" in p.name
+    try:
+        monkeypatch.setattr(C, "PHYSICS_MODULES", C.PHYSICS_MODULES[:-1])          # other code: another key
+        C.physics_hash.cache_clear()
+        q = C._table_path("silicate", 1e-6, C.AGN_GROUP_L0, C.AGN_GROUP_L1)
+        assert C.physics_hash() != h and q != p and q.parent == p.parent
+    finally:
+        monkeypatch.undo()
+        C.physics_hash.cache_clear()
+    assert C.physics_hash() == h
+
+
 @pytest.fixture(scope="module")
 def silicate_charging():
     from pycalima.gsd.charging import ChargingModel

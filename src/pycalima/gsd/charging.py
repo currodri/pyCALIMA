@@ -35,9 +35,12 @@ which should be revisited for metallic iron or SiC.
 
 from __future__ import annotations
 
+import functools
 import hashlib
+import importlib
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Sequence
 
 import numpy as np
@@ -142,9 +145,32 @@ def _cache_dir():
 U_GRID = dict(n=801, u_min=-1000.0, u_max=3.0e4)
 
 
+# the code and bundled data a table comes from (``rt_group_charging.build_bin_table``): their bytes enter the cache key,
+# so a change to the physics or the data builds new tables instead of reusing stale ones. Until 2026-11-25 the key held
+# only the groups and U_GRID, and the shared caches held tables of different physics under one name (40 of 47 names
+# differed between two of them, some by orders of magnitude). Tables of older keys are never read again.
+PHYSICS_MODULES = ("rt_group_charging", "wdb06_yields", "wdb06_atomic", "shared_physics", "coulomb_focusing")
+PHYSICS_DATA = (("external_data", "wdb06"), ("optical_props", "draine_lee_1984"))
+
+
+@functools.lru_cache(maxsize=1)
+def physics_hash():
+    """sha1 (10 hex digits) of ``PHYSICS_MODULES``' source and ``PHYSICS_DATA``'s files: the tables' physics."""
+    h = hashlib.sha1()
+    for name in PHYSICS_MODULES:
+        h.update(name.encode())
+        h.update(Path(importlib.import_module(f"pycalima.models.dust_charge.{name}").__file__).read_bytes())
+    for parts in PHYSICS_DATA:
+        root = _paths.get_data_root().joinpath(*parts)
+        for f in sorted(q for q in root.rglob("*") if q.is_file()):
+            h.update(str(f.relative_to(root)).encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
 def _table_path(material, a, L0, L1):
     key = hashlib.sha1(np.asarray([*L0, *L1, *U_GRID.values()], float).tobytes()).hexdigest()[:10]
-    return _cache_dir() / f"{material}_{a:.6e}_{key}_v{rg.FORMAT_VERSION}.npz"
+    return _cache_dir() / f"{material}_{a:.6e}_{key}_{physics_hash()}_v{rg.FORMAT_VERSION}.npz"
 
 
 def bin_table(material, a, L0=AGN_GROUP_L0, L1=AGN_GROUP_L1, cache=True):

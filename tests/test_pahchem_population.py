@@ -1667,6 +1667,27 @@ def test_odd_parents_first_extra_h_closes_the_shell():
     assert all(pop._threshold_shift(odd, odd.nh + 2, z) == 0.0 for z in (-1, 0, 1))
 
 
+def test_deep_loss_grids_pass_the_round_off_guard():
+    """A large PAH's responses on the 325 eV grid of hot-gas deposits pass ``deposit_response``'s round-off guard: its
+    single-event yields gather up to ~n ulp over the grid's n bins (13107 here), and the guard allows RECURSION_ULPS x
+    n x eps. With ROUND_OFF alone, C185H37 (6440) at Z = -1, one H lost (P(H) 1 + 1.2-1.3e-12), raised there and stopped
+    the GSD line's hot_k8 run; the allowance stays far below any real error."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.name == "C185H37 (6440)")
+    p = replace(Params(), hydrogen_chain="joint", hot_gas=True, superh_levels=8, superh_chemistry="deep")
+    inp = population._basis_inputs(mol, -1, ("draine",), 100.0, 21.5 * dos.CM_PER_EV, p)
+    extras = [inp["extras"][1]] if inp["extras"] else []
+    out = population.deposit_response([inp["ladder"][1]], 100.0, tuple(p.h_even), tuple(p.h_odd), tuple(p.h2), extras,
+                                      population.HEAT_NODES_EV, parent_odd=bool(inp.get("parent_odd")))
+    assert all(0.0 <= v <= 1.0 for row in out for (_, *probs) in row for v in probs)
+    n = int(np.floor(population.HEAT_NODES_EV.max() * dos.CM_PER_EV / 200.0)) + 1
+    assert population.RECURSION_ULPS * np.finfo(float).eps * n < 2e-11
+
+
 def _ladder_molecules():
     """A cation-only molecule and one with its anion (N_C >= 50): both take LADDER_STEP_FIT's +1 -> +2 step."""
     return [_library()[0], next(m for m in _library() if -1 in m.charges and m.nc >= 50)]
@@ -2086,7 +2107,7 @@ def test_andrews_ip_shift_lowers_the_cation_share_of_the_dehydrogenated_states_o
     z = np.array(zs)
     cat = lambda F, j: F[z > 0, j].sum() / F[:, j].sum()                    # noqa: E731
     assert Fs[:, 0].sum() > 0.5 and cat(Fs, 0) < 0.8 * cat(Ff, 0)
-    r = shifted._threshold_factors(population.field_shape(env))[0]
+    r = shifted._threshold_factors(population.field_shape(env))[0][0]
     nh0 = lib[0].nh
     assert np.all(r[-1 - shifted.zmin] == 1.0)                              # the anion (EA): unshifted
     assert np.all(r[:, nh0:] == 1.0) and np.all(r[-shifted.zmin:, :nh0] <= 1.0)
@@ -2104,7 +2125,7 @@ def test_dft_thresholds_of_the_joint_chain():
     env = Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)
     dft, flat = _joint(lib), _joint(lib, threshold_shifts="none")
     nh0, a, n = lib[0].nh, -1 - dft.zmin, -dft.zmin
-    r = dft._threshold_factors(population.field_shape(env))[0]
+    r = dft._threshold_factors(population.field_shape(env))[0][0]
     att = dft._attachment_factors(env.temperature_k)[0]
     assert np.all(r[a, :nh0] < 1.0) and r[a, nh0] == 1.0 and r[a, nh0 + 1] < 1.0
     assert np.all(att[:nh0] > 1.0) and att[nh0] == 1.0 and att[nh0 + 1] > 1.0
@@ -2131,6 +2152,33 @@ def test_dft_threshold_shifts_ignore_a_calibration_of_the_library():
             ref = pop._threshold_shift(mol, m, z)
             assert pop_cal._threshold_shift(cal, m, z) == pytest.approx(ref, abs=1e-12)
             assert pop._threshold_shift(pop._own(mol), m, z) == pytest.approx(ref, abs=1e-12)
+
+
+def test_a_band_below_the_intact_threshold_still_ionises_the_super_h_neutral():
+    """A field band below the intact neutral's IP0 but above its first super-H state's (whose IP0 is lower) ionises that
+    state, in ``valence_ionisation_rates`` and in the joint chain (``_threshold_factors``' absolute part). Until
+    2026-11-25 such a state took the ratio 1 times the intact state's zero, so band-split fields lost its ionisation. In
+    the full field the intact state ionises, and the ratios carry every shift as before (no absolute part)."""
+    from pycalima.pahchem.baseline import Environment
+
+    mol, = _v400_parents(("C54H18 (37)",))
+    pop = _joint([mol])
+    own, i = pop.library[0], -pop.zmin
+    nh0 = own.nh
+    d1 = pop._threshold_shift(own, nh0 + 1, 0)
+    e_cut = float(population.state_threshold(own, 0)) + 0.5 * d1                  # between the two IP0s
+    assert d1 < -0.3
+    env = Environment("band", 1.0, 1e2, 1.4e-2, 100.0, None, field_powerlaw=1.0, field_e_min_ev=1.0,
+                      field_e_max_ev=e_cut)
+    shape = population.field_shape(env)
+    k = pop.valence_ionisation_rates(shape)[0]
+    assert k[i, nh0] == 0.0 < k[i, nh0 + 1]
+    net, = pop.joint_networks(env)
+    ion = next(q for q in net.processes if q.name == "ionisation (dZ +1)").rate
+    zi = list(net.charges).index(0)
+    assert ion[zi, nh0] == 0.0 < ion[zi, nh0 + 1] == pytest.approx(env.g0 * k[i, nh0 + 1], rel=1e-12)
+    r, a = pop._threshold_factors(("draine",))
+    assert not np.any(a[0]) and np.all(pop.valence_ionisation_rates(("draine",))[0][i] > 0.0)
 
 
 def test_population_calibrates_the_pahdb_v400_thresholds_by_default():

@@ -95,7 +95,8 @@ HK13 worked example and their $P_1/t$ scaling
 group solver (WDB06 photoemission including inner shells and Auger
 electrons, DS87 capture, hot-gas secondaries), on photon groups extended to
 10 keV and potentials to 30 kV for AGN illumination (`AGN_GROUPS`; tables
-cached on disk). `PhotonGroups` converts any spectrum, and
+cached on disk, keyed by the groups, the potential grid and `physics_hash`, a
+hash of the charge code and its data, so a physics change rebuilds them). `PhotonGroups` converts any spectrum, and
 `xray_power_law` adds the corona that the SKIRTOR SED lacks. The
 `ChargeState` provides:
 
