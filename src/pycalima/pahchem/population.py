@@ -2399,16 +2399,22 @@ def build_state_basis(freqs, einstein_a, nc, nh, z, yield_, shape, de_cm, e_max_
 
 #: how far a quantity bounded by construction may stray past its bound by round-off before it is an error (``_round_off``)
 ROUND_OFF = 1e-12
+#: a recursion over n grid bins gathers up to ~n ulp: each bin's single-event yield is a weighted mean of lower bins' plus
+#: its own few ulp. Its guard allows RECURSION_ULPS x n x eps (at least ROUND_OFF): the 325 eV loss grid of the hot-gas
+#: responses has 13107 bins, n eps = 2.9e-12, and C268H52 / C185H37 reached P = 1 + 2.3e-12 / 1.3e-12 there, which
+#: ROUND_OFF alone turned into the error that stopped the GSD line's hot_k8 run (pahchem 2026-11-25)
+RECURSION_ULPS = 4.0
 
 
-def _round_off(x, lo, hi, what):
-    """``x`` clipped to [lo, hi] (None: open) after checking it strays past them by round-off only (ROUND_OFF, relative to
-    the bound's scale), so that a clip never hides an error. The recursions behind the probabilities and rates it guards
-    sum the same terms in different orders: 1-2 ulp past their bounds (audit of 2026-11-03)."""
+def _round_off(x, lo, hi, what, tol=ROUND_OFF):
+    """``x`` clipped to [lo, hi] (None: open) after checking it strays past them by round-off only (``tol``, ROUND_OFF by
+    default, relative to the bound's scale), so that a clip never hides an error. The recursions behind the probabilities
+    and rates it guards sum the same terms in different orders: 1-2 ulp past their bounds (audit of 2026-11-03), and up
+    to ~n ulp over a recursion of n bins (``RECURSION_ULPS``)."""
     x = np.asarray(x, dtype=float)
     scale = max(abs(lo) if lo is not None else 0.0, abs(hi) if hi is not None else 0.0, 1.0)
-    if (not np.all(np.isfinite(x)) or (lo is not None and np.any(x < lo - ROUND_OFF * scale))
-            or (hi is not None and np.any(x > hi + ROUND_OFF * scale))):
+    if (not np.all(np.isfinite(x)) or (lo is not None and np.any(x < lo - tol * scale))
+            or (hi is not None and np.any(x > hi + tol * scale))):
         raise ValueError(f"{what} outside [{lo}, {hi}] by more than round-off: {x.min():.17g} .. {x.max():.17g}")
     return np.clip(x, lo, hi)
 
@@ -2465,7 +2471,8 @@ def deposit_response(ladder, de_cm, h_even, h_odd, h2, extras, energies_ev, weig
         emitted = f_[None, :] * _emission_many(cm, starts if W is None else W @ starts)
         e_cl, Y = _single_event_yields(f_, a_, n_, h2_ok, h_even, h_odd, h2, max(LOSS_E_MAX_EV, top + 5.0),
                                        extras[m] if extras else (), parent_odd)
-        p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit")
+        tol = max(ROUND_OFF, RECURSION_ULPS * np.finfo(float).eps * e_cl.size)   # the yields' recursion up e_cl
+        p = {c: _round_off(np.interp(energies_ev * dos.CM_PER_EV, e_cl, y), 0.0, 1.0, f"P({c}) per deposit", tol)
              for c, y in Y.items()}
         if W is not None:
             p = {c: _round_off(W @ v, 0.0, 1.0, f"P({c}) per event") for c, v in p.items()}

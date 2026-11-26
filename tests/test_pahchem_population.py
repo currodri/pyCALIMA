@@ -1667,11 +1667,11 @@ def test_odd_parents_first_extra_h_closes_the_shell():
     assert all(pop._threshold_shift(odd, odd.nh + 2, z) == 0.0 for z in (-1, 0, 1))
 
 
-def test_loss_yields_stay_within_round_off_of_one_on_deep_grids():
-    """The single-event loss yields of a large PAH on the 325 eV grid of hot-gas responses stay within a few ulp of 1.
-    C185H37 (6440) at Z = -1, one H lost, gave P(H) = 1 + 1.3e-12 there, past ``_round_off``'s limit, and that killed
-    the hot-gas table run hot_k8: each bin's denominator was sum(k) - (the part to itself), which cancels, and the error
-    added up over the 13107 bins (``CascadeModel.photon_yields``, fixed 2026-11-25)."""
+def test_deep_loss_grids_pass_the_round_off_guard():
+    """A large PAH's responses on the 325 eV grid of hot-gas deposits pass ``deposit_response``'s round-off guard: its
+    single-event yields gather up to ~n ulp over the grid's n bins (13107 here), and the guard allows RECURSION_ULPS x
+    n x eps. With ROUND_OFF alone, C185H37 (6440) at Z = -1, one H lost (P(H) 1 + 1.2-1.3e-12), raised there and stopped
+    the GSD line's hot_k8 run; the allowance stays far below any real error."""
     from dataclasses import replace
 
     from pycalima.pahchem.baseline import Params
@@ -1680,11 +1680,12 @@ def test_loss_yields_stay_within_round_off_of_one_on_deep_grids():
     mol = next(m for m in lib if m.name == "C185H37 (6440)")
     p = replace(Params(), hydrogen_chain="joint", hot_gas=True, superh_levels=8, superh_chemistry="deep")
     inp = population._basis_inputs(mol, -1, ("draine",), 100.0, 21.5 * dos.CM_PER_EV, p)
-    f_, a_, n_, h2_ok = inp["ladder"][1]
-    e_max = float(population.HEAT_NODES_EV.max()) + 5.0
-    _, Y = population._single_event_yields(np.asarray(f_, float), a_, n_, h2_ok, p.h_even, p.h_odd, p.h2, e_max,
-                                           inp["extras"][1] if inp["extras"] else (), bool(inp.get("parent_odd")))
-    assert max(float(y.max()) for y in Y.values()) - 1.0 < 64 * np.finfo(float).eps
+    extras = [inp["extras"][1]] if inp["extras"] else []
+    out = population.deposit_response([inp["ladder"][1]], 100.0, tuple(p.h_even), tuple(p.h_odd), tuple(p.h2), extras,
+                                      population.HEAT_NODES_EV, parent_odd=bool(inp.get("parent_odd")))
+    assert all(0.0 <= v <= 1.0 for row in out for (_, *probs) in row for v in probs)
+    n = int(np.floor(population.HEAT_NODES_EV.max() * dos.CM_PER_EV / 200.0)) + 1
+    assert population.RECURSION_ULPS * np.finfo(float).eps * n < 2e-11
 
 
 def _ladder_molecules():
