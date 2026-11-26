@@ -232,6 +232,14 @@ higher charges, as before). In the population every molecule runs from its lowes
   (676 of v4.00's 1424) takes its +1 → +2 step from a fit to the 743 that have one: 0.464 + 16.91/√N_C eV (rms
   0.24 eV). The reach of a field cut at 13.6 eV is WD01's (their eq. 22) and Andrews+16's (Fig. 4): +2, +3 and +4
   for C24, C54 and C96.
+  - **Guard (2026-11-25).** A computed step more than 25 % off that fit (`LADDER_STEP_TOL`, `population.ladder_step`)
+    is not taken for e²/C, and the fit's step is used instead, also one step down for the anion's valence threshold.
+    This applies to 28 molecules: 9 of the 688 even-N_H0 ones with a dication, and 19 of the 55 odd ones.
+    - For several large radicals PAHdb computed the cation with RB3LYP and the neutral and dication with UB3LYP,
+      which gives steps as low as 0.48 eV (C115H29), against the fit's 2.04.
+    - Repeated, such a step put +16 of C115H29, +13 of C145H37 and +9 of C89H27 below 13.6 eV. With the guard no
+      molecule goes beyond +6 (C216H36, C268H52) below 13.6 eV.
+    - Found by an external audit of 2026-11-25 (bug 1).
 - **Stand-ins.** The states above the highest computed charge take its modes. Their UV cross section is +2's.
   - The literature (search of 2026-11-02, quotes checked against the full texts): computed IR spectra exist at +3
     for only two molecules in print (Bakes, Tielens & Bauschlicher 2001, Table 1) and the 7 of PAHdb v4.00. There
@@ -967,6 +975,16 @@ steady state by `network.gth_banded`. The default (`"charge_averaged"`) is uncha
     H addition (barriers 0.06 / 0.035 eV on the first and third extra H), and Eley–Rideal abstraction releasing H2 (counted
     in `hydrogenation_summary`).
   - **Emission.** The super-hydrogenated states emit as the parent.
+  - **Odd-N_H0 parents** (57 of v4.00's molecules, π radicals; since 2026-11-25, pahchem audit bug 4).
+    - The H-loss values follow the number of H lost from the parent (`population._h_values`): the first loss's
+      (4.41 eV, degeneracy N_H) after an even number, West+18's second-H values after an odd one. H2 loss and the
+      deeper states' N_H scaling follow the same count.
+    - The super-H barriers are an even parent's one step along: the radical's first extra H closes the shell without
+      a barrier.
+    - Before, these parents took the radical's values on the intact molecule. C27H13 lost an H after 41 % of 8 eV
+      deposits; it is now 2e-6, and 0.48 at 13 eV.
+    - Their super-H threshold shifts still come from the even parents' laws, which invert their sign. A ΔSCF ladder of
+      one odd parent is to replace them.
 
 **Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
 before quoting):
@@ -988,6 +1006,17 @@ What the joint chain does with these:
   that is now `"andrews16"`, and `"none"` shifts nothing.
 - **Anion H addition.** Anions add H as neutrals (`anion_h_addition = "as_neutral"`, Population's convention). `"none"`
   (BaselineModel) and `associative_detachment = "all"` (Andrews+16) are the brackets.
+  - **"all" by thermochemistry (2026-11-25).** In the joint chain, PAH(N_H)⁻ + H → PAH(N_H + 1) + e⁻ costs EA(N_H) − D,
+    with D the extra H's binding in the neutral product (`h_superh_e0`, 1.40 eV). It is endothermic for C54H18 (+0.12
+    eV), C96H24 (+0.74) and C150H30 (+1.17), and for 62–73 % of the molecules of N_C 21–100. Andrews+16's own EAs (C96
+    0.56 eV) made it exothermic.
+    - Since 2026-11-25 the intact and super-hydrogenated anions detach at exp(−max(EA − D, 0)/kT) times the measured rate
+      (`Population._ad_thermo`, the chain's own per-N_H EAs). The dehydrogenated anions keep the measured rate: they bind
+      the H by ~4.7 eV.
+    - Measured with `check_joint_hydrogenation.py` on 2026-11-25 (100 K): for C54H18 and C96H24 the bracket now gives the
+      default's super-H shares. C54 at n_H 1e2, G0 1e-3: 0.65 → 0.01; C96 at n_H 1e2, G0 1: 0.72 → 0.02. C24H12 (EA 0.5
+      eV, below D) is unchanged. The other brackets are bit-identical.
+    - BaselineModel keeps Andrews+16's rule. Found by an external audit of 2026-11-25 (bug 3c).
 - **The ΔSCF ladders (2026-11-10).** These ran for C24, C54 and C96 (`diagnostics/pahchem/dft_ladders/`). They used
   B3LYP adiabatic ΔSCF, with 6-31G* IPs and 6-31+G* EAs, over N_H0 − 4 … N_H0 + 2. The shifts over the parent (eV), for
   C24 / C54 / C96:
@@ -1105,6 +1134,15 @@ above. It follows the user's choices of 2026-11-08 and 2026-11-15. The literatur
   - These are coronene's barriers, used for every molecule, up to +24, where the table ends (`SUPERH_DEEP_MAX`).
   - The cation rate is `addition_cation` × exp(−E_a/kT). The neutral's is the geometric rate over the barrier. Anions
     take the neutral's rate.
+  - **Anion barriers.** By default anions take the neutral's barriers (`superh_anion_barriers = "neutral"`). An anion
+    at N_H0 + j has the cation's electron parity, though, so its closed-shell states are the cation's.
+    - `"cation"` (opt-in, a labelled bracket, 2026-11-25) gives anions the cations' pattern, the magic steps included,
+      while keeping the neutral's geometric rate. Cazaux+16's 0.32 eV step at +17 then stops the anions there, P(+24) /
+      P(+17) ~ 1e-8 at 100 K.
+    - Neutrals still climb past it, so the runaway of N_C ≳ 100 to +24 in shielded and dense gas stays open.
+    - Nothing is measured for H on an intact PAH anion: the cations' barriers are an extrapolation.
+    - A check of 2026-11-25 found that the other proposed causes would not stop the climb. Scaling the addition cross
+      section with N_H0 instead of N_C still gives C150 log P(+24)/P(0) +26.5, against +36 as coded.
 - **Abstraction per CH₂ site.** Eley–Rideal runs once per extra H, j × σ_ER v n(H). Boschman+15 and Mennella+12 normalise
   σ_ER per reactive C. Counting both H of each CH₂ (2j) is the same as doubling `eley_rideal_a2`, which with Foley+18's
   ≥ 0.45 Å² is the ER : addition bracket.
@@ -1645,6 +1683,22 @@ The extrapolated Draine polynomial gives 10–170× fewer 1–5 eV photons than 
   - The shape key carries `optical_isrf / G0`, so each G₀ is its own shape, with exact bases.
   - Between the nodes of the multiphoton k_H table, the old stars scale with the node's G₀. They add little energy
     per photon, so the H loss barely feels this.
+  - **Below G₀ = `optical_isrf` (2026-11-25).** Here the cell lies under every node of `K_H_G0_GRID` (1 … 1e6), and
+    each node holds at least `optical_isrf / G₀` times the cell's old-star light. Two things went wrong:
+    - The rates were extrapolated down from the multiphoton regime: C96H24⁺ super-H loss was 8.7× low at G₀ 1e-3.
+    - At G₀ 0.01 the top node held 1e8 × the old stars, and C268H52's cascade did not converge.
+
+    Such shapes (old stars r > 1 per unit G₀) now have their own nodes, `population.g0_nodes`. These are
+    `K_H_G0_GRID` scaled so that the top node holds `OLD_STARS_NODE_MAX` (1e5) × the solar circle, where C268H52's
+    cascade converges.
+    - The shape holds only r, so its cells are every (G₀, `optical_isrf` = r G₀). They lie on the grid for
+      `optical_isrf` 0.1 … 1e5. A dusty cell at G₀ 20 with `optical_isrf` 2000 shares r = 100 with G₀ 0.01 at 1.
+    - A cell with `optical_isrf` 1 sits exactly on a node.
+    - Every other shape, the cells at G₀ ≥ `optical_isrf` included, keeps its nodes, results and stored tables.
+    - Found by an external audit of 2026-11-25 (bug 2). A first cap of 1e3 left `optical_isrf` > 1000 off the grid, a
+      review catch.
+    - One basis set per G₀ for these cells is the design of the shapes themselves. Holding the old stars fixed across
+      the nodes would need every linear rate split into its FUV and old-star parts; it is a possible later refactor.
 - **Kurucz fields** keep the star's whole spectrum, now from 1 eV.
 
 **ε** is now the heating over all the power absorbed (1–13.6 eV, or up to 500 eV with the EUV). That is Berné+22's

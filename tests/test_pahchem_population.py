@@ -456,6 +456,69 @@ def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
     assert pop._interp_g0(tab, g[0]) == pytest.approx([2.0, 3.0])
 
 
+def test_draine_cells_below_their_old_star_light_get_nodes_about_them():
+    """``g0_nodes`` (audit 2026-11-25, bug 2): K_H_G0_GRID, the same object, for every shape but a Draine one with more
+    old-star light per unit G0 than at G0 = optical_isrf (r > 1). There: 13 increasing nodes whose top holds
+    OLD_STARS_NODE_MAX x the old stars; a cell with optical_isrf 1 on node 2; every cell of the shape (optical_isrf =
+    r G0) with optical_isrf 0.1 ... OLD_STARS_NODE_MAX on the grid, a dusty cell with optical_isrf 2000 at G0 20 too
+    (it shares r = 100 with G0 0.01, optical_isrf 1); read by ``_interp_g0`` with no extrapolation."""
+    from dataclasses import replace
+
+    K = population.K_H_G0_GRID
+    for shape in (("draine",), ("draine", 1.0), ("draine", 1e-2), ("kurucz", 30000), ("powerlaw", 1.0, 13.6, 1.0)):
+        assert population.g0_nodes(shape) is K
+    for g0 in (0.9, 0.1, 1e-2, 1e-3, 1e-4):
+        shape = population.field_shape(Environment("cell", g0, 1e2, 1e-2, 100.0, None))      # optical_isrf 1
+        nodes = population.g0_nodes(shape)
+        assert nodes.size == K.size and np.all(np.diff(nodes) > 0)
+        assert nodes[-1] * shape[1] == pytest.approx(population.OLD_STARS_NODE_MAX, rel=1e-12)
+        assert nodes[2] == pytest.approx(g0, rel=1e-12)
+    for g0, optical in ((0.01, 1.0), (20.0, 2000.0), (1e3, 1e4), (0.05, 0.12), (1e-2, 0.99e5)):     # all r > 1
+        shape = population.field_shape(replace(Environment("cell", g0, 1e2, 1e-2, 100.0, None), optical_isrf=optical))
+        nodes = population.g0_nodes(shape)
+        assert nodes[0] <= g0 <= nodes[-1]
+    pop = population.Population(_library()[:1], WINDOWS)
+    shape = population.field_shape(Environment("cell", 1e-3, 1e2, 1e-2, 100.0, None))
+    nodes = population.g0_nodes(shape)
+    tab = np.stack([nodes, nodes ** 2])                               # power laws: log-log exact between nodes
+    assert pop._interp_g0(tab, 3e-3, shape) == pytest.approx([3e-3, 9e-6], rel=1e-12)
+    with pytest.raises(ValueError, match="optical_isrf <= OLD_STARS_NODE_MAX"):     # optical_isrf 1e6, off the grid
+        pop._interp_g0(tab, 1e3, shape)
+
+
+def test_an_odd_parent_under_old_star_light_gets_both_its_parity_and_its_nodes(monkeypatch):
+    """#26 and #29 together: an odd-N_H0 parent's basis under an old-star Draine shape below G0 = 1 hands both its parity
+    (``parent_odd``) and its shape's nodes (``g0_nodes``) to every ladder table (keyword-only in ``_loss_tables``, so a
+    positional mix-up cannot pass one for the other): changing either changes the tables."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.nh % 2 == 1 and m.nc <= 30)
+    shape = population.field_shape(Environment("dense", 1e-2, 1e4, 1e-1, 100.0, None))
+    inp = population._basis_inputs(mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV, Params())
+    assert inp["parent_odd"] is True and population.g0_nodes(shape) is not population.K_H_G0_GRID
+    both = population.build_state_basis(**inp).ladder_h
+    even = population.build_state_basis(**{k: v for k, v in inp.items() if k != "parent_odd"}).ladder_h
+    nodes = population.g0_nodes
+    monkeypatch.setattr(population, "g0_nodes", lambda sh: nodes(sh) * 1.5)
+    moved = population.build_state_basis(**inp).ladder_h
+    assert np.isfinite(both).all()
+    assert not np.allclose(both, even, rtol=1e-6) and not np.allclose(both, moved, rtol=1e-6)
+
+
+def test_a_large_pah_in_shielded_gas_with_old_stars_gets_its_basis():
+    """C268H52 at G0 0.01 with the old stars (optical_isrf 1): on K_H_G0_GRID its top node held 1e6 x Draine and 1e8 x
+    the old stars, and the multiphoton cascade did not converge at LOSS_E_CAP_EV; on ``g0_nodes`` it builds, finite."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.name == "C268H52 (6432)")
+    shape = population.field_shape(Environment("dense", 1e-2, 1e5, 1e-1, 100.0, None))
+    b = population.build_state_basis(**population._basis_inputs(mol, 0, shape, 100.0, 21.5 * population.dos.CM_PER_EV,
+                                                                 Params()))
+    assert np.isfinite(b.k_h).all() and np.isfinite(b.ladder_h).all()
+
+
 def test_c2h2_loss_and_proton_emission_open_where_their_physics_allows():
     """``population.loss_extras``: C2H2 loss only for skeletons with catacondensed end rings (quartet H) and only from
     Z >= +1, where it was measured (pahchem audit m9), proton emission only from Z >= +1 over max(the ladder's H+ dissociation energy, ``impact.fission_barrier``). For a compact closed-shell PAH
@@ -1553,6 +1616,44 @@ def test_chain_kernel_balances_every_cut_and_matches_the_least_squares():
             assert fast == pytest.approx(slow, abs=1e-8)
 
 
+def test_h_loss_values_count_the_h_lost_from_the_parent():
+    """``_h_values``: the first loss's (E0, dS), degeneracy N_H, after an even number of H lost from the parent, the
+    radical's (degeneracy 1) after an odd one. N_H's parity for an even parent as before; an odd-N_H0 parent (a pi
+    radical) starts on the first loss (pahchem audit 2026-11-25, bug 4)."""
+    ev, od = (4.41, 12.0), (3.16, 10.0)
+    for nh0 in (12, 27):
+        for k in range(6):
+            nh = nh0 - k
+            assert population._h_values(nh, ev, od, nh0 % 2 == 1) == ((ev, nh) if k % 2 == 0 else (od, 1))
+    assert population._h_values(12, ev, od) == (ev, 12) and population._h_values(11, ev, od) == (od, 1)
+
+
+def test_odd_parents_alone_change_their_keys_and_shift_their_super_h_barriers():
+    """Only an odd-N_H0 parent carries ``parent_odd`` (basis inputs; response inputs after (weights, True)), so every even
+    parent keeps its stored bases and responses; its H2 channel follows the H lost from the parent; its super-H barriers
+    are an even parent's one step along, at every charge and in both chemistries."""
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    even = next(m for m in lib if m.nh % 2 == 0 and m.nc <= 30)
+    odd = next(m for m in lib if m.nh % 2 == 1 and m.nc <= 40)
+    p, e_max = Params(), 21.5 * population.dos.CM_PER_EV
+    ie = population._basis_inputs(even, 0, ("draine",), 100.0, e_max, p)
+    io = population._basis_inputs(odd, 0, ("draine",), 100.0, e_max, p)
+    assert "parent_odd" not in ie and io["parent_odd"] is True
+    assert all(not ok for k, (*_, ok) in enumerate(io["ladder"]) if k % 2 == 1)
+    for which in ("rec", "aug"):
+        re_ = population._response_inputs(even, 0, 100.0, e_max, p, which)
+        ro = population._response_inputs(odd, 0, 100.0, e_max, p, which)
+        assert len(re_) == 7 and len(ro) == 9 and ro[7] is None and ro[8] is True
+        assert population._response_rows(ro) == len(ro[6]) and population._response_rows(re_) == len(re_[6])
+    for q in (Params(hydrogen_chain="joint"), Params(hydrogen_chain="joint", superh_chemistry="deep", superh_levels=24)):
+        for z in (-1, 0, 1):
+            for j in range(20):
+                assert population.superh_addition_barrier(j, z, q, True) == population.superh_addition_barrier(j + 1, z, q)
+        assert population.superh_addition_barrier(0, 0, q, True) == 0.0        # the radical's first extra H: no barrier
+
+
 def _ladder_molecules():
     """A cation-only molecule and one with its anion (N_C >= 50): both take LADDER_STEP_FIT's +1 -> +2 step."""
     return [_library()[0], next(m for m in _library() if -1 in m.charges and m.nc >= 50)]
@@ -1578,11 +1679,41 @@ def test_extend_ladder_reaches_the_cold_limit_with_stand_ins_and_constant_steps(
         assert np.allclose(steps, a + b / np.sqrt(mol.nc))
         assert population.top_threshold(ext) == pytest.approx(ext.ionisation_ev[z_top - 1] + steps[-1])
         assert population.extend_ladder(ext) is ext
-    mol = _library()[0]
-    dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: 9.3}, _cache={})
-    ext = population.extend_ladder(dication)
-    assert ext.stand_ins[0] == 3
-    assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(0, max(ext.charges))]), 2.8)
+    mol = _library()[0]                                    # C22H14: the fit's step is 4.07 eV
+    fit = a + b / np.sqrt(mol.nc)
+    for ip1, step in ((10.1, 3.6), (9.3, fit)):            # a computed step within LADDER_STEP_TOL, one 31 % off
+        dication = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev={0: 6.5, 1: ip1}, _cache={})
+        ext = population.extend_ladder(dication)
+        assert ext.stand_ins[0] == 3
+        assert ext.ionisation_ev[1] == ip1
+        assert np.allclose(np.diff([ext.ionisation_ev[z] for z in range(1, max(ext.charges))]), step)
+        anion = replace(dication, ionisation_ev={-1: 0.5} | dication.ionisation_ev)    # one step down, the same rule
+        assert population.anion_valence_threshold(anion) == pytest.approx(6.5 - step)
+
+
+def test_extended_ladders_repeat_only_steps_near_the_conductor_fit():
+    """Over PAHdb v4.00 every step ``extend_ladder`` repeats lies within LADDER_STEP_TOL of LADDER_STEP_FIT: a molecule's
+    computed step where it does (unchanged), the fit's where it does not (audit 2026-11-25, bug 1: C115H29's 0.48 eV
+    step reached +16 below 13.6 eV)."""
+    from pycalima.pahchem import impact
+
+    _, lib = _v400()
+    a, b = population.LADDER_STEP_FIT
+    replaced = 0
+    for mol in lib:
+        top, z_top = max(mol.charges), impact.coulomb_limit(mol.nc)
+        if top < 2 or z_top <= top:
+            continue
+        ext = population.extend_ladder(mol)
+        fit = a + b / np.sqrt(mol.nc)
+        computed = mol.ionisation_ev[top - 1] - mol.ionisation_ev[top - 2]
+        steps = np.diff([ext.ionisation_ev[z] for z in range(top - 1, z_top)])
+        assert np.all(np.abs(steps / fit - 1.0) <= population.LADDER_STEP_TOL + 1e-12)
+        if abs(computed / fit - 1.0) <= population.LADDER_STEP_TOL:
+            assert np.allclose(steps, computed, rtol=1e-12)
+        else:
+            replaced += 1
+    assert replaced > 0
 
 
 def test_cold_limit_ladder_gives_no_basis_to_states_the_field_cannot_reach():
@@ -1704,8 +1835,11 @@ def test_anion_valence_threshold_is_one_coulomb_step_down_the_ladder():
     assert population.anion_valence_threshold(mol) == pytest.approx(max(th[0] - (a + b / np.sqrt(mol.nc)), th[-1]))
     assert population.anion_valence_threshold(population.extend_ladder(mol)) == pytest.approx(
         population.anion_valence_threshold(mol))
-    computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + 2.0}, _cache={})
-    assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - 2.0, th[-1]))
+    fit = a + b / np.sqrt(mol.nc)
+    for step, used in ((0.9 * fit, 0.9 * fit), (0.6 * fit, fit)):     # its own step, unless LADDER_STEP_TOL off the fit
+        computed = replace(mol, species=mol.species | {2: mol.species[1]}, ionisation_ev=th | {1: th[0] + step},
+                           _cache={})
+        assert population.anion_valence_threshold(computed) == pytest.approx(max(th[0] - used, th[-1]))
 
 
 # -- the joint (Z, N_H) chain (Params.hydrogen_chain = "joint") -------------------------------------------------------------
@@ -1809,6 +1943,47 @@ def test_joint_networks_are_the_joint_chains_own():
             assert net.steady_state_closed().sum(axis=0) @ nh > F.sum(axis=0) @ nh
     with pytest.raises(ValueError, match="joint"):
         population.Population(lib, WINDOWS).joint_networks(env)
+
+
+def test_anion_super_h_barriers_are_the_neutrals_or_with_the_bracket_the_cations():
+    """``Params.superh_anion_barriers``: "neutral" (default) gives an anion the neutral's barrier, "cation" (a bracket) the
+    cation's, at every step, in both chemistries and for odd parents too; other values are refused."""
+    from pycalima.pahchem.baseline import Params
+
+    for chem in ({}, {"superh_chemistry": "deep", "superh_levels": 24}):
+        base = Params(hydrogen_chain="joint", **chem)
+        bracket = Params(hydrogen_chain="joint", superh_anion_barriers="cation", **chem)
+        for odd in (False, True):
+            for j in range(20):
+                b = lambda q, z: population.superh_addition_barrier(j, z, q, odd)        # noqa: E731
+                assert b(base, -1) == b(base, 0) and b(bracket, -1) == b(base, 1) and b(bracket, 0) == b(base, 0)
+    with pytest.raises(ValueError, match="superh_anion_barriers"):
+        population.superh_addition_barrier(0, -1, Params(hydrogen_chain="joint", superh_anion_barriers="anion"))
+
+
+def test_associative_detachment_all_follows_the_thermochemistry():
+    """With "all" the intact and super-H anions detach by H as exp(-max(EA - D, 0) / kT), D the extra H's binding
+    (``superh_e0``, Z = 0): C24H12's (EA 0.5 eV) unchanged, C54H18's (EA ~1.5 eV) endothermic, ~1e-6 at 100 K; the
+    dehydrogenated anions (Demarais+12) keep the measured rate."""
+    from pycalima.pahchem import chemistry
+    from pycalima.pahchem.baseline import Params
+
+    lib = _v400_parents()
+    pop = _joint(lib, associative_detachment="all")
+    env = Environment("shielded", 1e-2, 1e2, 1.4e-2, 100.0, None)
+    ad = population.ASSOCIATIVE_DETACHMENT * env.n_h
+    d = population.superh_e0(Params(), 0)
+    for mol, net in zip(pop.library, pop.joint_networks(env)):
+        rate = next(p for p in net.processes if p.name == "associative detachment").rate[net.charges.index(-1)]
+        nh0 = mol.nh
+        assert np.allclose(rate[:nh0], ad, rtol=1e-12)
+        ea = mol.ionisation_ev[-1] + np.array([pop._threshold_shift(mol, m, -1) for m in range(nh0, rate.size - 1)])
+        want = ad * np.exp(-np.maximum(ea - d, 0.0) / (chemistry.KB_EV * env.temperature_k))
+        assert np.allclose(rate[nh0:-1], want, rtol=1e-12, atol=0.0)
+        if mol.ionisation_ev[-1] > d:
+            assert rate[nh0] < 1e-3 * ad
+        else:
+            assert rate[nh0] == pytest.approx(ad, rel=1e-12)
 
 
 def test_joint_state_observables_sum_to_the_steady_state_functions():

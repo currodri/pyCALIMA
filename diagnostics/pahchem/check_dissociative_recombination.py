@@ -78,7 +78,7 @@ def main():
             pop.prepare(shape, workers=args.workers)
             pop.prepare_responses(shape, workers=args.workers)
         f = on.charge_matrix(e)
-        photon = np.einsum("sz,szk->sk", f, on._interp_g0(on._ladders(shape)[0], e.g0))[:, 0]
+        photon = np.einsum("sz,szk->sk", f, on._interp_g0(on._ladders(shape)[0], e.g0, shape))[:, 0]
         dlh = on._deposit_losses(e)[0][:, 0]
         print(f"\n{name}: <Z>, k_H photon / deposits [s^-1] (N_H0), f(N_H0) and <H lost> without -> with dissociative recombination")
         h = {d: pop.hydrogenation_fractions(e) for d, pop in pops.items()}
