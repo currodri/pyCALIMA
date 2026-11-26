@@ -324,8 +324,8 @@ def fig_summary(data, lib, out_dir):
     ax.vlines(x, lo, hi, color="#e4e3df", lw=12, zorder=1, label="scanned (stated conditions)")
     panel(ax, [c["gamma"] for c in b], "Ionisation parameter", r"$\gamma = G_0 T^{1/2}/n_e$ [K$^{1/2}$ cm$^3$]",
           lohi=rng("gamma"), logy=True)
-    ax.set_ylim(0.5 * lo.min(), 3.0 * hi.max())          # the scans: the cards' n_e put the DFs near 3e2 (2026-11-26)
-    ax.legend(fontsize=10.5, loc="upper left")
+    ax.set_ylim(0.5 * lo.min(), 40.0 * hi.max())         # the scans (the cards' n_e put the DFs near 3e2), room above
+    ax.legend(fontsize=10.5, loc="upper right")           # in the room above the scans
     panel(axes[0, 2], [c["e_cation"] for c in b], "Cations in the PAH emission",
           r"share of emitted power ($Z \geq +1$)", lohi=rng("e_cation"))
     axes[0, 2].set_ylim(0, 1)
@@ -338,7 +338,7 @@ def fig_summary(data, lib, out_dir):
     nmol = [int((c["weights"] > 0).sum()) for c in b]
     panel(axes[1, 2], nmol, "Molecules in the best fit", r"number with $w > 0$",
           note=rf"library: {len(lib)} molecules, $N_{{\rm C}}$ = {nc.min():.0f}--{nc.max():.0f}")
-    axes[1, 2].set_ylim(0, None)
+    axes[1, 2].set_ylim(0, 1.15 * max(nmol))
     fig.suptitle("What the five Orion Bar fits imply (templates ordered from the star into the cloud)", x=0.07,
                  ha="left", fontsize=16)
     path = Path(out_dir) / "fit_02_summary.png"
