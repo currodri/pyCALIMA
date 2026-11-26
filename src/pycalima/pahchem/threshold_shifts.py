@@ -54,13 +54,24 @@ Outside the ladder's sizes (assumptions):
 ladder's +1 state of a closed-shell molecule with one H fewer: C31H15's IP0 and EA (5.55, 1.86 eV) sit near the +1 forms'
 5.40 and 1.61. So its k-th extra H takes the ladder's k + 1 relative to +1 (``ODD_LAWS``):
 
-- odd k close the shell: LADDER[+2] - LADDER[+1], fitted as a + b/sqrt(N_C) (residuals <= 0.07 eV);
+- odd k close the shell: LADDER[+2] - LADDER[+1], fitted as a + b/sqrt(N_C) (residuals <= 0.07 eV). The IP0 term
+  is fitted instead to the odd parents' own +1 H (2026-11-26, below);
 - even k are again pi radicals: 0, by the +3 = +1 extension.
 
-Delta-SCF of C31H15 (UID 3226; results/pahchem/dft_oddparent_2026-11-25), each count's lowest isomer: +1 H, on the radical
-site, IP0 +0.56 and EA -0.72 eV (the law +0.72, -0.71); +2 H, on a duo pair, -0.08 and -0.10 (the law 0). Other +1 sites
-are 0.6-1.3 eV higher: the trio gives +0.01 / -0.26, and the sites on the SOMO's nodes give pi diradicals. IP1 is
-untested. The dehydrogenated states keep the laws above (C31H15 at -1 H: within 0.08 eV).
+Delta-SCF of C27H13, C31H15 and C43H17 (UIDs 66, 3226, 3235; results/pahchem/dft_oddparent_2026-11-25), each count's
+lowest isomer:
+- **+1 H, on the radical site.** The EA moves -0.81, -0.72, -0.52 eV, and the ladder law gives the same to 0.02. The
+  IP0 rises +0.56, +0.56, +0.37, which is 0.20 +- 0.04 below the ladder law (-0.384 + 6.152/sqrt(N_C)). ``ODD_LAWS[0]``
+  is these three points' fit (residuals <= 0.04), N_C held at 24 below (fitted over N_C 27-43).
+- **+2 H, on a duo pair** (0.51-0.70 eV below the H after the radical site). The law's 0 holds to 0.12 eV in IP0 and
+  0.21 eV in EA.
+- **Past +2, the extension misses a drift.** At +3 and +4 the EA sits 0.14 and 0.50 eV (means) below it. The even
+  ladders stop at +2, so the extension is untested there for every parent.
+- **IP1 follows no law.** C27's drops to -1.06 eV at +4; C31's and C43's rise 0.15-0.41 eV, while the law gives
+  -0.16 ... 0.
+- **Other +1 sites** (C31) are 0.6-1.3 eV higher. The trio gives +0.01 / -0.26, and the sites on the SOMO's nodes give
+  pi diradicals.
+- **The dehydrogenated states** keep the laws above: at -1 H, within 0.07 eV at all three.
 """
 
 from __future__ import annotations
@@ -88,9 +99,10 @@ LAWS = {
 #: the sizes the laws were fitted over
 LAW_NC = (24, 96)
 
-#: odd-N_H0 parents: {z: (a, b)}, the shift a + b/sqrt(N_C) of an odd extra-H count, LADDER[+2] - LADDER[+1] fitted to
-#: C24/C54/C96 (z = 1 for IP1 and above)
-ODD_LAWS = {-1: (0.438, -6.362), 0: (-0.384, 6.152), 1: (0.460, -3.233)}
+#: odd-N_H0 parents: {z: (a, b)}, the shift a + b/sqrt(N_C) of an odd extra-H count (z = 1 for IP1 and above). EA and
+#: IP1 are LADDER[+2] - LADDER[+1] fitted to C24/C54/C96. IP0 is fitted to the odd parents' +1 H, C27H13, C31H15,
+#: C43H17 (2026-11-26); the ladder's fit (-0.384, 6.152) gave it 0.20 eV high
+ODD_LAWS = {-1: (0.438, -6.362), 0: (-0.397, 5.092), 1: (0.460, -3.233)}
 
 #: {parent: {dN_H: (dEA, dIP0, dIP1)}} [eV]
 LADDER = {
@@ -134,10 +146,10 @@ def law_shift(nc, dnh, z, ip0, ea, parent_odd=False):
         if dnh % 2 == 0:                                  # a pi radical again, as the parent
             return 0.0
         z = min(z, 1)
-        if nc < LAW_NC[0]:
+        if nc < LAW_NC[0] and z != 0:                     # IP0's fit is not C24's ladder: held at N_C 24 below
             return LADDER["C24"][2][z + 1] - LADDER["C24"][1][z + 1]
         a, b = ODD_LAWS[z]
-        return a + b / sqrt(min(nc, LAW_NC[1]))
+        return a + b / sqrt(min(max(nc, LAW_NC[0]), LAW_NC[1]))
     dnh, z, factor = _extend(dnh, z)
     if nc < LAW_NC[0]:
         return factor * LADDER["C24"][dnh][z + 1]
