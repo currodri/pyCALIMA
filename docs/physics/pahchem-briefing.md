@@ -1,7 +1,7 @@
 # PAHchem: briefing figures (2026-10-20)
 
 ```{important}
-A dated snapshot: the text is of 2026-10-20 to 2026-10-26, and its figures were last rebuilt on 2026-10-26, before every default change from 2026-11-01. The current state is in {doc}`pahchem-status`.
+A dated snapshot: the text is of 2026-10-20 to 2026-10-26. The figures were rebuilt on 2026-11-25/26 from main 839612d, and the 10-26 set is archived; {doc}`pahchem-status` §8 says which are current and where the numbers that moved are corrected (C12 and C13 here). The current state is in {doc}`pahchem-status`.
 ```
 
 ```{note}
@@ -268,10 +268,13 @@ the paper's own stated inputs.
   Table 2 lifetimes) pass. The figures show three things:
   - **C11, the energy left per passage:** ~9 eV mean for protons and
     electrons; CNO and Fe-group nuclei reach hundreds of eV.
-  - **C12, lifetimes against N(H$_2$):** C$_{54}$H$_{18}$ 17–66 Myr (L) and
-    0.8–1.0 Myr (H) unattenuated; 300–450 Myr (L) at 10$^{22}$ cm$^{-2}$.
-  - **C13, the CR-excited IR spectrum:** ionised products show a hot-cation
-    signature, 3.3/11.2 × 1.65–1.78 against UV excitation at the same charge.
+  - **C12, lifetimes against N(H$_2$):** C$_{54}$H$_{18}$ 47–220 Myr (L) and
+    1.9–2.8 Myr (H) unattenuated; 770–1180 Myr (L) at 10$^{22}$ cm$^{-2}$ (rebuild of
+    2026-11-25; 17–66, 0.8–1.0 and 300–450 Myr in the 10-20 set).
+  - **C13, the CR-excited IR spectrum:** ionised products' 3.3/11.2 is
+    ×0.97–1.19 against UV excitation at the same charge. The 10-20 set showed a
+    hot-cation signature (×1.65–1.78), which went with f35e199 (2026-11-04;
+    {doc}`pahchem-spec`, cosmic rays).
 - **C14 — the secondary-electron spectrum per ζ** from CRISpy's Spencer–Fano
   degradation in H$_2$.
   - It passes the CSDA check against NIST ESTAR (0.98–1.00 at 10–30 keV).

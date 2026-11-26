@@ -2659,7 +2659,8 @@ over the PAH's own optical oscillator strength df/dW, in the manner of
   hole of energy max(W, IP) that is kept.
 
 df/dW is Li & Draine below 40 eV and {cite:t}`Henke1993` atomic C + H above.
-It meets the TRK sum rule to 1–4 % (C$_{14}$–C$_{96}$) and gives I = 59 eV.
+It meets the TRK sum rule to 0.4–4.1 % (C$_{24}$–C$_{96}$, 2026-11-25; 1–4 % for C$_{14}$–C$_{96}$ before) and gives
+I = 59 eV.
 
 **Gate G1 passes.** With no correction, the stopping per electron is within
 1–7 % of NIST polystyrene, the measured aromatic CH stopping:
@@ -2816,11 +2817,14 @@ are bracketed by the two C-loss channels:
 
 | | unattenuated, L | unattenuated, H | N(H$_2$) = 10$^{22}$, L | N(H$_2$) = 10$^{22}$, H |
 |---|---|---|---|---|
-| C$_{24}$H$_{12}$ | 7–20 Myr | 1.0–1.3 Myr | 250–510 Myr | 22–40 Myr |
-| C$_{54}$H$_{18}$ | 18–100 Myr | 1.5–2.3 Myr | 420–830 Myr | 36–66 Myr |
-| C$_{96}$H$_{24}$ | 39–245 Myr | 2.2–3.6 Myr | 640–1170 Myr | 52–86 Myr |
+| C$_{24}$H$_{12}$ | 14–44 Myr | 1.2–1.6 Myr | 430–750 Myr | 34–55 Myr |
+| C$_{54}$H$_{18}$ | 47–220 Myr | 1.9–2.8 Myr | 770–1180 Myr | 57–85 Myr |
+| C$_{96}$H$_{24}$ | 98–455 Myr | 2.9–4.3 Myr | 1080–1620 Myr | 77–110 Myr |
 
-These are with the cold and hot Coulomb limits (2026-11-01). Chabot et al.'s
+These are from the rerun of 2026-11-25 (main 839612d), with the audit fixes since 2026-11-05. The lifetimes are
+1.2–2.6× those of 2026-11-01: 7–20, 1.0–1.3, 250–510 and 22–40 Myr for C$_{24}$H$_{12}$, 18–100, 1.5–2.3, 420–830 and
+36–66 Myr for C$_{54}$H$_{18}$, 39–245, 2.2–3.6, 640–1170 and 52–86 Myr for C$_{96}$H$_{24}$. Those 2026-11-01 values
+were with the cold and hot Coulomb limits. Chabot et al.'s
 charge-only threshold gave 3–5, 0.5–0.6, 150–220 and 12–16 Myr for C$_{24}$H$_{12}$,
 17–66, 0.8–1.0, 300–450 and 25–35 Myr for C$_{54}$H$_{18}$, and 38–195, 1.4–1.7,
 460–650 and 37–50 Myr for C$_{96}$H$_{24}$: the lifetimes rise by 1.0–4×,
@@ -2837,8 +2841,9 @@ most (2–4×) for C$_{24}$H$_{12}$, whose dications no longer all explode.
 - **Which projectiles matter.** At the cloud edge, primary electrons dominate
   for spectrum L. That rests on the extrapolation of the Padovani+18 electron
   spectrum to keV energies, where it is unmeasured. Deeper in, the Fe group
-  and CNO dominate for L; protons, He and CNO for H.
-- **Impact ionisation** of C$_{54}$H$_{18}$: 4×10⁻¹⁵ (L) to 4×10⁻¹⁴ s⁻¹ (H)
+  and CNO dominate for L. For H, protons, He and CNO dominate for C$_{24}$H$_{12}$, and from N(H$_2$) = 10$^{21}$–10$^{22}$
+  the Fe group joins CNO for C$_{54}$H$_{18}$ and C$_{96}$H$_{24}$ (2026-11-25).
+- **Impact ionisation** of C$_{54}$H$_{18}$: 3.9×10⁻¹⁵ (L) to 3.5×10⁻¹⁴ s⁻¹ (H)
   at N(H$_2$) = 10$^{22}$.
 
 **IR emission.** Most collisions are UV-like. Bethe's f(W)/W weighting puts
@@ -2855,14 +2860,20 @@ ceiling.
 
 The yield caps the neutral products: it reaches 1 at IP + 9 eV, so every hot
 deposit ends as an ion. With CR/UV band ratios taken at the same charge:
-- **Neutral products** keep the UV ratios: 3.3/11.2 is ×1.04–1.06, the others
+- **Neutral products** keep the UV ratios: 3.3/11.2 is ×1.05–1.07, the others
   are within 2 %.
 - **The products the collisions ionise** are about three quarters of the
-  excited molecules. Their 3.3/11.2 is ×1.65–1.78 (0.56–0.60 against 0.335),
-  6.2/11.2 ×1.09–1.13 and 7.7/11.2 ×1.04–1.07.
+  excited molecules. Their 3.3/11.2 is ×0.97 (L) to ×1.19 (H), 0.325 and 0.400
+  against 0.335; 6.2/11.2 is ×0.92–0.98 and 7.7/11.2 ×0.94–0.98 (rerun
+  2026-11-25, main 839612d).
 
-So CR-excited emission carries a hot-cation signature, a cation spectrum with
-a strong 3.3 µm band, even where the PAH population is neutral or anionic.
+So CR-excited emission is mostly that of the charge the collisions leave, with a
+3.3 µm excess of ≤ 20 % (spectrum H). Until 2026-11-04 the ionised products'
+3.3/11.2 was ×1.65–1.78 (0.56–0.60), a hot-cation signature with a strong 3.3 µm
+band even where the population is neutral or anionic. A bisect (megatron,
+2026-11-26) puts the change at f35e199 (cosmic rays at RTZ's ζ; the measured hole
+everywhere; the "neutral" photoelectron default). That commit changed the three
+at once, and which of them moves the ratio was not separated.
 
 An earlier version stopped the emission at the first dissociation and dropped
 deposits above 40 eV. That removed the hot tail and gave only ×1.3–1.4. The
