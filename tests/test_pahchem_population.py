@@ -1110,6 +1110,25 @@ def test_deposit_spectra_carry_the_deposits_and_vanish_in_plain_chains(monkeypat
         assert np.trapezoid(dP[0], nu) == pytest.approx(expect, rel=0.03)
 
 
+def test_deposit_powers_split_the_deposits_by_the_charge_that_emits_them():
+    """``deposit_powers`` puts each deposit's IR power on its product state: its slots add up to the deposits'
+    spectrum's integral, each slot is the integral of ``deposit_spectra`` restricted to that charge, and an anion's
+    photodetachment heats the neutral, not the anion."""
+    mol = next(m for m in _library() if m.ea_ev is not None and m.nc >= 40)
+    pop = population.Population([mol], WINDOWS)
+    nu = np.linspace(1.0, 5000.0, 49991)           # every mode: a small deposit emits much of its power below 200 cm^-1
+    env = Environment("df", 1e3, 3e4, 100.0, 660.0, 40000)          # an anion-rich front (gamma ~ 260)
+    dE = pop.deposit_powers(env)[0]
+    i0 = 0 - pop.zmin
+    assert pop.charge_matrix(env)[0, -1 - pop.zmin] > 0.1 and dE[i0] > 0.0
+    assert dE.sum() == pytest.approx(np.trapezoid(pop.deposit_spectra(env, nu, fwhm_cm=15.0, shift_cm=0.0)[0], nu), rel=0.01)
+    for i in np.nonzero(dE)[0]:
+        part = pop.deposit_spectra(env, nu, fwhm_cm=15.0, shift_cm=0.0, charges={pop.zs[i]})[0]
+        assert np.trapezoid(part, nu) == pytest.approx(dE[i], rel=0.01)
+    flows = [fl for fl in pop._differing_flows(env) if isinstance(fl[2], tuple) and fl[1] == 0]
+    assert flows, "the anion's photodetachment lands on the neutral"
+
+
 def test_vectorised_charges_equal_the_scalar_chain():
     """The charge chain of a Population (every molecule's row at once) is the scalar chain ``charge_fractions`` of each,
     without proton emission, which the scalar chain lacks. The rows are independent, so a sample of the M20 library with

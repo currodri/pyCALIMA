@@ -22,7 +22,9 @@ I_nu = sum_s w_s P_s(conditions) + continuum (cubic B-splines in lambda, knots
   where its intact fraction is ``--intact-min`` (as before 2026-10-25).
 - Per cell: sse, rms (residual / mean intensity), the population (N_C by number
   and by carbon; charge shares of the emitted power, dications counted with
-  the cations; the share emitted by dehydrogenated states, ``e_dehydro``, and
+  the cations, the deposits on the state that emits them, and the deposits'
+  share, ``e_deposits`` (``_charge_shares``); the share emitted by
+  dehydrogenated states, ``e_dehydro``, and
   the unmodelled one, ``deep_share``: what the deeper states would emit as the
   intact molecule does, over the total), the derived band ratios of the PAH
   component, and the continuum share of the 5-15 um power.
@@ -65,8 +67,22 @@ BROAD_START = spectral_fit.BandShape(shift_ch=-28.0, shift_cc=16.0, shift_oop=-3
 
 #: bump when the fit code changes what it stores; part of every result-cache key with the code versions below
 #: (8: no associative detachment of the parent anions, the Wenzel yield on the cation only; 2026-10-26.
-#: 9: the UV cross section, with the library's fingerprint, is part of the key; the library default of 2026-11-01)
-RESULT_VERSION = 9
+#: 9: the UV cross section, with the library's fingerprint, is part of the key; the library default of 2026-11-01.
+#: 10: the charge shares count the deposits, on the state that emits them, and e_deposits is stored; 2026-11-26)
+RESULT_VERSION = 10
+
+
+def _charge_shares(pop, env, w, W, emitted, zs):
+    """{e_anion, e_cation, e_dication, e_deposits}: shares of the PAH emitted power of weights ``w``. The bases' (photon and
+    recombination heating per G0, ``emitted`` [s, slot, k] times the emission weights ``W``) and the deposits'
+    (``Population.deposit_powers``: product-state ionisation heat, captures at their actual rate, C 1s), each on the charge
+    state that emits it. From 2026-11-03 (the deposits in the fits) to 2026-11-26 the shares left the deposits out."""
+    by_z = env.g0 * np.einsum("s,szk,szk->z", w, W, emitted)
+    dep = w @ pop.deposit_powers(env)
+    e = by_z + dep
+    tot = e.sum()
+    return {"e_anion": float(e[zs < 0].sum() / tot), "e_cation": float(e[zs > 0].sum() / tot),
+            "e_dication": float(e[zs >= 2].sum() / tot), "e_deposits": float(dep.sum() / tot)}
 
 
 def _result_key(args):
@@ -141,17 +157,14 @@ def run(args):
                         fit = spectral_fit.fit_spectrum(y, P, bases[k])
                         w = np.zeros(len(lib))
                         w[keep] = fit.weights
-                        power = w[:, None, None] * W * emitted  # emitted power by state (photon + recombination heating)
                         band = w @ F
-                        tot = power.sum()
                         ok = np.isfinite(y)
                         cell[k] = {"sse": fit.sse, "rms": fit.rms, "n": int(ok.sum()),
                                    "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()),
                                    "weights": w,
                                    "mean_nc": float(w @ nc / w.sum()) if w.sum() > 0 else np.nan,
                                    "mean_nc_carbon": float((w * nc) @ nc / (w @ nc)) if w.sum() > 0 else np.nan,
-                                   "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
-                                   "e_dication": float(power[:, zs >= 2].sum() / tot),
+                                   **_charge_shares(pop, env, w, W, emitted, zs),
                                    "ratios": {b: float(band[j] / band[i112]) for j, b in enumerate(FP.WINDOWS)},
                                    "cont_share": float(fit.cont[grid.segment == 1].sum()
                                                        / (fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum())),
@@ -256,7 +269,8 @@ def _scan(ctx, t, shape):
     for (g0, n_h, ne, temp, n_tot), keep in zip(cells, keeps):
         env = Environment(t, g0, n_h, ne, temp, teff)
         W = pop.emission_weights(env)
-        # the deposits the bases do not hold (captures at their actual rate, the C 1s Auger excitation) in the same shape
+        # the deposits the bases do not hold (the product-state ionisation heat, captures at their actual rate, the C 1s
+        # Auger excitation) in the same shape
         P = (g0 * S.combine(W) + pop.deposit_spectra(env, grid.nu, band_shape=shape))[keep].T
         fit = spectral_fit.fit_spectrum(y, P, ctx["C_"])
         w = np.zeros(len(lib))
@@ -282,8 +296,7 @@ def _scan(ctx, t, shape):
                          "rms": fit.rms, "n": int(np.isfinite(y).sum()),
                          "p": int((fit.weights > 0).sum() + (fit.continuum > 0).sum()), "weights": w,
                          "mean_nc_carbon": float((w * ctx["nc"]) @ ctx["nc"] / (w @ ctx["nc"])) if w.sum() > 0 else np.nan,
-                         "e_anion": float(power[:, zs < 0].sum() / tot), "e_cation": float(power[:, zs > 0].sum() / tot),
-                         "e_dication": float(power[:, zs >= 2].sum() / tot),
+                         **_charge_shares(pop, env, w, W, ctx["emitted"], zs),
                          "ratios": {b: v / wf["11.2"] for b, v in wf.items()},
                          "cont_share": float(fit.cont[grid.segment == 1].sum() / max(
                              fit.cont[grid.segment == 1].sum() + fit.pah[grid.segment == 1].sum(), 1e-300)),

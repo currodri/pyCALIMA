@@ -3,11 +3,12 @@
 
 Reads a cached ``fit_pdrs4all_spectra.py --fit-shape`` result (no refit) and
 rebuilds, at each template's best cell, the per-state spectra with the fitted
-band shape, so that the fitted PAH spectrum can be split by charge. With the
-deposits the bases do not hold (captures at their actual rate, the C 1s Auger
-excitation; ``Population.deposit_spectra``, in the fit since 2026-11-03), the
-split is checked to add up to the cached PAH spectrum. The deposits are shown as
-their own layer.
+band shape, so that the fitted PAH spectrum can be split by charge. The
+deposits the bases do not hold (``Population.deposit_spectra``, in the fit since
+2026-11-03: the product-state ionisation heat, captures at their actual rate,
+the C 1s Auger excitation) go to the charge class of the state that emits them,
+their product state (an anion's photodetachment heat is the neutral's emission),
+and the split is checked to add up to the cached PAH spectrum.
 
 Figures, written to ``--out`` (default ``<plots dir>/pahchem/briefing``):
 - ``fit_00_how_a_model_spectrum_is_built.png``: one molecule from IR modes to the fitted population;
@@ -41,8 +42,6 @@ CLASSES = (("anions", lambda z: z < 0, "#2a78d6"), ("neutrals", lambda z: z == 0
 CONTINUUM = "#d6d5d0"
 #: the largest |split - fitted PAH spectrum| allowed, over the spectrum's peak (``load``)
 SPLIT_TOL = 1e-3
-#: the deposits the bases do not hold, stacked on top of the charge classes
-DEPOSITS = ("deposits (captures, Auger)", "#8a8984")
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#8a8984"
 TITLES = {"HII": r"H\,{\sc ii} region (background face-on PDR)", "Atomic": "Atomic PDR",
           "DF1": "Dissociation front 1", "DF2": "Dissociation front 2", "DF3": "Dissociation front 3"}
@@ -100,16 +99,21 @@ def load(cache):
         S = spectral_fit.shaped_state_spectra(pop, fshape, res["grid"].nu, run["shape"])
         f = pop.charge_matrix(env)
         by_z = b["g0"] * S.by_slot(pop.emission_weights(env), b["weights"], len(pop.zs))
-        # the fit's PAH spectrum adds these to the bases' (fit_pdrs4all_spectra.run_shape's cell loop)
-        dep = b["weights"] @ pop.deposit_spectra(env, res["grid"].nu, band_shape=run["shape"])
+        # the fit's PAH spectrum adds the deposits to the bases' (fit_pdrs4all_spectra._scan), each emitted by its product
+        # state, so each class takes the deposits landing on its charges
+        split, dep = {}, 0.0
+        for name, sel, _ in CLASSES:
+            charges = {z for z in pop.zs if sel(z)}
+            d_ = b["weights"] @ pop.deposit_spectra(env, res["grid"].nu, band_shape=run["shape"], charges=charges)
+            split[name] = by_z[[i for i, z in enumerate(pop.zs) if z in charges]].sum(0) + d_
+            dep = dep + d_
         # bases rebuilt on another machine (or thread count) differ at the solvers' tolerance: 3e-5 ... 3e-4 of the peak,
         # this laptop against a megatron fit (2026-11-26); a missing term is 8-60 % (the deposits were, before)
-        miss = np.abs(by_z.sum(0) + dep - b["pah"]).max() / b["pah"].max()
+        miss = np.abs(sum(split.values()) - b["pah"]).max() / b["pah"].max()
         if miss > SPLIT_TOL:
             raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum ({miss:.1e} of the peak)")
-        split = {name: by_z[[i for i, z in enumerate(pop.zs) if sel(z)]].sum(0) for name, sel, _ in CLASSES}
-        split[DEPOSITS[0]] = dep
-        print(f"{t}: deposits {dep.sum() / b['pah'].sum():.2%} of the PAH emission; split off the fit by {miss:.1e} of the peak")
+        print(f"{t}: deposits {dep.sum() / b['pah'].sum():.2%} of the PAH emission (in their emitting classes); split off "
+              f"the fit by {miss:.1e} of the peak")
         out[t] = {"best": b, "allowed": allowed, "cells": cells, "profile": prof, "shape": run["shape"], "env": env, "S": S,
                   "f": f, "split": split, "observed": res[t]["observed"]}
     return res, pop, out
@@ -136,14 +140,12 @@ def fig_template(t, d, grid, out_dir):
         m = (grid.lam_um >= lo) & (grid.lam_um <= hi)
         lam, yo, cont, mod = _segments(grid.lam_um[m], y[m], b["cont"][m], model[m])
         parts = [_segments(grid.lam_um[m], d["split"][name][m])[1] for name, _, _ in CLASSES]
-        dep = _segments(grid.lam_um[m], d["split"][DEPOSITS[0]][m])[1]
         ax, axr = axes[0, col], axes[1, col]
         base = cont.copy()
         ax.fill_between(lam, 0, base, color=CONTINUUM, lw=0, label="continuum (B-splines)")
         for (name, _, colour), p in zip(CLASSES, parts):
             ax.fill_between(lam, base, base + p, color=colour, lw=0, alpha=0.85, label=f"PAH {name}")
             base = base + p
-        ax.fill_between(lam, base, base + dep, color=DEPOSITS[1], lw=0, alpha=0.85, label=f"PAH {DEPOSITS[0]}")
         ax.plot(lam, mod, color=INK2, lw=1.0, label="model total")
         ax.plot(lam, yo, color=INK, lw=1.4, label="observed (gas lines removed)")
         ax.set_xlim(lo, hi)
@@ -181,8 +183,8 @@ def fig_template(t, d, grid, out_dir):
                  rf"(rms residual {100 * b['rms']:.1f}\% of the mean intensity)", x=0.07, y=1.0, ha="left",
                  fontsize=16)
     fig.text(0.07, 0.935,
-             rf"Best cell of the stated conditions: $G_0 = {sci(env.g0)}$ (Habing), $n_{{\rm H}} = {sci(env.n_h)}$ "
-             rf"cm$^{{-3}}$, $n_e = {sci(env.n_e)}$ cm$^{{-3}}$, $T = {env.temperature_k:.0f}$ K, "
+             rf"Best cell of the stated conditions: $G_0 = {sci(env.g0)}$ (Habing), $n_{{\rm H}} = {sci(b['n_h_total'])}$, "
+             rf"$n({{\rm H}}) = {sci(env.n_h)}$, $n_e = {sci(env.n_e)}$ cm$^{{-3}}$, $T = {env.temperature_k:.0f}$ K, "
              rf"$\gamma = G_0 T^{{1/2}}/n_e = {sci(b['gamma'])}$. "
              rf"Band shape ({d['profile']}): CH stretch ${sh.shift_ch:+.0f}$ cm$^{{-1}}$, FWHM {sh.fwhm_ch:.0f}; "
              rf"CC ${sh.shift_cc:+.0f}$; CH oop ${sh.shift_oop:+.0f}$; other FWHM {sh.fwhm_rest:.0f} cm$^{{-1}}$.",
@@ -366,7 +368,8 @@ def main():
         b, sh = data[t]["best"], data[t]["shape"]
         g = [c["gamma"] for c in data[t]["allowed"]]
         print(f"{t}: {data[t]['profile']} rms {b['rms']:.3f}; gamma {b['gamma']:.2g} (allowed {min(g):.2g}-{max(g):.2g}); "
-              f"cation share {b['e_cation']:.2f} (Z>=2 {b['e_dication']:.2f}, anion {b['e_anion']:.2f}); "
+              f"cation share {b['e_cation']:.2f} (Z>=2 {b['e_dication']:.2f}, anion {b['e_anion']:.2f}, deposits "
+              f"{b.get('e_deposits', float('nan')):.2f}); "
               f"<N_C>_C {b['mean_nc_carbon']:.0f}; continuum {b['cont_share']:.2f}; molecules {(b['weights'] > 0).sum()}; "
               f"shape CH {sh.shift_ch:+.0f}/{sh.fwhm_ch:.0f} CC {sh.shift_cc:+.0f} oop {sh.shift_oop:+.0f} FWHM {sh.fwhm_rest:.0f}")
 
