@@ -456,6 +456,27 @@ def test_cosmic_rays_ionise_in_the_dark_and_deposit_what_their_passages_leave():
     assert pop._interp_g0(tab, g[0]) == pytest.approx([2.0, 3.0])
 
 
+def test_a_dark_cloud_at_g0_zero_is_the_limit_of_a_dim_one():
+    """G0 = 0 (cosmic rays only): every photon rate is 0, the limit of ``_interp_g0``'s continuation below the k_H table,
+    so the fission default's proton emission (which reads those tables in every charge solve) solves there too, and the
+    charge meets that of G0 -> 0, linearly (single photons). Before 2026-11-26 it raised (check_dense_cloud_charge.py's
+    G0 = 0 cross-check)."""
+    from pycalima.pahchem.baseline import Params
+
+    assert Params().fission
+    mol = next(m for m in _library() if m.nc <= 24)
+    pop = population.Population([mol], WINDOWS, params=Params(cosmic_rays=True))
+    dark = lambda g0: Environment("dark", g0, 1e3, 1e-6, 20.0, None, optical_isrf=0.0, zeta_cr=1e-16)  # noqa: E731
+    f = pop.charge_matrix(dark(0.0))
+    assert np.isfinite(f).all() and f.sum() == pytest.approx(1.0)
+    gap = [np.abs(pop.charge_matrix(dark(g0)) - f).max() for g0 in (1e-8, 1e-10)]
+    assert gap[0] > 0.0 and gap[1] == pytest.approx(1e-2 * gap[0], rel=1e-2)
+    tab = np.ones((2, population.K_H_G0_GRID.size))
+    assert np.array_equal(pop._interp_g0(tab, 0.0), [0.0, 0.0])
+    with pytest.raises(ValueError, match="outside"):
+        pop._interp_g0(tab, -1e-3)
+
+
 def test_draine_cells_below_their_old_star_light_get_nodes_about_them():
     """``g0_nodes`` (audit 2026-11-25, bug 2): K_H_G0_GRID, the same object, for every shape but a Draine one with more
     old-star light per unit G0 than at G0 = optical_isrf (r > 1). There: 13 increasing nodes whose top holds

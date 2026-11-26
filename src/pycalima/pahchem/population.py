@@ -4161,13 +4161,16 @@ class Population:
         """Log-log interpolation of rate tables (..., nodes) at ``g0``, the nodes ``g0_nodes(shape)`` (K_H_G0_GRID without a
         shape). Below the grid (shielded and dark gas, where cosmic rays matter) each rate continues its first interval's
         log-log slope: 1 where single photons dominate at G0 = 1, up to 2.02 where two photons do (large PAHs, 2026-11-04
-        tables), whose single-photon floor below is then not followed. A Draine shape with old stars has nodes around its
-        cells' G0 (``g0_nodes``), so they need no extrapolation."""
+        tables), whose single-photon floor below is then not followed. At G0 = 0 (a dark cloud, cosmic rays only) every
+        rate is 0, that continuation's limit. A Draine shape with old stars has nodes around its cells' G0
+        (``g0_nodes``), so they need no extrapolation."""
         nodes = K_H_G0_GRID if shape is None else g0_nodes(shape)
-        if not 0.0 < g0 <= nodes[-1]:
+        if not 0.0 <= g0 <= nodes[-1]:
             why = "" if nodes is K_H_G0_GRID else (f": this Draine shape's nodes hold its cells with optical_isrf <= "
                                                    f"OLD_STARS_NODE_MAX ({OLD_STARS_NODE_MAX:g}), not {shape[1] * g0:g}")
-            raise ValueError(f"G0 {g0:g} outside (0, {nodes[-1]:g}] of the k_H table{why}")
+            raise ValueError(f"G0 {g0:g} outside [0, {nodes[-1]:g}] of the k_H table{why}")
+        if g0 == 0.0:                                    # no photons: their rates vanish (the fission default's
+            return np.zeros(np.shape(table)[:-1])        # proton emission reads them in every charge solve)
         lt = np.log(np.maximum(table, 1e-300))
         if g0 < nodes[0]:
             slope = (lt[..., 1] - lt[..., 0]) / (np.log(nodes[1]) - np.log(nodes[0]))
