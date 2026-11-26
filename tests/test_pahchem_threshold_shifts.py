@@ -91,3 +91,24 @@ def test_size_laws_outside_the_ladder():
     assert ts.law_shift(400, -8, IP0, 5.0, 2.5) == pytest.approx(2.0 * ts.law_shift(96, -4, IP0, 5.0, 2.5))
     assert ts.law_shift(60, -7, EA, 6.0, 1.0) == ts.law_shift(60, -3, EA, 6.0, 1.0)
     assert ts.law_shift(60, 4, IP1, 6.0, 1.0) == ts.law_shift(60, 2, IP1, 6.0, 1.0)
+
+
+def test_odd_parents_take_the_ladder_one_h_later():
+    """An odd-N_H0 parent (a pi radical) is the ladder's +1 state: its odd extra-H counts close the shell, LADDER[+2] -
+    LADDER[+1] (IP0 up, EA down; ``ODD_LAWS`` give the three parents' differences to 0.07 eV), its even counts are
+    radicals again (0), and its dehydrogenated states keep the even laws. Against C31H15's Delta-SCF, +1 H on the radical
+    site: IP0 +0.56, EA -0.72 eV."""
+    for parent, (nc, ip0, _, ea) in ts.LADDER_PARENTS.items():
+        for z in (EA, IP0, IP1):
+            d = ts.ladder_shift(parent, 2, z) - ts.ladder_shift(parent, 1, z)
+            assert ts.law_shift(nc, 1, z, ip0, ea, parent_odd=True) == pytest.approx(d, abs=0.07)
+    for nc in (10, 31, 60, 400):
+        def odd(dnh, z):
+            return ts.law_shift(nc, dnh, z, 5.5, 1.5, parent_odd=True)
+        assert odd(1, IP0) > 0.0 and odd(1, EA) < 0.0 and odd(1, 2) == odd(1, IP1)
+        for z in (EA, IP0, IP1, 2):
+            assert odd(2, z) == odd(4, z) == 0.0 and odd(3, z) == odd(1, z)
+            for dnh in (-6, -1):
+                assert odd(dnh, z) == ts.law_shift(nc, dnh, z, 5.5, 1.5)
+    assert ts.law_shift(31, 1, IP0, 5.545, 1.518, parent_odd=True) == pytest.approx(0.56, abs=0.17)
+    assert ts.law_shift(31, 1, EA, 5.545, 1.518, parent_odd=True) == pytest.approx(-0.72, abs=0.02)

@@ -983,8 +983,20 @@ steady state by `network.gth_banded`. The default (`"charge_averaged"`) is uncha
       a barrier.
     - Before, these parents took the radical's values on the intact molecule. C27H13 lost an H after 41 % of 8 eV
       deposits; it is now 2e-6, and 0.48 at 13 eV.
-    - Their super-H threshold shifts still come from the even parents' laws, which invert their sign. A ΔSCF ladder of
-      one odd parent is to replace them.
+    - Their super-H thresholds take the ladder one H later (`threshold_shifts.law_shift(..., parent_odd=True)`, since
+      2026-11-25). The parent is read as the ladder's +1 state of a closed-shell molecule with one H fewer: C31H15's IP0
+      and EA (5.55, 1.86 eV) sit near the +1 forms' 5.40 and 1.61.
+      - An odd extra-H count closes the shell: LADDER[+2] − LADDER[+1], fitted as a + b/√N_C (`ODD_LAWS`, residuals
+        ≤ 0.07 eV), so IP0 rises and the EA falls.
+      - An even count is a π radical again: 0.
+      - ΔSCF of C31H15 (UID 3226, `diagnostics/pahchem/dft_ladders/make_odd_parent.py`), each count's lowest isomer:
+        +1 H, on the radical site, IP0 +0.56 and EA −0.72 eV (the law +0.72, −0.71; the even laws had given −0.14 and
+        0); +2 H, on a duo pair, −0.08 and −0.10 (the law 0); −1 H within 0.08 eV of the even laws, which these parents
+        keep.
+      - The other +1 sites lie 0.6–1.3 eV higher. The trio gives +0.01 / −0.26; the sites on the SOMO's nodes leave π
+        diradicals (triplets 0.7–0.9 eV below their restricted singlets). IP1 is untested.
+      - Record: `results/pahchem/dft_oddparent_2026-11-25/`, figure
+        `results/plots/pahchem/dft_oddparent_2026-11-25/odd_parent_threshold_law.png`.
 
 **Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
 before quoting):
@@ -1040,7 +1052,7 @@ What the joint chain does with these:
   - **The joint chain.** It carries the ladder to any molecule with `threshold_shifts.law_shift`, using the molecule's
     own PAHdb thresholds as the parent:
     - **Lower-configuration forms** (max or min of the parent's threshold and A + B/√N_C) for the dehydrogenated EAs
-      and for the odd super-H IP0 and EA;
+      and for an even parent's odd super-H IP0 and EA (an odd parent's super-H states: §2.2h, "Odd-N_H0 parents");
     - **shift laws** a + b/√N_C for the rest;
     - the parent EA is compared at 6-31+G*, as PAHdb's + 0.33 eV. A calibrated library (the +0.37 / +0.6 / +0.64 eV
       of §2.2i, the default) has its offsets removed first, so the calibration is not counted twice

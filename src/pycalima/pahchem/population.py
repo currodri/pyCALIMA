@@ -4338,14 +4338,15 @@ class Population:
 
     def _threshold_shift(self, mol, m, z):
         """The shift [eV] of threshold z (z = -1 the EA) of ``mol`` at N_H = m, per ``Params.threshold_shifts``:
-        "dft_ladder", ``threshold_shifts.law_shift`` (every threshold, the super-hydrogenated states' too); "andrews16",
+        "dft_ladder", ``threshold_shifts.law_shift`` (every threshold, the super-hydrogenated states' too, an odd-N_H0
+        parent's with ``parent_odd``); "andrews16",
         ``Params.ip_shift_per_h`` per missing H on the IPs only (the joint chain from 2026-11-08); "none", 0."""
         mode = self.p.threshold_shifts
         if mode == "dft_ladder":                         # the laws take the DFT thresholds, less any calibration
             off = mol.threshold_offsets
             ip0 = float(state_threshold(mol, 0)) - off.get(0, 0.0) if 0 in mol.charges else None
             ea = mol.ionisation_ev[-1] - off.get(-1, 0.0) if -1 in mol.ionisation_ev else None
-            return threshold_shifts.law_shift(mol.nc, m - mol.nh, z, ip0, ea)
+            return threshold_shifts.law_shift(mol.nc, m - mol.nh, z, ip0, ea, parent_odd=mol.nh % 2 == 1)
         if mode == "andrews16":
             return float(self.p.ip_shift_per_h) * max(mol.nh - m, 0) if z >= 0 else 0.0
         if mode == "none":
