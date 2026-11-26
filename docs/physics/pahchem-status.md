@@ -62,7 +62,7 @@ m H0}$ parents (57 π radicals) count H-loss values and super-H barriers from th
 
 Off by default (opt-in): `cosmic_rays`, `hot_gas`, `coulomb_escape`,
 `double_ionisation`, `hydrogen_chain = "joint"` (since 2026-11-25 an odd-N$_{\rm H0}$ parent's super-H thresholds take
-the ladder one H later, from a ΔSCF ladder of C$_{31}$H$_{15}$; {doc}`pahchem-gas-coupling` §2.2h), the deep super-hydrogenated chain (`superh_chemistry = "deep"`,
+the ladder one H later, from a ΔSCF ladder of C$_{31}$H$_{15}$; since 2026-11-26 the first super-H IP0 is fitted to C$_{27}$H$_{13}$, C$_{31}$H$_{15}$ and C$_{43}$H$_{17}$, and the EA past +2 H is known to fall 0.1–0.5 eV below the law; {doc}`pahchem-gas-coupling` §2.2h), the deep super-hydrogenated chain (`superh_chemistry = "deep"`,
 PR #18; molecules with N$_{\rm C}$ ≳ 100 still reach its +24 cap in shielded and dense gas), and every band convention
 other than `legacy` (`Population(band_convention=...)`). Two brackets of PR #28: anions with the cations' super-H
 barriers (`superh_anion_barriers = "cation"`), and `associative_detachment = "all"`, now weighed by its

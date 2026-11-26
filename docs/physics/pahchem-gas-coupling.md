@@ -994,9 +994,22 @@ steady state by `network.gth_banded`. The default (`"charge_averaged"`) is uncha
         0); +2 H, on a duo pair, −0.08 and −0.10 (the law 0); −1 H within 0.08 eV of the even laws, which these parents
         keep.
       - The other +1 sites lie 0.6–1.3 eV higher. The trio gives +0.01 / −0.26; the sites on the SOMO's nodes leave π
-        diradicals (triplets 0.7–0.9 eV below their restricted singlets). IP1 is untested.
-      - Record: `results/pahchem/dft_oddparent_2026-11-25/`, figure
-        `results/plots/pahchem/dft_oddparent_2026-11-25/odd_parent_threshold_law.png`.
+        diradicals (triplets 0.7–0.9 eV below their restricted singlets).
+      - **Three sizes, −1 … +4 H, with IP1** (C27H13, C31H15, C43H17; DIaL3 2026-11-26, 108 states, all converged).
+        The structure holds at every size: the odd counts close the shell, and the even laws had the wrong sign at +1
+        and +3.
+        - At +1 H the EA matches the law to 0.02 eV. The IP0 rises +0.56, +0.56, +0.37 eV, 0.20 ± 0.04 below the
+          ladder-derived law.
+        - `ODD_LAWS`'s IP0 term is now these three points' fit, −0.397 + 5.092/√N_C (residuals ≤ 0.04; held at N_C 24
+          below), in place of −0.384 + 6.152/√N_C.
+        - +2 H: the duo pair is lowest, 0.51–0.70 eV below the H after the radical site. The law's 0 holds there to
+          0.12 eV (IP0) and 0.21 eV (EA).
+        - Past +2, the EA falls 0.14 eV (+3) and 0.50 eV (+4, means) below the "+3 = +1, +4 = +2" extension. The
+          even ladders stop at +2, so the extension is untested for every parent; their +3/+4 are the next DIaL3 runs.
+        - IP1 follows no law: C27's falls to −1.06 eV at +4, while C31's and C43's rise by 0.15–0.41 eV, and the
+          law gives −0.16 … 0.
+      - Record: `results/pahchem/dft_oddparent_2026-11-25/` (`analyse_overnight.py`, `shifts.csv`), figures
+        `results/plots/pahchem/dft_oddparent_2026-11-25/odd_parent_threshold_law.png` and `odd_parent_overnight.png`.
       - **The effect** (`diagnostics/pahchem/check_odd_parent_thresholds.py`; five odd parents, N_C 27–145; Draine field,
         100 K, n_e = 1.4×10⁻⁴ n_H, G0 10⁻³–10⁴, n_H 10²–10⁴). In dense gas, the first super-H state's anion share falls
         by up to 0.22 (joint chain) and 0.33 (deep chain) for N_C ≤ 31. In the deep chain, half the super-H states are
@@ -1004,6 +1017,9 @@ steady state by `network.gth_banded`. The default (`"charge_averaged"`) is uncha
         to 1.57, and its H2 release down 19 %. The super-H shares move by ≤ 0.024, and every change for N_C ≥ 55 is
         ≤ 0.05. Record: `results/pahchem/odd_parent_thresholds/`, figure
         `results/plots/pahchem/odd_parent_thresholds/odd_parent_effect.png`.
+        - The IP0 refit (2026-11-26, same conditions, the same code otherwise) moves the first super-H state's cation
+          share by ≤ 0.008 (at G0 10⁴, n_H 10⁴), the super-H shares by ≤ 0.004, and ⟨Z⟩ and the anion shares by
+          ≤ 0.001. Record: `results/pahchem/odd_parent_thresholds/ip0_refit_2026-11-26/`.
 
 **Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
 before quoting):
