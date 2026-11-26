@@ -59,7 +59,8 @@ The `models.photolysis_model` key selects the table:
 - **`"RM2026"`** (the default): the legacy 2-D table described here,
   `dissociation_<bin_id>.dat`.
 - **`"pahchem"`**: the 4-D table `pahchem_dissociation_<bin_id>.dat`
-  (`pahchem.export_pah_tables`, stage `pahchem_dissociation_tables`). It gives
+  (`pahchem.export_pah_tables`, stage `pahchem_dissociation_tables`, opt-in since
+  2026-11-25: `calima-export --stages pahchem_dissociation_tables`). It gives
   the C$_2$-loss rate on (log $G_0$, log $n_{\rm H}$, log $T$, log $x_e$).
   The kernel passes `local_Tk` and `local_ne/local_nH`, and out-of-range
   coordinates are clamped to the table edges. The physics is in

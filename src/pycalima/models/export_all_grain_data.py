@@ -1021,6 +1021,12 @@ _STAGES = (
 
 STAGE_NAMES = tuple(name for name, _func, _kwargs in _STAGES)
 
+# Stages a plain run (and --skip-stages) leaves out; they run only when named in --stages.
+# 'pahchem_dissociation_tables' comes from the legacy pahchem BaselineModel network of one parent per bin (no states
+# file for C96, none of Population's later physics), and is read only with models.photolysis_model = "pahchem"
+# (the default is "RM2026"); taken out of the default on 2026-11-25 (pahchem audit, bug 10a).
+OPT_IN_STAGES = ('pahchem_dissociation_tables',)
+
 # stage -> stages whose output it reuses within the same invocation
 _STAGE_REUSES = {}
 
@@ -1038,7 +1044,8 @@ def _parse_stage_list(spec):
 
 
 def _select_stages(stages=None, skip_stages=None):
-    """Resolve the --stages / --skip-stages selection to an ordered tuple.
+    """Resolve the --stages / --skip-stages selection to an ordered tuple; :data:`OPT_IN_STAGES` only when named in
+    *stages*.
 
     Returns the entries of :data:`_STAGES` to run, in table order, so a
     partial selection cannot reorder a reuse dependency.
@@ -1046,12 +1053,13 @@ def _select_stages(stages=None, skip_stages=None):
     if stages and skip_stages:
         raise ValueError('--stages and --skip-stages are mutually exclusive.')
 
+    default = set(STAGE_NAMES) - set(OPT_IN_STAGES)
     if stages:
         chosen = set(_parse_stage_list(stages))
     elif skip_stages:
-        chosen = set(STAGE_NAMES) - set(_parse_stage_list(skip_stages))
+        chosen = default - set(_parse_stage_list(skip_stages))
     else:
-        chosen = set(STAGE_NAMES)
+        chosen = default
 
     for stage, reused in _STAGE_REUSES.items():
         if stage not in chosen:
@@ -1082,7 +1090,7 @@ def main(config_path=None, profile=True, profile_output=None,
     profile_output : str, optional
         Path to write the stage profile as JSON.
     stages : str, optional
-        Comma-separated subset of :data:`STAGE_NAMES` to run. Default: all.
+        Comma-separated subset of :data:`STAGE_NAMES` to run. Default: all but :data:`OPT_IN_STAGES`.
     skip_stages : str, optional
         Comma-separated stages to omit. Mutually exclusive with *stages*.
 
@@ -1212,7 +1220,8 @@ def _build_parser():
         '--stages',
         type=str,
         default=None,
-        help='Comma-separated subset of stages to run (default: all). '
+        help='Comma-separated subset of stages to run (default: all but the opt-in '
+             + ', '.join(OPT_IN_STAGES) + ', which run only when named here). '
              'Stages: ' + ', '.join(STAGE_NAMES) + '.'
     )
     parser.add_argument(
@@ -1225,7 +1234,7 @@ def _build_parser():
     parser.add_argument(
         '--list-stages',
         action='store_true',
-        help='Print the export stage names in run order and exit.'
+        help='Print the export stage names in run order (opt-in ones marked) and exit.'
     )
     return parser
 
@@ -1242,7 +1251,7 @@ def cli(argv=None) -> int:
     args = _build_parser().parse_args(argv)
     if args.list_stages:
         for name in STAGE_NAMES:
-            print(name)
+            print(name + ('  (opt-in: --stages)' if name in OPT_IN_STAGES else ''))
         return 0
     main(config_path=args.config,
          profile=(not args.no_profile),

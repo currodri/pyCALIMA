@@ -516,3 +516,16 @@ def test_the_docs_document_the_ramses_post_processing_workflow():
     for needle in ("CALIMA_model_explorer", "CALIMA_SIM_DIR",
                    "not distributed with pyCALIMA"):
         assert needle in text, f"docs/guide/post-processing.md omits {needle!r}"
+
+
+def test_calima_export_runs_the_opt_in_stages_only_when_named():
+    """``OPT_IN_STAGES`` (the legacy pahchem tables, since 2026-11-25) stay out of a plain run and of --skip-stages, and
+    run when named in --stages; every other stage keeps its place in the order."""
+    from pycalima.models import export_all_grain_data as X
+
+    names = lambda sel: [n for n, _f, _k in sel]                     # noqa: E731
+    plain = names(X._select_stages())
+    assert "pahchem_dissociation_tables" in X.OPT_IN_STAGES
+    assert plain == [n for n in X.STAGE_NAMES if n not in X.OPT_IN_STAGES]
+    assert not set(X.OPT_IN_STAGES) & set(names(X._select_stages(skip_stages="dust_band_luminosities")))
+    assert names(X._select_stages(stages="pahchem_dissociation_tables")) == ["pahchem_dissociation_tables"]
