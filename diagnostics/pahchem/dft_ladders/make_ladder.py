@@ -7,7 +7,9 @@ geometry of every hydrogenation state, and one job per (state, charge, spin) to 
 - **States.** The parent; N_H0-1 ... N_H0-4 dehydrogenated by removing duo pairs, Malloci+08's paired convention
   (N_H0-1: one H of the duo pair nearest the +x axis; -2: its partner; -3, -4: the same for the pair farthest from it);
   the bare skeleton; N_H0+1, N_H0+2 super-hydrogenated, the extra H on the carbons of the first pair (CH2 groups, one
-  above the plane, one below: a local minimum, not searched).
+  above the plane, one below: a local minimum, not searched). ``--superh 4`` adds N_H0+3, N_H0+4 on the second pair's
+  carbons (2026-11-26: the odd parents' +3/+4 showed the EA drifting below the "+3 = +1, +4 = +2" extension, which no
+  even ladder tested); ``--dnh`` writes only the jobs of those dN_H, to add states to an existing run.
 - **Charges** -1, 0, +1, +2.
 - **Spin.** Odd electron counts are doublets. Even counts are singlets, and also triplets for the dehydrogenated, bare
   and doubly charged states, whose lowest multiplicity is not known a priori.
@@ -15,7 +17,7 @@ geometry of every hydrogenation state, and one job per (state, charge, spin) to 
 The geometries are only start points: ``run_state.py`` optimises each (state, charge, spin). Sites and multiplicities
 are one choice per state, labelled in the job names; a site search is not done.
 
-Usage: make_ladder.py OUT_DIR [--xml PATH] [--parents C24 C54 C96]
+Usage: make_ladder.py OUT_DIR [--xml PATH] [--parents C24 C54 C96] [--superh 4] [--dnh 3 4]
 """
 import argparse
 import xml.etree.ElementTree as ET
@@ -62,8 +64,9 @@ def duo_pairs(types, xyz):
     return pairs, host
 
 
-def states(types, xyz):
-    """{name: (types, xyz)} of the hydrogenation states of one parent (module docstring)."""
+def states(types, xyz, superh=2):
+    """{name: (types, xyz)} of the hydrogenation states of one parent (module docstring); ``superh`` 4 adds N_H0+3 and
+    N_H0+4 on the second pair's carbons."""
     xyz = xyz - xyz.mean(axis=0)
     pairs, host = duo_pairs(types, xyz)
     if len(pairs) < 2:
@@ -83,7 +86,8 @@ def states(types, xyz):
     # from the carbons: PAHdb's geometries are not all in the xy plane)
     normal = np.linalg.svd(xyz[types == 6] - xyz[types == 6].mean(axis=0))[2][-1]
     t, x = list(types), [row for row in xyz]
-    for n_extra, (h, side) in enumerate(((first[0], +1.0), (first[1], -1.0)), start=1):
+    sites = ((first[0], +1.0), (first[1], -1.0), (second[0], +1.0), (second[1], -1.0))[:superh]
+    for n_extra, (h, side) in enumerate(sites, start=1):
         c = host[h]
         radial = xyz[h] - xyz[c]
         radial /= np.linalg.norm(radial)
@@ -116,6 +120,8 @@ def main():
     ap.add_argument("out_dir", type=Path)
     ap.add_argument("--xml", type=Path, default=None, help="PAHdb v4.00 XML (default: $CALIMA_PAHDB_DIR's)")
     ap.add_argument("--parents", nargs="+", default=list(PARENTS))
+    ap.add_argument("--superh", type=int, choices=(2, 4), default=2, help="super-H states: +1, +2 (default) or +1 ... +4")
+    ap.add_argument("--dnh", type=int, nargs="+", default=None, help="only the jobs of these dN_H (default: all)")
     args = ap.parse_args()
     if args.xml is None:
         from pycalima.pahchem import ames_suite
@@ -125,9 +131,11 @@ def main():
     jobs = []
     for parent in args.parents:
         types, xyz = geo[PARENTS[parent]]
-        st, nh0 = states(types, xyz)
+        st, nh0 = states(types, xyz, args.superh)
         for name, (t, x) in st.items():
             nc, nh = int((t == 6).sum()), int((t == 1).sum())
+            if args.dnh is not None and nh - nh0 not in args.dnh:
+                continue
             d = args.out_dir / parent / name
             d.mkdir(parents=True, exist_ok=True)
             write_xyz(d / "start.xyz", t, x, f"{parent} {name} start (make_ladder.py)")
