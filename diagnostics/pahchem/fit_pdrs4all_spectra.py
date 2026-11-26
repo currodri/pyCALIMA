@@ -359,7 +359,8 @@ def run_shape(args, knot=1.5, iterations=2, executor=None):
     The 20 runs (5 templates x 2 profiles x 2 starts) are independent; they go by template (one job of 4
     runs each) to ``executor``: any ``concurrent.futures.Executor`` (a
     ``dask.distributed.Client(...).get_executor()`` works too), else a process pool of ``args.workers``
-    (1: in this process) sharing the cores out as numba threads. Each worker builds the context once.
+    (1: in this process) sharing ``population.default_workers()`` cores ($CALIMA_WORKERS, else up to 8) out as numba
+    threads. Each worker builds the context once.
     """
     key = _result_key(args)
     cache = _paths.get_results_dir() / f"pahchem_spectral_shape_{key}.pkl"
@@ -383,8 +384,10 @@ def run_shape(args, knot=1.5, iterations=2, executor=None):
     if executor is None and workers > 1:
         from concurrent.futures import ProcessPoolExecutor
 
-        _warm_bases(args, max(workers, os.cpu_count() or 1))
-        threads = max(1, (os.cpu_count() or 1) // min(workers, len(jobs)))
+        # the pools' size, not os.cpu_count(): on a shared 256-core node that started 256 processes (2026-11-26)
+        cores = population.default_workers()
+        _warm_bases(args, max(workers, cores))
+        threads = max(1, cores // min(workers, len(jobs)))
         with ProcessPoolExecutor(max_workers=workers) as ex:
             futures = [ex.submit(task_fn, arg_items, knot, *extra, t, starts, threads) for t, starts in jobs]
             results = [r for fu in futures for r in fu.result()]
