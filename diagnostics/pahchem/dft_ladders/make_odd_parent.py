@@ -27,8 +27,18 @@ occupied orbital is nonbonding (Hueckel) and lives on alternate carbons:
 CH carbon of most density, where H adds. ``--triplet-checks STATE ...`` adds the neutral's triplet of those states, to
 show which are diradicals.
 
-Usage: make_odd_parent.py OUT_DIR [--uid 3226] [--name C31] [--edge-sites] [--radical-site]
-       [--triplet-checks H16 H16_solo] [--jobs jobs.txt] [--xml PATH]
+The follow-up (2026-11-25) confirmed it: the radical site's isomer is the lowest +1 by 0.6-1.3 eV, and the odd parent
+takes the even ladder one H later (``threshold_shifts.ODD_LAWS``). To test that law past +2 H and at Z = +2:
+- ``--sequence`` adds the path that addition takes after the radical site. N_H0 + 2 ``_seq`` puts the next H on one
+  carbon of the ladder's duo pair (the first one not holding the radical site), N_H0 + 3 ``_rad`` on its partner, and
+  N_H0 + 4 ``_rad`` on one carbon of the second pair.
+- ``--charges -1 0 1 2`` adds the dications for IP1. As in ``make_ladder``, an even count at Z = +2 also gets its
+  triplet, and a dehydrogenated odd one its quartet.
+- ``--states NAME ...`` keeps only those states' jobs (and geometries), so a parent already run gets only its new ones;
+  ``run_state.py`` also skips a job whose json shows a converged optimisation.
+
+Usage: make_odd_parent.py OUT_DIR [--uid 3226] [--name C31] [--edge-sites] [--radical-site] [--sequence]
+       [--charges -1 0 1] [--states H15 H16_rad ...] [--triplet-checks H16 H16_solo] [--jobs jobs.txt] [--xml PATH]
 
 It writes OUT_DIR/<name>/<state>/start.xyz and OUT_DIR/jobs.txt, in ``make_slurm.py``'s format (pass
 ``--per-node <name>=... --layout <name>=...``). The default parent, C31H15 (UID 3226), is small and odd. PAHdb computed
@@ -40,17 +50,17 @@ from pathlib import Path
 
 import numpy as np
 
-from make_ladder import read_geometries, states, write_xyz
+from make_ladder import duo_pairs, read_geometries, states, write_xyz
 from make_transfer import add_ch2, edge_sites
 
 CHARGES = (-1, 0, 1)
 
 
-def spins(n_elec, kind):
+def spins(n_elec, kind, z=0):
     """2S of the jobs of one (state, charge) of an odd-N_H0 parent (module docstring)."""
     if n_elec % 2:
-        return (1,)
-    return (0, 2) if kind in ("parent", "sigma", "radsuperh") else (0,)
+        return (1, 3) if (z == 2 and kind == "sigma") else (1,)
+    return (0, 2) if (kind in ("parent", "sigma", "radsuperh") or z == 2) else (0,)
 
 
 def somo_density(types, xyz):
@@ -84,6 +94,10 @@ def main():
     ap.add_argument("--edge-sites", action="store_true", help="also N_H0 -/+ 1 on the other edge classes")
     ap.add_argument("--radical-site", action="store_true",
                     help="N_H0 + 1 and + 2 on the CH carbons of most singly-occupied density (H<n>_rad)")
+    ap.add_argument("--sequence", action="store_true",
+                    help="with --radical-site: N_H0 + 2 _seq, + 3 _rad and + 4 _rad along the ladder's duo pairs")
+    ap.add_argument("--charges", nargs="+", type=int, default=list(CHARGES))
+    ap.add_argument("--states", nargs="*", default=None, help="only these states (default: all)")
     ap.add_argument("--triplet-checks", nargs="*", default=[], help="states whose neutral also gets its triplet")
     ap.add_argument("--jobs", default="jobs.txt", help="the job file's name in OUT_DIR")
     ap.add_argument("--only-new", action="store_true", help="only the --radical-site and --triplet-checks jobs")
@@ -116,8 +130,25 @@ def main():
         t1, x1 = add_ch2(types, xyz, h1, c1)
         st[f"H{nh0 + 1}_rad"] = (t1, x1, "radsuperh")
         st[f"H{nh0 + 2}_rad"] = (*add_ch2(t1, x1, h2, c2), "superh")
+        if args.sequence:                                  # along the ladder's duo pairs, after the radical site
+            pairs, host = duo_pairs(types, xyz)
+            pairs = [p for p in pairs if c1 not in (host[p[0]], host[p[1]])]
+            mid = lambda p: 0.5 * (xyz[p[0]] + xyz[p[1]])                     # noqa: E731
+            first = max(pairs, key=lambda p: mid(p)[0])
+            second = max(pairs, key=lambda p: np.linalg.norm(mid(p) - mid(first)))
+            print(f"sequence: C{c1}, then duo pair C{host[first[0]]}/C{host[first[1]]}, then C{host[second[0]]}")
+            t2, x2 = add_ch2(t1, x1, first[0], host[first[0]])
+            t3, x3 = add_ch2(t2, x2, first[1], host[first[1]])
+            st[f"H{nh0 + 2}_seq"] = (t2, x2, "superh")
+            st[f"H{nh0 + 3}_rad"] = (t3, x3, "radsuperh")
+            st[f"H{nh0 + 4}_rad"] = (*add_ch2(t3, x3, second[0], host[second[0]]), "superh")
     if args.only_new:
         st = {k: v for k, v in st.items() if k.endswith("_rad")}
+    if args.states is not None:
+        missing = set(args.states) - set(st)
+        if missing:
+            raise ValueError(f"no such states: {sorted(missing)} (have {sorted(st)})")
+        st = {k: v for k, v in st.items() if k in args.states}
     jobs = []
     for name in args.triplet_checks:                       # the neutral's triplet of a state already run
         jobs.append(f"{args.name}/{name} 0 2 1\n")
@@ -126,8 +157,8 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
         write_xyz(d / "start.xyz", t, x, f"C{nc}H{nh0} (UID {args.uid}) {name} start (make_odd_parent.py)")
         nh = int((t == 1).sum())
-        for z in CHARGES:
-            for two_s in spins(6 * nc + nh - z, kind):
+        for z in args.charges:
+            for two_s in spins(6 * nc + nh - z, kind, z):
                 jobs.append(f"{args.name}/{name} {z} {two_s} {int(z in (-1, 0))}\n")
     (args.out_dir / args.jobs).write_text("".join(jobs))
     print(f"{len(jobs)} jobs in {args.out_dir / args.jobs}")
