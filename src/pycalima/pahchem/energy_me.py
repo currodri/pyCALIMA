@@ -53,12 +53,14 @@ if HAVE_NUMBA:
         n_c, n = K.shape
         Y = np.zeros((n_c, n))
         for j in range(n):
-            ksum, tself = 0.0, 0.0
+            down = 0.0                                     # the downward parts the numerator weighs, summed
             for i in range(k_modes.shape[0]):
                 km = k_modes[i, j]
-                ksum += km
-                tself += km * ((1.0 - w[i, j]) * (lo[i, j] == j) + w[i, j] * (hi[i, j] == j))
-            denom = k_out[j] + ksum - tself
+                if lo[i, j] < j:
+                    down += (1.0 - w[i, j]) * km
+                if hi[i, j] < j:
+                    down += w[i, j] * km
+            denom = k_out[j] + down
             if denom <= 0.0:
                 continue
             for c in range(n_c):
@@ -283,7 +285,11 @@ class CascadeModel:
     def photon_yields(self, channel_rates) -> dict:
         """Y_c(E_j): probability of ending in channel c from bin j, no absorption.
 
-        ``channel_rates`` maps a channel name to k_c on ``self.energy_cm``.
+        ``channel_rates`` maps a channel name to k_c on ``self.energy_cm``. Each bin's denominator is its loss rate plus
+        the sum of the downward emission parts its numerator weighs, not sum(k) - (the part to itself): on deep grids
+        that difference cancels, and the error added up bin by bin to P = 1 + 1.3e-12 (C185H37 on the 325 eV grid of
+        hot-gas responses, the round-off guard's limit; pahchem 2026-11-25). Now the sum of the channels stays within a
+        few ulp of 1.
         """
         names, K = self._channels(channel_rates)
         k_out = K.sum(axis=0)
@@ -293,12 +299,11 @@ class CascadeModel:
         for j in range(self.n):
             km = self.k_modes[:, j]
             lo, hi, w = self._lo[:, j], self._hi[:, j], self._w[:, j]
-            to_self = km * ((1.0 - w) * (lo == j) + w * (hi == j))
-            denom = k_out[j] + km.sum() - to_self.sum()
-            if denom <= 0.0:
-                continue                                  # no way out: stays (Y = 0)
             lo_part = np.where(lo < j, (1.0 - w) * km, 0.0)
             hi_part = np.where(hi < j, w * km, 0.0)
+            denom = k_out[j] + lo_part.sum() + hi_part.sum()
+            if denom <= 0.0:
+                continue                                  # no way out: stays (Y = 0)
             Y[:, j] = (K[:, j] + Y[:, lo] @ lo_part + Y[:, hi] @ hi_part) / denom
         return dict(zip(names, Y))
 

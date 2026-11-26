@@ -1667,6 +1667,26 @@ def test_odd_parents_first_extra_h_closes_the_shell():
     assert all(pop._threshold_shift(odd, odd.nh + 2, z) == 0.0 for z in (-1, 0, 1))
 
 
+def test_loss_yields_stay_within_round_off_of_one_on_deep_grids():
+    """The single-event loss yields of a large PAH on the 325 eV grid of hot-gas responses stay within a few ulp of 1.
+    C185H37 (6440) at Z = -1, one H lost, gave P(H) = 1 + 1.3e-12 there, past ``_round_off``'s limit, and that killed
+    the hot-gas table run hot_k8: each bin's denominator was sum(k) - (the part to itself), which cancels, and the error
+    added up over the 13107 bins (``CascadeModel.photon_yields``, fixed 2026-11-25)."""
+    from dataclasses import replace
+
+    from pycalima.pahchem.baseline import Params
+
+    _, lib = _v400()
+    mol = next(m for m in lib if m.name == "C185H37 (6440)")
+    p = replace(Params(), hydrogen_chain="joint", hot_gas=True, superh_levels=8, superh_chemistry="deep")
+    inp = population._basis_inputs(mol, -1, ("draine",), 100.0, 21.5 * dos.CM_PER_EV, p)
+    f_, a_, n_, h2_ok = inp["ladder"][1]
+    e_max = float(population.HEAT_NODES_EV.max()) + 5.0
+    _, Y = population._single_event_yields(np.asarray(f_, float), a_, n_, h2_ok, p.h_even, p.h_odd, p.h2, e_max,
+                                           inp["extras"][1] if inp["extras"] else (), bool(inp.get("parent_odd")))
+    assert max(float(y.max()) for y in Y.values()) - 1.0 < 64 * np.finfo(float).eps
+
+
 def _ladder_molecules():
     """A cation-only molecule and one with its anion (N_C >= 50): both take LADDER_STEP_FIT's +1 -> +2 step."""
     return [_library()[0], next(m for m in _library() if -1 in m.charges and m.nc >= 50)]
