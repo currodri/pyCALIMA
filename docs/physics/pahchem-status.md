@@ -276,7 +276,7 @@ The literature still to be supplied is in {doc}`pahchem-gas-coupling` §5.
 
 | Figures | Made | Status |
 |---|---|---|
-| `results/plots/pahchem/briefing/` (sets A–E) | 2026-11-25/26 | rebuilt from main 839612d on megatron (`results/plots/pahchem/briefing_megatron_2026-11-25.log`). The last steps are still running there: the spectral fits B1–B7 are being refitted (the 2026-11-02 fit no longer adds up under the current code) with its own arguments, and steps 3–4 then assemble the set. Until they finish the folder is empty, and the 10-20/26 set is in `archive_2026-11-25_before_rebuild/`. The scorecards A1 and E00 come from the fixed verdict table `briefing_benchmarks.csv` (2026-10-19/25), not from the rerun. E10 (Berné+22 step by step) and D08 (the 3.4 µm survey) cannot be regenerated here and stay the old figures. The fits' numbers in {doc}`pahchem-briefing` §B are not yet rechecked |
+| `results/plots/pahchem/briefing/` (sets A–E) | 2026-11-25/26 | rebuilt from main, current. Steps 1–2b ran on megatron (`results/plots/pahchem/briefing_megatron_2026-11-25.log`). The fits B1–B7 are a refit with the 2026-11-02 fit's arguments (key `5ca1c4175ebd`), drawn on the laptop with LaTeX by `plot_briefing_fits.py`, which now adds the deposits (PR #37). Their numbers are in {doc}`pahchem-briefing` §B: the fronts moved to γ ≈ 3 × 10² and anion- and neutral-dominated emission. The scorecards A1 and E00 come from the fixed verdict table `briefing_benchmarks.csv` (2026-10-19/25), not from the rerun. E10 (Berné+22 step by step) and D08 (the 3.4 µm survey) cannot be regenerated here and stay the old figures. The 10-20/26 set is in `archive_2026-11-25_before_rebuild/` |
 | `results/plots/pahchem/pahchem_*.png`, the gas-coupling checks | 2026-11-25/26 | current: rerun with the briefing, the dense cloud on 114fa26 (PR #33). What moved is in {doc}`pahchem-gas-coupling` §4 |
 | `results/plots/pahchem/cr_impact_*.png` | 2026-11-25 | current. The lifetimes are 1.2–2.6× those of 2026-11-01, and the hot-cation 3.3 µm signature has been gone since f35e199 (2026-11-04; {doc}`pahchem-spec`) |
 | `results/plots/pahchem/pahchem_hot_gas_*.png` | 2026-11-25 | current. Above 10⁶ K the carbon loss is 1.3–2.5× that of 2026-11-04 ({doc}`pahchem-gas-coupling`, hot gas, "Result") |
@@ -287,5 +287,5 @@ The literature still to be supplied is in {doc}`pahchem-gas-coupling` §5.
 
 The briefing set was rebuilt on 2026-11-25/26 (steps 1–2b on megatron, 16 workers, ~3 h). The numbers that moved
 are corrected where the pages quote them: {doc}`pahchem-gas-coupling` §4 and its hot-gas "Result", the cosmic-ray
-section of {doc}`pahchem-spec`, and {doc}`pahchem-briefing`'s C12/C13. The briefing page's text is otherwise still the
+section of {doc}`pahchem-spec`, and {doc}`pahchem-briefing`'s §B and C12/C13. The briefing page's text is otherwise still the
 10-20/26 snapshot.

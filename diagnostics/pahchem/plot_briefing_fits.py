@@ -3,8 +3,11 @@
 
 Reads a cached ``fit_pdrs4all_spectra.py --fit-shape`` result (no refit) and
 rebuilds, at each template's best cell, the per-state spectra with the fitted
-band shape, so that the fitted PAH spectrum can be split by charge. The split
-is checked to add up to the cached PAH spectrum.
+band shape, so that the fitted PAH spectrum can be split by charge. With the
+deposits the bases do not hold (captures at their actual rate, the C 1s Auger
+excitation; ``Population.deposit_spectra``, in the fit since 2026-11-03), the
+split is checked to add up to the cached PAH spectrum. The deposits are shown as
+their own layer.
 
 Figures, written to ``--out`` (default ``<plots dir>/pahchem/briefing``):
 - ``fit_00_how_a_model_spectrum_is_built.png``: one molecule from IR modes to the fitted population;
@@ -36,6 +39,10 @@ from pycalima.pahchem.baseline import Environment, Params  # noqa: E402
 CLASSES = (("anions", lambda z: z < 0, "#2a78d6"), ("neutrals", lambda z: z == 0, "#eb6834"),
            ("cations", lambda z: z == 1, "#1baf7a"), ("dications and higher", lambda z: z >= 2, "#eda100"))
 CONTINUUM = "#d6d5d0"
+#: the largest |split - fitted PAH spectrum| allowed, over the spectrum's peak (``load``)
+SPLIT_TOL = 1e-3
+#: the deposits the bases do not hold, stacked on top of the charge classes
+DEPOSITS = ("deposits (captures, Auger)", "#8a8984")
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#8a8984"
 TITLES = {"HII": r"H\,{\sc ii} region (background face-on PDR)", "Atomic": "Atomic PDR",
           "DF1": "Dissociation front 1", "DF2": "Dissociation front 2", "DF3": "Dissociation front 3"}
@@ -93,9 +100,16 @@ def load(cache):
         S = spectral_fit.shaped_state_spectra(pop, fshape, res["grid"].nu, run["shape"])
         f = pop.charge_matrix(env)
         by_z = b["g0"] * S.by_slot(pop.emission_weights(env), b["weights"], len(pop.zs))
-        if not np.allclose(by_z.sum(0), b["pah"], rtol=1e-8, atol=1e-12 * b["pah"].max()):
-            raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum")
+        # the fit's PAH spectrum adds these to the bases' (fit_pdrs4all_spectra.run_shape's cell loop)
+        dep = b["weights"] @ pop.deposit_spectra(env, res["grid"].nu, band_shape=run["shape"])
+        # bases rebuilt on another machine (or thread count) differ at the solvers' tolerance: 3e-5 ... 3e-4 of the peak,
+        # this laptop against a megatron fit (2026-11-26); a missing term is 8-60 % (the deposits were, before)
+        miss = np.abs(by_z.sum(0) + dep - b["pah"]).max() / b["pah"].max()
+        if miss > SPLIT_TOL:
+            raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum ({miss:.1e} of the peak)")
         split = {name: by_z[[i for i, z in enumerate(pop.zs) if sel(z)]].sum(0) for name, sel, _ in CLASSES}
+        split[DEPOSITS[0]] = dep
+        print(f"{t}: deposits {dep.sum() / b['pah'].sum():.2%} of the PAH emission; split off the fit by {miss:.1e} of the peak")
         out[t] = {"best": b, "allowed": allowed, "cells": cells, "profile": prof, "shape": run["shape"], "env": env, "S": S,
                   "f": f, "split": split, "observed": res[t]["observed"]}
     return res, pop, out
@@ -122,12 +136,14 @@ def fig_template(t, d, grid, out_dir):
         m = (grid.lam_um >= lo) & (grid.lam_um <= hi)
         lam, yo, cont, mod = _segments(grid.lam_um[m], y[m], b["cont"][m], model[m])
         parts = [_segments(grid.lam_um[m], d["split"][name][m])[1] for name, _, _ in CLASSES]
+        dep = _segments(grid.lam_um[m], d["split"][DEPOSITS[0]][m])[1]
         ax, axr = axes[0, col], axes[1, col]
         base = cont.copy()
         ax.fill_between(lam, 0, base, color=CONTINUUM, lw=0, label="continuum (B-splines)")
         for (name, _, colour), p in zip(CLASSES, parts):
             ax.fill_between(lam, base, base + p, color=colour, lw=0, alpha=0.85, label=f"PAH {name}")
             base = base + p
+        ax.fill_between(lam, base, base + dep, color=DEPOSITS[1], lw=0, alpha=0.85, label=f"PAH {DEPOSITS[0]}")
         ax.plot(lam, mod, color=INK2, lw=1.0, label="model total")
         ax.plot(lam, yo, color=INK, lw=1.4, label="observed (gas lines removed)")
         ax.set_xlim(lo, hi)
@@ -308,8 +324,8 @@ def fig_summary(data, lib, out_dir):
     ax.vlines(x, lo, hi, color="#e4e3df", lw=12, zorder=1, label="scanned (stated conditions)")
     panel(ax, [c["gamma"] for c in b], "Ionisation parameter", r"$\gamma = G_0 T^{1/2}/n_e$ [K$^{1/2}$ cm$^3$]",
           lohi=rng("gamma"), logy=True)
-    ax.set_ylim(2e3, 8e5)
-    ax.legend(fontsize=10.5, loc="upper left")
+    ax.set_ylim(0.5 * lo.min(), 40.0 * hi.max())         # the scans (the cards' n_e put the DFs near 3e2), room above
+    ax.legend(fontsize=10.5, loc="upper right")           # in the room above the scans
     panel(axes[0, 2], [c["e_cation"] for c in b], "Cations in the PAH emission",
           r"share of emitted power ($Z \geq +1$)", lohi=rng("e_cation"))
     axes[0, 2].set_ylim(0, 1)
@@ -322,7 +338,7 @@ def fig_summary(data, lib, out_dir):
     nmol = [int((c["weights"] > 0).sum()) for c in b]
     panel(axes[1, 2], nmol, "Molecules in the best fit", r"number with $w > 0$",
           note=rf"library: {len(lib)} molecules, $N_{{\rm C}}$ = {nc.min():.0f}--{nc.max():.0f}")
-    axes[1, 2].set_ylim(0, None)
+    axes[1, 2].set_ylim(0, 1.15 * max(nmol))
     fig.suptitle("What the five Orion Bar fits imply (templates ordered from the star into the cloud)", x=0.07,
                  ha="left", fontsize=16)
     path = Path(out_dir) / "fit_02_summary.png"
