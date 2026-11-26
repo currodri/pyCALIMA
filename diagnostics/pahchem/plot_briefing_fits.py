@@ -39,6 +39,8 @@ from pycalima.pahchem.baseline import Environment, Params  # noqa: E402
 CLASSES = (("anions", lambda z: z < 0, "#2a78d6"), ("neutrals", lambda z: z == 0, "#eb6834"),
            ("cations", lambda z: z == 1, "#1baf7a"), ("dications and higher", lambda z: z >= 2, "#eda100"))
 CONTINUUM = "#d6d5d0"
+#: the largest |split - fitted PAH spectrum| allowed, over the spectrum's peak (``load``)
+SPLIT_TOL = 1e-3
 #: the deposits the bases do not hold, stacked on top of the charge classes
 DEPOSITS = ("deposits (captures, C 1s Auger)", "#8a8984")
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#8a8984"
@@ -100,11 +102,14 @@ def load(cache):
         by_z = b["g0"] * S.by_slot(pop.emission_weights(env), b["weights"], len(pop.zs))
         # the fit's PAH spectrum adds these to the bases' (fit_pdrs4all_spectra.run_shape's cell loop)
         dep = b["weights"] @ pop.deposit_spectra(env, res["grid"].nu, band_shape=run["shape"])
-        if not np.allclose(by_z.sum(0) + dep, b["pah"], rtol=1e-8, atol=1e-12 * b["pah"].max()):
-            raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum")
+        # bases rebuilt on another machine (or thread count) differ at the solvers' tolerance: 3e-5 ... 3e-4 of the peak,
+        # this laptop against a megatron fit (2026-11-26); a missing term is 8-60 % (the deposits were, before)
+        miss = np.abs(by_z.sum(0) + dep - b["pah"]).max() / b["pah"].max()
+        if miss > SPLIT_TOL:
+            raise SystemExit(f"{t}: the charge split does not add up to the cached PAH spectrum ({miss:.1e} of the peak)")
         split = {name: by_z[[i for i, z in enumerate(pop.zs) if sel(z)]].sum(0) for name, sel, _ in CLASSES}
         split[DEPOSITS[0]] = dep
-        print(f"{t}: deposits {dep.sum() / b['pah'].sum():.2%} of the PAH emission")
+        print(f"{t}: deposits {dep.sum() / b['pah'].sum():.2%} of the PAH emission; split off the fit by {miss:.1e} of the peak")
         out[t] = {"best": b, "allowed": allowed, "cells": cells, "profile": prof, "shape": run["shape"], "env": env, "S": S,
                   "f": f, "split": split, "observed": res[t]["observed"]}
     return res, pop, out
