@@ -144,27 +144,41 @@ not do that (finding C1).
 Each figure has three parts:
 - **Spectrum.** The observed spectrum (black, gas lines removed), the fitted
   continuum (grey) and the PAH emission stacked by charge: anions, neutrals,
-  cations, dications and higher. The thin dark line is the model total.
+  cations, dications and higher. On top sit the deposits the bases do not hold:
+  captures at their actual rate and the C 1s Auger excitation. They have been
+  in the fit since 2026-11-03 and are shown since 2026-11-26. The thin dark line
+  is the model total.
 - **Residual**, in per cent of the segment's mean intensity.
 - **Header:** the best cell of the stated conditions and the fitted band
   shape.
 
+The refit of 2026-11-26 (main, key `5ca1c4175ebd`, the 11-02 fit's arguments):
+
 | | H II | Atomic | DF1 | DF2 | DF3 |
 |---|---|---|---|---|---|
-| rms residual (% of mean I$_\nu$) | 4.8 | 10.2 | 9.1 | 6.4 | 5.5 |
-| best γ = G$_0$T$^{1/2}$/n$_e$ | 9.8e3 | 1.0e4 | 1.0e4 | 9.9e3 | 1.1e4 |
-| cation share of the PAH emission (Z ≥ +1) | 0.48 | 0.51 | 0.50 | 0.49 | 0.51 |
-| of which dications and higher | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 |
-| ⟨N$_{\rm C}$⟩, carbon-weighted | 84 | 87 | 84 | 85 | 83 |
-| continuum / (continuum + PAH), 5–15 µm | 0.71 | 0.39 | 0.44 | 0.55 | 0.63 |
-| molecules with w > 0 | 81 | 80 | 79 | 62 | 55 |
-| CH stretch shift / FWHM (cm$^{-1}$) | −29 / 43 | −29 / 36 | −29 / 37 | −29 / 32 | −28 / 34 |
-| CC shift, CH oop shift, other FWHM (cm$^{-1}$) | +17, +2, 8 | +18, +1, 6 | +18, 0, 7 | +20, +3, 11 | +19, +1, 12 |
+| rms residual (% of mean I$_\nu$) | 4.6 | 9.5 | 8.6 | 6.3 | 5.7 |
+| best γ = G$_0$T$^{1/2}$/n$_e$ | 1.1e4 | 1.1e4 | 2.7e2 | 2.6e2 | 3.3e2 |
+| cation share of the PAH emission (Z ≥ +1) | 0.44 | 0.46 | 0.01 | 0.01 | 0.02 |
+| of which dications and higher | 0.06 | 0.07 | 0.00 | 0.00 | 0.00 |
+| anion share | 0.01 | 0.01 | 0.39 | 0.36 | 0.34 |
+| deposits' share of the PAH emission | 0.10 | 0.11 | 0.30 | 0.30 | 0.29 |
+| ⟨N$_{\rm C}$⟩, carbon-weighted | 82 | 85 | 82 | 79 | 80 |
+| continuum / (continuum + PAH), 5–15 µm | 0.70 | 0.37 | 0.30 | 0.49 | 0.50 |
+| molecules with w > 0 | 87 | 90 | 77 | 80 | 74 |
+| CH stretch shift / FWHM (cm$^{-1}$) | −29 / 42 | −29 / 36 | −27 / 29 | −26 / 30 | −26 / 23 |
+| CC shift, CH oop shift, other FWHM (cm$^{-1}$) | +17, +1, 6 | +18, +1, 6 | +20, +2, 9 | +20, +2, 10 | +20, −1, 10 |
+
+The 10-20 fit, in the archived set, had γ ≈ 1 × 10⁴ and a cation share of 0.48–0.51 in all five. The fronts
+moved with their stated conditions: the card by layer (2026-10-26) gives them n$_e$ = 60–100 cm$^{-3}$, and so
+γ = 2.6 × 10² – 2.2 × 10³. The model has changed since as well (sticking, the charge ladder, the deposits); the
+two were not separated.
 
 What to look at:
-- **The 6.2, 7.7, 8.6 and 11.2 µm bands are carried by cations and neutrals
-  as expected.** The 7.7 µm complex is mostly cations; 11.2 µm is mostly
-  neutrals.
+- **In H II and the Atomic PDR the 6.2, 7.7, 8.6 and 11.2 µm bands are carried
+  by cations and neutrals.** The 7.7 µm complex is mostly cations; 11.2 µm is
+  mostly neutrals. At the fronts the cations are gone: anions and neutrals carry
+  the bands, and the deposits ~30 % of the PAH emission, much of the 11.2 and
+  12.7 µm peaks.
 - **The 3.4 µm complex is not in the model.** It is the large positive
   residual at 3.40–3.6 µm in every template. The PAHdb aliphatic species
   cannot produce the observed 3.4/3.29 (section D, D08). A separate 3.1–3.65
@@ -188,19 +202,18 @@ The panels show, per template:
 
 Results:
 - **One band shape and one physics fit all five templates** to 5–10 %.
-- **The best γ is ≈ 1 × 10⁴ everywhere**, inside the scanned range
-  (5 × 10³ to 1.5–2.6 × 10⁵), and the Δχ² < 9 cells are narrow.
-- **Cations carry 0.48–0.51 of the emission and ⟨N$_{\rm C}$⟩ ≈ 83–87 in every
-  template.** The share counts all the emitted power, photon heating plus
-  recombination heating. Counted from photon heating alone (as first
-  reported) it was 0.57–0.60, because recombination heats neutrals much more
-  than cations (audit fix C6).
+- **The best γ is 1.1 × 10⁴ in H II and the Atomic PDR**, at the low edge of their scans (≈ 10⁴ to 2.6–2.8 ×
+  10⁵). **At the fronts it is 2.6–3.3 × 10²**, the low edge of theirs (to 2.2 × 10³). The Δχ² < 9 cells are one
+  or two cells.
+- **Cations carry 0.44–0.46 of the emission in H II and the Atomic PDR, and 0.01–0.02 at the fronts**, where
+  anions carry 0.34–0.39. ⟨N$_{\rm C}$⟩ ≈ 79–85 in every template. The share counts all the emitted power: photon
+  heating, recombination heating and the deposits. In the 10-20 fit, counted from photon heating alone, it was
+  0.57–0.60, because recombination heats neutrals much more than cations (audit fix C6).
 
 Caveats to raise:
-- **The best G$_0$ sits at the low end of the stated range** in H II, Atomic,
-  DF1 and DF2 (1.8 × 10⁴ in the PDR templates, 10³ at the fronts). So the
-  constancy of γ partly reflects the fit wanting less ionisation than the
-  stated G$_0$ allows.
+- **Every best cell sits at the low-γ edge of its stated conditions.** G$_0$ is at the low end (1.8 × 10⁴ in the
+  PDR templates; 10³, and 1.3 × 10³ for DF3, at the fronts) and, at the fronts, n$_e$ at the high end (100
+  cm$^{-3}$). So the fits want less ionisation than the stated conditions allow.
 - **Δχ² < 9 is an approximate scale.** It uses s² = sse$_{\min}$/(n − p),
   with no calibrated uncertainties (step 3 of the review). So the allowed
   ranges are indicative only.
@@ -377,9 +390,10 @@ run; and the WD01 charge cross-check has not been done.
    agreement where the inputs are unpublished, and close those three with
    the author questions rather than more modelling?
 2. **The Orion Bar fits.**
-   - Is γ ≈ 10⁴ with G$_0$ at the low end of the stated range a result, or a
-     sign that the stated G$_0$ (from O I fluorescence for the Atomic PDR,
-     assumed for the DFs) is too high for the PAH layer?
+   - Every best cell is at the low-γ edge of the stated conditions (γ ≈ 10⁴ in the PDR templates, ≈ 3 × 10²
+     at the fronts, 2026-11-26). Is that a result, or a sign that the stated G$_0$ (from O I fluorescence for
+     the Atomic PDR, assumed for the DFs) is too high, or the fronts' n$_e$ too low, for the PAH layer? The
+     fronts' emission is now anions, neutrals and ~30 % deposits, with no cations: is that plausible there?
    - Next step: calibrated uncertainties (step 3), then per-pixel fits.
 3. **The CC blue shift and the 3.4 µm gap** both point at missing carriers.
    They set the priority of the DFT requests: aliphatic side groups on large
