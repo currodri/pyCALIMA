@@ -60,6 +60,7 @@ ladder's +1 state of a closed-shell molecule with one H fewer: C31H15's IP0 and 
 
 Delta-SCF of C27H13, C31H15 and C43H17 (UIDs 66, 3226, 3235; results/pahchem/dft_oddparent_2026-11-25), each count's
 lowest isomer:
+
 - **+1 H, on the radical site.** The EA moves -0.81, -0.72, -0.52 eV, and the ladder law gives the same to 0.02. The
   IP0 rises +0.56, +0.56, +0.37, which is 0.20 +- 0.04 below the ladder law (-0.384 + 6.152/sqrt(N_C)). ``ODD_LAWS[0]``
   is these three points' fit (residuals <= 0.04), N_C held at 24 below (fitted over N_C 27-43).
