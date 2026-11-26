@@ -42,7 +42,7 @@ CONTINUUM = "#d6d5d0"
 #: the largest |split - fitted PAH spectrum| allowed, over the spectrum's peak (``load``)
 SPLIT_TOL = 1e-3
 #: the deposits the bases do not hold, stacked on top of the charge classes
-DEPOSITS = ("deposits (captures, C 1s Auger)", "#8a8984")
+DEPOSITS = ("deposits (captures, Auger)", "#8a8984")
 INK, INK2, MUTED = "#0b0b0b", "#52514e", "#8a8984"
 TITLES = {"HII": r"H\,{\sc ii} region (background face-on PDR)", "Atomic": "Atomic PDR",
           "DF1": "Dissociation front 1", "DF2": "Dissociation front 2", "DF3": "Dissociation front 3"}
