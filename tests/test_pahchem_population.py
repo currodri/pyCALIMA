@@ -1654,6 +1654,19 @@ def test_odd_parents_alone_change_their_keys_and_shift_their_super_h_barriers():
         assert population.superh_addition_barrier(0, 0, q, True) == 0.0        # the radical's first extra H: no barrier
 
 
+def test_odd_parents_first_extra_h_closes_the_shell():
+    """In the joint chain an even parent's first extra H makes a pi radical (IP0 down, the EA up or held), and an odd
+    parent's closes the shell (IP0 up, EA down; ``law_shift(parent_odd=True)``); the odd parent's second extra H is a
+    radical again, at the parent's thresholds."""
+    _, lib = _v400()
+    even = next(m for m in lib if m.nh % 2 == 0 and m.nc <= 30 and -1 in m.charges)
+    odd = next(m for m in lib if m.nh % 2 == 1 and m.nc <= 40 and -1 in m.charges)
+    pop = _joint([even, odd])
+    assert pop._threshold_shift(even, even.nh + 1, 0) < 0.0 <= pop._threshold_shift(even, even.nh + 1, -1)
+    assert pop._threshold_shift(odd, odd.nh + 1, 0) > 0.0 > pop._threshold_shift(odd, odd.nh + 1, -1)
+    assert all(pop._threshold_shift(odd, odd.nh + 2, z) == 0.0 for z in (-1, 0, 1))
+
+
 def _ladder_molecules():
     """A cation-only molecule and one with its anion (N_C >= 50): both take LADDER_STEP_FIT's +1 -> +2 step."""
     return [_library()[0], next(m for m in _library() if -1 in m.charges and m.nc >= 50)]

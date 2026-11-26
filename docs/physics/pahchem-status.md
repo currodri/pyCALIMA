@@ -61,7 +61,8 @@ that can move it. The figure dates of §8 are read against this table.
 m H0}$ parents (57 π radicals) count H-loss values and super-H barriers from the parent (PR #26; their intact H loss was far too fast). Cells with old-star light above their G$_0$ (`optical_isrf` > G$_0$) get multiphoton tables on G$_0$ nodes that follow their field shape (PR #29; before, the old stars were scaled with every node, and cells below G$_0$ = 1 were extrapolated). The group tables' anion absorbs with `state_sigma` (PR #27; +0.04 % on the bin K) | §2.2c, §2.2h, §4d |
 
 Off by default (opt-in): `cosmic_rays`, `hot_gas`, `coulomb_escape`,
-`double_ionisation`, `hydrogen_chain = "joint"`, the deep super-hydrogenated chain (`superh_chemistry = "deep"`,
+`double_ionisation`, `hydrogen_chain = "joint"` (since 2026-11-25 an odd-N$_{\rm H0}$ parent's super-H thresholds take
+the ladder one H later, from a ΔSCF ladder of C$_{31}$H$_{15}$; {doc}`pahchem-gas-coupling` §2.2h), the deep super-hydrogenated chain (`superh_chemistry = "deep"`,
 PR #18; molecules with N$_{\rm C}$ ≳ 100 still reach its +24 cap in shielded and dense gas), and every band convention
 other than `legacy` (`Population(band_convention=...)`). Two brackets of PR #28: anions with the cations' super-H
 barriers (`superh_anion_barriers = "cation"`), and `associative_detachment = "all"`, now weighed by its
@@ -71,7 +72,6 @@ thermochemistry (EA < D).
 
 | Where | What | State |
 |---|---|---|
-| `feature/pahchem-odd-parent-dscf`, on DIaL3 | a ΔSCF IP/EA ladder of one odd parent (C$_{31}$H$_{15}$), for the super-H threshold shifts of odd parents, which still use the even-parent laws | first 29 states converged 2026-11-25; the shifts with the extra H on sites without SOMO density are probably restricted-singlet artefacts of a diradical, so a follow-up with triplet checks and H on the radical sites was submitted the same day |
 | `feature/gsd` | the GSD implementation, restarted from main on 2026-11-25 | its design is to be set first |
 | `feature/pahrt` (holds `study/pahrt` and the GSD branch `feature/gsd-a3c`) | how much of pahchem can enter RAMSES as bin-averaged kernels with a per-cell solver | frozen at the restart (5ff3c12), kept as the record. It had decided, on 2026-11-24, equilibrium per cell for every PAH bin with nothing tracked |
 
