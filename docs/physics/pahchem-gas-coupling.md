@@ -997,6 +997,13 @@ steady state by `network.gth_banded`. The default (`"charge_averaged"`) is uncha
         diradicals (triplets 0.7–0.9 eV below their restricted singlets). IP1 is untested.
       - Record: `results/pahchem/dft_oddparent_2026-11-25/`, figure
         `results/plots/pahchem/dft_oddparent_2026-11-25/odd_parent_threshold_law.png`.
+      - **The effect** (`diagnostics/pahchem/check_odd_parent_thresholds.py`; five odd parents, N_C 27–145; Draine field,
+        100 K, n_e = 1.4×10⁻⁴ n_H, G0 10⁻³–10⁴, n_H 10²–10⁴). In dense gas, the first super-H state's anion share falls
+        by up to 0.22 (joint chain) and 0.33 (deep chain) for N_C ≤ 31. In the deep chain, half the super-H states are
+        such closed shells. There, C31H15 at G0 1 and n_H 10⁴ goes from ⟨Z⟩ −0.31 to −0.16, its ⟨N_H⟩/N_H0 from 1.70
+        to 1.57, and its H2 release down 19 %. The super-H shares move by ≤ 0.024, and every change for N_C ≥ 55 is
+        ≤ 0.05. Record: `results/pahchem/odd_parent_thresholds/`, figure
+        `results/plots/pahchem/odd_parent_thresholds/odd_parent_effect.png`.
 
 **Literature check of the choices** (four reports, 2026-11-08, several sources read only through summaries, to re-verify
 before quoting):
