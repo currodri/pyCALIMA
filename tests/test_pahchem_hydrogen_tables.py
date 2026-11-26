@@ -35,3 +35,16 @@ def test_written_carbon_table_reads_back(isolated_env):
     assert np.allclose(values, expect, atol=1e-6)
     d = np.load(isolated_env / "bin_test.npz")
     assert d["nc_mean"] == pytest.approx(28.0) and np.allclose(d["carbon"], carbon)
+
+
+def test_default_field_has_the_environments_old_stars():
+    """The tables' field defaults to ``Environment``'s old-star light (``optical_isrf`` 1, gas-coupling doc section 4d),
+    not the 0 the builder had until 2026-11-25 (pahchem audit)."""
+    from dataclasses import fields
+
+    from pycalima.pahchem import hydrogen_tables as HT
+    from pycalima.pahchem.baseline import Environment
+
+    default = next(f.default for f in fields(Environment) if f.name == "optical_isrf")
+    assert HT.OPTICAL_ISRF == default == 1.0
+    assert HT.environment(0.0, 2.0, 2.0, -4.0).optical_isrf == default
