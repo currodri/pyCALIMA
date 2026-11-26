@@ -2086,7 +2086,7 @@ def test_andrews_ip_shift_lowers_the_cation_share_of_the_dehydrogenated_states_o
     z = np.array(zs)
     cat = lambda F, j: F[z > 0, j].sum() / F[:, j].sum()                    # noqa: E731
     assert Fs[:, 0].sum() > 0.5 and cat(Fs, 0) < 0.8 * cat(Ff, 0)
-    r = shifted._threshold_factors(population.field_shape(env))[0]
+    r = shifted._threshold_factors(population.field_shape(env))[0][0]
     nh0 = lib[0].nh
     assert np.all(r[-1 - shifted.zmin] == 1.0)                              # the anion (EA): unshifted
     assert np.all(r[:, nh0:] == 1.0) and np.all(r[-shifted.zmin:, :nh0] <= 1.0)
@@ -2104,7 +2104,7 @@ def test_dft_thresholds_of_the_joint_chain():
     env = Environment("pdr", 1e3, 1e4, 1.4, 100.0, None)
     dft, flat = _joint(lib), _joint(lib, threshold_shifts="none")
     nh0, a, n = lib[0].nh, -1 - dft.zmin, -dft.zmin
-    r = dft._threshold_factors(population.field_shape(env))[0]
+    r = dft._threshold_factors(population.field_shape(env))[0][0]
     att = dft._attachment_factors(env.temperature_k)[0]
     assert np.all(r[a, :nh0] < 1.0) and r[a, nh0] == 1.0 and r[a, nh0 + 1] < 1.0
     assert np.all(att[:nh0] > 1.0) and att[nh0] == 1.0 and att[nh0 + 1] > 1.0
@@ -2131,6 +2131,33 @@ def test_dft_threshold_shifts_ignore_a_calibration_of_the_library():
             ref = pop._threshold_shift(mol, m, z)
             assert pop_cal._threshold_shift(cal, m, z) == pytest.approx(ref, abs=1e-12)
             assert pop._threshold_shift(pop._own(mol), m, z) == pytest.approx(ref, abs=1e-12)
+
+
+def test_a_band_below_the_intact_threshold_still_ionises_the_super_h_neutral():
+    """A field band below the intact neutral's IP0 but above its first super-H state's (whose IP0 is lower) ionises that
+    state, in ``valence_ionisation_rates`` and in the joint chain (``_threshold_factors``' absolute part). Until
+    2026-11-25 such a state took the ratio 1 times the intact state's zero, so band-split fields lost its ionisation. In
+    the full field the intact state ionises, and the ratios carry every shift as before (no absolute part)."""
+    from pycalima.pahchem.baseline import Environment
+
+    mol, = _v400_parents(("C54H18 (37)",))
+    pop = _joint([mol])
+    own, i = pop.library[0], -pop.zmin
+    nh0 = own.nh
+    d1 = pop._threshold_shift(own, nh0 + 1, 0)
+    e_cut = float(population.state_threshold(own, 0)) + 0.5 * d1                  # between the two IP0s
+    assert d1 < -0.3
+    env = Environment("band", 1.0, 1e2, 1.4e-2, 100.0, None, field_powerlaw=1.0, field_e_min_ev=1.0,
+                      field_e_max_ev=e_cut)
+    shape = population.field_shape(env)
+    k = pop.valence_ionisation_rates(shape)[0]
+    assert k[i, nh0] == 0.0 < k[i, nh0 + 1]
+    net, = pop.joint_networks(env)
+    ion = next(q for q in net.processes if q.name == "ionisation (dZ +1)").rate
+    zi = list(net.charges).index(0)
+    assert ion[zi, nh0] == 0.0 < ion[zi, nh0 + 1] == pytest.approx(env.g0 * k[i, nh0 + 1], rel=1e-12)
+    r, a = pop._threshold_factors(("draine",))
+    assert not np.any(a[0]) and np.all(pop.valence_ionisation_rates(("draine",))[0][i] > 0.0)
 
 
 def test_population_calibrates_the_pahdb_v400_thresholds_by_default():
