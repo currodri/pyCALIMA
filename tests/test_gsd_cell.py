@@ -170,7 +170,7 @@ def test_update_equals_the_modules_in_order(carbon):
     np.testing.assert_allclose(c.M, pop.M, rtol=1e-12, atol=0.0)
     assert res.gas["C"] == pytest.approx(gas["C"], rel=1e-12)
     assert c.overflow_M == pytest.approx(r["overflow_M"] + pop.overflow_M, rel=1e-12, abs=1e-300)
-    assert abs(res.conservation["C"]) < 1e-12
+    assert abs(res.conservation["C"]) < 1e-14
     assert res.duu > 0.0
 
 
@@ -227,7 +227,7 @@ def test_explosion_to_fragments_conserves_carbon_and_keeps_the_bins_realisable(c
     pre = _precool_with_explosion(grid, N, M, lambda a: 1e-13 * (np.asarray(a) / 1e-5) ** 4)
     c = _carbon_composition(grid, N, M)
     res = update([c], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, 1e13, Options(processes=frozenset({"explosion"})))
-    assert abs(res.conservation["C"]) < 1e-13
+    assert abs(res.conservation["C"]) < 1e-14
     assert res.gas["C"] == pytest.approx(1.0, rel=1e-12)          # fragments from the grid's lowest edge up
     filled = c.N > 0
     mbar = c.M[filled] / c.N[filled]
@@ -274,7 +274,7 @@ def test_update_with_the_pair_rule_equals_collide_with_it():
     np.testing.assert_allclose(c.N, r["N"], rtol=1e-12)
     np.testing.assert_allclose(c.M, r["M"], rtol=1e-12)
     assert c.M[:4].sum() < M[:4].sum() * (1 - 1e-3)                # the molecules freeze out
-    assert abs(res.conservation["C"]) < 1e-12
+    assert abs(res.conservation["C"]) < 1e-14
 
 
 def _accreting_inputs():
@@ -299,7 +299,7 @@ def test_a_passive_overflow_bin_is_the_grid_below_plus_what_grew_past_it(carbon)
     assert plain.overflow_M > 0.0                                   # grains did grow past 1 um
     assert np.array_equal(over.N[:-1], plain.N) and np.array_equal(over.M[:-1], plain.M)
     assert over.M[-1] == plain.overflow_M and over.overflow_M == 0.0
-    assert r1.gas == r0.gas and abs(r1.conservation["C"]) < 1e-9
+    assert r1.gas == r0.gas and abs(r1.conservation["C"]) < 1e-14
     assert r1.overflow_share[0] == pytest.approx(over.M[-1] / over.M.sum()) and r0.overflow_share == [0.0]
 
 
