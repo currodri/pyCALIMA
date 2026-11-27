@@ -136,6 +136,16 @@ realisable. `deposit_power_law` places an $a^{-\alpha}$ fragment spectrum
 exactly. The cell's Coulomb explosion uses both. Its rate between the area
 nodes is taken log-linear in $a$ (labelled).
 
+`pairs` is carbon's pair rule (decided 2026-11-23). Molecules (N$_{\rm C}$ up
+to 400) have no outcome with each other. With a larger particle, by impact
+speed, they stick below 4 km/s, rebound between, and are destroyed above
+7 km/s, their carbon going to the gas (labelled). Grain-grain pairs are
+unchanged. `GrainCollisions(pair_rule=...)` applies it. `release` gives the
+sticking factor $S_{\rm eff} = 1/(1 + R_{\rm abs}(P_{\rm th} + Y_{\rm pd})
+t_{\rm bury})$ on every host. $P_{\rm th}$ is the single-photon thermal
+release, which matters only on ~1 nm hosts. $Y_{\rm pd}$ is a labelled
+calibrated photodesorption yield, default 0.
+
 `materials` holds one record per grain material (bulk density, optics set,
 shattering constants, sputtering, sublimation and charging inputs, with
 sources), so every operator reads the same density; constants borrowed from
@@ -275,6 +285,8 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.charging
    pycalima.gsd.cell
    pycalima.gsd.sinks
+   pycalima.gsd.pairs
+   pycalima.gsd.release
    pycalima.gsd.optics
    pycalima.gsd._kernels
    pycalima.gsd._jit
