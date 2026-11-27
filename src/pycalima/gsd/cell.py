@@ -53,6 +53,10 @@ class Composition:
       (T, n_H) -> da/dt(a), or None.
     - ``sublimation``: the ``sublimation_kinetics`` model of accretion and sublimation, or None.
     - ``charging``: a ``charging.AreaNodeCharging``, or None for neutral grains.
+    - ``optics``: an ``optics.PseudoBinOptics`` on ``grid``, or None. With it, precool computes the dust temperature
+      per bin (which the exchange uses) and the group absorption. ``hydrogen`` is then the ``hydrogen.BinHydrogen`` of
+      its covalent bins (``optics.gap_bins``, in order): precool also finds their equilibrium band gap, at which the
+      optics and the charging (with the same ``gap_bins``) are taken.
     - ``pair_rule``: carbon's ``pairs.PairRule`` (what molecules do in collisions), or None: every pair as grains.
     - ``molecular_bins``: how many of the lowest bins are molecules (carbon's PAH bins, N_C up to 400; 4 on
       ``CarbonLayout``). Two grain processes skip them:
@@ -75,6 +79,8 @@ class Composition:
     sputtering: str | Callable | None = None
     sublimation: object = None
     charging: object = None
+    optics: object = None
+    hydrogen: list | None = None
     pair_rule: object = None
     molecular_bins: int = 0
     a_frag_min: float | None = None
@@ -106,7 +112,8 @@ class CellInputs:
     - ``v_turb`` [cm/s] and ``L`` [cm]: the turbulence and its driving scale.
     - ``photons`` (``charging.PhotonGroups``), ``G0_bg`` [Habing] and ``ions`` [(n, z, m)]: for the charge.
     - ``neutral``: the neutral fraction of each key element in the gas (1 if absent). Its ionised part accretes with
-      the grains' Coulomb factor from precool."""
+      the grains' Coulomb factor from precool.
+    - ``n_HI``: the atomic hydrogen [cm^-3] that re-hydrogenates the covalent bins (None: n_H, all atomic, labelled)."""
 
     T: float
     n_H: float
@@ -119,6 +126,7 @@ class CellInputs:
     G0_bg: float = 0.0
     ions: list | None = None
     neutral: dict | None = None
+    n_HI: float | None = None
 
 
 @dataclass
@@ -144,7 +152,9 @@ class Precool:
     - the charge state on the area nodes (``charging.ChargeState``, or None for neutral grains);
     - the bins' weights w = int a^2 dN / a*^2 [cm^-3];
     - the grain area per unit volume [cm^2 cm^-3] per bin;
-    - the Coulomb-explosion rate per grain [s^-1] at each bin's area node, as (a*, k), or None for neutral grains."""
+    - the Coulomb-explosion rate per grain [s^-1] at each bin's area node, as (a*, k), or None for neutral grains;
+    - with optics: the dust temperature per bin [K], the group absorption kappa_g = sum_i M_i kappa_g,i [cm^-1] per
+      group and, with covalent bins, their band gaps [eV] (None otherwise)."""
 
     heating: list
     cooling: list
@@ -152,6 +162,9 @@ class Precool:
     weights: list
     area: list
     explosion: list
+    t_dust: list = field(default_factory=list)
+    absorption: list = field(default_factory=list)
+    e_gap: list = field(default_factory=list)
 
     @property
     def total_heating(self):
@@ -191,18 +204,25 @@ def precool(compositions, inputs: CellInputs) -> Precool:
     for c in compositions:
         a_star, w = area_node(c.grid, c.N, c.M, c.method)
         st, expl = None, None
+        t_d, kap, gap = _optics(c, inputs) if c.optics is not None else (None, None, None)
         heat, cool = np.zeros(c.grid.n_bins), np.zeros(c.grid.n_bins)
         if c.charging is not None:
             ph = inputs.photons
             if ph is None:
                 L0, L1 = c.charging.L0, c.charging.L1
                 ph = PhotonGroups(L0, L1, np.zeros(L0.size), np.sqrt(L0 * L1))
-            st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
+            gaps = None
+            if gap is not None and c.charging.gap_bins.size:
+                if not np.array_equal(c.charging.gap_bins, c.optics.gap_bins):
+                    raise ValueError("the charging's covalent bins differ from the optics'")
+                gaps = gap
+            st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg, gaps=gaps)
             heat = w * st.Gamma
             cool = w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results])
             expl = (st.a, st.explosion_rate(S_max=c.s_max))
         for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
-                       (out.area, np.pi * w * a_star ** 2), (out.explosion, expl)):
+                       (out.area, np.pi * w * a_star ** 2), (out.explosion, expl), (out.t_dust, t_d),
+                       (out.absorption, kap), (out.e_gap, gap)):
             lst.append(v)
     return out
 
@@ -244,7 +264,8 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
             mb = c.molecular_bins
-            pop = _grain_population(c, MassGrid(g.m_edges[mb:], g.rho), N[mb:], M[mb:], inputs, state)
+            t_d = None if pre is None or k >= len(pre.t_dust) or pre.t_dust[k] is None else pre.t_dust[k][mb:g.n_bins]
+            pop = _grain_population(c, MassGrid(g.m_edges[mb:], g.rho), N[mb:], M[mb:], inputs, state, t_d)
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
             N, M = np.concatenate([N[:mb], pop.N]), np.concatenate([M[:mb], pop.M])
@@ -296,6 +317,33 @@ def _collisions(c, inputs, opt, state):
     return c._collision_model
 
 
+def _optics(c, inputs):
+    """(T_d per bin [K], the group absorption kappa_g [cm^-1] per group, the covalent bins' band gaps [eV] or None)
+    of a composition with optics.
+
+    Each covalent bin's band gap is the equilibrium of its hydrogen (``hydrogen.equilibrium_gap``): k_UV is Y_CH
+    times the 6.8-13.6 eV photons it absorbs per C atom at each band-gap node, and k_H comes from n(H I) and T. Then
+    the absorbed power at those gaps gives the temperature that radiates it."""
+    from .hydrogen import Y_CH, equilibrium_gap, k_h
+    from .optics import state_s
+
+    po = c.optics
+    s = state_s(c.grid, c.N, c.M)
+    gap = None
+    if po.gap is not None:
+        if c.hydrogen is None or len(c.hydrogen) != po.gap_bins.size:
+            raise ValueError("a composition with covalent bins needs their BinHydrogen (Composition.hydrogen)")
+        uv = po.uv_photons(s, inputs.photons, inputs.G0_bg) * _M_CARBON          # photons per C atom per s
+        kh = k_h(inputs.n_H if inputs.n_HI is None else inputs.n_HI, inputs.T)
+        gap = np.array([equilibrium_gap(bh, Y_CH * np.interp(bh.e_grid, po.gap_nodes, uv[j]), kh)[1]
+                        for j, bh in enumerate(c.hydrogen)])
+    kg, power, _ = po.absorption(s, inputs.photons, inputs.G0_bg, gap)
+    return po.dust_temperature(s, power, gap), c.M @ kg, gap
+
+
+_M_CARBON = 12.011 * 1.66053906660e-24
+
+
 def _explode(c, g, N, M, expl, dt, opt):
     """Coulomb explosion over dt, a sink per moment (``sinks.sink_per_moment``). The rate between the area nodes is
     taken log-linear in a, and constant beyond the first and last nodes (labelled). It is zero on the molecular bins
@@ -331,7 +379,7 @@ def _explode(c, g, N, M, expl, dt, opt):
     return N, M, to_gas
 
 
-def _grain_population(c, g, N, M, inputs, state):
+def _grain_population(c, g, N, M, inputs, state, t_dust=None):
     """The composition as an ``exchange.Population`` for accretion and sublimation. The ionised share of the key
     element accretes with the grains' ion Coulomb factor from precool's ``state``.
 
@@ -346,7 +394,7 @@ def _grain_population(c, g, N, M, inputs, state):
 
     x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
     focus = None if state is None or x_n >= 1.0 else state.ion_focusing_of()
-    T_d = np.full(g.n_bins, float(inputs.T_d))
+    T_d = np.full(g.n_bins, float(inputs.T_d)) if t_dust is None else np.asarray(t_dust, float).copy()
     return Population(c.sublimation, g, N.copy(), M.copy(), T_d, nucleation=False, method=c.method,
                       neutral_fraction=x_n, ion_focusing=focus)
 
