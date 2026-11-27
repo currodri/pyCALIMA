@@ -245,3 +245,33 @@ def test_explosion_route_must_be_known(carbon):
     with pytest.raises(ValueError, match="explosion_route"):
         update([_carbon_composition(grid, N, M)], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, 1e13,
                Options(processes=frozenset({"explosion"}), explosion_route="ions"))
+
+
+def test_update_with_the_pair_rule_equals_collide_with_it():
+    """Carbon's pair rule through the cell: in cold dense gas the molecules freeze onto the grains, as collide gives
+    with the same rule, and carbon is conserved."""
+    from pycalima.gsd.carbon import CarbonLayout
+    from pycalima.gsd.cell import CellInputs, Options, update
+    from pycalima.gsd.collisions import collide
+    from pycalima.gsd.materials import get_material
+    from pycalima.gsd.pairs import PairRule
+    from pycalima.gsd.shattering import GrainCollisions
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    layout = CarbonLayout()
+    grid = layout.grid()
+    N, M = _carbon_state(grid, 1e4)
+    rule = PairRule.from_layout(layout, grid)
+    c = _carbon_composition(grid, N, M)
+    c.pair_rule = rule
+    dt = 1e5 * YR
+    res = update([c], CellInputs(10.0, 1e4, 1e-4, {"C": 1.0}), None, dt,
+                 Options(processes=frozenset({"coagulation", "shattering"})))
+    model = GrainCollisions(get_material("themis_ac").shatter, RelativeVelocity(T=10.0, n_H=1e4, mu=1.4),
+                            coagulation=True, a_frag_min=float(grid.a_edges[0]), collector="remove", threads=1,
+                            pair_rule=rule)
+    r = collide(grid, N.copy(), M.copy(), model, dt, errmax=1e-3)
+    np.testing.assert_allclose(c.N, r["N"], rtol=1e-12)
+    np.testing.assert_allclose(c.M, r["M"], rtol=1e-12)
+    assert c.M[:4].sum() < M[:4].sum() * (1 - 1e-3)                # the molecules freeze out
+    assert abs(res.conservation["C"]) < 1e-12

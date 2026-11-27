@@ -6,7 +6,8 @@ RAMSES calls the dust twice per cooling substep (``calima/dust_interface.f90``):
   recombination cooling, the grain area and the Coulomb-explosion rate.
 - ``update`` mirrors ``compute_dust_update``. It advances the dust over the substep with the precool charges, in
   this operator splitting:
-  1. collisions (``collisions.collide``), with the precool charges in the Coulomb factors;
+  1. collisions (``collisions.collide``), with the precool charges in the Coulomb factors and, for carbon, the
+     pair rule of its molecules (``pairs``);
   2. Coulomb explosion, a size-dependent sink applied per moment (``sinks.sink_per_moment``); the exploded grains go
      to a^-alpha fragments (``sinks.deposit_power_law``) or to the gas;
   3. erosion by thermal sputtering (``sputtering.sputter``);
@@ -42,6 +43,7 @@ class Composition:
       (T, n_H) -> da/dt(a), or None.
     - ``sublimation``: the ``sublimation_kinetics`` model of accretion and sublimation, or None.
     - ``charging``: a ``charging.AreaNodeCharging``, or None for neutral grains.
+    - ``pair_rule``: carbon's ``pairs.PairRule`` (what molecules do in collisions), or None: every pair as grains.
     - ``a_frag_min``: the smallest fragment radius [cm]; default the grid's lowest edge.
     - ``s_max``: the tensile strength [erg cm^-3] that sets the Coulomb-explosion charge (``ChargeState.explosion_rate``;
       1e10 for flawed grains, labelled).
@@ -57,6 +59,7 @@ class Composition:
     sputtering: str | Callable | None = None
     sublimation: object = None
     charging: object = None
+    pair_rule: object = None
     a_frag_min: float | None = None
     s_max: float = 1e10
     overflow_M: float = 0.0
@@ -243,7 +246,7 @@ def _collisions(c, inputs, opt, state):
             c.material, rv, law="KT10", alpha_f=opt.alpha_frag, coagulation="coagulation" in opt.processes,
             v_shat=None if "shattering" in opt.processes else 1e30,
             a_frag_min=float(c.grid.a_edges[0] if c.a_frag_min is None else c.a_frag_min), collector="remove",
-            n_speed=opt.n_speed, table_ppd=opt.table_ppd, threads=opt.threads)
+            n_speed=opt.n_speed, table_ppd=opt.table_ppd, threads=opt.threads, pair_rule=c.pair_rule)
         c._collision_key = key
     return c._collision_model
 
