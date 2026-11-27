@@ -394,14 +394,14 @@ def test_accretion_that_empties_the_gas_conserves_carbon_to_round_off():
     dust stays within the total: carbon is conserved to round-off, and the gas stays >= 0 without a clamp."""
     from pycalima.gsd.carbon import CarbonLayout
     from pycalima.gsd.exchange import Population, exchange_step
-    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+    from pycalima.gsd.materials import get_material
 
     grid = CarbonLayout().grid()
     a = grid.a_centres
     m = np.sqrt(grid.m_edges[:-1] * grid.m_edges[1:])
     N = a ** -2.5
     N *= 0.005 * 1.4 * 1.6735575e-24 * 5e4 / np.sum(N * m)
-    pop = Population(get_sublimation_model("graphite", "GD89"), grid, N, N * m, np.full(grid.n_bins, 20.0),
+    pop = Population(get_material("themis_ac").sublimation_model(), grid, N, N * m, np.full(grid.n_bins, 20.0),
                      nucleation=False)
     gas = {"C": 1e-4 * 5e4}
     total = gas["C"] + pop.key_atoms()

@@ -320,8 +320,16 @@ def _explode(c, g, N, M, expl, dt, opt):
 
 def _grain_population(c, g, N, M, inputs, state):
     """The composition as an ``exchange.Population`` for accretion and sublimation. The ionised share of the key
-    element accretes with the grains' ion Coulomb factor from precool's ``state``."""
+    element accretes with the grains' ion Coulomb factor from precool's ``state``.
+
+    The sublimation model's volume per unit must be the grains' own. A model of another density (e.g. graphite's 2.24
+    on THEMIS a-C's grid at 1.6) would scale the uptake rate by the density ratio, while the mass bookkeeping still
+    balances. So it raises; ``materials.get_material(...).sublimation_model()`` gives the matching model."""
     from .exchange import Population
+
+    if not np.isclose(c.sublimation.density_gcm3, g.rho, rtol=1e-6):
+        raise ValueError(f"the sublimation model's density ({c.sublimation.density_gcm3} g/cm3) differs from the "
+                         f"grid's ({g.rho} g/cm3)")
 
     x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
     focus = None if state is None or x_n >= 1.0 else state.ion_focusing_of()

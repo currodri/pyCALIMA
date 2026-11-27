@@ -131,10 +131,10 @@ def test_precool_neutral_grains(carbon):
 def _carbon_composition(grid, N, M):
     from pycalima.gsd.cell import Composition
     from pycalima.gsd.materials import get_material
-    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
 
-    return Composition(grid, N.copy(), M.copy(), "C", 1.0 / M_C, get_material("themis_ac").shatter,
-                       sputtering="graphite", sublimation=get_sublimation_model("graphite", "GD89"))
+    mat = get_material("themis_ac")
+    return Composition(grid, N.copy(), M.copy(), "C", 1.0 / M_C, mat.shatter, sputtering="graphite",
+                       sublimation=mat.sublimation_model())
 
 
 def test_update_equals_the_modules_in_order(carbon):
@@ -146,7 +146,6 @@ def test_update_equals_the_modules_in_order(carbon):
     from pycalima.gsd.shattering import GrainCollisions
     from pycalima.gsd.sputtering import erosion_rate, sputter
     from pycalima.gsd.velocities import RelativeVelocity
-    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
 
     grid, N, M = carbon
     T, n_H, dt = 3e4, 30.0, 1e6 * YR
@@ -162,8 +161,8 @@ def test_update_equals_the_modules_in_order(carbon):
     gas = {"C": gas0["C"] + r["sink_M"] / M_C}
     N1, M1, dM = sputter(grid, r["N"], r["M"], erosion_rate("graphite", T, n_H, rho=grid.rho), dt)
     gas["C"] += dM / M_C
-    pop = Population(get_sublimation_model("graphite", "GD89"), grid, N1.copy(), M1.copy(), np.full(grid.n_bins, 20.0),
-                     nucleation=False)
+    pop = Population(get_material("themis_ac").sublimation_model(), grid, N1.copy(), M1.copy(),
+                     np.full(grid.n_bins, 20.0), nucleation=False)
     exchange_step([pop], gas, T, dt)
 
     np.testing.assert_allclose(c.N, pop.N, rtol=1e-12, atol=0.0)
@@ -346,3 +345,15 @@ def test_a_vanishing_explosion_rate_leaves_the_bins_finite_and_conserves(carbon,
     assert np.all(np.isfinite(c.N)) and np.all(np.isfinite(c.M))
     assert abs(res.conservation["C"]) < 1e-14
     np.testing.assert_allclose(c.M, M, rtol=1e-9)
+
+
+def test_a_sublimation_model_of_another_density_is_refused(carbon):
+    """graphite's GD89 model (2.24 g/cm3) on THEMIS a-C's grid (1.6) would scale the uptake rate by the density ratio."""
+    from pycalima.gsd.cell import CellInputs, Options, update
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+    grid, N, M = carbon
+    c = _carbon_composition(grid, N, M)
+    c.sublimation = get_sublimation_model("graphite", "GD89")
+    with pytest.raises(ValueError, match="density"):
+        update([c], CellInputs(20.0, 1e4, 1e-4, {"C": 1.0}), None, 1e10, Options(processes=frozenset({"accretion"})))
