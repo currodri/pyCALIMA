@@ -154,50 +154,57 @@ Each figure has three parts:
 - **Header:** the best cell of the stated conditions and the fitted band
   shape.
 
-The refit of 2026-11-26 (key `7f9370a188c6`, the 11-02 fit's arguments; the same fit as main's `5ca1c4175ebd`,
-with the charge shares counting the deposits on the state that emits them):
+The refit of 2026-11-26 (key `dc805a9e65a5`, the 11-02 fit's arguments; the fronts' n$_{\rm H}$ from the
+pressure across the front, n$_{\rm H}$ = P/T, and n$_e$ = x$_e$ n$_{\rm H}$, as the Atomic PDR; the charge shares
+count the deposits on the state that emits them):
 
 | | H II | Atomic | DF1 | DF2 | DF3 |
 |---|---|---|---|---|---|
-| rms residual (% of mean I$_\nu$) | 4.6 | 9.5 | 8.6 | 6.3 | 5.7 |
-| best γ = G$_0$T$^{1/2}$/n$_e$ | 1.1e4 | 1.1e4 | 2.7e2 | 2.6e2 | 3.3e2 |
-| cation share of the PAH emission (Z ≥ +1) | 0.49 | 0.51 | 0.10 | 0.10 | 0.10 |
-| of which dications and higher | 0.07 | 0.07 | 0.00 | 0.00 | 0.00 |
-| anion share | 0.01 | 0.01 | 0.28 | 0.26 | 0.24 |
-| deposits' share (in the classes above) | 0.11 | 0.11 | 0.31 | 0.30 | 0.30 |
-| ⟨N$_{\rm C}$⟩, carbon-weighted | 82 | 85 | 82 | 79 | 80 |
-| continuum / (continuum + PAH), 5–15 µm | 0.70 | 0.37 | 0.30 | 0.49 | 0.50 |
-| molecules with w > 0 | 87 | 90 | 77 | 80 | 74 |
-| CH stretch shift / FWHM (cm$^{-1}$) | −29 / 42 | −29 / 36 | −27 / 29 | −26 / 30 | −26 / 23 |
-| CC shift, CH oop shift, other FWHM (cm$^{-1}$) | +17, +1, 6 | +18, +1, 6 | +20, +2, 9 | +20, +2, 10 | +20, −1, 10 |
+| rms residual (% of mean I$_\nu$) | 4.6 | 9.5 | 8.8 | 6.2 | 5.4 |
+| best γ = G$_0$T$^{1/2}$/n$_e$ | 1.1e4 | 1.1e4 | 1.3e4 | 1.2e4 | 1.3e4 |
+| cation share of the PAH emission (Z ≥ +1) | 0.49 | 0.51 | 0.55 | 0.52 | 0.54 |
+| of which dications and higher | 0.07 | 0.07 | 0.09 | 0.08 | 0.09 |
+| anion share | 0.01 | 0.01 | 0.01 | 0.01 | 0.01 |
+| deposits' share (in the classes above) | 0.11 | 0.11 | 0.11 | 0.11 | 0.10 |
+| ⟨N$_{\rm C}$⟩, carbon-weighted | 82 | 85 | 85 | 86 | 83 |
+| continuum / (continuum + PAH), 5–15 µm | 0.70 | 0.37 | 0.41 | 0.53 | 0.61 |
+| molecules with w > 0 | 87 | 90 | 93 | 65 | 59 |
+| CH stretch shift / FWHM (cm$^{-1}$) | −29 / 42 | −29 / 36 | −29 / 33 | −29 / 30 | −29 / 31 |
+| CC shift, CH oop shift, other FWHM (cm$^{-1}$) | +17, +1, 6 | +18, +1, 6 | +18, 0, 7 | +20, +4, 10 | +19, +3, 11 |
 
-At the fronts the deposits are 98 % product-state heat: 0.20 of the PAH emission is photodetached anions' heat,
-emitted by the neutrals, and 0.09 photoionisation heat, emitted by the cations; captures are 0.006 and the C 1s
-nothing. The first 2026-11-26 rebuild showed them as a separate layer labelled "captures, Auger" and left them out
-of the shares (cations 0.01, anions 0.34–0.39 at the fronts).
+The deposits are mostly the product-state ionisation heat (a photoionised neutral's E − IP − ⟨E$_k$⟩ emitted by
+the cation; a photodetached anion's by the neutral), with captures at their actual rate and the C 1s Auger
+excitation. Until 2026-11-26 the figures stacked them as a separate layer labelled "captures, Auger" and the
+charge shares left them out.
 
-**Why the fronts moved** (diagnostic: `results/pahchem/df_foreground_2026-11-26/`, figure
+**The fronts' density** (diagnostic: `results/pahchem/df_foreground_2026-11-26/`, figure
 `results/plots/pahchem/df_foreground_2026-11-26/df_scans.png`):
-- **The card did it, not the model.** The 10-20 fit, in the archived set, had γ ≈ 1 × 10⁴ and a cation share of
-  0.48–0.51 in all five, with the fronts' n$_e$ = 1.4–5.6 cm$^{-3}$ (x$_e$ n$_{\rm H}$ for the Meudon H$_2$ fits'
-  n$_{\rm H}$ = 1–3.5 × 10⁴). The card by layer (2026-10-26) gives them n$_{\rm H}$ = 4 × 10⁵ – 10⁶ and the
-  measured n$_e$ = 60–100 cm$^{-3}$ (Cuadrado+19), so γ ≤ 2.2 × 10³. The 11-02 fit already sat on the anion
-  branch; the model changes since then moved its anion share and raised the fronts' rms by 15–20 %.
-- **The spectra cannot tell the two branches apart.** Rescanned with n$_e$ opened to 1–100 cm$^{-3}$ (a
-  diagnostic; the card's n$_e$ is the input), each front has two minima of about the same depth: an anion branch at
-  γ ≈ 3 × 10² (still falling at the card's n$_e$ = 100) and a cation branch at γ ≈ 1–1.5 × 10⁴. Their rms differ by
-  2–6 %, and the charge shares cross at γ ≈ 1.5–2 × 10³. So the fronts' charge state is set by the stated n$_e$.
-- **A foreground does not decide it either.** With the Atomic template's fitted PAH spectrum added at a free
-  amplitude (the atomic PDR the DF apertures collect; Chown+24), it takes 19–22 % (DF2, DF3) to 42 % (DF1) of the
-  PAH emission and lowers the rms by 2–5 %, but the front component stays on the anion branch. With n$_e$ free,
-  DF1 moves to the cation branch with 54 % foreground, at the same rms.
+- **The card sets the fronts' charge, not the spectra.** Each front's spectrum fits an anion branch (γ ≈ 3 × 10²)
+  and a cation branch (γ ≈ 1–1.5 × 10⁴) to within 2–6 % in rms (n$_e$ opened to 1–100 cm$^{-3}$ as a
+  diagnostic), and an Atomic-template foreground at a free amplitude does not decide between them.
+- **Three cards so far.** To 2026-10-26 the fronts took n$_{\rm H}$ from the isochoric Meudon H$_2$ fits (1–3.5 ×
+  10⁴; n$_e$ 1.4–5.6): γ ≈ 10⁴. From 2026-10-26 they took the carbon recombination lines' n$_e$ = 60–100
+  cm$^{-3}$ (Cuadrado+19) with n$_{\rm H}$ = 4 × 10⁵ – 10⁶: the anion branch at the low-γ edge. Since
+  2026-11-26 they take n$_{\rm H}$ = P/T for P = 3 × 10⁷ – 2 × 10⁸ K cm$^{-3}$ (HD, Zannese+ PDRs4All XVII, to the
+  compressed gas behind the H/H$_2$ transition, Zannese+26 and Goicoechea+16), so n$_{\rm H}$ = 4 × 10⁴ – 3 × 10⁵
+  and n$_e$ = 5.6–48 cm$^{-3}$.
+- **Why the pressure range.** The recombination lines trace the denser C$^+$/C/CO layer (Cuadrado+19's own words),
+  and no paper reconciles them with the H$_2$-based densities; the literature's picture is a pressure gradient from
+  ~(3–9) × 10⁷ in the H$_2$- and HD-emitting gas to ~2 × 10⁸ in the compressed gas. The PAH bands are UV-pumped and
+  weight the illuminated gas. The rule is the Atomic PDR's.
+- **The result.** The fronts' best γ is 1.2–1.3 × 10⁴, inside their scans (5.4 × 10² – 2.4 × 10⁴), with G$_0$ ≈
+  3 × 10³ inside its range and n$_e$ ≈ 6 cm$^{-3}$ at the low end of its (the HD pressure). The cation branch fits
+  DF2 and DF3 better than the anion branch did (rms 6.2 vs 6.3 %, 5.4 vs 5.7 %) and DF1 slightly worse (8.8 vs
+  8.6 %). PDRs4All's own PAH ionisation analysis (Maragkoudakis+, PDRs4All XVIII, arXiv:2601.23282) finds the
+  cation-to-neutral ratio only ~1.5× lower at the fronts than in the Atomic PDR, as here.
+- **The dense-layer scenario** (the card's `n_e_crrl`, fit `7f9370a188c6`): γ = 2.6–3.3 × 10² at the edge,
+  neutrals 0.62–0.66, anions 0.24–0.28, cations 0.10, deposits 0.30 (mostly photodetachment heat on the
+  neutrals); rms 8.6, 6.3, 5.7 %. Its figures are in `compare_rebuild_2026-11-26/deposit_attribution/`.
 
 What to look at:
 - **In H II and the Atomic PDR the 6.2, 7.7, 8.6 and 11.2 µm bands are carried
   by cations and neutrals.** The 7.7 µm complex is mostly cations; 11.2 µm is
-  mostly neutrals. At the fronts neutrals carry most of the emission (0.62–0.66),
-  much of it the heat of photodetached anions; anions carry 0.24–0.28 and
-  cations 0.10.
+  mostly neutrals. The fronts look the same: cations 0.52–0.55, anions 0.01.
 - **The 3.4 µm complex is not in the model.** It is the large positive
   residual at 3.40–3.6 µm in every template. The PAHdb aliphatic species
   cannot produce the observed 3.4/3.29 (section D, D08). A separate 3.1–3.65
@@ -221,19 +228,19 @@ The panels show, per template:
 
 Results:
 - **One band shape and one physics fit all five templates** to 5–10 %.
-- **The best γ is 1.1 × 10⁴ in H II and the Atomic PDR**, at the low edge of their scans (≈ 10⁴ to 2.6–2.8 ×
-  10⁵). **At the fronts it is 2.6–3.3 × 10²**, the low edge of theirs (to 2.2 × 10³). The Δχ² < 9 cells are one
-  or two cells.
-- **Cations carry 0.49–0.51 of the emission in H II and the Atomic PDR, and 0.10 at the fronts**, where anions
-  carry 0.24–0.28. ⟨N$_{\rm C}$⟩ ≈ 79–85 in every template. The share counts all the emitted power: photon
+- **The best γ is 1.1–1.3 × 10⁴ in all five.** In H II and the Atomic PDR it is at the low edge of their scans (≈
+  10⁴ to 2.6–2.8 × 10⁵); at the fronts it is inside theirs (5.4 × 10² – 2.4 × 10⁴). The Δχ² < 9 cells are one or
+  two cells.
+- **Cations carry 0.49–0.55 of the emission in every template**, anions 0.01. ⟨N$_{\rm C}$⟩ ≈ 82–86 in every
+  template. The share counts all the emitted power: photon
   heating, recombination heating and the deposits, each on the state that emits it. In the 10-20 fit, counted
   from photon heating alone, it was 0.57–0.60, because recombination heats neutrals much more than cations (audit
   fix C6).
 
 Caveats to raise:
-- **Every best cell sits at the low-γ edge of its stated conditions.** G$_0$ is at the low end (1.8 × 10⁴ in the
-  PDR templates; 10³, and 1.3 × 10³ for DF3, at the fronts) and, at the fronts, n$_e$ at the high end (100
-  cm$^{-3}$). So the fits want less ionisation than the stated conditions allow.
+- **The PDR templates' best cells sit at the low-γ edge of their stated conditions**: G$_0$ at the low end (1.8 ×
+  10⁴) and n$_e$ near the high end (42–48 cm$^{-3}$). So those fits want less ionisation than the stated
+  conditions allow. At the fronts γ and G$_0$ are inside their ranges, n$_e$ at its low end.
 - **Δχ² < 9 is an approximate scale.** It uses s² = sse$_{\min}$/(n − p),
   with no calibrated uncertainties (step 3 of the review). So the allowed
   ranges are indicative only.
@@ -414,10 +421,9 @@ run; and the WD01 charge cross-check has not been done.
      at the fronts, 2026-11-26). Is that a result, or a sign that the stated G$_0$ (from O I fluorescence for
      the Atomic PDR, assumed for the DFs) is too high for the PAH layer?
    - The fronts' spectra fit an anion branch (γ ≈ 3 × 10²) and a cation branch (γ ≈ 10⁴) to within 2–6 % in rms,
-     so the stated n$_e$ chooses. Which density describes the fronts' PAH-emitting gas: the Meudon H$_2$ fits of
-     these templates (n$_{\rm H}$ ≈ 1–3.5 × 10⁴, the cation branch), or the carbon recombination lines (n$_e$ =
-     60–100 from the C$^+$/C/CO layer in a 25″ beam, n$_{\rm H}$ ≥ 4 × 10⁵, the anion branch), as the card has
-     taken since 2026-10-26?
+     so the stated n$_e$ chooses. Since 2026-11-26 the card takes the pressure across the front (n$_e$ 5.6–48,
+     the cation branch) and keeps the recombination lines' n$_e$ = 60–100 of the C$^+$/C/CO layer as the
+     dense-layer scenario (the anion branch). A spatially resolved n$_e$ at the H/H$_2$ front would settle it.
    - Next step: calibrated uncertainties (step 3), then per-pixel fits.
 3. **The CC blue shift and the 3.4 µm gap** both point at missing carriers.
    They set the priority of the DFT requests: aliphatic side groups on large
