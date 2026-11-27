@@ -60,7 +60,7 @@ from pycalima.gsd._jit import njit
 
 from .collisions import (Channel, _bounded_hw, _deposit_segment, _fragments, _node_lo, run_rows,
                          threads_for)
-from .velocities import RelativeVelocity, coulomb_rate_factor, flux_quantile, log_flux_above
+from .velocities import DV_MIN, RelativeVelocity, coulomb_rate_factor, flux_quantile, log_flux_above
 
 _E2 = 4.80320471e-10 ** 2
 
@@ -237,7 +237,7 @@ class GrainCollisions:
         M1, M2 = m[:, None], m[None, :]
         sig = np.pi * (A1 + A2) ** 2
         dV, mu = vel.pair_statistics(a, m, self.material.rho)
-        alpha = np.sqrt(1.5) / np.maximum(dV, 1e-300)
+        alpha = np.sqrt(1.5) / np.maximum(dV, DV_MIN)
         s = alpha * mu
         v_mean = vel.collision_speeds(dV, mu, 0.0, 1)[0]
         m_red = M1 * M2 / (M1 + M2)

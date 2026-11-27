@@ -47,6 +47,11 @@ from pycalima.gsd import grain_motion as cvel
 from pycalima.gsd._jit import njit
 
 _SQPI = math.sqrt(math.pi)
+#: floor of the speed dispersion dV [cm/s] in alpha = sqrt(1.5)/dV. dV is exactly 0 for equal radii without Brownian
+#: motion (the turbulent dV is a difference of stopping times); a smaller floor overflows u^2 = (alpha v)^2 into a NaN
+#: rate. Physical dispersions are far above it (Brownian motion of 10 um grains at 10 K: ~1e-3 cm/s), and a drift with
+#: dV at the floor is a delta distribution to 1e-10 cm/s.
+DV_MIN = 1e-10
 
 
 def _log_J(u, c):
@@ -256,7 +261,7 @@ class RelativeVelocity:
     def collision_speeds(self, dV, mu, v_cut, n_q):
         """Mean collision speed <v>, the flux fraction above v_cut, and n_q
         equal-flux quantile speeds above it (arrays [n_q, ...])."""
-        alpha = math.sqrt(1.5) / np.maximum(dV, 1e-300)
+        alpha = math.sqrt(1.5) / np.maximum(dV, DV_MIN)
         s = alpha * mu
         v_mean = mean_speed_normalised(s) / alpha
         lc = log_flux_above(alpha * v_cut, s)

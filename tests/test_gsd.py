@@ -1340,3 +1340,16 @@ def test_hydrogen_step_is_exact_for_frozen_rates_and_relaxes_to_equilibrium(bin_
     for _ in range(2000):
         x = bh.step(x, c, 5.0 * YR)
     assert bh.step(x0, c, 1e4 * YR) == pytest.approx(x, rel=0.05)
+
+
+def test_equal_radii_at_rest_give_finite_collision_shares():
+    """Without turbulence or Brownian motion, equal radii have dV = 0. The speed-dispersion floor DV_MIN keeps the flux
+    share above a cut speed and its quantile speeds finite. With a 1e-300 floor, (alpha v)^2 overflowed into NaN."""
+    from pycalima.gsd.velocities import RelativeVelocity
+
+    rv = RelativeVelocity(T=100.0, n_H=30.0, v_turb=0.0, brownian=False)
+    a = np.array([1e-6, 1e-6])
+    dV, mu = rv.pair_statistics(a, 4.0 / 3.0 * np.pi * 1.6 * a ** 3, 1.6)
+    v_mean, share, v_q = rv.collision_speeds(dV, mu, 1e5, 2)
+    assert np.all(np.isfinite(v_mean)) and np.all(np.isfinite(share)) and np.all(np.isfinite(v_q))
+    assert np.all(share == 0.0)
