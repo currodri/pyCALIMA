@@ -10,9 +10,14 @@ With every feature off, the outputs must stay what they were before that work. `
 Regenerate the file only on purpose (a new reference machine, at the commit that introduced it):
 
     python tests/test_gsd_golden.py --write
+
+Another machine's libm moves the collisions and sputtering by ~1e-10 (megatron, 2026-11-26). Such a machine keeps its
+own file, written at the reference commit, outside the checkout: ``$CALIMA_GSD_GOLDEN`` names it, for the test and for
+``--write``.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +26,7 @@ import pytest
 
 pytestmark = pytest.mark.gsd_quick
 
-GOLDEN = Path(__file__).parent / "data" / "gsd_golden.npz"
+GOLDEN = Path(os.environ.get("CALIMA_GSD_GOLDEN", Path(__file__).parent / "data" / "gsd_golden.npz"))
 # Tight enough to catch any change of the physics or the numerics; loose enough for a different libm. If another
 # machine fails only by round-off, regenerate there at the commit that introduced the file.
 RTOL = 1e-11
