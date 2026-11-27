@@ -191,3 +191,57 @@ def test_update_rejects_unknown_processes(carbon):
     with pytest.raises(ValueError, match="unknown processes"):
         update([_carbon_composition(grid, N, M)], CellInputs(1e4, 30.0, 1e-2, {"C": 1.0}), None, 1.0,
                Options(processes=frozenset({"melting"})))
+
+
+def _precool_with_explosion(grid, N, M, k_of_a):
+    """A precool by hand: neutral grains with a given explosion rate at the area nodes."""
+    from pycalima.gsd.cell import Precool
+    from pycalima.gsd.closures import area_node
+
+    a_star, w = area_node(grid, N, M)
+    z = np.zeros(grid.n_bins)
+    return Precool([z], [z], [None], [w], [np.pi * w * a_star ** 2], [(a_star, k_of_a(a_star))])
+
+
+def test_explosion_at_a_constant_rate_removes_both_moments_exactly(carbon):
+    from pycalima.gsd.cell import CellInputs, Options, update
+
+    grid, N, M = carbon
+    k, dt = 2e-14, 3e13
+    pre = _precool_with_explosion(grid, N, M, lambda a: np.full(np.shape(a), k))
+    c = _carbon_composition(grid, N, M)
+    res = update([c], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, dt,
+                 Options(processes=frozenset({"explosion"}), explosion_route="gas"))
+    np.testing.assert_allclose(c.N, N * np.exp(-k * dt), rtol=1e-12)
+    np.testing.assert_allclose(c.M, M * np.exp(-k * dt), rtol=1e-12)
+    assert res.gas["C"] == pytest.approx(1.0 + M.sum() * (1 - np.exp(-k * dt)) / M_C, rel=1e-12)
+    assert abs(res.conservation["C"]) < 1e-14
+
+
+def test_explosion_to_fragments_conserves_carbon_and_keeps_the_bins_realisable(carbon):
+    """A steep rate (large grains explode): the fragments stay on the grid, carbon is conserved, every bin keeps a
+    mean mass inside its edges, and the mass moves to smaller grains."""
+    from pycalima.gsd.cell import CellInputs, Options, update
+
+    grid, N, M = carbon
+    pre = _precool_with_explosion(grid, N, M, lambda a: 1e-13 * (np.asarray(a) / 1e-5) ** 4)
+    c = _carbon_composition(grid, N, M)
+    res = update([c], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, 1e13, Options(processes=frozenset({"explosion"})))
+    assert abs(res.conservation["C"]) < 1e-13
+    assert res.gas["C"] == pytest.approx(1.0, rel=1e-12)          # fragments from the grid's lowest edge up
+    filled = c.N > 0
+    mbar = c.M[filled] / c.N[filled]
+    assert np.all(mbar >= grid.m_edges[:-1][filled] * (1 - 1e-12)) and np.all(mbar <= grid.m_edges[1:][filled] * (1 + 1e-12))
+    a = grid.a_centres
+    assert np.sum(c.M * a) / c.M.sum() < np.sum(M * a) / M.sum()
+    assert c.M[-1] < M[-1] and c.M[0] > M[0]
+
+
+def test_explosion_route_must_be_known(carbon):
+    from pycalima.gsd.cell import CellInputs, Options, update
+
+    grid, N, M = carbon
+    pre = _precool_with_explosion(grid, N, M, lambda a: np.full(np.shape(a), 1e-14))
+    with pytest.raises(ValueError, match="explosion_route"):
+        update([_carbon_composition(grid, N, M)], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, 1e13,
+               Options(processes=frozenset({"explosion"}), explosion_route="ions"))

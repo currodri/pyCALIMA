@@ -124,8 +124,17 @@ and $a^3$.
 cooling substep. `precool` mirrors `compute_dust_precool` and gives the
 charges at the area nodes, the photoelectric heating, the recombination
 cooling and the grain area. `update` mirrors `compute_dust_update` and
-advances the dust in this order: collisions, then sputtering, then the
-exchange with the gas.
+advances the dust in this order: collisions, then the Coulomb explosion,
+then sputtering, then the exchange with the gas.
+
+`sinks` removes grains at a size-dependent rate $k(a)$ without moving them
+along the size axis. Held fixed over a step, the exact solution is
+$dN/da\,e^{-k\,\Delta t}$, so each bin keeps $\int e^{-k\Delta t}\,dN$ and
+$\int m\,e^{-k\Delta t}\,dN$ over its reconstruction. N and M decay at their
+own rates (the per-moment rule of 2026-11-17), and the survivors stay
+realisable. `deposit_power_law` places an $a^{-\alpha}$ fragment spectrum
+exactly. The cell's Coulomb explosion uses both. Its rate between the area
+nodes is taken log-linear in $a$ (labelled).
 
 `materials` holds one record per grain material (bulk density, optics set,
 shattering constants, sputtering, sublimation and charging inputs, with
@@ -265,6 +274,7 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.grain_motion
    pycalima.gsd.charging
    pycalima.gsd.cell
+   pycalima.gsd.sinks
    pycalima.gsd.optics
    pycalima.gsd._kernels
    pycalima.gsd._jit

@@ -3,12 +3,14 @@
 RAMSES calls the dust twice per cooling substep (``calima/dust_interface.f90``):
 - ``precool`` mirrors ``compute_dust_precool``. At the substep's starting state it gives what the gas needs and what
   the dust update uses, per bin: the charge state at the bin's area node, the photoelectric heating, the
-  recombination cooling and the grain area.
+  recombination cooling, the grain area and the Coulomb-explosion rate.
 - ``update`` mirrors ``compute_dust_update``. It advances the dust over the substep with the precool charges, in
   this operator splitting:
   1. collisions (``collisions.collide``), with the precool charges in the Coulomb factors;
-  2. erosion by thermal sputtering (``sputtering.sputter``);
-  3. the exchange with the gas (accretion and sublimation, ``exchange.exchange_step``), last, as the stiffest
+  2. Coulomb explosion, a size-dependent sink applied per moment (``sinks.sink_per_moment``); the exploded grains go
+     to a^-alpha fragments (``sinks.deposit_power_law``) or to the gas;
+  3. erosion by thermal sputtering (``sputtering.sputter``);
+  4. the exchange with the gas (accretion and sublimation, ``exchange.exchange_step``), last, as the stiffest
      coupling.
 
 These two calls are the whole interface. Their inputs and outputs are plain per-cell quantities, and nothing outside
@@ -24,7 +26,7 @@ import numpy as np
 from .grid import MassGrid
 
 #: the processes ``update`` knows; ``Options.processes`` switches them
-PROCESSES = frozenset({"shattering", "coagulation", "sputtering", "accretion"})
+PROCESSES = frozenset({"shattering", "coagulation", "explosion", "sputtering", "accretion"})
 
 
 @dataclass
@@ -41,6 +43,8 @@ class Composition:
     - ``sublimation``: the ``sublimation_kinetics`` model of accretion and sublimation, or None.
     - ``charging``: a ``charging.AreaNodeCharging``, or None for neutral grains.
     - ``a_frag_min``: the smallest fragment radius [cm]; default the grid's lowest edge.
+    - ``s_max``: the tensile strength [erg cm^-3] that sets the Coulomb-explosion charge (``ChargeState.explosion_rate``;
+      1e10 for flawed grains, labelled).
     - ``overflow_M``: collects the mass that leaves the top of the grid."""
 
     grid: MassGrid
@@ -54,6 +58,7 @@ class Composition:
     sublimation: object = None
     charging: object = None
     a_frag_min: float | None = None
+    s_max: float = 1e10
     overflow_M: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
     _collision_model: object = field(default=None, repr=False)
@@ -105,7 +110,8 @@ class Options:
     n_speed: int = 4                     # GrainCollisions' shattering channels
     table_ppd: float | None = 24         # GrainCollisions' pair table
     threads: int | None = 1
-    alpha_frag: float = 3.3              # fragments' dN/da ~ a^-alpha
+    alpha_frag: float = 3.3              # fragments' dN/da ~ a^-alpha (shattering and explosion)
+    explosion_route: str = "fragments"   # 'fragments' (decided 2026-11-23) or 'gas'
 
 
 @dataclass
@@ -114,13 +120,15 @@ class Precool:
     - heating and cooling [erg s^-1 cm^-3] per bin;
     - the charge state on the area nodes (``charging.ChargeState``, or None for neutral grains);
     - the bins' weights w = int a^2 dN / a*^2 [cm^-3];
-    - the grain area per unit volume [cm^2 cm^-3] per bin."""
+    - the grain area per unit volume [cm^2 cm^-3] per bin;
+    - the Coulomb-explosion rate per grain [s^-1] at each bin's area node, as (a*, k), or None for neutral grains."""
 
     heating: list
     cooling: list
     states: list
     weights: list
     area: list
+    explosion: list
 
     @property
     def total_heating(self):
@@ -149,14 +157,15 @@ def precool(compositions, inputs: CellInputs) -> Precool:
     For a composition with a charging model, there is one charge solve per bin at its area node
     (``charging.AreaNodeCharging``). The heating is Gamma_i = w_i Gamma(a*_i) and the cooling
     Lambda_i = w_i (Lambda + Lambda_auto)(a*_i). Without a charging model the grains are neutral: no heating or
-    cooling. The grain area pi int a^2 dN per bin is always given."""
+    cooling. The grain area pi int a^2 dN per bin is always given. The explosion rate is computed at each area node
+    with the composition's tensile strength (``Composition.s_max``)."""
     from .charging import PhotonGroups
     from .closures import area_node
 
-    out = Precool([], [], [], [], [])
+    out = Precool([], [], [], [], [], [])
     for c in compositions:
         a_star, w = area_node(c.grid, c.N, c.M, c.method)
-        st = None
+        st, expl = None, None
         heat, cool = np.zeros(c.grid.n_bins), np.zeros(c.grid.n_bins)
         if c.charging is not None:
             ph = inputs.photons
@@ -166,8 +175,9 @@ def precool(compositions, inputs: CellInputs) -> Precool:
             st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg)
             heat = w * st.Gamma
             cool = w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results])
+            expl = (st.a, st.explosion_rate(S_max=c.s_max))
         for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
-                       (out.area, np.pi * w * a_star ** 2)):
+                       (out.area, np.pi * w * a_star ** 2), (out.explosion, expl)):
             lst.append(v)
     return out
 
@@ -195,6 +205,10 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             N, M = r["N"], r["M"]
             c.overflow_M += r["overflow_M"]
             gas[c.key] += r["sink_M"] * c.per_gram
+        expl = None if pre is None else pre.explosion[k]
+        if "explosion" in opt.processes and expl is not None and np.any(expl[1] > 0.0):
+            N, M, to_gas = _explode(c, N, M, expl, dt, opt)
+            gas[c.key] += to_gas * c.per_gram
         if "sputtering" in opt.processes and c.sputtering is not None:
             N, M, dM = sputter(g, N, M, c.erosion(inputs.T, inputs.n_H), dt, method=c.method)
             gas[c.key] += dM * c.per_gram
@@ -232,6 +246,35 @@ def _collisions(c, inputs, opt, state):
             n_speed=opt.n_speed, table_ppd=opt.table_ppd, threads=opt.threads)
         c._collision_key = key
     return c._collision_model
+
+
+def _explode(c, N, M, expl, dt, opt):
+    """Coulomb explosion over dt, a sink per moment (``sinks.sink_per_moment``). The rate between the area nodes is
+    taken log-linear in a, and constant beyond the first and last nodes (labelled). Returns (N, M, mass to the gas).
+
+    With ``Options.explosion_route`` 'fragments', each bin's exploded mass becomes a^-alpha fragments from
+    ``a_frag_min`` up to the radius of half the exploded grains' mean mass (labelled); fragments below the grid go to
+    the gas. With 'gas', all of it goes to the gas."""
+    from .sinks import deposit_power_law, sink_per_moment
+
+    if opt.explosion_route not in ("fragments", "gas"):
+        raise ValueError("explosion_route must be 'fragments' or 'gas'")
+    g = c.grid
+    la, lk = np.log(expl[0]), np.log(np.maximum(expl[1], 1e-300))
+    N, M, dN, dM = sink_per_moment(g, N, M, lambda a: np.exp(np.interp(np.log(a), la, lk)), dt, c.method)
+    if opt.explosion_route == "gas":
+        return N, M, float(dM.sum())
+    a_lo = float(g.a_edges[0] if c.a_frag_min is None else c.a_frag_min)
+    to_gas = 0.0
+    for i in np.flatnonzero(dM > 0.0):
+        a_hi = float(g.radius(0.5 * dM[i] / dN[i]))
+        if a_hi <= a_lo:
+            to_gas += float(dM[i])
+            continue
+        fN, fM, below, above = deposit_power_law(g, float(dM[i]), a_lo, a_hi, opt.alpha_frag)
+        N, M = N + fN, M + fM
+        to_gas += below + above
+    return N, M, to_gas
 
 
 def _grain_population(c, N, M, inputs, state):
