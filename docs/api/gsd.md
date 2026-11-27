@@ -161,10 +161,12 @@ calibrated photodesorption yield, default 0.
 `drift` moves a bin's number and mass at their own velocities,
 $w^N = \int w\,dN/N$ and $w^M = \int w\,m\,dN/M$, over the bin's PL2M
 profile, after Diallo et al. (2026) for cosmic-ray momentum bins (the rule of
-2026-11-17). Inside a bin the drift $w(a)$ is piecewise linear in $a$ through
-its values at the bin's edges and geometric centre (`law_radii`). This is
-exact for $w \propto a$ and holds a direction change or a maximum inside the
-bin. `tva_step` mirrors one direction of RAMSES's TVA step. Its face states
+2026-11-17). Inside a bin the drift $w(a)$ follows a law through its values at
+fixed sizes (`law_radii`, `LAWS`): piecewise linear in $a$ through the bin's
+edges and geometric centre, one quadratic through the same, or one cubic
+through the edges and the geometric thirds. All are exact for $w \propto a$
+and hold a direction change or a maximum inside the bin; the drift CFL is on
+the law's own maximum (`law_max_abs`). `tva_step` mirrors one direction of RAMSES's TVA step. Its face states
 are $N$ and $M$ with limited slopes, scaled together so both stay inside the
 bin, and each grain crosses a face at its own velocity with a MUSCL-Hancock
 predictor. Under the drift CFL ($c\,\max|w| \le 1/2$) every cell then

@@ -9,12 +9,16 @@ momentum bin their own coefficients. For dust (decided 2026-11-17) the bin's mom
     w^N = int w dN / N,    w^M = int w m dN / M,
 over the bin's PL2M power law dN/du ~ u^lambda, u = a / a_L, lambda = 3 beta(s) + 2 (``pl2m``).
 
-Inside the bin, w(a) is piecewise linear in a through the drift at three sizes, the bin's edges and its geometric
-centre (``law_radii``; the edges are shared with the neighbouring bins, so a cell needs 2 n_bins + 1 values). It is
-exact for w ~ a (Epstein drag under one acceleration) and for any linear law, holds a direction change inside the bin
-(each piece is split at its zero) and a maximum inside it, and never exceeds its node values, which set the drift CFL.
-With THEMIS radiation pressure against settling (D1 check 3), one power law through two sizes is off by up to 19 % of
-max|w| in w^N and w^M over the in-bin states, this law by 4 %.
+Inside the bin, w(a) is a law through the drift at fixed sizes (``law_radii``; ``LAWS``, the argument ``law``):
+- 'linear': piecewise linear in a through the bin's edges and its geometric centre (2 n_bins + 1 values per cell);
+- 'quadratic': one quadratic in a through the same three;
+- 'cubic': one cubic in a through the edges and the geometric thirds (3 n_bins + 1 values per cell).
+All are exact for w ~ a (Epstein drag under one acceleration). Each is split where it changes sign, so it holds a
+direction change inside the bin and a maximum inside it. With THEMIS radiation pressure against settling (D1 check
+3), one power law through two sizes is off by up to 19 % of max|w| in w^N and w^M over the in-bin states; the
+piecewise-linear law by 4.3 %, the quadratic by 1.4 % and the cubic by 0.08 % (the literature review in
+CALIMA_GSD_dev, studies/drift_20261127/lit). The drift CFL is on the law's own maximum (``law_max_abs``), which for
+the quadratic and the cubic can lie inside the bin, above every node.
 A state closer to an edge than the power law can reach (|beta| > beta_max) is a spike at its mean mass (as
 ``pl2m.BinProfile``), and its grains all move at w there.
 ``gauss_velocities`` is the alternative: w at the two Gauss nodes in radius (``closures.nodes``, rule 'gauss'), with
@@ -40,8 +44,9 @@ Lebreuilly et al. 2019) on a 1-D grid of cells, with each grain crossing a face 
 
 For every grain size a, steps 2 and 4 write a cell's new population as its two face states and the inflowing
 packets, each with a non-negative weight (1/2 - p + p^2/2 - q^2/2 for the face state that leaves at p = c w+, with
-q = c |w-| at the other face). The weights are non-negative while c max|w| <= 1/2 over the law, i.e. over its node
-values: the drift CFL on the fastest grains (w(a_R) for w ~ a, the A4 rule). The new population is then non-negative
+q = c |w-| at the other face). The weights are non-negative while c max|w| <= 1/2 over the law (``law_max_abs``):
+the drift CFL on the fastest grains (w(a_R) for w ~ a, the A4 rule). The mean of two laws' node values is the law
+through the mean nodes (its coefficients are linear in them), so the face's law is a law of the same kind. The new population is then non-negative
 at every a: the cell stays realisable, with no clip, and N and M are conserved exactly.
 
 ``tva_fluxes`` returns the face fluxes of steps 1-5, for an AMR level's refluxing; ``tva_step`` adds the update.
@@ -54,6 +59,8 @@ are not pieces of a profile, so it can leave the bin.
 N and M are densities (per unit volume), as RAMSES's ``uold``; c = dt/dx, so a face flux is in density units.
 """
 from __future__ import annotations
+
+import itertools
 
 import numpy as np
 
@@ -89,48 +96,148 @@ def _lambda(grid, N, M, tables=None):
     return _profile(grid, N, M, tables)[0]
 
 
-def law_radii(grid: MassGrid):
-    """[bin, 3] radii [cm] where the drift law is sampled: each bin's lower edge, geometric centre and upper edge."""
-    aL, aR = grid.a_edges[:-1], grid.a_edges[1:]
-    return np.stack([aL, np.sqrt(aL * aR), aR], axis=1)
+LAWS = ("linear", "quadratic", "cubic")
 
 
-def _law_u(grid):
-    """The law radii in units of each bin's lower edge, u = a / a_L [bin, 3]."""
-    return law_radii(grid) / grid.a_edges[:-1, None]
+def _law_t(law):
+    """The law's nodes as fractions t of the bin in ln a (u = (a_R / a_L)^t), and its pieces (first node, last node):
+    piecewise linear through the edges and the geometric centre; one quadratic through the same three; one cubic
+    through the edges and the geometric thirds."""
+    if law == "linear":
+        return (0.0, 0.5, 1.0), ((0, 1), (1, 2))
+    if law == "quadratic":
+        return (0.0, 0.5, 1.0), ((0, 2),)
+    if law == "cubic":
+        return (0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0), ((0, 3),)
+    raise ValueError(f"unknown drift law {law!r} (one of {LAWS})")
 
 
-def _flux_moments(prof, u_nodes, w_nodes):
+def law_radii(grid: MassGrid, law="linear"):
+    """[bin, K] radii [cm] where the drift law is sampled (``_law_t``): the bin's edges and its geometric centre
+    (K = 3: 'linear', 'quadratic'), or the edges and its geometric thirds (K = 4: 'cubic'). The edges are shared with
+    the neighbouring bins: a cell needs 2 n_bins + 1 values (3 n_bins + 1 for 'cubic')."""
+    t, _ = _law_t(law)
+    return grid.a_edges[:-1, None] * (grid.a_edges[1:] / grid.a_edges[:-1])[:, None] ** np.asarray(t)[None, :]
+
+
+def _law_pieces(grid, w_nodes, law):
+    """[(ua, ub, c)]: the law's polynomial pieces in u = a / a_L, each on [ua, ub] [bin] with coefficients
+    c [..., bin, deg + 1] of u^0 .. u^deg (Lagrange through the piece's nodes: linear in w_nodes)."""
+    t, pieces = _law_t(law)
+    u = (grid.a_edges[1:] / grid.a_edges[:-1])[:, None] ** np.asarray(t)[None, :]       # [bin, K]
+    out = []
+    for j0, j1 in pieces:
+        un = u[:, j0:j1 + 1]                                                              # [bin, deg + 1]
+        V = un[:, :, None] ** np.arange(j1 - j0 + 1)[None, None, :]                        # Vandermonde [bin, k, j]
+        Vinv = np.linalg.inv(V)                                                            # [bin, j, k]
+        c = np.einsum("bjk,...bk->...bj", Vinv, w_nodes[..., j0:j1 + 1])
+        out.append((un[:, 0], un[:, -1], c))
+    return out
+
+
+def _poly(c, u):
+    """sum_j c[..., j] u^j (Horner)."""
+    v = np.zeros(np.broadcast_shapes(c.shape[:-1], np.shape(u)))
+    for j in range(c.shape[-1] - 1, -1, -1):
+        v = v * u + c[..., j]
+    return v
+
+
+def _critical_points(c, ua, ub):
+    """The polynomial's critical points inside (ua, ub), as two arrays (NaN where none): degree <= 3."""
+    nan = np.full(c.shape[:-1], np.nan)
+    deg = c.shape[-1] - 1
+    if deg <= 1:
+        return nan, nan
+    if deg == 2:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            r = np.where(c[..., 2] != 0.0, -c[..., 1] / (2.0 * c[..., 2]), np.nan)
+        return np.where((r > ua) & (r < ub), r, np.nan), nan
+    a, b, cc = 3.0 * c[..., 3], 2.0 * c[..., 2], c[..., 1]                                # p' = a u^2 + b u + cc
+    disc = b * b - 4.0 * a * cc
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sq = np.sqrt(np.where(disc >= 0.0, disc, np.nan))
+        lin = np.where(b != 0.0, -cc / np.where(b != 0.0, b, 1.0), np.nan)                 # a = 0: p' linear
+        r1 = np.where(a != 0.0, (-b - sq) / (2.0 * a), lin)
+        r2 = np.where(a != 0.0, (-b + sq) / (2.0 * a), np.nan)
+    ok = lambda r: np.where((r > ua) & (r < ub), r, np.nan)                                # noqa: E731
+    return ok(np.fmin(r1, r2)), ok(np.fmax(r1, r2))
+
+
+def _sign_intervals(c, ua, ub):
+    """The intervals of [ua, ub] on which the polynomial has one sign: [(u1, u2)], up to 6 (zero-length ones where
+    none). Between its critical points it is monotone, and each monotone part holds at most one zero (bisection)."""
+    r1, r2 = _critical_points(c, ua, ub)
+    ua, ub = np.broadcast_to(ua, r1.shape), np.broadcast_to(ub, r1.shape)
+    k1 = np.where(np.isnan(r1), ua, r1)
+    k2 = np.where(np.isnan(r2), k1, r2)
+    knots = [ua, k1, k2, ub]
+    out = []
+    for x0, x1 in itertools.pairwise(knots):
+        p0, p1 = _poly(c, x0), _poly(c, x1)
+        has = p0 * p1 < 0.0
+        lo, hi = x0.copy(), x1.copy()
+        for _ in range(60):                                                                 # bisection to round-off
+            mid = 0.5 * (lo + hi)
+            pm = _poly(c, mid)
+            left = pm * p0 > 0.0
+            lo, hi = np.where(left, mid, lo), np.where(left, hi, mid)
+        root = np.where(has, 0.5 * (lo + hi), x1)
+        out += [(x0, root), (root, x1)]
+    return out
+
+
+def law_values(grid: MassGrid, w_nodes, a, law="linear"):
+    """The drift law (module doc) through w_nodes [..., bin, K] at ``law_radii``, evaluated at radii a [..., bin]."""
+    w_nodes = np.asarray(w_nodes, float)
+    u = np.asarray(a, float) / grid.a_edges[:-1]
+    w = np.zeros(np.broadcast_shapes(w_nodes.shape[:-1], u.shape))
+    for ua, ub, c in _law_pieces(grid, w_nodes, law):
+        w = np.where((u >= ua * (1 - 1e-12)) & (u <= ub * (1 + 1e-12)), _poly(c, u), w)
+    return w
+
+
+def law_max_abs(grid: MassGrid, w_nodes, law="linear"):
+    """max |w| of the law over each bin ([..., bin]): at its pieces' ends and critical points. The drift CFL is on it
+    (c max|w| <= 1/2, module doc)."""
+    w_nodes = np.asarray(w_nodes, float)
+    m = np.zeros(w_nodes.shape[:-1])
+    for ua, ub, c in _law_pieces(grid, w_nodes, law):
+        for x in (ua, ub, *_critical_points(c, ua, ub)):
+            v = np.abs(_poly(c, np.where(np.isnan(x), ua, x)))
+            m = np.maximum(m, v)
+    return m
+
+
+def _flux_moments(prof, grid, w_nodes, law="linear"):
     """int w dN and int w^2 dN of a bin state's right-moving (w > 0) and left-moving (w < 0) grains, per unit N, and the
-    same with m dN per unit M, for the piecewise-linear law through w_nodes [..., bin, K+1] at u_nodes [bin, K+1]
-    (module doc) over the state's profile (``_profile``): (P1N, P1M, P2N, P2M) for w > 0 and (Q1N, Q1M, Q2N, Q2M) for
-    w < 0 (Q1 <= 0 <= Q2)."""
+    same with m dN per unit M, for the law through w_nodes [..., bin, K] (module doc) over the state's profile
+    (``_profile``): (P1N, P1M, P2N, P2M) for w > 0 and (Q1N, Q1M, Q2N, Q2M) for w < 0 (Q1 <= 0 <= Q2)."""
     lam, spike, u_spike = prof
     one = np.ones(np.shape(lam))
-    u_spike = np.clip(u_spike, u_nodes[:, 0], u_nodes[:, -1])         # eta^(1/3) and a_R / a_L differ by round-off
-    norm = (int_pow(lam, one, u_nodes[:, -1]), int_pow(lam + 3.0, one, u_nodes[:, -1]))
+    uR = grid.a_edges[1:] / grid.a_edges[:-1]
+    u_spike = np.clip(u_spike, 1.0, uR)                                # eta^(1/3) and a_R / a_L differ by round-off
+    norm = (int_pow(lam, one, uR * one), int_pow(lam + 3.0, one, uR * one))
     P = [np.zeros(np.shape(lam)) for _ in range(4)]
     Q = [np.zeros(np.shape(lam)) for _ in range(4)]
     w_s = np.zeros(np.shape(lam))
-    for j in range(u_nodes.shape[1] - 1):
-        ua, ub = u_nodes[:, j] * one, u_nodes[:, j + 1] * one
-        wa, wb = w_nodes[..., j], w_nodes[..., j + 1]
-        k = (wb - wa) / (ub - ua)                       # w = A + k u on this piece
-        A = wa - k * ua
-        with np.errstate(divide="ignore", invalid="ignore"):
-            u0 = np.clip(np.where(k != 0.0, -A / np.where(k != 0.0, k, 1.0), ub), ua, ub)
-        for u1, u2 in ((ua, u0), (u0, ub)):             # w has one sign on each part
-            sign = A + 0.5 * k * (u1 + u2)
+    for ua, ub, c in _law_pieces(grid, np.broadcast_to(w_nodes, (*np.shape(lam), np.shape(w_nodes)[-1])), law):
+        cc = np.zeros((*c.shape[:-1], 2 * c.shape[-1] - 1))            # the coefficients of w^2
+        for i in range(c.shape[-1]):
+            for j in range(c.shape[-1]):
+                cc[..., i + j] += c[..., i] * c[..., j]
+        for u1, u2 in _sign_intervals(c, ua * one, ub * one):
+            sign = _poly(c, 0.5 * (u1 + u2))
             for m, p in enumerate((lam, lam + 3.0)):
-                I0, I1, I2 = int_pow(p, u1, u2), int_pow(p + 1.0, u1, u2), int_pow(p + 2.0, u1, u2)
-                f1 = (A * I0 + k * I1) / norm[m]
-                f2 = (A * A * I0 + 2.0 * A * k * I1 + k * k * I2) / norm[m]
+                ints = [int_pow(p + j, u1, u2) for j in range(cc.shape[-1])]
+                f1 = sum(c[..., j] * ints[j] for j in range(c.shape[-1])) / norm[m]
+                f2 = sum(cc[..., j] * ints[j] for j in range(cc.shape[-1])) / norm[m]
                 P[m] += np.where(sign > 0.0, np.maximum(f1, 0.0), 0.0)
                 P[m + 2] += np.where(sign > 0.0, np.maximum(f2, 0.0), 0.0)
                 Q[m] += np.where(sign < 0.0, np.minimum(f1, 0.0), 0.0)
                 Q[m + 2] += np.where(sign < 0.0, np.maximum(f2, 0.0), 0.0)
         inside = (u_spike >= ua) & (u_spike <= ub)
-        w_s = np.where(inside, A + k * u_spike, w_s)
+        w_s = np.where(inside, _poly(c, u_spike), w_s)
     if np.any(spike):                                     # every grain at u_spike: the moments are powers of w there
         wp, wn = np.maximum(w_s, 0.0), np.minimum(w_s, 0.0)
         P = [np.where(spike, v, x) for v, x in zip((wp, wp, wp * wp, wp * wp), P, strict=True)]
@@ -138,12 +245,12 @@ def _flux_moments(prof, u_nodes, w_nodes):
     return tuple(P), tuple(Q)
 
 
-def moment_velocities(grid: MassGrid, N, M, w_nodes, tables=None):
-    """(w^N, w^M) of every bin ([..., bin]) for the drift w_nodes [..., bin, 3] at each bin's ``law_radii`` (e.g. one
-    row per cell): the module doc's law over the bin's PL2M profile. ``tables``: the bins' beta(s) tables
+def moment_velocities(grid: MassGrid, N, M, w_nodes, tables=None, law="linear"):
+    """(w^N, w^M) of every bin ([..., bin]) for the drift w_nodes [..., bin, K] at each bin's ``law_radii(grid, law)``
+    (e.g. one row per cell): the module doc's law over the bin's PL2M profile. ``tables``: the bins' beta(s) tables
     (``beta_tables``), as RAMSES interpolates them; None solves beta."""
     N, M = np.asarray(N, float), np.asarray(M, float)
-    P, Q = _flux_moments(_profile(grid, N, M, tables), _law_u(grid), np.asarray(w_nodes, float))
+    P, Q = _flux_moments(_profile(grid, N, M, tables), grid, np.asarray(w_nodes, float), law)
     return P[0] + Q[0], P[1] + Q[1]
 
 
@@ -240,22 +347,21 @@ def _update(grid, N, M, FN, FM, periodic):
     return N1, M1, int(clip.sum())
 
 
-def tva_fluxes(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, tables=None):
+def tva_fluxes(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, tables=None, law="linear"):
     """The face fluxes (FN, FM) [face, bin] of one drift step of N, M [cell, bin] (module doc, steps 1-5), with each
-    cell's drift w_nodes [cell, bin, 3] at its bins' ``law_radii``, and c = dt/dx. Face f lies between cells f-1 and f,
-    and a positive flux moves dust to larger f. Periodic: as many faces as cells. Otherwise the slopes have zero
-    gradient at the ends, face 0 is closed and there is no face after the last cell."""
+    cell's drift w_nodes [cell, bin, K] at its bins' ``law_radii(grid, law)``, and c = dt/dx. Face f lies between cells
+    f-1 and f, and a positive flux moves dust to larger f. Periodic: as many faces as cells. Otherwise the slopes have
+    zero gradient at the ends, face 0 is closed and there is no face after the last cell."""
     N, M = np.asarray(N, float), np.asarray(M, float)
-    w_nodes = np.broadcast_to(np.asarray(w_nodes, float), (*N.shape, 3))
+    w_nodes = np.broadcast_to(np.asarray(w_nodes, float), (*N.shape, len(_law_t(law)[0])))
     (NLs, MLs), (NRs, MRs) = _reconstruct(grid, N, M, slope_type, periodic)
     idx_l = _left_cells(N.shape[0], periodic)
     w_f = 0.5 * (w_nodes[idx_l] + w_nodes)
-    u_nodes = _law_u(grid)
     pL, pR = _profile(grid, NLs, MLs, tables), _profile(grid, NRs, MRs, tables)
-    P_R, _ = _flux_moments(tuple(q[idx_l] for q in pR), u_nodes, w_f)     # the left cell's face states, w > 0
-    P_L, _ = _flux_moments(tuple(q[idx_l] for q in pL), u_nodes, w_f)
-    _, Q_L = _flux_moments(pL, u_nodes, w_f)                              # the right cell's face states, w < 0
-    _, Q_R = _flux_moments(pR, u_nodes, w_f)
+    P_R, _ = _flux_moments(tuple(q[idx_l] for q in pR), grid, w_f, law)   # the left cell's face states, w > 0
+    P_L, _ = _flux_moments(tuple(q[idx_l] for q in pL), grid, w_f, law)
+    _, Q_L = _flux_moments(pL, grid, w_f, law)                            # the right cell's face states, w < 0
+    _, Q_R = _flux_moments(pR, grid, w_f, law)
     h = 0.5 * c
     FN_p = c * (NRs[idx_l] * (P_R[0] - h * P_R[2]) + h * NLs[idx_l] * P_L[2])
     FM_p = c * (MRs[idx_l] * (P_R[1] - h * P_R[3]) + h * MLs[idx_l] * P_L[3])
@@ -264,11 +370,11 @@ def tva_fluxes(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, ta
     return _limit(N, M, FN_p, FM_p, FN_n, FM_n, idx_l, periodic)
 
 
-def tva_step(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, tables=None):
+def tva_step(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, tables=None, law="linear"):
     """One drift step of N, M [cell, bin] (module doc, steps 1-6; arguments as ``tva_fluxes``).
     Returns (N, M, n_clipped)."""
     N, M = np.asarray(N, float), np.asarray(M, float)
-    FN, FM = tva_fluxes(grid, N, M, w_nodes, c, slope_type, periodic, tables)
+    FN, FM = tva_fluxes(grid, N, M, w_nodes, c, slope_type, periodic, tables, law)
     return _update(grid, N, M, FN, FM, periodic)
 
 
