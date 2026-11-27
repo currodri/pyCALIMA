@@ -140,3 +140,18 @@ def test_fragments_below_the_grid_go_to_the_gas():
     a, g, _, _ = grid_and_state()
     dN, dM, below, above = deposit_power_law(g, 1e-26, 1e-8, 0.5 * a[0])
     assert np.all(dN == 0.0) and np.all(dM == 0.0) and below == 1e-26 and above == 0.0
+
+
+@pytest.mark.parametrize("name", METHOD_NAMES)
+@pytest.mark.parametrize("seed", range(5))
+def test_a_zero_rate_leaves_the_bins_exactly_as_they_were(name, seed):
+    """Where k = 0, nothing leaves a bin, to the bit. The quadrature weights over the reconstruction sum to 1 only to
+    round-off, so the survival fractions are normalised by their sums. Before, ~1e-15 of the mass left most bins,
+    sometimes with none of their number, which a fragment deposit then turned into 0/0. A rate switched on above a
+    radius inside bin 4 leaves bins 0-3 alone in the same way."""
+    _, g, N, M = grid_and_state(seed=seed)
+    N1, M1, dN, dM = sink_per_moment(g, N, M, lambda r: 0.0 * np.asarray(r), 1e12, name)
+    assert np.array_equal(N1, N) and np.array_equal(M1, M) and not dN.any() and not dM.any()
+    a_cut = float(np.sqrt(g.a_edges[4] * g.a_edges[5]))
+    N1, M1, dN, dM = sink_per_moment(g, N, M, lambda r: np.where(np.asarray(r) > a_cut, 1e-12, 0.0), 1e12, name)
+    assert np.array_equal(N1[:4], N[:4]) and np.array_equal(M1[:4], M[:4])

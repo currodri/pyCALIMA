@@ -298,12 +298,17 @@ def _explode(c, g, N, M, expl, dt, opt):
         raise ValueError("explosion_route must be 'fragments' or 'gas'")
     la, lk = np.log(expl[0]), np.log(np.maximum(expl[1], 1e-300))
     N, M, dN, dM = sink_per_moment(g, N, M, lambda a: np.exp(np.interp(np.log(a), la, lk)), dt, c.method)
+    # At k dt ~ 1e-16 or less the surviving number fraction rounds to 1 while the mass fraction does not: mass removed
+    # without number, a round-off artefact. It stays in its bin (exact conservation, no 0/0 below).
+    lone = (dM > 0.0) & (dN <= 0.0)
+    M, dM = np.where(lone, M + dM, M), np.where(lone, 0.0, dM)
     if opt.explosion_route == "gas":
         return N, M, float(dM.sum())
     a_lo = float(g.a_edges[0] if c.a_frag_min is None else c.a_frag_min)
     to_gas = 0.0
     for i in np.flatnonzero(dM > 0.0):
-        a_hi = float(g.radius(0.5 * dM[i] / dN[i]))
+        m_bar = min(max(dM[i] / dN[i], g.m_edges[i]), g.m_edges[i + 1])     # the exploded grains' mean mass
+        a_hi = float(g.radius(0.5 * m_bar))
         if a_hi <= a_lo:
             to_gas += float(dM[i])
             continue

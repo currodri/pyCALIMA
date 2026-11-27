@@ -330,3 +330,19 @@ def test_strict_mode_raises_when_the_overflow_bin_fills_up(carbon):
     c = _carbon_composition(go, np.append(N, N[-1]), np.append(M, M[-1] * 5.0))
     with pytest.raises(RuntimeError, match="overflow bin holds"):
         update([c], _accreting_inputs(), None, 1e3 * YR, Options(processes=frozenset({"accretion"}), strict=True))
+
+
+@pytest.mark.parametrize("route", ["fragments", "gas"])
+def test_a_vanishing_explosion_rate_leaves_the_bins_finite_and_conserves(carbon, route):
+    """k dt down to 1e-30: the surviving number fraction rounds to 1 before the mass fraction does. That mass without
+    number stays in its bin; nothing becomes NaN, and carbon is conserved."""
+    from pycalima.gsd.cell import CellInputs, Options, update
+
+    grid, N, M = carbon
+    pre = _precool_with_explosion(grid, N, M, lambda a: np.geomspace(1e-60, 1e-20, np.size(a)))
+    c = _carbon_composition(grid, N, M)
+    res = update([c], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, 1e10,
+                 Options(processes=frozenset({"explosion"}), explosion_route=route))
+    assert np.all(np.isfinite(c.N)) and np.all(np.isfinite(c.M))
+    assert abs(res.conservation["C"]) < 1e-14
+    np.testing.assert_allclose(c.M, M, rtol=1e-9)

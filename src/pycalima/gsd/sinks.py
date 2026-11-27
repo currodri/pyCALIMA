@@ -27,16 +27,27 @@ N_NODES = 32
 def survival_weights(grid, N, M, k_of_a, dt, method=None, n_nodes=N_NODES):
     """The fractions (f_N, f_M) of each bin's number and mass that survive a sink k(a) [s^-1, vectorised] held fixed
     over dt [s]: the number- and mass-weighted means of exp(-k dt) over the bin's reconstruction (``closures``).
-    Empty bins return 1."""
+    Empty bins return 1.
+
+    Both means are normalised by the weights' own sum, which is 1 only to round-off. Where most of a bin survives,
+    the fraction is 1 minus the mean lost fraction 1 - exp(-k dt) (``expm1``). There a zero rate leaves the bin
+    exactly as it was, and small k dt keeps its precision. Where most is lost, it is the mean of exp(-k dt) itself,
+    which keeps the precision of the few survivors."""
     P = closures.pieces(grid, N, M, method)
     t = np.linspace(0.0, 1.0, n_nodes + 1)
     u = 1.0 + (grid.etas[:, None] ** (1.0 / 3.0) - 1.0) * t[None, :]
     k = np.maximum(np.asarray(k_of_a(P.aL[:, None] * u), float), 0.0)
-    g = np.exp(-k * dt)
-    fN = np.einsum("ij,ij->i", closures.bin_weights(grid, P, u, "number"), g)
-    fM = np.einsum("ij,ij->i", closures.bin_weights(grid, P, u, "mass"), g)
+    kept, lost = np.exp(-k * dt), -np.expm1(-k * dt)
+    out = []
+    for measure in ("number", "mass"):
+        w = closures.bin_weights(grid, P, u, measure)
+        s = w.sum(axis=1)
+        s = np.where(s > 0.0, s, 1.0)
+        f_kept = np.einsum("ij,ij->i", w, kept) / s
+        f_lost = np.einsum("ij,ij->i", w, lost) / s
+        out.append(np.clip(np.where(f_kept < 0.5, f_kept, 1.0 - f_lost), 0.0, 1.0))
     empty = np.asarray(N, float) <= 0.0
-    return np.where(empty, 1.0, np.clip(fN, 0.0, 1.0)), np.where(empty, 1.0, np.clip(fM, 0.0, 1.0))
+    return np.where(empty, 1.0, out[0]), np.where(empty, 1.0, out[1])
 
 
 def sink_per_moment(grid, N, M, k_of_a, dt, method=None, n_nodes=N_NODES):
