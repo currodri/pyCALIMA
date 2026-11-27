@@ -64,6 +64,59 @@ def k_h(n_hi, T):
     return sigma_f(T) * np.asarray(n_hi, float) * v / 4.0
 
 
+def k_uv_groups(sigma_per_c, N_g, c_red, uv_weight):
+    """UV loss rate per C-H bond [s^-1] from RT photon groups: Y_CH c sum_g w_g N_g sigma_g.
+
+    sigma_per_c[..., g]: the bin's group-mean absorption cross-section per C atom [cm^2] (from its pseudo-bins at the
+    cell's in-bin state, on the band-gap nodes); N_g: the cell's group photon densities [cm^-3]; c_red: the RT speed
+    of light [cm/s]; uv_weight[g]: the share of each group's photons inside the lab range ``UV_RANGE_EV`` (a property
+    of the group limits and the assumed in-group spectrum, labelled). Returns k_UV[...]."""
+    return Y_CH * c_red * np.asarray(sigma_per_c, float) @ (np.asarray(uv_weight, float) * np.asarray(N_g, float))
+
+
+def equilibrium_gap(bin_h, k_uv_at_gap, k_h_rate, n_secant=6):
+    """The steady H/C and band gap of a covalent bin, with the UV-loss rate given on the band-gap nodes.
+
+    Solves x (k_UV(x) + k_H) = k_UV(x) x_min + k_H x_max, the equilibrium of the lab law (module doc), with k_UV
+    linear in E_g between the nodes ``bin_h.e_grid`` (``k_uv_at_gap`` there, e.g. from ``k_uv_groups``) and k_H
+    [s^-1] fixed. The root is bracketed on the nodes, then refined by regula falsi (Illinois) within the bracket: a
+    few table lookups per bin, as RAMSES needs. Returns (x_eq, E_g)."""
+    kg = np.asarray(k_uv_at_gap, float)
+    lo, hi = bin_h.x_min, bin_h.x_max
+
+    def f(x):
+        ku = np.interp(bin_h.e_gap(x), bin_h.e_grid, kg)
+        return -ku * (x - lo) + k_h_rate * (hi - x)
+
+    xs = np.concatenate([[lo], bin_h.x_grid[(bin_h.x_grid > lo) & (bin_h.x_grid < hi)], [hi]])
+    fs = f(xs)                                           # f(x_min) >= 0 >= f(x_max)
+    j = int(np.flatnonzero(fs <= 0.0)[0])
+    if j == 0:
+        return float(lo), float(bin_h.e_gap(lo))
+    a, b, fa, fb = xs[j - 1], xs[j], fs[j - 1], fs[j]
+    side = 0
+    for _ in range(n_secant):
+        if fa == fb:
+            break
+        x = (a * fb - b * fa) / (fb - fa)
+        fx = f(x)
+        if fx == 0.0:
+            a = b = x
+            break
+        if fx > 0.0:
+            a, fa = x, fx
+            if side == 1:
+                fb *= 0.5
+            side = 1
+        else:
+            b, fb = x, fx
+            if side == -1:
+                fa *= 0.5
+            side = -1
+    x = (a * fb - b * fa) / (fb - fa) if fb != fa else 0.5 * (a + b)
+    return float(x), float(bin_h.e_gap(x))
+
+
 @dataclass
 class Conditions:
     """A cell: FUV in units of the Mathis (1983) ISRF (``u_mathis``), n(H I) [cm^-3], T_gas [K]."""

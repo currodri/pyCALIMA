@@ -139,6 +139,15 @@ realisable. `deposit_power_law` places an $a^{-\alpha}$ fragment spectrum
 exactly. The cell's Coulomb explosion uses both. Its rate between the area
 nodes is taken log-linear in $a$ (labelled).
 
+`optics.PseudoBinOptics` holds a bin's RT optics as 5 PL2M pseudo-bins
+(the Chebyshev in-bin states $s_k$), blended linearly in the cell's $s$, as
+RAMSES's cool step does (decided 2026-11-18). From them it gives the group
+absorption, the absorbed power and UV photons, the Planck means and the
+equilibrium dust temperature per bin. The covalent a-C(:H) bins also carry a
+band-gap axis. `hydrogen.equilibrium_gap` finds their steady band gap from
+the UV loss and H addition, and `material_optics` builds the tables of a GSD
+material, cached under a hash of their code and data.
+
 `pairs` is carbon's pair rule (decided 2026-11-23). Molecules (N$_{\rm C}$ up
 to 400) have no outcome with each other. With a larger particle, by impact
 speed, they stick below 4 km/s, rebound between, and are destroyed above
