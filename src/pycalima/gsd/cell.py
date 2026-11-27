@@ -14,6 +14,9 @@ RAMSES calls the dust twice per cooling substep (``calima/dust_interface.f90``):
   4. the exchange with the gas (accretion and sublimation, ``exchange.exchange_step``), last, as the stiffest
      coupling.
 
+Carbon's molecular bins (``Composition.molecular_bins``) skip the grain explosion and accretion. Their own physics
+comes from the PAH operator (J1).
+
 These two calls are the whole interface. Their inputs and outputs are plain per-cell quantities, and nothing outside
 this module calls the operators below for a cell.
 
@@ -51,6 +54,12 @@ class Composition:
     - ``sublimation``: the ``sublimation_kinetics`` model of accretion and sublimation, or None.
     - ``charging``: a ``charging.AreaNodeCharging``, or None for neutral grains.
     - ``pair_rule``: carbon's ``pairs.PairRule`` (what molecules do in collisions), or None: every pair as grains.
+    - ``molecular_bins``: how many of the lowest bins are molecules (carbon's PAH bins, N_C up to 400; 4 on
+      ``CarbonLayout``). Two grain processes skip them:
+      - the grain Coulomb explosion, since a molecule's charge and fission follow pahchem's routing in the PAH
+        operator (R1);
+      - accretion, since molecular growth is off (decided 2026-11-23).
+      Fragments of exploding grains still land in them, and collisions treat them by the pair rule.
     - ``a_frag_min``: the smallest fragment radius [cm]; default the grid's lowest edge.
     - ``s_max``: the tensile strength [erg cm^-3] that sets the Coulomb-explosion charge (``ChargeState.explosion_rate``;
       1e10 for flawed grains, labelled).
@@ -67,6 +76,7 @@ class Composition:
     sublimation: object = None
     charging: object = None
     pair_rule: object = None
+    molecular_bins: int = 0
     a_frag_min: float | None = None
     s_max: float = 1e10
     overflow_M: float = 0.0
@@ -233,10 +243,11 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
             N, M, dM = sputter(g, N, M, c.erosion(inputs.T, inputs.n_H), dt, method=c.method)
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
-            pop = _grain_population(c, g, N, M, inputs, state)
+            mb = c.molecular_bins
+            pop = _grain_population(c, MassGrid(g.m_edges[mb:], g.rho), N[mb:], M[mb:], inputs, state)
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
-            N, M = pop.N, pop.M
+            N, M = np.concatenate([N[:mb], pop.N]), np.concatenate([M[:mb], pop.M])
             over_N, over_M = over_N + pop.overflow_N, over_M + pop.overflow_M
             gas[c.key] = gk[c.key]
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -287,7 +298,8 @@ def _collisions(c, inputs, opt, state):
 
 def _explode(c, g, N, M, expl, dt, opt):
     """Coulomb explosion over dt, a sink per moment (``sinks.sink_per_moment``). The rate between the area nodes is
-    taken log-linear in a, and constant beyond the first and last nodes (labelled). Returns (N, M, mass to the gas).
+    taken log-linear in a, and constant beyond the first and last nodes (labelled). It is zero on the molecular bins
+    (``Composition.molecular_bins``). Returns (N, M, mass to the gas).
 
     With ``Options.explosion_route`` 'fragments', each bin's exploded mass becomes a^-alpha fragments from
     ``a_frag_min`` up to the radius of half the exploded grains' mean mass (labelled); fragments below the grid go to
@@ -297,7 +309,8 @@ def _explode(c, g, N, M, expl, dt, opt):
     if opt.explosion_route not in ("fragments", "gas"):
         raise ValueError("explosion_route must be 'fragments' or 'gas'")
     la, lk = np.log(expl[0]), np.log(np.maximum(expl[1], 1e-300))
-    N, M, dN, dM = sink_per_moment(g, N, M, lambda a: np.exp(np.interp(np.log(a), la, lk)), dt, c.method)
+    N, M, dN, dM = sink_per_moment(g, N, M, lambda a: np.exp(np.interp(np.log(a), la, lk)), dt, c.method,
+                                   active=np.arange(g.n_bins) >= c.molecular_bins)
     # At k dt ~ 1e-16 or less the surviving number fraction rounds to 1 while the mass fraction does not: mass removed
     # without number, a round-off artefact. It stays in its bin (exact conservation, no 0/0 below).
     lone = (dM > 0.0) & (dN <= 0.0)

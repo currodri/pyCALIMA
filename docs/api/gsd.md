@@ -126,6 +126,9 @@ charges at the area nodes, the photoelectric heating, the recombination
 cooling and the grain area. `update` mirrors `compute_dust_update` and
 advances the dust in this order: collisions, then the Coulomb explosion,
 then sputtering, then the exchange with the gas.
+Carbon's molecular bins (`Composition.molecular_bins`, N$_{\rm C}$ up to 400)
+skip the grain explosion and accretion. A molecule's charge and fission
+follow pahchem's routing in the PAH operator, and molecular growth is off.
 
 `sinks` removes grains at a size-dependent rate $k(a)$ without moving them
 along the size axis. Held fixed over a step, the exact solution is

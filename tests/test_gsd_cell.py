@@ -357,3 +357,25 @@ def test_a_sublimation_model_of_another_density_is_refused(carbon):
     c.sublimation = get_sublimation_model("graphite", "GD89")
     with pytest.raises(ValueError, match="density"):
         update([c], CellInputs(20.0, 1e4, 1e-4, {"C": 1.0}), None, 1e10, Options(processes=frozenset({"accretion"})))
+
+
+def test_molecular_bins_skip_the_grain_explosion_and_accretion(carbon):
+    """With molecular_bins = 4 (CarbonLayout's PAH bins), a constant explosion rate and accretion both leave bins 0-3
+    exactly as they were: a molecule's charge and fission come from the PAH operator (R1), and molecular growth is off.
+    The grain bins above still explode and grow, and carbon is conserved."""
+    from pycalima.gsd.cell import CellInputs, Options, update
+
+    grid, N, M = carbon
+    pre = _precool_with_explosion(grid, N, M, lambda a: np.full(np.shape(a), 2e-14))
+    c = _carbon_composition(grid, N, M)
+    c.molecular_bins = 4
+    res = update([c], CellInputs(100.0, 30.0, 1e-2, {"C": 1.0}), pre, 3e13,
+                 Options(processes=frozenset({"explosion"}), explosion_route="gas"))
+    assert np.array_equal(c.N[:4], N[:4]) and np.array_equal(c.M[:4], M[:4])
+    np.testing.assert_allclose(c.M[4:], M[4:] * np.exp(-2e-14 * 3e13), rtol=1e-12)
+    assert abs(res.conservation["C"]) < 1e-14
+    c = _carbon_composition(grid, N, M)
+    c.molecular_bins = 4
+    res = update([c], _accreting_inputs(), None, 3e7 * YR, Options(processes=frozenset({"accretion"})))
+    assert np.array_equal(c.N[:4], N[:4]) and np.array_equal(c.M[:4], M[:4])
+    assert c.M[4:].sum() > M[4:].sum() * (1 + 1e-3) and abs(res.conservation["C"]) < 1e-14

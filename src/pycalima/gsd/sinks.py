@@ -50,14 +50,19 @@ def survival_weights(grid, N, M, k_of_a, dt, method=None, n_nodes=N_NODES):
     return np.where(empty, 1.0, out[0]), np.where(empty, 1.0, out[1])
 
 
-def sink_per_moment(grid, N, M, k_of_a, dt, method=None, n_nodes=N_NODES):
+def sink_per_moment(grid, N, M, k_of_a, dt, method=None, n_nodes=N_NODES, active=None):
     """Remove grains at the size-dependent rate k(a) [s^-1] over dt [s], exactly for k held fixed (module doc).
+
+    ``active`` (bool per bin, default all): bins the sink acts on. The others keep N and M exactly. A rule by
+    radius cannot do this at a shared edge, where one bin's top node is the next bin's bottom node.
 
     Returns (N', M', dN, dM): the new bins and the number and mass removed from each bin, which the caller routes
     (to the gas, or as fragments)."""
     N = np.asarray(N, float)
     M = np.asarray(M, float)
     fN, fM = survival_weights(grid, N, M, k_of_a, dt, method, n_nodes)
+    if active is not None:
+        fN, fM = np.where(active, fN, 1.0), np.where(active, fM, 1.0)
     N1, M1 = N * fN, M * fM
     return N1, M1, N - N1, M - M1
 
