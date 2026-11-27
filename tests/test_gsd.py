@@ -403,12 +403,16 @@ def test_accretion_that_empties_the_gas_conserves_carbon_to_round_off():
     N *= 0.005 * 1.4 * 1.6735575e-24 * 5e4 / np.sum(N * m)
     pop = Population(get_material("themis_ac").sublimation_model(), grid, N, N * m, np.full(grid.n_bins, 20.0),
                      nucleation=False)
-    gas = {"C": 1e-4 * 5e4}
+    ref = Population(pop.model, grid, pop.N.copy(), pop.M.copy(), pop.T_d.copy(), nucleation=False)
+    gas, gas_ref = {"C": 1e-4 * 5e4}, {"C": 1e-4 * 5e4}
     total = gas["C"] + pop.key_atoms()
     for _ in range(8):
         exchange_step([pop], gas, 600.0, 0.5e6 * 3.15576e7)
+        exchange_step([ref], gas_ref, 600.0, 0.5e6 * 3.15576e7, rtol=1e-13)
         assert gas["C"] >= 0.0
         assert abs(gas["C"] + pop.key_atoms() - total) <= 1e-14 * total
+        # the gas is within the tolerance of the solution, not left ~(1 + k dt) rtol total too high
+        assert abs(gas["C"] - gas_ref["C"]) <= 2e-10 * total
     assert gas["C"] < 1e-9 * total                                  # the gas has been taken up
 
 

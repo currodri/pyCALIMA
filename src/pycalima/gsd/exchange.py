@@ -255,14 +255,37 @@ def _implicit_step(pops, gas, key, T_gas, dt, rtol):
         n = lo
     else:
         n = brentq(residual, lo, hi, xtol=rtol * total, rtol=rtol, maxiter=200)
-        # The residual increases with n. Take the root's side where it is <= 0, i.e. where the dust stays within the
-        # total: the gas, total minus the dust, is then >= 0 without a clamp, and the key element is conserved to
-        # round-off. When the equilibrium gas falls below the tolerance (accretion emptying the gas), brentq's root
-        # could lie on the other side, and the clamp below created up to rtol x total.
-        step = rtol * total + rtol * n
-        while n > lo and residual(n) > 0.0:
-            n = max(n - step, lo)
-            step *= 2.0
+        # The residual R(n) = n + dust(n) - total increases with n. The step needs -tol <= R(n) <= 0, tol = rtol total:
+        # - R <= 0: the dust stays within the total, so the gas (total minus the dust) is >= 0 without a clamp, and
+        #   the key element is conserved to round-off;
+        # - R >= -tol: the gas is within tol of the solution.
+        # brentq bounds |n - n*|, not R. Where the dust takes up the gas fast, R ~ (1 + k dt) (n - n*), so its root
+        # could miss either side. Before 2026-11-26 the clamp below then created up to rtol x total; after a first fix,
+        # the gas could be left ~(1 + k dt) rtol x total too high. Here the root is refined in its bracket by Illinois
+        # regula falsi, keeping the R <= 0 side.
+        tol = rtol * total
+        r = residual(n)
+        if not -tol <= r <= 0.0:
+            a, ra, b, rb = (lo, residual(lo), n, r) if r > 0.0 else (n, r, hi, residual(hi))
+            side = 0
+            for _ in range(200):
+                m = min(max((a * rb - b * ra) / (rb - ra), a), b)
+                rm = residual(m)
+                if rm <= 0.0:
+                    a, ra = m, rm
+                    if rm >= -tol:
+                        break
+                    if side == -1:
+                        rb *= 0.5
+                    side = -1
+                else:
+                    b, rb = m, rm
+                    if side == 1:
+                        ra *= 0.5
+                    side = 1
+                if b - a <= 1e-15 * b:
+                    break
+            n = a
     born = 0.0
     for p, r in zip(pops, dust_after(n)):
         p.N, p.M, p.overflow_N, p.overflow_M, b = r
