@@ -253,6 +253,14 @@ def _implicit_step(pops, gas, key, T_gas, dt, rtol):
         n = lo
     else:
         n = brentq(residual, lo, hi, xtol=rtol * total, rtol=rtol, maxiter=200)
+        # The residual increases with n. Take the root's side where it is <= 0, i.e. where the dust stays within the
+        # total: the gas, total minus the dust, is then >= 0 without a clamp, and the key element is conserved to
+        # round-off. When the equilibrium gas falls below the tolerance (accretion emptying the gas), brentq's root
+        # could lie on the other side, and the clamp below created up to rtol x total.
+        step = rtol * total + rtol * n
+        while n > lo and residual(n) > 0.0:
+            n = max(n - step, lo)
+            step *= 2.0
     born = 0.0
     for p, r in zip(pops, dust_after(n)):
         p.N, p.M, p.overflow_N, p.overflow_M, b = r

@@ -387,6 +387,31 @@ def test_closed_box_relaxes_to_the_saturated_density_conserving_carbon():
     assert gas["C"] == pytest.approx(n_sat, rel=0.01)
 
 
+def test_accretion_that_empties_the_gas_conserves_carbon_to_round_off():
+    """Cold grains in a PDR-like cell take up all the gas carbon. Once the gas left at equilibrium falls below the
+    implicit solve's tolerance (rtol x total), the root could land where the dust exceeds the total. The gas was then
+    clamped at 0, creating up to rtol x total of carbon (4.6e-10 here). The step now takes the root's side where the
+    dust stays within the total: carbon is conserved to round-off, and the gas stays >= 0 without a clamp."""
+    from pycalima.gsd.carbon import CarbonLayout
+    from pycalima.gsd.exchange import Population, exchange_step
+    from pycalima.models.dust_radiation.sublimation_kinetics import get_sublimation_model
+
+    grid = CarbonLayout().grid()
+    a = grid.a_centres
+    m = np.sqrt(grid.m_edges[:-1] * grid.m_edges[1:])
+    N = a ** -2.5
+    N *= 0.005 * 1.4 * 1.6735575e-24 * 5e4 / np.sum(N * m)
+    pop = Population(get_sublimation_model("graphite", "GD89"), grid, N, N * m, np.full(grid.n_bins, 20.0),
+                     nucleation=False)
+    gas = {"C": 1e-4 * 5e4}
+    total = gas["C"] + pop.key_atoms()
+    for _ in range(8):
+        exchange_step([pop], gas, 600.0, 0.5e6 * 3.15576e7)
+        assert gas["C"] >= 0.0
+        assert abs(gas["C"] + pop.key_atoms() - total) <= 1e-14 * total
+    assert gas["C"] < 1e-9 * total                                  # the gas has been taken up
+
+
 def test_above_saturation_all_dust_evaporates():
     from pycalima.gsd.exchange import exchange_step
 
