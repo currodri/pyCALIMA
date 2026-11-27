@@ -140,7 +140,9 @@ class Population:
             x_n = self.neutral_fraction
             coul = 1.0 if self.ion_focusing is None else x_n + (1.0 - x_n) * self.ion_focusing(a)
             grow = m.condensation_alpha(T) * V * n_key * v_X * coul / (4.0 * m.key_per_unit)
-            N_units = (4.0 / 3.0) * np.pi * np.maximum(a, 1e-30) ** 3 / V
+            # the Kelvin term of a cluster of N units, held at N = 1 below one unit (a radius smaller than one
+            # monomer holds no smaller cluster; as poptrans, 2026-11-24)
+            N_units = np.maximum((4.0 / 3.0) * np.pi * np.maximum(a, 1e-30) ** 3 / V, 1.0)
             kelvin = (np.exp(np.minimum(m.theta * N_units ** (-1.0 / 3.0) / T, 700.0))
                   if self.kelvin else 1.0)
             fcorr = (np.interp(np.log(np.maximum(a, 1e-30)), la_tab, f_tab)

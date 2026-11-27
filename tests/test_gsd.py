@@ -1419,3 +1419,19 @@ def test_the_sticking_threshold_takes_the_hertzian_reduced_modulus(name):
     old = want * ((1 - m.nu) ** 2 / (1 - m.nu ** 2)) ** (1 / 3)
     np.testing.assert_allclose(v / old, ((1 + m.nu) / (1 - m.nu)) ** (1 / 3), rtol=1e-12)
 
+
+def test_the_kelvin_term_is_held_at_one_unit_below_a_monomer():
+    """Below the radius of one unit the Kelvin factor exp(theta N^-1/3 / T_d) is that of N = 1 (as poptrans): the
+    sublimation rate no longer diverges as a -> 0. Above it nothing changes."""
+    from pycalima.gsd.exchange import Population
+    from pycalima.gsd.materials import get_material
+
+    model = get_material("themis_ac").sublimation_model()
+    pop = Population.empty(model, 3e-8, 1e-6, 4, T_d=1500.0, nucleation=False)
+    r1 = (3.0 * model.unit_volume_cm3 / (4.0 * np.pi)) ** (1.0 / 3.0)
+    rate = pop.adot(0.0, 1500.0)
+    below = rate(np.array([0.2 * r1, 0.5 * r1, r1]))
+    assert np.all(np.isfinite(below)) and below[0] == pytest.approx(below[2], rel=1e-12)
+    assert below[1] == pytest.approx(below[2], rel=1e-12)
+    above = rate(np.array([2 * r1, 5 * r1]))
+    assert np.all(np.abs(above) < np.abs(below[2]))           # larger clusters sublimate more slowly
