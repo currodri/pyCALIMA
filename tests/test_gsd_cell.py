@@ -275,3 +275,58 @@ def test_update_with_the_pair_rule_equals_collide_with_it():
     np.testing.assert_allclose(c.M, r["M"], rtol=1e-12)
     assert c.M[:4].sum() < M[:4].sum() * (1 - 1e-3)                # the molecules freeze out
     assert abs(res.conservation["C"]) < 1e-12
+
+
+def _accreting_inputs():
+    """Cold dense gas with all the carbon available: the largest grains grow past 1 um within the step."""
+    from pycalima.gsd.cell import CellInputs
+
+    return CellInputs(T=20.0, n_H=1e4, n_e=1e-4, gas={"C": 3e-4 * 1e4})
+
+
+def test_a_passive_overflow_bin_is_the_grid_below_plus_what_grew_past_it(carbon):
+    """While the overflow bin is (nearly) empty, update runs on the grid below it: bit-identical to a run without the
+    bin, whose top-of-grid collector holds exactly what the passive bin receives."""
+    from pycalima.gsd.cell import Options, update
+
+    grid, N, M = carbon
+    opt = Options(processes=frozenset({"accretion"}))
+    plain = _carbon_composition(grid, N, M)
+    r0 = update([plain], _accreting_inputs(), None, 3e7 * YR, opt)
+    go = grid.with_overflow(1e-3)
+    over = _carbon_composition(go, np.append(N, 0.0), np.append(M, 0.0))
+    r1 = update([over], _accreting_inputs(), None, 3e7 * YR, opt)
+    assert plain.overflow_M > 0.0                                   # grains did grow past 1 um
+    assert np.array_equal(over.N[:-1], plain.N) and np.array_equal(over.M[:-1], plain.M)
+    assert over.M[-1] == plain.overflow_M and over.overflow_M == 0.0
+    assert r1.gas == r0.gas and abs(r1.conservation["C"]) < 1e-9
+    assert r1.overflow_share[0] == pytest.approx(over.M[-1] / over.M.sum()) and r0.overflow_share == [0.0]
+
+
+def test_an_active_overflow_bin_is_an_ordinary_bin(carbon):
+    """Above the gate the bin is computed like any other: update equals a run on the same edges with no overflow
+    flag."""
+    from pycalima.gsd.cell import Options, update
+    from pycalima.gsd.grid import MassGrid
+
+    grid, N, M = carbon
+    go = grid.with_overflow(1e-3)
+    N1, M1 = np.append(N, 1e-3 * N[-1]), np.append(M, 1e-3 * N[-1] * go.m_edges[-2] * 2.0)
+    opt = Options(processes=frozenset({"accretion"}))
+    a = _carbon_composition(go, N1, M1)
+    ref = _carbon_composition(MassGrid(go.m_edges, go.rho), N1, M1)
+    assert M1[-1] > opt.overflow_gate * M1.sum()                    # active from the start
+    ra = update([a], _accreting_inputs(), None, 3e7 * YR, opt)
+    rr = update([ref], _accreting_inputs(), None, 3e7 * YR, opt)
+    assert np.array_equal(a.N, ref.N) and np.array_equal(a.M, ref.M) and ra.gas == rr.gas
+    assert a.overflow_M == ref.overflow_M and ra.overflow_share[0] == pytest.approx(a.M[-1] / a.M.sum())
+
+
+def test_strict_mode_raises_when_the_overflow_bin_fills_up(carbon):
+    from pycalima.gsd.cell import Options, update
+
+    grid, N, M = carbon
+    go = grid.with_overflow(1e-3)
+    c = _carbon_composition(go, np.append(N, N[-1]), np.append(M, M[-1] * 5.0))
+    with pytest.raises(RuntimeError, match="overflow bin holds"):
+        update([c], _accreting_inputs(), None, 1e3 * YR, Options(processes=frozenset({"accretion"}), strict=True))

@@ -62,6 +62,8 @@ class CarbonLayout:
     n_grain_bins: int = 7
     nc_ali_max: float | None = None
     material: str = "themis_ac"
+    #: top of the overflow bin [cm] (``MassGrid.with_overflow``; 1e-3 for the decided 1-10 um), or None: no overflow
+    overflow_a_max_cm: float | None = None
 
     def grid(self) -> MassGrid:
         rho = get_material(self.material).rho
@@ -75,6 +77,8 @@ class CarbonLayout:
             if (self.nc_ali_max < self.nc_pah_max
                     or not np.any(np.isclose(nc_e, self.nc_ali_max, rtol=1e-9))):
                 raise ValueError(f"nc_ali_max must be a bin edge >= nc_pah_max; edges: {nc_e}")
+        if self.overflow_a_max_cm is not None:
+            g = g.with_overflow(self.overflow_a_max_cm)
         return g
 
     def pah_bins(self, grid=None) -> np.ndarray:

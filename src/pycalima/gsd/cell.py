@@ -16,11 +16,18 @@ RAMSES calls the dust twice per cooling substep (``calima/dust_interface.f90``):
 
 These two calls are the whole interface. Their inputs and outputs are plain per-cell quantities, and nothing outside
 this module calls the operators below for a cell.
+
+A composition's grid may end in the overflow bin (``grid.MassGrid.with_overflow``, 1-10 um, decided 2026-11-23).
+While it holds at most ``Options.overflow_gate`` of the composition's mass it is carried passively: the operators
+run on the grid below it, and what grows past that grid's top is added to it. Above the gate it is an ordinary bin.
+``update`` reports its share, with a warning above ``Options.overflow_warn`` (``strict``: an error).
 """
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+import warnings
 
 import numpy as np
 
@@ -115,6 +122,9 @@ class Options:
     threads: int | None = 1
     alpha_frag: float = 3.3              # fragments' dN/da ~ a^-alpha (shattering and explosion)
     explosion_route: str = "fragments"   # 'fragments' (decided 2026-11-23) or 'gas'
+    overflow_gate: float = 1e-6          # the overflow bin is passive at or below this share of the mass
+    overflow_warn: float = 0.01          # warn above this share
+    strict: bool = False                 # raise instead of warning
 
 
 @dataclass
@@ -147,11 +157,13 @@ class UpdateResult:
     """The update's bookkeeping:
     - ``gas``: the key elements' gas densities after the substep;
     - ``duu``: the largest fractional change of any bin's mass (dUU, as RTZ uses it);
-    - ``conservation``: the relative change of each key element (dust + gas + overflow), which is round-off."""
+    - ``conservation``: the relative change of each key element (dust + gas + overflow), which is round-off;
+    - ``overflow_share``: each composition's overflow-bin share of its mass (0 without one)."""
 
     gas: dict
     duu: float
     conservation: dict
+    overflow_share: list
 
 
 def precool(compositions, inputs: CellInputs) -> Precool:
@@ -198,37 +210,59 @@ def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt
         raise ValueError(f"unknown processes {sorted(unknown)}; known: {sorted(PROCESSES)}")
     gas = dict(inputs.gas)
     before = _element_totals(compositions, gas)
-    duu = 0.0
+    duu, shares = 0.0, []
     for k, c in enumerate(compositions):
-        g, N, M = c.grid, c.N.copy(), c.M.copy()
+        passive = c.grid.overflow and not _overflow_active(c, opt.overflow_gate)
+        if passive:
+            g, N, M = MassGrid(c.grid.m_edges[:-1], c.grid.rho), c.N[:-1].copy(), c.M[:-1].copy()
+        else:
+            g, N, M = c.grid, c.N.copy(), c.M.copy()
         M0 = M.copy()
+        over_N, over_M = 0.0, 0.0                       # grown past g's top this substep
         state = None if pre is None else pre.states[k]
         if opt.processes & {"shattering", "coagulation"}:
             r = collide(g, N, M, _collisions(c, inputs, opt, state), dt, errmax=opt.errmax, method=c.method)
             N, M = r["N"], r["M"]
-            c.overflow_M += r["overflow_M"]
+            over_N, over_M = over_N + r["overflow_N"], over_M + r["overflow_M"]
             gas[c.key] += r["sink_M"] * c.per_gram
         expl = None if pre is None else pre.explosion[k]
         if "explosion" in opt.processes and expl is not None and np.any(expl[1] > 0.0):
-            N, M, to_gas = _explode(c, N, M, expl, dt, opt)
+            N, M, to_gas = _explode(c, g, N, M, expl, dt, opt)
             gas[c.key] += to_gas * c.per_gram
         if "sputtering" in opt.processes and c.sputtering is not None:
             N, M, dM = sputter(g, N, M, c.erosion(inputs.T, inputs.n_H), dt, method=c.method)
             gas[c.key] += dM * c.per_gram
         if "accretion" in opt.processes and c.sublimation is not None:
-            pop = _grain_population(c, N, M, inputs, state)
+            pop = _grain_population(c, g, N, M, inputs, state)
             gk = {c.key: gas[c.key]}
             exchange_step([pop], gk, inputs.T, dt)
             N, M = pop.N, pop.M
-            c.overflow_M += pop.overflow_M
+            over_N, over_M = over_N + pop.overflow_N, over_M + pop.overflow_M
             gas[c.key] = gk[c.key]
         with np.errstate(divide="ignore", invalid="ignore"):
             ch = np.where(M0 > 0, np.abs(M - M0) / M0, 0.0)
         duu = max(duu, float(ch.max()) if ch.size else 0.0)
-        c.N, c.M = N, M
+        if passive:                                     # the passive overflow bin takes what grew past g
+            c.N, c.M = np.append(N, c.N[-1] + over_N), np.append(M, c.M[-1] + over_M)
+        else:
+            c.N, c.M = N, M
+            c.overflow_M += over_M
+        share = float(c.M[-1] / c.M.sum()) if c.grid.overflow and c.M.sum() > 0 else 0.0
+        shares.append(share)
+        if share > opt.overflow_warn:
+            msg = f"composition {k} ({c.key}): the overflow bin holds {100 * share:.2f} % of the mass"
+            if opt.strict:
+                raise RuntimeError(msg)
+            warnings.warn(msg, stacklevel=2)
     after = _element_totals(compositions, gas)
     cons = {e: (after[e] - before[e]) / before[e] if before[e] > 0 else 0.0 for e in before}
-    return UpdateResult(gas, duu, cons)
+    return UpdateResult(gas, duu, cons, shares)
+
+
+def _overflow_active(c, gate):
+    """True if the composition's overflow bin holds more than ``gate`` of its mass."""
+    tot = float(np.sum(c.M))
+    return tot > 0.0 and c.M[-1] > gate * tot
 
 
 def _collisions(c, inputs, opt, state):
@@ -251,7 +285,7 @@ def _collisions(c, inputs, opt, state):
     return c._collision_model
 
 
-def _explode(c, N, M, expl, dt, opt):
+def _explode(c, g, N, M, expl, dt, opt):
     """Coulomb explosion over dt, a sink per moment (``sinks.sink_per_moment``). The rate between the area nodes is
     taken log-linear in a, and constant beyond the first and last nodes (labelled). Returns (N, M, mass to the gas).
 
@@ -262,7 +296,6 @@ def _explode(c, N, M, expl, dt, opt):
 
     if opt.explosion_route not in ("fragments", "gas"):
         raise ValueError("explosion_route must be 'fragments' or 'gas'")
-    g = c.grid
     la, lk = np.log(expl[0]), np.log(np.maximum(expl[1], 1e-300))
     N, M, dN, dM = sink_per_moment(g, N, M, lambda a: np.exp(np.interp(np.log(a), la, lk)), dt, c.method)
     if opt.explosion_route == "gas":
@@ -280,15 +313,15 @@ def _explode(c, N, M, expl, dt, opt):
     return N, M, to_gas
 
 
-def _grain_population(c, N, M, inputs, state):
+def _grain_population(c, g, N, M, inputs, state):
     """The composition as an ``exchange.Population`` for accretion and sublimation. The ionised share of the key
     element accretes with the grains' ion Coulomb factor from precool's ``state``."""
     from .exchange import Population
 
     x_n = 1.0 if inputs.neutral is None else float(inputs.neutral.get(c.key, 1.0))
     focus = None if state is None or x_n >= 1.0 else state.ion_focusing_of()
-    T_d = np.full(c.grid.n_bins, float(inputs.T_d))
-    return Population(c.sublimation, c.grid, N.copy(), M.copy(), T_d, nucleation=False, method=c.method,
+    T_d = np.full(g.n_bins, float(inputs.T_d))
+    return Population(c.sublimation, g, N.copy(), M.copy(), T_d, nucleation=False, method=c.method,
                       neutral_fraction=x_n, ion_focusing=focus)
 
 
