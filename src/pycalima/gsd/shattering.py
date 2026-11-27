@@ -32,9 +32,11 @@ grains stick below the Chokshi et al. (1993) threshold of HY09 eq. 8,
     v_coag = 2.14 F_stick [(a1^3 + a2^3) / (a1 + a2)^3]^(1/2)
              gamma^(5/6) / (E^(1/3) R12^(5/6) rho^(1/2)),
 
-R12 = a1 a2 / (a1 + a2), 1/E = 2 (1 - nu)^2 / E_Y for one material (as
-printed in HY09; Chokshi et al. write (1 - nu^2)), F_stick = 10; between
-the thresholds they bounce.
+R12 = a1 a2 / (a1 + a2), 1/E = 2 (1 - nu^2) / E_Y for one material (the
+Hertzian reduced modulus of Chokshi et al. 1993; HY09 print (1 - nu)^2,
+which pyCALIMA used until 2026-11-26: v_coag was low by
+((1 + nu)/(1 - nu))^(1/3), x0.89 for nu = 0.17, x0.69 for graphite's 0.5),
+F_stick = 10; between the thresholds they bounce.
 
 Relative velocities come either from a ``velocities.RelativeVelocity``
 (Brownian + Ormel & Cuzzi 2007 turbulence + optional drift, with the
@@ -125,11 +127,14 @@ def ejected_mass(material, m1, m2, v, law="KT10", f_M=0.4):
 
 
 def coagulation_threshold(material, a1, a2, F_stick=10.0):
-    """HY09 eq. 8 (Chokshi et al. 1993) [cm/s]."""
+    """HY09 eq. 8 (Chokshi et al. 1993) [cm/s], with CTH93's reduced modulus 1/E = 2 (1 - nu^2) / E_Y (module doc).
+
+    F_stick = 10 (Blum 2000, via YLD04/HY09) and a dry surface energy (~10x the 0.025 J m^-2 of CTH93) are two
+    explanations of the same laboratory gap (Kimura+15, Steinpilz+19): use one, not both."""
     a1 = np.asarray(a1, float)
     a2 = np.asarray(a2, float)
     R12 = a1 * a2 / (a1 + a2)
-    E = material.E_young / (2.0 * (1.0 - material.nu) ** 2)
+    E = material.E_young / (2.0 * (1.0 - material.nu ** 2))
     return (2.14 * F_stick * np.sqrt((a1 ** 3 + a2 ** 3) / (a1 + a2) ** 3)
             * material.gamma ** (5.0 / 6.0) / (E ** (1.0 / 3.0) * R12 ** (5.0 / 6.0)
                                               * np.sqrt(material.rho)))

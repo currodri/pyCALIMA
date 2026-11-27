@@ -1401,3 +1401,21 @@ def test_the_undrifted_coulomb_factor_closed_form_equals_the_general_path():
 
         want = np.maximum(part(v_lo) - part(v_hi), 0.0)
         np.testing.assert_allclose(got, want, rtol=1e-10, atol=1e-300)     # 7.5e-12 at shares ~1e-88 (tails)
+
+
+@pytest.mark.parametrize("name", ["silicate", "graphite"])
+def test_the_sticking_threshold_takes_the_hertzian_reduced_modulus(name):
+    """HY09 eq. 8 with CTH93's 1/E = 2 (1 - nu^2) / E_Y. For equal grains of radius r it is
+    v = 2.14 (1/2) 2^(7/6) F [gamma^5 (1 - nu^2)^2 / (r^5 rho^3 E_Y^2)]^(1/6). It is ((1 + nu)/(1 - nu))^(1/3) above HY09's
+    printed (1 - nu)^2, the form pyCALIMA used until 2026-11-26."""
+    from pycalima.gsd.shattering import MATERIALS, coagulation_threshold
+
+    m = MATERIALS[name]
+    r = np.array([3e-7, 1e-5, 1e-4])
+    v = coagulation_threshold(m, r, r, F_stick=10.0)
+    want = 2.14 * 0.5 * 2 ** (7 / 6) * 10.0 * (m.gamma ** 5 * (1 - m.nu ** 2) ** 2
+                                               / (r ** 5 * m.rho ** 3 * m.E_young ** 2)) ** (1 / 6)
+    np.testing.assert_allclose(v, want, rtol=1e-12)
+    old = want * ((1 - m.nu) ** 2 / (1 - m.nu ** 2)) ** (1 / 3)
+    np.testing.assert_allclose(v / old, ((1 + m.nu) / (1 - m.nu)) ** (1 / 3), rtol=1e-12)
+
