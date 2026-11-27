@@ -21,6 +21,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.gsd_quick
+
 FIXTURE = Path(__file__).resolve().parent / "data" / "rtgroup_parity_lg5.npz"
 CONFIGS = {"c6wdb": {}, "c6wdb_off": {"wide_moments": False}, "c6lg": {"lattice": True},
            "c6lg_off": {"lattice": True, "wide_moments": False}}

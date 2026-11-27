@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.gsd_quick
+
 C = 2.99792458e10
 EV = 1.602176634e-12
 KB_EV = 8.617333262e-5

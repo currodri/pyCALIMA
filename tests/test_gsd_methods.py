@@ -11,6 +11,8 @@ from pycalima.gsd.optics import (combine_components, component_kappa_tables, kap
                                  profile_weights, state_s)
 from pycalima.gsd.remap import remap
 
+pytestmark = pytest.mark.gsd_quick
+
 RHO = 2.4
 METHOD_NAMES = tuple(C.METHODS)
 

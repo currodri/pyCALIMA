@@ -181,6 +181,9 @@ pycalima = [
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "gsd_quick: the fast GSD subset (pytest -m gsd_quick), run before every commit of the GSD work",
+]
 norecursedirs = [".claude", ".venv", "diagnostics", "model_data", "results", "notebooks"]
 
 [tool.ruff]

@@ -9,6 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.gsd_quick
+
 AMU = 1.66053906660e-24
 
 
