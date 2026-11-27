@@ -735,6 +735,20 @@ def radius_moments(P, k):
     return bin_moments(P, k) * P.aL ** k
 
 
+def area_node(grid, N, M, method=None):
+    """The area node of every bin, a* = int a^3 dN / int a^2 dN [cm], and its weight w = int a^2 dN / a*^2 [cm^-3].
+
+    A per-grain quantity g(a) that scales with the grain area (photoelectric heating, recombination cooling, the
+    Coulomb factors), summed over the bin, is w g(a*). This is exact for g proportional to a^2 and to a^3: it is the
+    one-point Gauss rule of the measure a^2 dN. RAMSES solves the charge once per bin there (decided 2026-11-18).
+    Empty bins get the bin centre and weight 0."""
+    P = pieces(grid, N, M, method)
+    a2, a3 = radius_moments(P, 2), radius_moments(P, 3)
+    filled = (np.asarray(N, float) > 0.0) & (a2 > 0.0)
+    a_star = np.where(filled, a3 / np.where(filled, a2, 1.0), grid.a_centres)
+    return a_star, np.where(filled, a2 / a_star ** 2, 0.0)
+
+
 def remap_pieces(grid, P, image, n_pieces=4):
     """Remap the pieces along the flow map ``image`` (a vectorised, monotone a -> X(a)); each piece's support is
     split into ``n_pieces`` sub-intervals whose images are linear in a. Returns (N, M, lost_N, overflow_N,
