@@ -3432,11 +3432,12 @@ class Population:
                     out.setdefault(s, []).append((np.asarray(ladder[k][0], dtype=float), w * h[s, k] * np.asarray(em, dtype=float)))
         return out
 
-    def deposit_spectra(self, env, nu_cm, fwhm_cm=None, shift_cm=None, band_shape=None):
+    def deposit_spectra(self, env, nu_cm, fwhm_cm=None, shift_cm=None, band_shape=None, charges=None):
         """dP[s, i]: the IR spectrum of ``_deposit_flows`` per molecule [cm^-1 s^-1 per cm^-1], weighted by the hydrogenation
         shares and less the captures the bases emit, as ``_deposit_bands``: with the line profiles of ``_line_spectrum``,
         or ``band_shape`` (``spectral_fit.BandShape``, the fitted spectra's). Rows are built only for the flows that differ
-        from what the bases hold by more than round-off (none in a plain chain: its captures run at k_up)."""
+        from what the bases hold by more than round-off (none in a plain chain: its captures run at k_up). ``charges``:
+        only the flows landing on these charges, the states that emit them (default all; ``deposit_powers``)."""
         from pycalima.pahchem import spectral_fit
 
         nu = np.asarray(nu_cm, dtype=float)
@@ -3447,6 +3448,8 @@ class Population:
         h = self.emission_weights(env).sum(axis=1)
         dP = np.zeros((len(self.library), nu.size))
         for s, z, which, idx, rate, baked in self._differing_flows(env):
+            if charges is not None and z not in charges:
+                continue
             w = rate - baked
             if (s, z, which, idx) not in rows:
                 mol = self.library[s]
@@ -3459,6 +3462,19 @@ class Population:
             R = rows[(s, z, which, idx)]
             dP[s] += w * (h[s, : R.shape[0]] @ R)
         return dP
+
+    def deposit_powers(self, env):
+        """dE[s, slot]: the total IR power of ``_deposit_flows`` per molecule [cm^-1 s^-1], by the charge slot that emits it
+        (the flow's product state), weighted by the hydrogenation shares and less the captures the bases emit: the
+        deposits' counterpart of ``state_powers`` (at G0 = 1, times the emission weights and G0), and what
+        ``deposit_spectra`` integrates to over all frequencies."""
+        h = self.emission_weights(env).sum(axis=1)
+        dE = np.zeros((len(self.library), len(self.zs)))
+        for s, z, which, idx, rate, baked in self._differing_flows(env):
+            _, resp = self._response(self.library[s], z, which)
+            e = np.array([float(np.sum(em)) for em, *_ in resp[idx][:N_EMITTING]])
+            dE[s, z - self.zmin] += (rate - baked) * (h[s, : e.size] @ e)
+        return dE
 
     def _jump_rates(self, env, up):
         """[k1, ..., kJ] [s^-1] at ``env``: ``up`` (single steps at env: photo, and ions where given) less the C 1s
