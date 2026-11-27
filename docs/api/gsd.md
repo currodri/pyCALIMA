@@ -112,6 +112,21 @@ hash of the charge code and its data, so a physics change rebuilds them). `Photo
   Tazaki, Ichikawa & Kokubo 2020), zero where ion field emission caps the
   charge first; `destroy` applies such a rate to a population.
 
+`AreaNodeCharging` is RAMSES's grain-rate method (decided 2026-11-18): one
+charge solve per bin at its area node
+$a^* = \int a^3\,dN / \int a^2\,dN$ (`closures.area_node`). The node's table
+is blended in $\ln a$ from tables at a few radii per bin (`blend_table`), and
+the bin's area-like rates are $w\,g(a^*)$ with
+$w = \int a^2\,dN / a^{*2}$. This is exact for rates proportional to $a^2$
+and $a^3$.
+
+`cell` is the per-cell operator, the two calls RAMSES-CALIMA makes per
+cooling substep. `precool` mirrors `compute_dust_precool` and gives the
+charges at the area nodes, the photoelectric heating, the recombination
+cooling and the grain area. `update` mirrors `compute_dust_update` and
+advances the dust in this order: collisions, then sputtering, then the
+exchange with the gas.
+
 `materials` holds one record per grain material (bulk density, optics set,
 shattering constants, sputtering, sublimation and charging inputs, with
 sources), so every operator reads the same density; constants borrowed from
@@ -249,6 +264,7 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.velocities
    pycalima.gsd.grain_motion
    pycalima.gsd.charging
+   pycalima.gsd.cell
    pycalima.gsd.optics
    pycalima.gsd._kernels
    pycalima.gsd._jit
