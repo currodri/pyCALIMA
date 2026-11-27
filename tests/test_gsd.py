@@ -1378,3 +1378,26 @@ def test_equal_radii_at_rest_give_finite_collision_shares():
     v_mean, share, v_q = rv.collision_speeds(dV, mu, 1e5, 2)
     assert np.all(np.isfinite(v_mean)) and np.all(np.isfinite(share)) and np.all(np.isfinite(v_q))
     assert np.all(share == 0.0)
+
+
+def test_the_undrifted_coulomb_factor_closed_form_equals_the_general_path():
+    """coulomb_rate_factor at s = 0 takes the closed form P(U_a) - P(U_b), P(U) = (1 + U^2 - alpha^2 vC2) e^-U^2.
+    It equals the general path, flux_above - alpha^2 vC2 inverse_moment_above at s = 0, for attraction, repulsion and
+    neutral pairs, full and windowed (stick below v_hi; destroy above v_lo)."""
+    from pycalima.gsd.velocities import coulomb_rate_factor, flux_above, inverse_moment_above
+
+    rng = np.random.default_rng(7)
+    alpha = 10 ** rng.uniform(-6.5, -4.0, 400)
+    vC2 = rng.choice([-1.0, 0.0, 1.0], 400) * 10 ** rng.uniform(6.0, 12.0, 400)
+    for v_lo, v_hi in ((0.0, np.inf), (0.0, 4e5), (7e5, np.inf), (1e5, 2e5)):
+        got = coulomb_rate_factor(alpha, 0.0, vC2, v_lo, v_hi)
+        uC2 = alpha ** 2 * vC2
+
+        def part(v):
+            if not np.isfinite(v):
+                return 0.0
+            U = alpha * np.sqrt(np.maximum(v ** 2 + vC2, 0.0))
+            return flux_above(U, 0.0) - uC2 * inverse_moment_above(U, 0.0)
+
+        want = np.maximum(part(v_lo) - part(v_hi), 0.0)
+        np.testing.assert_allclose(got, want, rtol=1e-10, atol=1e-300)     # 7.5e-12 at shares ~1e-88 (tails)
