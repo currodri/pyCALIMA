@@ -1,0 +1,310 @@
+"""Per-moment dust drift (TVA): the drift of a bin's number and mass, and the pyCALIMA mirror of RAMSES's TVA step.
+
+A bin's grains of radius a drift relative to the gas at w(a): the terminal velocity, e.g. proportional to a for
+Epstein drag in a pressure gradient. If the whole bin moves at one velocity, N and M move together. The in-bin state
+s then never changes, and the bin's big and small grains cannot separate.
+
+Diallo et al. (2026, RAMSES-MCR, Sect. 2.2.5, after Hopkins 2023) give the number and energy moments of a cosmic-ray
+momentum bin their own coefficients. For dust (decided 2026-11-17) the bin's moments move at
+    w^N = int w dN / N,    w^M = int w m dN / M,
+over the bin's PL2M power law dN/du ~ u^lambda, u = a / a_L, lambda = 3 beta(s) + 2 (``pl2m``).
+
+Inside the bin, w(a) is piecewise linear in a through the drift at three sizes, the bin's edges and its geometric
+centre (``law_radii``; the edges are shared with the neighbouring bins, so a cell needs 2 n_bins + 1 values). It is
+exact for w ~ a (Epstein drag under one acceleration) and for any linear law, holds a direction change inside the bin
+(each piece is split at its zero) and a maximum inside it, and never exceeds its node values, which set the drift CFL.
+With THEMIS radiation pressure against settling (D1 check 3), one power law through two sizes is off by up to 19 % of
+max|w| in w^N and w^M over the in-bin states, this law by 4 %.
+A state closer to an edge than the power law can reach (|beta| > beta_max) is a spike at its mean mass (as
+``pl2m.BinProfile``), and its grains all move at w there.
+``gauss_velocities`` is the alternative: w at the two Gauss nodes in radius (``closures.nodes``, rule 'gauss'), with
+no assumption on its shape.
+
+``tva_step`` follows one direction of RAMSES's TVA step (``calima/dust_dynamics.f90``, ``calculate_pure_drag_fluxes``;
+Lebreuilly et al. 2019) on a 1-D grid of cells, with each grain crossing a face at its own speed. Per bin:
+1. TVD slopes of N and of M (minmod for slope_type 1, MC for 2);
+2. each cell's two face states: N and M plus or minus half their slopes, both slopes scaled by one theta in [0, 1],
+   the largest that keeps both face states inside the bin (m_L N <= M <= m_R N). The two face states then average
+   to the cell in N and in M;
+3. the face's drift law: its node values, the mean of the two cells' (RAMSES's conservative choice: both grids
+   sharing a face build the same flux);
+4. the flux, grain by grain: the right-moving grains of the left cell and the left-moving grains of the right cell,
+   each at its own w(a) with the MUSCL-Hancock predictor of linear advection, f_R - (c w / 2) (f_R - f_L) from the
+   donor's face states f_L, f_R (dN/da of their PL2M profiles). In closed form this needs int w and int w^2 over each
+   face state's profile, for dN and for m dN. A direction change inside the bin is split at the radius where w = 0;
+5. positivity: no face takes more than 1/2 of a moment from its donor (1/(2 ndim) in 1-D). N and M of one packet are
+   scaled alike;
+6. the update, and a count of the cells whose mean mass left their bin (clipped, N moved to hold it at the edge). A
+   cell whose M is below 1e-292 (tiny / eps: the step's products of it turn subnormal) is set to zero, as a Fortran
+   build that flushes subnormals to zero: the bound test has no precision there.
+
+For every grain size a, steps 2 and 4 write a cell's new population as its two face states and the inflowing
+packets, each with a non-negative weight (1/2 - p + p^2/2 - q^2/2 for the face state that leaves at p = c w+, with
+q = c |w-| at the other face). The weights are non-negative while c max|w| <= 1/2 over the law, i.e. over its node
+values: the drift CFL on the fastest grains (w(a_R) for w ~ a, the A4 rule). The new population is then non-negative
+at every a: the cell stays realisable, with no clip, and N and M are conserved exactly.
+
+``tva_fluxes`` returns the face fluxes of steps 1-5, for an AMR level's refluxing; ``tva_step`` adds the update.
+``prolong`` and ``restrict`` are the AMR level operations ("parent s": the children keep their parent's in-bin state).
+
+``tva_step_velocities`` is the same step with given cell velocities per moment (one per bin and cell, upwind by the
+sign of each moment's face mean, Hancock per moment), for the alternatives (bin centre, Gauss nodes). Its packets
+are not pieces of a profile, so it can leave the bin.
+
+N and M are densities (per unit volume), as RAMSES's ``uold``; c = dt/dx, so a face flux is in density units.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from .grid import MassGrid
+from .pl2m import beta_max, int_pow, mean_mass_ratio, solve_beta
+
+_M_FLUSH = np.finfo(float).tiny / np.finfo(float).eps
+
+
+def _profile(grid, N, M, tables=None):
+    """The PL2M profile of each bin state ([..., bin]): (lambda, spike, u_spike). lambda = 3 beta + 2 of its power law;
+    with ``tables`` (one (s, beta) per bin, ``beta_tables``) beta is interpolated linearly in s, as the RAMSES mirror
+    does, else solved. A state closer to an edge than a power law with |beta| <= beta_max(eta) can reach is a spike:
+    all its grains at u_spike = (m_bar / m_L)^(1/3), as ``pl2m.BinProfile``. Empty states get the mid-bin profile."""
+    eta = grid.etas
+    filled = N > 0
+    r = np.where(filled, M / np.where(filled, N, 1.0) / grid.m_edges[:-1], 0.5 * (1.0 + eta))
+    bm = beta_max(eta)
+    r_lo, r_hi = mean_mass_ratio(-bm, eta), mean_mass_ratio(bm, eta)
+    spike = filled & ((r <= r_lo) | (r >= r_hi))
+    u_spike = np.clip(r, 1.0, eta) ** (1.0 / 3.0)
+    r = np.clip(r, r_lo, r_hi)
+    if tables is not None:
+        s = (r - 1.0) / (eta - 1.0)
+        beta = np.stack([np.interp(s[..., i], *tables[i]) for i in range(grid.n_bins)], axis=-1)
+    else:
+        beta = solve_beta(r.reshape(-1), np.broadcast_to(eta, r.shape).reshape(-1)).reshape(r.shape)
+    return 3.0 * beta + 2.0, spike, u_spike
+
+
+def _lambda(grid, N, M, tables=None):
+    """lambda of each bin's PL2M power law from its mean mass ([..., bin]; ``_profile``)."""
+    return _profile(grid, N, M, tables)[0]
+
+
+def law_radii(grid: MassGrid):
+    """[bin, 3] radii [cm] where the drift law is sampled: each bin's lower edge, geometric centre and upper edge."""
+    aL, aR = grid.a_edges[:-1], grid.a_edges[1:]
+    return np.stack([aL, np.sqrt(aL * aR), aR], axis=1)
+
+
+def _law_u(grid):
+    """The law radii in units of each bin's lower edge, u = a / a_L [bin, 3]."""
+    return law_radii(grid) / grid.a_edges[:-1, None]
+
+
+def _flux_moments(prof, u_nodes, w_nodes):
+    """int w dN and int w^2 dN of a bin state's right-moving (w > 0) and left-moving (w < 0) grains, per unit N, and the
+    same with m dN per unit M, for the piecewise-linear law through w_nodes [..., bin, K+1] at u_nodes [bin, K+1]
+    (module doc) over the state's profile (``_profile``): (P1N, P1M, P2N, P2M) for w > 0 and (Q1N, Q1M, Q2N, Q2M) for
+    w < 0 (Q1 <= 0 <= Q2)."""
+    lam, spike, u_spike = prof
+    one = np.ones(np.shape(lam))
+    u_spike = np.clip(u_spike, u_nodes[:, 0], u_nodes[:, -1])         # eta^(1/3) and a_R / a_L differ by round-off
+    norm = (int_pow(lam, one, u_nodes[:, -1]), int_pow(lam + 3.0, one, u_nodes[:, -1]))
+    P = [np.zeros(np.shape(lam)) for _ in range(4)]
+    Q = [np.zeros(np.shape(lam)) for _ in range(4)]
+    w_s = np.zeros(np.shape(lam))
+    for j in range(u_nodes.shape[1] - 1):
+        ua, ub = u_nodes[:, j] * one, u_nodes[:, j + 1] * one
+        wa, wb = w_nodes[..., j], w_nodes[..., j + 1]
+        k = (wb - wa) / (ub - ua)                       # w = A + k u on this piece
+        A = wa - k * ua
+        with np.errstate(divide="ignore", invalid="ignore"):
+            u0 = np.clip(np.where(k != 0.0, -A / np.where(k != 0.0, k, 1.0), ub), ua, ub)
+        for u1, u2 in ((ua, u0), (u0, ub)):             # w has one sign on each part
+            sign = A + 0.5 * k * (u1 + u2)
+            for m, p in enumerate((lam, lam + 3.0)):
+                I0, I1, I2 = int_pow(p, u1, u2), int_pow(p + 1.0, u1, u2), int_pow(p + 2.0, u1, u2)
+                f1 = (A * I0 + k * I1) / norm[m]
+                f2 = (A * A * I0 + 2.0 * A * k * I1 + k * k * I2) / norm[m]
+                P[m] += np.where(sign > 0.0, np.maximum(f1, 0.0), 0.0)
+                P[m + 2] += np.where(sign > 0.0, np.maximum(f2, 0.0), 0.0)
+                Q[m] += np.where(sign < 0.0, np.minimum(f1, 0.0), 0.0)
+                Q[m + 2] += np.where(sign < 0.0, np.maximum(f2, 0.0), 0.0)
+        inside = (u_spike >= ua) & (u_spike <= ub)
+        w_s = np.where(inside, A + k * u_spike, w_s)
+    if np.any(spike):                                     # every grain at u_spike: the moments are powers of w there
+        wp, wn = np.maximum(w_s, 0.0), np.minimum(w_s, 0.0)
+        P = [np.where(spike, v, x) for v, x in zip((wp, wp, wp * wp, wp * wp), P, strict=True)]
+        Q = [np.where(spike, v, x) for v, x in zip((wn, wn, wn * wn, wn * wn), Q, strict=True)]
+    return tuple(P), tuple(Q)
+
+
+def moment_velocities(grid: MassGrid, N, M, w_nodes, tables=None):
+    """(w^N, w^M) of every bin ([..., bin]) for the drift w_nodes [..., bin, 3] at each bin's ``law_radii`` (e.g. one
+    row per cell): the module doc's law over the bin's PL2M profile. ``tables``: the bins' beta(s) tables
+    (``beta_tables``), as RAMSES interpolates them; None solves beta."""
+    N, M = np.asarray(N, float), np.asarray(M, float)
+    P, Q = _flux_moments(_profile(grid, N, M, tables), _law_u(grid), np.asarray(w_nodes, float))
+    return P[0] + Q[0], P[1] + Q[1]
+
+
+def gauss_velocities(grid: MassGrid, N, M, w_of_a, method=None):
+    """(w^N, w^M) per bin from w at the bin's two Gauss nodes in radius (``closures.nodes``, rule 'gauss'): exact in
+    N for w up to cubic in a. ``w_of_a(a)`` is vectorised over radii [cm]. One cell's N, M [bin] at a time."""
+    from .closures import nodes
+
+    m, w, _, _ = nodes(grid, np.asarray(N, float), np.asarray(M, float), method, rule="gauss")
+    v = np.asarray(w_of_a(grid.radius(m)), float)
+    Nn = np.maximum(w.sum(axis=1), 1e-300)
+    Mn = np.maximum((w * m).sum(axis=1), 1e-300)
+    return (w * v).sum(axis=1) / Nn, (w * m * v).sum(axis=1) / Mn
+
+
+def beta_table(eta, n=257):
+    """(s, beta) on n points for a bin of mass ratio eta: beta(s) of the PL2M power law whose mean mass is
+    m_L (1 + s (eta - 1)), for the RAMSES mirror (Diallo et al. tabulate q(e/n) likewise). s at Chebyshev points,
+    denser at the edges, where beta varies fastest."""
+    s = 0.5 * (1.0 - np.cos(np.pi * np.arange(n) / (n - 1)))
+    r = np.clip(1.0 + s * (eta - 1.0), 1.0 + 1e-12, eta * (1.0 - 1e-12))
+    return s, np.asarray(solve_beta(r, eta), float)
+
+
+def beta_tables(grid: MassGrid, n=257):
+    """``beta_table`` of every bin of ``grid`` (graded grids have one eta per bin)."""
+    return [beta_table(float(e), n) for e in grid.etas]
+
+
+def _limited_slope(q, slope_type, periodic):
+    """TVD slope per cell [cell, ...] (RAMSES's: 0 none, 1 minmod, 2 MC; theta 1 or 2), on a periodic or zero-gradient
+    grid."""
+    if slope_type == 0:
+        return np.zeros_like(q)
+    if periodic:
+        ql, qr = np.roll(q, 1, axis=0), np.roll(q, -1, axis=0)
+    else:
+        ql = np.concatenate([q[:1], q[:-1]], axis=0)
+        qr = np.concatenate([q[1:], q[-1:]], axis=0)
+    dl, dr = q - ql, qr - q
+    dc = 0.5 * (dl + dr)
+    theta = 2.0 if slope_type == 2 else 1.0
+    lim = np.sign(dc) * np.minimum(theta * np.minimum(np.abs(dl), np.abs(dr)), np.abs(dc))
+    return np.where(dl * dr <= 0.0, 0.0, lim)
+
+
+def _left_cells(n, periodic):
+    """The cell left of each face (face f between cells f-1 and f)."""
+    return np.roll(np.arange(n), 1) if periodic else np.concatenate([[0], np.arange(n - 1)])
+
+
+def _reconstruct(grid, N, M, slope_type, periodic):
+    """Each cell's face states (step 2): ((N, M) at its left face, (N, M) at its right face)."""
+    dN, dM = _limited_slope(N, slope_type, periodic), _limited_slope(M, slope_type, periodic)
+    mL, mR = grid.m_edges[:-1], grid.m_edges[1:]
+    lo, hi = np.maximum(M - mL * N, 0.0), np.maximum(mR * N - M, 0.0)      # the cell's room to each edge
+    theta = np.ones_like(N)
+    for sign in (1.0, -1.0):
+        for room, b in ((lo, 0.5 * sign * (dM - mL * dN)), (hi, 0.5 * sign * (mR * dN - dM))):
+            neg = b < 0.0
+            theta = np.where(neg, np.minimum(theta, room / np.where(neg, -b, 1.0)), theta)
+    hN, hM = 0.5 * theta * dN, 0.5 * theta * dM
+    return (N - hN, M - hM), (N + hN, M + hM)
+
+
+def _limit(N, M, FN_p, FM_p, FN_n, FM_n, idx_l, periodic):
+    """Positivity per packet (step 5): the face fluxes FN, FM [face, bin]."""
+    donL_N, donL_M = N[idx_l], M[idx_l]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        kp = np.minimum(np.where(FN_p > 0.5 * donL_N, 0.5 * donL_N / np.where(FN_p > 0, FN_p, 1.0), 1.0),
+                        np.where(FM_p > 0.5 * donL_M, 0.5 * donL_M / np.where(FM_p > 0, FM_p, 1.0), 1.0))
+        kn = np.minimum(np.where(-FN_n > 0.5 * N, 0.5 * N / np.where(FN_n < 0, -FN_n, 1.0), 1.0),
+                        np.where(-FM_n > 0.5 * M, 0.5 * M / np.where(FM_n < 0, -FM_n, 1.0), 1.0))
+    FN = kp * FN_p + kn * FN_n
+    FM = kp * FM_p + kn * FM_n
+    if not periodic:
+        FN[0], FM[0] = 0.0, 0.0
+    return FN, FM
+
+
+def _update(grid, N, M, FN, FM, periodic):
+    """The update from the face fluxes, and the realisability count (step 6)."""
+    if periodic:                                          # N + (in - out): a uniform state stays exact
+        N1, M1 = N + (FN - np.roll(FN, -1, axis=0)), M + (FM - np.roll(FM, -1, axis=0))
+    else:
+        zero = np.zeros_like(FN[:1])
+        N1 = N + (FN - np.concatenate([FN[1:], zero], axis=0))
+        M1 = M + (FM - np.concatenate([FM[1:], zero], axis=0))
+    sub = M1 < _M_FLUSH                                   # near-subnormal mass: flushed to zero (module doc)
+    N1, M1 = np.where(sub, 0.0, np.maximum(N1, 0.0)), np.where(sub, 0.0, M1)
+    lo, hi = N1 * grid.m_edges[:-1], N1 * grid.m_edges[1:]
+    clip = (M1 > 0) & ((M1 < lo * (1 - 1e-12)) | (M1 > hi * (1 + 1e-12)))
+    N1 = np.where(clip, np.where(M1 < lo, M1 / grid.m_edges[:-1], M1 / grid.m_edges[1:]), N1)
+    return N1, M1, int(clip.sum())
+
+
+def tva_fluxes(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, tables=None):
+    """The face fluxes (FN, FM) [face, bin] of one drift step of N, M [cell, bin] (module doc, steps 1-5), with each
+    cell's drift w_nodes [cell, bin, 3] at its bins' ``law_radii``, and c = dt/dx. Face f lies between cells f-1 and f,
+    and a positive flux moves dust to larger f. Periodic: as many faces as cells. Otherwise the slopes have zero
+    gradient at the ends, face 0 is closed and there is no face after the last cell."""
+    N, M = np.asarray(N, float), np.asarray(M, float)
+    w_nodes = np.broadcast_to(np.asarray(w_nodes, float), (*N.shape, 3))
+    (NLs, MLs), (NRs, MRs) = _reconstruct(grid, N, M, slope_type, periodic)
+    idx_l = _left_cells(N.shape[0], periodic)
+    w_f = 0.5 * (w_nodes[idx_l] + w_nodes)
+    u_nodes = _law_u(grid)
+    pL, pR = _profile(grid, NLs, MLs, tables), _profile(grid, NRs, MRs, tables)
+    P_R, _ = _flux_moments(tuple(q[idx_l] for q in pR), u_nodes, w_f)     # the left cell's face states, w > 0
+    P_L, _ = _flux_moments(tuple(q[idx_l] for q in pL), u_nodes, w_f)
+    _, Q_L = _flux_moments(pL, u_nodes, w_f)                              # the right cell's face states, w < 0
+    _, Q_R = _flux_moments(pR, u_nodes, w_f)
+    h = 0.5 * c
+    FN_p = c * (NRs[idx_l] * (P_R[0] - h * P_R[2]) + h * NLs[idx_l] * P_L[2])
+    FM_p = c * (MRs[idx_l] * (P_R[1] - h * P_R[3]) + h * MLs[idx_l] * P_L[3])
+    FN_n = c * (NLs * (Q_L[0] + h * Q_L[2]) - h * NRs * Q_R[2])
+    FM_n = c * (MLs * (Q_L[1] + h * Q_L[3]) - h * MRs * Q_R[3])
+    return _limit(N, M, FN_p, FM_p, FN_n, FM_n, idx_l, periodic)
+
+
+def tva_step(grid: MassGrid, N, M, w_nodes, c, slope_type=1, periodic=True, tables=None):
+    """One drift step of N, M [cell, bin] (module doc, steps 1-6; arguments as ``tva_fluxes``).
+    Returns (N, M, n_clipped)."""
+    N, M = np.asarray(N, float), np.asarray(M, float)
+    FN, FM = tva_fluxes(grid, N, M, w_nodes, c, slope_type, periodic, tables)
+    return _update(grid, N, M, FN, FM, periodic)
+
+
+def tva_step_velocities(grid: MassGrid, N, M, wN, wM, c, slope_type=1, periodic=True):
+    """One drift step with given cell velocities per moment wN, wM [cell, bin]: the face states of ``tva_step``, and
+    each moment upwind at the mean of its two cells' velocities, with the Hancock predictor. For the alternatives
+    (bin centre, Gauss nodes); the packets' mean mass is not bounded here. Returns (N, M, n_clipped)."""
+    N, M = np.asarray(N, float), np.asarray(M, float)
+    wN, wM = np.asarray(wN, float), np.asarray(wM, float)
+    (NLs, MLs), (NRs, MRs) = _reconstruct(grid, N, M, slope_type, periodic)
+    idx_l = _left_cells(N.shape[0], periodic)
+    out = []
+    for w, qL, qR in ((wN, NLs, NRs), (wM, MLs, MRs)):
+        wf = 0.5 * (w[idx_l] + w)
+        right = qR[idx_l] - 0.5 * c * wf * (qR[idx_l] - qL[idx_l])     # the left cell's right face, predicted
+        left = qL - 0.5 * c * wf * (qR - qL)                           # the right cell's left face, predicted
+        out.append((c * np.maximum(wf, 0.0) * right, c * np.minimum(wf, 0.0) * left))
+    FN, FM = _limit(N, M, out[0][0], out[1][0], out[0][1], out[1][1], idx_l, periodic)
+    return _update(grid, N, M, FN, FM, periodic)
+
+
+def prolong(N, M, dM=None):
+    """AMR prolongation of a parent into its two children along one direction (left, right; axis 0), as RAMSES's
+    interpol_hydro: M linear across the parent with the limited slope dM (per cell width; injection when None), and
+    both children at the parent's in-bin state s, so N follows M. Conservative (the children's mean is the parent)
+    and exactly realisable. A limited slope keeps both children non-negative."""
+    N, M = np.asarray(N, float), np.asarray(M, float)
+    if dM is None:
+        return np.stack([N, N]), np.stack([M, M])
+    Mc = np.stack([M - 0.25 * dM, M + 0.25 * dM])
+    ratio = np.divide(N, M, out=np.zeros_like(N), where=M > 0)
+    return Mc * ratio, Mc
+
+
+def restrict(N_children, M_children):
+    """AMR restriction (RAMSES's upload_fine): the parent's densities are the mean of its children's (axis 0).
+    Conservative, and the parent's mean mass is a number-weighted mean of the children's, so it stays inside the
+    bin."""
+    return np.asarray(N_children, float).mean(axis=0), np.asarray(M_children, float).mean(axis=0)

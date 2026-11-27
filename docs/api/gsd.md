@@ -158,6 +158,23 @@ t_{\rm bury})$ on every host. $P_{\rm th}$ is the single-photon thermal
 release, which matters only on ~1 nm hosts. $Y_{\rm pd}$ is a labelled
 calibrated photodesorption yield, default 0.
 
+`drift` moves a bin's number and mass at their own velocities,
+$w^N = \int w\,dN/N$ and $w^M = \int w\,m\,dN/M$, over the bin's PL2M
+profile, after Diallo et al. (2026) for cosmic-ray momentum bins (the rule of
+2026-11-17). Inside a bin the drift $w(a)$ is piecewise linear in $a$ through
+its values at the bin's edges and geometric centre (`law_radii`). This is
+exact for $w \propto a$ and holds a direction change or a maximum inside the
+bin. `tva_step` mirrors one direction of RAMSES's TVA step. Its face states
+are $N$ and $M$ with limited slopes, scaled together so both stay inside the
+bin, and each grain crosses a face at its own velocity with a MUSCL-Hancock
+predictor. Under the drift CFL ($c\,\max|w| \le 1/2$) every cell then
+stays realisable, with $N$ and $M$ conserved exactly. `tva_fluxes` gives the
+face fluxes, for an AMR level's refluxing, and `prolong` and `restrict` are
+the level operations (children at their parent's in-bin state).
+`beta_tables` gives the $\beta(s)$ tables RAMSES interpolates.
+`tva_step_velocities` takes one velocity per moment and cell, for
+comparisons; it can leave the bin.
+
 `materials` holds one record per grain material (bulk density, optics set,
 shattering constants, sputtering, sublimation and charging inputs, with
 sources), so every operator reads the same density; constants borrowed from
@@ -299,6 +316,7 @@ charging (phases 2a-2e of the plan). The AGN rim on the solver follows.
    pycalima.gsd.sinks
    pycalima.gsd.pairs
    pycalima.gsd.release
+   pycalima.gsd.drift
    pycalima.gsd.optics
    pycalima.gsd._kernels
    pycalima.gsd._jit
