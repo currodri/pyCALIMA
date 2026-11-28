@@ -118,6 +118,62 @@ def test_precool_is_linear_in_the_dust_and_keeps_the_charges(silicate_charging):
     np.testing.assert_allclose(p1.states[0].ion_focusing(), z_before, rtol=1e-12)
 
 
+def _silicate_composition(grid, charging, n_H, refine=True):
+    from pycalima.gsd.cell import Composition
+    from pycalima.gsd.materials import get_material
+
+    N, M = _carbon_state(grid, n_H)
+    return Composition(grid, N, M, "Si", 1.0, get_material("silicate").shatter, charging=charging,
+                       explosion_refine=refine)
+
+
+def test_the_explosion_samples_are_the_area_nodes_without_refinement(silicate_charging):
+    """explosion_refine off: precool's explosion rate is the area nodes' alone (the behaviour before 2026-11-28)."""
+    from pycalima.gsd.cell import CellInputs, precool
+
+    grid, ch = silicate_charging
+    inp = CellInputs(T=600.0, n_H=5e4, n_e=7.0, gas={"Si": 1.0}, photons=_isrf_photons(ch.L0, ch.L1, 2e4))
+    c = _silicate_composition(grid, ch, 5e4, refine=False)
+    pre = precool([c], inp)
+    a, k = pre.explosion[0]
+    np.testing.assert_array_equal(a, pre.states[0].a)
+    np.testing.assert_array_equal(k, pre.states[0].explosion_rate(S_max=c.s_max))
+
+
+def test_the_explosion_is_also_sampled_inside_the_bins_that_explode(silicate_charging, monkeypatch):
+    """explosion_refine on. With a step-like rate (a stand-in for ChargeState.explosion_rate: 1e-10 s^-1 below 5 nm,
+    0 above), the area nodes keep their rates, and each bin whose area node explodes, and the next bin up, adds its
+    table radii, so the sink integrates the step over the bin. With no explosion anywhere, only the lowest bin's lower
+    edge is added (one solve), at a zero rate."""
+    from pycalima.gsd import charging as CH
+    from pycalima.gsd.cell import K_EXPLODE_MIN, CellInputs, precool
+
+    grid, ch = silicate_charging
+    inp = CellInputs(T=600.0, n_H=5e4, n_e=7.0, gas={"Si": 1.0}, photons=_isrf_photons(ch.L0, ch.L1, 2e4))
+    a_cut = 5e-7
+    monkeypatch.setattr(CH.ChargeState, "explosion_rate",
+                        lambda self, S_max=1e10, **kw: np.where(np.asarray(self.a) < a_cut, 1e-10, 0.0))
+    pre = precool([_silicate_composition(grid, ch, 5e4)], inp)
+    a, k = pre.explosion[0]
+    st = pre.states[0]
+    k_node = np.where(st.a < a_cut, 1e-10, 0.0)
+    for ai, ki in zip(st.a, k_node, strict=True):
+        assert k[np.searchsorted(a, ai)] == ki
+    hot = np.flatnonzero(k_node > K_EXPLODE_MIN)
+    if hot.size:
+        for i in set(hot.tolist()) | {min(int(hot.max()) + 1, grid.n_bins - 1)}:
+            assert np.all(np.isin(ch.node_radii[i], a))
+    else:                                   # the step lies below every node: the lowest bin's edge finds it
+        assert np.all(np.isin(ch.node_radii[0], a))
+    assert np.all(np.diff(a) > 0)
+
+    monkeypatch.setattr(CH.ChargeState, "explosion_rate", lambda self, S_max=1e10, **kw: np.zeros(np.size(self.a)))
+    pre = precool([_silicate_composition(grid, ch, 5e4)], inp)
+    a, k = pre.explosion[0]
+    np.testing.assert_array_equal(np.setdiff1d(a, pre.states[0].a), grid.a_edges[:1])
+    assert np.all(k == 0.0)
+
+
 def test_precool_neutral_grains(carbon):
     from pycalima.gsd.cell import CellInputs, Composition, precool
     from pycalima.gsd.closures import pieces, radius_moments

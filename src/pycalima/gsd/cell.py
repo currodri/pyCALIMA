@@ -67,6 +67,10 @@ class Composition:
     - ``a_frag_min``: the smallest fragment radius [cm]; default the grid's lowest edge.
     - ``s_max``: the tensile strength [erg cm^-3] that sets the Coulomb-explosion charge (``ChargeState.explosion_rate``;
       1e10 for flawed grains, labelled).
+    - ``explosion_refine``: the explosion rate, near a step in size (a charge threshold at the smallest grains), is
+      also solved at the charge-table radii of the bins near that threshold, so the sink integrates it over their
+      profile from more than the area nodes (``precool``). Off: the area nodes only (before 2026-11-28; a bin then
+      explodes or not by where its node falls, and the result changed by 3-5 % from 64 to 128 bins).
     - ``overflow_M``: collects the mass that leaves the top of the grid."""
 
     grid: MassGrid
@@ -85,6 +89,7 @@ class Composition:
     molecular_bins: int = 0
     a_frag_min: float | None = None
     s_max: float = 1e10
+    explosion_refine: bool = True
     overflow_M: float = 0.0
     _erosion: dict = field(default_factory=dict, repr=False)
     _collision_model: object = field(default=None, repr=False)
@@ -196,7 +201,8 @@ def precool(compositions, inputs: CellInputs) -> Precool:
     (``charging.AreaNodeCharging``). The heating is Gamma_i = w_i Gamma(a*_i) and the cooling
     Lambda_i = w_i (Lambda + Lambda_auto)(a*_i). Without a charging model the grains are neutral: no heating or
     cooling. The grain area pi int a^2 dN per bin is always given. The explosion rate is computed at each area node
-    with the composition's tensile strength (``Composition.s_max``)."""
+    with the composition's tensile strength (``Composition.s_max``), and with ``Composition.explosion_refine`` also
+    at the table radii of the bins near the threshold (``_explosion_samples``)."""
     from .charging import PhotonGroups
     from .closures import area_node
 
@@ -219,12 +225,51 @@ def precool(compositions, inputs: CellInputs) -> Precool:
             st, w = c.charging.solve(c.N, c.M, ph, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg, gaps=gaps)
             heat = w * st.Gamma
             cool = w * np.array([r["Lambda"] + r["Lambda_auto"] for r in st.results])
-            expl = (st.a, st.explosion_rate(S_max=c.s_max))
+            expl = _explosion_samples(c, st, ph, inputs, gaps)
         for lst, v in ((out.heating, heat), (out.cooling, cool), (out.states, st), (out.weights, w),
                        (out.area, np.pi * w * a_star ** 2), (out.explosion, expl), (out.t_dust, t_d),
                        (out.absorption, kap), (out.e_gap, gap)):
             lst.append(v)
     return out
+
+
+K_EXPLODE_MIN = 1e-20     # [s^-1]: an explosion rate below this (once per 3 Gyr) is negligible (``_explosion_samples``)
+
+
+def _explosion_samples(c, st, photons, inputs, gaps=None):
+    """The Coulomb-explosion rate per grain as samples (radii [cm], rates [s^-1]) for the sink (``_explode``): at the
+    area nodes, and with ``Composition.explosion_refine`` also at the charge-table radii (``AreaNodeCharging.node_radii``)
+    of the grain bins where it varies too steeply for one node per bin.
+
+    The rate falls steeply with size (a charge threshold at the smallest grains). Refined are the bins whose area node
+    explodes (k > ``K_EXPLODE_MIN``), the first bin above them (the threshold can lie between two nodes), and the
+    lowest grain bin when its lower edge explodes (one solve there). A cell where nothing explodes pays one solve."""
+    k_star = st.explosion_rate(S_max=c.s_max)
+    if not c.explosion_refine:
+        return st.a, k_star
+    gap_of = {} if gaps is None else dict(zip(c.charging.gap_bins.tolist(), np.asarray(gaps, float), strict=True))
+    grain = np.arange(c.grid.n_bins) >= c.molecular_bins
+    filled = np.asarray(c.N, float) > 0.0
+    hot = grain & filled & (np.asarray(k_star, float) > K_EXPLODE_MIN)
+    refine = hot.copy()
+    refine[1:] |= hot[:-1]
+    a_s, k_s = [np.asarray(st.a, float)], [np.asarray(k_star, float)]
+    i0 = int(c.molecular_bins)
+    if i0 < c.grid.n_bins and filled[i0] and not refine[i0]:
+        a_lo = np.array([float(c.grid.a_edges[i0])])
+        edge = c.charging.solve_radii(i0, a_lo, photons, inputs.T, inputs.n_e, inputs.ions, inputs.G0_bg,
+                                      gap=gap_of.get(i0))
+        k_lo = np.asarray(edge.explosion_rate(S_max=c.s_max), float)
+        a_s.append(a_lo); k_s.append(k_lo)
+        refine[i0] = bool(k_lo[0] > K_EXPLODE_MIN)
+    for i in np.flatnonzero(refine & grain & filled):
+        sub = c.charging.solve_radii(i, c.charging.node_radii[i], photons, inputs.T, inputs.n_e, inputs.ions,
+                                     inputs.G0_bg, gap=gap_of.get(int(i)))
+        a_s.append(np.asarray(sub.a, float))
+        k_s.append(np.asarray(sub.explosion_rate(S_max=c.s_max), float))
+    a, k = np.concatenate(a_s), np.concatenate(k_s)
+    a, idx = np.unique(a, return_index=True)
+    return a, k[idx]
 
 
 def update(compositions, inputs: CellInputs, pre: Precool | None, dt: float, opt: Options | None = None):

@@ -350,6 +350,24 @@ class AreaNodeCharging:
                    c_red=float(c_red))
         return ChargeState(SimpleNamespace(a=a_star, tables=tables, lattice=self.lattice), res, env), w
 
+    def solve_radii(self, i, radii, photons: PhotonGroups, T, n_e, ions: Sequence | None = None, G0_bg=0.0,
+                    c_red=C_CGS, gap=None):
+        """The charge state of bin i's grains at ``radii`` inside the bin (its tables blended in radius, as at the
+        area node), as a ``ChargeState`` on those radii: for rates that vary too steeply across a bin for its area
+        node alone (the Coulomb explosion; ``cell.precool``)."""
+        if not (np.allclose(photons.L0, self.L0) and np.allclose(photons.L1, self.L1)):
+            raise ValueError("photon groups differ from the tables' groups")
+        from types import SimpleNamespace
+
+        radii = np.asarray(radii, float)
+        tables = [rg.GroupChargingTable(self.table_at(i, float(a), gap), egy=photons.egy) for a in radii]
+        ions = [(n_e, 1.0, M_H)] if ions is None else list(ions)
+        res = [gt.solve(photons.N, c_red, T, n_e, ions, G0_bg=G0_bg, recomb=None, lattice=self.lattice)
+               for gt in tables]
+        env = dict(T=float(T), n_e=float(n_e), ions=ions, G0_bg=float(G0_bg), N=np.array(photons.N, float),
+                   c_red=float(c_red))
+        return ChargeState(SimpleNamespace(a=radii, tables=tables, lattice=self.lattice), res, env)
+
 
 class ChargeState:
     """Charge distributions on a ``ChargingModel``'s radius grid."""
