@@ -807,21 +807,31 @@ def _escape_barrier(Z, a):
 
 def gas_secondary_yield_at(E0, E_s, a, material):
     """Secondaries per electron impinging with energy E0 [eV] that escape with
-    energy > E_s [eV]: delta_inf(E0, E_s) (DS79 eqs. 14-15) times the
-    small-particle factor delta_a / delta_inf of eq. A11.
+    energy > E_s [eV]: DS79's yield delta_inf(E0, 0) (eqs. 14-15) times the
+    small-particle factor delta_a / delta_inf of eq. A11, times the escape
+    fraction of the eq. 19 secondary spectrum above E_s.
 
     Zero unless E0 > max(W, E_s). Below the work function, by choice: DS79's fit,
     made for E0 >~ 10^2 eV, would otherwise be extrapolated to a few eV. Below E_s,
     by energy conservation: the primary arrives with E0 + W above the Fermi level,
     and a secondary taken from it needs W + E_s to escape, so it cannot clear a
-    barrier higher than E0 (DS79's escape factor 1/sqrt(1 + E_s^2/8) does not
-    know this). The second condition binds for small positive grains, whose
-    barrier (Z+1) e^2/a exceeds W: e.g. Z >= 4 at a = 1.3 nm."""
+    barrier higher than E0. The second condition binds for small positive grains,
+    whose barrier (Z+1) e^2/a exceeds W: e.g. Z >= 4 at a = 1.3 nm.
+
+    The escape fraction is that of the spectrum on [0, E0]
+    (``_secondary_y2_and_mean``), the spectrum ``gas_secondary_mean_energy``
+    uses. DS79's factor 1/sqrt(1 + E_s^2/8) is the untruncated spectrum's, its
+    limit for E0 >> E_s; near E0 = E_s it kept ~ 1/sqrt(1 + E_s^2/8) of the yield
+    where energy conservation leaves none (e.g. 17x too much at E0 = 13 eV,
+    E_s = 12.3 eV). That carried the charge chain's tail of nm grains in ~1e4 K
+    gas (CALIMA_GSD_dev studies/coulomb_explosion_20261128)."""
     m = _material(material)
     p = _ds79(material)
     E0 = np.asarray(E0, dtype=float)
     x = E0 / p["E_m_eV"]
-    delta_inf = p["delta_m"] * 4.0 * x / (1.0 + x) ** 2 / np.sqrt(1.0 + 0.125 * np.asarray(E_s) ** 2)
+    E_s = np.asarray(E_s, dtype=float)
+    escape = _secondary_y2_and_mean(-E_s, E0 - E_s)[0]
+    delta_inf = p["delta_m"] * 4.0 * x / (1.0 + x) ** 2 * escape
     lam = p["lam_A"] * ANGSTROM
     xr = 4.0 * a / (3.0 * _electron_range_cm(np.maximum(E0, TINY), p["rho_gcm3"]))
     f1 = (1.6 + 1.4 * xr ** 2 + 0.54 * xr ** 4) / (1.0 + 0.54 * xr ** 4)  # eq. A7

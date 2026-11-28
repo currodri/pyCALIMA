@@ -275,6 +275,38 @@ class TestGasSecondaries:
         assert np.all(d[:2] == 0.0) and np.all(d[2:] > 0.0)
 
     @pytest.mark.parametrize("material", MATERIALS)
+    def test_escape_fraction_is_the_spectrum_on_zero_to_E0_above_the_barrier(self, material):
+        """delta(E0, E_s) / delta(E0, 0) is the eq. 19 spectrum's escape fraction on
+        [0, E0]: [(1 + E_s^2/8)^-1/2 - (1 + E0^2/8)^-1/2] / [1 - (1 + E0^2/8)^-1/2];
+        it tends to DS79's 1/sqrt(1 + E_s^2/8) for E0 >> E_s and to 0 as E0 -> E_s."""
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        W = wy.MATERIALS[material]["W"]
+        E_s = np.array([0.5, 2.0, 6.0, 12.3, 30.0])
+        for E0 in (1.01 * E_s + W, 3.0 * E_s + W, 1e4 + 0 * E_s):
+            r = wy.gas_secondary_yield_at(E0, E_s, 1e-7, material) / wy.gas_secondary_yield_at(E0, 0.0, 1e-7, material)
+            q = lambda E: (1.0 + E ** 2 / 8.0) ** -0.5  # noqa: E731
+            np.testing.assert_allclose(r, (q(E_s) - q(E0)) / (1.0 - q(E0)), rtol=1e-10)
+            assert np.all(r <= q(E_s) * (1 + 1e-12))
+        far = wy.gas_secondary_yield_at(1e4, E_s, 1e-7, material) / wy.gas_secondary_yield_at(1e4, 0.0, 1e-7, material)
+        # the truncation's share at E0 = 1e4 eV is q(E0) / q(E_s) ~ 3e-3 at E_s = 30 eV
+        np.testing.assert_allclose(far, 1.0 / np.sqrt(1.0 + E_s ** 2 / 8.0), rtol=5e-3)
+
+    @pytest.mark.parametrize("material", MATERIALS)
+    def test_the_yield_vanishes_continuously_at_the_energy_threshold(self, material):
+        """Above max(W, E_s) the yield rises from 0: no step at E0 = E_s, and it falls
+        monotonically with the barrier at fixed E0."""
+        from pycalima.models.dust_charge import wdb06_yields as wy
+
+        W = wy.MATERIALS[material]["W"]
+        E_s = 3.0 * W
+        near = wy.gas_secondary_yield_at(E_s * (1 + 1e-6), E_s, 1e-7, material)
+        ref = wy.gas_secondary_yield_at(10.0 * E_s, E_s, 1e-7, material)
+        assert 0.0 < near < 1e-5 * ref
+        d = wy.gas_secondary_yield_at(40.0, np.linspace(0.0, 39.0, 40), 1e-7, material)
+        assert np.all(np.diff(d) < 0.0)
+
+    @pytest.mark.parametrize("material", MATERIALS)
     def test_thermal_weights_integrate_the_flux_above_threshold(self, material):
         """sum(w) = int_max(L,W,E_s) E e^{-E/kT} / int_L E e^{-E/kT} in closed form."""
         from pycalima.models.dust_charge import wdb06_yields as wy
