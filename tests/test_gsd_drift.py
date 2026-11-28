@@ -306,9 +306,11 @@ def test_the_step_is_realisable_at_the_cfl_bound():
 
 
 def test_a_wide_bin_stays_realisable_where_its_states_reach_the_edges():
-    """The D1 bin (20-53 nm, eta 18.8). A top-hat under w ~ a sorts its grains until the front holds only the largest
-    (s -> 1, beyond the power law's reach); and states next to both edges (s = 1e-6 and 1 - 1e-6, the spike branch)
-    drifting both ways. No clip, N and M conserved; without the spike branch these clipped."""
+    """The D1 bin (20-53 nm, eta 18.8). A top-hat under w ~ a sorts its grains until the front holds nearly only the
+    largest (s > 0.98: the faces' mean masses stay within their neighbours', so the front reaches the edge as the
+    two-moment equations carry it, not by a jump of a face state); and states next to both edges (s = 1e-6 and
+    1 - 1e-6, the spike branch) drifting both ways. No clip, N and M conserved; without the spike branch these
+    clipped."""
     from pycalima.gsd.drift import law_radii, tva_step
 
     a = np.array([19.96e-7, 53.1e-7])
@@ -324,7 +326,7 @@ def test_a_wide_bin_stays_realisable_where_its_states_reach_the_edges():
     for _ in range(300):
         N, M, k = tva_step(g, N, M, w_nodes, c, slope_type=2)
         clips += k
-    assert clips == 0 and sval(N, M)[N > 1e-6].max() > 0.99
+    assert clips == 0 and sval(N, M)[N > 1e-6].max() > 0.98
     np.testing.assert_allclose((N.sum(), M.sum()), tot, rtol=1e-13)
 
     s0 = np.where(x < 0.5, 1e-6, 1.0 - 1e-6)[:, None]
@@ -338,6 +340,30 @@ def test_a_wide_bin_stays_realisable_where_its_states_reach_the_edges():
         clips += k
     assert clips == 0
     np.testing.assert_allclose((N.sum(), M.sum()), tot, rtol=1e-13)
+
+
+def test_the_face_states_follow_n_and_hold_the_mean_mass_within_the_neighbours():
+    """``_reconstruct``: N takes its full limited slope; at a uniform in-bin state with a density gradient M's slope is
+    the mean mass times N's (second order, no round-off theta); with a varying in-bin state both faces' mean masses lie
+    within the cell's and its neighbours' range; and the face states always average to the cell in N and M."""
+    from pycalima.gsd.drift import _limited_slope, _mean_mass_range, _reconstruct
+
+    g = grid()
+    x = (np.arange(64) + 0.5) / 64
+    N = (1.0 + 0.6 * np.sin(2 * np.pi * x))[:, None] * np.ones((1, g.n_bins))
+    for s in (1e-3, 0.37, 0.999):
+        M = N * g.m_edges[:-1] * (1.0 + s * (g.etas - 1.0))
+        (NL, ML), (NR, MR) = _reconstruct(g, N, M, 2, True)
+        np.testing.assert_allclose(NR - NL, _limited_slope(N, 2, True), rtol=1e-12, atol=1e-15)
+        np.testing.assert_allclose(MR - ML, (M / N) * (NR - NL), rtol=1e-9, atol=1e-300)
+    s = 0.5 + 0.45 * np.sin(2 * np.pi * 3 * x + 0.4)[:, None]
+    M = N * g.m_edges[:-1] * (1.0 + s * (g.etas - 1.0))
+    lo, hi = _mean_mass_range(g, N, M, True)
+    (NL, ML), (NR, MR) = _reconstruct(g, N, M, 2, True)
+    for Nf, Mf in ((NL, ML), (NR, MR)):
+        assert np.all(Mf / Nf >= lo * (1 - 1e-12)) and np.all(Mf / Nf <= hi * (1 + 1e-12))
+    np.testing.assert_allclose(0.5 * (NL + NR), N, rtol=1e-14)
+    np.testing.assert_allclose(0.5 * (ML + MR), M, rtol=1e-14)
 
 
 def test_prolongation_and_restriction_are_exact():

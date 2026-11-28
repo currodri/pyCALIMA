@@ -27,9 +27,9 @@ no assumption on its shape.
 ``tva_step`` follows one direction of RAMSES's TVA step (``calima/dust_dynamics.f90``, ``calculate_pure_drag_fluxes``;
 Lebreuilly et al. 2019) on a 1-D grid of cells, with each grain crossing a face at its own speed. Per bin:
 1. TVD slopes of N and of M (minmod for slope_type 1, MC for 2);
-2. each cell's two face states: N and M plus or minus half their slopes, both slopes scaled by one theta in [0, 1],
-   the largest that keeps both face states inside the bin (m_L N <= M <= m_R N). The two face states then average
-   to the cell in N and in M (and are clamped into the bin against round-off);
+2. each cell's two face states: N plus or minus half its slope, and M plus or minus half its slope clipped so that
+   both faces' mean masses stay within the cell's and its neighbours' range (``_reconstruct``). The two face states
+   then average to the cell in N and in M, and lie inside the bin (clamped into it against round-off);
 3. the face's drift law: its node values, the mean of the two cells' (RAMSES's conservative choice: both grids
    sharing a face build the same flux);
 4. the flux, grain by grain: the right-moving grains of the left cell and the left-moving grains of the right cell,
@@ -305,22 +305,44 @@ def _left_cells(n, periodic):
     return np.roll(np.arange(n), 1) if periodic else np.concatenate([[0], np.arange(n - 1)])
 
 
+def _mean_mass_range(grid, N, M, periodic):
+    """The range [lo, hi] of the mean masses M/N of each cell and its two neighbours [cell, bin], over the filled ones
+    (the bin's edges for an empty cell; inside the bin)."""
+    filled = N > 0
+    mbar = np.where(filled, M / np.where(filled, N, 1.0), np.nan)
+    if periodic:
+        left, right = np.roll(mbar, 1, axis=0), np.roll(mbar, -1, axis=0)
+    else:
+        left = np.concatenate([mbar[:1], mbar[:-1]], axis=0)
+        right = np.concatenate([mbar[1:], mbar[-1:]], axis=0)
+    trio = np.stack([left, mbar, right])
+    mL, mR = np.broadcast_to(grid.m_edges[:-1], N.shape), np.broadcast_to(grid.m_edges[1:], N.shape)
+    lo = np.min(np.where(np.isnan(trio), np.inf, trio), axis=0)
+    hi = np.max(np.where(np.isnan(trio), -np.inf, trio), axis=0)
+    return np.where(filled, np.fmax(lo, mL), mL), np.where(filled, np.fmin(hi, mR), mR)
+
+
 def _reconstruct(grid, N, M, slope_type, periodic):
-    """Each cell's face states (step 2): ((N, M) at its left face, (N, M) at its right face)."""
+    """Each cell's face states (step 2): ((N, M) at its left face, (N, M) at its right face). N takes its full limited
+    slope. M's half-slope h_M is its own limited one, clipped so that both faces' mean masses stay within the range
+    [lo, hi] of the cell's and its neighbours' (``_mean_mass_range``):
+        max(lo N_R - M, M - hi N_L) <= h_M <= min(hi N_R - M, M - lo N_L).
+    The interval is never empty, since N_L + N_R = 2N (a TVD slope keeps both faces' N >= 0) and lo <= M/N <= hi; for
+    round-off crossings its midpoint is taken. A uniform mean mass gives h_M = m_bar h_N, and at an extremum of the
+    mean mass only M's slope is clipped, so the faces stay second order. Bounded by the bin's edges only, a front
+    carried the face's mean mass to the edge (the user's audit, studies/drift_audit_20261127, bug 2; this
+    construction is the user's). The face states average to the cell in N and M, and are clamped into the bin against
+    round-off."""
     dN, dM = _limited_slope(N, slope_type, periodic), _limited_slope(M, slope_type, periodic)
-    mL, mR = grid.m_edges[:-1], grid.m_edges[1:]
-    lo, hi = np.maximum(M - mL * N, 0.0), np.maximum(mR * N - M, 0.0)      # the cell's room to each edge
-    theta = np.ones_like(N)
-    for sign in (1.0, -1.0):
-        for room, b in ((lo, 0.5 * sign * (dM - mL * dN)), (hi, 0.5 * sign * (mR * dN - dM))):
-            neg = b < 0.0
-            theta = np.where(neg, np.minimum(theta, room / np.where(neg, -b, 1.0)), theta)
-    hN, hM = 0.5 * theta * dN, 0.5 * theta * dM
-    # A face state at the end of a steep front is a small difference of large numbers, and its mean mass can then be
-    # off by more than the bin allows (by 4e-5 relative where N fell from 4e-13 to 1e-24): each face state is held
-    # inside the bin, a change of round-off size against its cell's N and M.
     mLb, mRb = grid.m_edges[:-1], grid.m_edges[1:]
-    NL, NR = np.maximum(N - hN, 0.0), np.maximum(N + hN, 0.0)
+    lo, hi = _mean_mass_range(grid, N, M, periodic)
+    hN = 0.5 * dN
+    NL, NR = N - hN, N + hN
+    hmin = np.maximum(lo * NR - M, M - hi * NL)
+    hmax = np.minimum(hi * NR - M, M - lo * NL)
+    hM = np.where(hmin <= hmax, np.clip(0.5 * dM, hmin, hmax), 0.5 * (hmin + hmax))
+    hM = np.where(N > 0, hM, 0.0)
+    NL, NR = np.maximum(NL, 0.0), np.maximum(NR, 0.0)
     ML, MR = np.clip(M - hM, mLb * NL, mRb * NL), np.clip(M + hM, mLb * NR, mRb * NR)
     return (NL, ML), (NR, MR)
 
