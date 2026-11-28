@@ -137,20 +137,27 @@ def test_gauss_node_velocities_are_exact_in_number_for_w_proportional_to_a():
 
 
 def test_the_beta_tables_give_the_solved_velocities():
-    """RAMSES interpolates beta(s) from per-bin tables. beta itself is steep near s = 0 and 1, but there the profile
-    collapses onto an edge and the moment velocities hardly depend on it. With 257 points they agree with the solved
-    ones to 4e-4 at s = 0.005 and better inside (1e-5 with 1025 points)."""
+    """RAMSES interpolates beta from per-bin tables in the log mean mass q = ln(m_bar/m_L)/ln(eta). Over bins from
+    eta 1.5 to 1.25e5 and in-bin states q = 0.002-0.998, the moment velocities from the tables agree with the solved
+    ones to 1e-3 of max|w|, for a one-signed drift and one changing sign inside the bin. A table in the linear
+    s = (m_bar/m_L - 1)/(eta - 1) fails this in wide bins: at eta 1.25e5 its first interval holds q < 0.149, and there
+    w^M was off by 11 % of max|w| (audit studies/drift_audit_20261127, bug 1)."""
     from pycalima.gsd.drift import beta_tables, law_radii, moment_velocities
 
-    g = grid()
-    tabs = beta_tables(g)
-    w_nodes = 1e4 * law_radii(g) / 1e-7
-    for s in (0.005, 0.1, 0.5, 0.9, 0.995):
-        N, M = state(g, s)
-        exact = moment_velocities(g, N, M, w_nodes)
-        table = moment_velocities(g, N, M, w_nodes, tables=tabs)
-        for e, t in zip(exact, table, strict=True):
-            np.testing.assert_allclose(t, e, rtol=1e-3)
+    for eta in (1.5, 18.8, 1e3, 1.25e5):
+        g = MassGrid(np.array([1.0, eta]), 1.0)
+        tabs = beta_tables(g)
+        u = law_radii(g, "cubic") / law_radii(g, "cubic")[0, 0]
+        for w_nodes in (u, u - np.sqrt(eta ** (1.0 / 3.0))):        # w ~ a, and changing sign at the centre
+            q = np.linspace(0.002, 0.998, 499)
+            M = (eta ** q)[:, None]
+            N = np.ones_like(M)
+            w = np.broadcast_to(w_nodes, (len(q), 1, 4))
+            exact = moment_velocities(g, N, M, w, law="cubic")
+            table = moment_velocities(g, N, M, w, tables=tabs, law="cubic")
+            scale = np.abs(w_nodes).max()
+            for e, t in zip(exact, table, strict=True):
+                assert np.abs(t - e).max() / scale < 1e-3, (eta, np.abs(t - e).max() / scale)
 
 
 def test_states_at_the_bin_edges_move_as_spikes():
@@ -299,14 +306,16 @@ def test_the_step_is_realisable_at_the_cfl_bound():
 
 
 def test_a_wide_bin_stays_realisable_where_its_states_reach_the_edges():
-    """The D1 bin (20-53 nm, eta 18.8): a top-hat under w ~ a sorts its grains until the front holds only the largest
-    (s -> 1, beyond the power law's reach). No clip, N and M conserved; without the spike branch this case clipped."""
+    """The D1 bin (20-53 nm, eta 18.8). A top-hat under w ~ a sorts its grains until the front holds only the largest
+    (s -> 1, beyond the power law's reach); and states next to both edges (s = 1e-6 and 1 - 1e-6, the spike branch)
+    drifting both ways. No clip, N and M conserved; without the spike branch these clipped."""
     from pycalima.gsd.drift import law_radii, tva_step
 
     a = np.array([19.96e-7, 53.1e-7])
     g = MassGrid(4.0 / 3.0 * np.pi * RHO * a ** 3, RHO)
     n = 200
     x = (np.arange(n) + 0.5) / n
+    sval = lambda N, M: (M / np.where(N > 0, N, 1.0) / g.m_edges[0] - 1.0) / (g.etas - 1.0)    # noqa: E731
     N = ((x > 0.1) & (x < 0.3)).astype(float)[:, None]
     M = N * g.m_edges[0] * (1.0 + 0.138 * (g.etas - 1.0))
     w_nodes = np.broadcast_to(1e4 * law_radii(g) / a[0], (n, 1, 3))
@@ -315,8 +324,19 @@ def test_a_wide_bin_stays_realisable_where_its_states_reach_the_edges():
     for _ in range(300):
         N, M, k = tva_step(g, N, M, w_nodes, c, slope_type=2)
         clips += k
-    s = (M / np.where(N > 0, N, 1.0) / g.m_edges[0] - 1.0) / (g.etas - 1.0)
-    assert clips == 0 and s[N > 1e-6].max() > 0.99
+    assert clips == 0 and sval(N, M)[N > 1e-6].max() > 0.99
+    np.testing.assert_allclose((N.sum(), M.sum()), tot, rtol=1e-13)
+
+    s0 = np.where(x < 0.5, 1e-6, 1.0 - 1e-6)[:, None]
+    N = (1.0 + 0.5 * np.sin(2 * np.pi * x))[:, None]
+    M = N * g.m_edges[0] * (1.0 + s0 * (g.etas - 1.0))
+    w_nodes = np.broadcast_to(1e4 * (law_radii(g) / a[0] - 1.6), (n, 1, 3))
+    c = 0.4 / np.abs(w_nodes).max()
+    tot, clips = (N.sum(), M.sum()), 0
+    for _ in range(200):
+        N, M, k = tva_step(g, N, M, w_nodes, c, slope_type=2)
+        clips += k
+    assert clips == 0
     np.testing.assert_allclose((N.sum(), M.sum()), tot, rtol=1e-13)
 
 

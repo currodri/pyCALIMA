@@ -29,7 +29,7 @@ Lebreuilly et al. 2019) on a 1-D grid of cells, with each grain crossing a face 
 1. TVD slopes of N and of M (minmod for slope_type 1, MC for 2);
 2. each cell's two face states: N and M plus or minus half their slopes, both slopes scaled by one theta in [0, 1],
    the largest that keeps both face states inside the bin (m_L N <= M <= m_R N). The two face states then average
-   to the cell in N and in M;
+   to the cell in N and in M (and are clamped into the bin against round-off);
 3. the face's drift law: its node values, the mean of the two cells' (RAMSES's conservative choice: both grids
    sharing a face build the same flux);
 4. the flux, grain by grain: the right-moving grains of the left cell and the left-moving grains of the right cell,
@@ -72,8 +72,8 @@ _M_FLUSH = np.finfo(float).tiny / np.finfo(float).eps
 
 def _profile(grid, N, M, tables=None):
     """The PL2M profile of each bin state ([..., bin]): (lambda, spike, u_spike). lambda = 3 beta + 2 of its power law;
-    with ``tables`` (one (s, beta) per bin, ``beta_tables``) beta is interpolated linearly in s, as the RAMSES mirror
-    does, else solved. A state closer to an edge than a power law with |beta| <= beta_max(eta) can reach is a spike:
+    with ``tables`` (one (q, beta) per bin, ``beta_tables``) beta is interpolated linearly in the log mean mass
+    q = ln(m_bar/m_L)/ln(eta), as the RAMSES mirror does, else solved. A state closer to an edge than a power law with |beta| <= beta_max(eta) can reach is a spike:
     all its grains at u_spike = (m_bar / m_L)^(1/3), as ``pl2m.BinProfile``. Empty states get the mid-bin profile."""
     eta = grid.etas
     filled = N > 0
@@ -84,8 +84,8 @@ def _profile(grid, N, M, tables=None):
     u_spike = np.clip(r, 1.0, eta) ** (1.0 / 3.0)
     r = np.clip(r, r_lo, r_hi)
     if tables is not None:
-        s = (r - 1.0) / (eta - 1.0)
-        beta = np.stack([np.interp(s[..., i], *tables[i]) for i in range(grid.n_bins)], axis=-1)
+        q = np.log(r) / np.log(eta)
+        beta = np.stack([np.interp(q[..., i], *tables[i]) for i in range(grid.n_bins)], axis=-1)
     else:
         beta = solve_beta(r.reshape(-1), np.broadcast_to(eta, r.shape).reshape(-1)).reshape(r.shape)
     return 3.0 * beta + 2.0, spike, u_spike
@@ -267,12 +267,15 @@ def gauss_velocities(grid: MassGrid, N, M, w_of_a, method=None):
 
 
 def beta_table(eta, n=257):
-    """(s, beta) on n points for a bin of mass ratio eta: beta(s) of the PL2M power law whose mean mass is
-    m_L (1 + s (eta - 1)), for the RAMSES mirror (Diallo et al. tabulate q(e/n) likewise). s at Chebyshev points,
-    denser at the edges, where beta varies fastest."""
-    s = 0.5 * (1.0 - np.cos(np.pi * np.arange(n) / (n - 1)))
-    r = np.clip(1.0 + s * (eta - 1.0), 1.0 + 1e-12, eta * (1.0 - 1e-12))
-    return s, np.asarray(solve_beta(r, eta), float)
+    """(q, beta) on n points for a bin of mass ratio eta: beta(q) of the PL2M power law whose mean mass is
+    m_L eta^q, for the RAMSES mirror (Diallo et al. tabulate q(e/n) likewise). q at Chebyshev points, denser at the
+    edges, where beta varies fastest. The log mean mass, not the linear s = (m_bar/m_L - 1)/(eta - 1): beta + 3/2 is
+    odd about q = 1/2 in every bin (dN/dm ~ m^beta maps to m^(-3-beta) under m -> eta/m), whereas in s the whole
+    lower half of a wide bin falls inside the first interval (eta = 1.25e5: q < 0.149, where the s table put lambda
+    at -28.6 for an exact -4.9; audit studies/drift_audit_20261127)."""
+    q = 0.5 * (1.0 - np.cos(np.pi * np.arange(n) / (n - 1)))
+    r = np.clip(eta ** q, 1.0 + 1e-12, eta * (1.0 - 1e-12))
+    return q, np.asarray(solve_beta(r, eta), float)
 
 
 def beta_tables(grid: MassGrid, n=257):
@@ -313,7 +316,13 @@ def _reconstruct(grid, N, M, slope_type, periodic):
             neg = b < 0.0
             theta = np.where(neg, np.minimum(theta, room / np.where(neg, -b, 1.0)), theta)
     hN, hM = 0.5 * theta * dN, 0.5 * theta * dM
-    return (N - hN, M - hM), (N + hN, M + hM)
+    # A face state at the end of a steep front is a small difference of large numbers, and its mean mass can then be
+    # off by more than the bin allows (by 4e-5 relative where N fell from 4e-13 to 1e-24): each face state is held
+    # inside the bin, a change of round-off size against its cell's N and M.
+    mLb, mRb = grid.m_edges[:-1], grid.m_edges[1:]
+    NL, NR = np.maximum(N - hN, 0.0), np.maximum(N + hN, 0.0)
+    ML, MR = np.clip(M - hM, mLb * NL, mRb * NL), np.clip(M + hM, mLb * NR, mRb * NR)
+    return (NL, ML), (NR, MR)
 
 
 def _limit(N, M, FN_p, FM_p, FN_n, FM_n, idx_l, periodic):

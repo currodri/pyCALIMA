@@ -173,7 +173,9 @@ predictor. Under the drift CFL ($c\,\max|w| \le 1/2$) every cell then
 stays realisable, with $N$ and $M$ conserved exactly. `tva_fluxes` gives the
 face fluxes, for an AMR level's refluxing, and `prolong` and `restrict` are
 the level operations (children at their parent's in-bin state).
-`beta_tables` gives the $\beta(s)$ tables RAMSES interpolates.
+`beta_tables` gives the tables of $\beta$ that RAMSES interpolates, in the log
+mean mass $q = \ln(\bar m/m_L)/\ln\eta$ (in the linear in-bin state the lower
+half of a wide bin fell inside the table's first interval).
 `tva_step_velocities` takes one velocity per moment and cell, for
 comparisons; it can leave the bin.
 
